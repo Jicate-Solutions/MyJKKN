@@ -5,8 +5,10 @@
  */
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,17 +28,54 @@ import {
   AlertCircle,
   FileEdit,
   ArrowRight,
+  CalendarX,
+  Hourglass,
+  Inbox,
+  User,
 } from 'lucide-react';
-import { useCreateEvent, useSubmitForApproval } from '@/hooks/learners-council/use-lc-events';
+import {
+  useCreateEvent,
+  useSubmitForApproval,
+  useApproveEvent,
+  useRejectEvent,
+} from '@/hooks/learners-council/use-lc-events';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import type { LCEvent, CreateEventDto, EventScope } from '@/types/learners-council';
 
 interface EventProposalsClientProps {
   initialProposals: LCEvent[];
+  initialReviewQueue: ReviewQueueItem[];
+  /** From ?tab= on the URL — how the dashboard's approval card arrives here. */
+  requestedTab?: 'review' | 'mine' | null;
+  canReview: boolean;
+  reviewerRole: string;
   userId: string;
   institutionId: string | null;
   isSuperAdmin: boolean;
 }
+
+const dateFmt: Intl.DateTimeFormatOptions = {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+};
+
+/**
+ * How long this proposal has sat in the queue. lc_events carries no submitted_at
+ * column, so the clock runs from the last time the row moved (updated_at), falling
+ * back to when it was created.
+ */
+/**
+ * A queue row with its two time facts already resolved SERVER-side, off one
+ * clock: `daysLapsed` is null when the date has not passed, and `daysWaiting`
+ * counts from the moment it entered review (updated_at, falling back to
+ * created_at). Computing these in the client made the same card disagree with
+ * itself across hydration.
+ */
+export type ReviewQueueItem = LCEvent & {
+  daysLapsed: number | null;
+  daysWaiting: number;
+};
 
 const statusConfig: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   draft: { label: 'Draft', icon: FileEdit, color: 'text-gray-500' },
@@ -371,14 +410,233 @@ function CreateEventForm({
   );
 }
 
+/**
+ * One row of the reviewer queue. Carries the two facts a reviewer needs and the
+ * proposals page never showed: how long this has been waiting, and whether the
+ * date being approved has already gone by.
+ */
+function ReviewQueueCard({
+  event,
+  reviewerId,
+  reviewerRole,
+  onDecided,
+}: {
+  event: ReviewQueueItem;
+  reviewerId: string;
+  reviewerRole: string;
+  onDecided: (id: string) => void;
+}) {
+  const approveEvent = useApproveEvent();
+  const rejectEvent = useRejectEvent();
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectComments, setRejectComments] = useState('');
+  // Approving a proposal whose date has gone is a deliberate act, not a click.
+  const [lapseAcked, setLapseAcked] = useState(false);
+
+  const waiting = event.daysWaiting;
+  const lapsed = event.daysLapsed !== null;
+  const busy = approveEvent.isPending || rejectEvent.isPending;
+  const approveBlocked = lapsed && !lapseAcked;
+
+  const dayWord = (n: number) => (n === 1 ? 'day' : 'days');
+
+  const handleApprove = () => {
+    approveEvent.mutate(
+      { eventId: event.id, approverId: reviewerId, approverRole: reviewerRole },
+      { onSuccess: () => onDecided(event.id) }
+    );
+  };
+
+  // Opening the decline dialog pre-fills the reason a lapsed proposal almost
+  // always needs, so the reviewer edits a sentence instead of writing one.
+  const openDecline = () => {
+    if (lapsed && !rejectComments.trim()) {
+      setRejectComments(
+        `The proposed date passed ${event.daysLapsed} ${dayWord(event.daysLapsed!)} ago while this was waiting for review. Please re-submit with a date that still works.`,
+      );
+    }
+    setRejectOpen(true);
+  };
+
+  const handleReject = () => {
+    if (!rejectComments.trim()) {
+      toast.error('Please give a reason so the proposer knows what to change');
+      return;
+    }
+    rejectEvent.mutate(
+      {
+        eventId: event.id,
+        approverId: reviewerId,
+        approverRole: reviewerRole,
+        comments: rejectComments.trim(),
+      },
+      {
+        onSuccess: () => {
+          setRejectOpen(false);
+          setRejectComments('');
+          onDecided(event.id);
+        },
+      }
+    );
+  };
+
+  return (
+    <Card className={lapsed ? 'border-orange-300' : undefined}>
+      <CardContent className="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <Badge variant="outline" className="text-yellow-600">
+                <Clock className="h-3 w-3 mr-1" />
+                Pending review
+              </Badge>
+              <Badge
+                variant="outline"
+                className={waiting >= 7 ? 'text-orange-700 border-orange-300' : 'text-muted-foreground'}
+              >
+                <Hourglass className="h-3 w-3 mr-1" />
+                Waiting {waiting} {waiting === 1 ? 'day' : 'days'}
+              </Badge>
+              {event.scope && (
+                <Badge variant="outline" className="text-xs font-normal">
+                  {event.scope.replace(/_/g, ' ')}
+                </Badge>
+              )}
+            </div>
+
+            <Link
+              href={`/learners-council/events/${event.id}`}
+              className="font-semibold text-lg hover:underline"
+            >
+              {event.title}
+            </Link>
+            <p className="text-sm text-muted-foreground line-clamp-2 mt-0.5">
+              {event.description}
+            </p>
+          </div>
+
+          <div className="flex shrink-0 gap-2">
+            <Button
+              size="sm"
+              className="bg-green-600 hover:bg-green-700"
+              onClick={handleApprove}
+              disabled={busy || approveBlocked}
+              title={
+                approveBlocked
+                  ? 'Tick the confirmation below first — this date has already passed.'
+                  : undefined
+              }
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+              {approveEvent.isPending ? 'Approving...' : 'Approve'}
+            </Button>
+            {/* "Decline", not "Reject": event-service.ts's own NOTE records that
+                the CHECK constraint has no 'rejected' status, so the row becomes
+                'cancelled' and the refusal is tracked in lc_event_approvals.
+                Labelling it Reject would name a state the row never enters. */}
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={openDecline}
+              disabled={busy}
+            >
+              <XCircle className="h-3.5 w-3.5 mr-1.5" />
+              Decline
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted-foreground mt-3">
+          <span className="flex items-center gap-1.5">
+            <User className="h-3.5 w-3.5" />
+            {event.proposer?.full_name || 'Unknown proposer'}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Event date {new Date(event.starts_at).toLocaleDateString('en-IN', dateFmt)}
+          </span>
+          {event.venue_name && (
+            <span className="flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5" />
+              {event.venue_name}
+            </span>
+          )}
+          {event.institution?.name && (
+            <span className="text-xs">{event.institution.name}</span>
+          )}
+        </div>
+
+        {lapsed && (
+          <div className="mt-3 space-y-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-800">
+            <div className="flex items-start gap-2">
+              <CalendarX className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>
+                {`This event's date passed ${event.daysLapsed} ${dayWord(event.daysLapsed!)} ago, while it was waiting here. Approving cannot un-lapse it — it would record a past date as approved and tell the proposer it is going ahead. Declining with a reason, so they can re-submit with a workable date, is usually the honest move.`}
+              </span>
+            </div>
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={lapseAcked}
+                onChange={(e) => setLapseAcked(e.target.checked)}
+              />
+              <span>
+                I am approving this on purpose, knowing the date has already passed.
+              </span>
+            </label>
+          </div>
+        )}
+      </CardContent>
+
+      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Decline &ldquo;{event.title}&rdquo;</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label htmlFor={`reject-reason-${event.id}`}>
+              Reason (the proposer will see this)
+            </Label>
+            <Textarea
+              id={`reject-reason-${event.id}`}
+              rows={4}
+              placeholder="Explain what would need to change for this to be approved..."
+              value={rejectComments}
+              onChange={(e) => setRejectComments(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRejectOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleReject}
+                disabled={rejectEvent.isPending || !rejectComments.trim()}
+              >
+                {rejectEvent.isPending ? 'Declining...' : 'Confirm decline'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 export function EventProposalsClient({
   initialProposals,
+  initialReviewQueue,
+  requestedTab,
+  canReview,
+  reviewerRole,
   userId,
   institutionId,
   isSuperAdmin,
 }: EventProposalsClientProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [proposals, setProposals] = useState(initialProposals);
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>(initialReviewQueue);
   const submitForApproval = useSubmitForApproval();
 
   const handleCreateSuccess = () => {
@@ -395,6 +653,56 @@ export function EventProposalsClient({
       },
     });
   };
+
+  // A decided proposal leaves the queue; its outcome shows on the proposal itself.
+  const handleDecided = (id: string) => {
+    setReviewQueue((prev) => prev.filter((e) => e.id !== id));
+  };
+
+  const lapsedCount = reviewQueue.filter((e) => e.daysLapsed !== null).length;
+
+  const myProposalsSection = (
+    <MyProposalsList
+      proposals={proposals}
+      onSubmit={handleSubmit}
+      submitting={submitForApproval.isPending}
+    />
+  );
+
+  const reviewSection =
+    reviewQueue.length === 0 ? (
+      <Card>
+        <CardContent className="py-12 text-center text-muted-foreground">
+          <Inbox className="h-12 w-12 mx-auto mb-3 opacity-30" />
+          <p className="font-medium">Nothing waiting on you</p>
+          <p className="text-sm mt-1">
+            Every proposal submitted for review has had a decision.
+          </p>
+        </CardContent>
+      </Card>
+    ) : (
+      <div className="space-y-4">
+        <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+          Oldest first. A proposal cannot move until someone here decides on it
+          {lapsedCount > 0 && (
+            <>
+              {' '}&mdash; and {lapsedCount === 1 ? 'one of these has' : `${lapsedCount} of these have`} already
+              run past the date being asked for
+            </>
+          )}
+          .
+        </div>
+        {reviewQueue.map((event) => (
+          <ReviewQueueCard
+            key={event.id}
+            event={event}
+            reviewerId={userId}
+            reviewerRole={reviewerRole}
+            onDecided={handleDecided}
+          />
+        ))}
+      </div>
+    );
 
   return (
     <>
@@ -427,7 +735,51 @@ export function EventProposalsClient({
         </Dialog>
       </div>
 
-      {/* Proposals List */}
+      {/* Reviewers get a second tab; everyone else sees their own list unchanged.
+          Opens on the queue when something is waiting, because the dashboard's
+          "Awaiting Your Approval" card links straight here. */}
+      {canReview && (
+        <Tabs
+          defaultValue={requestedTab ?? (reviewQueue.length > 0 ? 'review' : 'mine')}
+          className="w-full"
+        >
+          <TabsList className="w-full max-w-full justify-start overflow-x-auto md:w-auto [&>button]:shrink-0">
+            <TabsTrigger value="mine">My Proposals</TabsTrigger>
+            <TabsTrigger value="review" className="flex items-center gap-2">
+              Pending review
+              {reviewQueue.length > 0 && (
+                <Badge variant="secondary" className="px-1.5">
+                  {reviewQueue.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="mine" className="mt-4 space-y-4">
+            {myProposalsSection}
+          </TabsContent>
+          <TabsContent value="review" className="mt-4">
+            {reviewSection}
+          </TabsContent>
+        </Tabs>
+      )}
+
+      {!canReview && myProposalsSection}
+    </>
+  );
+}
+
+/** Renders one proposer's own proposals — the original page content, unchanged. */
+function MyProposalsList({
+  proposals,
+  onSubmit,
+  submitting,
+}: {
+  proposals: LCEvent[];
+  onSubmit: (id: string) => void;
+  submitting: boolean;
+}) {
+  return (
+    <>
       {proposals.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -462,8 +814,8 @@ export function EventProposalsClient({
                     {event.status === 'draft' && (
                       <Button
                         size="sm"
-                        onClick={() => handleSubmit(event.id)}
-                        disabled={submitForApproval.isPending}
+                        onClick={() => onSubmit(event.id)}
+                        disabled={submitting}
                       >
                         <Send className="h-3.5 w-3.5 mr-1.5" />
                         Submit
