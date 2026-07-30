@@ -1236,12 +1236,52 @@ REVOKE ALL ON TABLE public.health_tournament_permissions            FROM anon, P
 REVOKE ALL ON TABLE public.health_tournament_permission_approvals   FROM anon, PUBLIC;
 REVOKE ALL ON TABLE public.health_tournament_permission_changes     FROM anon, PUBLIC;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.health_tournament_permissions          TO authenticated;
+-- COLUMN-LEVEL UPDATE, deliberately — this is the hard backstop behind the
+-- guard trigger in section 6.
+--
+-- That trigger keys on a transaction-local GUC, which is the right mechanism
+-- for letting the recompute path through but is NOT a privilege check: it holds
+-- only because no exposed RPC lets a caller set the flag. A column grant needs
+-- no such argument. `authenticated` is simply not permitted to name
+-- overall_status, any step*_status, any approver stamp, the cancellation
+-- columns or filed_by_profile_id in a SET list, so H1's "update it to approved"
+-- is refused by the privilege system before RLS or any trigger is consulted.
+--
+-- The SECURITY DEFINER recompute/cancel functions are owned by `postgres` and
+-- so are unaffected — they remain the only writers.
+--
+-- NOTE: this must be a column-level GRANT rather than a table-level GRANT
+-- followed by a column REVOKE. A table-level UPDATE grant covers every column
+-- and a subsequent column REVOKE does not carve it back out.
+--
+-- The table-level UPDATE must therefore be REVOKED FIRST. `authenticated`
+-- already holds one from when the table was created under Supabase's default
+-- privileges (read on prod 2026-07-30), so without this revoke the column grant
+-- is purely additive and restricts nothing — which is exactly what the first
+-- attempt at this did: the probe was still stopped by the trigger rather than
+-- by the privilege system, and that is how a "defence in depth" turns out to be
+-- one layer wearing two hats.
+REVOKE UPDATE ON TABLE public.health_tournament_permissions          FROM authenticated;
+REVOKE UPDATE ON TABLE public.health_tournament_permission_approvals FROM authenticated;
+
+GRANT SELECT, INSERT, DELETE ON TABLE public.health_tournament_permissions TO authenticated;
+GRANT UPDATE (
+  tournament_name, tournament_level, sport, start_date, end_date,
+  travel_required, travel_details, team_members, justification, learner_id,
+  participation_log, post_event_report, credit_hours_earned, updated_at
+) ON TABLE public.health_tournament_permissions TO authenticated;
+
 -- No INSERT/DELETE grant on the child: rows are derived by trigger and removed
 -- only by the parent's cascade, so the privilege is not merely unused — it is
--- withheld, and RLS is not the only thing standing in the way.
-GRANT SELECT, UPDATE ON TABLE public.health_tournament_permission_approvals TO authenticated;
-GRANT SELECT          ON TABLE public.health_tournament_permission_changes  TO authenticated;
+-- withheld, and RLS is not the only thing standing in the way. UPDATE is
+-- narrowed to the two columns a Principal actually decides; `approved_by` and
+-- `approved_at` are stamped by the BEFORE trigger from auth.uid(), and
+-- `last_nudged_at` is written only by the nudge function, so none of the three
+-- is writable by the client at all.
+GRANT SELECT ON TABLE public.health_tournament_permission_approvals TO authenticated;
+GRANT UPDATE (status, notes) ON TABLE public.health_tournament_permission_approvals TO authenticated;
+
+GRANT SELECT ON TABLE public.health_tournament_permission_changes TO authenticated;
 
 -- -----------------------------------------------------------------------------
 -- 11. D10 — the read that accreditation and participation should use.
