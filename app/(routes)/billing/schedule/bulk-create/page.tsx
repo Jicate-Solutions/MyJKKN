@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -67,7 +68,6 @@ import { useBulkCreateStudentBills } from '@/hooks/billing/use-student-bills';
 import { useAcademicYears } from '@/hooks/use-academic-years';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
-import { ImportBillsDialog } from './_components/import-bills-dialog';
 import toast from 'react-hot-toast';
 import type { Institution, Degree, Department, Program, Semester } from '@/types/organizations';
 import type { BillingCategory } from '@/types/billing';
@@ -111,7 +111,6 @@ type BulkBillFormData = z.infer<typeof bulkBillSchema>;
 
 export default function BulkCreateBillsPage() {
   const router = useRouter();
-  const [importOpen, setImportOpen] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [degrees, setDegrees] = useState<Degree[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -440,7 +439,12 @@ export default function BulkCreateBillsPage() {
         {/* Bulk upload from Excel — alternate path that bypasses the form below.
             Each row of the uploaded sheet becomes one bill (own student, own
             amount, own due date, own category). The form below remains for the
-            common "same bill, many students" case. */}
+            common "same bill, many students" case.
+
+            Links to a dedicated page rather than opening a dialog: the upload is
+            a review flow (preview the sheet → read the validation → confirm),
+            and a table of ten columns across several hundred rows needs the
+            width. Mirrors /billing/schedule/bulk-edit. */}
         <Card className='border-dashed bg-muted/40'>
           <CardContent className='flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between'>
             <div className='flex items-start gap-3'>
@@ -453,8 +457,8 @@ export default function BulkCreateBillsPage() {
                 </p>
                 <p className='text-sm text-muted-foreground'>
                   Download the Excel template, fill one row per bill, then
-                  upload to create them all at once. Each row needs a roll
-                  number, billing category, due date, and amount.
+                  upload it. You review the parsed rows and the validation
+                  results before any bill is created.
                 </p>
               </div>
             </div>
@@ -468,27 +472,18 @@ export default function BulkCreateBillsPage() {
                   Download Template
                 </a>
               </Button>
-              <Button
-                size='sm'
-                onClick={() => setImportOpen(true)}
-                disabled={!canCreateBills}
-              >
-                <Upload className='mr-2 h-4 w-4' />
-                Upload Excel
+              {/* No `disabled` guard needed: the page already returns the
+                  "no permission" state above when canCreateBills is false, so
+                  reaching this render means the user may create bills. */}
+              <Button size='sm' asChild>
+                <Link href='/billing/schedule/bulk-create/upload'>
+                  <Upload className='mr-2 h-4 w-4' />
+                  Upload Excel
+                </Link>
               </Button>
             </div>
           </CardContent>
         </Card>
-
-        <ImportBillsDialog
-          open={importOpen}
-          onOpenChange={setImportOpen}
-          onImportComplete={() => {
-            // Stay on the page so the user can upload another batch if they
-            // want. Future: refresh a "recent imports" panel if we add one.
-            setImportOpen(false);
-          }}
-        />
 
         <Form {...form}>
 

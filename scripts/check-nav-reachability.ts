@@ -425,6 +425,15 @@ const NAV_EXCLUDE = new Set<string>([
   // or chip surface. Open to all logged-in users; staff/faculty can write.
   '/tracker',
 
+  // Button-invoked (2026-07-30): the multi-step Excel bulk-bill upload, reached
+  // from the "Upload Excel" button on the chip-reachable
+  // /billing/schedule/bulk-create. It is a review wizard (preview the sheet →
+  // read the validation → confirm), not a destination anyone should land on
+  // cold — arriving without a file in hand shows an empty dropzone. Same
+  // relationship /audit/care/new has to /audit/dashboard. Gated
+  // billing.schedule.create via MENU_PERMISSIONS + PermissionGuard.
+  '/billing/schedule/bulk-create/upload',
+
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']
   // = 'social.view') reachable via the social module's AutoTabNav tier strip,
