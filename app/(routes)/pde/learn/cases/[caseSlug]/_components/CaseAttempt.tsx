@@ -94,18 +94,25 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
     setSubmitError(null);
     try {
       // Compute auto_score (MCQs + image_tag combined; free_text doesn't auto-score).
-      // The OSCE rubric (Agent E) will overwrite final_score post-submission.
-      const scorable = answers.filter(
+      // Denominator is EVERY scorable question in the bundle, not just the ones the
+      // learner answered: a skipped scorable question counts as zero. Dividing by
+      // the answered count let a learner who got one MCQ right and skipped the rest
+      // see 100%. The OSCE rubric overwrites final_score post-submission.
+      const scorableAnswers = answers.filter(
         (a) => a.question_type === 'mcq_warmup' || a.question_type === 'image_tag'
       );
+      const scorableTotal = bundle.questions.filter(
+        (q) => q.question_type === 'mcq_warmup' || q.question_type === 'image_tag'
+      ).length;
       let autoScore: number | null = null;
-      if (scorable.length > 0) {
-        const sum = scorable.reduce((acc, a) => {
+      // No scorable questions at all -> null, never NaN.
+      if (scorableTotal > 0) {
+        const sum = scorableAnswers.reduce((acc, a) => {
           if (a.question_type === 'mcq_warmup') return acc + (a.is_correct ? 100 : 0);
           if (a.question_type === 'image_tag') return acc + (a.region_score ?? 0);
           return acc;
         }, 0);
-        autoScore = sum / scorable.length;
+        autoScore = sum / scorableTotal;
       }
 
       const evidence: ClinicalEvidenceEnvelope = {
@@ -236,8 +243,19 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
               Question {questionIndex + 1} of {bundle.questions.length}
             </div>
 
+            {/*
+              key={question.id} is load-bearing, not decoration. Each renderer keeps
+              its answer/feedback in local useState. Without a key the component type
+              and position are identical from one question to the next, so React reuses
+              the same instance and that state survives the advance — the free-text
+              renderer then still holds the previous answer and coach reply, which keeps
+              it in its "answered" state: textarea disabled, feedback button gone. The
+              learner could answer the first free-text question and no other. Keying on
+              the question id remounts on every advance, so child state starts clean.
+            */}
             {question.question_type === 'free_text_socratic' ? (
               <FreeTextSocraticQuestion
+                key={question.id}
                 question={question}
                 learnerId={bundle.learnerProfileId}
                 assessmentId={bundle.assessment.id}
@@ -249,6 +267,7 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
 
             {question.question_type === 'mcq_warmup' ? (
               <MCQWarmupQuestion
+                key={question.id}
                 question={question}
                 onAnswered={recordAnswer}
                 onContinue={moveNext}
@@ -258,6 +277,7 @@ export function CaseAttempt({ bundle, rollNumberSnapshot }: CaseAttemptProps) {
 
             {question.question_type === 'image_tag' ? (
               <ImageTagQuestion
+                key={question.id}
                 question={question}
                 onAnswered={recordAnswer}
                 onContinue={moveNext}
