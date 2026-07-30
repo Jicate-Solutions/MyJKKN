@@ -83,7 +83,7 @@ export function dependentBreakdown(
     { label: 'analyst view', count: area.analyst_view_count },
     { label: 'rotation slot', count: area.rotation_slot_count },
     { label: 'rotation cycle entry', count: area.rotation_cycle_dept_count },
-    { label: 'assigned role holder', count: area.holder_count }
+    { label: 'role holder', count: area.role_holder_count }
   ].filter((item) => item.count > 0);
 }
 
@@ -124,7 +124,7 @@ function normaliseArea(row: any): ManagedImprovementArea {
     analyst_view_count: num(row.analyst_view_count),
     rotation_slot_count: num(row.rotation_slot_count),
     rotation_cycle_dept_count: num(row.rotation_cycle_dept_count),
-    holder_count: num(row.holder_count),
+    role_holder_count: num(row.role_holder_count),
     dependent_count: num(row.dependent_count)
   };
 }
