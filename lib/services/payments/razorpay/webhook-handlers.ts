@@ -12,13 +12,24 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { PaymentAuditService } from '@/lib/services/billing/security/payment-audit-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type { PaymentModule } from '../provider';
+import {
+  WEBHOOK_MODULES,
+  WEBHOOK_TRANSACTION_TABLES,
+  isPaymentModule,
+} from './webhook-module-registry';
 
 type ServiceClient = ReturnType<typeof createServiceRoleClient>;
 
-function moduleFromNotes(payment: any, order: any): 'billing' | 'events' | undefined {
+/**
+ * Which module a gateway payload belongs to, from the `notes.module` we stamp on
+ * every order (see create-order.ts). Untrusted input, so it is validated against
+ * the registry rather than compared to a hardcoded list — that way a newly
+ * registered module routes without touching this function.
+ */
+function moduleFromNotes(payment: any, order: any): PaymentModule | undefined {
   const notesModule = payment?.notes?.module ?? order?.notes?.module;
-  if (notesModule === 'billing' || notesModule === 'events') return notesModule;
-  return undefined;
+  return isPaymentModule(notesModule) ? notesModule : undefined;
 }
 
 /**
@@ -86,7 +97,8 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
     return;
   }
 
-  const table = mod === 'billing' ? 'payment_transactions' : 'event_payment_transactions';
+  const cfg = WEBHOOK_MODULES[mod];
+  const table = cfg.table;
 
   const { data: existing } = await (supabase as any)
     .from(table)
@@ -99,7 +111,7 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
   }
 
   // Anti-replay: skip if already terminal
-  if (existing.status === 'success' || existing.status === 'refunded') {
+  if (cfg.terminalStatuses.includes(existing.status)) {
     logger.info('webhook/razorpay', 'payment.captured: already processed — skipping', {
       id: existing.id,
       status: existing.status,
@@ -114,17 +126,8 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
     status: 'success',
     captured_at: capturedAt,
     gateway_response: payload,
+    ...(cfg.capturedExtraColumns?.(payment, capturedAt) ?? {}),
   };
-  if (mod === 'billing') {
-    capturedUpdate.payment_date = capturedAt;
-    capturedUpdate.completed_at = new Date().toISOString();
-    // Mirror the payment id into gateway_transaction_id, which is what the
-    // callback path writes and what the receipt's payment_reference_number is
-    // built from. Keeping both columns in step is what makes receipt creation
-    // idempotent no matter which path finalizes the payment first.
-    capturedUpdate.gateway_transaction_id = payment.id;
-    capturedUpdate.payment_method = payment.method ?? null;
-  }
 
   const { error: capturedUpdateError } = await (supabase as any)
     .from(table)
@@ -138,34 +141,9 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
     });
   }
 
-  // Downstream: receipt creation (billing) or registration mark (events)
-  if (mod === 'billing') {
-    const { PaymentGatewayService } = await import('@/lib/services/billing/payment-gateway-service');
-    const { data: txn } = await (supabase as any)
-      .from('payment_transactions')
-      .select('*')
-      .eq('id', existing.id)
-      .single();
-    if (txn) {
-      // Pass the service-role client: this runs with no user session, so a
-      // cookie-scoped client would read zero transaction items through RLS and
-      // silently skip receipt creation (bill left unpaid).
-      await PaymentGatewayService.processSuccessfulPayment(txn, supabase as any);
-    }
-  } else if (mod === 'events') {
-    // Mark the linked registration paid (mirror the callback success side-effect).
-    const { data: txn } = await (supabase as any)
-      .from('event_payment_transactions')
-      .select('registration_id')
-      .eq('id', existing.id)
-      .single();
-    if (txn?.registration_id) {
-      await (supabase as any)
-        .from('events_registrations')
-        .update({ payment_status: 'paid' })
-        .eq('id', txn.registration_id);
-    }
-  }
+  // Downstream: receipt creation (billing), registration mark (events), … —
+  // whatever the module declared in the registry.
+  await cfg.onCaptured?.(supabase, existing.id, payment, payload);
 
   await PaymentAuditService.logVerificationSuccess(
     existing.id,
@@ -185,7 +163,7 @@ async function handlePaymentAuthorized(supabase: ServiceClient, payload: any) {
 
   const mod = moduleFromNotes(payment, order);
   if (!mod) return;
-  const table = mod === 'billing' ? 'payment_transactions' : 'event_payment_transactions';
+  const table = WEBHOOK_MODULES[mod].table;
 
   // Authorized but not yet captured. We auto-capture via payment_capture=1 so this is
   // usually transient — log it but do not finalize status.
@@ -205,16 +183,15 @@ async function handlePaymentFailed(supabase: ServiceClient, payload: any) {
 
   const mod = moduleFromNotes(payment, order);
   if (!mod) return;
-  const table = mod === 'billing' ? 'payment_transactions' : 'event_payment_transactions';
+  const cfg = WEBHOOK_MODULES[mod];
+  const table = cfg.table;
 
   const failedUpdate: Record<string, unknown> = {
     razorpay_payment_id: payment.id,
     status: 'failed',
     gateway_response: payload,
+    ...(cfg.failedExtraColumns?.() ?? {}),
   };
-  if (mod === 'billing') {
-    failedUpdate.completed_at = new Date().toISOString();
-  }
 
   const { error: failedUpdateError } = await (supabase as any)
     .from(table)
@@ -235,8 +212,11 @@ async function handleRefundEvent(supabase: ServiceClient, payload: any) {
   const paymentId = refund.payment_id;
   if (!paymentId) return;
 
-  // Try billing first, then events (we don't always have a `module` note on refunds)
-  for (const table of ['payment_transactions', 'event_payment_transactions'] as const) {
+  // A refund payload carries no `module` note, so probe each module's table by
+  // razorpay_payment_id. Registry-derived, so a new module is covered without
+  // editing this loop; order is the registry's declaration order, i.e. billing
+  // first, then events.
+  for (const table of WEBHOOK_TRANSACTION_TABLES) {
     const { data: existing } = await (supabase as any)
       .from(table)
       .select('id, status')
