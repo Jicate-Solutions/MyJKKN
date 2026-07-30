@@ -10,7 +10,10 @@
  *  3. Coach Info   — name + tel link
  *  4. Scholarship  — amount, concessions, traffic-light verification status
  *  5. Credits This Semester — progress bar + category breakdown
- *  6. Tournament Permissions — 4-step approval status + request button
+ *  6. Tournament Permissions — approval status + request button. The path is
+ *     TWO parties (Director-locked 2026-07-30): the Physical Director files for
+ *     the squad at /health/sports/squad-requests, the Principal decides at
+ *     /health/sports/approvals. Only the Principal step is a real decision.
  *
  * Usage: /health/sports
  */
@@ -55,6 +58,7 @@ import {
   ChevronRight,
   AlertCircle,
   BookOpen,
+  MinusCircle,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { HealthSportsService } from '@/lib/services/health/health-sports-service';
@@ -73,6 +77,10 @@ import {
   FITNESS_CATEGORY_CONFIG,
 } from '@/types/health-sports';
 import { cn } from '@/lib/utils';
+import {
+  isSchemaNotApplied,
+  readFailure,
+} from './_components/tournament-permission-ui';
 
 // ============================================================================
 // Helpers
@@ -126,12 +134,14 @@ function scholarshipStatusConfig(status: string): {
   }
 }
 
-function approvalStepIcon(status: ApprovalStatus) {
+function approvalStepIcon(status: ApprovalStatus | 'not_required') {
+  if (status === 'not_required')
+    return <MinusCircle className="h-4 w-4 text-slate-300" />;
   if (status === 'approved')
     return <CheckCircle2 className="h-4 w-4 text-green-600" />;
   if (status === 'rejected')
     return <XCircle className="h-4 w-4 text-red-500" />;
-  return <Clock className="h-4 w-4 text-slate-300" />;
+  return <Clock className="h-4 w-4 text-amber-500" />;
 }
 
 // ============================================================================
@@ -855,6 +865,12 @@ function RequestPermissionModal({
 }) {
   const [form, setForm] = useState<PermissionForm>(EMPTY_PERMISSION_FORM);
   const [submitting, setSubmitting] = useState(false);
+  // A failed submit used to log to the console and close as if nothing happened —
+  // the learner saw a form that simply did nothing (CLAUDE.md #27). Now the real
+  // reason is shown in the dialog.
+  const [failure, setFailure] = useState<{ message: string; code: string | null } | null>(
+    null
+  );
 
   const handleSubmit = async () => {
     if (
@@ -866,6 +882,7 @@ function RequestPermissionModal({
     )
       return;
     setSubmitting(true);
+    setFailure(null);
     try {
       const result = await HealthSportsService.submitPermissionRequest(learnerId, {
         tournament_name: form.tournament_name,
@@ -882,6 +899,7 @@ function RequestPermissionModal({
       setForm(EMPTY_PERMISSION_FORM);
     } catch (err) {
       console.error('[health/sports] Failed to submit permission request', err);
+      setFailure(readFailure(err));
     } finally {
       setSubmitting(false);
     }
@@ -979,6 +997,20 @@ function RequestPermissionModal({
               }
             />
           </div>
+          {failure ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-2.5">
+              <p className="text-xs font-medium text-red-900">
+                {failure.code ? `${failure.code}: ` : ''}
+                {failure.message}
+              </p>
+              <p className="mt-0.5 text-xs text-red-800">
+                Nothing was submitted.{' '}
+                {isSchemaNotApplied(failure.code, failure.message)
+                  ? 'The database change for tournament permission has not been applied to this environment yet — ask an administrator to apply the pending migration.'
+                  : 'Please try again, or tell an administrator what this message says.'}
+              </p>
+            </div>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -1009,6 +1041,18 @@ function RequestPermissionModal({
 // Tournament Permissions card
 // ============================================================================
 
+// The approval path is TWO parties (Director-locked 2026-07-30): the Physical
+// Director files for the squad, the PRINCIPAL approves. step3_principal_* is THE
+// approval step. Steps 1, 2 and 4 have no approver at all — `pe_director` does
+// not exist as a role, and the sole `sports_coordinator` holder is the person who
+// files, so keeping their step would mean approving their own request.
+//
+// Those three steps therefore carry the explicit status 'not_required' and are
+// rendered greyed and struck through. They must never read as "pending" (work
+// awaited from nobody) and must never read as "approved" (an approval no human
+// gave). Rows created before this change still carry 'pending' there; the
+// renderer treats anything non-decisive as not-required so a learner is never
+// shown a step that will never move.
 const APPROVAL_STEP_LABELS = [
   'Sports Coordinator',
   'HOD',
@@ -1016,22 +1060,15 @@ const APPROVAL_STEP_LABELS = [
   'PE Director',
 ];
 
+/** Index of the only step a human decides. */
+const DECISIVE_STEP_INDEX = 2;
+
 function approvalStepStatus(
   perm: HealthTournamentPermission,
   step: number
-): ApprovalStatus {
-  switch (step) {
-    case 0:
-      return perm.step1_sports_coordinator_status;
-    case 1:
-      return perm.step2_hod_status;
-    case 2:
-      return perm.step3_principal_status;
-    case 3:
-      return perm.step4_pe_director_status;
-    default:
-      return 'pending';
-  }
+): ApprovalStatus | 'not_required' {
+  if (step !== DECISIVE_STEP_INDEX) return 'not_required';
+  return perm.step3_principal_status;
 }
 
 function overallStatusBadge(status: HealthTournamentPermission['overall_status']) {
@@ -1140,24 +1177,27 @@ function TournamentPermissionsCard({
                     {overallStatusBadge(perm.overall_status)}
                   </div>
 
-                  {/* 4-step approval pipeline */}
+                  {/* Approval path — only the Principal step is a decision */}
                   <div>
                     <p className="text-xs text-slate-400 font-medium mb-2">
-                      Approval Steps
+                      Approval path — the Principal decides
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       {APPROVAL_STEP_LABELS.map((label, i) => {
                         const stepStatus = approvalStepStatus(perm, i);
+                        const notRequired = stepStatus === 'not_required';
                         return (
                           <div
                             key={label}
                             className={cn(
                               'rounded-lg border px-2 py-2 text-center',
-                              stepStatus === 'approved'
+                              notRequired
+                                ? 'bg-slate-50 border-dashed border-slate-200'
+                                : stepStatus === 'approved'
                                 ? 'bg-green-50 border-green-200'
                                 : stepStatus === 'rejected'
                                 ? 'bg-red-50 border-red-200'
-                                : 'bg-white border-slate-100'
+                                : 'bg-amber-50 border-amber-200'
                             )}
                           >
                             <div className="flex justify-center mb-1">
@@ -1166,14 +1206,19 @@ function TournamentPermissionsCard({
                             <p
                               className={cn(
                                 'text-xs font-medium leading-tight',
-                                stepStatus === 'approved'
+                                notRequired
+                                  ? 'text-slate-400 line-through'
+                                  : stepStatus === 'approved'
                                   ? 'text-green-700'
                                   : stepStatus === 'rejected'
                                   ? 'text-red-600'
-                                  : 'text-slate-400'
+                                  : 'text-amber-700'
                               )}
                             >
                               {label}
+                            </p>
+                            <p className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+                              {notRequired ? 'Not required' : stepStatus}
                             </p>
                           </div>
                         );
