@@ -337,6 +337,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.profiles.view', label: 'View Learner Profiles (Admin)' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
       { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
+      // Gates the learner_contribution_scores RLS policy (lcs_admin_select), which
+      // already referenced this key before it was registered here — so it could not
+      // be granted from Role Management at all. Admin-only by Director decision
+      // (2026-07-30): the risk BAND is visible to faculty and the learner, the
+      // contribution/value RANKING is not.
+      { key: 'learners.contribution.view', label: 'View Learner Contribution Ranking (Admin)' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
