@@ -440,22 +440,34 @@ ALTER TABLE public.ai_query_logs ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "System can insert query logs" ON public.ai_query_logs;
 
+-- NO replacement INSERT policy, and INSERT is revoked outright below.
+--
+-- The first draft of this migration replaced the blanket policy with a
+-- self-only `WITH CHECK (user_id = auth.uid())`, reasoning that logging your
+-- OWN query is the one direct insert that could ever be legitimate. That was a
+-- half-measure. There is no such case: every write arrives through
+-- log_ai_query, which runs as owner `postgres` on a table with
+-- relforcerowsecurity = false and therefore bypasses RLS entirely, and a
+-- repo-wide grep finds no `.from('ai_query_logs')` anywhere. The grant is
+-- unused.
+--
+-- Leaving INSERT granted alongside a self-only check still let any signed-in
+-- user bypass the RPC and write self-attributed rows carrying arbitrary
+-- query_text, institution_id, ip_address and user_agent — forging the content
+-- of a compliance-relevant trail while satisfying the policy, since the only
+-- column the policy constrains is the one the attacker is happy to set
+-- honestly. Removing the grant closes that; the RPC remains the sole writer,
+-- and it now carries its own caller-identity guard.
 DROP POLICY IF EXISTS "Users can insert their own query logs" ON public.ai_query_logs;
-CREATE POLICY "Users can insert their own query logs"
-  ON public.ai_query_logs
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (
-    user_id = (SELECT auth.uid())
-    OR COALESCE(is_super_admin(), false)
-  );
 
 -- anon has no business touching an audit trail at all.
 REVOKE ALL ON TABLE public.ai_query_logs FROM anon, PUBLIC;
 
--- An audit trail is append-only for its subjects. service_role (which bypasses
--- RLS and keeps its own grants) retains what it needs for retention jobs.
-REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.ai_query_logs FROM authenticated;
+-- Signed-in users keep SELECT only — the "Users can view their own query logs"
+-- and "Super admins can view all query logs" policies still scope reads. Every
+-- write path is now the SECDEF RPC. service_role (which bypasses RLS and keeps
+-- its own grants) retains what it needs for retention jobs.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public.ai_query_logs FROM authenticated;
 
 -- ai_query_rate_limits was already locked against anon by
 -- 20260728190000_lock_anon_on_20260728_backups_and_rate_limits.sql. Re-asserted
@@ -552,10 +564,20 @@ BEGIN
     v_bad := v_bad || E'\n  anon still holds a table privilege on ai_query_logs';
   END IF;
 
-  -- 6e. The audit trail must be append-only for signed-in users.
-  IF has_table_privilege('authenticated', 'public.ai_query_logs', 'UPDATE')
+  -- 6e. The SECDEF RPC must be the ONLY writer. A signed-in user with a direct
+  --     INSERT grant can forge the CONTENT of a self-attributed audit row
+  --     (query_text, institution_id, ip_address, user_agent) while satisfying
+  --     any user_id-only policy, so the grant itself has to go — not just a
+  --     check on top of it. SELECT is deliberately still allowed: the own-rows
+  --     and super-admin read policies depend on it.
+  IF has_table_privilege('authenticated', 'public.ai_query_logs', 'INSERT')
+     OR has_table_privilege('authenticated', 'public.ai_query_logs', 'UPDATE')
      OR has_table_privilege('authenticated', 'public.ai_query_logs', 'DELETE') THEN
-    v_bad := v_bad || E'\n  authenticated can still UPDATE or DELETE ai_query_logs';
+    v_bad := v_bad || E'\n  authenticated can still INSERT, UPDATE or DELETE ai_query_logs directly — log_ai_query must be the only writer';
+  END IF;
+
+  IF NOT has_table_privilege('authenticated', 'public.ai_query_logs', 'SELECT') THEN
+    v_bad := v_bad || E'\n  authenticated lost SELECT on ai_query_logs — the own-rows read policy would return nothing';
   END IF;
 
   IF v_bad <> '' THEN
