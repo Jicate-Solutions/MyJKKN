@@ -141,6 +141,10 @@ export function EditArtifactDialog({
   // dialog offers an Approve button or a plain read-only view, so a manager is
   // never shown a control whose save would be rejected.
   const [canApprovePolicy, setCanApprovePolicy] = useState(false);
+  // Why the current holders could not be read, if they could not. Approving while
+  // this is set would sync the AI draft's placeholders over what is actually
+  // recorded — end-dating real holders — so approve refuses until it clears.
+  const [holdersError, setHoldersError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -195,9 +199,22 @@ export function EditArtifactDialog({
     // so overlay the assignments that were actually made. They are keyed by role
     // title, which is how the database keys them too.
     let cancelled = false;
+    setHoldersError(null);
     fetch(`/api/mba/dept-artifacts/role-assignments?area_id=${encodeURIComponent(areaId)}`)
-      .then((r) => (r.ok ? r.json() : { assignments: [] }))
-      .then((j: { assignments?: Assignment[] }) => {
+      .then((r) => {
+        // A 403 or 500 used to be turned into an empty list, which is
+        // indistinguishable from "nobody holds anything yet" — and that is how a
+        // placeholder comes to replace a real holder on approve. Fail loudly instead.
+        if (!r.ok) {
+          throw new Error(
+            r.status === 403
+              ? 'you are not allowed to read the current role holders'
+              : `the server returned ${r.status}`,
+          );
+        }
+        return r.json() as Promise<{ assignments?: Assignment[] }>;
+      })
+      .then((j) => {
         if (cancelled) return;
         const byTitle = new Map<string, Assignment>();
         for (const a of j.assignments ?? []) byTitle.set(normTitle(a.role_type), a);
@@ -213,8 +230,13 @@ export function EditArtifactDialog({
           }),
         );
       })
-      .catch(() => {
-        /* keep the draft's own values */
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        const why = e instanceof Error ? e.message : 'the request failed';
+        setHoldersError(why);
+        toast.error(
+          `Couldn't load who currently holds each role — ${why}. Close and reopen this before approving.`,
+        );
       });
     return () => {
       cancelled = true;
@@ -237,6 +259,15 @@ export function EditArtifactDialog({
   }
 
   async function approve() {
+    // The organogram's holder fields are only trustworthy once the saved holders have
+    // been overlaid onto the AI draft. If that read failed, the fields still hold the
+    // draft's placeholders, and approving would sync those over the real assignments.
+    if (artifactType === 'organogram' && holdersError) {
+      toast.error(
+        `Can't approve yet — the current role holders could not be read (${holdersError}). Close this dialog and reopen it.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       const edited = { ...content, [listKey]: rows };
@@ -387,7 +418,23 @@ export function EditArtifactDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+<<<<<<< HEAD
             {readOnly ? 'Close' : 'Cancel'}
+=======
+            Cancel
+          </Button>
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700"
+            onClick={approve}
+            disabled={saving || (artifactType === 'organogram' && holdersError !== null)}
+            title={
+              artifactType === 'organogram' && holdersError
+                ? `The current role holders could not be read (${holdersError}). Close and reopen this dialog.`
+                : undefined
+            }
+          >
+            {saving ? 'Approving…' : 'Approve'}
+>>>>>>> jicate/main
           </Button>
           {!readOnly && (
             <Button

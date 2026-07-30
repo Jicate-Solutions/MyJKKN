@@ -15,11 +15,17 @@
 -- transfer item picker and ims_validate_distributable_items(). POS, GRN,
 -- indents and department issues never look at it.
 
-UPDATE public.ims_items
-   SET is_distributable = true,
-       updated_at = now()
- WHERE is_distributable = false;
-
+-- Only the DEFAULT changes. An unconditional
+--   UPDATE ims_items SET is_distributable = true WHERE is_distributable = false
+-- cannot tell "false because the old default made it so" apart from "false
+-- because someone deliberately marked this fixed equipment non-transferable",
+-- so on any populated database it silently makes the second group forwardable.
+--
+-- On a fresh database there are no rows to backfill and this is moot. On the
+-- JKKN production database the backfill was applied once, on 2026-07-28, to
+-- clear the 761 Pharmacy items that were false purely from the old default;
+-- any item set false SINCE then is a deliberate choice and must be left alone.
+-- Re-running that backfill is therefore never correct.
 ALTER TABLE public.ims_items
   ALTER COLUMN is_distributable SET DEFAULT true;
 
