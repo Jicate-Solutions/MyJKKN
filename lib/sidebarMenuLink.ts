@@ -547,6 +547,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  // Champion review queue for REPORTED feed prompts (moderation #3). Same
+  // permission the page itself enforces, and the SAME key as the sibling
+  // champion console '/ai-pulse/admin/anomalies' directly above — the Director
+  // retargeted this surface to the designated-champion key (the purpose-built
+  // ai_pulse_champion role holds it; the Monday-Lab scoring key it used to
+  // carry is held by ~587 staff, who must not see reported prompts or the
+  // author names attached to them). Written plain, like its neighbour: this key
+  // has no segment the terminology delta gate matches, so no value split is
+  // needed here.
+  '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -2722,6 +2732,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
