@@ -15,7 +15,7 @@ export const maxDuration = 60;
 /**
  * POST /api/billing/schedule/bills/import
  *
- * Bulk-creates Student Bills from an uploaded Excel file. One sheet row = one
+ * Bulk-creates learner bills from an uploaded Excel file. One sheet row = one
  * bill. All parsing, lookup resolution and rule evaluation live in
  * `BulkCreateBillsService.parseAndValidate` — the same call the preview route
  * makes — so what the user reviewed is what gets committed.

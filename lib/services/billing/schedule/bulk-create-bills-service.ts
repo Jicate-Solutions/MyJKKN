@@ -361,7 +361,7 @@ export class BulkCreateBillsService {
     // MUST stay batched. `.in()` serialises every value into the GET query
     // string, and past ~800 values the Supabase/Kong gateway answers a bare
     // HTTP 400 that reads like a broken query rather than a URL-length problem.
-    const { data: students, error: studentError } = await selectInBatches<any>(
+    const { data: learners, error: learnerError } = await selectInBatches<any>(
       uniqueRolls,
       (chunk) =>
         client
@@ -369,16 +369,16 @@ export class BulkCreateBillsService {
           .select('id, roll_number, institution_id, first_name, last_name')
           .in('roll_number', chunk)
     );
-    if (studentError) throw studentError;
+    if (learnerError) throw learnerError;
 
-    const studentByRoll = new Map<
+    const learnerByRoll = new Map<
       string,
       { id: string; institution_id: string | null; name: string }
     >();
-    (students ?? []).forEach((s: any) => {
+    (learners ?? []).forEach((s: any) => {
       const name = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
-      if (!studentByRoll.has(s.roll_number)) {
-        studentByRoll.set(s.roll_number, {
+      if (!learnerByRoll.has(s.roll_number)) {
+        learnerByRoll.set(s.roll_number, {
           id: s.id,
           institution_id: s.institution_id,
           name
@@ -387,7 +387,7 @@ export class BulkCreateBillsService {
         // Duplicate roll numbers exist in production (113 groups as of
         // 2026-07-27). Mark the roll ambiguous so the row fails loudly rather
         // than billing whichever learner happened to be read first.
-        studentByRoll.set(s.roll_number, { id: AMBIGUOUS, institution_id: null, name: '' });
+        learnerByRoll.set(s.roll_number, { id: AMBIGUOUS, institution_id: null, name: '' });
       }
     });
 
@@ -396,7 +396,7 @@ export class BulkCreateBillsService {
     // one college is still rejected at another.
     const institutionIds = Array.from(
       new Set(
-        Array.from(studentByRoll.values())
+        Array.from(learnerByRoll.values())
           .map((s) => s.institution_id)
           .filter((x): x is string => Boolean(x))
       )
@@ -475,15 +475,15 @@ export class BulkCreateBillsService {
     // promising rows the database then refuses.
     const existingRestrictedPairs = new Set<string>();
     if (oncePerLearnerCategoryIds.size > 0) {
-      const studentIds = Array.from(
+      const learnerIds = Array.from(
         new Set(
-          Array.from(studentByRoll.values())
+          Array.from(learnerByRoll.values())
             .map((s) => s.id)
             .filter((id) => id && id !== AMBIGUOUS)
         )
       );
       const { data: existing, error: existingError } = await selectInBatches<any>(
-        studentIds,
+        learnerIds,
         (chunk) =>
           client
             .from('billing_student_bills')
@@ -532,12 +532,12 @@ export class BulkCreateBillsService {
         preview.status = 'error';
       };
 
-      const student = studentByRoll.get(cleaned.roll_number);
-      if (!student) {
+      const learner = learnerByRoll.get(cleaned.roll_number);
+      if (!learner) {
         fail('lookup', 'Roll Number', `No learner found with roll number "${cleaned.roll_number}".`);
         continue;
       }
-      if (student.id === AMBIGUOUS) {
+      if (learner.id === AMBIGUOUS) {
         fail(
           'lookup',
           'Roll Number',
@@ -545,8 +545,8 @@ export class BulkCreateBillsService {
         );
         continue;
       }
-      preview.resolved.student_name = student.name || null;
-      if (!student.institution_id) {
+      preview.resolved.student_name = learner.name || null;
+      if (!learner.institution_id) {
         fail(
           'lookup',
           'Roll Number',
@@ -555,7 +555,7 @@ export class BulkCreateBillsService {
         continue;
       }
       preview.resolved.institution_name =
-        institutionNameById.get(student.institution_id) ?? null;
+        institutionNameById.get(learner.institution_id) ?? null;
 
       // The Institution column is advisory — the roll number identifies the
       // learner. But when it was filled in and disagrees, say so plainly: it
@@ -572,12 +572,12 @@ export class BulkCreateBillsService {
           );
           continue;
         }
-        if (claimedId !== student.institution_id) {
+        if (claimedId !== learner.institution_id) {
           fail(
             'lookup',
             'Institution',
             `This row says "${cleaned.institution_name}", but roll number "${cleaned.roll_number}" belongs to ` +
-              `"${institutionNameById.get(student.institution_id) ?? 'another institution'}". ` +
+              `"${institutionNameById.get(learner.institution_id) ?? 'another institution'}". ` +
               'Fix the Institution cell (and re-pick the Academic Year, which depends on it).'
           );
           continue;
@@ -597,15 +597,15 @@ export class BulkCreateBillsService {
 
       // Academic year, scoped to THIS learner's institution.
       const academicYearId = acadYearByInstName.get(
-        `${student.institution_id}::${cleaned.academic_year_name.trim().toLowerCase()}`
+        `${learner.institution_id}::${cleaned.academic_year_name.trim().toLowerCase()}`
       );
       if (!academicYearId) {
-        const available = acadYearNamesByInst.get(student.institution_id) ?? [];
+        const available = acadYearNamesByInst.get(learner.institution_id) ?? [];
         fail(
           'lookup',
           'Academic Year',
           `Academic year "${cleaned.academic_year_name}" does not exist for ` +
-            `"${institutionNameById.get(student.institution_id) ?? "this learner's institution"}". ` +
+            `"${institutionNameById.get(learner.institution_id) ?? "this learner's institution"}". ` +
             (available.length > 0
               ? `Available: ${available.slice().sort().join(', ')}.`
               : 'That institution has no academic years set up yet — create one first.')
@@ -618,7 +618,7 @@ export class BulkCreateBillsService {
       if (oncePerLearnerCategoryIds.has(categoryId)) {
         const tally = tallyFor(cleaned.billing_category_name);
         tally.rowsChecked++;
-        const pairKey = `${student.id}::${categoryId}`;
+        const pairKey = `${learner.id}::${categoryId}`;
 
         if (existingRestrictedPairs.has(pairKey)) {
           tally.conflictsExisting++;
@@ -649,8 +649,8 @@ export class BulkCreateBillsService {
       inserts.push({
         row: preview.row,
         payload: {
-          student_id: student.id,
-          institution_id: student.institution_id,
+          student_id: learner.id,
+          institution_id: learner.institution_id,
           item_category_id: categoryId,
           academic_year_id: academicYearId,
           bill_description: cleaned.bill_description || null,
@@ -667,7 +667,7 @@ export class BulkCreateBillsService {
         success: {
           row: preview.row,
           roll_number: cleaned.roll_number,
-          student_name: student.name,
+          student_name: learner.name,
           billing_category: cleaned.billing_category_name,
           due_date: cleaned.due_date,
           billing_amount: amount,
