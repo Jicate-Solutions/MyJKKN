@@ -35,7 +35,16 @@ import {
   Plus,
   AlertTriangle,
   TrendingUp,
+  Clock,
 } from 'lucide-react';
+import { CertificateUpload } from './_components/certificate-upload';
+import { VerificationPanel } from './_components/verification-panel';
+import {
+  composeDescription,
+  parseDescription,
+  isFutureDate,
+  todayIsoDate,
+} from './_lib/outbound';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -189,6 +198,9 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
   );
   const style = MEDAL_CARD_STYLE[achievement.achievement_type];
   const levelInfo = LEVEL_BADGE[achievement.event_level];
+  // The organiser of an outbound (travelled-to) event lives in the first line of
+  // description — see _lib/outbound.ts for why it is not a column.
+  const { host } = parseDescription(achievement.description);
 
   return (
     <div
@@ -215,6 +227,13 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
         {achievement.event_name}
       </p>
 
+      {/* External host / organiser — only for outbound events that recorded one */}
+      {host && (
+        <p className="text-[11px] text-gray-500 leading-snug line-clamp-2">
+          Hosted by {host}
+        </p>
+      )}
+
       {/* Level badge */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
@@ -231,6 +250,20 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
       <p className="text-xs font-medium text-gray-500">
         {typeInfo?.label}
       </p>
+
+      {/* Verification state, stated plainly: an unverified entry is a claim the
+          IQAC team has not confirmed, and must never read as proven evidence. */}
+      {achievement.verified ? (
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-emerald-700 bg-emerald-50 border-emerald-200 self-start flex items-center gap-1">
+          <BadgeCheck className="h-3 w-3" />
+          Verified by IQAC
+        </span>
+      ) : (
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-amber-700 bg-amber-50 border-amber-200 self-start flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Pending IQAC verification
+        </span>
+      )}
     </div>
   );
 }
@@ -313,10 +346,11 @@ function AddAchievementForm({
   learnerId: string;
   onSuccess: () => void;
 }) {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayIsoDate());
   const [category, setCategory] = useState<AchievementCategory>('sports');
   const [sport, setSport] = useState('');
   const [eventName, setEventName] = useState('');
+  const [hostInstitution, setHostInstitution] = useState('');
   const [level, setLevel] = useState<SportLevel | ''>('');
   const [achievementType, setAchievementType] = useState<AchievementType | ''>('');
   const [description, setDescription] = useState('');
@@ -334,6 +368,12 @@ function AddAchievementForm({
       );
       return;
     }
+    // D5: any past date is accepted so old tournaments can be backfilled for
+    // accreditation — only an impossible future date is refused.
+    if (isFutureDate(date)) {
+      setError('The achievement date cannot be in the future.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -342,8 +382,10 @@ function AddAchievementForm({
         event_name: eventName,
         event_level: level as SportLevel,
         achievement_type: achievementType as AchievementType,
-        description: description || undefined,
+        description: composeDescription(hostInstitution, description),
         certificate_url: certificateUrl || undefined,
+        // Never self-verified: only the accreditation / IQAC team may set this,
+        // through the server action in _actions/verify-achievement.ts.
         verified: false,
         // Deploy-order safety (same pattern as PR #2403's new-column handling):
         // the `category` column ships in migration 20260726114500, which is
@@ -358,6 +400,7 @@ function AddAchievementForm({
       setCategory('sports');
       setSport('');
       setEventName('');
+      setHostInstitution('');
       setLevel('');
       setAchievementType('');
       setDescription('');
@@ -390,6 +433,12 @@ function AddAchievementForm({
           <Plus className="h-4 w-4" />
           Add Achievement
         </CardTitle>
+        <p className="text-xs text-amber-700">
+          Record any event you took part in — including tournaments you travelled
+          to at another institution. Taking part counts: choose
+          &ldquo;Participation&rdquo; when there was no medal. Past years can be
+          entered. The IQAC team verifies each entry afterwards.
+        </p>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -399,6 +448,7 @@ function AddAchievementForm({
               <Input
                 type="date"
                 value={date}
+                max={todayIsoDate()}
                 onChange={(e) => setDate(e.target.value)}
                 className="h-9 bg-white"
               />
@@ -452,9 +502,24 @@ function AddAchievementForm({
               onChange={(e) => setEventName(e.target.value)}
               placeholder={
                 category === 'sports'
-                  ? 'e.g. Inter-College Volleyball Championship 2026'
+                  ? 'e.g. FORZAHS State Level Paramedical Sports Tournament'
                   : 'e.g. State-Level Paper Presentation Award 2026'
               }
+              className="h-9 bg-white"
+            />
+          </div>
+
+          {/* Outbound events: the institution that HOSTED it. Blank for events
+              held on our own campus. */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-gray-600">
+              Hosted by (leave blank if held at JKKN)
+            </Label>
+            <Input
+              type="text"
+              value={hostInstitution}
+              onChange={(e) => setHostInstitution(e.target.value)}
+              placeholder="e.g. Vinayaka Missions Research Foundation, Salem"
               className="h-9 bg-white"
             />
           </div>
@@ -512,18 +577,11 @@ function AddAchievementForm({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-gray-600">
-              Certificate URL (optional)
-            </Label>
-            <Input
-              type="url"
-              value={certificateUrl}
-              onChange={(e) => setCertificateUrl(e.target.value)}
-              placeholder="https://..."
-              className="h-9 bg-white"
-            />
-          </div>
+          <CertificateUpload
+            value={certificateUrl}
+            onChange={setCertificateUrl}
+            disabled={saving}
+          />
 
           {error && (
             <p className="text-xs text-red-600 flex items-center gap-1">
@@ -555,7 +613,14 @@ export default function AchievementsPage() {
   const [loading, setLoading] = useState(true);
 
   async function loadAchievements() {
-    if (!learnerId) return;
+    // Staff (IQAC, physical director, admins) have no learner record of their
+    // own. Land them on a settled page instead of an endless skeleton — the
+    // verification panel below is their half of this surface.
+    if (!learnerId) {
+      setAchievements([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const data = await HealthSportsService.getAchievements(learnerId);
@@ -612,6 +677,9 @@ export default function AchievementsPage() {
     <ContentLayout title="Achievements">
       <div className="max-w-2xl mx-auto px-4 pb-10 space-y-6">
 
+        {/* ── IQAC Verification (renders only for the accreditation team) ─── */}
+        <VerificationPanel />
+
         {/* ── Achievement Summary ─────────────────────────────────────────── */}
         {loading ? (
           <div className="grid grid-cols-3 gap-3">
@@ -639,8 +707,8 @@ export default function AchievementsPage() {
             />
             <StatCard
               emoji="✅"
-              value={stats.verified}
-              label="Verified"
+              value={`${stats.verified}/${achievements.length}`}
+              label="IQAC-Verified"
               accent="bg-emerald-50 border-emerald-200"
             />
           </div>
@@ -665,12 +733,26 @@ export default function AchievementsPage() {
           ) : !hasMedalWall ? (
             <div className="text-center py-12 bg-amber-50/50 rounded-2xl border border-amber-100">
               <div className="text-5xl mb-3">🏆</div>
-              <p className="text-sm font-semibold text-amber-800">
-                Your wall is empty — for now!
-              </p>
-              <p className="text-xs text-amber-600 mt-1">
-                Add your first achievement below.
-              </p>
+              {learnerId ? (
+                <>
+                  <p className="text-sm font-semibold text-amber-800">
+                    Your wall is empty — for now!
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    Add your first achievement below.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-amber-800">
+                    This wall shows your own achievements
+                  </p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    Your account is not linked to a learner record, so there is
+                    nothing to show here.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <>

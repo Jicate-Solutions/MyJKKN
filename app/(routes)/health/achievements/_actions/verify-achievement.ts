@@ -1,0 +1,244 @@
+'use server';
+
+// app/(routes)/health/achievements/_actions/verify-achievement.ts
+// ============================================================================
+// IQAC-only verification of learner achievements (Director decision D4).
+//
+// WHO MAY VERIFY
+//   user_has_permission('accreditation.certificates.manage')  — the existing
+//   accreditation/IQAC key (already registered in lib/constants/permissions.ts;
+//   this PR adds no key), plus the standard is_super_admin() / is_admin()
+//   bypass. Explicitly NOT the owning learner, and NOT the HOD/Principal —
+//   neither holds that key, and the owning-learner case is refused below by id
+//   comparison, not by hiding a button.
+//
+// WHY A SERVER ACTION AND NOT THE BROWSER CLIENT
+//   health_sports_achievements RLS is (a) self — ALL on own rows, (b) public —
+//   SELECT WHERE verified = true. So through the browser client an IQAC officer
+//   literally CANNOT SEE an unverified row belonging to someone else: the queue
+//   would always be empty and the verify tick unreachable. Reading and writing
+//   here with the service-role client behind an explicit session-side permission
+//   gate makes verification work today with no DDL (migrations in this repo are
+//   Director-gated files that merge/deploy never apply).
+//
+//   Client discipline mirrors accreditation/naac/narratives/_actions:
+//     * session client (cookie-bound) — every authorization decision, so the
+//       permission RPCs resolve against the real caller (auth.uid()).
+//     * service-role client — only the reads/writes already authorized above.
+//
+// RESIDUAL HOLE, STATED NOT PAPERED OVER
+//   The pre-existing learner self-write RLS policy is ALL on own rows, so a
+//   learner could still flip verified on their OWN row by calling PostgREST
+//   directly with the public anon key. That is the risk migration
+//   20260726114500 already records ("health_sports_achievements carries a
+//   learner self-write RLS policy"). Closing it needs a Director-gated RLS
+//   split, which this PR does not attempt; nothing in this UI ever sends
+//   verified = true from a learner path.
+// ============================================================================
+
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+
+const VERIFY_PERMISSION = 'accreditation.certificates.manage';
+const QUEUE_LIMIT = 60;
+
+export interface VerificationRow {
+  id: string;
+  learner_id: string;
+  learner_name: string;
+  learner_roll: string | null;
+  achievement_date: string;
+  sport: string | null;
+  event_name: string;
+  event_level: string;
+  achievement_type: string;
+  description: string | null;
+  certificate_url: string | null;
+  verified: boolean;
+  /** True when this row belongs to the acting user — they may never verify it. */
+  is_own: boolean;
+}
+
+// Flat result shapes (not discriminated unions): the repo runs with
+// strictNullChecks:false, under which boolean-discriminant narrowing does not
+// work — callers read the optional fields guarded by `ok`.
+export interface VerificationQueueResult {
+  ok: boolean;
+  /** Whether the caller holds the IQAC verification key at all. */
+  canVerify: boolean;
+  rows: VerificationRow[];
+  error?: string;
+}
+
+export interface SetVerifiedResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Resolve the acting user: their auth id, whether they may verify, and which
+ * learner record (if any) is theirs. Every authorization read uses the
+ * cookie-bound session client on purpose.
+ */
+async function resolveActor(): Promise<{
+  userId: string | null;
+  canVerify: boolean;
+  ownLearnerId: string | null;
+}> {
+  const session = await createClient();
+  const {
+    data: { user },
+  } = await session.auth.getUser();
+  if (!user) return { userId: null, canVerify: false, ownLearnerId: null };
+
+  const [{ data: hasPerm }, { data: isSuperAdmin }, { data: isAdmin }] =
+    await Promise.all([
+      session.rpc('user_has_permission', { permission_name: VERIFY_PERMISSION }),
+      session.rpc('is_super_admin'),
+      session.rpc('is_admin'),
+    ]);
+
+  const { data: profile } = await (session as any)
+    .from('profiles')
+    .select('learner_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  return {
+    userId: user.id,
+    canVerify: Boolean(hasPerm) || Boolean(isSuperAdmin) || Boolean(isAdmin),
+    ownLearnerId: profile?.learner_id ?? null,
+  };
+}
+
+/**
+ * The IQAC verification queue — unverified achievements first, so the honest
+ * "20 learners went, 2 won" record can be confirmed row by row. Returns
+ * canVerify:false with an empty list for everyone else, which is what hides the
+ * panel; the write path below re-checks independently.
+ */
+export async function loadVerificationQueue(): Promise<VerificationQueueResult> {
+  const actor = await resolveActor();
+  if (!actor.userId) {
+    return { ok: false, canVerify: false, rows: [], error: 'Not signed in.' };
+  }
+  if (!actor.canVerify) return { ok: true, canVerify: false, rows: [] };
+
+  const admin = createServiceRoleClient();
+  const { data: rows, error } = await (admin as any)
+    .from('health_sports_achievements')
+    .select(
+      'id, learner_id, achievement_date, sport, event_name, event_level, achievement_type, description, certificate_url, verified',
+    )
+    .order('verified', { ascending: true })
+    .order('achievement_date', { ascending: false })
+    .limit(QUEUE_LIMIT);
+
+  if (error) {
+    return {
+      ok: false,
+      canVerify: true,
+      rows: [],
+      error: `Could not load the verification queue: ${error.message}`,
+    };
+  }
+
+  const list: any[] = rows ?? [];
+  const learnerIds = Array.from(new Set(list.map((r) => r.learner_id).filter(Boolean)));
+
+  // Separate query, not an embedded join: an !inner join silently drops rows
+  // whose learner record is missing, and a dropped row is an achievement that
+  // can never be verified.
+  const names = new Map<string, { name: string; roll: string | null }>();
+  if (learnerIds.length > 0) {
+    const { data: learners } = await (admin as any)
+      .from('learners_profiles')
+      .select('id, first_name, last_name, roll_number')
+      .in('id', learnerIds);
+    for (const l of learners ?? []) {
+      const full = [l.first_name, l.last_name].filter(Boolean).join(' ').trim();
+      names.set(l.id, { name: full || 'Unnamed learner', roll: l.roll_number ?? null });
+    }
+  }
+
+  return {
+    ok: true,
+    canVerify: true,
+    rows: list.map((r) => ({
+      id: r.id,
+      learner_id: r.learner_id,
+      learner_name: names.get(r.learner_id)?.name ?? 'Unknown learner',
+      learner_roll: names.get(r.learner_id)?.roll ?? null,
+      achievement_date: r.achievement_date,
+      sport: r.sport ?? null,
+      event_name: r.event_name,
+      event_level: r.event_level,
+      achievement_type: r.achievement_type,
+      description: r.description ?? null,
+      certificate_url: r.certificate_url ?? null,
+      verified: Boolean(r.verified),
+      is_own: Boolean(actor.ownLearnerId) && r.learner_id === actor.ownLearnerId,
+    })),
+  };
+}
+
+/**
+ * Set or clear the IQAC verified tick. Records verified_by as the acting user on
+ * verify and clears it on un-verify, so the audit trail never points at someone
+ * who did not make the current decision.
+ *
+ * Migration 20260726114500 describes verified rows fanning out into
+ * quality_evidence_mappings as NAAC 8.3 evidence
+ * (emit_learner_achievement_evidence), withdrawn again on un-verify. Measured on
+ * production 2026-07-30, a verify→un-verify round trip through this action
+ * produced NO mapping row even though metric 8.3 is seeded and the learner has an
+ * institution — so treat that automatic fan-out as unconfirmed rather than as a
+ * promise this UI makes. Either way the action is reversible by design.
+ */
+export async function setAchievementVerified(
+  id: string,
+  verified: boolean,
+): Promise<SetVerifiedResult> {
+  if (!id) return { ok: false, error: 'An achievement id is required.' };
+
+  const actor = await resolveActor();
+  if (!actor.userId) return { ok: false, error: 'Not signed in.' };
+  if (!actor.canVerify) {
+    return {
+      ok: false,
+      error:
+        'Only the accreditation / IQAC team can verify an achievement. Ask them to confirm this record.',
+    };
+  }
+
+  const admin = createServiceRoleClient();
+  const { data: row, error: readErr } = await (admin as any)
+    .from('health_sports_achievements')
+    .select('id, learner_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: `Could not load the achievement: ${readErr.message}` };
+  if (!row) return { ok: false, error: 'That achievement no longer exists.' };
+
+  // D4, enforced server-side rather than by hiding a button: nobody verifies
+  // their own record, whatever permissions they hold.
+  if (actor.ownLearnerId && row.learner_id === actor.ownLearnerId) {
+    return {
+      ok: false,
+      error:
+        'You cannot verify your own achievement. An IQAC colleague has to confirm it.',
+    };
+  }
+
+  const { error: writeErr } = await (admin as any)
+    .from('health_sports_achievements')
+    .update({
+      verified,
+      verified_by: verified ? actor.userId : null,
+    })
+    .eq('id', id);
+  if (writeErr) {
+    return { ok: false, error: `Could not save the verification: ${writeErr.message}` };
+  }
+
+  return { ok: true };
+}
