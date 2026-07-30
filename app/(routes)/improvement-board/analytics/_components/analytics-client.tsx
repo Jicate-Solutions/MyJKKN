@@ -440,6 +440,14 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
                 )}
               </div>
 
+              {/* Playbook first: the analytics tables below can run to thousands
+                  of rows, so the department's playbook sits above them. */}
+              <DeptPlaybookPanel
+                areaId={section.areaId}
+                areaLabel={section.areaLabel}
+                canManage={false}
+              />
+
               {section.error ? (
                 <Card>
                   <CardContent className="text-muted-foreground flex items-center gap-2 py-8 text-sm">
@@ -473,12 +481,6 @@ function AnalyticsBoard({ userId }: AnalyticsClientProps) {
                   ))}
                 </div>
               )}
-
-              <DeptPlaybookPanel
-                areaId={section.areaId}
-                areaLabel={section.areaLabel}
-                canManage={false}
-              />
             </section>
           ))}
         </div>
@@ -612,6 +614,17 @@ function ManagerAnalyticsBoard() {
         )}
       </div>
 
+      {/* Playbook first: the analytics tables below can run to thousands of
+          rows, so the playbook sits above them. Still gated on a chosen
+          department — nothing shows until one is picked. */}
+      {selectedAreaId && (
+        <DeptPlaybookPanel
+          areaId={selectedAreaId}
+          areaLabel={selectedLabel ?? 'Department'}
+          canManage
+        />
+      )}
+
       {/* Results */}
       {!selectedAreaId ? (
         <Card>
@@ -672,14 +685,6 @@ function ManagerAnalyticsBoard() {
             ))}
           </div>
         </section>
-      )}
-
-      {selectedAreaId && (
-        <DeptPlaybookPanel
-          areaId={selectedAreaId}
-          areaLabel={selectedLabel ?? 'Department'}
-          canManage
-        />
       )}
 
       <ReportDataGapDialog
