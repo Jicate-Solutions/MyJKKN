@@ -128,10 +128,92 @@ export interface IncompleteProfileDetail {
   application_id: string | null;
   created_at: string;
   missingFields: string[];
+  // Flat, comma-joined mirror of missingFields. The shared DataTable constrains
+  // its row type to a record of primitives (ExportableData), so the array can
+  // not be the only carrier of this information — the exporter reads this.
+  missing_fields_label: string;
   program_name: string | null;
   semester_name: string | null;
   section_name: string | null;
   academic_year_name: string | null;
+  admission_year_name: string | null;
+  is_profile_complete: boolean | null;
+}
+
+/**
+ * Sentinel filter value meaning "the field is NOT SET on the profile".
+ * Used by the academic-year / admission-year / semester / section filters so a
+ * single dropdown can select either a concrete value or the absence of one.
+ */
+export const PROFILE_FIELD_MISSING = 'MISSING' as const;
+
+/** Profile-completion scope for the drill-down table. */
+export type ProfileCompletionScope = 'incomplete' | 'complete' | 'all';
+
+/** Presence filter for fields whose values can not be enumerated (email). */
+export type FieldPresence = 'missing' | 'present';
+
+/**
+ * The four fields whose absence makes a profile incomplete — the same set the
+ * "Missing Fields" column badges are built from. Keyed by DB column so the
+ * filter maps straight to `IS NULL` server-side.
+ */
+export type ProfileRequiredField =
+  | 'college_email'
+  | 'academic_year_id'
+  | 'semester_id'
+  | 'section_id';
+
+/** Display labels for the four completeness-defining fields, in funnel order. */
+export const PROFILE_REQUIRED_FIELD_LABELS: Record<ProfileRequiredField, string> = {
+  college_email: 'College Email',
+  academic_year_id: 'Academic Year',
+  semester_id: 'Semester',
+  section_id: 'Section',
+};
+
+/**
+ * Fields the "Missing Field" filter can target: the required four PLUS
+ * admission year. Admission year is deliberately outside
+ * ProfileRequiredField — a profile with no admission year still counts as
+ * complete — but "who has no admission year?" is a question worth asking, so
+ * it is filterable even though it never produces a Missing Fields badge.
+ */
+export type ProfileMissingFieldFilter = ProfileRequiredField | 'admission_year_id';
+
+/** Display labels for the Missing Field filter, in funnel order. */
+export const PROFILE_MISSING_FIELD_LABELS: Record<ProfileMissingFieldFilter, string> = {
+  college_email: 'College Email',
+  academic_year_id: 'Academic Year',
+  admission_year_id: 'Admission Year',
+  semester_id: 'Semester',
+  section_id: 'Section',
+};
+
+/**
+ * Incomplete Profiles Filters
+ * Server-side filters for the profile-completion drill-down table.
+ * The four `*Id` filters accept a UUID or PROFILE_FIELD_MISSING.
+ */
+export interface IncompleteProfilesFilters {
+  institutionIds?: string[];
+  page?: number;
+  limit?: number;
+  search?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+  /** Defaults to 'incomplete' — the table's historical population. */
+  completion?: ProfileCompletionScope;
+  /** Narrow to profiles missing this specific field. */
+  missingField?: ProfileMissingFieldFilter;
+  collegeEmail?: FieldPresence;
+  academicYearId?: string;
+  admissionYearId?: string;
+  /** Organisational hierarchy: institution > department > program > semester > section. */
+  departmentId?: string;
+  programId?: string;
+  semesterId?: string;
+  sectionId?: string;
 }
 
 /**
@@ -140,8 +222,28 @@ export interface IncompleteProfileDetail {
  */
 export interface IncompleteProfilesResponse {
   profiles: IncompleteProfileDetail[];
+  /** Total rows matching the filters across ALL pages (exact DB count). */
   total: number;
   limit: number;
+  page: number;
+  totalPages: number;
+}
+
+/** A single dropdown entry for the drill-down filter bar. */
+export interface ProfileFilterOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Year dropdown options for the drill-down table. Only the two year lists come
+ * from the API — the organisational levels (institution > department > program
+ * > semester > section) are a client-side cascade built from the existing org
+ * services, so each level's options depend on the level above it.
+ */
+export interface IncompleteProfileFilterOptions {
+  academicYears: ProfileFilterOption[];
+  admissionYears: ProfileFilterOption[];
 }
 
 /**
