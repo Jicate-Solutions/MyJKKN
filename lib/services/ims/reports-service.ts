@@ -1,6 +1,9 @@
 // lib/services/ims/reports-service.ts
+// Updated: 2026-07-30 — POS go-live. Dashboard "today" windows are anchored to
+//   the IST business day rather than UTC.
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { istBusinessDate, istDayBounds } from '@/lib/utils/date-format';
 import type {
   ImsDashboardStats,
   ImsStockValuation,
@@ -146,9 +149,11 @@ export class ImsReportsService {
    */
   static async getDashboardStats(storeId: string, institutionId?: string): Promise<ImsDashboardStats> {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const dayStart = `${today}T00:00:00.000Z`;
-      const dayEnd = `${today}T23:59:59.999Z`;
+      // IST business day, not UTC. `toISOString()` would roll the date over at
+      // 05:30 IST, so "Today's Sales" on the dashboard both dropped the evening's
+      // bills and counted the previous night's.
+      const today = istBusinessDate();
+      const { from: dayStart, to: dayEnd } = istDayBounds(today);
 
       const thirtyDaysFromNow = new Date();
       thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);

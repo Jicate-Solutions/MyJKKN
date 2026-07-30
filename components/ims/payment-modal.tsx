@@ -76,6 +76,13 @@ export function PaymentModal({
   const [activeTab, setActiveTab] = useState<PaymentTab>('cash');
   const [isProcessing, setIsProcessing] = useState(false);
   const [stockErrors, setStockErrors] = useState<string[]>([]);
+  // Set when a checkout attempt fails for a reason that is NOT "fix it and retry"
+  // (i.e. anything other than insufficient stock). The pay buttons stay disabled
+  // until the cashier explicitly acknowledges, so a second press cannot raise a
+  // duplicate bill for the same basket. The RPC is atomic, so a retry can no
+  // longer double-deduct stock — but it can still issue two invoice numbers for
+  // one customer, which is its own problem at audit time.
+  const [failedAttempt, setFailedAttempt] = useState<string | null>(null);
 
   // Cash state
   const [cashAmount, setCashAmount] = useState('');
@@ -129,6 +136,7 @@ export function PaymentModal({
     setMixUpiQr('');
     setStockErrors([]);
     setIsProcessing(false);
+    setFailedAttempt(null);
   };
 
   // ── Complete payment handler ──
@@ -145,9 +153,13 @@ export function PaymentModal({
   ) => {
     setIsProcessing(true);
     setStockErrors([]);
+    setFailedAttempt(null);
 
     try {
-      // Step 1: Optimistic stock check
+      // Step 1: Advisory stock check, purely so the cashier learns about a
+      // shortfall before the customer has paid. It is NOT the safety net — the
+      // ims_pos_checkout RPC re-checks every line with a guarded, row-locking
+      // decrement, which is what actually prevents overselling.
       const issues = await onValidateStock();
       if (issues.length > 0) {
         setStockErrors(issues);
@@ -155,7 +167,8 @@ export function PaymentModal({
         return;
       }
 
-      // Step 2: Create sale
+      // Step 2: Create sale — one atomic RPC. Either the whole bill lands or
+      // nothing does.
       const sale = await onCreateSale({
         payment_method: paymentMethod,
         ...params,
@@ -165,8 +178,19 @@ export function PaymentModal({
       resetForm();
       onSaleComplete(sale);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to complete sale');
+      const message = err?.message || 'Failed to complete sale';
+      toast.error(message);
       setIsProcessing(false);
+
+      // Insufficient stock is a "change the basket and try again" error, so leave
+      // the buttons live. Anything else (permission, network, unmatched tender)
+      // gets latched: nothing was written, but the cashier should read the reason
+      // before firing a second attempt.
+      if (/insufficient stock|not stocked/i.test(message)) {
+        setStockErrors([message]);
+      } else {
+        setFailedAttempt(message);
+      }
     }
   };
 
@@ -190,6 +214,14 @@ export function PaymentModal({
     });
   };
 
+  // `upiTransactionId` is the bank UTR the cashier confirmed. It is deliberately
+  // not forwarded: ims_sales has no column for it, and it is already persisted on
+  // ims_upi_qr_payments.upi_transaction_id, linked back to this sale by
+  // transaction_ref. The consequence to be aware of is that the UPI audit report
+  // (reports-service.ts getUpiAuditReport) reads ims_sales, so it shows our
+  // internal ref rather than the bank's — reconciling against a bank statement
+  // needs the join to ims_upi_qr_payments. Left as-is today rather than adding a
+  // column mid-go-live.
   const handleUpiQrSuccess = (transactionRef: string, upiTransactionId: string) => {
     completePayment('upi_qr', {
       upi_qr_amount: total,
@@ -208,12 +240,30 @@ export function PaymentModal({
       return;
     }
 
+    // A UPI leg needs a QR and a confirmed UTR to be real money. Typing an amount
+    // into this box created an ims_sales row with upi_qr_amount > 0 and NO
+    // ims_upi_qr_payments row, no QR and no UTR — and the UPI audit report filters
+    // on .gt('upi_qr_amount', 0), so those phantom receipts showed up as UPI
+    // takings that no bank statement would ever match. Until the Mixed tab can
+    // launch the QR flow for its UPI portion, route UPI-inclusive payments through
+    // the UPI QR tab.
+    if (mixUpiQrNum > 0) {
+      toast.error(
+        'UPI in a split payment needs a QR code. Take the UPI part on the UPI QR tab, or use Cash / Card / GPay here.'
+      );
+      return;
+    }
+
     // Determine payment method
     const methods: ImsPaymentMethod[] = [];
     if (mixCashNum > 0) methods.push('cash');
     if (mixCardNum > 0) methods.push('card');
     if (mixGpayNum > 0) methods.push('gpay');
-    if (mixUpiQrNum > 0) methods.push('upi_qr');
+
+    if (methods.length === 0) {
+      toast.error('Enter at least one payment amount');
+      return;
+    }
 
     const paymentMethod: ImsPaymentMethod = methods.length === 1 ? methods[0] : 'mixed';
 
@@ -221,7 +271,9 @@ export function PaymentModal({
       cash_amount: mixCashNum || undefined,
       card_amount: mixCardNum || undefined,
       gpay_amount: mixGpayNum || undefined,
-      upi_qr_amount: mixUpiQrNum || undefined,
+      // Carried through so a split cash+GPay payment keeps its GPay reference —
+      // previously this handler dropped it, unlike handleGpayPay.
+      gpay_transaction_id: mixGpayNum > 0 ? gpayTxnId || undefined : undefined,
     });
   };
 
@@ -272,6 +324,40 @@ export function PaymentModal({
                 <li key={i}>{err}</li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {/* Latched failure — nothing was billed, but require an explicit
+            acknowledgement so a reflex second press cannot issue a duplicate
+            invoice number for the same basket. */}
+        {failedAttempt && (
+          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+              <AlertCircle className="h-4 w-4" />
+              Payment not recorded
+            </div>
+            <p className="text-xs text-destructive">{failedAttempt}</p>
+            <p className="text-xs text-muted-foreground">
+              Nothing was billed and no stock was deducted. The cart is intact.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setFailedAttempt(null)}
+              >
+                Try again
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => onOpenChange(false)}
+              >
+                Close
+              </Button>
+            </div>
           </div>
         )}
 
@@ -338,7 +424,7 @@ export function PaymentModal({
 
             <Button
               className="w-full"
-              disabled={isProcessing || cashNum < total}
+              disabled={isProcessing || !!failedAttempt || cashNum < total}
               onClick={handleCashPay}
             >
               {isProcessing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -360,7 +446,7 @@ export function PaymentModal({
 
             <Button
               className="w-full"
-              disabled={isProcessing}
+              disabled={isProcessing || !!failedAttempt}
               onClick={handleCardPay}
             >
               {isProcessing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -391,7 +477,7 @@ export function PaymentModal({
 
             <Button
               className="w-full"
-              disabled={isProcessing}
+              disabled={isProcessing || !!failedAttempt}
               onClick={handleGpayPay}
             >
               {isProcessing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
@@ -492,7 +578,7 @@ export function PaymentModal({
 
             <Button
               className="w-full"
-              disabled={isProcessing || Math.abs(mixRemaining) > 0.01}
+              disabled={isProcessing || !!failedAttempt || Math.abs(mixRemaining) > 0.01}
               onClick={handleMixedPay}
             >
               {isProcessing && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
