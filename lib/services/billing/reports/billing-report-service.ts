@@ -73,6 +73,30 @@ export class BillingReportService extends BaseService {
     return this.page(rows) as ReportPage<CollectionReport>;
   }
 
+  /**
+   * The FULL filtered collection set in one call (p_limit null), not one page.
+   *
+   * Backs the Collection tab's payment-mode totals, mode filter and search —
+   * none of which can be derived from a single 50-row page, and none of which
+   * the RPC accepts as parameters. Capped at the RPC's own 10,000 LIMIT;
+   * billing_receipts holds 2,821 rows today, so the whole set arrives.
+   * `truncated` says whether that cap was actually reached, so the UI can warn
+   * instead of quietly reporting partial money totals.
+   */
+  static async getCollectionFullSet(
+    filters: BillingReportFilters = {}
+  ): Promise<{ rows: CollectionReport[]; truncated: boolean }> {
+    const raw = await this.executeDashboardRPC<any[]>(
+      'get_billing_reports_collection',
+      { ...buildReportScope(filters), ...EXPORT_PAGE }
+    );
+    const list = raw ?? [];
+    return {
+      rows: list.map(({ total_count: _drop, ...rest }) => rest) as CollectionReport[],
+      truncated: list.length >= 10000,
+    };
+  }
+
   static async getInvoiceReport(
     filters: BillingReportFilters = {},
     page = 1,
