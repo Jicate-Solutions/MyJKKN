@@ -78,6 +78,13 @@ CREATE TABLE IF NOT EXISTS public.ims_gateway_payments (
     -- Rate-limits the live inquiry the POS poll makes, so N counters polling every
     -- few seconds cannot hammer Razorpay into a rate limit.
     last_inquiry_at        TIMESTAMPTZ,
+    -- Compare-and-swap lease held while the sale is being booked. Two polls (two
+    -- tabs, or a retry) can both see status='paid' AND sale_id IS NULL; without
+    -- claiming the row first, both would call ims_pos_checkout, deducting stock
+    -- twice and burning two invoice numbers before the unique index on
+    -- ims_sales(gateway_payment_id) caught the second link. The lease expires so a
+    -- crash mid-booking cannot strand the payment forever.
+    finalize_claimed_at    TIMESTAMPTZ,
     -- Set when the money is confirmed but booking the sale failed. The cashier is
     -- shown "payment received, completing sale" and a retry — never asked to take
     -- payment again.

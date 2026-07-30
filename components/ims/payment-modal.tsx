@@ -9,6 +9,7 @@ import {
   Layers,
   Loader2,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   Dialog,
@@ -25,6 +26,7 @@ import { toast } from 'sonner';
 
 import { CustomerSearch } from './customer-search';
 import { UpiQrPayment } from './upi-qr-payment';
+import { GatewayQrPayment } from './gateway-qr-payment';
 import { formatCurrencyINR } from '@/lib/utils/ims-receipt';
 import type { ImsPaymentMethod, ImsCustomerType, ImsSale } from '@/types/ims';
 import type { ImsCartItem } from '@/lib/stores/ims-cart-store';
@@ -56,7 +58,7 @@ interface PaymentModalProps {
   }) => Promise<ImsSale>;
 }
 
-type PaymentTab = 'cash' | 'card' | 'gpay' | 'upi_qr' | 'mixed';
+type PaymentTab = 'cash' | 'card' | 'gpay' | 'upi_qr' | 'upi_verified' | 'mixed';
 
 export function PaymentModal({
   open,
@@ -96,6 +98,7 @@ export function PaymentModal({
 
   // UPI QR state
   const [showQr, setShowQr] = useState(false);
+  const [showVerifiedQr, setShowVerifiedQr] = useState(false);
 
   // Mixed state
   const [mixCash, setMixCash] = useState('');
@@ -120,6 +123,7 @@ export function PaymentModal({
     { value: 'card', label: 'Card', icon: <CreditCard className="h-4 w-4" /> },
     { value: 'gpay', label: 'GPay', icon: <Smartphone className="h-4 w-4" /> },
     { value: 'upi_qr', label: 'UPI QR', icon: <QrCode className="h-4 w-4" /> },
+    { value: 'upi_verified', label: 'UPI (verified)', icon: <ShieldCheck className="h-4 w-4" /> },
     { value: 'mixed', label: 'Mixed', icon: <Layers className="h-4 w-4" /> },
   ];
 
@@ -367,9 +371,10 @@ export function PaymentModal({
           onValueChange={(v) => {
             setActiveTab(v as PaymentTab);
             setShowQr(false);
+            setShowVerifiedQr(false);
           }}
         >
-          <TabsList className="w-full grid grid-cols-5">
+          <TabsList className="w-full grid grid-cols-6">
             {tabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className="gap-1 text-xs">
                 {tab.icon}
@@ -505,6 +510,44 @@ export function PaymentModal({
                 customerName={customerName || undefined}
                 onSuccess={handleUpiQrSuccess}
                 onCancel={() => setShowQr(false)}
+              />
+            )}
+          </TabsContent>
+
+          {/* ── UPI (verified) ──
+              Razorpay issues the QR and confirms the credit itself, so nobody has
+              to type a reference number and be believed. Note this tab does NOT
+              call onCreateSale: by the time it reports success the server has
+              already booked the sale from the cart IT priced when the QR opened.
+              Routing it back through the browser would reopen the very gap this
+              closes. */}
+          <TabsContent value="upi_verified" className="space-y-4">
+            {!showVerifiedQr ? (
+              <div className="flex flex-col items-center gap-4 py-4">
+                <ShieldCheck className="h-12 w-12 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground text-center">
+                  Collect {formatCurrencyINR(total)} through the payment gateway.
+                  The customer scans and pays, and the payment is confirmed
+                  automatically — no reference number to type in.
+                </p>
+                <Button onClick={() => setShowVerifiedQr(true)}>
+                  Show QR
+                </Button>
+              </div>
+            ) : (
+              <GatewayQrPayment
+                storeId={storeId}
+                items={items}
+                customerType={customerType}
+                customerName={customerName}
+                customerPhone={customerPhone}
+                onPaid={(saleId) => {
+                  // The sale already exists. handleSaleComplete only reads .id and
+                  // re-fetches the rest, so this is all it needs.
+                  onSaleComplete({ id: saleId } as ImsSale);
+                  onOpenChange(false);
+                }}
+                onCancel={() => setShowVerifiedQr(false)}
               />
             )}
           </TabsContent>

@@ -315,4 +315,237 @@ export class ImsGatewayPaymentService {
       throw err;
     }
   }
+
+  /**
+   * What the POS screen polls.
+   *
+   * Does three things in order, and each is a genuine finalizer in its own right:
+   *
+   *   1. If the payment is still open, ASK RAZORPAY directly. The webhook is not
+   *      the only path to "paid" — it can be missed, misconfigured, or simply
+   *      unable to reach the host at all (nothing reaches localhost). Polling that
+   *      only read our own table would leave a paid customer staring at a pending
+   *      QR forever in development, and after any webhook outage in production.
+   *
+   *   2. If the money is confirmed but no sale exists yet, BOOK IT. This runs in
+   *      the cashier's session, which is why ims_pos_checkout's auth.uid() guard
+   *      needs no service-role bypass.
+   *
+   *   3. Report. `paid` is NOT the terminal state the UI waits for — `sale_id` is.
+   *      Stopping at paid would show a cashier "done" while the sale is still
+   *      being booked.
+   */
+  static async getStatus(paymentId: string, userId: string): Promise<GatewayPaymentStatus> {
+    const supabase = (await createServerSupabaseClient()) as any;
+
+    // Read through the caller's session: RLS scopes this to their institution, so
+    // one store cannot poll another's payments.
+    const { data: row, error } = await supabase
+      .from('ims_gateway_payments')
+      .select('*')
+      .eq('id', paymentId)
+      .maybeSingle();
+
+    if (error || !row) throw new Error('Payment not found');
+
+    let current = row;
+
+    // ── 1. Live inquiry ──────────────────────────────────────────────────────
+    const cooledDown =
+      !current.last_inquiry_at ||
+      Date.now() - new Date(current.last_inquiry_at).getTime() > INQUIRY_COOLDOWN_MS;
+
+    if (current.status === 'initiated' && current.razorpay_qr_code_id && cooledDown) {
+      current = await this.inquireAndMarkPaid(current);
+    }
+
+    // ── 2. Book the sale ─────────────────────────────────────────────────────
+    if (current.status === 'paid' && !current.sale_id) {
+      current = await this.finalize(current, supabase);
+    }
+
+    let saleNumber: string | null = null;
+    if (current.sale_id) {
+      const { data: sale } = await supabase
+        .from('ims_sales')
+        .select('sale_number')
+        .eq('id', current.sale_id)
+        .maybeSingle();
+      saleNumber = sale?.sale_number ?? null;
+    }
+
+    return {
+      id: current.id,
+      status: current.status,
+      amount: Number(current.amount),
+      sale_id: current.sale_id ?? null,
+      sale_number: saleNumber,
+      razorpay_payment_id: current.razorpay_payment_id ?? null,
+      expires_at: current.expires_at,
+      late_credit: !!current.late_credit,
+      finalize_error: current.finalize_error ?? null,
+    };
+  }
+
+  /** Ask Razorpay whether this QR has been credited, and record the answer. */
+  private static async inquireAndMarkPaid(row: any): Promise<any> {
+    const service = createServiceRoleClient() as any;
+    const stamp = { last_inquiry_at: new Date().toISOString() };
+
+    try {
+      const provider = (await getPaymentProvider('ims', {
+        institutionId: row.institution_id,
+        feeHead: IMS_POS_FEE_HEAD,
+      })) as RazorpayProvider;
+
+      const payments = await provider.getQrCodePayments(row.razorpay_qr_code_id);
+      const captured = payments.find((p) => p.status === 'captured');
+
+      if (!captured) {
+        // Not paid yet. Expire it locally once past its window — but note this is
+        // NOT final: a later credit is still honoured (see qr_code.credited).
+        const expired = new Date(row.expires_at).getTime() < Date.now();
+        const patch = expired ? { ...stamp, status: 'expired' } : stamp;
+        await service.from('ims_gateway_payments').update(patch).eq('id', row.id);
+        return { ...row, ...patch };
+      }
+
+      const capturedPaise = Number(captured.amount ?? 0);
+
+      // Same rule the webhook applies: the amount actually captured must equal the
+      // bill, or a human decides. Booking a sale for a different amount than was
+      // collected is worse than making someone look at it.
+      if (capturedPaise !== Number(row.amount_paise)) {
+        const patch = {
+          ...stamp,
+          status: 'amount_mismatch',
+          razorpay_payment_id: captured.id,
+          captured_amount_paise: capturedPaise,
+        };
+        await service.from('ims_gateway_payments').update(patch).eq('id', row.id);
+        logger.error('ims/gateway-payment', 'captured amount does not match the bill', {
+          id: row.id, expectedPaise: row.amount_paise, capturedPaise,
+        });
+        return { ...row, ...patch };
+      }
+
+      const patch = {
+        ...stamp,
+        status: 'paid',
+        razorpay_payment_id: captured.id,
+        captured_amount_paise: capturedPaise,
+        paid_at: new Date().toISOString(),
+        late_credit: row.status === 'expired',
+      };
+      // Guarded so this cannot overwrite a status the webhook already resolved.
+      await service
+        .from('ims_gateway_payments')
+        .update(patch)
+        .eq('id', row.id)
+        .in('status', ['initiated', 'expired']);
+
+      return { ...row, ...patch };
+    } catch (err) {
+      // An inquiry failure must not break the cashier's screen — the webhook may
+      // still resolve it, and the next poll will try again.
+      logger.warn('ims/gateway-payment', 'QR inquiry failed (non-fatal)', err);
+      await service.from('ims_gateway_payments').update(stamp).eq('id', row.id);
+      return { ...row, ...stamp };
+    }
+  }
+
+  /**
+   * Book the sale for a confirmed payment.
+   *
+   * Claims the row first: two polls can both observe paid + no sale, and without a
+   * claim both would call ims_pos_checkout — deducting stock twice and burning two
+   * invoice numbers before the unique index caught the second link.
+   */
+  private static async finalize(row: any, sessionClient: any): Promise<any> {
+    const service = createServiceRoleClient() as any;
+
+    const { data: claimed } = await service
+      .from('ims_gateway_payments')
+      .update({ finalize_claimed_at: new Date().toISOString() })
+      .eq('id', row.id)
+      .eq('status', 'paid')
+      .is('sale_id', null)
+      .or(`finalize_claimed_at.is.null,finalize_claimed_at.lt.${new Date(Date.now() - 120_000).toISOString()}`)
+      .select()
+      .maybeSingle();
+
+    // Someone else owns it, or it is already booked. Re-read and report.
+    if (!claimed) {
+      const { data: fresh } = await service
+        .from('ims_gateway_payments').select('*').eq('id', row.id).maybeSingle();
+      return fresh ?? row;
+    }
+
+    const snapshot = row.cart_snapshot;
+
+    try {
+      // Booked from the SERVER-PRICED snapshot, never from anything the browser
+      // sends now — that is what keeps the amount charged and the amount booked
+      // the same number.
+      const { data: result, error: rpcError } = await sessionClient.rpc('ims_pos_checkout', {
+        p_store_id:               row.store_id,
+        p_institution_id:         row.institution_id,
+        p_customer_type:          row.customer_type,
+        p_customer_name:          row.customer_name,
+        p_customer_id:            null,
+        p_payment_method:         'upi_qr',
+        p_cash_amount:            0,
+        p_gpay_amount:            0,
+        p_card_amount:            0,
+        p_upi_qr_amount:          Number(row.amount),
+        p_gpay_transaction_id:    null,
+        p_upi_qr_transaction_ref: row.transaction_ref,
+        p_additional_discount:    0,
+        p_lines: (snapshot?.lines ?? []).map((l: any) => ({
+          item_id:          l.item_id,
+          quantity:         l.quantity,
+          unit_price:       l.unit_price,
+          cost_price:       l.cost_price,
+          discount_percent: l.discount_percent,
+        })),
+      });
+
+      if (rpcError) throw new Error(rpcError.message || 'Checkout failed');
+
+      const saleId = result?.sale_id;
+      if (!saleId) throw new Error('Checkout returned no sale');
+
+      // Link both ways. ims_sales.gateway_payment_id is what marks this sale as
+      // gateway-VERIFIED, and its unique index is the hard floor against a second
+      // sale for the same payment.
+      await service.from('ims_sales').update({ gateway_payment_id: row.id }).eq('id', saleId);
+
+      const { data: done } = await service
+        .from('ims_gateway_payments')
+        .update({
+          sale_id: saleId,
+          finalize_claimed_at: null,
+          finalize_error: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id)
+        .select()
+        .maybeSingle();
+
+      return done ?? { ...row, sale_id: saleId };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Release the claim and record why. The row stays 'paid' — the money IS ours,
+      // so the cashier must never be told to collect again. The screen shows
+      // "payment received, completing sale" with a retry.
+      await service
+        .from('ims_gateway_payments')
+        .update({ finalize_claimed_at: null, finalize_error: message })
+        .eq('id', row.id);
+      logger.error('ims/gateway-payment', 'booking the sale failed after payment', {
+        id: row.id, error: message,
+      });
+      return { ...row, finalize_error: message };
+    }
+  }
 }
