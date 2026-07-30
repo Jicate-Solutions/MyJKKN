@@ -256,7 +256,8 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_id uuid;
+  v_id            uuid;
+  v_institution   uuid;
 BEGIN
   IF p_standing_band NOT IN ('thriving','steady','needs_support','needs_urgent_support') THEN
     RAISE EXCEPTION 'fn_learner_360_record_verdict: bad standing_band %', p_standing_band
@@ -267,11 +268,31 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  -- The tenant is DERIVED from the learner, never taken on trust. p_institution_id
+  -- is only an assertion the caller must get right. Without this the FK to
+  -- institutions(id) is the only constraint, and nothing binds the learner to
+  -- that tenant — so a caller controlling the pair could file a learner-facing
+  -- verdict AND a leadership ranking note about a learner into a DIFFERENT
+  -- college's leadership view. A SECURITY DEFINER writer must not accept a
+  -- caller-supplied scope key it can resolve itself.
+  SELECT lp.institution_id INTO v_institution
+    FROM public.learners_profiles lp
+   WHERE lp.id = p_learner_id;
+
+  IF v_institution IS NULL THEN
+    RAISE EXCEPTION 'fn_learner_360_record_verdict: unknown learner %', p_learner_id
+      USING ERRCODE = '23503';
+  END IF;
+  IF p_institution_id IS NOT NULL AND p_institution_id <> v_institution THEN
+    RAISE EXCEPTION 'fn_learner_360_record_verdict: institution % does not own learner %',
+      p_institution_id, p_learner_id USING ERRCODE = '42501';
+  END IF;
+
   INSERT INTO public.learner_360_verdicts AS v
     (learner_id, institution_id, verdict_date, standing_band, standing_narrative,
      next_actions, model)
   VALUES
-    (p_learner_id, p_institution_id, p_verdict_date, p_standing_band,
+    (p_learner_id, v_institution, p_verdict_date, p_standing_band,
      btrim(p_standing_narrative), COALESCE(p_next_actions, ARRAY[]::text[]), p_model)
   ON CONFLICT (learner_id, verdict_date) DO UPDATE SET
     institution_id     = EXCLUDED.institution_id,
@@ -287,7 +308,7 @@ BEGIN
   -- yesterday's ranking language attached to today's narrative.
   INSERT INTO public.learner_360_verdicts_admin AS a
     (verdict_id, institution_id, contribution_summary, value_rank_note)
-  VALUES (v_id, p_institution_id, p_contribution_summary, p_value_rank_note)
+  VALUES (v_id, v_institution, p_contribution_summary, p_value_rank_note)
   ON CONFLICT (verdict_id) DO UPDATE SET
     institution_id       = EXCLUDED.institution_id,
     contribution_summary = EXCLUDED.contribution_summary,

@@ -67,9 +67,13 @@ const MODEL_TAG = 'sonnet';
 const LEARNERS_PER_JOB = 10;
 /** Cohorts enqueued per run — a steady nightly drip, risk-tier first. */
 const MAX_JOBS_PER_RUN = 20;
+/** The real nightly budget: LEARNERS, not jobs (see the submit loop). */
+const MAX_LEARNERS_PER_RUN = LEARNERS_PER_JOB * MAX_JOBS_PER_RUN;
 const COLLECT_CAP = 50;
 /** Upper bound on the day's risk rows pulled per run (prod carries 4,342). */
 const RISK_FETCH_CAP = 10000;
+/** Upper bound on the freshness window read (30 days x ~200/night ≈ 6,000). */
+const FRESHNESS_FETCH_CAP = 50000;
 /**
  * Below this many learners a cohort has no meaningful peer group, so the
  * comparative admin note is suppressed rather than fabricated against 1-2 peers.
@@ -214,9 +218,25 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // 2) SUBMIT — build cohorts of learners with no verdict for today.
+  // 2) SUBMIT — build cohorts of learners due a verdict.
   const today = new Date().toISOString().slice(0, 10);
+
+  // Which scoring day to read. NOT blindly the UTC date: this runs 06:37 IST
+  // (01:07 UTC), so if the upstream engines stamp their assessment_date the
+  // other side of UTC midnight — or simply run late — `.eq(assessment_date,
+  // today)` returns zero rows and the whole night is skipped while the route
+  // still answers ok:true. Reading the newest assessment_date actually present
+  // makes the loop follow the writer instead of assuming its clock.
+  let scoringDate = today;
+  const { data: latestRisk } = await admin
+    .from('learner_risk_assessments')
+    .select('assessment_date')
+    .order('assessment_date', { ascending: false })
+    .limit(1);
+  const newest = (latestRisk ?? [])[0]?.assessment_date as string | undefined;
+  if (newest) scoringDate = newest;
   let enqueued = 0;
+  let learnersEnqueued = 0;
   let skippedInflight = 0;
   let candidates = 0;
   let submitError: string | null = null;
@@ -232,7 +252,7 @@ export async function GET(request: NextRequest) {
     .select(
       'learner_id, institution_id, composite_risk_score, risk_tier, confidence, dimension_scores, risk_factors, recommended_actions, trend_direction',
     )
-    .eq('assessment_date', today)
+    .eq('assessment_date', scoringDate)
     .order('composite_risk_score', { ascending: false })
     .limit(RISK_FETCH_CAP);
 
@@ -246,10 +266,17 @@ export async function GET(request: NextRequest) {
     // Who already has a FRESH verdict. Read the whole longest window once and
     // keep each learner's most recent verdict date; freshness is then judged
     // per risk tier below.
+    // Ordered + explicitly bounded, same as the risk query. Truncation here can
+    // only ever mis-mark a learner NOT-fresh (never wrongly fresh), but that
+    // still costs a re-verdict and crowds the lower-risk tail out of its window,
+    // so newest-first ordering makes any cap drop the OLDEST verdicts — the ones
+    // nearest to expiring anyway.
     const { data: doneRows } = await admin
       .from('learner_360_verdicts')
       .select('learner_id, verdict_date')
-      .gte('verdict_date', dayStamp(MAX_REFRESH_DAYS * DAY_MS));
+      .gte('verdict_date', dayStamp(MAX_REFRESH_DAYS * DAY_MS))
+      .order('verdict_date', { ascending: false })
+      .limit(FRESHNESS_FETCH_CAP);
     const latestByLearner = new Map<string, string>();
     for (const row of (doneRows ?? []) as Array<{
       learner_id: string;
@@ -289,7 +316,13 @@ export async function GET(request: NextRequest) {
         .select(
           'learner_id, contribution_score, contribution_tier, dimension_scores, highlights',
         )
-        .in('learner_id', ids);
+        .in('learner_id', ids)
+        // Oldest first so a later row overwrites an earlier one in the Map and
+        // LATEST wins. This table holds exactly one row per learner today (4,342
+        // rows / 4,342 learners), but the sibling risk table accumulates history
+        // — if this one ever starts to, last-row-wins would otherwise attach an
+        // arbitrary stale score.
+        .order('assessment_date', { ascending: true });
       const contribBy = new Map<string, ContribRow>(
         ((contribRows ?? []) as unknown as ContribRow[]).map((c) => [c.learner_id, c]),
       );
@@ -310,9 +343,14 @@ export async function GET(request: NextRequest) {
         byInstitution.set(r.institution_id, list);
       }
 
+      // Budget is counted in LEARNERS, not jobs. Cohorts never cross an
+      // institution, so a tenant with a trailing partial chunk (say 3 learners)
+      // would otherwise burn a whole job slot and real throughput would fall
+      // below the 200/night the ~22-night sweep depends on — starving exactly
+      // the lower-risk tail this loop is meant to eventually reach.
       outer: for (const [institutionId, list] of byInstitution.entries()) {
         for (let start = 0; start < list.length; start += LEARNERS_PER_JOB) {
-          if (enqueued >= MAX_JOBS_PER_RUN) break outer;
+          if (learnersEnqueued >= MAX_LEARNERS_PER_RUN) break outer;
           const chunk = list.slice(start, start + LEARNERS_PER_JOB);
 
           const labelMap: Record<string, string> = {};
@@ -360,6 +398,7 @@ export async function GET(request: NextRequest) {
           });
           if (res.ok) {
             enqueued++;
+            learnersEnqueued += chunk.length;
           } else {
             // Explicit Extract rather than relying on the `ok` discriminant:
             // this repo compiles with strict:false, so boolean-literal
