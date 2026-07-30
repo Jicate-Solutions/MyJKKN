@@ -214,7 +214,7 @@ export const CAC_METRIC_CATALOG: readonly CacCategory[] = [
         substrate: 'measured',
         scope: 'both',
         evidence:
-          'events where event_type is one of sports, sports_tournament, marathon, joined to events_registrations. 7 institutions have such events. Registrations are heavily concentrated: almost every one of them sits against a single marathon, so the registration total says little about broad participation.',
+          'HOSTED: events of type sports, sports_tournament or marathon joined to events_registrations — 7 institutions have such events, and registrations are so concentrated on one marathon that the total says little about participation. OUTBOUND: health_sports_achievements at event_level above the institution (inter_college, district, state, national, international), verified counted apart from unverified — a tournament our learners travel to creates no events row, so without this half it earns nothing. That table held 1 row as of 2026-07-30, unverified: the route is open, the figure is not yet on this grid. Read: lib/services/accreditation/outbound-participation.ts.',
       },
       {
         id: 'holistic-cultural',
@@ -223,7 +223,7 @@ export const CAC_METRIC_CATALOG: readonly CacCategory[] = [
         substrate: 'measured',
         scope: 'both',
         evidence:
-          'events where event_type is cultural, joined to events_registrations. One institution only, and nothing is registered against what it has — a real but very small number.',
+          'HOSTED: events of type cultural joined to events_registrations. One institution only, and nothing is registered against what it has — a real but very small number. OUTBOUND: health_sports_achievements carries a category column, widened on 2026-07-26 to hold cultural awards, read at event_level above the institution with verified split from unverified. As of 2026-07-30 that table holds one row and its category is sports, so nothing outbound is recorded for cultural activity yet.',
       },
       {
         id: 'holistic-leadership',
