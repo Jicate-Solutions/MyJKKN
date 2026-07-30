@@ -193,7 +193,7 @@ export class PayslipGenerator {
         result.errors.push({
           staff_id: staff.id,
           name,
-          reason: 'HR staff record exists but designation and cadre are both unset',
+          reason: 'HR record exists but designation and cadre are both unset',
         });
         continue;
       }
