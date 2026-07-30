@@ -52,6 +52,12 @@ export interface ManagedImprovementArea {
   analyst_view_count: number;
   rotation_slot_count: number;
   rotation_cycle_dept_count: number;
+  /**
+   * Team members currently holding a role on this board. fn_improvement_area_delete
+   * refuses on this too, so it has to be counted here or the screen offers a delete
+   * the server will reject.
+   */
+  holder_count: number;
   /** Sum of every count above — 0 means the board is safe to delete outright. */
   dependent_count: number;
 }
@@ -74,7 +80,8 @@ export function dependentBreakdown(
     { label: 'analyst assignment', count: area.posting_count },
     { label: 'analyst view', count: area.analyst_view_count },
     { label: 'rotation slot', count: area.rotation_slot_count },
-    { label: 'rotation cycle entry', count: area.rotation_cycle_dept_count }
+    { label: 'rotation cycle entry', count: area.rotation_cycle_dept_count },
+    { label: 'assigned role holder', count: area.holder_count }
   ].filter((item) => item.count > 0);
 }
 
@@ -115,6 +122,7 @@ function normaliseArea(row: any): ManagedImprovementArea {
     analyst_view_count: num(row.analyst_view_count),
     rotation_slot_count: num(row.rotation_slot_count),
     rotation_cycle_dept_count: num(row.rotation_cycle_dept_count),
+    holder_count: num(row.holder_count),
     dependent_count: num(row.dependent_count)
   };
 }
