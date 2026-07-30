@@ -19,6 +19,7 @@ import {
   setAchievementVerified,
   type VerificationRow,
 } from '../_actions/verify-achievement';
+import { getCertificateLink } from '../_actions/certificate-link';
 import { parseDescription } from '../_lib/outbound';
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -47,6 +48,63 @@ function formatDate(iso: string): string {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/**
+ * Certificates are never handed to the browser as part of the queue — the row
+ * only says whether one exists. Asking for it calls the server action, which
+ * re-checks the D7 visibility rule and mints a link that lives five minutes.
+ *
+ * The fetched link is then rendered as a real anchor for the officer to click,
+ * rather than opened with window.open() after the await: a pop-up triggered from
+ * a resolved promise is blocked often enough that the certificate would silently
+ * fail to open for some reviewers.
+ */
+function CertificateLink({ achievementId }: { achievementId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function request() {
+    setLoading(true);
+    setError(null);
+    const res = await getCertificateLink(achievementId);
+    if (!res.ok || !res.url) {
+      setError(res.error ?? 'Could not open the certificate.');
+    } else {
+      setUrl(res.url);
+    }
+    setLoading(false);
+  }
+
+  if (error) {
+    return <span className="text-[11px] text-red-600 max-w-[14rem]">{error}</span>;
+  }
+
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1"
+      >
+        Open certificate
+        <ExternalLink className="h-3 w-3" />
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={request}
+      disabled={loading}
+      className="text-[11px] text-indigo-600 hover:underline disabled:text-gray-400"
+    >
+      {loading ? 'Preparing…' : 'View certificate'}
+    </button>
+  );
 }
 
 export function VerificationPanel() {
@@ -179,7 +237,7 @@ function QueueSection({
       ) : (
         <ul className="space-y-2">
           {rows.map((row) => {
-            const { host, notes } = parseDescription(row.description);
+            const { host, isReserve, notes } = parseDescription(row.description);
             return (
               <li
                 key={row.id}
@@ -207,22 +265,23 @@ function QueueSection({
                   {host && (
                     <p className="text-[11px] text-gray-500">Hosted by {host}</p>
                   )}
+                  {/* D11: a reserve travelled with the squad and never played.
+                      The tick still counts them as having taken part — but the
+                      officer ticking it sees, before they tick, that this person
+                      did not compete. */}
+                  {isReserve && (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-slate-700 bg-slate-50 border-slate-200 inline-block">
+                      Reserve — travelled, did not play
+                    </span>
+                  )}
                   {notes && (
                     <p className="text-[11px] text-gray-400 line-clamp-2">{notes}</p>
                   )}
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  {row.certificate_url ? (
-                    <a
-                      href={row.certificate_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-indigo-600 hover:underline flex items-center gap-1"
-                    >
-                      Certificate
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
+                  {row.has_certificate ? (
+                    <CertificateLink achievementId={row.id} />
                   ) : (
                     <span className="text-[11px] text-gray-400">No certificate</span>
                   )}

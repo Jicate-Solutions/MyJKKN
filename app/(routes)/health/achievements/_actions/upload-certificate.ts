@@ -2,7 +2,7 @@
 
 // app/(routes)/health/achievements/_actions/upload-certificate.ts
 // ============================================================================
-// Store a certificate scan and hand back a link the IQAC team can open.
+// Store a certificate scan and hand back a POINTER to it — never a link.
 //
 // WHY THE UPLOAD IS SERVER-SIDE
 //   Probed against production before writing this: a learner session uploading
@@ -14,16 +14,31 @@
 //   so the file is streamed through this action and written with the
 //   service-role client instead. Works the day it deploys.
 //
-//   The bucket, the folder-prefix path shape and the 1-year signed URL are all
-//   the repo's existing conventions (cdc-docs; hostel-vacate-documents'
-//   createSignedUrl-and-store), not new ones. cdc-docs is private, so a signed
-//   URL — never getPublicUrl — is what actually resolves.
+// WHY A PATH AND NOT A SIGNED URL  (fixes two defects found reviewing PR #2650)
+//   The first cut of this action stored a ONE-YEAR signed URL in
+//   certificate_url. That was wrong twice over:
+//
+//     * EXPOSURE. A signed URL is a bearer token — whoever holds the string can
+//       open the document, signed in or not. It was written into a row that
+//       health_sports_achievements_public served to EVERY authenticated user the
+//       moment IQAC ticked it (USING (verified = true), no institution or role
+//       predicate). One learner's medical-college certificate was one query away
+//       from anybody on the platform.
+//     * DURABILITY. The link died at +365 days, for a record whose entire
+//       purpose is accreditation evidence — NAAC cycles run five years. The
+//       evidence would have rotted exactly when a reviewer came looking.
+//
+//   Storing the storage PATH fixes both. A path is not a credential, so the row
+//   is safe to hold; and it never expires, so the evidence outlives any NAAC
+//   cycle. A short-lived signed URL is minted on demand, per view, by
+//   _actions/certificate-link.ts — and only for a viewer who passes the D7
+//   visibility rule.
 //
 // GATE
-//   Any signed-in user may upload, and the returned link is only ever written to
-//   their own achievement row (RLS self-policy). The path is namespaced by the
-//   uploader's auth id, so every stored object carries its provenance. Size and
-//   MIME are capped here, server-side, not only in the picker.
+//   Any signed-in user may upload, and the returned pointer is only ever written
+//   to their own achievement row (RLS self-policy). The path is namespaced by
+//   the uploader's auth id, so every stored object carries its provenance. Size
+//   and MIME are capped here, server-side, not only in the picker.
 // ============================================================================
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
@@ -31,7 +46,6 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 const STORAGE_BUCKET = 'cdc-docs';
 const PATH_PREFIX = 'sports-achievement-certificates';
 const MAX_BYTES = 5 * 1024 * 1024;
-const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 365;
 const ALLOWED_MIME = [
   'application/pdf',
   'image/png',
@@ -42,7 +56,12 @@ const ALLOWED_MIME = [
 
 export interface UploadCertificateResult {
   ok: boolean;
-  url?: string;
+  /**
+   * Storage PATH of the stored scan — deliberately not an openable link. Written
+   * straight into certificate_url; resolved to a short-lived signed URL at read
+   * time by _actions/certificate-link.ts.
+   */
+  path?: string;
   error?: string;
 }
 
@@ -91,13 +110,8 @@ export async function uploadCertificate(
     return { ok: false, error: `Upload failed: ${upErr.message}` };
   }
 
-  const { data: signed, error: signErr } = await admin.storage
-    .from(STORAGE_BUCKET)
-    .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
-  if (signErr || !signed?.signedUrl) {
-    // The file is stored; hand back the path so the record still points at it.
-    return { ok: true, url: path };
-  }
-
-  return { ok: true, url: signed.signedUrl };
+  // The pointer, and only the pointer. No link is minted here, on purpose — see
+  // the header. Nothing that lands in certificate_url can be redeemed by
+  // whoever happens to read the row.
+  return { ok: true, path };
 }

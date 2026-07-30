@@ -5,10 +5,12 @@
 // Certificate evidence picker for an achievement.
 //
 // The file is handed to the uploadCertificate server action, which stores it in
-// the repo's existing learner-document bucket (cdc-docs) and returns a 1-year
-// signed URL — see that action for why the upload cannot run from the browser
-// (production storage RLS refuses a learner session) and why it is signed rather
-// than "public".
+// the repo's existing learner-document bucket (cdc-docs) and returns the storage
+// PATH — never an openable link. See that action for why the upload cannot run
+// from the browser (production storage RLS refuses a learner session) and why a
+// stored link would have been both an exposure and a document that expires after
+// a year. The link is minted per view, short-lived, by the certificate-link
+// action, for viewers who pass the D7 visibility rule.
 //
 // The typed-URL input stays available beside it: a certificate that already
 // lives in Drive or in a mail thread is still evidence, and if an upload is ever
@@ -25,9 +27,12 @@ import { uploadCertificate } from '../_actions/upload-certificate';
 const MAX_BYTES = 5 * 1024 * 1024;
 
 interface CertificateUploadProps {
-  /** Current certificate_url value (uploaded or typed). */
+  /**
+   * Current certificate_url value: either a storage PATH written by the upload
+   * action, or a link the learner pasted. Never a link this component minted.
+   */
   value: string;
-  onChange: (url: string) => void;
+  onChange: (pointer: string) => void;
   disabled?: boolean;
 }
 
@@ -56,11 +61,11 @@ export function CertificateUpload({
       const body = new FormData();
       body.append('file', file);
       const res = await uploadCertificate(body);
-      if (!res.ok || !res.url) {
+      if (!res.ok || !res.path) {
         setError(res.error ?? 'Upload failed. Paste a link to the certificate instead.');
         return;
       }
-      onChange(res.url);
+      onChange(res.path);
       setUploadedName(file.name);
     } catch (err) {
       setError(

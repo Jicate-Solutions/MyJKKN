@@ -52,7 +52,13 @@ export interface VerificationRow {
   event_level: string;
   achievement_type: string;
   description: string | null;
-  certificate_url: string | null;
+  /**
+   * Whether a certificate is attached — deliberately NOT the pointer itself. The
+   * queue never ships a certificate reference to the browser; opening one goes
+   * through getCertificateLink, which re-checks D7 and mints a short-lived
+   * signed URL for that one viewing.
+   */
+  has_certificate: boolean;
   verified: boolean;
   /** True when this row belongs to the acting user — they may never verify it. */
   is_own: boolean;
@@ -174,7 +180,7 @@ export async function loadVerificationQueue(): Promise<VerificationQueueResult> 
       event_level: r.event_level,
       achievement_type: r.achievement_type,
       description: r.description ?? null,
-      certificate_url: r.certificate_url ?? null,
+      has_certificate: Boolean(r.certificate_url),
       verified: Boolean(r.verified),
       is_own: Boolean(actor.ownLearnerId) && r.learner_id === actor.ownLearnerId,
     })),
@@ -186,13 +192,13 @@ export async function loadVerificationQueue(): Promise<VerificationQueueResult> 
  * verify and clears it on un-verify, so the audit trail never points at someone
  * who did not make the current decision.
  *
- * Migration 20260726114500 describes verified rows fanning out into
- * quality_evidence_mappings as NAAC 8.3 evidence
- * (emit_learner_achievement_evidence), withdrawn again on un-verify. Measured on
- * production 2026-07-30, a verify→un-verify round trip through this action
- * produced NO mapping row even though metric 8.3 is seeded and the learner has an
- * institution — so treat that automatic fan-out as unconfirmed rather than as a
- * promise this UI makes. Either way the action is reversible by design.
+ * Verifying a row also emits NAAC 8.3 evidence into quality_evidence_mappings,
+ * via the trg_hsa_evidence_fanout trigger from migration 20260726114500 — and
+ * withdraws it again on un-verify. An earlier round of this PR reported that
+ * fan-out as broken; that was a false alarm. Re-measured on production
+ * 2026-07-30 inside BEGIN..ROLLBACK: the trigger is installed and enabled
+ * (AFTER INSERT OR UPDATE, tgenabled='O') and inserting a verified row produced
+ * exactly one mapping — NAAC 8.3, period AY 2026-27, is_auto=true.
  */
 export async function setAchievementVerified(
   id: string,

@@ -198,9 +198,10 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
   );
   const style = MEDAL_CARD_STYLE[achievement.achievement_type];
   const levelInfo = LEVEL_BADGE[achievement.event_level];
-  // The organiser of an outbound (travelled-to) event lives in the first line of
-  // description — see _lib/outbound.ts for why it is not a column.
-  const { host } = parseDescription(achievement.description);
+  // The organiser of an outbound (travelled-to) event, and the D11 reserve flag,
+  // live in the structured leading lines of description — see _lib/outbound.ts
+  // for why neither is a column.
+  const { host, isReserve } = parseDescription(achievement.description);
 
   return (
     <div
@@ -250,6 +251,15 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
       <p className="text-xs font-medium text-gray-500">
         {typeInfo?.label}
       </p>
+
+      {/* D11: a reserve counts as having taken part — the headcount stays true —
+          but the card says plainly that they did not play, so this row can never
+          be read later as having competed. */}
+      {isReserve && (
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full border text-slate-700 bg-slate-50 border-slate-200 self-start">
+          Reserve — travelled, did not play
+        </span>
+      )}
 
       {/* Verification state, stated plainly: an unverified entry is a claim the
           IQAC team has not confirmed, and must never read as proven evidence. */}
@@ -353,10 +363,19 @@ function AddAchievementForm({
   const [hostInstitution, setHostInstitution] = useState('');
   const [level, setLevel] = useState<SportLevel | ''>('');
   const [achievementType, setAchievementType] = useState<AchievementType | ''>('');
+  const [isReserve, setIsReserve] = useState(false);
   const [description, setDescription] = useState('');
-  const [certificateUrl, setCertificateUrl] = useState('');
+  const [certificatePointer, setCertificatePointer] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // D11: a reserve travelled with the squad and did not play, so the honest
+  // record is participation. Forcing the type here (rather than trusting the
+  // picker) is what stops a reserve ever being written as a medal winner.
+  function handleReserveChange(next: boolean) {
+    setIsReserve(next);
+    if (next) setAchievementType('participation');
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -380,10 +399,16 @@ function AddAchievementForm({
       await HealthSportsService.addAchievement(learnerId, {
         achievement_date: date,
         event_name: eventName,
+        // D11 again, at the write itself: a reserve is stored as participation
+        // whatever the picker last held.
+        achievement_type: (isReserve
+          ? 'participation'
+          : achievementType) as AchievementType,
         event_level: level as SportLevel,
-        achievement_type: achievementType as AchievementType,
-        description: composeDescription(hostInstitution, description),
-        certificate_url: certificateUrl || undefined,
+        description: composeDescription(hostInstitution, description, isReserve),
+        // Either a storage PATH from the upload action or a link the learner
+        // pasted — never a link this page minted. See _actions/upload-certificate.ts.
+        certificate_url: certificatePointer || undefined,
         // Never self-verified: only the accreditation / IQAC team may set this,
         // through the server action in _actions/verify-achievement.ts.
         verified: false,
@@ -403,8 +428,9 @@ function AddAchievementForm({
       setHostInstitution('');
       setLevel('');
       setAchievementType('');
+      setIsReserve(false);
       setDescription('');
-      setCertificateUrl('');
+      setCertificatePointer('');
       onSuccess();
     } catch (err) {
       const msg =
@@ -550,6 +576,7 @@ function AddAchievementForm({
               <Select
                 value={achievementType}
                 onValueChange={(v) => setAchievementType(v as AchievementType)}
+                disabled={isReserve}
               >
                 <SelectTrigger className="h-9 bg-white">
                   <SelectValue placeholder="Select type" />
@@ -565,6 +592,25 @@ function AddAchievementForm({
             </div>
           </div>
 
+          {/* D11: reserve / bench learners COUNT, but are marked as such. */}
+          <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isReserve}
+              onChange={(e) => handleReserveChange(e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-amber-600"
+            />
+            <span className="text-xs text-gray-700">
+              <span className="font-medium">
+                Reserve — travelled with the squad but did not play
+              </span>
+              <span className="block text-[11px] text-gray-500 mt-0.5">
+                You still count as having taken part, and the entry says plainly
+                that you did not compete. Recorded as Participation.
+              </span>
+            </span>
+          </label>
+
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-gray-600">
               Description (optional)
@@ -578,8 +624,8 @@ function AddAchievementForm({
           </div>
 
           <CertificateUpload
-            value={certificateUrl}
-            onChange={setCertificateUrl}
+            value={certificatePointer}
+            onChange={setCertificatePointer}
             disabled={saving}
           />
 
