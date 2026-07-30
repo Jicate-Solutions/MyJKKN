@@ -322,14 +322,31 @@ export function AnalyticsClient({ userId }: AnalyticsClientProps) {
 
   const canManage = can('improvement.board.manage');
   const canView = can('improvement.ideas.view');
+  // The officers who act on a department playbook from this page — assigning role
+  // holders is an institution-wide action held under its own permission, separate
+  // from managing the board. Without them the page was reachable only because
+  // improvement.board.manage happens to be granted to the CAO and the Executive
+  // Administrative Officers, and neither is a board manager: revoking it for the
+  // right reason would lock all three out of the page they are meant to use.
+  //
+  // improvement.area_policy.approve is registered and granted by PR #2598 (department
+  // policy as a fourth artifact). Naming it here is deliberate: this is an OR, so
+  // until that lands the clause is simply false and nobody's access changes, and once
+  // it lands a policy approver reaches this page without a follow-up change here.
+  const canActAsOfficer =
+    can('improvement.area_role.assign') || can('improvement.area_policy.approve');
 
-  if (!canView && !canManage) return <NoAccessPanel />;
+  if (!canView && !canManage && !canActAsOfficer) return <NoAccessPanel />;
 
   // A board manager / MBA Faculty sees a department PICKER — they can read ANY
   // department's analytics (financial views included), because the delivery RPC
   // bypasses the posting gate and returns money views for managers. An MBA
   // Associate without manage rights keeps the "my assigned departments" view.
-  if (canManage) return <ManagerAnalyticsBoard />;
+  //
+  // An officer must land here too. The board below it is scoped to the viewer's own
+  // MBA postings, and an officer has none — widening only the gate above would let
+  // them in and then show them an empty page.
+  if (canManage || canActAsOfficer) return <ManagerAnalyticsBoard />;
 
   return <AnalyticsBoard userId={userId} />;
 }
