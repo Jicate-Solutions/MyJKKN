@@ -1081,7 +1081,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
                 </SelectContent>
               </Select>
               <FormDescription>
-                The regulation under which the student is admitted
+                The regulation under which the learner is admitted
               </FormDescription>
               <FormMessage />
             </FormItem>
