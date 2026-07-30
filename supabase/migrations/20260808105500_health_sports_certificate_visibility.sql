@@ -1,5 +1,5 @@
 -- ============================================================================
--- Migration: 20260808110000_health_sports_certificate_visibility.sql
+-- Migration: 20260808105500_health_sports_certificate_visibility.sql
 -- Date:      2026-07-30
 -- Module:    health / sports achievements  (Director decision D7)
 --

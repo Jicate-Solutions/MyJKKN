@@ -23,7 +23,7 @@
 // WHY THE RULE IS WRITTEN TWICE
 //   The same rule lives in SQL as fn_can_view_learner_achievement, behind the
 //   health_sports_achievements_public policy (migration
-//   20260808110000_health_sports_certificate_visibility.sql). That migration is
+//   20260808105500_health_sports_certificate_visibility.sql). That migration is
 //   Director-gated and is NOT applied by merge or deploy, so this action cannot
 //   depend on it existing: it evaluates the rule itself, from primitives that
 //   are live in production today. The migration then closes the same door at the

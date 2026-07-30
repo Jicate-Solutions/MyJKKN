@@ -40,7 +40,7 @@
 // WHY THE SERVICE-ROLE CLIENT IS STILL HERE — AND HOW IT RETIRES
 //   The right shape is the session client plus a storage policy that lets a
 //   learner write only their own path. That policy is written, in
-//   supabase/migrations/20260808110000_health_sports_certificate_visibility.sql
+//   supabase/migrations/20260808105500_health_sports_certificate_visibility.sql
 //   (cdc_docs_write_sports_certificate + fn_may_attach_learner_certificate) —
 //   but migrations in this repo are Director-gated FILES that merge and deploy
 //   never apply. Measured on production: cdc_docs_write is
