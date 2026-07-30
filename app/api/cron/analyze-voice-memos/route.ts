@@ -112,6 +112,44 @@ const TRANSIENT_CHARGE_THRESHOLD = 10;
 // the cooldown immediately — the ledger row no longer matches the config.
 const RATELIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 
+// Per-call transcription ceiling. LOWERED 35s → 20s (2026-07-30) on measured
+// evidence — the previous 35s was not "too tight", it was far too loose, and
+// the slack was pure waste.
+//
+// Measured from ai_model_usage (feature_key='voice_memo.transcribe', success):
+//   2026-07-04 → 07-30 (n=2,814):  p99 424ms · p99.9 1,126ms · MAX 1,287ms
+//                                  successes >2s: 0   >5s: 0   >10s: 0
+//   2026-05-01 → 07-04 (n=41,751): p99 5,237ms · p99.9 19,739ms · max 40,685ms
+//                                  only 5 calls EVER exceeded 35s (0.012%)
+//
+// The distribution is bimodal, not a slow tail: a real 30-second memo comes
+// back in ~1s, or the call hangs and never returns. There is no population of
+// "slow but would have finished" calls for a bigger budget to rescue — in the
+// uncapped May/June era only 34 successes of 41,751 (0.081%) landed in the
+// 20-35s band, and none at all since July. 20s still covers p99.9 of the
+// worst-loaded era on record with margin.
+//
+// Bug receipt (2026-07-30): 78 distinct rows produced 1,221 'timed out after
+// 35000ms' failures between Jul 4-30, the same rows re-probed for 25 days
+// (worst single row: 43 timeouts). Their audio is TINY (max 0.45 MB), so this
+// is a provider-side hang, not big-file slowness. The cost is wall clock: the
+// loop guard breaks at 45s, so one hang burned 35s of a 60s function, and the
+// second hang in the same run got Math.min(35000, 52000-36000)=16s — which is
+// exactly the observed secondary cluster of 'timed out after ~16000ms' rows.
+// Two hangs = ~51s of a 60s invocation spent on nothing, then the
+// txTransientStreak>=2 breaker halts the run. That is why the fleet averages
+// only 2.22 transcription calls per run (median 2) against BATCH_LIMIT=20.
+//
+// THROUGHPUT TRADE-OFF (explicit): a per-call ceiling and batch size trade
+// against each other, because the 45s wall-clock break — not BATCH_LIMIT=20 —
+// is the real limit on rows per run. RAISING the ceiling would have made this
+// strictly worse: at 45s a single hang would consume the entire run. Lowering
+// to 20s does NOT speed up an all-poison run (the 2-failure breaker halts it
+// either way), but on a MIXED run it converts hang time into usable budget —
+// a leading hang leaves ~25s for healthy rows instead of ~10s, and healthy
+// rows cost ~1s each. The price is the 0.081% historical tail above.
+const TRANSCRIBE_TIMEOUT_MS = 20000;
+
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
  * stored in any of THREE formats due to historical inconsistency between the
@@ -320,6 +358,40 @@ function classifyFailure(err: unknown): 'ratelimit' | 'transient' {
       );
     if (m) status = Number(m[1]);
   }
+  // Groq reports AUDIO-BUDGET exhaustion as HTTP 413 "Request too large", NOT
+  // as 429 — the phrase means "too large for your remaining quota", not "this
+  // file is too big". Both windows appear verbatim in the ledger:
+  //   413 ... on seconds of audio per day  (ASPD): Limit 28800, Requested ...
+  //   413 ... on seconds of audio per hour (ASPH): Limit 7200,  Requested ...
+  // Neither string contains 'quota' or 'rate limit', and 413 !== 429, so the
+  // two tests below both miss and the failure fell through to 'transient'.
+  //
+  // Bug receipt (2026-07-30): 30,107 such 413s since 2026-05-12 (17,614 ASPD +
+  // 12,493 ASPH), still firing today, and 100% of them are this quota shape.
+  // Misclassifying them as transient did two wrong things at once:
+  //   (a) it charged innocent rows — every uncharged transient bumps
+  //       memo_transient_failures, which converts to a real
+  //       memo_analyze_attempts charge at TRANSIENT_CHARGE_THRESHOLD, so
+  //       perfectly good 30-second memos march toward being parked 'failed'
+  //       for an outage that has nothing to do with them; and
+  //   (b) it kept re-probing the wall — 'transient' does not feed the
+  //       RATELIMIT_COOLDOWN_MS gate, so the sweep hammered an org budget that
+  //       only resets on Groq's own hourly/daily clock. That is precisely the
+  //       waste the 2026-07-12 cooldown was built to stop for the 429 spelling
+  //       of the same condition.
+  // Classifying it 'ratelimit' fixes both with no new machinery: ratelimit
+  // charges NOTHING and seeds skipTranscribe via the existing cooldown gate.
+  //
+  // NOT compression, and NOT a permanent park. Compression cannot help — the
+  // budget meters SECONDS OF AUDIO, which re-encoding does not change — and
+  // parking would permanently kill valid memos over a transient org quota.
+  // Verified: of the 72 distinct 413 rows, the largest audio object is 0.389 MB
+  // against a 25 MB provider file-size limit; zero are oversized.
+  //
+  // Matched on the quota WORDING, not on 413, so a genuine file-size 413 (never
+  // yet observed) keeps its existing 'transient' handling and still parks via
+  // the counter rather than being mistaken for a wait-it-out condition.
+  if (/seconds of audio per|\bASPD\b|\bASPH\b/i.test(msg)) return 'ratelimit';
   if (status === 429 || /quota|rate.?limit/i.test(msg)) return 'ratelimit';
   return 'transient';
 }
@@ -699,8 +771,12 @@ export async function GET(request: NextRequest) {
               mimeType: audioMime,
             }),
             // Capped by remaining run budget so tx + sentiment + overhead
-            // always fit under maxDuration=60s (round-6 MEDIUM).
-            Math.min(35000, Math.max(5000, 52000 - (Date.now() - started))),
+            // always fit under maxDuration=60s (round-6 MEDIUM). The ceiling
+            // itself is measured — see TRANSCRIBE_TIMEOUT_MS.
+            Math.min(
+              TRANSCRIBE_TIMEOUT_MS,
+              Math.max(5000, 52000 - (Date.now() - started)),
+            ),
             'transcription',
           );
           transcript = result.text;
