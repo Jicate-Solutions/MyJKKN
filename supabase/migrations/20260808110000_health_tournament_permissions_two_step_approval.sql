@@ -954,7 +954,13 @@ BEGIN
   v_identity_changed := NEW.tournament_name  IS DISTINCT FROM OLD.tournament_name
                      OR NEW.tournament_level IS DISTINCT FROM OLD.tournament_level
                      OR NEW.sport            IS DISTINCT FROM OLD.sport;
-  v_squad_changed    := NEW.team_members IS DISTINCT FROM OLD.team_members;
+  -- `learner_id` counts as a squad change, not a cosmetic one: it is the
+  -- nominated learner, it is a participant in its own right, and changing it
+  -- can bring a different college into the request. Leaving it out of this test
+  -- would let the filer swap the nominated learner to another college whose
+  -- Principal was then never asked.
+  v_squad_changed    := NEW.team_members IS DISTINCT FROM OLD.team_members
+                     OR NEW.learner_id   IS DISTINCT FROM OLD.learner_id;
 
   IF v_squad_changed THEN
     -- Derive first: a learner swapped in from another college must bring that
