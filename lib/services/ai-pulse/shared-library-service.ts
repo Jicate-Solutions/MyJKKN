@@ -180,6 +180,10 @@ export interface PeerPromptRow {
   score: number | null;
   used_count: number;
   topic_type: string; // carried from the topic we queried, for grouping
+  // Director decision #4 (2026-07-30): the author's real display name. Null when
+  // the author's learner row is missing or its name is blank — the feed still
+  // shows the prompt (the RPC LEFT-joins), and the card renders "A classmate".
+  author_name: string | null;
 }
 
 async function fetchPeerPrompts(cycleId?: string | null): Promise<PeerPromptRow[]> {
@@ -224,6 +228,11 @@ async function fetchPeerPrompts(cycleId?: string | null): Promise<PeerPromptRow[
         score: row.score == null ? null : Number(row.score),
         used_count: Number(row.used_count ?? 0),
         topic_type: t.topic_type,
+        // Keep null null (never the string "null") so the card falls back cleanly.
+        author_name:
+          row.author_name == null || String(row.author_name).trim() === ''
+            ? null
+            : String(row.author_name),
       }));
     }),
   );

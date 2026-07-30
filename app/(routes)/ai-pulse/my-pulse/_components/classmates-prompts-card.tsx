@@ -11,6 +11,14 @@
 // not-yet-star prompt into the library — the path that was structurally dead while
 // the copy recorder only accepted already-graduated, same-college targets.
 //
+// 2026-07-30 — Director decision #4: "SHOW AUTHOR = show the author's name". Each
+// item is now BYLINED with the author's real display name (fallback "A classmate"
+// when the RPC returns no name). PRIVACY, stated not hidden: this feed matches by
+// subject NAME across ALL JKKN colleges, so a name here is campus-wide, and the
+// platform serves school learners — some of these names are MINORS'. The Director
+// chose this after being shown the tradeoff. The kill switch
+// (prompt_classmates_feed_enabled) is still OFF, so nothing is exposed today.
+//
 // DARK-SAFE: usePeerPrompts resolves to [] while there are no 60–79 non-graduated
 // builds for the learner's topics (true today), so this card renders null and the
 // page is byte-identical to now. It lights up on its own once such prompts exist.
@@ -21,7 +29,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Users2, Copy, Check, Sparkles, Users } from 'lucide-react';
+import { Users2, Copy, Check, Sparkles, Users, UserRound } from 'lucide-react';
 
 import {
   Card,
@@ -50,6 +58,7 @@ function PeerPromptItem({ row }: { row: PeerPromptRow }) {
   const [copied, setCopied] = useState(false);
   const [usedCount, setUsedCount] = useState(row.used_count);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authorLabel = row.author_name?.trim() ? row.author_name.trim() : 'A classmate';
 
   useEffect(() => {
     return () => {
@@ -97,7 +106,13 @@ function PeerPromptItem({ row }: { row: PeerPromptRow }) {
         {row.assembled_prompt}
       </p>
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-2">
+        {/* Director decision #4: the author is named. Blank/missing name → a
+            neutral fallback, never "null"/"undefined" or an empty gap. */}
+        <p className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <UserRound className="h-3 w-3 shrink-0" aria-hidden />
+          <span className="truncate">{authorLabel}</span>
+        </p>
         <Button
           type="button"
           variant="ghost"
