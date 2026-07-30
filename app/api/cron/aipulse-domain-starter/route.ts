@@ -1,7 +1,7 @@
 // =====================================================================
 // AI Pulse — Domain Starter self-improving prompt loop: generation cron.
 // =====================================================================
-// Each cycle, for every subject/programme with >= min_learners attending, the
+// Each cycle, for every ACTIVE programme on the platform, the
 // ₹0 Max lane (job type 'ai_pulse.domain_starter', interactive=false, drained by
 // the Windows seat) authors ONE copy-paste starter PACK — three job-modes
 // (build-and-publish / skill-drill / career-portfolio) in English + Tamil —
@@ -12,9 +12,18 @@
 // ONE SPINE: the "did it help" signal is read from the LIVE ai_pulse_cycle_outcomes
 // per-department loop (via the measure fn), never a parallel playbook.
 //
-// GRAIN is resolved per learner inside fn_ai_pulse_domain_starter_candidates:
-// course where the timetable knows it, else programme (100% covered). topic_type
-// is a column, so the split moves on its own as timetable coverage grows.
+// GRAIN (Director decisions #3/#4, 2026-07-30 — migration 20260805150000):
+// fn_ai_pulse_domain_starter_candidates enumerates ACTIVE PROGRAMMES across ALL
+// institutions from the academic offer and the class timetable. It no longer
+// reads ai_pulse_live_attendance: check-in happens hours AFTER this cron runs,
+// so attendance-derived topics were empty on 6 of 8 cycles ever run. It also
+// returns ONE topic_type='general' row per cycle — the all-subject prompt shown
+// to anyone whose own programme has no starter yet (decision #6).
+//
+// CAP + CARRY-OVER (decision #5): ~121 candidates against CAP=60 means a run
+// cannot serve them all. The RPC excludes topics already holding a starter for
+// this cycle, so each run continues where the last stopped, and `remaining` in
+// the response says how many are still waiting. Never truncate in silence.
 //
 // FLOW (one route, re-entrant, idempotent — mirrors scf-generate-suggestions):
 //   COLLECT first: drain done ai_jobs, parse the pack, record via
@@ -227,6 +236,12 @@ export async function GET(request: NextRequest) {
   let recorded = 0;
   let enqueued = 0;
   let skipped = 0;
+  // Carry-over reporting (decision #5): how many candidate topics this run
+  // could NOT reach because of CAP. A bounded sweep must never look like a
+  // complete one — before this, the cap truncated in silence.
+  let candidatesTotal = 0;
+  let remaining = 0;
+  let inFlight = 0;
 
   // ── COLLECT: drain done jobs, record their packs. ──────────────────────────
   try {
@@ -274,7 +289,19 @@ export async function GET(request: NextRequest) {
     if (candErr) {
       console.error('[cron/aipulse-domain-starter] candidates failed:', candErr.message);
     } else {
-      for (const row of (candidates as CandidateRow[] | null)?.slice(0, CAP) ?? []) {
+      // The RPC already excludes topics that hold a starter for this cycle and
+      // orders the rest by priority, so the leftovers of one run are simply the
+      // head of the next run's list — carry-over needs no state kept here.
+      const all = (candidates as CandidateRow[] | null) ?? [];
+      candidatesTotal = all.length;
+      // Stop at CAP SUCCESSFUL enqueues, not at CAP rows. A topic whose job is
+      // still queued/claimed/running holds no starter yet, so it comes back as
+      // a candidate and the lane's dedupe answers 'in_flight'. Counting those
+      // against CAP would pin every run to the same unfinished head, and a lane
+      // that merely lags would look like a loop making zero progress. Walking
+      // past them lets each run find work the lane has not seen.
+      for (const row of all) {
+        if (enqueued >= CAP) break;
         const control = isControlTopic(row.topic_id, cycleId);
         const ctx: StarterContext = {
           cycle_id: cycleId,
@@ -298,10 +325,22 @@ export async function GET(request: NextRequest) {
         } else {
           skipped++;
           const reason = (res as { reason?: string }).reason ?? 'error';
-          if (reason !== 'in_flight') {
+          if (reason === 'in_flight') {
+            inFlight++;
+          } else {
             console.warn(`[cron/aipulse-domain-starter] enqueue failed (${reason})`);
           }
         }
+      }
+      // Decision #5: say how many topics still have no prompt for this cycle —
+      // the ones this run could not reach AND the ones the lane is still
+      // working on. A bounded sweep must never read as a complete one.
+      remaining = candidatesTotal - enqueued;
+      if (remaining > 0) {
+        console.warn(
+          `[cron/aipulse-domain-starter] ${remaining} of ${candidatesTotal} topic(s) still without a prompt this cycle ` +
+            `(enqueued ${enqueued}/${CAP} this run, ${inFlight} already in flight) — they lead the next run.`,
+        );
       }
     }
   } catch (e) {
@@ -316,6 +355,10 @@ export async function GET(request: NextRequest) {
     recorded,
     enqueued,
     skipped,
+    cap: CAP,
+    candidates_total: candidatesTotal,
+    in_flight: inFlight,
+    remaining,
     elapsed_ms: Date.now() - started,
   });
 }
