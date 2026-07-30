@@ -157,28 +157,23 @@ BEGIN
      WHERE s.id = v_raw::uuid;
   END IF;
 
-  -- The column is DERIVED, never trusted from caller input. On INSERT a writer
-  -- that supplies a source_submission_id its own metadata does not support
-  -- would otherwise have that value survive and be rejected by the new FK —
-  -- breaking the "can never reject a write that succeeds today" guarantee on
-  -- any non-route insert path. Clearing it keeps the guarantee absolute.
-  IF v_link IS NULL AND TG_OP = 'INSERT' THEN
-    NEW.source_submission_id := NULL;
-    RETURN NEW;
-  END IF;
-
-  IF v_link IS NOT NULL THEN
-    -- Re-derived on every write, NOT only when the column is still NULL. An
-    -- UPDATE that repoints metadata->>'submission_id' at a different attempt
-    -- must move the FK with it; leaving the old value would let a later delete
-    -- cascade away an event that now names another submission entirely.
-    NEW.source_submission_id := v_link;
-  ELSIF TG_OP = 'UPDATE'
-        AND (OLD.metadata ->> 'submission_id') IS DISTINCT FROM v_raw THEN
-    -- Metadata was repointed at an attempt that does not exist: the previous
-    -- link no longer describes this row, so it must not survive.
-    NEW.source_submission_id := NULL;
-  END IF;
+  -- The column is STRICTLY DERIVED: after this trigger it is always exactly
+  -- what metadata->>'submission_id' resolves to, and nothing else. One
+  -- assignment, no conditions, on both INSERT and UPDATE.
+  --
+  -- Every weaker version leaked. Only setting it when it was still NULL left a
+  -- stale link behind when metadata was repointed, so a later delete could
+  -- cascade away an event that by then named a different submission. Clearing
+  -- it only when metadata had CHANGED still let a caller write the column
+  -- directly, alongside metadata that does not support it, and have that value
+  -- survive — a forged FK that CASCADE-deletes this event when the wrong
+  -- attempt is removed. Assigning unconditionally is both simpler and the only
+  -- form in which "derived, never trusted from caller input" is actually true.
+  --
+  -- It also keeps the FK's other guarantee absolute: because v_link is only
+  -- ever the id of a submission that was just confirmed to exist, the FK can
+  -- never reject a write that succeeds today.
+  NEW.source_submission_id := v_link;
 
   RETURN NEW;
 END;
@@ -214,8 +209,7 @@ DECLARE
   v_capability_id  uuid;
   v_threshold      numeric := 60;
   v_threshold_raw  text;
-  v_was_case       boolean := false;
-  v_pointed_at_old boolean := false;
+  v_owns_row       boolean := false;
   v_lc_id          uuid;
   v_best_id        uuid;
   v_best_attempt   integer;
@@ -247,25 +241,33 @@ BEGIN
     RETURN OLD;
   END IF;
 
-  -- Act when the deleted attempt was a clinical case, OR when the capability
-  -- row's evidence still points at it (covers an attempt whose assessment row
-  -- has already gone).
-  SELECT EXISTS (
-    SELECT 1 FROM public.pde_assessments a
-     WHERE a.id = OLD.assessment_id
-       AND a.assessment_type = 'clinical_case'
-  ) INTO v_was_case;
-
+  -- PROVENANCE GATE. Only touch a row this scoring path actually produced —
+  -- i.e. one whose evidence carries a submission_id. A capability demonstrated
+  -- some other way (import, manual award, a future writer) carries no such
+  -- pointer and is left completely alone, so this trigger can never destroy a
+  -- record it did not create. Deciding by provenance rather than by assumed
+  -- sole ownership of the row is what makes the DELETE below safe.
   SELECT EXISTS (
     SELECT 1 FROM public.pde_learner_capabilities lc
-     WHERE lc.learner_id = OLD.learner_id
-       AND lc.capability_id = v_capability_id
-       AND lc.demonstration_evidence ->> 'submission_id' = OLD.id::text
-  ) INTO v_pointed_at_old;
+     WHERE lc.id = v_lc_id
+       AND lc.demonstration_evidence ->> 'submission_id' IS NOT NULL
+  ) INTO v_owns_row;
 
-  IF NOT (v_was_case OR v_pointed_at_old) THEN
+  IF NOT v_owns_row THEN
     RETURN OLD;
   END IF;
+
+  -- Deliberately NO "was the deleted attempt a clinical case" test, and no
+  -- "does the evidence point at the deleted attempt" test. Both were skip
+  -- conditions, and both could skip a recompute that was needed: the first
+  -- fails if the attempt's pde_assessments row is already gone, and the second
+  -- misses whenever the pointer names a different surviving attempt — exactly
+  -- the reverse-ordering case (80 then 50, delete the 80) where the inflated
+  -- score must still be recomputed away. It also compared a uuid as raw text,
+  -- so a non-canonical spelling would have missed. Recomputing unconditionally
+  -- for an owned row is both simpler and strictly safer; the best-attempt query
+  -- below already restricts itself to clinical_case attempts, so a delete on an
+  -- unrelated submission type simply recomputes to the same value.
 
   -- Mirrors fn_get_policy_clinical_reasoning('scoring.passing_threshold_pct', 60)
   -- predicate-for-predicate. Read directly so a missing function can never raise
@@ -283,6 +285,14 @@ BEGIN
   -- Best remaining attempt. OLD is already gone in an AFTER DELETE, so it is
   -- excluded without needing an id predicate. final_score is what the scoring
   -- route writes the percentage to.
+  --
+  -- Deliberately NOT scoped by course or institution. pde_learner_capabilities
+  -- is UNIQUE(learner_id, capability_id) — one row per learner per capability,
+  -- learner-global by the table's own shape — and the scoring route's upsert is
+  -- equally learner-global (it takes max(existing, this attempt) with no course
+  -- or institution predicate). Scoping the recompute while the route stays
+  -- global would make the two disagree, which is worse than either behaviour:
+  -- the recompute must mirror the writer it is correcting.
   SELECT s.id, s.attempt_number, s.final_score, s.answers -> 'osce_score'
     INTO v_best_id, v_best_attempt, v_best_score, v_best_osce
     FROM public.pde_submissions s

@@ -56,6 +56,7 @@ SET search_path = public
 AS $fn$
 DECLARE
   v_taken  text[] := '{}';
+  v_used   text[] := '{}';
   v_out    jsonb  := '[]'::jsonb;
   v_elem   jsonb;
   v_ord    integer := 0;
@@ -79,23 +80,39 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Pass 2 — fill only the gaps, preserving original order and all other keys.
+  -- Pass 2 — fill gaps, preserving original order and all other keys.
+  --
+  -- A DUPLICATE id is treated as a gap, not as "already fine". Two options
+  -- sharing 'opt1' break the learner path in exactly the way a missing id does:
+  -- `selectedId === o.id` matches both, and the fn_pde_mark_objective answer-key
+  -- fallback (LIMIT 1 over is_correct) can resolve to the wrong one. The FIRST
+  -- occurrence keeps the id — so a correctly-formed array, including the three
+  -- rows repaired by hand, is never renumbered — and each later collision is
+  -- reassigned.
   FOR v_elem IN SELECT e FROM jsonb_array_elements(p_options) AS t(e) LOOP
     v_ord := v_ord + 1;
 
-    IF jsonb_typeof(v_elem) <> 'object'
-       OR coalesce(v_elem ->> 'id', '') <> '' THEN
+    IF jsonb_typeof(v_elem) <> 'object' THEN
       v_out := v_out || jsonb_build_array(v_elem);
       CONTINUE;
     END IF;
 
+    v_id := coalesce(v_elem ->> 'id', '');
+    IF v_id <> '' AND NOT (v_id = ANY (v_used)) THEN
+      v_used := v_used || v_id;
+      v_out  := v_out || jsonb_build_array(v_elem);
+      CONTINUE;
+    END IF;
+
+    -- Empty id, or a repeat of one already used earlier in this array.
     v_cand   := 'opt' || v_ord;
     v_suffix := 1;
-    WHILE v_cand = ANY (v_taken) LOOP
+    WHILE v_cand = ANY (v_taken) OR v_cand = ANY (v_used) LOOP
       v_suffix := v_suffix + 1;
       v_cand   := 'opt' || v_ord || '_' || v_suffix;
     END LOOP;
     v_taken := v_taken || v_cand;
+    v_used  := v_used  || v_cand;
 
     v_out := v_out || jsonb_build_array(v_elem || jsonb_build_object('id', v_cand));
   END LOOP;
@@ -147,12 +164,27 @@ CREATE TRIGGER trg_pde_questions_fill_option_ids
 -- 3. Backfill — only rows that still have a gap
 -- ----------------------------------------------------------------------------
 
+-- Matches a row needing repair in EITHER broken shape: an option with no id,
+-- or two options sharing one id. Comparing the normaliser's output to the
+-- current value would be the tersest predicate, but it would rewrite rows whose
+-- JSONB merely re-serialises differently; testing for the two real defects keeps
+-- the UPDATE to rows that are genuinely broken. Re-running touches 0 rows.
 UPDATE public.pde_assessment_questions q
    SET options = public.fn_pde_normalize_question_option_ids(q.options)
  WHERE jsonb_typeof(q.options) = 'array'
-   AND EXISTS (
-     SELECT 1
-       FROM jsonb_array_elements(q.options) AS t(e)
-      WHERE jsonb_typeof(t.e) = 'object'
-        AND coalesce(t.e ->> 'id', '') = ''
+   AND (
+     EXISTS (
+       SELECT 1
+         FROM jsonb_array_elements(q.options) AS t(e)
+        WHERE jsonb_typeof(t.e) = 'object'
+          AND coalesce(t.e ->> 'id', '') = ''
+     )
+     OR EXISTS (
+       SELECT t.e ->> 'id'
+         FROM jsonb_array_elements(q.options) AS t(e)
+        WHERE jsonb_typeof(t.e) = 'object'
+          AND coalesce(t.e ->> 'id', '') <> ''
+        GROUP BY t.e ->> 'id'
+       HAVING count(*) > 1
+     )
    );
