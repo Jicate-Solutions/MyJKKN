@@ -36,7 +36,17 @@
 --      42P13 forbids CREATE OR REPLACE), now carrying act + not_helped state.
 --   5. fn_clarification_outcome        — accepts 'not_helped'.
 --   6. fn_clarification_followup_pending — the learner's one due follow-up.
+--      Serves each ask AT MOST TWICE (Director interview 2026-07-30 09:5x):
+--      a serve is RECORDED (same doctrine as the micro offer — an ignored
+--      offer still counts), and past the cap the card goes quiet forever;
+--      the auto-close below eventually closes the ask.
 --   7. fn_clarification_term_close     — service_role-only weekly close.
+--      TWO arms, WHICHEVER COMES FIRST (Director interview 2026-07-30):
+--      (a) the ask's academic year ENDED, or (b) the ask has been QUIET for
+--      quiet_close_days (default 60) — no answer, and no covering act more
+--      recent than that (an act restarts the learner's window to answer).
+--      Both arms use the SAME blame-nobody label 'term_ended_unreported'
+--      (approved in the interview — one honest bucket, not two).
 --   8. Work signal 'clarification_acts_recorded' + fn_work_signals_for REPLACE
 --      (body taken VERBATIM from the live prod definition, which was verified
 --      byte-identical to 20260730013000 before this file was written).
@@ -67,6 +77,15 @@ ALTER TABLE public.session_clarification_requests
   ADD CONSTRAINT session_clarification_requests_outcome_check
   CHECK (outcome IN ('pending','re_explained','refused','unanswered',
                      'not_helped','term_ended_unreported'));
+
+-- How many times the "did it help?" follow-up has been SERVED for this ask.
+-- Written only by fn_clarification_followup_pending (SECURITY DEFINER); the
+-- cap (followup_max_prompts, default 2) lives in the config row below.
+ALTER TABLE public.session_clarification_requests
+  ADD COLUMN IF NOT EXISTS followup_prompts int NOT NULL DEFAULT 0;
+
+COMMENT ON COLUMN public.session_clarification_requests.followup_prompts IS
+  'Times the "did it help?" follow-up card was served to the asking learner for this ask. A serve counts even if ignored (the micro-offer doctrine). At followup_max_prompts (config, default 2) the card goes quiet forever and the term/quiet auto-close eventually closes the ask. Director interview 2026-07-30.';
 
 -- ---------------------------------------------------------------------------
 -- 2) clarification_acts — one row per act a session lead records about one
@@ -425,30 +444,43 @@ COMMENT ON FUNCTION public.fn_clarification_outcome(date,text,text) IS
 --    AFTER the newest act get no follow-up, per decision 5's timeline). The
 --    lead's note is shown: it is teacher-authored text about CONTENT, and
 --    showing it is humanizing (spec ruling). Defensive: {ask:null} on any gap.
+--
+--    VOLATILE, deliberately: each serve is RECORDED (followup_prompts += 1),
+--    exactly like the micro offer — an ignored offer still counts. An ask is
+--    served at most followup_max_prompts times (config, default 2; Director
+--    interview 2026-07-30: "ask at most twice, then stop"); past the cap the
+--    card goes quiet forever and the auto-close in section 7 eventually
+--    closes the ask. Answering stays possible on any serve; the cap only
+--    stops REPEAT prompting, never the learner's ability to answer.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_clarification_followup_pending()
 RETURNS jsonb
 LANGUAGE plpgsql
-STABLE
+VOLATILE
 SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
   v_lp      uuid;
   v_enabled boolean;
+  v_max     int;
   v_ask     jsonb;
+  v_ask_id  uuid;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN jsonb_build_object('ask', NULL);
   END IF;
 
-  SELECT COALESCE((pp.value ->> 'enabled')::boolean, true) INTO v_enabled
+  SELECT COALESCE((pp.value ->> 'enabled')::boolean, true),
+         COALESCE((pp.value ->> 'followup_max_prompts')::int, 2)
+    INTO v_enabled, v_max
   FROM public.platform_policies pp
   WHERE pp.policy_key = 'classroom_practice.acts'
     AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active;
   IF NOT COALESCE(v_enabled, true) THEN
     RETURN jsonb_build_object('ask', NULL);
   END IF;
+  v_max := COALESCE(v_max, 2);
 
   SELECT lp.id INTO v_lp FROM public.learners_profiles lp WHERE lp.profile_id = auth.uid();
   IF v_lp IS NULL THEN
@@ -459,7 +491,8 @@ BEGIN
   -- copy ("covered again in session"). Acts are matched to the ask through the
   -- SHARED attribution view (act.lead_email = view.lead_email on the same
   -- session key) — never by re-deriving attribution here.
-  SELECT jsonb_build_object(
+  SELECT x.id,
+         jsonb_build_object(
            'attendance_date', x.attendance_date,
            'period_id',       x.period_id,
            'course_code',     x.course_code,
@@ -469,9 +502,9 @@ BEGIN
            'acted_on',        (x.acted_at AT TIME ZONE 'Asia/Kolkata')::date,
            'note',            x.note
          )
-    INTO v_ask
+    INTO v_ask_id, v_ask
   FROM (
-    SELECT c.attendance_date, c.period_id, a.course_code, a.course_name,
+    SELECT c.id, c.attendance_date, c.period_id, a.course_code, a.course_name,
            a.asked_on_ist, ca.act_type, ca.acted_at, ca.note
     FROM public.session_clarification_requests c
     JOIN public.v_clarification_ask_attribution a ON a.ask_id = c.id
@@ -484,9 +517,18 @@ BEGIN
       AND ca.acted_at > c.asked_at
     WHERE c.student_id = v_lp
       AND c.outcome = 'pending'
+      AND c.followup_prompts < v_max
     ORDER BY c.asked_at ASC, ca.acted_at DESC
     LIMIT 1
   ) x;
+
+  -- Record the serve — an ignored offer must still count against the cap.
+  IF v_ask_id IS NOT NULL THEN
+    UPDATE public.session_clarification_requests
+       SET followup_prompts = followup_prompts + 1,
+           updated_at = now()
+     WHERE id = v_ask_id;
+  END IF;
 
   RETURN jsonb_build_object('ask', v_ask);
 END;
@@ -496,7 +538,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_clarification_followup_pending() FROM anon,
 GRANT  EXECUTE ON FUNCTION public.fn_clarification_followup_pending() TO authenticated;
 
 COMMENT ON FUNCTION public.fn_clarification_followup_pending() IS
-  'The ONE "did it help?" follow-up due for the calling learner: their oldest pending ask that has a lead-recorded act newer than it (relevance gate, spec decision 3). Attribution via v_clarification_ask_attribution only. Returns {ask:null} on any gap, silence, or the classroom_practice.acts kill switch — this feeds a post-submit card that must simply not render. The answer path is fn_clarification_outcome (re_explained / not_helped); "I was not there" writes nothing.';
+  'The ONE "did it help?" follow-up due for the calling learner: their oldest pending ask that has a lead-recorded act newer than it (relevance gate, spec decision 3), served at most followup_max_prompts times (config, default 2 — Director interview 2026-07-30; a serve is recorded like the micro offer, ignored or not). Attribution via v_clarification_ask_attribution only. Returns {ask:null} on any gap, the cap, silence, or the classroom_practice.acts kill switch — this feeds a post-submit card that must simply not render. The answer path is fn_clarification_outcome (re_explained / not_helped); "I was not there" writes nothing.';
 
 -- ---------------------------------------------------------------------------
 -- 7) fn_clarification_term_close — decision 7's honest close. service_role
@@ -514,17 +556,23 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_enabled boolean;
-  v_closed  int := 0;
+  v_enabled  boolean;
+  v_quiet    int;
+  v_by_year  int := 0;
+  v_by_quiet int := 0;
 BEGIN
-  SELECT COALESCE((pp.value ->> 'enabled')::boolean, true) INTO v_enabled
+  SELECT COALESCE((pp.value ->> 'enabled')::boolean, true),
+         COALESCE((pp.value ->> 'quiet_close_days')::int, 60)
+    INTO v_enabled, v_quiet
   FROM public.platform_policies pp
   WHERE pp.policy_key = 'classroom_practice.acts'
     AND pp.scope_type = 'global' AND pp.scope_id IS NULL AND pp.is_active;
   IF NOT COALESCE(v_enabled, true) THEN
     RETURN jsonb_build_object('closed', 0, 'skipped', 'disabled');
   END IF;
+  v_quiet := COALESCE(v_quiet, 60);
 
+  -- Arm 1 — the ask's academic year ENDED.
   UPDATE public.session_clarification_requests c
      SET outcome    = 'term_ended_unreported',
          outcome_at = now(),
@@ -536,9 +584,33 @@ BEGIN
          AND c.attendance_date BETWEEN ay.start_date AND ay.end_date
          AND ay.end_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
      );
-  GET DIAGNOSTICS v_closed = ROW_COUNT;
+  GET DIAGNOSTICS v_by_year = ROW_COUNT;
 
-  RETURN jsonb_build_object('closed', v_closed);
+  -- Arm 2 — QUIET for quiet_close_days: no answer, and no covering act more
+  -- recent than that. An act on the ask's session RESTARTS the clock — the
+  -- learner was just invited to answer, so their window stays open. The act
+  -- match here is by session key only (a freshness signal, not attribution:
+  -- it can only ever EXTEND an ask's life, never attribute anything).
+  UPDATE public.session_clarification_requests c
+     SET outcome    = 'term_ended_unreported',
+         outcome_at = now(),
+         updated_at = now()
+   WHERE c.outcome = 'pending'
+     AND GREATEST(
+           c.asked_at,
+           COALESCE((SELECT max(ca.acted_at)
+                     FROM public.clarification_acts ca
+                     WHERE ca.attendance_date = c.attendance_date
+                       AND ca.period_id = c.period_id
+                       AND ca.institution_id = c.institution_id), c.asked_at)
+         ) < now() - make_interval(days => v_quiet);
+  GET DIAGNOSTICS v_by_quiet = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'closed', v_by_year + v_by_quiet,
+    'by_year_end', v_by_year,
+    'by_quiet', v_by_quiet
+  );
 END;
 $$;
 
@@ -547,7 +619,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_clarification_term_close() FROM anon, PUBLI
 GRANT  EXECUTE ON FUNCTION public.fn_clarification_term_close() TO service_role;
 
 COMMENT ON FUNCTION public.fn_clarification_term_close() IS
-  'System-only (service_role; weekly cron piggybacked on work-signal-suggestions): closes still-pending re-explanation asks whose session date lies inside an ENDED academic year for the ask''s institution, labelling them term_ended_unreported — never counted as re-explained, never counted against anyone, excluded from all rates (spec decision 7). Term boundary = public.academic_years date columns; public.semesters carries no dates and semester_order means YEAR in some institutions, so neither is used.';
+  'System-only (service_role; weekly cron piggybacked on work-signal-suggestions): closes still-pending re-explanation asks by WHICHEVER COMES FIRST (Director interview 2026-07-30) — (1) the ask''s academic year ENDED (public.academic_years dates; public.semesters carries no dates and semester_order means YEAR in some institutions, so neither is used), or (2) QUIET for quiet_close_days (config, default 60) with no covering act more recent than that (an act restarts the learner''s answer window). Both arms write the SAME blame-nobody label term_ended_unreported (interview-approved single bucket) — never counted as re-explained, never counted against anyone, excluded from all rates (spec decision 7).';
 
 -- ---------------------------------------------------------------------------
 -- 8) Work signal clarification_acts_recorded + fn_work_signals_for.
@@ -770,8 +842,12 @@ INSERT INTO public.platform_policies
    is_system, is_active, classification, publication_state, ui_widget, ui_category)
 SELECT
   'classroom_practice.acts', 'global', NULL,
-  jsonb_build_object('enabled', true),
-  'Two-sided close for re-explanation asks. enabled=false is the KILL SWITCH (no deploy): hides the "I acted on this" button (fn_scf_clarification_act refuses), silences the learner "did it help?" follow-up (fn_clarification_followup_pending returns null), and no-ops the weekly term-close (fn_clarification_term_close). Acts are context, never evidence — see the spec''s decision 4.',
+  jsonb_build_object(
+    'enabled', true,
+    'quiet_close_days', 60,
+    'followup_max_prompts', 2
+  ),
+  'Two-sided close for re-explanation asks. enabled=false is the KILL SWITCH (no deploy): hides the "I acted on this" button (fn_scf_clarification_act refuses), silences the learner "did it help?" follow-up (fn_clarification_followup_pending returns null), and no-ops the weekly term-close (fn_clarification_term_close). quiet_close_days = auto-close an unanswered ask after this many quiet days (no answer, no newer covering act) — the "whichever comes first" partner of the academic-year-end close (Director interview 2026-07-30). followup_max_prompts = serve the "did it help?" card at most this many times per ask, then go quiet forever (same interview). Acts are context, never evidence — see the spec''s decision 4.',
   'object', true, true, 'operational', 'published', 'json', 'Classroom Practice'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.platform_policies

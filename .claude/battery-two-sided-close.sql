@@ -37,8 +37,13 @@ DECLARE
   -- 20d: an old-backlog ask that is still inside the card's 30-day window
   -- (the act RPC itself reaches the view's full 90 days; the card shows 30).
   d_ended  date := date '1999-09-15';
+  -- 65 quiet days: deliberately BETWEEN academic years (before the Jun 1 start
+  -- of the current year, after the Mar 31 end of the last), so ONLY the quiet
+  -- arm can close it — proving the two arms are independent.
+  d_quiet  date := (now() AT TIME ZONE 'Asia/Kolkata')::date - 65;
   n int; j jsonb; r record; t text;
   v_ask_ended uuid;
+  v_ask_quiet uuid;
   v_caught boolean := false;
   v_admin text := current_user;  -- the Mgmt-API session user; elevate back to THIS, not a hardcoded name
 BEGIN
@@ -77,6 +82,13 @@ BEGIN
   VALUES (v_inst, gen_random_uuid(), d_ended, 'BAT-P3', 'BAT-C3', d_ended::timestamptz)
   RETURNING id INTO v_ask_ended;
   IF v_ask_ended IS NULL THEN RAISE EXCEPTION 'ARRANGE ended-year ask failed'; END IF;
+
+  -- Quiet ask: 65 days unanswered, no covering act, no matching academic year.
+  INSERT INTO public.session_clarification_requests
+    (institution_id, student_id, attendance_date, period_id, course_code, asked_at)
+  VALUES (v_inst, gen_random_uuid(), d_quiet, 'BAT-P5', 'BAT-C5', now() - interval '65 days')
+  RETURNING id INTO v_ask_quiet;
+  IF v_ask_quiet IS NULL THEN RAISE EXCEPTION 'ARRANGE quiet ask failed'; END IF;
 
   ---------------------------------------------------------------------------
   -- A1: CHECK widened with both new values.
@@ -224,7 +236,17 @@ BEGIN
    WHERE policy_key = 'classroom_practice.l2' AND scope_type = 'global'
      AND COALESCE((value->>'enabled')::boolean, false);
   IF NOT FOUND THEN RAISE EXCEPTION 'A7 practice drip not enabled — two-taps day unprovable'; END IF;
-  RAISE NOTICE 'A7 ok — oldest eligible follow-up; both taps servable';
+
+  -- The serve was RECORDED (cap accounting) — verify as admin, then restore.
+  PERFORM set_config('role', v_admin, true);
+  SELECT followup_prompts INTO n FROM public.session_clarification_requests
+   WHERE attendance_date = d_old AND period_id = 'BAT-P2' AND student_id = v_lrn;
+  IF n <> 1 THEN RAISE EXCEPTION 'A7 serve not recorded: prompts=%', n; END IF;
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_stu, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+  IF auth.uid() IS DISTINCT FROM v_stu THEN RAISE EXCEPTION 'A7 identity not re-established'; END IF;
+  RAISE NOTICE 'A7 ok — oldest eligible follow-up; serve recorded; both taps servable';
 
   ---------------------------------------------------------------------------
   -- A8: the not_helped write path, and term_ended_unreported REJECTED from
@@ -253,7 +275,26 @@ BEGIN
   IF j->'ask'->>'course_code' IS DISTINCT FROM 'BAT-C1' THEN
     RAISE EXCEPTION 'A8 follow-up did not advance to next eligible: %', j->'ask';
   END IF;
-  RAISE NOTICE 'A8 ok — not_helped path; system-only value rejected; queue advances';
+
+  -- CAP: "ask at most twice, then stop" (Director interview). Serve #2 still
+  -- shows the same ask; serve #3 must return null forever after.
+  j := public.fn_clarification_followup_pending();
+  IF j->'ask'->>'course_code' IS DISTINCT FROM 'BAT-C1' THEN
+    RAISE EXCEPTION 'A8 second serve should still show the ask: %', j->'ask';
+  END IF;
+  j := public.fn_clarification_followup_pending();
+  IF j->'ask' IS NOT NULL AND j->'ask' <> 'null'::jsonb THEN
+    RAISE EXCEPTION 'A8 cap not enforced — third serve returned: %', j->'ask';
+  END IF;
+  PERFORM set_config('role', v_admin, true);
+  SELECT followup_prompts INTO n FROM public.session_clarification_requests
+   WHERE attendance_date = d_recent AND period_id = 'BAT-P1' AND student_id = v_lrn;
+  IF n <> 2 THEN RAISE EXCEPTION 'A8 cap accounting wrong: prompts=%', n; END IF;
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_stu, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+  IF auth.uid() IS DISTINCT FROM v_stu THEN RAISE EXCEPTION 'A8 identity not re-established'; END IF;
+  RAISE NOTICE 'A8 ok — not_helped path; system-only value rejected; queue advances; twice-then-stop cap holds';
 
   ---------------------------------------------------------------------------
   -- A9: the lead's card now buckets not_helped explicitly (mismatch substrate).
@@ -293,20 +334,28 @@ BEGIN
   RAISE NOTICE 'A10 ok — 13 signals regressed + new signal counting';
 
   ---------------------------------------------------------------------------
-  -- A11: term close (service_role only) touches ONLY the ended-year pending
-  -- ask, labels it term_ended_unreported, leaves current-year asks alone.
+  -- A11: term close (service_role only), BOTH arms, whichever comes first:
+  -- the ended-YEAR ask closes via arm 1, the 65-day QUIET ask (in no academic
+  -- year at all) closes via arm 2, and everything recent stays untouched —
+  -- including the reopen ask and the acted-on recent ask (its covering act is
+  -- newer than the quiet horizon, so the act correctly restarts the clock).
   ---------------------------------------------------------------------------
   PERFORM set_config('role', 'service_role', true);
   j := public.fn_clarification_term_close();
-  IF (j->>'closed')::int <> 1 THEN RAISE EXCEPTION 'A11 closed=% (expected 1)', j; END IF;
+  IF (j->>'closed')::int <> 2 THEN RAISE EXCEPTION 'A11 closed=% (expected 2)', j; END IF;
+  IF (j->>'by_year_end')::int <> 1 OR (j->>'by_quiet')::int <> 1 THEN
+    RAISE EXCEPTION 'A11 arm split wrong: %', j;
+  END IF;
 
   PERFORM set_config('role', v_admin, true);
   SELECT outcome INTO t FROM public.session_clarification_requests WHERE id = v_ask_ended;
   IF t <> 'term_ended_unreported' THEN RAISE EXCEPTION 'A11 ended ask outcome=%', t; END IF;
+  SELECT outcome INTO t FROM public.session_clarification_requests WHERE id = v_ask_quiet;
+  IF t <> 'term_ended_unreported' THEN RAISE EXCEPTION 'A11 quiet ask outcome=%', t; END IF;
   SELECT count(*) INTO n FROM public.session_clarification_requests
    WHERE attendance_date IN (d_recent, d_old) AND period_id LIKE 'BAT-%' AND outcome = 'pending';
   IF n <> 2 THEN RAISE EXCEPTION 'A11 current-year pendings touched: % remain', n; END IF;
-  RAISE NOTICE 'A11 ok — term close scoped exactly';
+  RAISE NOTICE 'A11 ok — both close arms scoped exactly';
 
   ---------------------------------------------------------------------------
   -- A12: kill switch — flip the REAL config row via jsonb_set (product value
@@ -325,8 +374,31 @@ BEGIN
   j := public.fn_scf_clarification_act(d_recent, 'BAT-P1', 'BAT-C1', 'shared_material', NULL);
   IF COALESCE(j->>'reason','') <> 'disabled' THEN RAISE EXCEPTION 'A12 act not gated: %', j; END IF;
 
+  -- The follow-up gate must be proven on a FRESH ask (BAT-C1's serve cap is
+  -- already exhausted, which would make a null return prove nothing). New
+  -- session + ask + covering act, prompts = 0, all as admin.
+  PERFORM set_config('role', v_admin, true);
+  INSERT INTO public.session_feedback
+    (institution_id, student_id, attendance_date, timetable_id, period_id,
+     understood, faculty_email, course_code, course_name)
+  VALUES (v_inst, v_lrn, d_recent, v_tt, 'BAT-P4', 3, 'test.faculty@jkkn.ac.in', 'BAT-C4', 'Battery Course Four');
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN RAISE EXCEPTION 'A12 arrange sf failed'; END IF;
+  INSERT INTO public.session_clarification_requests
+    (institution_id, student_id, attendance_date, period_id, course_code, asked_at)
+  VALUES (v_inst, v_lrn, d_recent, 'BAT-P4', 'BAT-C4', now() - interval '1 hour');
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN RAISE EXCEPTION 'A12 arrange ask failed'; END IF;
+  INSERT INTO public.clarification_acts
+    (institution_id, attendance_date, period_id, course_code, lead_email, acted_by, act_type)
+  VALUES (v_inst, d_recent, 'BAT-P4', 'BAT-C4', 'test.faculty@jkkn.ac.in', v_fac, 'shared_material');
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN RAISE EXCEPTION 'A12 arrange act failed'; END IF;
+
   PERFORM set_config('request.jwt.claims',
     json_build_object('sub', v_stu, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+  IF auth.uid() IS DISTINCT FROM v_stu THEN RAISE EXCEPTION 'A12 identity not established'; END IF;
   j := public.fn_clarification_followup_pending();
   IF j->'ask' IS NOT NULL AND j->'ask' <> 'null'::jsonb THEN
     RAISE EXCEPTION 'A12 follow-up not gated: %', j;
@@ -342,7 +414,18 @@ BEGIN
    WHERE policy_key = 'classroom_practice.acts' AND scope_type = 'global' AND scope_id IS NULL;
   GET DIAGNOSTICS n = ROW_COUNT;
   IF n <> 1 THEN RAISE EXCEPTION 'A12 config restore failed'; END IF;
-  RAISE NOTICE 'A12 ok — kill switch closes all three gates';
+
+  -- Gate re-opened: the SAME fresh ask must now serve — proving the null
+  -- above came from the kill switch, not the cap.
+  PERFORM set_config('request.jwt.claims',
+    json_build_object('sub', v_stu, 'role', 'authenticated')::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+  IF auth.uid() IS DISTINCT FROM v_stu THEN RAISE EXCEPTION 'A12 identity not re-established'; END IF;
+  j := public.fn_clarification_followup_pending();
+  IF j->'ask'->>'course_code' IS DISTINCT FROM 'BAT-C4' THEN
+    RAISE EXCEPTION 'A12 gate did not reopen: %', j->'ask';
+  END IF;
+  RAISE NOTICE 'A12 ok — kill switch closes all three gates and reopens cleanly';
 
   RAISE NOTICE 'BATTERY GREEN — all 12 assert groups passed';
 END $bat$;
