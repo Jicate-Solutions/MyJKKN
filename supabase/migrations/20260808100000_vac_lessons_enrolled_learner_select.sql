@@ -133,9 +133,19 @@ GRANT  EXECUTE ON FUNCTION public.fn_vac_learner_may_read_lesson(uuid) TO authen
 
 DROP POLICY IF EXISTS vac_lessons_select_enrolled_learner ON public.vac_lessons;
 
+-- TO authenticated is REQUIRED, not stylistic. A policy with no TO clause
+-- applies to PUBLIC, so the anon role would also evaluate the USING clause —
+-- and anon has just had EXECUTE on the helper revoked. An unauthenticated
+-- SELECT on vac_lessons would then raise
+--   ERROR: permission denied for function fn_vac_learner_may_read_lesson
+-- instead of returning zero rows: a hard error on every anon read path rather
+-- than the empty result RLS is supposed to produce. Reproduced locally, then
+-- fixed by this clause. Restricting to authenticated is also the correct
+-- meaning — the door is about a logged-in learner.
 CREATE POLICY vac_lessons_select_enrolled_learner
   ON public.vac_lessons
   FOR SELECT
+  TO authenticated
   USING ( public.fn_vac_learner_may_read_lesson(vac_lessons.course_id) );
 
 COMMENT ON POLICY vac_lessons_select_enrolled_learner ON public.vac_lessons IS

@@ -114,14 +114,23 @@ CREATE INDEX IF NOT EXISTS idx_pde_engagement_events_source_submission
   ON public.pde_engagement_events (source_submission_id)
   WHERE source_submission_id IS NOT NULL;
 
--- Backfill. Written as a set-based join on s.id::text so no text is ever cast
--- TO uuid: a metadata value that is not a valid uuid simply fails to join
--- instead of raising 22P02. Idempotent via the IS NULL guard.
+-- Backfill. Shape-guarded, then cast to uuid so it normalises exactly the way
+-- the runtime trigger does. Comparing against s.id::text instead would match
+-- only the lowercase canonical spelling, so a pre-existing event holding an
+-- upper-case or otherwise non-canonical uuid would never link — and would then
+-- never be cascade-cleaned, leaving precisely the orphan this migration exists
+-- to remove. The regex runs first so no invalid text ever reaches the cast
+-- (that is how 22P02 gets raised); Postgres does not guarantee WHERE-clause
+-- ordering, so the guard is a CASE, not a sibling predicate.
 UPDATE public.pde_engagement_events e
    SET source_submission_id = s.id
   FROM public.pde_submissions s
  WHERE e.source_submission_id IS NULL
-   AND e.metadata ->> 'submission_id' = s.id::text;
+   AND s.id = CASE
+                WHEN e.metadata ->> 'submission_id' ~
+                     '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                THEN (e.metadata ->> 'submission_id')::uuid
+              END;
 
 CREATE OR REPLACE FUNCTION public.fn_pde_engagement_link_submission()
 RETURNS trigger
@@ -135,23 +144,28 @@ DECLARE
 BEGIN
   v_raw := NEW.metadata ->> 'submission_id';
 
-  -- Metadata names no attempt: leave whatever the writer supplied untouched.
-  IF v_raw IS NULL THEN
-    RETURN NEW;
-  END IF;
-
   -- Shape-check BEFORE casting. plpgsql IF guarantees the ordering that a SQL
   -- WHERE clause does not, and casting first is how 22P02 gets raised on a
   -- metadata blob that happens to carry a non-uuid submission_id.
-  IF v_raw !~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN
-    RETURN NEW;
+  IF v_raw IS NOT NULL
+     AND v_raw ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+  THEN
+    -- Only link to a submission that exists, so the FK can never reject a write
+    -- that succeeds today.
+    SELECT s.id INTO v_link
+      FROM public.pde_submissions s
+     WHERE s.id = v_raw::uuid;
   END IF;
 
-  -- Only link to a submission that exists, so the FK can never reject a write
-  -- that succeeds today.
-  SELECT s.id INTO v_link
-    FROM public.pde_submissions s
-   WHERE s.id = v_raw::uuid;
+  -- The column is DERIVED, never trusted from caller input. On INSERT a writer
+  -- that supplies a source_submission_id its own metadata does not support
+  -- would otherwise have that value survive and be rejected by the new FK —
+  -- breaking the "can never reject a write that succeeds today" guarantee on
+  -- any non-route insert path. Clearing it keeps the guarantee absolute.
+  IF v_link IS NULL AND TG_OP = 'INSERT' THEN
+    NEW.source_submission_id := NULL;
+    RETURN NEW;
+  END IF;
 
   IF v_link IS NOT NULL THEN
     -- Re-derived on every write, NOT only when the column is still NULL. An
