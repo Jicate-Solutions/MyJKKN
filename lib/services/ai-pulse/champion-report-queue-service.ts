@@ -43,6 +43,8 @@ import { logger } from '@/lib/utils/enhanced-logger';
 
 const MODULE = 'ai-pulse/champion-report-queue';
 const QUERY_KEY_ROOT = ['ai-pulse', 'champion-report-queue'] as const;
+const SAFETY_QUERY_KEY_ROOT = ['ai-pulse', 'champion-safety-queue'] as const;
+const SAFETY_HEALTH_KEY_ROOT = ['ai-pulse', 'prompt-safety-health'] as const;
 const DEFAULT_LIMIT = 50;
 
 // ---------------------------------------------------------------------------
@@ -151,6 +153,167 @@ export function useDecideOnReportedBuild() {
       // The decided build now has disqualified_at or report_cleared_at set, so
       // the next read drops it out of the queue.
       queryClient.invalidateQueries({ queryKey: QUERY_KEY_ROOT });
+    },
+  });
+}
+
+// ===========================================================================
+// AI-REJECTED PROMPTS — Director moderation decisions #8 and #10
+// ===========================================================================
+// Decision #8: "AI-rejected prompts: route to a champion for a second look. A
+// safety_status='failed' prompt must appear somewhere a human can release it."
+//
+// The ₹0 safety pre-gate (migration 20260804110000) judges a learner's prompt
+// build before it can enter the classmates feed, and the safety prompt tells the
+// model to answer "not appropriate" whenever it is UNSURE — so false positives
+// are the expected failure direction. The very first verdict it ever produced was
+// one: a learner practising how to report a lost purse at a police station was
+// rejected. Until this surface existed, a 'failed' verdict was a silent dead end.
+//
+//   READ    fn_ai_pulse_champion_safety_queue(p_limit)
+//   RELEASE fn_ai_pulse_release_prompt_build_safety(p_build_id)   failed -> passed
+//   HEALTH  fn_ai_pulse_prompt_safety_health()                    decision #10
+//
+// Decision #10: the safety check runs on a */10 cron. If it silently stops, every
+// new build stays 'pending' and simply never appears — and an empty feed is
+// indistinguishable from "nobody is writing prompts". last_checked_at is the only
+// liveness signal that exists, which is why the health read carries it.
+//
+// Substrate: migration 20260805100000_ai_pulse_safety_review_queue.sql.
+// All three are SECURITY DEFINER, gated on super admin OR aiPulse:anomaly.review,
+// institution-scoped, with anon and PUBLIC revoked.
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface SafetyQueueRow {
+  build_id: string;
+  assembled_prompt: string;
+  score: number | null;
+  /** Author's display name — a champion needs it to judge; the learner-facing
+   *  feed stays anonymised. Null when the author's profile row is missing. */
+  author_name: string | null;
+  institution_id: string | null;
+  /** The automated checker's OWN stated reasons. Not findings of fact — the UI
+   *  must label them as the checker's reasoning, because they can be wrong. */
+  safety_reasons: string[];
+  safety_checked_at: string | null;
+  created_at: string | null;
+}
+
+export interface PromptSafetyHealth {
+  waiting_count: number;
+  rejected_count: number;
+  passed_count: number;
+  oldest_waiting_at: string | null;
+  /** The safety cron's heartbeat. Null, or stale, means the check may have
+   *  stopped — that is the whole point of decision #10. */
+  last_checked_at: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Read — the AI-rejected queue
+// ---------------------------------------------------------------------------
+
+async function fetchSafetyQueue(limit: number): Promise<SafetyQueueRow[]> {
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase.rpc('fn_ai_pulse_champion_safety_queue', {
+    p_limit: limit,
+  });
+  if (error) {
+    logger.error(MODULE, 'fn_ai_pulse_champion_safety_queue failed', error);
+    throw new Error(error.message ?? 'Failed to load the AI-rejected prompts');
+  }
+  return ((data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    build_id: String(row.build_id),
+    assembled_prompt: String(row.assembled_prompt ?? ''),
+    // PostgREST returns numeric/bigint as strings — coerce here so the UI never has to.
+    score: row.score == null ? null : Number(row.score),
+    author_name: (row.author_name as string | null) ?? null,
+    institution_id: (row.institution_id as string | null) ?? null,
+    safety_reasons: Array.isArray(row.safety_reasons) ? (row.safety_reasons as string[]) : [],
+    safety_checked_at: (row.safety_checked_at as string | null) ?? null,
+    created_at: (row.created_at as string | null) ?? null,
+  }));
+}
+
+export function useChampionSafetyQueue(
+  limit: number = DEFAULT_LIMIT,
+): UseQueryResult<SafetyQueueRow[], Error> {
+  return useQuery<SafetyQueueRow[], Error>({
+    queryKey: [...SAFETY_QUERY_KEY_ROOT, 'list', limit],
+    queryFn: () => fetchSafetyQueue(limit),
+    staleTime: 30_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Read — is the automatic safety check still running? (decision #10)
+// ---------------------------------------------------------------------------
+
+async function fetchPromptSafetyHealth(): Promise<PromptSafetyHealth> {
+  const supabase = createClientSupabaseClient() as any;
+  const { data, error } = await supabase.rpc('fn_ai_pulse_prompt_safety_health');
+  if (error) {
+    logger.error(MODULE, 'fn_ai_pulse_prompt_safety_health failed', error);
+    throw new Error(error.message ?? 'Failed to load the safety check status');
+  }
+  // A RETURNS TABLE function comes back as an array even for its single row.
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined;
+  return {
+    // bigint arrives as a string — Number() here, never in the component.
+    waiting_count: Number(row?.waiting_count ?? 0),
+    rejected_count: Number(row?.rejected_count ?? 0),
+    passed_count: Number(row?.passed_count ?? 0),
+    oldest_waiting_at: (row?.oldest_waiting_at as string | null) ?? null,
+    last_checked_at: (row?.last_checked_at as string | null) ?? null,
+  };
+}
+
+export function usePromptSafetyHealth(): UseQueryResult<PromptSafetyHealth, Error> {
+  return useQuery<PromptSafetyHealth, Error>({
+    queryKey: [...SAFETY_HEALTH_KEY_ROOT, 'summary'],
+    queryFn: fetchPromptSafetyHealth,
+    staleTime: 30_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Release — a champion overturns an AI rejection
+// ---------------------------------------------------------------------------
+
+export function releaseErrorMessage(e: Error): string {
+  const m = e?.message ?? '';
+  if (m.includes('only a champion')) {
+    return 'You no longer hold the champion permission for this action. Ask a super admin to check your role.';
+  }
+  if (m.includes('no longer awaiting release')) {
+    return 'Someone already handled this prompt — refresh to see the current list.';
+  }
+  if (m.includes('not authenticated')) return 'Your session expired — please sign in again.';
+  return 'Could not release this prompt. Please try again.';
+}
+
+export function useReleasePromptBuildSafety() {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, { buildId: string }>({
+    mutationFn: async ({ buildId }) => {
+      const supabase = createClientSupabaseClient() as any;
+      const { error } = await supabase.rpc('fn_ai_pulse_release_prompt_build_safety', {
+        p_build_id: buildId,
+      });
+      if (error) {
+        logger.error(MODULE, 'fn_ai_pulse_release_prompt_build_safety failed', error);
+        throw new Error(error.message);
+      }
+    },
+    onSuccess: () => {
+      // The released build is now 'passed', so it drops out of the queue read —
+      // and the health counts move one from rejected to passed.
+      queryClient.invalidateQueries({ queryKey: SAFETY_QUERY_KEY_ROOT });
+      queryClient.invalidateQueries({ queryKey: SAFETY_HEALTH_KEY_ROOT });
     },
   });
 }
