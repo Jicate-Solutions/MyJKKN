@@ -741,8 +741,11 @@ export async function GET(request: NextRequest) {
               mimeType: audioMime,
             }),
             // Capped by remaining run budget so tx + sentiment + overhead
-            // always fit under maxDuration=60s (round-6 MEDIUM).
-            Math.min(35000, Math.max(5000, 52000 - (Date.now() - started))),
+            // always fit under maxDuration=60s (round-6 MEDIUM). The ceiling is
+            // TRANSCRIBE_TIMEOUT_MS (measured — see its definition), not 35s:
+            // a call still running long past the slowest success ever recorded
+            // is hung, not slow, and waiting longer only spends run budget.
+            Math.min(TRANSCRIBE_TIMEOUT_MS, Math.max(5000, 52000 - (Date.now() - started))),
             'transcription',
           );
           transcript = result.text;
