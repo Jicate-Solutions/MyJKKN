@@ -182,7 +182,8 @@ export class PayslipGenerator {
         result.errors.push({
           staff_id: staff.id,
           name,
-          reason: 'No HR staff record (hr_staff_details) — create one and set designation/cadre',
+          // Backing table for this reason is hr_staff_details.
+          reason: 'No HR record for this team member — create one and set designation/cadre',
         });
         continue;
       }
