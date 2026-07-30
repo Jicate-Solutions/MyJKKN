@@ -718,7 +718,16 @@ export default function AttendanceMarkPage() {
           }
           dayKey = `cycle-${cycleNum}`;
         } else {
-          dayKey = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+          // Updated: 2026-07-30 - Parse date as local calendar components, not via
+          // `new Date(dateString)` which treats "YYYY-MM-DD" as UTC midnight. In
+          // timezones behind UTC that shifts the computed weekday back a day (e.g.
+          // 2026-03-23 a Monday resolved to SUNDAY), so the day key never matched
+          // the timetable's stored days and staff lookup silently returned nothing
+          // (BUG-003150).
+          const [dateYear, dateMonth, dateDay] = date.split('-').map(Number);
+          dayKey = new Date(dateYear, dateMonth - 1, dateDay)
+            .toLocaleDateString('en-US', { weekday: 'long' })
+            .toUpperCase();
         }
 
         const dayData = actualTimetableData[dayKey];
