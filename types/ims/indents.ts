@@ -20,7 +20,15 @@ export type ImsIndentStatus =
 
 export type ImsIndentUrgency = 'normal' | 'urgent' | 'emergency';
 
-export type ImsRequestScope = 'internal' | 'inter_institution';
+/**
+ * - `internal`          — department indent against its own store
+ * - `intra_institution` — warehouse -> operating store, WITHIN one institution
+ * - `inter_institution` — across institutions (RLS-limited; see ims_indent_requests_select)
+ */
+export type ImsRequestScope = 'internal' | 'inter_institution' | 'intra_institution';
+
+/** Store-to-store supply scopes, as opposed to a department indent. */
+export const IMS_SUPPLY_SCOPES: ImsRequestScope[] = ['intra_institution', 'inter_institution'];
 
 export interface ImsIndentRequest {
   id: string;
@@ -53,8 +61,20 @@ export interface ImsIndentRequest {
   requested_by_profile?: { full_name: string } | null;
   approved_by_profile?: { full_name: string } | null;
   local_approved_by_profile?: { full_name: string } | null;
+  /**
+   * Un-inverted aliases. The underlying columns read backwards:
+   * `source_store_id` is the store that RAISED the request (goods end there) and
+   * `destination_store_id` is the store that SUPPLIES it. Prefer these two.
+   */
+  requesting_store?: { id: string; name: string; code: string; is_central_supply_store?: boolean } | null;
+  supplying_store?: { id: string; name: string; code: string; is_central_supply_store?: boolean } | null;
+  counterpart_institution?: { id: string; name: string } | null;
+
+  /** @deprecated raw-column aliases — use requesting_store / supplying_store. */
   source_store?: { id: string; name: string; code: string } | null;
-  destination_institution?: { id: string; institution_name: string } | null;
+  // `institutions` has no `institution_name` column — only `name`.
+  destination_institution?: { id: string; name: string } | null;
+  /** @deprecated this is the SUPPLYING store — use supplying_store. */
   destination_store?: { id: string; name: string; code: string } | null;
 }
 
@@ -83,8 +103,10 @@ export interface ImsIndentFilters {
   requested_by?: string;
   institution_id?: string;
   store_id?: string;
-  // Cross-store transfer filters (inter_institution scope)
+  // Cross-store transfer filters (supply scopes)
   request_scope?: ImsRequestScope;
+  /** Match any of these scopes. Takes precedence over `request_scope`. */
+  request_scopes?: ImsRequestScope[];
   source_store_id?: string;
   destination_store_id?: string;
   date_from?: string;

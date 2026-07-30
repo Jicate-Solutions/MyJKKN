@@ -137,6 +137,14 @@ export class ImsStoreService {
 
       if (error) {
         if (error.code === '23505') {
+          // Two different unique constraints can fire here — don't report the
+          // warehouse collision as a duplicate store code.
+          const detail = `${error.message ?? ''} ${error.details ?? ''}`;
+          if (detail.includes('one_warehouse_per_institution')) {
+            throw new Error(
+              'This institution already has a warehouse. Turn off the warehouse flag on the existing store first.'
+            );
+          }
           throw new Error(`Store code "${data.code}" already exists`);
         }
         throw error;

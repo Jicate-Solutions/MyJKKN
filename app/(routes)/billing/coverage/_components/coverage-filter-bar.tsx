@@ -1,6 +1,11 @@
 'use client';
 
+import { useState } from 'react';
+import { FileDown } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
+import { BillCoverageService } from '@/lib/services/billing/coverage/bill-coverage-service';
+import { downloadCoverageBillsPdf } from '@/lib/utils/billing/coverage-bills-pdf';
 import { LookupService } from '@/lib/services/admission/lookup-service';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -22,6 +27,8 @@ import { LEARNER_SCOPE_DEFAULT, GENDER_UNSET } from '@/types/billing-coverage';
 interface CoverageFilterBarProps {
   filters: BillCoverageFilters;
   onChange: (next: Partial<BillCoverageFilters>) => void;
+  /** billing.coverage.export — granted separately from .view. */
+  canExport?: boolean;
 }
 
 const ALL = '__all__';
@@ -35,8 +42,10 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function CoverageFilterBar({
   filters,
-  onChange
+  onChange,
+  canExport = false
 }: CoverageFilterBarProps) {
+  const [exporting, setExporting] = useState(false);
   const { institutions, loading: institutionsLoading } =
     useUserInstitutionAccess();
 
@@ -101,6 +110,84 @@ export function CoverageFilterBar({
     // and read as "no gaps", which is the opposite of the truth.
     if (next.length === 0) return;
     onChange({ lifecycle_statuses: next });
+  };
+
+  const nameOf = (list: { id: string; name: string }[], id?: string | null) =>
+    id ? list.find((x) => x.id === id)?.name : undefined;
+
+  /** Printed at the top of the PDF. Without it a reader cannot tell whether a
+   *  document showing 40 learners was filtered or is the whole population. */
+  const filterSummary = (): string[] => {
+    const parts: string[] = [];
+    const inst = institutions.find(
+      (i) => i.institution_id === selectedInstitutionId
+    )?.institution_name;
+    if (inst) parts.push(inst);
+    const ay = (academicYears?.data ?? []).find(
+      (y: any) => y.id === filters.academic_year_id
+    )?.academic_year_name;
+    if (ay) parts.push(`AY ${ay}`);
+    const push = (label: string, v?: string) => v && parts.push(`${label}: ${v}`);
+    push('Degree', nameOf(hierarchy.degrees, filters.degree_id));
+    push('Department', nameOf(hierarchy.departments, filters.department_id));
+    push('Programme', nameOf(hierarchy.programs, filters.program_id));
+    push('Semester', nameOf(hierarchy.semesters, filters.semester_id));
+    push('Section', nameOf(hierarchy.sections, filters.section_id));
+    const cat = (categories ?? []).find(
+      (c: any) => c.id === filters.billing_category_id
+    )?.category_name;
+    push('Category', cat);
+    const acc = (accommodationTypes ?? []).find(
+      (a: any) => a.id === selectedAccommodationId
+    )?.name;
+    push('Accommodation', acc);
+    if (filters.transport && filters.transport !== 'any') {
+      parts.push(filters.transport === 'bus' ? 'Uses bus' : 'No bus');
+    }
+    if (filters.gender) {
+      parts.push(
+        filters.gender === GENDER_UNSET ? 'Gender not recorded' : filters.gender
+      );
+    }
+    parts.push(`Show: ${filters.coverage_state ?? 'not_generated'}`);
+    parts.push(`Lifecycle: ${statuses.join(', ')}`);
+    return parts;
+  };
+
+  const handleExportPdf = async () => {
+    setExporting(true);
+    try {
+      const { rows, learnerCount } =
+        await BillCoverageService.getLearnerBills(filters);
+      if (!rows.length) {
+        toast.error('No learners match these filters — nothing to export');
+        return;
+      }
+      downloadCoverageBillsPdf({
+        rows,
+        learnerCount,
+        filterSummary: filterSummary()
+      });
+      // learnerCount is the true total BEFORE the server-side cap, so a
+      // shortfall means the document is incomplete — say so rather than let
+      // someone reconcile against a silently truncated report.
+      const shown = new Set(rows.map((r) => r.learner_id)).size;
+      if (shown < learnerCount) {
+        toast(
+          `Exported the first ${shown} of ${learnerCount} learners — narrow the filters for the rest`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.success(`Exported ${shown} learner${shown === 1 ? '' : 's'}`);
+      }
+    } catch (err) {
+      // Supabase errors are plain objects, not Error instances.
+      const message =
+        err instanceof Error ? err.message : (err as any)?.message;
+      toast.error(message || 'Failed to export bill details');
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -430,7 +517,29 @@ export function CoverageFilterBar({
         <Label htmlFor='include-non-billing' className='text-xs'>
           Include institutions that have never billed
         </Label>
+
+        {canExport && (
+          <Button
+            type='button'
+            size='sm'
+            variant='outline'
+            className='ml-auto gap-2'
+            onClick={handleExportPdf}
+            disabled={exporting}
+          >
+            <FileDown className='h-4 w-4' />
+            {exporting ? 'Preparing PDF…' : 'Export bill details (PDF)'}
+          </Button>
+        )}
       </div>
+      {canExport && (
+        <p className='text-[11px] text-muted-foreground'>
+          The PDF lists every learner in the current filter with each of their
+          bills — academic year, due date, total, paid and pending — plus a
+          per-learner and grand total. The table&apos;s own Export button gives
+          the flat one-row-per-learner sheet instead.
+        </p>
+      )}
     </div>
   );
 }

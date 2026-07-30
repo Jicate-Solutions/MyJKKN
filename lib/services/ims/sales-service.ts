@@ -143,7 +143,9 @@ export class ImsSalesService {
 
   /**
    * Get items available for sale (sellable, in-stock items).
-   * Now scoped by store_id with institution_id fallback.
+   *
+   * Catalog is institution-scoped (ims_items is UNIQUE(institution_id, code));
+   * the quantity shown is strictly the ACTIVE STORE's balance.
    */
   static async getSellableItems(
     storeId: string,
@@ -155,30 +157,49 @@ export class ImsSalesService {
         .select(
           `id, name, code, selling_price, cost_price, image_url,
            base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
-           category:ims_item_categories(name),
-           stock:ims_stock_summary(available_quantity)`
+           category:ims_item_categories(name)`
         )
         .eq('is_active', true)
         .eq('is_sellable_to_students', true);
 
-      // Primary: store_id; Fallback: institution_id
-      if (storeId) {
-        query = query.eq('store_id', storeId);
-      } else if (institutionId) {
+      if (institutionId) {
         query = query.eq('institution_id', institutionId);
+      } else if (storeId) {
+        query = query.eq('store_id', storeId);
       }
 
       const { data, error } = await query;
 
       if (error) throw error;
 
-      return (data || []).map((item: any) => ({
+      const items = data || [];
+      if (items.length === 0) return [];
+
+      // Quantities are fetched separately rather than embedded. An embedded
+      // ims_stock_summary cannot be filtered by store, so once an item is
+      // stocked in two stores of the same institution the embed returns both
+      // rows and picking [0] shows an ARBITRARY store's quantity at the POS
+      // counter. Transfers make that a real possibility, so read the active
+      // store's row explicitly — same shape as validateStock() below.
+      const stockMap = new Map<string, number>();
+      if (storeId) {
+        const { data: stockRows } = await this.supabase
+          .from('ims_stock_summary')
+          .select('item_id, available_quantity')
+          .in('item_id', items.map((i: any) => i.id))
+          .eq('store_id', storeId);
+        for (const row of stockRows || []) {
+          stockMap.set(row.item_id, row.available_quantity ?? 0);
+        }
+      }
+
+      return items.map((item: any) => ({
         id: item.id,
         name: item.name,
         code: item.code,
         selling_price: item.selling_price,
         cost_price: item.cost_price,
-        available_quantity: item.stock?.[0]?.available_quantity || item.stock?.available_quantity || 0,
+        available_quantity: stockMap.get(item.id) ?? 0,
         unit_abbreviation: item.base_unit?.abbreviation || '',
         category_name: item.category?.name || '',
         image_url: item.image_url || null,

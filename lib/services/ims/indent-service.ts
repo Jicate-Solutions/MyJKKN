@@ -18,6 +18,25 @@ export class ImsIndentService {
   }
 
   /**
+   * Store/institution joins for supply requests (inter_ and intra_institution).
+   *
+   * The columns are INVERTED relative to physical goods flow — `source_store_id`
+   * is the store that RAISED the request (goods end there) and
+   * `destination_store_id` is the store that SUPPLIES it. Aliasing them to
+   * `requesting_store` / `supplying_store` un-inverts the semantics at the read
+   * layer so the UI can be written the way a human reads it, with no migration.
+   *
+   * There are THREE foreign keys from ims_indent_requests to ims_stores
+   * (store_id, source_store_id, destination_store_id), so every embed must name
+   * its constraint — a bare `ims_stores(...)` hint is ambiguous and errors.
+   */
+  private static readonly SUPPLY_STORE_JOINS = `
+    requesting_store:ims_stores!ims_indent_requests_source_store_id_fkey(id,name,code,is_central_supply_store),
+    supplying_store:ims_stores!ims_indent_requests_destination_store_id_fkey(id,name,code,is_central_supply_store),
+    counterpart_institution:institutions!ims_indent_requests_destination_institution_id_fkey(id,name)
+  `;
+
+  /**
    * List indents with department, requested_by joins, search, and pagination.
    */
   static async getIndents(filters: ImsIndentFilters = {}): Promise<{
@@ -31,7 +50,8 @@ export class ImsIndentService {
           `*,
            department:departments(id,department_name),
            requested_by_profile:profiles!requested_by(full_name),
-           approved_by_profile:profiles!approved_by(full_name)`,
+           approved_by_profile:profiles!approved_by(full_name),
+           ${ImsIndentService.SUPPLY_STORE_JOINS}`,
           { count: 'exact' }
         );
 
@@ -69,8 +89,11 @@ export class ImsIndentService {
         query = query.eq('institution_id', filters.institution_id);
       }
 
-      // Cross-store scope filter
-      if (filters.request_scope) {
+      // Cross-store scope filter. `request_scopes` (plural) matches several at
+      // once — the transfers screen shows intra_ and inter_institution together.
+      if (filters.request_scopes?.length) {
+        query = query.in('request_scope', filters.request_scopes);
+      } else if (filters.request_scope) {
         query = query.eq('request_scope', filters.request_scope);
       }
 
@@ -131,7 +154,8 @@ export class ImsIndentService {
           `*,
            department:departments(id,department_name),
            requested_by_profile:profiles!requested_by(full_name),
-           approved_by_profile:profiles!approved_by(full_name)`
+           approved_by_profile:profiles!approved_by(full_name),
+           ${ImsIndentService.SUPPLY_STORE_JOINS}`
         )
         .eq('id', id);
 

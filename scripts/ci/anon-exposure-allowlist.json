@@ -1,0 +1,58 @@
+{
+  "$comment": [
+    "Allow-list for scripts/ci/check-anon-exposure-live.mjs — the sweep that reads",
+    "PRODUCTION and asks which relations the public `anon` key can reach.",
+    "",
+    "Two statuses, and they behave differently:",
+    "",
+    "  approved      — a human ruled on it. Silent unless it disappears.",
+    "  grandfathered — exposed when the sweep was built, never explicitly ruled on.",
+    "                  WARNs every run, and ESCALATES to a hard failure if it gains",
+    "                  rows while carrying an identity column.",
+    "",
+    "2026-07-29: the 32 grandfathered entries are GONE, and not by being pardoned —",
+    "the Director reviewed them and every one was locked (anon grant revoked; see",
+    "migration 20260730000000_revoke_anon_on_grandfathered_relations.sql). The",
+    "exposure surface went 36 -> 4. Everything left here is a deliberate, explained",
+    "decision, which is the state this file is meant to be in: entries should be",
+    "rare and arguable, not a backlog.",
+    "",
+    "Four of those 32 deserve a note, because they read as the opposite of what they",
+    "were. pde_certificates, pde_badges, pde_learner_badges and pde_reputation each",
+    "carried a policy granting SELECT TO public USING (true) — apparently to serve",
+    "the public certificate-verification page at /verify/[number]. They did not.",
+    "That page calls /api/certificates/verify, which resolves through",
+    "lib/services/certificates/verify-resolver.ts using createServiceRoleClient(),",
+    "and service_role bypasses RLS entirely. So the public policy served nothing —",
+    "while granting any anonymous visitor the right to enumerate EVERY learner's",
+    "certificates, badges and reputation. They were empty, so nothing had leaked.",
+    "Locking them was verified not to break verification: /verify/<n> still returns",
+    "200 and the API still returns a clean 404 not_found.",
+    "",
+    "TO ADD AN ENTRY: state a reason a stranger can evaluate, and use `approved`",
+    "only when somebody actually decided. Guessing here disarms the sweep."
+  ],
+  "generated": "2026-07-29",
+  "relations": [
+    {
+      "name": "castes",
+      "status": "approved",
+      "reason": "Read by app/student-form/[token]/ with the BROWSER anon client, by prospective applicants who have no account. Closing it breaks admission intake. Re-proven after the 2026-07-29 lock sweep: still HTTP 200 to an anonymous request, deliberately."
+    },
+    {
+      "name": "community_categories",
+      "status": "approved",
+      "reason": "Same unauthenticated admission-intake path as castes, re-proven 200 in the same check. Closing it breaks sign-ups."
+    },
+    {
+      "name": "institution_health_scores",
+      "status": "approved",
+      "reason": "Director decision 2026-07-26: aggregate, non-personal institution statistics, consciously left open. The rule applied was 'close everything holding personal data; review and consciously rule on the rest'."
+    },
+    {
+      "name": "feature_usage_summary",
+      "status": "approved",
+      "reason": "Director decision 2026-07-26, same aggregate-statistics ruling as institution_health_scores. Counts of feature use, not rows about identifiable people."
+    }
+  ]
+}
