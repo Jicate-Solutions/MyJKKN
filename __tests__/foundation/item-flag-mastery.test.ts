@@ -17,7 +17,7 @@
  *      model the SQL rather than execute it — there is no Postgres in CI.
  *
  * The fixtures are not invented. They reproduce a real production learner+topic
- * (fp_responses as of 2026-08-08: 1 correct of 3, mastery 0.3333), and the
+ * (fp_responses as of 2026-07-31: 1 correct of 3, mastery 0.3333), and the
  * expected numbers below were measured against production first with the
  * rewritten predicate, read-only:
  *   no flags                          -> 0.3333 over 3 responses
@@ -32,7 +32,7 @@ import path from 'node:path';
 
 const MIGRATION = path.resolve(
   process.cwd(),
-  'supabase/migrations/20260808110000_fp_item_flags.sql',
+  'supabase/migrations/20260731040000_fp_item_flags.sql',
 );
 const SQL = readFileSync(MIGRATION, 'utf8');
 
@@ -56,18 +56,34 @@ type Flag = { item_id: string; status: 'open' | 'dismissed' | 'fixed' };
  * `is_correct IS TRUE` is deliberate, not `= true`: a NULL (an item whose
  * answer key was missing at grading time) counts as 0, never as unknown.
  */
-function recomputeTopic(responses: Response[], flags: Flag[]) {
+function recomputeTopic(
+  responses: Response[],
+  flags: Flag[],
+): { attempts_count: number; mastery_score: number } | null {
   const suppressed = new Set(
     flags.filter((f) => f.status === 'open').map((f) => f.item_id),
   );
   const kept = responses.filter((r) => !suppressed.has(r.item_id));
+
+  // CRITICAL: the aggregate carries `GROUP BY i.topic_id`, and GROUP BY over an
+  // empty set yields ZERO ROWS — not one row holding NULL. (A bare
+  // `SELECT avg(x) ... WHERE false` does return one NULL row; adding GROUP BY
+  // does not.) So when every response is suppressed the INSERT..SELECT produces
+  // nothing, ON CONFLICT never fires, and any cached fp_student_weakness row
+  // would survive stale. Returning null here models "no row produced", which is
+  // what the companion DELETE in the migration then cleans up.
+  //
+  // An earlier version of this model returned { attempts_count: 0,
+  // mastery_score: null } for this case. That looked like the safe answer and
+  // was the opposite: it asserted a NULL row exists, hiding the fact that the
+  // SQL leaves the OLD score in place untouched.
+  if (kept.length === 0) return null;
+
   return {
     attempts_count: kept.length,
     mastery_score:
-      kept.length === 0
-        ? null
-        : kept.reduce((n, r) => n + (r.is_correct === true ? 1 : 0), 0) /
-          kept.length,
+      kept.reduce((n, r) => n + (r.is_correct === true ? 1 : 0), 0) /
+      kept.length,
   };
 }
 
@@ -83,35 +99,60 @@ const round4 = (n: number | null) => (n === null ? null : Number(n.toFixed(4)));
 describe('flagging a question removes it from mastery_score', () => {
   it('with no flags, every response counts (production baseline 0.3333 over 3)', () => {
     const r = recomputeTopic(RESPONSES, []);
-    expect(r.attempts_count).toBe(3);
-    expect(round4(r.mastery_score)).toBe(0.3333);
+    expect(r!.attempts_count).toBe(3);
+    expect(round4(r!.mastery_score)).toBe(0.3333);
   });
 
   it('an OPEN flag drops that question — mastery rises when a wrong one goes', () => {
     const r = recomputeTopic(RESPONSES, [
       { item_id: 'q-wrong-a', status: 'open' },
     ]);
-    expect(r.attempts_count).toBe(2);
-    expect(round4(r.mastery_score)).toBe(0.5);
+    expect(r!.attempts_count).toBe(2);
+    expect(round4(r!.mastery_score)).toBe(0.5);
   });
 
   it('an OPEN flag drops that question — mastery falls when a right one goes', () => {
     // The control must not be a way to inflate a score. Suppression is neutral:
     // it removes the question, whichever direction that moves the number.
     const r = recomputeTopic(RESPONSES, [{ item_id: 'q-right', status: 'open' }]);
-    expect(r.attempts_count).toBe(2);
-    expect(round4(r.mastery_score)).toBe(0);
+    expect(r!.attempts_count).toBe(2);
+    expect(round4(r!.mastery_score)).toBe(0);
   });
 
-  it('flagging every question in a topic leaves no score rather than a zero', () => {
-    // A learner whose whole topic is under review has not scored 0; they have
-    // no measurement. avg() over an empty set is NULL in SQL, not 0.
+  it('flagging every question in a topic produces NO ROW — the stale cached score must be deleted, not left behind', () => {
+    // A learner whose whole topic is under review has not scored 0, and has not
+    // scored NULL either: the aggregate emits no row for that topic at all.
+    // Without the companion DELETE, ON CONFLICT never fires and the PREVIOUS
+    // mastery_score survives forever — the learner keeps being ranked on the
+    // strength of questions the institution has admitted may be wrong.
+    //
+    // Measured on production before the fix: a real learner+topic with 3
+    // responses, all suppressed, produced 0 rows from the SELECT while the
+    // cached row kept its 0.3333. That is the bug this asserts against.
     const r = recomputeTopic(
       RESPONSES,
       RESPONSES.map((x) => ({ item_id: x.item_id, status: 'open' as const })),
     );
-    expect(r.attempts_count).toBe(0);
-    expect(r.mastery_score).toBeNull();
+    expect(r).toBeNull();
+  });
+
+  it('the migration carries a DELETE companion, so an emptied topic is cleaned up', () => {
+    // Guards the half of the fix that lives only in SQL. Comments are stripped
+    // from LIVE_SQL, so a commented-out DELETE cannot satisfy this.
+    expect(LIVE_SQL).toMatch(/DELETE\s+FROM\s+fp_student_weakness/i);
+    // and it must be scoped to this learner+exam, never a blanket delete
+    expect(LIVE_SQL).toMatch(/DELETE\s+FROM\s+fp_student_weakness[\s\S]{0,400}?p_student_id/i);
+    expect(LIVE_SQL).toMatch(/DELETE\s+FROM\s+fp_student_weakness[\s\S]{0,400}?p_exam_definition_id/i);
+  });
+
+  it('the DELETE spares a topic that still has surviving responses', () => {
+    // Only ONE of three flagged: the topic still aggregates, so its row must be
+    // updated by ON CONFLICT rather than removed by the DELETE.
+    const r = recomputeTopic(RESPONSES, [
+      { item_id: 'q-wrong-a', status: 'open' },
+    ]);
+    expect(r).not.toBeNull();
+    expect(r!.attempts_count).toBe(2);
   });
 });
 
@@ -120,16 +161,16 @@ describe('resolving a flag restores the question', () => {
     const r = recomputeTopic(RESPONSES, [
       { item_id: 'q-wrong-a', status: 'dismissed' },
     ]);
-    expect(r.attempts_count).toBe(3);
-    expect(round4(r.mastery_score)).toBe(0.3333);
+    expect(r!.attempts_count).toBe(3);
+    expect(round4(r!.mastery_score)).toBe(0.3333);
   });
 
   it('FIXED restores it too', () => {
     const r = recomputeTopic(RESPONSES, [
       { item_id: 'q-right', status: 'fixed' },
     ]);
-    expect(r.attempts_count).toBe(3);
-    expect(round4(r.mastery_score)).toBe(0.3333);
+    expect(r!.attempts_count).toBe(3);
+    expect(round4(r!.mastery_score)).toBe(0.3333);
   });
 
   it('one open flag still suppresses even when another on the same question is closed', () => {
@@ -139,8 +180,8 @@ describe('resolving a flag restores the question', () => {
       { item_id: 'q-right', status: 'dismissed' },
       { item_id: 'q-right', status: 'open' },
     ]);
-    expect(r.attempts_count).toBe(2);
-    expect(round4(r.mastery_score)).toBe(0);
+    expect(r!.attempts_count).toBe(2);
+    expect(round4(r!.mastery_score)).toBe(0);
   });
 });
 

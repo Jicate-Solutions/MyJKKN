@@ -1,5 +1,5 @@
 -- Migration: Foundation Programme — "report a problem with this question" control
--- Date: 2026-08-08
+-- Date: 2026-07-31
 -- ADDITIVE. One new table (fp_item_flags) + one CREATE OR REPLACE of an existing RPC.
 --
 -- WHY THIS EXISTS
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS public.fp_item_flags (
 );
 
 COMMENT ON TABLE public.fp_item_flags IS
-  'Raised concerns about Foundation question-bank items. status=open suppresses the item from mastery scoring (see fn_fp_recompute_weakness); dismissed/fixed restore it. Added 2026-08-08.';
+  'Raised concerns about Foundation question-bank items. status=open suppresses the item from mastery scoring (see fn_fp_recompute_weakness); dismissed/fixed restore it. Added 2026-07-31.';
 COMMENT ON COLUMN public.fp_item_flags.status IS
   'open = suppressing the item from mastery. dismissed = reviewed, question is fine. fixed = question was corrected. Only open suppresses.';
 
@@ -177,6 +177,33 @@ BEGIN
   DO UPDATE SET mastery_score  = EXCLUDED.mastery_score,
                 attempts_count = EXCLUDED.attempts_count,
                 updated_at     = now();
+
+  -- A topic whose every response is now suppressed produces NO row above, so
+  -- ON CONFLICT never fires and any previously cached score survives intact and
+  -- stale. The learner would keep being ranked on the strength of questions the
+  -- institution has already admitted may be wrong. Remove those rows instead —
+  -- absence means "no evidence", which is the truth.
+  --
+  -- Deletion, not a NULL row: fn_fp_generate_revision_plan orders by
+  -- `mastery_score NULLS FIRST`, so leaving a NULL behind would rank the topic
+  -- as the learner's WEAKEST — the exact opposite of what suppression means.
+  DELETE FROM fp_student_weakness w
+   WHERE w.student_id         = p_student_id
+     AND w.exam_definition_id = p_exam_definition_id
+     AND NOT EXISTS (
+       SELECT 1
+         FROM fp_responses r
+         JOIN fp_attempts  a ON a.id = r.attempt_id
+         JOIN fp_items     i ON i.id = r.item_id
+        WHERE a.student_id         = p_student_id
+          AND i.exam_definition_id = p_exam_definition_id
+          AND i.topic_id           = w.topic_id
+          AND NOT EXISTS (
+            SELECT 1 FROM fp_item_flags f
+             WHERE f.item_id = i.id
+               AND f.status  = 'open'
+          )
+     );
 END;
 $$;
 
