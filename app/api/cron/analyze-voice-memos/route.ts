@@ -998,6 +998,30 @@ export async function GET(request: NextRequest) {
       }
 
       failed++;
+      if (cls === 'permanent') {
+        // Retrying cannot fix this row. Park it NOW by exhausting its budget so
+        // the candidate sweep's `.lt(memo_analyze_attempts, MAX)` filter stops
+        // re-picking it, instead of spending 5 attempts re-probing a hard limit.
+        // Deliberately does NOT touch txTransientStreak: this is one bad file,
+        // not evidence the provider is down, so it must never trip the
+        // two-strikes halt that would stop transcription for healthy memos.
+        try {
+          await supabase
+            .from('admission_call_logs')
+            .update({
+              memo_analyze_status: 'failed',
+              memo_analyze_attempts: MAX_ANALYZE_ATTEMPTS,
+              memo_transient_failures: 0,
+              memo_analyzed_at: nowIso(),
+              updated_at: nowIso(),
+            })
+            .eq('id', c.id);
+        } catch {
+          // best-effort — already in the error path
+        }
+        continue;
+      }
+
       txTransientStreak++;
       if (cls !== 'ratelimit') {
         const txTransientCount = (c.memo_transient_failures ?? 0) + 1;
