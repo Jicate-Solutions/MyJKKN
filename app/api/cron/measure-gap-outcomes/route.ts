@@ -48,9 +48,33 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Best-effort follow-ups (v2). A failure here must NOT fail the measurement
+  // run, so each is logged and its count defaults to 0.
+  //   notify   — ping that college's board managers + the owner about gaps that
+  //              are now/still stuck (once, then weekly; guarded in-RPC).
+  //   resurface — flip 'parked' someday-gaps back to 'triaged' after 3 months.
+  let notified = 0;
+  let resurfaced = 0;
+
+  const notifyRes = await supabase.rpc('fn_mba_notify_stalled_gaps');
+  if (notifyRes.error) {
+    console.error('[cron/measure-gap-outcomes] stalled-notify failed:', notifyRes.error);
+  } else {
+    notified = Number(normalize(notifyRes.data)) || 0;
+  }
+
+  const resurfaceRes = await supabase.rpc('fn_mba_resurface_parked_gaps');
+  if (resurfaceRes.error) {
+    console.error('[cron/measure-gap-outcomes] parked-resurface failed:', resurfaceRes.error);
+  } else {
+    resurfaced = Number(normalize(resurfaceRes.data)) || 0;
+  }
+
   return NextResponse.json({
     ok: true,
     measured: normalize(res.data),
+    notified,
+    resurfaced,
     elapsed_ms: Date.now() - started,
   });
 }

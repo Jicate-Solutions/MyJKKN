@@ -6,6 +6,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { ContentLayout } from '@/components/layout/content-layout';
 import { ImpactLeaderboard } from './_components/impact-leaderboard';
 
 export const dynamic = 'force-dynamic';
@@ -25,5 +26,9 @@ export default async function ImpactLeaderboardPage() {
     );
   }
 
-  return <ImpactLeaderboard currentUserId={user.id} />;
+  return (
+    <ContentLayout title="Impact Leaderboard">
+      <ImpactLeaderboard currentUserId={user.id} />
+    </ContentLayout>
+  );
 }

@@ -125,11 +125,11 @@ export function HolidaysAdmin() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Common Holidays &amp; Events</h1>
         {canManage && (
           <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild><Button onClick={openCreate}>New entry</Button></DialogTrigger>
+            <DialogTrigger asChild><Button onClick={openCreate} className="w-full shrink-0 sm:w-auto">New entry</Button></DialogTrigger>
             <DialogContent>
               <DialogHeader><DialogTitle>{form.id ? 'Edit' : 'New'} entry</DialogTitle></DialogHeader>
               <div className="space-y-3">
@@ -235,7 +235,7 @@ export function HolidaysAdmin() {
               <TableRow key={e.id}>
                 <TableCell className="font-medium">{e.title}</TableCell>
                 <TableCell className="capitalize">{e.kind}</TableCell>
-                <TableCell>{moment(e.start_at).format('DD MMM YYYY')} – {moment(e.end_at).format('DD MMM YYYY')}</TableCell>
+                <TableCell>{moment.utc(e.start_at).format('DD MMM YYYY')} – {moment.utc(e.end_at).format('DD MMM YYYY')}</TableCell>
                 <TableCell>{scopeLabel(e)}</TableCell>
                 <TableCell>{e.kind === 'holiday' ? (e.blocks_attendance ? 'Yes' : 'No') : '—'}</TableCell>
                 {canManage && (

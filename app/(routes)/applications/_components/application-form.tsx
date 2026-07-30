@@ -105,7 +105,12 @@ const applicationSchema = z.object({
   uses_parent_auth: z.boolean().default(false),
   app_id: z.string().optional().default(''),
   api_key: z.string().optional().default(''), // Only for new generation, not stored
-  allowed_redirect_uris: z.array(z.string()).optional().default([]),
+  allowed_redirect_uris: z
+    .array(
+      z.string().url('Must be a valid URL, e.g. https://yourapp.com/callback or http://localhost:3000/callback')
+    )
+    .optional()
+    .default([]),
   allowed_scopes: z
     .array(z.string())
     .optional()
@@ -585,13 +590,14 @@ export function ApplicationForm({
                       Loading roles...
                     </div>
                   ) : (
-                    <div className='grid grid-cols-2 gap-4'>
+                    <div className='grid grid-cols-1 min-[475px]:grid-cols-2 gap-4'>
                       {roles.map((role) => (
                         <div
                           key={role.key}
                           className='flex items-center space-x-2 bg-secondary/20 p-2 rounded-md'
                         >
                           <Checkbox
+                            className='shrink-0'
                             checked={(
                               form.watch('roles_access') || []
                             ).includes(role.key)}
@@ -603,7 +609,7 @@ export function ApplicationForm({
                               form.setValue('roles_access', updated);
                             }}
                           />
-                          <label className='text-sm font-medium'>
+                          <label className='text-sm font-medium min-w-0 break-words'>
                             {role.name}
                           </label>
                         </div>

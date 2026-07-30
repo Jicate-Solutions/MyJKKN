@@ -16,7 +16,7 @@ export default function OBEDashboardPage() {
   const taxonomyUnit = isBlooms ? 'Levels Active' : 'Dimensions Active';
 
   return (
-    <div className='space-y-6 w-full min-w-0 px-4 md:px-8'>
+    <div className='space-y-6 w-full min-w-0 px-4 md:px-8 pb-24 lg:pb-0'>
       <div>
         <h1 className='text-2xl font-bold py-1'>Outcome-Based Education</h1>
         <p className='text-sm sm:text-base text-muted-foreground'>

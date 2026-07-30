@@ -399,8 +399,8 @@ export function EventProposalsClient({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">Event Proposals</h1>
           <p className="text-sm text-muted-foreground">
             Create and track your event proposals
@@ -408,7 +408,7 @@ export function EventProposalsClient({
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button className="shrink-0">
               <Plus className="h-4 w-4 mr-2" />
               New Proposal
             </Button>

@@ -42,6 +42,8 @@ interface LeaveTypesDataTableProps {
   onView: (t: HRLeaveType) => void;
   onEdit: (t: HRLeaveType) => void;
   onAssign: (t: HRLeaveType) => void;
+  /** Opens the approval-chain editor for this type. */
+  onApprovalFlow: (t: HRLeaveType) => void;
   onArchive: (t: HRLeaveType) => Promise<void> | void;
   /**
    * Bumped by the page after a save or archive. Needed in addition to the
@@ -66,6 +68,7 @@ export function LeaveTypesDataTable({
   onView,
   onEdit,
   onAssign,
+  onApprovalFlow,
   onArchive,
   refreshToken,
 }: LeaveTypesDataTableProps) {
@@ -78,8 +81,8 @@ export function LeaveTypesDataTable({
   const { orgNameById } = useHrOrgMappings();
 
   const columns = useMemo(
-    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onArchive, orgNameById }),
-    [canManage, onView, onAssign, onEdit, onArchive, orgNameById]
+    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, orgNameById }),
+    [canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, orgNameById]
   );
 
   const fetchData = useCallback(
@@ -196,6 +199,7 @@ export function LeaveTypesDataTable({
                 onView={onView}
                 onAssign={onAssign}
                 onEdit={onEdit}
+                onApprovalFlow={onApprovalFlow}
                 onArchive={onArchive}
               />
             )}

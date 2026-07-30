@@ -343,7 +343,7 @@ export function IssuesKanbanClient({
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Select value={filterAssignee} onValueChange={setFilterAssignee}>
           <SelectTrigger className="w-48">

@@ -304,7 +304,7 @@ function MyCoursesInner() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="my-courses">
               My Courses ({filteredRegular.length})
             </TabsTrigger>

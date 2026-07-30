@@ -81,10 +81,16 @@ export interface MbaDataGap {
   triaged_by: string | null;
   triaged_at: string | null;
   triage_note: string | null;
+  // Phase 4 v2 — optional named owner (any team member); NULL = shared board.
+  owner_id: string | null;
+  owner_name: string | null;
   // Phase 2 — AI ranking + classification (NULL until the cron has ranked it).
   priority_rank: number | null;
   priority_reason: string | null;
   gap_class: DataGapClass | null;
+  // Phase 4 v2 — a manager has confirmed the AI Type A/B guess (only a confirmed
+  // type_a_surface is fast-tracked/highlighted).
+  class_confirmed: boolean;
   ranked_at: string | null;
   // Phase 3-4 — measured outcome (NULL until the measure cron has run).
   gap_outcome: DataGapOutcome | null;
@@ -106,6 +112,35 @@ export interface FileDataGapPayload {
 export interface DataGapFilters {
   areaId?: string;
   status?: DataGapStatus;
+}
+
+/**
+ * One contributor row in the managers-only ranking (decision #10/#11), from
+ * fn_mba_gap_contributor_ranking: filed → accepted → produced an APPLIED
+ * improvement, with the contributor's college attached so the UI can toggle
+ * per-college vs combined all-JKKN. Server-ordered by produced_improvement.
+ */
+export interface MbaGapContributor {
+  associate_id: string;
+  associate_name: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  filed: number;
+  accepted: number;
+  produced_improvement: number;
+}
+
+/**
+ * A very-similar look-alike gap returned by fn_mba_suggest_duplicate_gaps — a
+ * suggestion for a manager to confirm, never an auto-merge. `similarity` is a
+ * 0-1 trigram score (only >= 0.6 are returned).
+ */
+export interface DuplicateSuggestion {
+  id: string;
+  title: string;
+  filer_name: string | null;
+  status: DataGapStatus;
+  similarity: number;
 }
 
 /**
@@ -195,6 +230,48 @@ export class MbaDataGapService {
     return data ?? [];
   }
 
+  /** Assign or clear (ownerId = null) a gap's owner. Manager-only (RPC-enforced). */
+  static async assignOwner(gapId: string, ownerId: string | null): Promise<void> {
+    const supabase = this.getSupabase();
+    const { error } = await (supabase as any).rpc('fn_mba_assign_gap_owner', {
+      p_gap_id: gapId,
+      p_owner_id: ownerId
+    });
+    if (error) {
+      logger.error(MODULE, 'Error assigning data-gap owner', error);
+      throw new Error(error.message || 'Failed to assign the owner.');
+    }
+  }
+
+  /** Confirm/override the AI Type A/B classification. Manager-only (RPC-enforced). */
+  static async confirmClass(gapId: string, gapClass: DataGapClass): Promise<void> {
+    const supabase = this.getSupabase();
+    const { error } = await (supabase as any).rpc('fn_mba_confirm_gap_class', {
+      p_gap_id: gapId,
+      p_gap_class: gapClass
+    });
+    if (error) {
+      logger.error(MODULE, 'Error confirming gap class', error);
+      throw new Error(error.message || 'Failed to confirm the type.');
+    }
+  }
+
+  /**
+   * Very-similar look-alikes in the same area (suggestion only — never an
+   * auto-merge). Manager-only (RPC-enforced).
+   */
+  static async suggestDuplicates(gapId: string): Promise<DuplicateSuggestion[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc('fn_mba_suggest_duplicate_gaps', {
+      p_gap_id: gapId
+    })) as { data: DuplicateSuggestion[] | null; error: any };
+    if (error) {
+      logger.error(MODULE, 'Error loading duplicate suggestions', error);
+      throw new Error(error.message || 'Failed to check for duplicates.');
+    }
+    return data ?? [];
+  }
+
   /**
    * Track record for the data-gap loop (Phase 3). A manager may pass an
    * associateId (or null for every associate); a non-manager is forced to their
@@ -212,6 +289,23 @@ export class MbaDataGapService {
     if (error) {
       logger.error(MODULE, 'Error loading data-gap track record', error);
       throw new Error(error.message || 'Failed to load your data-gap track record.');
+    }
+    return data ?? [];
+  }
+
+  /**
+   * Managers-only contributor ranking (decision #10/#11), ranked by REAL
+   * improvements produced. Returns every contributor with their college so the
+   * UI can toggle per-college vs combined all-JKKN. Manager-only (RPC-enforced).
+   */
+  static async getContributorRanking(): Promise<MbaGapContributor[]> {
+    const supabase = this.getSupabase();
+    const { data, error } = (await (supabase as any).rpc(
+      'fn_mba_gap_contributor_ranking'
+    )) as { data: MbaGapContributor[] | null; error: any };
+    if (error) {
+      logger.error(MODULE, 'Error loading contributor ranking', error);
+      throw new Error(error.message || 'Failed to load the contributor ranking.');
     }
     return data ?? [];
   }

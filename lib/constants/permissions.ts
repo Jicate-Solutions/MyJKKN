@@ -171,6 +171,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'improvement.ideas.view', label: 'View Improvement Board' },
       { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
       { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
+      // Assigning a role holder writes hr_additional_roles — institution-wide org data,
+      // not a note on a playbook — so it is an officer action (CEO / CAO / EAO), held
+      // separately from board.manage. Board managers can SEE holders, not change them.
+      { key: 'improvement.area_role.assign', label: 'Assign Department Role Holders (CEO / CAO / EAO)' },
       { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
       { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
     ]
@@ -542,6 +546,16 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.internal_marks.exam_audit.view',
         label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
       },
+      // 2026-07-27: gates EDITING the exam attendance eligibility thresholds
+      // (platform_policies academic.exam_eligibility.attendance_pct /
+      // .condonation_floor_pct). Previously any is_admin() role could move a
+      // regulatory threshold; setting it to 0 would make every learner eligible.
+      // Enforced in RLS by 20260727060000_exam_eligibility_manage_permission.sql —
+      // granting this key is what actually confers the ability.
+      {
+        key: 'academic.exam_eligibility.manage',
+        label: 'Change exam attendance eligibility thresholds (75% / 65%)'
+      },
       {
         key: 'academic.attendance.consolidation.view',
         label: 'View Consolidation Reports'
@@ -645,8 +659,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.receipts.view', label: 'View Receipts' },
       { key: 'billing.receipts.create', label: 'Create Receipts' },
       { key: 'billing.receipts.edit', label: 'Edit Receipts' },
-      { key: 'billing.receipts.delete', label: 'Delete Receipts' },
+      { key: 'billing.receipts.delete', label: 'Delete/Void Receipts Directly' },
       { key: 'billing.receipts.generate', label: 'Generate Receipts' },
+      // Cancelling a receipt reverses money, so it is split in two: staff RAISE
+      // a request, and only a SUPER ADMIN decides it. There is deliberately no
+      // "cancel.approve" key — approval is gated on is_super_admin() in
+      // fn_act_on_receipt_cancellation and cannot be delegated through Role
+      // Management. A key here would be a toggle that grants nothing.
+      // Anyone holding billing.receipts.delete can still void directly and
+      // bypass this, which is why it was revoked from the accounts roles and
+      // from Chief Accountant.
+      { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
       { key: 'billing.discounts.edit', label: 'Edit Discounts' },
@@ -1385,6 +1408,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.ncte.view', label: 'View NCTE Dashboard' },
       { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
       { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' },
+
+      // Cluster Academic Council — a peer tab in the same row, but JKKN's own
+      // governance body rather than an outside regulator, so it has no
+      // scorecard and nothing to submit. Read-only: forming a council and
+      // editing its roster stay on the committees hub under the
+      // accreditation.naac.committees.* keys.
+      { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
 
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
@@ -2474,11 +2504,26 @@ export const PERMISSION_CATEGORIES = [
   // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
   // permissions-catalog gate on every open PR and hiding the toggle from the
   // Role-Management Edit dialog.
+  // Added 2026-07-28 — grantability fix. Eight rcltp.* keys were already being
+  // enforced by page guards and RLS policies, but only rcltp.config.manage was
+  // registered here. Role Management builds its checkboxes from this list, so
+  // the other seven could never be granted through the UI (they had been seeded
+  // straight into custom_roles rows), and rcltp.question.approve — required by
+  // /rcltp/teacher/questions and by the rcltp_pbq_update_review policy — was
+  // held by zero of 81 roles, making question approval super-admin-only.
   {
     name: 'RCLTP',
     key: 'rcltp',
     permissions: [
-      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
+      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' },
+      { key: 'rcltp.question.approve', label: 'Approve RCLTP Comprehension Questions' },
+      { key: 'rcltp.review', label: 'Review & Approve RCLTP Remedial Plans' },
+      { key: 'rcltp.assessment.manage', label: 'Manage RCLTP Assessments' },
+      { key: 'rcltp.assessment.take', label: 'Take RCLTP Assessments' },
+      { key: 'rcltp.report.view_all', label: 'View All RCLTP Reports' },
+      { key: 'rcltp.report.view_class', label: 'View RCLTP Reports for a Section' },
+      { key: 'rcltp.report.view_child', label: 'View RCLTP Reports for Own Ward' },
+      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' }
     ]
   },
   {

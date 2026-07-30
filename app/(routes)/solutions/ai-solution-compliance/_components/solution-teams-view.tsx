@@ -81,14 +81,14 @@ export function SolutionTeamsView({ data, isLoading }: SolutionTeamsViewProps) {
               <CardContent className='pt-6'>
                 {/* Header */}
                 <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-2'>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2 min-w-0'>
                     <Lightbulb className='h-5 w-5 text-amber-500' />
                     <span className='font-semibold'>{solution.solutionTitle}</span>
                     <Badge variant='outline' className='text-xs'>
                       {solution.solutionCode}
                     </Badge>
                   </div>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex flex-wrap items-center gap-2'>
                     <Badge
                       variant='outline'
                       className={
@@ -116,7 +116,7 @@ export function SolutionTeamsView({ data, isLoading }: SolutionTeamsViewProps) {
                 </div>
 
                 {/* Team info */}
-                <div className='flex items-center gap-2 mt-2 text-sm text-muted-foreground'>
+                <div className='flex flex-wrap items-center gap-2 mt-2 text-sm text-muted-foreground'>
                   <Users className='h-4 w-4' />
                   <span>
                     {solution.teamSize} team members ({solution.graduatingBuilders} graduating)
@@ -160,10 +160,10 @@ export function SolutionTeamsView({ data, isLoading }: SolutionTeamsViewProps) {
                       return (
                         <div
                           key={member.builderId}
-                          className='flex items-center justify-between p-2 rounded-md bg-muted/30'
+                          className='flex items-center justify-between gap-2 p-2 rounded-md bg-muted/30'
                         >
-                          <div className='flex items-center gap-2'>
-                            <span className='font-medium text-sm'>
+                          <div className='flex items-center gap-2 min-w-0'>
+                            <span className='font-medium text-sm truncate'>
                               {member.builderName}
                             </span>
                             <Badge
@@ -175,7 +175,7 @@ export function SolutionTeamsView({ data, isLoading }: SolutionTeamsViewProps) {
                           </div>
                           <Badge
                             variant='outline'
-                            className={`text-xs border ${statusConfig.color}`}
+                            className={`text-xs border shrink-0 ${statusConfig.color}`}
                           >
                             {statusConfig.label}
                           </Badge>

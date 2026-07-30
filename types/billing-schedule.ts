@@ -856,6 +856,23 @@ export interface InvoiceReport {
   billing_period_to?: string;
 }
 
+/**
+ * One year-wise bucket for the /billing/reports dashboard cards.
+ *
+ * Produced by StudentYearBreakdownService, not by the dashboard RPC — that RPC
+ * returns grand totals only.
+ */
+export interface StudentYearBreakdown {
+  /** 1, 2, 3, … — or null for learners whose year cannot be determined. */
+  year: number | null;
+  /** Distinct learners with bills in this year. */
+  student_count: number;
+  amount_billed: number;
+  amount_collected: number;
+  /** Balance still carried on unpaid / partially paid / overdue bills. */
+  outstanding: number;
+}
+
 export interface BillingDashboardMetrics {
   total_students: number;
   total_bills: number;

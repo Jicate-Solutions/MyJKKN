@@ -139,7 +139,7 @@ export function OverviewGrid() {
         {/* Societal Value */}
         <div>
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Societal Value</p>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {isLoading ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <Card key={i}><CardContent className="p-4"><Skeleton className="h-8 w-20 mb-2" /><Skeleton className="h-4 w-32" /></CardContent></Card>

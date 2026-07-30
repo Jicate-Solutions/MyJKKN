@@ -225,7 +225,7 @@ export async function GET(request: NextRequest) {
 
   const { data: gaps, error: gapErr } = await admin
     .from('mba_data_gaps')
-    .select('id, institution_id, area_id, gap_type, title, what_missing, what_analysis, what_decision')
+    .select('id, institution_id, area_id, filed_by, gap_type, title, what_missing, what_analysis, what_decision')
     .in('status', RANKABLE_STATUSES)
     .order('institution_id', { ascending: true });
 
@@ -233,7 +233,9 @@ export async function GET(request: NextRequest) {
     submitError = gapErr.message;
     console.error('[cron/rank-data-gaps] rankable-gap query failed:', gapErr.message);
   } else {
-    const rows = (gaps ?? []) as RankableGap[];
+    // filed_by rides along ONLY for the distinct-people frequency below; it is
+    // never placed into the ranking prompt (filer identity stays out of the LLM).
+    const rows = (gaps ?? []) as Array<RankableGap & { filed_by: string | null }>;
 
     // Area labels for every area referenced (one query, robust vs FK-embed naming).
     const areaIds = Array.from(new Set(rows.map((r) => r.area_id).filter(Boolean)));
@@ -285,7 +287,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const byInstitution = new Map<string, RankableGap[]>();
+    const byInstitution = new Map<string, Array<RankableGap & { filed_by: string | null }>>();
     for (const raw of rows) {
       if (!raw.institution_id) continue; // no institution → cannot rank comparatively
       const list = byInstitution.get(raw.institution_id) ?? [];
@@ -298,9 +300,17 @@ export async function GET(request: NextRequest) {
       if (list.length < MIN_GAPS_TO_RANK) continue;
       institutionsConsidered++;
 
-      // Frequency: how many of this institution's un-triaged gaps share each area.
+      // Frequency = how many DISTINCT people are blocked on each area (not the
+      // raw report count). One person filing the same thing many times must not
+      // inflate an area's priority; many DIFFERENT people should.
+      const areaFilers = new Map<string, Set<string>>();
+      for (const g of list) {
+        const s = areaFilers.get(g.area_id) ?? new Set<string>();
+        if (g.filed_by) s.add(g.filed_by);
+        areaFilers.set(g.area_id, s);
+      }
       const areaFreq = new Map<string, number>();
-      for (const g of list) areaFreq.set(g.area_id, (areaFreq.get(g.area_id) ?? 0) + 1);
+      for (const [aid, s] of areaFilers) areaFreq.set(aid, Math.max(1, s.size));
 
       const runId = crypto.randomUUID();
       const context: RankContext = {

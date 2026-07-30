@@ -148,10 +148,10 @@ export function RequestDetailClient({ request, userId }: RequestDetailClientProp
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-start gap-2">
-              <Mail className="h-4 w-4 text-muted-foreground mt-1" />
-              <div>
+              <Mail className="h-4 w-4 text-muted-foreground mt-1 shrink-0" />
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-muted-foreground">College Email</p>
-                <p className="text-sm">{request.learner?.college_email || 'Not assigned'}</p>
+                <p className="text-sm break-words">{request.learner?.college_email || 'Not assigned'}</p>
               </div>
             </div>
             <div className="flex items-start gap-2">

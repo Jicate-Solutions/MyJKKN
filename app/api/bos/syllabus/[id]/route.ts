@@ -236,6 +236,16 @@ export async function PUT(
         capstone_project: body.capstone_project,
         capstone_rubric: body.capstone_rubric,
         llc_conference: body.llc_conference,
+        // Pharmacy / AHS academic-model fields (types/bos.ts AcademicModel).
+        // academic_model is set at creation and normally unchanged, but the form
+        // round-trips it so it stays consistent; the rest are model-specific.
+        academic_model: body.academic_model,
+        semester: body.semester,
+        academic_year: body.academic_year,
+        scope: body.scope,
+        exam_scheme: body.exam_scheme,
+        internship_postings: body.internship_postings,
+        ahs_content: body.ahs_content,
         notes: body.notes,
         last_modified_by: user.id,
         last_modified_at: new Date().toISOString(),

@@ -8,6 +8,7 @@ import { AccountTransitionService } from '@/lib/services/admission/account-trans
 import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 import { getErrorMessage } from '@/lib/utils';
+import { describeOncePerLearnerError } from '@/lib/utils/billing-duplicate-error';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -498,6 +499,17 @@ export class OnboardingService {
       const { error: insertError } = await supabase
         .from('billing_student_bills')
         .insert(billsToInsert);
+
+      // Onboarding inserts the learner's whole fee set as one batch, so a
+      // single once-per-learner collision rejects all of it. Name the category
+      // that blocked it — otherwise the operator sees only a generic failure
+      // for a learner whose bills were partly already created earlier.
+      const duplicateMessage = describeOncePerLearnerError(insertError);
+      if (duplicateMessage) {
+        throw new Error(
+          `${duplicateMessage} No bills were created for this learner — resolve the existing bill, then retry.`
+        );
+      }
 
       if (insertError) throw insertError;
       return billsToInsert.length;

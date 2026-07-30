@@ -31,6 +31,7 @@ import { BOS_TEMPLATE_PLACEHOLDERS } from '@/lib/services/bos-email-templates';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { SmtpConfigForm } from './_components/smtp-config-form';
 import { BoardSendersForm } from './_components/board-senders-form';
+import { LetterheadAssetsForm } from './_components/letterhead-assets-form';
 import { InstitutionPicker } from '../_components/institution-picker';
 
 interface TemplateRow {
@@ -390,6 +391,7 @@ function EmailSettingsPageInner() {
         <TabsContent value='smtp' className='space-y-6'>
           <SmtpConfigForm institutionsId={institutionsId} />
           <BoardSendersForm institutionsId={institutionsId} />
+          <LetterheadAssetsForm institutionsId={institutionsId} />
         </TabsContent>
 
         {/* ── Email Template tab ─────────────────────────────────────── */}

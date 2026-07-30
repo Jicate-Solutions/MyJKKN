@@ -24,6 +24,8 @@ export interface LeaveTypeColumnActions {
   onView: (t: HRLeaveType) => void;
   onAssign: (t: HRLeaveType) => void;
   onEdit: (t: HRLeaveType) => void;
+  /** Opens the approval-chain editor for this type. */
+  onApprovalFlow: (t: HRLeaveType) => void;
   onArchive: (t: HRLeaveType) => Promise<void> | void;
   /**
    * hr_organization_id → institution name, from useHrOrgMappings.
@@ -240,6 +242,7 @@ export function getLeaveTypeColumns(
           onView={actions.onView}
           onAssign={actions.onAssign}
           onEdit={actions.onEdit}
+          onApprovalFlow={actions.onApprovalFlow}
           onArchive={actions.onArchive}
         />
       ),

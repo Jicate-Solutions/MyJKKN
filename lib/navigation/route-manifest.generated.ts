@@ -402,6 +402,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/accreditation/cac",
+        "label": "Cac",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/accreditation/coverage",
         "label": "Coverage",
         "iconName": "FileText",
@@ -1962,6 +1968,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/billing/payment-accounts",
         "label": "Payment Accounts",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
+        "path": "/billing/receipt-cancellations",
+        "label": "Receipt Cancellations",
         "iconName": "Wallet",
         "children": []
       },
@@ -4441,6 +4453,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/improvement-board/leaderboard",
         "label": "Leaderboard",
         "iconName": "Trophy",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/manage-boards",
+        "label": "Manage Boards",
+        "iconName": "FileText",
         "children": []
       },
       {

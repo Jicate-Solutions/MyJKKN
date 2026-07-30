@@ -65,6 +65,7 @@ import {
 } from '@/lib/services/platform/ai-clients/sentiment';
 import { getModel } from '@/lib/services/platform/ai-providers';
 import { shouldDeferToMaxLane } from '@/lib/services/platform/max-lane-deferral';
+import { enqueueJobsLane, collectJobsLane } from '@/lib/services/platform/ai-jobs-lane';
 
 const BATCH_LIMIT = 20; // rate-limit transcription API calls per run
 const STORAGE_BUCKET = 'call-memos';
@@ -212,6 +213,74 @@ function normalizeAnalysis(raw: Record<string, unknown>): AnalysisResult {
 }
 
 // ============================================================================
+// MAX-LANE SENTIMENT (Stage 2c) — enqueue on max-sentiment + collect sweep
+// ============================================================================
+// When shouldDeferToMaxLane('voice-memo-sentiment') is true (the Director enabled
+// the maxlane:voice-memo-sentiment schedule row AND the runner heartbeat is
+// fresh), this run does NOT call paid Google for sentiment. It ENQUEUES a
+// voice_memo.sentiment job on the ₹0 `max-sentiment` sub-lane (dedupeKey =
+// call_log_id, so a row already in-flight is not re-enqueued) and leaves the row
+// 'analyzing'. The collect sweep (top of every run) reads finished jobs and
+// writes the SAME memo_* columns the direct path writes — byte-parity — flipping
+// the row to 'completed'. Direct and queue paths are mutually exclusive on
+// maxLaneDeferred, so a row is never scored twice.
+
+/** The fully-assembled prompt the max-sentiment job carries. The job type's
+ *  prompt_template is the glue '{{prompt}}', so the runner sees exactly this. */
+function buildSentimentPrompt(transcript: string): string {
+  return `${SENTIMENT_SYSTEM_PROMPT}\n\nTranscript:\n\n${transcript}`;
+}
+
+/** Parse the drain's raw sentiment text into the shape normalizeAnalysis expects.
+ *  The direct providers use JSON response modes (no fences); the Claude CLI drain
+ *  may wrap the JSON in a ```json fence or add stray prose — slice to the first
+ *  balanced {...}. Returns null on anything unparseable (caller leaves the row
+ *  'analyzing' to be re-enqueued). */
+function parseSentimentJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** Enqueue ONE sentiment job on the ₹0 max-sentiment sub-lane. Best-effort:
+ *  ok/in_flight both mean "handled"; unknown_type (feature dark) / no_seat /
+ *  error leave the row 'analyzing' so the direct path resumes the moment
+ *  deferral drops. NEVER throws — a broken queue must not halt the cron. */
+async function enqueueSentimentJob(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  callLogId: string,
+  transcript: string,
+): Promise<void> {
+  try {
+    const res = await enqueueJobsLane(admin, {
+      jobType: 'voice_memo.sentiment',
+      prompt: buildSentimentPrompt(transcript),
+      context: { call_log_id: callLogId },
+      dedupeKey: callLogId,
+    });
+    // Under this project's tsconfig (strictNullChecks off) the discriminated
+    // union does not narrow after `if (res.ok)`, so read reason via a cast —
+    // matching how the rest of the codebase treats enqueueJobsLane results.
+    if (!res.ok) {
+      const reason = (res as { reason?: string }).reason;
+      // 'in_flight' = already queued/claimed — normal, not worth a warning.
+      if (reason !== 'in_flight') {
+        console.warn(
+          `[cron/analyze-voice-memos] max-sentiment enqueue ${callLogId}: ${reason ?? 'error'}`,
+        );
+      }
+    }
+  } catch (e) {
+    console.warn(`[cron/analyze-voice-memos] max-sentiment enqueue ${callLogId} threw (non-fatal):`, e);
+  }
+}
+
+// ============================================================================
 // FAILURE CLASSIFICATION — final design after 7 deep-review rounds
 // ============================================================================
 // Two classes only:
@@ -316,6 +385,87 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServiceRoleClient();
+
+  // --- Collect finished max-sentiment jobs (Stage 2c) --------------
+  // Runs every tick regardless of deferral so in-flight jobs from a prior
+  // (deferred) run are always drained. fn_ai_collect_claim is exactly-once
+  // (FOR UPDATE SKIP LOCKED + delivered_at), so a job is delivered here at most
+  // once; a parse/write miss CHARGES ONE ATTEMPT and leaves the row 'analyzing'
+  // so orphan-recovery re-enqueues a fresh job next tick (dedupeKey).
+  //
+  // POISON-ROW CAP (2026-07-29): the charge above is load-bearing. Without it a
+  // memo the model can never parse (bad audio, truncated recording) is
+  // re-enqueued every ~4 min FOREVER, quietly burning free-lane capacity — the
+  // exact shape of the 2026-07-03 incident that wasted 162K transcription calls.
+  // Charging an attempt here mirrors the direct path's MAX_ANALYZE_ATTEMPTS
+  // budget: at the cap the row is parked 'failed' and the candidate sweep's
+  // `.lt('memo_analyze_attempts', MAX_ANALYZE_ATTEMPTS)` filter stops re-picking
+  // it. Only UNUSABLE output is charged — a successful parse never is.
+  let collectedSentiment = 0;
+  let sentimentParkedFailed = 0;
+
+  /** Charge one attempt for unusable drain output; park the row at the cap. */
+  const chargeSentimentMiss = async (callLogId: string, why: string) => {
+    const { data: row } = await supabase
+      .from('admission_call_logs')
+      .select('memo_analyze_attempts')
+      .eq('id', callLogId)
+      .maybeSingle();
+    const next = ((row?.memo_analyze_attempts as number | null) ?? 0) + 1;
+    const parked = next >= MAX_ANALYZE_ATTEMPTS;
+    if (parked) sentimentParkedFailed++;
+    await supabase
+      .from('admission_call_logs')
+      .update({
+        memo_analyze_attempts: next,
+        // At the cap park as 'failed' (visible in the monitor, never re-swept).
+        // Below it stay 'analyzing' so orphan recovery re-enqueues after the
+        // 4-min guard.
+        memo_analyze_status: parked ? 'failed' : 'analyzing',
+        updated_at: nowIso(),
+      })
+      .eq('id', callLogId);
+    console.warn(
+      `[cron/analyze-voice-memos] max-sentiment miss ${callLogId} (${why}) attempt ${next}/${MAX_ANALYZE_ATTEMPTS}${parked ? ' — PARKED failed' : ''}`,
+    );
+  };
+
+  try {
+    const done = await collectJobsLane(supabase, ['voice_memo.sentiment']);
+    for (const item of done) {
+      const callLogId =
+        typeof item.context.call_log_id === 'string' ? item.context.call_log_id : null;
+      const block = item.message?.content?.[0];
+      const rawText = block && block.type === 'text' ? block.text : null;
+      // No call_log_id → nothing to charge or write against; skip.
+      if (!callLogId) continue;
+      if (!rawText) {
+        await chargeSentimentMiss(callLogId, 'empty drain output');
+        continue;
+      }
+      const parsed = parseSentimentJson(rawText);
+      if (!parsed) {
+        await chargeSentimentMiss(callLogId, 'unparseable JSON');
+        continue;
+      }
+      const analysis = normalizeAnalysis(parsed);
+      const { error: writeErr } = await supabase
+        .from('admission_call_logs')
+        .update({
+          memo_sentiment: analysis.sentiment,
+          memo_sentiment_score: analysis.sentiment_score,
+          memo_summary: analysis.summary,
+          memo_categories: analysis.categories,
+          memo_analyze_status: 'completed',
+          memo_analyzed_at: nowIso(),
+          updated_at: nowIso(),
+        })
+        .eq('id', callLogId);
+      if (!writeErr) collectedSentiment++;
+    }
+  } catch (e) {
+    console.warn('[cron/analyze-voice-memos] max-sentiment collect sweep failed (non-fatal):', e);
+  }
 
   // --- Find candidates ---------------------------------------------
   // memo_audio_url IS NOT NULL
@@ -472,7 +622,16 @@ export async function GET(request: NextRequest) {
       if (canResumeAtSentiment) {
         phase = 'sentiment';
         if (skipSentiment) {
-          // Sentiment provider is down this run. Do NOT touch the row —
+          if (maxLaneDeferred) {
+            // Queue path: enqueue on the ₹0 max-sentiment sub-lane and hide the
+            // row behind the orphan guard so the collect sweep completes it.
+            await enqueueSentimentJob(supabase, c.id, transcript);
+            await supabase
+              .from('admission_call_logs')
+              .update({ memo_analyze_status: 'analyzing', updated_at: nowIso() })
+              .eq('id', c.id);
+          }
+          // else: sentiment provider is down this run. Do NOT touch the row —
           // leaving updated_at unbumped keeps it immediately eligible for
           // the next run instead of hiding behind the 5-min orphan guard.
           sentimentDeferred++;
@@ -653,8 +812,14 @@ export async function GET(request: NextRequest) {
         }
 
         if (skipSentiment) {
+          if (maxLaneDeferred) {
+            // Queue path: enqueue on the ₹0 max-sentiment sub-lane. The row was
+            // just persisted 'analyzing' (updated_at=now) so it hides behind the
+            // orphan guard until the collect sweep completes it.
+            await enqueueSentimentJob(supabase, c.id, transcript);
+          }
           sentimentDeferred++;
-          continue; // transcript saved; sentiment resumes on a later run
+          continue; // transcript saved; sentiment resumes via the queue or a later run
         }
         phase = 'sentiment';
       }
@@ -846,6 +1011,8 @@ export async function GET(request: NextRequest) {
       halted,
       max_lane_deferred: maxLaneDeferred,
       sentiment_deferred: sentimentDeferred,
+      collected_sentiment: collectedSentiment,
+      sentiment_parked_failed: sentimentParkedFailed,
       transcribe_skipped: transcribeSkipped,
       claim_missed: claimMissed,
       transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,
@@ -870,6 +1037,8 @@ export async function GET(request: NextRequest) {
     // intentionally left for the Max brain (transcribe-only run).
     max_lane_deferred: maxLaneDeferred,
     sentiment_deferred: sentimentDeferred,
+    collected_sentiment: collectedSentiment,
+    sentiment_parked_failed: sentimentParkedFailed,
     transcribe_skipped: transcribeSkipped,
     claim_missed: claimMissed,
     transcribe_provider: `${transcribeConfig.provider}/${transcribeConfig.model_id}`,

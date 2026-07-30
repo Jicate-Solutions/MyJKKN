@@ -167,6 +167,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/postings': 'improvement.board.manage',
   // MBA Data Gaps — manager-only triage of gaps Associates reported.
   '/improvement-board/data-gaps': 'improvement.board.manage',
+  // Manage boards — manager-only CRUD over the areas ideas are filed against.
+  '/improvement-board/manage-boards': 'improvement.board.manage',
   // MBA Team Rotation — the rota chart is viewable by associates; team-builder
   // and cycle-setup are manager-only (improvement.board.manage).
   '/improvement-board/rotation': 'improvement.ideas.view',
@@ -665,6 +667,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/refunds': 'billing.refunds.view',
   '/billing/refunds/[id]': 'billing.refunds.view',
   '/billing/refund-approvals': 'billing.refunds.configure',
+  // Gated on the REQUEST key so accounts staff can watch their own requests;
+  // approve/decline inside is gated separately and re-checked by the RPC.
+  '/billing/receipt-cancellations': 'billing.receipts.cancel.request',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -1033,6 +1038,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
+  '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1538,6 +1544,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
             { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
             { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' },
+            // Manage boards — manager-only CRUD over the areas ideas are filed
+            // against (improvement.board.manage).
+            { href: '/improvement-board/manage-boards', label: 'Manage Boards', active: pathname === '/improvement-board/manage-boards' },
             // Teaching-enterprise cohort config — manager-only, hidden from
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
@@ -2483,6 +2492,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
+            { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },

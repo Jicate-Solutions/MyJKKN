@@ -12048,6 +12048,7 @@ export type Database = {
           id: string
           is_active: boolean
           kind: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner: boolean
           updated_at: string | null
           updated_by: string | null
           visible_to_learners: boolean
@@ -12063,6 +12064,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner?: boolean
           updated_at?: string | null
           updated_by?: string | null
           visible_to_learners?: boolean
@@ -12078,6 +12080,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           kind?: Database["public"]["Enums"]["billing_category_kind"]
+          once_per_learner?: boolean
           updated_at?: string | null
           updated_by?: string | null
           visible_to_learners?: boolean
@@ -12864,6 +12867,195 @@ export type Database = {
           student_id?: string
           total_refund_amount?: number
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      billing_receipts_voided: {
+        Row: {
+          accountant_id: string | null
+          cancel_request_id: string | null
+          created_at: string | null
+          created_by: string | null
+          id: string
+          institution_id: string | null
+          items_snapshot: Json
+          payer_contact: string | null
+          payer_name: string | null
+          payment_amount: number | null
+          payment_mode: string | null
+          payment_paid_date: string | null
+          payment_reference_number: string | null
+          payment_remarks: string | null
+          receipt_date: string | null
+          receipt_number: string
+          student_id: string | null
+          updated_at: string | null
+          void_reason: string
+          voided_at: string
+          voided_by: string | null
+        }
+        Insert: {
+          accountant_id?: string | null
+          cancel_request_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id: string
+          institution_id?: string | null
+          items_snapshot?: Json
+          payer_contact?: string | null
+          payer_name?: string | null
+          payment_amount?: number | null
+          payment_mode?: string | null
+          payment_paid_date?: string | null
+          payment_reference_number?: string | null
+          payment_remarks?: string | null
+          receipt_date?: string | null
+          receipt_number: string
+          student_id?: string | null
+          updated_at?: string | null
+          void_reason: string
+          voided_at?: string
+          voided_by?: string | null
+        }
+        Update: {
+          accountant_id?: string | null
+          cancel_request_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          institution_id?: string | null
+          items_snapshot?: Json
+          payer_contact?: string | null
+          payer_name?: string | null
+          payment_amount?: number | null
+          payment_mode?: string | null
+          payment_paid_date?: string | null
+          payment_reference_number?: string | null
+          payment_remarks?: string | null
+          receipt_date?: string | null
+          receipt_number?: string
+          student_id?: string | null
+          updated_at?: string | null
+          void_reason?: string
+          voided_at?: string
+          voided_by?: string | null
+        }
+        Relationships: []
+      }
+      billing_receipt_cancel_requests: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decided_by_designation: string | null
+          decided_by_email: string | null
+          decided_by_is_super_admin: boolean | null
+          decided_by_name: string | null
+          decided_by_role: string | null
+          decision_notes: string | null
+          id: string
+          institution_id: string | null
+          reason: string
+          receipt_id: string
+          receipt_snapshot: Json
+          request_number: string
+          requested_at: string
+          requested_by: string | null
+          requested_by_email: string | null
+          requested_by_name: string | null
+          requested_by_role: string | null
+          status: string
+          student_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id?: string | null
+          reason: string
+          receipt_id: string
+          receipt_snapshot?: Json
+          request_number: string
+          requested_at?: string
+          requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_by_designation?: string | null
+          decided_by_email?: string | null
+          decided_by_is_super_admin?: boolean | null
+          decided_by_name?: string | null
+          decided_by_role?: string | null
+          decision_notes?: string | null
+          id?: string
+          institution_id?: string | null
+          reason?: string
+          receipt_id?: string
+          receipt_snapshot?: Json
+          request_number?: string
+          requested_at?: string
+          requested_by?: string | null
+          requested_by_email?: string | null
+          requested_by_name?: string | null
+          requested_by_role?: string | null
+          status?: string
+          student_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_receipt_cancel_request_actions: {
+        Row: {
+          action_type: string
+          actor_email: string | null
+          actor_id: string | null
+          actor_is_super_admin: boolean | null
+          actor_name: string | null
+          actor_role_name: string | null
+          created_at: string
+          id: string
+          notes: string | null
+          request_id: string
+        }
+        Insert: {
+          action_type: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id: string
+        }
+        Update: {
+          action_type?: string
+          actor_email?: string | null
+          actor_id?: string | null
+          actor_is_super_admin?: boolean | null
+          actor_name?: string | null
+          actor_role_name?: string | null
+          created_at?: string
+          id?: string
+          notes?: string | null
+          request_id?: string
         }
         Relationships: []
       }
@@ -39076,8 +39268,9 @@ export type Database = {
           department_id: string | null
           end_date: string | null
           hr_employee_id: string | null
-          hr_organization_id: string
+          hr_organization_id: string | null
           id: string
+          improvement_area_id: string | null
           is_current: boolean
           notes: string | null
           role_category: string | null
@@ -39092,8 +39285,9 @@ export type Database = {
           department_id?: string | null
           end_date?: string | null
           hr_employee_id?: string | null
-          hr_organization_id: string
+          hr_organization_id?: string | null
           id?: string
+          improvement_area_id?: string | null
           is_current?: boolean
           notes?: string | null
           role_category?: string | null
@@ -39108,8 +39302,9 @@ export type Database = {
           department_id?: string | null
           end_date?: string | null
           hr_employee_id?: string | null
-          hr_organization_id?: string
+          hr_organization_id?: string | null
           id?: string
+          improvement_area_id?: string | null
           is_current?: boolean
           notes?: string | null
           role_category?: string | null
@@ -39138,6 +39333,13 @@ export type Database = {
             columns: ["hr_organization_id"]
             isOneToOne: false
             referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_additional_roles_improvement_area_id_fkey"
+            columns: ["improvement_area_id"]
+            isOneToOne: false
+            referencedRelation: "improvement_areas"
             referencedColumns: ["id"]
           },
           {
@@ -68904,6 +69106,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payment_audit_logs: {
+        Row: {
+          actual_amount: number | null
+          client_status: string | null
+          created_at: string
+          description: string | null
+          event_type: string
+          expected_amount: number | null
+          id: string
+          institution_id: string | null
+          ip_address: string | null
+          metadata: Json
+          server_status: string | null
+          student_id: string | null
+          transaction_id: string
+          user_agent: string | null
+        }
+        Insert: {
+          actual_amount?: number | null
+          client_status?: string | null
+          created_at?: string
+          description?: string | null
+          event_type: string
+          expected_amount?: number | null
+          id?: string
+          institution_id?: string | null
+          ip_address?: string | null
+          metadata?: Json
+          server_status?: string | null
+          student_id?: string | null
+          transaction_id: string
+          user_agent?: string | null
+        }
+        Update: {
+          actual_amount?: number | null
+          client_status?: string | null
+          created_at?: string
+          description?: string | null
+          event_type?: string
+          expected_amount?: number | null
+          id?: string
+          institution_id?: string | null
+          ip_address?: string | null
+          metadata?: Json
+          server_status?: string | null
+          student_id?: string | null
+          transaction_id?: string
+          user_agent?: string | null
+        }
+        Relationships: []
       }
       payment_transactions: {
         Row: {

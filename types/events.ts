@@ -10,6 +10,13 @@ export type EventType = 'marathon' | 'cultural_fest' | 'seminar' | 'workshop' | 
 // Cross-institution levers (exist on the live `events` table; CHECK-constrained in DB).
 export type EventScope = 'chapter' | 'institution' | 'all_jkkn';
 export type EventVisibility = 'public' | 'all_jkkn' | 'institution' | 'invited';
+/**
+ * Which kind of organisation an EXTERNAL participant represents on the public
+ * tournament registration form. 'school' shows "School / club" backed by the
+ * school_master directory picker; 'college' shows "College" as free text.
+ * Defaults to 'school' in the DB so existing tournaments are unaffected.
+ */
+export type ParticipantOrgType = 'school' | 'college';
 
 export type EventStatus = 'draft' | 'planning' | 'preparation' | 'execution' | 'live' | 'post_event' | 'archived' | 'cancelled';
 
@@ -43,6 +50,48 @@ export const EVENT_STATUS_TRANSITIONS: Record<EventStatus, EventStatus[]> = {
   cancelled: ['draft'],
 };
 
+// ── General events (wizard-created rows with no dedicated console) ───────────
+// Lectures, cultural programmes, convocations, … run a two-state model —
+// Draft (hidden, registration closed) <-> Active (visible, open) — mirroring
+// tournaments (see TOURNAMENT_STATUS_* in types/tournament.ts).
+//
+// They are gated on their OWN map because EVENT_STATUS_TRANSITIONS above has no
+// draft -> live edge: validating a one-click activation against it rejects the
+// write ("Invalid status transition") on every attempt. That exact bug already
+// shipped once in the tournament module. Do NOT widen the shared map to suit
+// these — marathon and induction genuinely walk its full 8-state pipeline, and
+// a draft -> live edge there would let them skip it silently.
+
+/** The DB value a general event stores while it is open. Shown to users as "Active". */
+export const GENERAL_EVENT_ACTIVE_STATUS = 'live' as const satisfies EventStatus;
+
+/**
+ * General-event transitions. Rows that reached another status before this model
+ * shipped (the live table holds several `archived` ones) are tolerated so they
+ * can be moved onto it — under the shared map `archived` is terminal, which
+ * would strand them with no reachable status at all.
+ */
+export const GENERAL_EVENT_STATUS_TRANSITIONS: Partial<Record<EventStatus, EventStatus[]>> = {
+  draft: ['live'],
+  live: ['draft'],
+  planning: ['draft', 'live'],
+  preparation: ['draft', 'live'],
+  execution: ['draft', 'live'],
+  post_event: ['draft', 'live'],
+  archived: ['draft', 'live'],
+  cancelled: ['draft', 'live'],
+};
+
+/** Draft vs Active — every non-draft general-event status reads as Active. */
+export function generalEventStatusLabel(status: string): string {
+  return status === 'draft' ? 'Draft' : 'Active';
+}
+
+/** True when the event is open (i.e. anything that isn't a draft). */
+export function isGeneralEventActive(status: string): boolean {
+  return status !== 'draft';
+}
+
 // ============================================================================
 // Core Entities
 // ============================================================================
@@ -72,6 +121,8 @@ export interface Event {
   max_registrations: number | null;
   is_public: boolean;
   allow_external_registration: boolean;
+  /** Which kind of organisation EXTERNAL participants represent (see ParticipantOrgType). */
+  participant_org_type: ParticipantOrgType;
   is_active: boolean;
   previous_event_id: string | null;
   year: number | null;
@@ -224,6 +275,7 @@ export interface CreateEventDto {
   max_registrations?: number;
   is_public?: boolean;
   allow_external_registration?: boolean;
+  participant_org_type?: ParticipantOrgType;
   config?: Record<string, unknown>;
   registration_config?: Record<string, unknown>;
   branding_config?: Record<string, unknown>;

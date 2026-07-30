@@ -170,12 +170,18 @@ export async function GET(request: NextRequest) {
       'Date of Birth': learner.date_of_birth || '',
       'Gender': learner.gender || '',
       'Religion': learner.religion || '',
+      // FK-backed fields ship as an ID column (authoritative — what bulk-edit
+      // compares and writes) plus the readable label beside it. Editors may fill
+      // either one; the ID wins when both are present. Emitting the label alone
+      // is what previously made every exported row look "changed" on re-upload.
+      'Community ID': learner.community_category_id || '',
       'Community': learner.community_ref?.code || '',
+      'Caste ID': learner.caste_id || '',
       'Caste': learner.caste_ref?.name || '',
       'Aadhar Number': learner.aadhar_number || '',
       'Blood Group': learner.blood_group || '',
-      'Admission Year':
-        (learner as any).admission_year_obj?.year ?? learner.admission_year ?? '',
+      'Admission Year ID': learner.admission_year_id || '',
+      'Admission Year': (learner as any).admission_year_obj?.year ?? '',
 
       // SECTION 2: Parent/Guardian Information
       'Father Name': learner.father_name || '',
@@ -233,6 +239,7 @@ export async function GET(request: NextRequest) {
       'Counseling Number': learner.counseling_number || '',
 
       // SECTION 9: Accommodation Details
+      'Accommodation Type ID': learner.accommodation_type_id || '',
       'Accommodation Type': learner.accommodation_ref?.name || '',
       'Bus Required': learner.bus_required === true ? 'Yes' : learner.bus_required === false ? 'No' : '',
       // SECTION 10: Reference Information
@@ -243,6 +250,7 @@ export async function GET(request: NextRequest) {
       // SECTION 11: Student Specific
       'Roll Number': learner.roll_number || '',
       'Register Number': learner.register_number || '',
+      'Quota ID': learner.quota_id || '',
       'Quota': learner.quota_ref?.name || '',
       'Photo URL': learner.student_photo_url || '',
     }));
@@ -268,6 +276,18 @@ export async function GET(request: NextRequest) {
       { 'A': '4. Leave cells blank to keep existing values unchanged' },
       { 'A': '5. You can update partial data - not all fields are required' },
       { 'A': '6. Only learners in "Active" status can be updated via this feature' },
+      { 'A': '' },
+      { 'A': '🔗 PAIRED ID + NAME COLUMNS' },
+      { 'A': 'Community, Caste, Quota, Accommodation Type and Admission Year are' },
+      { 'A': 'stored as links, so each ships as TWO columns:' },
+      { 'A': '  • "<Field> ID"  - the stored value (e.g. Community ID)' },
+      { 'A': '  • "<Field>"     - the readable label (e.g. Community = MBC)' },
+      { 'A': 'To CHANGE one, edit EITHER column - typing the label works, and so' },
+      { 'A': 'does pasting an ID. If you fill both, the ID column wins.' },
+      { 'A': 'To leave it alone, change neither. Values you did not touch are' },
+      { 'A': 'recognised as unchanged and will NOT appear in the preview.' },
+      { 'A': 'A label that matches no record is reported as a warning in the' },
+      { 'A': 'preview and that one field is skipped - the rest of the row applies.' },
       { 'A': '' },
       { 'A': '📝 ALL EDITABLE FIELDS (11 SECTIONS)' },
       { 'A': '' },

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import {
-  courseFormSchema,
+  makeCourseFormSchema,
   COURSE_PART_VALUES,
   COURSE_CATEGORY_VALUES,
   COURSE_TYPE_VALUES,
@@ -20,7 +20,7 @@ import {
   type CourseFormInput,
 } from '@/lib/services/bos/courses-schemas';
 import { useCourseTypeOptions } from '@/hooks/bos/use-course-types';
-import type { BosBoard } from '@/types/bos';
+import type { BosBoard, AcademicModel } from '@/types/bos';
 
 interface Props {
   defaultValues?: Partial<CourseFormInput>;
@@ -42,9 +42,19 @@ interface Props {
    * fields are optional, so submitting without them stays valid.
    */
   hidePartLevel?: boolean;
+  /**
+   * Academic model of the selected board. Year-based pharmacy/AHS models
+   * (mgr_pharmd, mgr_ahs) relax credits/hours/category to optional and expose
+   * an Academic Year field; B.Pharm (pci_pharm) and Anna behave identically.
+   * Defaults to 'anna_univ'.
+   */
+  academicModel?: AcademicModel;
 }
 
-export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save', lockedBoardId, hidePartLevel }: Props) {
+export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, submitting, submitLabel = 'Save', lockedBoardId, hidePartLevel, academicModel = 'anna_univ' }: Props) {
+  // Year-based models (Pharm.D / AHS) carry no credits, no course category, and
+  // locate the course by academic year instead of semester tiers.
+  const isYearBased = academicModel === 'mgr_pharmd' || academicModel === 'mgr_ahs';
   // Live course_type list from COE — falls back to the bundled list while loading
   // or on outage so the form is never blocked.
   const courseTypesQ = useCourseTypeOptions();
@@ -68,11 +78,12 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
   }, [boards]);
 
   const form = useForm<CourseFormInput>({
-    resolver: zodResolver(courseFormSchema),
+    resolver: zodResolver(makeCourseFormSchema(academicModel)),
     defaultValues: {
       course_code: '',
       course_name: '',
-      course_category: 'Theory',
+      // Year-based models have no category in source — leave blank (optional).
+      course_category: isYearBased ? undefined : 'Theory',
       // course_part_master and course_type intentionally omitted — PG / non-tiered
       // courses don't carry a Part or Type, so blank is the safer default.
       // Both schema entries are optional.
@@ -80,13 +91,14 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       // Roman-numeral tier, so blank is the right default. The schema is now
       // optional, so submitting without a Level is valid.
       exam_duration: 3,
-      credit: 3,
+      // Year-based models carry no credits and hours-per-week only; leave blank.
+      credit: isYearBased ? undefined : 3,
       theory_hours: 0,
       tutorial_hours: 0,
       practical_hours: 0,
-      internal_max_mark: 25,
-      external_max_mark: 75,
-      total_max_mark: 100,
+      internal_max_mark: isYearBased ? undefined : 25,
+      external_max_mark: isYearBased ? undefined : 75,
+      total_max_mark: isYearBased ? undefined : 100,
       ...defaultValues,
       // lockedBoardId wins over any defaultValues.board_id — the scope-strip
       // picker is the single source of truth on the New Course page.
@@ -172,8 +184,22 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
             />
           </Field>
         </div>
+        {/* Year-based models (Pharm.D/AHS) locate the course by academic year. */}
+        {isYearBased && (
+          <div className='grid grid-cols-2 gap-3'>
+            <Field label='Academic Year' error={form.formState.errors.academic_year?.message}>
+              <Input
+                type='number'
+                min={1}
+                max={6}
+                {...form.register('academic_year', { valueAsNumber: true })}
+                placeholder='1'
+              />
+            </Field>
+          </div>
+        )}
         <div className='grid grid-cols-2 gap-3'>
-          <SelectField name='course_category' form={form} label='Category' options={COURSE_CATEGORY_VALUES} required />
+          <SelectField name='course_category' form={form} label='Category' options={COURSE_CATEGORY_VALUES} required={!isYearBased} />
           {!hidePartLevel && (
             <Field label='Part' error={form.formState.errors.course_part_master?.message}>
               <Controller
@@ -254,10 +280,10 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
           <Field label='Exam (Hrs)' required error={form.formState.errors.exam_duration?.message}>
             <Input type='number' min={0} max={8} {...form.register('exam_duration', { valueAsNumber: true })} />
           </Field>
-          <Field label='Credits' required error={form.formState.errors.credit?.message}>
+          <Field label='Credits' required={!isYearBased} error={form.formState.errors.credit?.message}>
             <Input type='number' step='0.5' min={0} max={10} {...form.register('credit', { valueAsNumber: true })} />
           </Field>
-          <Field label='Theory Hours' required error={form.formState.errors.theory_hours?.message}>
+          <Field label='Theory Hours' required={!isYearBased} error={form.formState.errors.theory_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('theory_hours', { valueAsNumber: true })} />
           </Field>
           {/* Tutorial Hours — optional (default 0); not every course has a
@@ -265,7 +291,7 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
           <Field label='Tutorial Hours' error={form.formState.errors.tutorial_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('tutorial_hours', { valueAsNumber: true })} />
           </Field>
-          <Field label='Practical Hours' required error={form.formState.errors.practical_hours?.message}>
+          <Field label='Practical Hours' required={!isYearBased} error={form.formState.errors.practical_hours?.message}>
             <Input type='number' min={0} max={40} {...form.register('practical_hours', { valueAsNumber: true })} />
           </Field>
         </div>
@@ -276,10 +302,10 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
         <div className='grid grid-cols-3 gap-3'>
           {/* No max cap — the total (internal + external) varies by subject, so
               allow any non-negative value rather than fixing it at 100. */}
-          <Field label='Internal (CIA)' required error={form.formState.errors.internal_max_mark?.message}>
+          <Field label='Internal (CIA)' required={!isYearBased} error={form.formState.errors.internal_max_mark?.message}>
             <Input type='number' min={0} {...form.register('internal_max_mark', { valueAsNumber: true })} />
           </Field>
-          <Field label='External (ESE)' required error={form.formState.errors.external_max_mark?.message}>
+          <Field label='External (ESE)' required={!isYearBased} error={form.formState.errors.external_max_mark?.message}>
             <Input type='number' min={0} {...form.register('external_max_mark', { valueAsNumber: true })} />
           </Field>
           <Field label='Total (auto)'>

@@ -36,6 +36,16 @@ import type { MyRunningAttendanceRow } from '@/types/exam-audit';
 import { useEligibilityThresholds } from '@/hooks/academic/use-eligibility-thresholds';
 import type { EligibilityThresholds } from '@/lib/services/exam-audit/compute';
 
+// One-time explanation of the 2026-07-26 correction (Director decision, 2026-07-27).
+// Practical sessions were recorded but invisible to this score for eight months;
+// counting them moved 487 learners' percentages — 290 up and 197 DOWN. A learner
+// whose number fell has no way to tell a correction from a mistake, so the card
+// says so itself rather than leaving them to ask.
+//
+// SELF-EXPIRING BY DESIGN: it disappears after the date below with no follow-up
+// change to ship. Anyone reading this after that date can delete this block.
+const PRACTICALS_NOTICE_UNTIL = new Date('2026-09-30T23:59:59+05:30');
+
 function band(
   pct: number | null,
   t: EligibilityThresholds,
@@ -70,6 +80,7 @@ export function MyRunningScoreCard() {
   if (rows.length === 0) return null;
 
   const atRisk = rows.filter((r) => r.pct !== null && r.pct < CONDONATION).length;
+  const showPracticalsNotice = new Date() <= PRACTICALS_NOTICE_UNTIL;
 
   return (
     <Card className="mb-6">
@@ -90,6 +101,13 @@ export function MyRunningScoreCard() {
                 {atRisk} course{atRisk === 1 ? '' : 's'} at risk.
               </span>
             </>
+          ) : null}
+          {showPracticalsNotice ? (
+            <span className="mt-2 block rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Practical sessions are now counted in this score. They were always
+              recorded, but were not being included here — so if your percentage
+              moved recently, that is why.
+            </span>
           ) : null}
         </CardDescription>
       </CardHeader>

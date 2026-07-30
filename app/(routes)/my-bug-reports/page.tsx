@@ -381,12 +381,12 @@ export default function MyBugReportsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
                 <div className='space-y-1'>
                   <p className='text-sm text-orange-600 dark:text-orange-400'>
                     Thank you for helping improve our platform!
                   </p>
-                  <div className='flex items-center gap-4 text-sm'>
+                  <div className='flex flex-wrap items-center gap-4 text-sm'>
                     <div className='flex items-center gap-1'>
                       <Target className='w-4 h-4 text-orange-500' />
                       <span>{stats.total} reports submitted</span>

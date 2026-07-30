@@ -85,7 +85,7 @@ export default function AdminFdpCatalogPage() {
       </Breadcrumb>
 
       <div className="mt-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">FDP Catalog</h1>
             <p className="text-sm text-muted-foreground">
@@ -93,7 +93,7 @@ export default function AdminFdpCatalogPage() {
               funding, and HoD/Director approval workflow.
             </p>
           </div>
-          <Button asChild>
+          <Button asChild className="shrink-0">
             <Link href="/hr/admin/training/new?category=fdp">
               <Plus className="h-4 w-4 mr-1" /> New FDP
             </Link>

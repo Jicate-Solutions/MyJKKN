@@ -338,7 +338,7 @@ export default function CurriculumReviewPage() {
                     <CardContent className="space-y-4">
                       {draft.artifact_kind === 'lesson' && (
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-muted-foreground">
+                          <span className="shrink-0 text-xs font-medium text-muted-foreground">
                             {isBloomPrimary(e?.primaryTaxonomy) ? 'Primary Bloom level' : 'Primary focus'}
                           </span>
                           {isBloomPrimary(e?.primaryTaxonomy) ? (
@@ -351,7 +351,7 @@ export default function CurriculumReviewPage() {
                                 }))
                               }
                             >
-                              <SelectTrigger className="h-8 w-56">
+                              <SelectTrigger className="h-8 w-full sm:w-56">
                                 <SelectValue placeholder={bloomLabel(draft.primary_bloom_level)} />
                               </SelectTrigger>
                               <SelectContent>
@@ -370,7 +370,7 @@ export default function CurriculumReviewPage() {
                                 }))
                               }
                             >
-                              <SelectTrigger className="h-8 w-56">
+                              <SelectTrigger className="h-8 w-full sm:w-56">
                                 <SelectValue placeholder={finkLabel(draft.primary_fink_dimension)} />
                               </SelectTrigger>
                               <SelectContent>
@@ -451,7 +451,7 @@ export default function CurriculumReviewPage() {
                         </div>
                       )}
 
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
                         <Button
                           size="sm"
                           onClick={() => approve(draft)}

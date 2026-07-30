@@ -118,8 +118,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   }
 
   const isRegistrationOpen = event.status === 'registration_open' &&
-    event.registration_deadline &&
-    new Date(event.registration_deadline) > new Date();
+    (!event.registration_deadline || new Date(event.registration_deadline) > new Date());
 
   const isAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
   const isSuperAdmin = !!(profile?.is_super_admin || profile?.role === 'super_admin');

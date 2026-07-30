@@ -45,6 +45,7 @@ import { TEAM_SPORTS } from '@/types/health-sports';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
 import type { EventRegistrationFormField } from '@/types/tournament';
+import type { ParticipantOrgType } from '@/types/events';
 
 const SCHOOL_SEARCH_LIMIT = 50;
 
@@ -222,13 +223,22 @@ export function RegisterForm({
   signedInName,
   isLearner,
   sections,
+  participantOrgType,
 }: {
   eventId: string;
   divisions: DivisionLite[];
   signedInName: string | null;
   isLearner: boolean;
   sections: SectionLite[];
+  /**
+   * Whether external entrants come from schools or colleges (events
+   * .participant_org_type). Drives the institution field: 'school' keeps the
+   * school_master directory picker, 'college' uses free text, since visiting
+   * colleges are not in a school directory.
+   */
+  participantOrgType: ParticipantOrgType;
 }) {
+  const isCollegeTournament = participantOrgType === 'college';
   const [divisionId, setDivisionId] = useState(divisions[0]?.id ?? '');
   const [entryName, setEntryName] = useState('');
   const [isExternal, setIsExternal] = useState(!isLearner);
@@ -374,6 +384,11 @@ export function RegisterForm({
     );
   }
 
+  // KEEP IN SYNC: the standard fields below are mirrored, read-only, in the
+  // organizer's form builder — see standard-fields-card.tsx under
+  // app/(routes)/events/tournament/[id]/registration-form/_components/.
+  // Adding, removing or renaming a field here means updating STANDARD_FIELDS
+  // there, or the builder will describe a form that no longer exists.
   return (
     <div className="space-y-4 rounded-xl border bg-white p-5 shadow-sm">
       {signedInName ? (
@@ -418,9 +433,14 @@ export function RegisterForm({
         <Switch checked={isExternal} onCheckedChange={setIsExternal} />
       </div>
 
+      {/* The directory picker is school-only: school_master holds schools, so on a
+          college tournament every entrant would have to click "not listed" and type
+          it anyway. isCollegeTournament therefore switches BOTH the label and the
+          control, not just the wording. A JKKN registrant (isExternal off) always
+          gets free text — their own college is not in a school directory either. */}
       <div className="space-y-1.5">
-        <Label>{isExternal ? 'School / club' : 'College'}</Label>
-        {isExternal ? (
+        <Label>{isExternal && !isCollegeTournament ? 'School / club' : 'College'}</Label>
+        {isExternal && !isCollegeTournament ? (
           <SchoolDirectoryPicker
             value={institution}
             schoolId={institutionSchoolId}

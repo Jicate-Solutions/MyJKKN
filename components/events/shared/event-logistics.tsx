@@ -11,7 +11,8 @@
 import type { ComponentType, ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt } from 'lucide-react';
+import { Handshake, Package, Wallet, Users, UserCheck, QrCode, HeartHandshake, AlertTriangle, BadgeCheck, Upload, BarChart3, Shirt, ClipboardList } from 'lucide-react';
+import { RegistrationsBoard } from './registrations-board';
 import { SponsorsBoard } from './sponsors-board';
 import { BudgetBoard } from './budget-board';
 import { CommitteesBoard } from './committees-board';
@@ -48,6 +49,19 @@ export interface EventLogisticsTab {
 // ── Append-only tab registry ────────────────────────────────────────────────
 // PR1 registers Sponsors. PR2+ push their own entry here (one per PR → low conflict).
 export const EVENT_LOGISTICS_TABS: EventLogisticsTab[] = [
+  // Registrations is deliberately FIRST, not appended. The append-only rule above
+  // exists to stop concurrent PRs colliding on this array, not to fix display
+  // order — and with twelve tabs the list already wraps to two rows, so appending
+  // the event's primary record would bury it last.
+  {
+    key: 'registrations',
+    label: 'Registrations',
+    icon: ClipboardList,
+    eventTypes: 'all',
+    render: ({ eventId, eventType, canManage }) => (
+      <RegistrationsBoard eventId={eventId} eventType={eventType} canManage={canManage} />
+    ),
+  },
   {
     key: 'sponsors',
     label: 'Sponsors',

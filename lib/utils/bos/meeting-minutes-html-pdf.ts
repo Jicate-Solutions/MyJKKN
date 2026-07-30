@@ -3,8 +3,8 @@ import { BosMeeting, BosMeetingAttendee, BosAgendaItem, BosMemberType } from '@/
 
 const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   chairman: 1, university_nominee: 2, subject_expert: 3, academic_expert: 4,
-  industry_expert: 5, alumni: 6, internal_member: 7, hod: 8, startup: 9,
-  facilitator: 10, principal: 11, member_secretary: 12, student: 13,
+  industry_expert: 5, alumni: 6, internal_member: 7, faculty_member: 7, hod: 8,
+  startup: 9, facilitator: 10, principal: 11, member_secretary: 12, student: 13,
 };
 
 function memberTypeRank(t: string | null | undefined): number {

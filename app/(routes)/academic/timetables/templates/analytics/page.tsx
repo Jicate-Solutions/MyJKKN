@@ -117,14 +117,14 @@ export default function TemplateAnalyticsPage() {
           </Breadcrumb>
 
           {/* Header */}
-          <div className='flex items-center justify-between'>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
             <div>
               <h1 className='text-2xl font-bold'>Template Analytics</h1>
               <p className='text-muted-foreground'>
                 Comprehensive insights into template usage and performance
               </p>
             </div>
-            <Button variant='outline' onClick={() => router.back()}>
+            <Button variant='outline' className='shrink-0 w-fit sm:w-auto' onClick={() => router.back()}>
               <ArrowLeft className='h-4 w-4 mr-2' />
               Back to Templates
             </Button>
@@ -285,7 +285,7 @@ export default function TemplateAnalyticsPage() {
                     className='flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50'
                   >
                     <div className='flex items-center gap-4'>
-                      <div className='flex items-center justify-center w-8 h-8 bg-blue-100 text-blue-700 rounded-full font-bold'>
+                      <div className='flex items-center justify-center w-8 h-8 shrink-0 bg-blue-100 text-blue-700 rounded-full font-bold'>
                         {index + 1}
                       </div>
                       <div>

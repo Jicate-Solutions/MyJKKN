@@ -46,8 +46,20 @@ export const STUDENT_WRITABLE_COLUMNS = {
     // and renders it as a READ-ONLY field — the value is locked but still
     // submitted with the rest of the course fields so the fee-structure
     // matrix lookup has the right cohort.
+    // 2026-07-27: academic_year_id added on the same read-only/auto-fetch
+    // pattern (resolved from the institution's active row whose date window
+    // contains today).
+    // 2026-07-27 (later same day): section_id added too. It was initially left
+    // out because section placement is an admission-staff decision — that still
+    // holds for LATERAL ENTRY and friends, where the wizard sends nothing and
+    // the column stays null. But FIRST YEAR admits go to section "A" of the
+    // program's structural Freshers semester, which is a deterministic
+    // derivation, not a placement choice. The student sees it read-only and
+    // cannot pick a different section: the client only ever submits the id it
+    // matched as 'A' under the locked Freshers semester.
     'institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id',
-    'quota_id', 'entry_type', 'admission_year_id',
+    'section_id',
+    'quota_id', 'entry_type', 'admission_year_id', 'academic_year_id',
   ],
   accommodation: [
     // Accommodation step — added 2026-05-19. The "How did you hear about us?"

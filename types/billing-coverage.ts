@@ -44,6 +44,17 @@ export interface BillCoverageFilters {
   billing_category_id?: string | null;
   /** Hostel / Day Scholar / Paying Guest / Not Applicable — from accommodation_types. */
   accommodation_type_ids?: string[] | null;
+  /**
+   * Academic hierarchy: degree → department → programme → semester → section.
+   * The UI cascades them (each level's options are narrowed by the one above),
+   * but they are filtered INDEPENDENTLY in SQL — a learner row carries every
+   * level, so the deepest selected one is what actually narrows the result.
+   */
+  degree_id?: string | null;
+  department_id?: string | null;
+  program_id?: string | null;
+  semester_id?: string | null;
+  section_id?: string | null;
   transport?: TransportFilter;
   /** 'MALE' | 'FEMALE' | GENDER_UNSET | null (any). Compared case-insensitively. */
   gender?: string | null;
@@ -57,6 +68,38 @@ export interface BillCoverageFilters {
    *  default order rather than erroring. */
   sort_by?: string | null;
   sort_dir?: 'asc' | 'desc' | null;
+}
+
+/**
+ * One (learner, bill) pair for the PDF export. A learner with no bills still
+ * appears, with every bill_* field null — the coverage screen defaults to
+ * 'not_generated', and dropping those rows would export an empty document.
+ *
+ * Some live bills carry a NULL bill_description with a category set (and a zero
+ * final_amount), so renderers should fall back to category_name for the label.
+ */
+export interface CoverageLearnerBillRow {
+  learner_id: string;
+  roll_number: string | null;
+  register_number: string | null;
+  full_name: string;
+  institution_name: string | null;
+  program_name: string | null;
+  semester_section: string | null;
+  lifecycle_status: string;
+  /** Totals across ALL of this learner's live bills, repeated on each of their rows. */
+  learner_total: number;
+  learner_paid: number;
+  learner_pending: number;
+  bill_id: string | null;
+  bill_description: string | null;
+  category_name: string | null;
+  bill_academic_year: string | null;
+  due_date: string | null;
+  bill_status: string | null;
+  total_amount: number | null;
+  paid_amount: number | null;
+  pending_amount: number | null;
 }
 
 export interface BillCoverageRow {

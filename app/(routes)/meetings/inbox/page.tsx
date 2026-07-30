@@ -151,7 +151,7 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
                         {row.attendee_name || row.attendee_email}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="h-3 w-3" aria-hidden />
                         {formatBookingTime(row.start_time)}

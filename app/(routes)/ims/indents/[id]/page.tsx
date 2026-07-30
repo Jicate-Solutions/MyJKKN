@@ -237,7 +237,7 @@ function IndentDetailPageInner() {
               <p className="text-muted-foreground">Indent Request Details</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isEditable && (
               <Button
                 variant="outline"

@@ -209,7 +209,7 @@ function AllocationsPageInner() {
             <h1 className="text-2xl font-bold py-1">Hostel Allocations</h1>
             <p className="text-sm sm:text-base text-muted-foreground">Manage student bed allocations across all blocks</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" asChild>
               <Link href="/campus-living/allocations/roommate-matching"><Users className="mr-2 h-4 w-4" /> Roommate Matching</Link>
             </Button>

@@ -26,7 +26,7 @@ export function StatusesDataTable() {
 
   return (
     <Tabs value={scope} onValueChange={(v) => setScope(v as AdmissionStatusScope)}>
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <TabsList>
           <TabsTrigger value="lead">Lead Stages</TabsTrigger>
           <TabsTrigger value="learner">Learner Statuses</TabsTrigger>

@@ -97,6 +97,25 @@ function formatTime(t: string | null | undefined): string {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+/** CET letter style: "27.07.2026" (dd.mm.yyyy). */
+function formatDotDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${d.getFullYear()}`;
+}
+
+/** CET letter style: "10.00 AM" (h.mm AM/PM). */
+function formatTimeDot(t: string | null | undefined): string {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return t;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return `${h % 12 || 12}.${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 /** Governing Body sample style: "11.15 a.m." / "2.30 p.m." */
 function formatTimeGb(t: string | null | undefined): string {
   if (!t) return '';
@@ -129,6 +148,42 @@ function ordinal(n: number | null | undefined): string {
   return `${n}${suffix}`;
 }
 
+/** Numeric ordinal: 1 → "1st", 2 → "2nd", 3 → "3rd", 11 → "11th". */
+function numOrdinal(n: number | null | undefined): string {
+  const v = !n || n < 1 ? 1 : n;
+  const rem100 = v % 100;
+  const rem10 = v % 10;
+  const suffix =
+    rem100 >= 11 && rem100 <= 13
+      ? 'th'
+      : rem10 === 1
+        ? 'st'
+        : rem10 === 2
+          ? 'nd'
+          : rem10 === 3
+            ? 'rd'
+            : 'th';
+  return `${v}${suffix}`;
+}
+
+/**
+ * Word ordinal: 1 → "First", 2 → "Second", 11 → "Eleventh".
+ * Used in the "Sub:" line, which spells the meeting number out
+ * ("First Board of Studies Meeting"). Falls back to the numeric form
+ * ("21st") past the spelled-out range.
+ */
+const ORDINAL_WORDS = [
+  'First', 'Second', 'Third', 'Fourth', 'Fifth',
+  'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth',
+  'Eleventh', 'Twelfth', 'Thirteenth', 'Fourteenth', 'Fifteenth',
+  'Sixteenth', 'Seventeenth', 'Eighteenth', 'Nineteenth', 'Twentieth',
+];
+
+function wordOrdinal(n: number | null | undefined): string {
+  const v = !n || n < 1 ? 1 : n;
+  return ORDINAL_WORDS[v - 1] ?? numOrdinal(v);
+}
+
 function escapeHtml(s: string | null | undefined): string {
   if (s == null) return '';
   return String(s)
@@ -137,6 +192,16 @@ function escapeHtml(s: string | null | undefined): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/**
+ * Strip a leading "Department of " so the renderer's own "Department of"
+ * prefix never doubles up (e.g. stored value "Department of ECE" →
+ * "ECE", rendered as "Department of ECE" not "Department of Department of ECE").
+ * Bare values (e.g. "English") pass through unchanged.
+ */
+function stripDeptPrefix(s: string | null | undefined): string {
+  return String(s ?? '').replace(/^\s*department\s+of\s+/i, '').trim();
 }
 
 // =============================================================================
@@ -181,6 +246,24 @@ export interface BosCallLetterData {
    * When null/empty, the subject + body use boardName alone.
    */
   boardType?: string | null;
+  /**
+   * Board short code (e.g. "ECE") for the CET letter's Ref line. Optional —
+   * falls back to the board name when absent.
+   */
+  boardCode?: string | null;
+  /**
+   * Recipient's BoS role (e.g. "University Nominee", "Subject Expert"). Used by
+   * the CET letter's default Sub line + "We are happy to have you as …" body.
+   */
+  memberRole?: string | null;
+  /**
+   * Fully-composed reference number for this recipient's letter, e.g.
+   * "JKKNCET/BoS/ECE/2026-2027/01". Built by the caller because the trailing
+   * serial is the member's position in the meeting's roster, which needs a DB
+   * round-trip (see lib/utils/bos/call-letter-ref.ts). When absent the CET
+   * renderer falls back to a meeting-number-based ref.
+   */
+  refNo?: string | null;
   header: InstitutionPdfHeader;
   /**
    * Optional per-committee text overrides (bos_email_templates, 20260724140000).
@@ -214,10 +297,291 @@ interface LogoBundle {
 // HTML BUILDER
 // =============================================================================
 
+/**
+ * CET (engineering) BoS call-letter format — reproduces JKKNCET's own printed
+ * stationery: the scanned letterhead (green college name + "( An Autonomous
+ * Institution )", magenta trust/approval/NAAC/address lines, the Chairperson |
+ * Principal names row, and the pink rule), a Ref line + date, "Dear Sir,", a
+ * "Sub:" line, greeting + body, an explicit Date/Time block, NO agenda section,
+ * and a seal + signature sign-off. Text fields honour the per-committee
+ * overrides (bodyFormat) when set, else fall back to CET defaults.
+ *
+ * The whole letter is tuned to land on ONE A4 page — see the SINGLE-PAGE FIT
+ * notes in the stylesheet before changing any vertical spacing.
+ */
+function buildCetCallLetterHtml(
+  data: BosCallLetterData,
+  logos: LogoBundle,
+): string {
+  const { meeting, recipient, boardName, boardCode, header } = data;
+  const bodyFormat = data.bodyFormat ?? null;
+  const role = (data.memberRole ?? '').trim();
+
+  // ── Letterhead text ───────────────────────────────────────────────────────
+  // Transcribed verbatim from the printed CET letterhead, including its own
+  // spellings ("NATTRAJA" double-T, "Kumarapalayam") which differ from the
+  // shared institution-header config. Hardcoded here rather than sourced from
+  // `header.banner_lines` on purpose: those lines also drive the CET syllabus
+  // banner, and this letter must not be able to change that PDF.
+  const instName = 'J.K.K.NATTRAJA COLLEGE OF ENGINEERING & TECHNOLOGY';
+  const autonomousLine = '( An Autonomous Institution )';
+  const trustLine = '( MANAGED BY J.K.K.RANGAMMAL CHARITABLE TRUST )';
+  const approvalLines = [
+    '(Approved by AICTE - New Delhi & Affiliated to Anna University, Chennai)',
+    'Recognized by UGC Under Section 2(f) & Accredited by NAAC',
+    'Natarajapuram, Kumarapalayam - 638 183, Namakkal Dt., Tamil Nadu.',
+  ];
+  // Chairperson (left) / Principal (right) names row above the rule.
+  const signatories = header.letterhead_signatories ?? null;
+  // The engineering mark is loaded into rightLogo (header.rightLogoImage);
+  // leftLogo is the generic trust logo, used only as a last resort.
+  const logo = logos.rightLogo || logos.leftLogo;
+
+  // Ref line: JKKNCET/BoS/ECE/2026-2027/01. The caller composes it because the
+  // trailing serial is per-recipient (chairman 01, then members in catalog
+  // order); this fallback only fires when the caller couldn't resolve it.
+  const refNo =
+    data.refNo?.trim() ||
+    [
+      header.ref_prefix ?? 'JKKNCET',
+      'BoS',
+      (boardCode || boardName || '').trim(),
+      (meeting.academic_year ?? '').trim(),
+      String(meeting.meeting_number ?? 1).padStart(2, '0'),
+    ]
+      .filter((s) => !!s)
+      .join('/');
+  const letterDate = formatDotDate(new Date().toISOString());
+
+  const meetingDot = formatDotDate(meeting.scheduled_date);
+  const timeDot = formatTimeDot(meeting.scheduled_time);
+  const ord = numOrdinal(meeting.meeting_number);
+  const venuePhrase = meeting.venue?.trim() ? escapeHtml(meeting.venue.trim()) : 'department';
+
+  // Addressee — name / designation / Department of <dept> / institution.
+  // No "Mobile:" line (CET letter omits it). stripDeptPrefix guards doubling.
+  const addr: string[] = [`${escapeHtml(recipient.display_name)},`];
+  if (recipient.display_designation) addr.push(`${escapeHtml(recipient.display_designation)},`);
+  if (recipient.display_department) {
+    addr.push(`Department of ${escapeHtml(stripDeptPrefix(recipient.display_department))},`);
+  }
+  if (recipient.display_institution) addr.push(`${escapeHtml(recipient.display_institution)},`);
+
+  // Text sections: prefer per-committee overrides (already placeholder-filled),
+  // else CET defaults built from the meeting.
+  // "Invitation – First Board of Studies Meeting – University Nominee – Reg."
+  // Meeting number is spelled out here (wordOrdinal), unlike the body text
+  // below which keeps the numeric form.
+  const subLine =
+    bodyFormat?.pdf_heading?.trim() ||
+    `Invitation – ${wordOrdinal(meeting.meeting_number)} Board of Studies Meeting${
+      role ? ` – ${role}` : ''
+    } – Reg.`;
+
+  const introHtml =
+    bodyFormat?.pdf_intro_html?.trim() ||
+    `<p class="body-para">Greetings from the Department of ${escapeHtml(boardName)}, JKKNCET.</p>
+     <div class="sep">----------------------------------------------</div>
+     <p class="body-para">We are glad to inform you that the Department of ${escapeHtml(boardName)} of J.K.K. Nattraja College of Engineering and Technology (Autonomous) is planning to conduct the ${ord} Board of Studies Meeting on <strong>${meetingDot}</strong>${timeDot ? ` at <strong>${escapeHtml(timeDot)}</strong>` : ''} in the ${venuePhrase}.</p>
+     <p class="body-para">${role ? `We are happy to have you as <strong>${escapeHtml(role)}</strong> for the Board of Studies. ` : ''}Kindly accept our invitation and share your expertise.</p>`;
+
+  const closingHtml =
+    bodyFormat?.pdf_closing_html?.trim() ||
+    `<p class="closing">We are expecting your presence and valuable inputs and suggestions for improvement.</p>`;
+
+  // Sign-off is three stacked parts so the signature image can sit where a real
+  // one does — between the valediction and the typed designation:
+  //
+  //     Yours Sincerely,      ← lead (replaced wholesale by signoff_html)
+  //     [signature image]     ← seal/sign asset, omitted when unset
+  //     Principal – JKKNCET   ← typed designation
+  //
+  // The typed designation is DROPPED whenever a signature image exists: both the
+  // shipped CET stamp and the Arts one already carry "PRINCIPAL" + the college
+  // name baked into the scan, so printing it again reads as a duplicate. It is
+  // also dropped when signoff_html wins, since an override carries its own.
+  const hasSignImage = !!logos.signImage;
+  const signoffLeadHtml =
+    bodyFormat?.signoff_html?.trim() || `<p>Yours Sincerely,</p>`;
+  const signoffTitleHtml =
+    bodyFormat?.signoff_html?.trim() || hasSignImage
+      ? ''
+      : `<p><strong>Principal – ${escapeHtml(header.ref_prefix ?? 'JKKNCET')}</strong></p>`;
+
+  const logoHtml = logo ? `<img src="${logo}" alt="" />` : '';
+  const sealHtml = logos.sealImage ? `<img src="${logos.sealImage}" alt="" />` : '';
+  const signHtml = logos.signImage
+    ? `<img class="sig-img" src="${logos.signImage}" alt="" />`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Call Letter - ${escapeHtml(recipient.display_name)}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: A4; }
+  html, body { width: 210mm; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; background: #fff; line-height: 1.4; }
+
+  /* ── SINGLE-PAGE FIT ──────────────────────────────────────────────────────
+     Printable height is 297mm − 2×6mm Puppeteer margin = 285mm. The blocks
+     below are budgeted against that: letterhead ≈ 34mm, ref+addressee ≈ 34mm,
+     subject+body ≈ 90mm, date/time+closing ≈ 34mm, signature row ≈ 40mm —
+     leaving ~50mm of slack for a long addressee or an overridden body.
+     If you increase any margin here, re-check a 5-line addressee + a custom
+     pdf_intro_html against page 2. */
+  .page { width: 210mm; padding: 6mm 14mm 4mm; }
+
+  /* ── Letterhead (mirrors the printed CET stationery) ────────────────────── */
+  /* Logo absolutely positioned so the centred text block spans the FULL width —
+     that's what keeps the college name and the address each on one line. */
+  .letterhead { position: relative; display: flex; align-items: center; min-height: 60pt; }
+  .lh-logo { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 78pt; display: flex; align-items: center; justify-content: center; }
+  .lh-logo img { max-width: 100%; max-height: 58pt; object-fit: contain; }
+  .lh-body { flex: 1; text-align: center; padding: 1pt 0 0; }
+  .lh-name { font-size: 13pt; font-weight: bold; color: #1a7a3d; line-height: 1.15; letter-spacing: 0.2pt; }
+  .lh-autonomous { font-size: 9pt; font-weight: bold; color: #1a7a3d; margin-top: 1pt; }
+  .lh-trust { font-size: 8.5pt; color: #c2185b; margin-top: 1.5pt; }
+  .lh-line { font-size: 8.5pt; font-weight: bold; color: #b0135c; margin-top: 1pt; white-space: nowrap; }
+
+  /* Chairperson (left) | Principal (right) names row, then the pink rule. */
+  .lh-officials { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 5pt; }
+  .lh-official-name { font-size: 10pt; font-weight: bold; color: #1f1f1f; }
+  .lh-official-title { font-size: 9pt; color: #e0407f; }
+  .lh-officials .right { text-align: right; }
+  .lh-rule { border: none; border-top: 2.2pt solid #e0407f; margin-top: 3pt; }
+  .lh-rule-thin { border: none; border-top: 0.8pt solid #e0407f; margin-top: 1.2pt; }
+
+  /* ── Letter body ────────────────────────────────────────────────────────── */
+  .ref-row { display: flex; justify-content: space-between; align-items: baseline; margin-top: 12pt; font-size: 11pt; }
+  .ref-no { font-size: 11pt; }
+  .to { margin-top: 10pt; }
+  .addressee { margin-top: 2pt; margin-left: 30pt; line-height: 1.45; }
+  .salutation { margin-top: 6pt; }
+  .sub { margin-top: 9pt; margin-left: 30pt; }
+  .sub .sub-label { font-weight: bold; }
+  .sub-text { font-weight: bold; }
+  .sep { text-align: center; letter-spacing: 1.5pt; margin: 3pt 0; }
+  .body-para { margin-top: 7pt; text-align: justify; text-indent: 30pt; line-height: 1.55; }
+  .dt { margin-top: 10pt; margin-left: 30pt; line-height: 1.5; }
+  .dt-label { font-weight: bold; display: inline-block; width: 46pt; }
+  .closing { margin-top: 10pt; text-align: justify; }
+  .thanks { margin-top: 8pt; text-align: center; }
+
+  /* ── Signature row: seal + stamp together at the bottom-right ───────────── */
+  /* Both are pushed to the right margin (justify-content:flex-end) with the
+     seal immediately left of the principal stamp, so they read as one
+     signed-and-sealed block. Splitting them to opposite margins made the seal
+     look stranded mid-page.
+     align-items:flex-end baselines the seal against the bottom of the stamp
+     however tall each image is. break-inside:avoid keeps the seal, the
+     signature and the valediction together — a page split here is the single
+     worst-looking failure mode of this letter. */
+  .signature-row {
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+    margin-top: 14pt;
+    gap: 10pt;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .sig-seal { flex: 0 0 auto; width: 78pt; }
+  .sig-seal img { max-width: 100%; max-height: 78pt; object-fit: contain; }
+  /* flex:0 0 auto (not 1 1 auto) so the block shrinks to its content and the
+     seal parks right next to the stamp rather than at the far-left margin. */
+  .sig-block { flex: 0 0 auto; text-align: right; line-height: 1.45; }
+  .sig-block p { margin: 0; }
+  /* Sized so the scan's baked-in name + "PRINCIPAL / college / town" lines stay
+     legible — it carries the designation, not just a squiggle, and is roughly
+     3:2 so the height cap is what binds. */
+  .sig-img { display: block; margin: 2pt 0 0 auto; max-width: 210pt; max-height: 104pt; object-fit: contain; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="letterhead">
+    <div class="lh-logo">${logoHtml}</div>
+    <div class="lh-body">
+      <div class="lh-name">${escapeHtml(instName)}</div>
+      <div class="lh-autonomous">${escapeHtml(autonomousLine)}</div>
+      <div class="lh-trust">${escapeHtml(trustLine)}</div>
+      ${approvalLines.map((l) => `<div class="lh-line">${escapeHtml(l)}</div>`).join('\n      ')}
+    </div>
+  </div>
+
+  ${
+    signatories
+      ? `<div class="lh-officials">
+    <div class="left">
+      <div class="lh-official-name">${escapeHtml(signatories.left_name)}</div>
+      <div class="lh-official-title">${escapeHtml(signatories.left_title)}</div>
+    </div>
+    <div class="right">
+      <div class="lh-official-name">${escapeHtml(signatories.right_name)}</div>
+      <div class="lh-official-title">${escapeHtml(signatories.right_title)}</div>
+    </div>
+  </div>`
+      : ''
+  }
+  <hr class="lh-rule" />
+  <hr class="lh-rule-thin" />
+
+  <div class="ref-row">
+    <span class="ref-no">Ref: ${escapeHtml(refNo)}</span>
+    <span>${escapeHtml(letterDate)}</span>
+  </div>
+
+  <div class="to">To</div>
+  <div class="addressee">
+    ${addr.map((l) => `<div>${l}</div>`).join('\n    ')}
+  </div>
+
+  <div class="salutation">Dear Sir,</div>
+
+  <div class="sub">
+    <span class="sub-label">Sub:</span> <span class="sub-text">${escapeHtml(subLine)}</span>
+  </div>
+
+  ${introHtml}
+
+  <div class="dt">
+    <div><span class="dt-label">Date</span> : ${meetingDot || '—'}</div>
+    ${timeDot ? `<div><span class="dt-label">Time</span> : ${escapeHtml(timeDot)}</div>` : ''}
+  </div>
+
+  ${closingHtml}
+
+  <p class="thanks">Thanking you,</p>
+
+  <div class="signature-row">
+    <div class="sig-seal">${sealHtml}</div>
+    <div class="sig-block">
+      ${signoffLeadHtml}
+      ${signHtml}
+      ${signoffTitleHtml}
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
 export function buildCallLetterHtml(
   data: BosCallLetterData,
   logos: LogoBundle,
 ): string {
+  // CET (engineering) uses a dedicated letter format — full letterhead with
+  // Ref line, "Dear Sir,", no Agenda section, and a "Yours Sincerely / Principal
+  // – JKKNCET" sign-off (matches the department's own BoS call letter). CAS and
+  // every other institution keep the original layout below, untouched.
+  if (/engineering|technology/i.test(data.header.institution_name || '')) {
+    return buildCetCallLetterHtml(data, logos);
+  }
+
   const { meeting, agendaItems, recipient, boardName, boardType, header } = data;
   const bodyFormat = data.bodyFormat ?? null;
 
@@ -365,9 +729,10 @@ export function buildCallLetterHtml(
   }
   if (recipient.display_department) {
     // Render with the literal "Department of " prefix so the DB only needs
-    // to store the bare department name (e.g. "English"). Mirrors the COE
-    // appointment-letter format the user referenced.
-    addressLines.push(`Department of ${escapeHtml(recipient.display_department)},`);
+    // to store the bare department name (e.g. "English"). stripDeptPrefix
+    // guards against values that already include "Department of" (which would
+    // otherwise render "Department of Department of …").
+    addressLines.push(`Department of ${escapeHtml(stripDeptPrefix(recipient.display_department))},`);
   }
   if (recipient.display_institution) {
     addressLines.push(`${escapeHtml(recipient.display_institution)},`);
@@ -540,16 +905,20 @@ export function buildCallLetterHtml(
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    margin-top: 22pt;
+    margin-top: 10pt;
     gap: 16pt;
+    /* Keep the whole signature block together on the same page — never let a
+       page break split the seal from the signature (or push it to page 2). */
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
   .signature-seal {
     flex: 0 0 auto;
-    width: 110pt;
+    width: 82pt;
   }
   .signature-seal img {
     max-width: 100%;
-    max-height: 110pt;
+    max-height: 82pt;
     object-fit: contain;
   }
   .signature-sign {
@@ -571,8 +940,8 @@ export function buildCallLetterHtml(
   .signature-sign img {
     display: block;
     margin-left: auto;
-    max-width: 220pt;
-    max-height: 90pt;
+    max-width: 200pt;
+    max-height: 72pt;
     object-fit: contain;
   }
 </style>

@@ -16,6 +16,7 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   industry_expert: 5,
   alumni: 6,
   internal_member: 7,
+  faculty_member: 7,
   hod: 8,
   startup: 9,
   facilitator: 10,

@@ -906,7 +906,7 @@ export default function CandidateDetailPage() {
         {/* 5. Package negotiation history */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-sm">Salary Negotiation</CardTitle>
               <Button size="sm" onClick={() => setProposeOpen(true)}>
                 Propose Package

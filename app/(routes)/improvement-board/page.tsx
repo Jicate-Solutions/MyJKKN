@@ -6,6 +6,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { ContentLayout } from '@/components/layout/content-layout';
 import { ImprovementBoardClient } from './_components/improvement-board-client';
 import type {
   ImprovementArea,
@@ -97,12 +98,14 @@ export default async function ImprovementBoardPage() {
   });
 
   return (
-    <ImprovementBoardClient
-      userId={profile.id}
-      userName={profile.full_name || 'You'}
-      institutionId={profile.institution_id || ''}
-      initialAreas={areaList}
-      initialIdeas={ideas}
-    />
+    <ContentLayout title="Improvement Board">
+      <ImprovementBoardClient
+        userId={profile.id}
+        userName={profile.full_name || 'You'}
+        institutionId={profile.institution_id || ''}
+        initialAreas={areaList}
+        initialIdeas={ideas}
+      />
+    </ContentLayout>
   );
 }

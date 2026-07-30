@@ -1573,3 +1573,40 @@ CREATE TRIGGER trg_billing_bill_default_academic_year
 BEFORE INSERT ON public.billing_student_bills
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
+
+-- Default "Freshers" semester + section A (2026-07-27): every new program gets
+-- one semester and one section so downstream modules always have a valid target.
+-- Function body (and the reasoning behind semester_order = 0 /
+-- initial_semester = false) lives in 02_functions.sql.
+-- AFTER INSERT only -- a program whose hierarchy is completed by a later UPDATE
+-- is not retro-seeded.
+DROP TRIGGER IF EXISTS programs_seed_freshers ON public.programs;
+
+CREATE TRIGGER programs_seed_freshers
+  AFTER INSERT ON public.programs
+  FOR EACH ROW
+  EXECUTE FUNCTION public.seed_freshers_semester_for_program();
+
+-- ---------------------------------------------------------------------------
+-- Billing: "Once per learner" duplicate guard
+-- ---------------------------------------------------------------------------
+-- Rejects a second live bill for a learner when the bill's billing category
+-- has once_per_learner = true. Lives in the database because bills are written
+-- from ten independent paths — student-bill-service (single + recurring),
+-- onboarding-service, the bills/import route, and six SECURITY DEFINER RPCs
+-- (admission_account_transition_with_bills, admission_approve_fee_change_event,
+-- admission_fix_fee_mismatch_2026, campus_living_generate_hostel_year_bills,
+-- _cl_apply_category_bill_change, _cl_apply_upgrade_fee_bill) plus the feesync
+-- cron. A service-layer guard would be bypassed by most of them, which is
+-- exactly how the 336 duplicate tuition bills were created.
+--
+-- Cancelled/superseded bills never count, so correcting a mistake cannot
+-- permanently lock a learner out of a category. Raises SQLSTATE BL001 so
+-- callers can render a friendly message (lib/utils/billing-duplicate-error.ts).
+-- Function body: see supabase/migrations/20260727120000_billing_category_once_per_learner.sql
+DROP TRIGGER IF EXISTS trg_billing_bills_once_per_learner ON public.billing_student_bills;
+
+CREATE TRIGGER trg_billing_bills_once_per_learner
+  BEFORE INSERT OR UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public.billing_enforce_once_per_learner();

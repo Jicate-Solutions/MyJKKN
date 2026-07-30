@@ -156,7 +156,13 @@ export async function POST(request: NextRequest) {
 
     // Create notification
     const validatedData = createNotificationSchema.parse(body);
-    const notification = await createNotification(validatedData as any);
+    // Pass THIS route's session-bound server client: the service's module-level
+    // client is the browser singleton and would run as `anon` here (RLS reject).
+    const notification = await createNotification(
+      validatedData as any,
+      user.id,
+      supabase as any
+    );
 
     return NextResponse.json({
       data: notification,

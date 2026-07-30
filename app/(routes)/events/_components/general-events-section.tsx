@@ -16,7 +16,8 @@
 // (an UPDATE policy exists, so no silent 0-row no-op).
 
 import { useState } from 'react';
-import { CalendarDays, MapPin, Pencil } from 'lucide-react';
+import Link from 'next/link';
+import { CalendarDays, MapPin, Pencil, Settings2 } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -27,7 +28,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { EVENT_STATUS_LABELS } from '@/types/events';
+import { generalEventStatusLabel, isGeneralEventActive } from '@/types/events';
 import type { Event } from '@/types/events';
 import { NaacCriteriaChips } from '@/components/events/shared/naac-criteria-field';
 import { useGeneralEvents } from '@/hooks/events/use-general-events';
@@ -59,17 +60,33 @@ function GeneralEventRow({
   onEdit: (event: Event) => void;
 }) {
   const dateLabel = formatDate(event.event_date ?? event.start_date);
+  // Same 2-state vocabulary the detail console uses — the hub previously showed
+  // raw lifecycle labels ("Post Event"), which no longer match the only two
+  // states a general event can actually be set to.
+  const active = isGeneralEventActive(event.status);
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3">
       <div className="min-w-0 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{event.name}</span>
+          <Link
+            href={`/events/${event.id}`}
+            className="text-sm font-medium hover:underline"
+          >
+            {event.name}
+          </Link>
           <Badge variant="secondary" className="text-[10px] font-normal">
             {formatEventType(event.event_type as string)}
           </Badge>
-          <Badge variant="outline" className="text-[10px] font-normal">
-            {EVENT_STATUS_LABELS[event.status] ?? event.status}
+          <Badge
+            variant="outline"
+            className={`text-[10px] font-normal ${
+              active
+                ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400'
+                : ''
+            }`}
+          >
+            {generalEventStatusLabel(event.status)}
           </Badge>
         </div>
         {(dateLabel || event.venue) && (
@@ -98,15 +115,26 @@ function GeneralEventRow({
           )}
         </div>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        onClick={() => onEdit(event)}
-      >
-        <Pencil className="h-3.5 w-3.5" />
-        Edit
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Manage is the primary affordance: status, visibility and the
+            registration-form builder all live on the detail console. Edit stays
+            for the quick name/date/NAAC change that needs no page load. */}
+        <Button asChild variant="default" size="sm" className="gap-1.5">
+          <Link href={`/events/${event.id}`}>
+            <Settings2 className="h-3.5 w-3.5" />
+            Manage
+          </Link>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => onEdit(event)}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Edit
+        </Button>
+      </div>
     </div>
   );
 }

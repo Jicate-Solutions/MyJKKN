@@ -289,11 +289,11 @@ export function DivisionFixtures({
 
   return (
     <div className="mt-3 rounded-lg border p-3">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Swords className="h-3.5 w-3.5" /> Fixtures
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-1">
           {canManage && poolsDone && (
             <Button
               size="sm"

@@ -83,7 +83,7 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
     return (
       <ContentLayout title="Builder Details">
         <div className="space-y-6 mt-4">
-          <Skeleton className="h-12 w-96" />
+          <Skeleton className="h-12 w-full sm:w-96" />
           <div className="grid gap-4 md:grid-cols-4">
             <Skeleton className="h-24" />
             <Skeleton className="h-24" />
@@ -154,7 +154,7 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
               </AvatarFallback>
             </Avatar>
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <h1 className="text-2xl font-bold">{builder.name}</h1>
                 <Badge variant={builder.is_active ? 'default' : 'secondary'}>
                   {builder.is_active ? 'Active' : 'Inactive'}
@@ -165,7 +165,7 @@ export default function BuilderDetailPage({ params }: BuilderDetailPageProps) {
                   </Badge>
                 )}
               </div>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 {builder.email && (
                   <span className="flex items-center gap-1">
                     <Mail className="h-3 w-3" />

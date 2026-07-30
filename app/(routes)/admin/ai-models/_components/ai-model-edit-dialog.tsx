@@ -63,6 +63,19 @@ interface FeatureRow {
 // AI_PROVIDER_REGISTRY, not guessed.
 const MAX_LANE_PROVIDER = 'anthropic';
 
+/**
+ * True for the Max subscription lane AND any dedicated Max sub-lane ('max-pdf', …).
+ *
+ * Sub-lanes exist purely to isolate a runner's claim pool — fn_ai_claim filters
+ * on `lane` with no job_type predicate, so two runners sharing a (lane,
+ * interactive) pair race for each other's jobs. A sub-lane is still the ₹0
+ * Claude CLI worker, so the D3 Anthropic-only lock MUST apply to it as well;
+ * matching only the literal 'max' would silently let a sub-lane be pointed at a
+ * PAID provider.
+ */
+const isMaxLaneValue = (lane?: string | null): boolean =>
+  lane === 'max' || (typeof lane === 'string' && lane.startsWith('max-'));
+
 interface AiModelEditDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,7 +101,7 @@ function buildFormState(f: FeatureRow | null): FormState {
   // the provider is locked to Anthropic. If a max-lane row is somehow stored on
   // another provider, coerce to Anthropic and clear the model so the picker
   // forces a Claude re-pick.
-  if (f?.lane === 'max' && provider !== MAX_LANE_PROVIDER) {
+  if (isMaxLaneValue(f?.lane) && provider !== MAX_LANE_PROVIDER) {
     provider = MAX_LANE_PROVIDER;
     model_id = '';
   }
@@ -134,7 +147,7 @@ export function AiModelEditDialog({
 
   // D3: when the feature runs on the free (Max) lane, the provider is locked to
   // Anthropic (the subscription worker is the Claude CLI only).
-  const isMaxLane = feature?.lane === 'max';
+  const isMaxLane = isMaxLaneValue(feature?.lane);
   const providerOptions = useMemo(
     () => (isMaxLane ? PROVIDER_OPTIONS.filter((p) => p.value === MAX_LANE_PROVIDER) : PROVIDER_OPTIONS),
     [isMaxLane],
@@ -342,7 +355,7 @@ export function AiModelEditDialog({
           </div>
 
           {/* Fallback provider/model — optional */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="fallback_provider">Fallback provider (optional)</Label>
               <Select

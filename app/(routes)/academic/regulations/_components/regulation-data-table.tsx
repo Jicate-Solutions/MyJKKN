@@ -174,7 +174,7 @@ export function RegulationsDataTable({ search }: RegulationsDataTableProps) {
     totalSelectedCount: number;
     resetSelection: () => void;
   }) => (
-    <div className='flex items-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {canCreateRegulation && (
         <Button
           onClick={() => router.push('/academic/regulations/new')}

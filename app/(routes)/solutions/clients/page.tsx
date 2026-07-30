@@ -114,7 +114,7 @@ export default function ClientsPage() {
         ]}
       />
       <div className="space-y-6 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">Clients</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
@@ -123,7 +123,7 @@ export default function ClientsPage() {
                 : `Manage clients and their solutions`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={handleExport}>
               <Download className="mr-2 h-4 w-4" />
               Export
@@ -140,7 +140,7 @@ export default function ClientsPage() {
         {/* Search & Filter */}
         <Card>
           <CardContent className="py-4">
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -151,7 +151,7 @@ export default function ClientsPage() {
                 />
               </div>
               <Select value={originFilter} onValueChange={(v) => setOriginFilter(v as 'all' | 'pipeline' | 'direct')}>
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-full sm:w-[160px]">
                   <SelectValue placeholder="Origin" />
                 </SelectTrigger>
                 <SelectContent>

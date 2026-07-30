@@ -86,7 +86,7 @@ export default function PayoutsPage() {
     <ContentLayout title="Referral Payouts">
       <PermissionGuard module="admission.consultants.commissions" action="view">
         <div className="space-y-6">
-          <div className="flex flex-row items-start justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Referral Payouts</h1>
               <p className="text-sm text-muted-foreground max-w-2xl">

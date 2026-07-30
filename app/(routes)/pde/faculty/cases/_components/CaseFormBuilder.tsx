@@ -614,12 +614,12 @@ export function CaseFormBuilder({
         </CardContent>
       </Card>
 
-      <div className="flex justify-between gap-3">
-        <div>{extraActions}</div>
+      <div className="flex flex-wrap justify-between gap-3">
+        <div className="min-w-0">{extraActions}</div>
         <Button
           onClick={handleSubmit}
           disabled={saving}
-          className="bg-[#0b6d41] hover:bg-[#0b6d41]/90"
+          className="bg-[#0b6d41] hover:bg-[#0b6d41]/90 shrink-0"
         >
           {saving ? 'Saving…' : saveLabel}
         </Button>

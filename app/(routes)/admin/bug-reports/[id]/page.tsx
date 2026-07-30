@@ -489,7 +489,7 @@ export default function BugReportDetailsPage() {
               {(report.screenshot_url || (report.attachment_urls && report.attachment_urls.length > 0)) && (
                 <Card>
                   <CardHeader>
-                    <CardTitle className='flex items-center justify-between'>
+                    <CardTitle className='flex flex-wrap items-center justify-between gap-2'>
                       <div className='flex items-center gap-2'>
                         <Monitor className='w-5 h-5' />
                         Screenshots & Attachments

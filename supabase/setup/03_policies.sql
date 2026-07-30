@@ -1457,11 +1457,13 @@ CREATE POLICY "bills_update_admin" ON billing_student_bills
         OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.edit'))
     );
 
-CREATE POLICY "bills_delete_admin" ON billing_student_bills
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.delete'))
-    );
+DROP POLICY IF EXISTS bills_delete_admin ON public.billing_student_bills;
+CREATE POLICY bills_delete_admin
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.bills.delete') AND role_has_institution_access(institution_id))
+  );
 
 CREATE POLICY "bills_select_student" ON billing_student_bills
     FOR SELECT USING (
@@ -8191,3 +8193,63 @@ DROP POLICY IF EXISTS "id_card_agent_status_service_role_all" ON public.id_card_
 CREATE POLICY "id_card_agent_status_service_role_all"
   ON public.id_card_agent_status FOR ALL TO service_role
   USING (true) WITH CHECK (true);
+
+-- Voided receipts are staff-only. Unlike billing_receipts_select_permission
+-- there is deliberately NO student self-view branch: a learner must not keep
+-- seeing a receipt that no longer settles anything.
+ALTER TABLE public.billing_receipts_voided ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS billing_receipts_voided_select_permission ON public.billing_receipts_voided;
+CREATE POLICY billing_receipts_voided_select_permission
+  ON public.billing_receipts_voided FOR SELECT
+  USING (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+-- No INSERT/UPDATE/DELETE policies: written only by fn_void_billing_receipt.
+
+-- Receipt cancellation requests: SELECT-only. Every write goes through the
+-- SECURITY DEFINER RPCs, so the audit trail cannot be edited by whoever it
+-- incriminates.
+ALTER TABLE public.billing_receipt_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_receipt_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT
+  USING (
+    is_super_admin()
+    OR requested_by = auth.uid()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM public.billing_receipt_cancel_requests r
+    WHERE r.id = request_id
+      AND (
+        is_super_admin()
+        OR r.requested_by = auth.uid()
+        OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(r.institution_id))
+      )
+  ));
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_receipts_delete_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_delete_permission
+  ON public.billing_receipts FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(institution_id))
+  );
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_bills_delete_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_delete_permission
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.schedule.delete') AND role_has_institution_access(institution_id))
+  );

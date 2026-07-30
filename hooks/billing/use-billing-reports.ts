@@ -7,9 +7,11 @@ import {
   type ReportPage,
 } from '@/lib/services/billing/reports/billing-report-service';
 import { REPORT_PAGE_SIZE } from '@/lib/services/billing/reports/report-filter-params';
+import { StudentYearBreakdownService } from '@/lib/services/billing/reports/student-year-breakdown-service';
 import type {
   BillingReportFilters,
   BillingDashboardMetrics,
+  StudentYearBreakdown,
   OutstandingReport,
   CollectionReport,
   DiscountReport,
@@ -53,6 +55,48 @@ export function useBillingDashboardMetrics(filters: BillingReportFilters = {}) {
   useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
 
   return { metrics, loading, error, refetch: fetchMetrics };
+}
+
+/**
+ * Year-wise student counts and amounts for the dashboard cards.
+ *
+ * Its own hook rather than folded into useBillingDashboardMetrics so a failure
+ * here hides only the year cards instead of blanking the whole dashboard.
+ */
+export function useStudentYearBreakdown(filters: BillingReportFilters = {}) {
+  const [breakdown, setBreakdown] = useState<StudentYearBreakdown[]>([]);
+
+  const key = JSON.stringify(filters);
+  // Guards against out-of-order responses, as useBillingDashboardMetrics does:
+  // change a filter twice quickly and the slower first reply must not win.
+  const reqId = useRef(0);
+
+  useEffect(() => {
+    const myReq = ++reqId.current;
+    StudentYearBreakdownService.getBreakdown(JSON.parse(key))
+      .then((rows) => {
+        if (myReq === reqId.current) setBreakdown(rows);
+      })
+      .catch((err) => {
+        // Fields are spelled out because a PostgrestError carries message/code
+        // on the prototype, so logging the object alone prints a bare `{}` and
+        // tells you nothing about what actually failed.
+        console.warn(
+          `[useStudentYearBreakdown] ${err?.code ?? 'ERR'}: ${
+            err?.message ?? String(err)
+          }${err?.details ? ` — ${err.details}` : ''}${
+            err?.hint ? ` (hint: ${err.hint})` : ''
+          }`
+        );
+        // warn, not error: the cards are supplementary and the totals above
+        // them come from a different query, so this hides one section rather
+        // than interrupting the page. console.error would also be promoted by
+        // the Next.js dev overlay into a blocking Console Error card.
+        if (myReq === reqId.current) setBreakdown([]);
+      });
+  }, [key]);
+
+  return { breakdown };
 }
 
 /** Shared engine for the five paginated list tabs. */

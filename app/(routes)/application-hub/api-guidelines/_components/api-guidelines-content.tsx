@@ -660,7 +660,7 @@ export default function CoursesList() {
   };
 
   return (
-    <div className='py-4 space-y-6'>
+    <div className='py-4 space-y-6 [&_code]:break-all'>
       <div className='space-y-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4'>
         <div>
           <h1 className='text-2xl font-bold'>API Documentation</h1>
@@ -942,7 +942,7 @@ function My${module.charAt(0).toUpperCase() + module.slice(0, -1)}Component() {
                     <TabsContent value='ai-tools' className='space-y-4 mt-4'>
                       <Card>
                         <CardContent className='p-6 space-y-4'>
-                          <div className='flex justify-between items-start'>
+                          <div className='flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-start'>
                             <h2 className='text-xl font-semibold'>
                               AI Tool Prompt for{' '}
                               {module.charAt(0).toUpperCase() + module.slice(1)}

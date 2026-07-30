@@ -101,7 +101,7 @@ export default async function CourseGradesPage({ searchParams }: PageProps) {
   ]);
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-6 space-y-6 px-4 md:px-8">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Course Grades</h1>

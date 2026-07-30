@@ -92,6 +92,7 @@ describe('check-table-anon-revoke gate', () => {
     expect(runGate(`
       CREATE TABLE public._bak_probe_20260726 AS SELECT 1 AS id;
       REVOKE ALL ON TABLE public._bak_probe_20260726 FROM anon, PUBLIC;
+      ALTER TABLE public._bak_probe_20260726 ENABLE ROW LEVEL SECURITY;
     `, 'ctas-ok.sql').code).toBe(0);
 
     const bad = runGate(`
@@ -134,8 +135,12 @@ describe('check-table-anon-revoke gate', () => {
   });
 
   it('honours the -- ci:allow-anon-table escape hatch', () => {
+    // Both hatches, because they exempt different properties. A scratch table
+    // dropped at the end of the migration wants neither an anon revoke nor a
+    // policy; each exemption still has to be stated, and each carries its reason.
     const { code, out } = runGate(`
       -- ci:allow-anon-table scratch table dropped at the end of this migration
+      -- ci:allow-no-rls scratch table dropped at the end of this migration
       CREATE TABLE public.probe_escape_hatch (id uuid PRIMARY KEY);
     `);
     expect(code).toBe(0);
@@ -147,6 +152,108 @@ describe('check-table-anon-revoke gate', () => {
       CREATE TABLE public.probe_blanket_a (id uuid PRIMARY KEY);
       CREATE TABLE public.probe_blanket_b (id uuid PRIMARY KEY);
       REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+      ALTER TABLE public.probe_blanket_a ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE public.probe_blanket_b ENABLE ROW LEVEL SECURITY;
+    `);
+    expect(code).toBe(0);
+  });
+
+  // --- views / materialised views -------------------------------------------
+  // Supabase's default privileges reach a view exactly as they reach a table, and
+  // a view is the sharper hazard: unless it is declared security_invoker, it runs
+  // as its OWNER, so it can republish a correctly locked table to anon.
+
+  it('CATCHES a new VIEW with no anon revoke', () => {
+    const { code, out } = runGate(`
+      CREATE OR REPLACE VIEW public.probe_leaky_view AS
+        SELECT id, full_name FROM public.learners_profiles;
+    `);
+    expect(code).toBe(1);
+    expect(out).toContain('probe_leaky_view');
+    expect(out).toContain('view');
+  });
+
+  it('CATCHES a new MATERIALIZED VIEW with no anon revoke', () => {
+    const { code, out } = runGate(`
+      CREATE MATERIALIZED VIEW public.probe_leaky_matview AS
+        SELECT institution_id, count(*) AS n FROM public.learners_profiles GROUP BY 1;
+    `);
+    expect(code).toBe(1);
+    expect(out).toContain('probe_leaky_matview');
+    expect(out).toContain('materialized view');
+  });
+
+  it('PASSES a view that carries the revoke', () => {
+    const { code } = runGate(`
+      CREATE VIEW public.probe_ok_view AS SELECT 1 AS id;
+      REVOKE ALL ON TABLE public.probe_ok_view FROM anon, PUBLIC;
+      GRANT SELECT ON TABLE public.probe_ok_view TO authenticated;
+    `);
+    expect(code).toBe(0);
+  });
+
+  it('does NOT demand RLS of a view (a view cannot carry a policy at all)', () => {
+    // Guarding against the unsatisfiable-gate failure mode: if views were fed to
+    // the RLS check they could never pass, and every view PR would be blocked.
+    const { code, out } = runGate(`
+      CREATE VIEW public.probe_view_no_rls AS SELECT 1 AS id;
+      REVOKE ALL ON TABLE public.probe_view_no_rls FROM anon, PUBLIC;
+    `);
+    expect(code).toBe(0);
+    expect(out).toContain('0 new table(s) checked');
+  });
+
+  it('IGNORES temp views and non-public schemas', () => {
+    const { code } = runGate(`
+      CREATE TEMP VIEW scratch_view AS SELECT 1 AS id;
+      CREATE VIEW storage.probe_other_schema_view AS SELECT 1 AS id;
+    `);
+    expect(code).toBe(0);
+  });
+
+  // --- RLS enabled -----------------------------------------------------------
+
+  it('CATCHES a table that revokes anon but never enables RLS', () => {
+    // The exact fixture the brief names: anon is locked out, but every signed-in
+    // role still reads every institution's rows because no policy boundary exists.
+    const { code, out } = runGate(`
+      CREATE TABLE public.probe_no_rls (id uuid PRIMARY KEY, institution_id uuid);
+      REVOKE ALL ON TABLE public.probe_no_rls FROM anon, PUBLIC;
+      GRANT SELECT ON TABLE public.probe_no_rls TO authenticated;
+    `);
+    expect(code).toBe(1);
+    expect(out).toContain('probe_no_rls');
+    expect(out).toContain('row level security');
+  });
+
+  it('does NOT accept FORCE ROW LEVEL SECURITY as a substitute for ENABLE', () => {
+    // FORCE without ENABLE switches nothing on; accepting it would be accepting
+    // a no-op as a defence.
+    const { code, out } = runGate(`
+      CREATE TABLE public.probe_force_only (id uuid PRIMARY KEY);
+      REVOKE ALL ON TABLE public.probe_force_only FROM anon, PUBLIC;
+      ALTER TABLE public.probe_force_only FORCE ROW LEVEL SECURITY;
+    `);
+    expect(code).toBe(1);
+    expect(out).toContain('probe_force_only');
+  });
+
+  it('honours the -- ci:allow-no-rls escape hatch independently of the anon hatch', () => {
+    const { code } = runGate(`
+      -- ci:allow-no-rls reference lookup, no tenant column to scope by
+      CREATE TABLE public.probe_rls_hatch (id uuid PRIMARY KEY);
+      REVOKE ALL ON TABLE public.probe_rls_hatch FROM anon, PUBLIC;
+    `);
+    expect(code).toBe(0);
+  });
+
+  it('exempts a documented-public table from the RLS requirement', () => {
+    // An explicit GRANT ... TO anon IS the audited "this is public on purpose"
+    // signal; demanding a policy on top would break that blessed pattern.
+    const { code } = runGate(`
+      -- unauthenticated admission landing page reads this
+      CREATE TABLE public.probe_public_no_rls (code text PRIMARY KEY);
+      GRANT SELECT ON TABLE public.probe_public_no_rls TO anon, authenticated;
     `);
     expect(code).toBe(0);
   });
