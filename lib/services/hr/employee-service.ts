@@ -49,7 +49,7 @@ export class HRPersonService {
       .from('staff')
       .select(
         `
-          id, first_name, last_name, email, phone, staff_id, department_id,
+          id, first_name, last_name, institution_email, phone, staff_id, department_id,
           date_of_joining, is_active, institution_id,
           institution:institutions ( id, name ),
           department:departments ( id, department_name ),
@@ -100,7 +100,10 @@ export class HRPersonService {
         employee_code: (details?.hr_employee_code as string | null) ?? (row.staff_id as string | null) ?? null,
         first_name: row.first_name as string,
         last_name: (row.last_name as string | null) ?? null,
-        email: (row.email as string | null) ?? null,
+        // Email column shows the institution (@jkkn.ac.in) address, not the personal one.
+        // institution_email is nullable (migration 20260609150000) so NULL is expected for
+        // staff without one — the table renders '—'.
+        email: (row.institution_email as string | null) ?? null,
         phone: (row.phone as string | null) ?? null,
         designation_name: (details?.designation as { name?: string } | undefined)?.name ?? null,
         cadre_name: (details?.cadre as { name?: string } | undefined)?.name ?? null,
@@ -172,7 +175,7 @@ export class HRPersonService {
     const { data, error } = await supabase
       .from('staff')
       .select(`
-        id, first_name, last_name, email, phone, staff_id, institution_id, department_id,
+        id, first_name, last_name, institution_email, phone, staff_id, institution_id, department_id,
         date_of_joining, is_active,
         institution:institutions ( id, name ),
         department:departments ( id, department_name ),
@@ -212,7 +215,8 @@ export class HRPersonService {
       id: row.id as string,
       first_name: row.first_name as string,
       last_name: (row.last_name as string | null) ?? null,
-      email: (row.email as string | null) ?? null,
+      // Institution email, matching the HR employees list column. See list() above.
+      email: (row.institution_email as string | null) ?? null,
       phone: (row.phone as string | null) ?? null,
       staff_code: (row.staff_id as string | null) ?? null,
       institution_name: (row.institution as { name?: string } | undefined)?.name ?? null,
