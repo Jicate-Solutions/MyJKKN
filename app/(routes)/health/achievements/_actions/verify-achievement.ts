@@ -26,12 +26,14 @@
 //       permission RPCs resolve against the real caller (auth.uid()).
 //     * service-role client — only the reads/writes already authorized above.
 //
-// RESIDUAL HOLE, MEASURED — NOT ASSUMED, AND NOT PAPERED OVER
+// SELF-VERIFICATION — MEASURED, AND NOW FIXED IN A FILE THAT IS NOT YET APPLIED
 //   The pre-existing health_sports_achievements_self policy is FOR ALL on own
 //   rows, so a learner can flip verified on their OWN row by calling PostgREST
-//   directly with the public anon key that ships in every Next.js bundle.
+//   directly with the public anon key that ships in every Next.js bundle. RLS is
+//   ROW-scoped, never COLUMN-scoped, so "edit your own row" silently reads
+//   "verify your own row".
 //
-//   Re-measured on production 2026-07-30 inside BEGIN..ROLLBACK, as DB role
+//   Re-measured on production 2026-07-31 inside BEGIN..ROLLBACK, as DB role
 //   `authenticated` with request.jwt.claims.sub set to the owning learner —
 //   the same execution shape PostgREST uses:
 //     UPDATE health_sports_achievements SET verified = true WHERE id = <own row>
@@ -39,17 +41,34 @@
 //   The same statement run as a DIFFERENT learner updated 0 rows, and that
 //   learner could see 0 rows at all: the self policy's subquery is bounded by
 //   learners_profiles' own RLS, which returns only the caller's learner record
-//   (measured: 1, not 7,156). So the exposure is self-verification only — NOT
-//   cross-learner tampering, which is refused.
+//   (re-measured 2026-07-31: 1, not 7,156). So the exposure is self-verification
+//   only — NOT cross-learner tampering, which is refused.
 //
-//   Column grants are not the missing lock either: UPDATE on the `verified`
-//   column is granted to anon, authenticated, postgres and service_role.
+//   Column grants were not the missing lock either: UPDATE on the `verified`
+//   column was granted to anon, authenticated, postgres and service_role.
 //
-//   Closing this needs a Director-gated RLS split (separate SELECT/INSERT/DELETE
-//   for the learner, UPDATE limited to non-verification columns), which this PR
-//   does not attempt — it is pre-existing and outside the certificate defect
-//   being fixed here. Nothing in this UI ever sends verified = true from a
-//   learner path.
+//   CLOSED BY supabase/migrations/20260808110100_health_sports_achievement_self_
+//   verify_lockdown.sql — the FOR ALL policy split four ways, and the table-level
+//   UPDATE revoked from `authenticated` BEFORE column-level UPDATE is granted
+//   back on the descriptive columns only (a column grant layered on top of a
+//   table grant restricts nothing, which is how a first attempt at this on the
+//   sibling PR looked fixed and was not). Proven live in that same rolled-back
+//   transaction: the owning learner's SET verified = true now fails 42501, while
+//   their descriptive edit still succeeds.
+//
+//   HONEST STATUS: migrations in this repo are Director-gated FILES that merging
+//   and deploying never apply, so PRODUCTION IS STILL OPEN TO SELF-VERIFICATION
+//   until a Director applies that file. What ships with this PR is the file plus
+//   the app-side guards. Nothing in this UI ever sends verified = true from a
+//   learner path, and the write below refuses anyone without the IQAC key — but
+//   the UI has never been the boundary, and this comment must not pretend it is.
+//
+//   Note the deliberate consequence of the column revoke: after it is applied NO
+//   user session may write `verified`, not even an IQAC officer's, because
+//   column privileges attach to the DB role `authenticated` and every signed-in
+//   person shares it. The only remaining writer is `service_role` — i.e. this
+//   action. That is a narrowing, and it is the point: one auditable path, which
+//   also enforces "nobody verifies their own row" below.
 // ============================================================================
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';

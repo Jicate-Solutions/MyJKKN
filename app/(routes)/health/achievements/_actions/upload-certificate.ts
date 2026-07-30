@@ -53,6 +53,36 @@
 //   already passed. The day the Director applies the migration, the first attempt
 //   starts succeeding and the privileged path stops being taken at all.
 //
+// A VERIFIED ROW IS TAMPER-EVIDENT (round 4)
+//   The gate above establishes WHO may attach. It said nothing about WHEN, and
+//   that was the remaining hole: once past it this action wrote certificate_url
+//   unconditionally, with no `verified` check anywhere. So a learner could
+//   attach a SECOND file to a row the IQAC side had already ticked, and the tick
+//   would stand over a document no reviewer ever opened. The whole value of that
+//   tick is that an external accreditation reviewer can trust it, so a silent
+//   swap underneath it is the one failure that makes the evidence worthless.
+//
+//   Two different answers, because the two callers are different:
+//     * NOT the IQAC side (i.e. the owning learner) attaching to an
+//       ALREADY-VERIFIED row  ->  REFUSED outright. A learner has no business
+//       changing evidence after it has been reviewed; the honest route is to ask
+//       IQAC to un-verify. Refusing keeps the reviewer's decision intact, which
+//       silently resetting the tick would not — that would hand the learner a
+//       way to clear an inconvenient verification whenever they liked, and it
+//       would withdraw the row's NAAC 8.3 mapping as a side effect.
+//     * The IQAC side replacing the file  ->  ALLOWED, and the verification is
+//       RESET to false with verified_by cleared, so the new document has to be
+//       re-reviewed. A tick means "a reviewer looked at THIS document"; it
+//       cannot outlive the document.
+//
+//   The reset is written here explicitly rather than left to the database,
+//   because the matching trigger lives in the Director-gated migration
+//   20260808110100 and is not applied yet — without this the tick would survive
+//   an IQAC replacement until someone applies it. Once applied,
+//   trg_hsa_unverify_on_certificate_change enforces the same invariant for ANY
+//   writer including the service-role client, so this becomes the friendly
+//   message and the trigger becomes the guarantee.
+//
 // WHY A PATH AND NOT A SIGNED URL
 //   certificate_url holds the storage PATH. The first cut stored a ONE-YEAR
 //   signed URL, which is a bearer token: whoever held the string opened the
@@ -94,31 +124,49 @@ export interface UploadCertificateResult {
  * May the current caller attach a certificate to this achievement? Owner, the
  * IQAC / accreditation side, or the admin bypass — evaluated on the session
  * client so every answer is about auth.uid().
+ *
+ * Returns WHICH branch admitted them, not just whether one did: replacing the
+ * evidence on an already-verified row is allowed for the accreditation side and
+ * refused for the learner, so the caller of this helper needs to tell them
+ * apart.
  */
-async function mayAttachToAchievement(learnerId: string): Promise<boolean> {
+async function mayAttachToAchievement(
+  learnerId: string,
+): Promise<{ may: boolean; isAccreditation: boolean }> {
+  const denied = { may: false, isAccreditation: false };
+
   const session = await createClient();
   const {
     data: { user },
   } = await session.auth.getUser();
-  if (!user || !learnerId) return false;
+  if (!user || !learnerId) return denied;
 
   const [{ data: isSuperAdmin }, { data: isAdmin }] = await Promise.all([
     session.rpc('is_super_admin'),
     session.rpc('is_admin'),
   ]);
-  if (Boolean(isSuperAdmin) || Boolean(isAdmin)) return true;
+  if (Boolean(isSuperAdmin) || Boolean(isAdmin)) {
+    return { may: true, isAccreditation: true };
+  }
+
+  // The permission is read before the ownership check, not after: an IQAC
+  // officer who also happens to own the row must still be recognised as the
+  // accreditation side, or an ownership match would shadow their key.
+  const { data: hasPerm } = await session.rpc('user_has_permission', {
+    permission_name: ATTACH_PERMISSION,
+  });
+  if (Boolean(hasPerm)) return { may: true, isAccreditation: true };
 
   const { data: profile } = await (session as any)
     .from('profiles')
     .select('learner_id')
     .eq('id', user.id)
     .maybeSingle();
-  if (profile?.learner_id && profile.learner_id === learnerId) return true;
+  if (profile?.learner_id && profile.learner_id === learnerId) {
+    return { may: true, isAccreditation: false };
+  }
 
-  const { data: hasPerm } = await session.rpc('user_has_permission', {
-    permission_name: ATTACH_PERMISSION,
-  });
-  return Boolean(hasPerm);
+  return denied;
 }
 
 export async function uploadCertificate(
@@ -141,7 +189,7 @@ export async function uploadCertificate(
   const admin = createServiceRoleClient();
   const { data: row, error: readErr } = await (admin as any)
     .from('health_sports_achievements')
-    .select('id, learner_id')
+    .select('id, learner_id, verified')
     .eq('id', achievementId)
     .maybeSingle();
   if (readErr) {
@@ -149,11 +197,23 @@ export async function uploadCertificate(
   }
   if (!row) return { ok: false, error: 'That achievement no longer exists.' };
 
-  if (!(await mayAttachToAchievement(row.learner_id))) {
+  const access = await mayAttachToAchievement(row.learner_id);
+  if (!access.may) {
     return {
       ok: false,
       error:
         'You cannot attach a certificate to this achievement. Only the learner it belongs to, or the accreditation / IQAC team, can add evidence to it.',
+    };
+  }
+
+  // Tamper-evidence, before a single byte is written. A row IQAC has already
+  // ticked is reviewed evidence, not a draft.
+  const wasVerified = Boolean(row.verified);
+  if (wasVerified && !access.isAccreditation) {
+    return {
+      ok: false,
+      error:
+        'This achievement has already been verified by the accreditation / IQAC team, so its certificate cannot be replaced. Ask them to un-verify it first if the document needs to change.',
     };
   }
 
@@ -207,9 +267,19 @@ export async function uploadCertificate(
   // The pointer is written here, not handed back to the browser: the caller has
   // already been authorized for this exact row, and nothing that lands in
   // certificate_url should have to travel through a client to get there.
+  //
+  // Reaching this line on a verified row means the caller IS the accreditation
+  // side (the branch above refused everyone else), so the replacement stands —
+  // but the tick does not survive it. Migration 20260808110100 makes the same
+  // reset unbypassable in the database; until it is applied this is what keeps
+  // a verified row honest.
   const { error: linkErr } = await (admin as any)
     .from('health_sports_achievements')
-    .update({ certificate_url: path })
+    .update(
+      wasVerified
+        ? { certificate_url: path, verified: false, verified_by: null }
+        : { certificate_url: path },
+    )
     .eq('id', achievementId);
   if (linkErr) {
     return {
