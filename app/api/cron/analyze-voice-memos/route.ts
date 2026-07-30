@@ -113,6 +113,47 @@ const TRANSIENT_CHARGE_THRESHOLD = 10;
 // the cooldown immediately — the ledger row no longer matches the config.
 const RATELIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 
+// Per-call transcription ceiling. MEASURED, not guessed — ai_model_usage,
+// feature_key='voice_memo.transcribe', success=true, duration_ms NOT NULL,
+// read 2026-07-30:
+//
+//   provider/model            n       p50     p95     p99    p99.9    max
+//   groq/whisper-large-v3   4,863    191ms   291ms   438ms   852ms   1,287ms
+//   openai/whisper-1       39,717  1,114ms 2,177ms 5,419ms 19,989ms 40,685ms
+//   ── combined            44,580  1,035ms 2,108ms 4,935ms 19,149ms 40,685ms
+//
+// Successes above each candidate ceiling (all time, both providers):
+//   >5s: 437   >10s: 181   >15s: 85   >20s: 39   >25s: 24   >30s: 10   >35s: 5
+//
+// 20s covers p99.91 of every success ever recorded (39 of 44,580 = 0.09% would
+// have been cut) and 100% of the CURRENT provider — groq has never returned a
+// success slower than 1,287ms in 4,863 calls. The generous margin exists only
+// because /admin/ai-models can flip the provider back to openai/whisper-1
+// (p99.9 = 19,989ms) without a redeploy; sized against the slower of the two.
+//
+// WHY THIS IS A REDUCTION FROM 35s, NOT AN INCREASE. The 1,223 'transcription
+// timed out after 35000ms' failures are NOT slow inference:
+//   - 79 distinct rows have ever hit a transcription timeout on groq. ZERO of
+//     them has ever produced a success — a call that passes ~1.3s never returns.
+//   - Over the last 7 days every one of the 153 clock-hours containing a
+//     timeout ALSO contained a groq ASPD/ASPH quota error (415 of 415 timeout
+//     events). The hang tracks quota saturation, not audio length. (Hour-level
+//     co-occurrence — strong, but correlation, not proof of mechanism.)
+// Raising the ceiling would convert none of these into successes; it would only
+// spend more of the run's budget per doomed call.
+//
+// TRADE-OFF (wall-clock, both directions). The loop guard breaks before
+// STARTING a row once elapsed > 45s, and each call is additionally capped by
+// `Math.max(5000, 52000 - elapsed)`, so a run always lands near ~52s of the
+// 60s maxDuration regardless of this constant. What the constant changes is how
+// many rows a run gets to TOUCH when calls hang: at 35s a run stalls on ~2 rows
+// (35s + a 17s budget-capped remainder); at 20s it reaches ~3 (20 + 20 + a 12s
+// remainder). Lowering therefore rotates the queue faster and lets hung rows
+// accumulate their transient charges — and park — sooner. Raising would do the
+// reverse. Either way BATCH_LIMIT=20 is unreachable whenever calls hang: the
+// 45s wall-clock break, not the batch size, is the binding constraint.
+const TRANSCRIBE_TIMEOUT_MS = 20000;
+
 /**
  * Extracts the storage path-relative form from a memo_audio_url that may be
  * stored in any of THREE formats due to historical inconsistency between the
