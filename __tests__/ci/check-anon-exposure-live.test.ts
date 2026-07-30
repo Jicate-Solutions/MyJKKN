@@ -152,6 +152,21 @@ describe('check-anon-exposure-live gate', () => {
     expect(out).toContain('would have failed');
   });
 
+  it('exits 1 on HALF-configured Management API credentials', () => {
+    // A token without a project ref is the easy way to end up with a job that
+    // runs, prints nothing alarming, and inspects nothing. Both halves or refuse.
+    let code = 0;
+    try {
+      execFileSync('node', [SCRIPT], {
+        encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, SUPABASE_DB_URL: '', SUPABASE_ACCESS_TOKEN: 'tok', SUPABASE_PROJECT_REF: '' },
+      });
+    } catch (e: unknown) {
+      code = (e as { status?: number }).status ?? 1;
+    }
+    expect(code).toBe(1);
+  });
+
   it('exits 1 — never 0 — when no credentials and no fixture are supplied', () => {
     // A credential-less run that "passes" is the exact failure this gate exists
     // to prevent: silence that looks like safety.
