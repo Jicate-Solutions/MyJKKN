@@ -406,6 +406,10 @@
     {
       "path": "/api/cron/pde-image-orphans?secret=${CRON_SECRET}",
       "schedule": "41 3 * * *"
+    },
+    {
+      "path": "/api/cron/pde-lane-heartbeat?secret=${CRON_SECRET}",
+      "schedule": "23 * * * *"
     }
   ]
 }
