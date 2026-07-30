@@ -182,5 +182,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_my_staff_leaderboard(uuid, boolean
 COMMENT ON FUNCTION public.fn_ai_pulse_my_staff_leaderboard(uuid, boolean) IS
 'A Senior Learner''s own AI Pulse standing card. Director decision #1
 (2026-07-30): a platform administrator receives NO row — hidden completely, not
-merely delisted. Rank and the total are both computed over the same filtered set
-as the public board, so the two can never disagree.';
+merely delisted. Rank and total_staff are computed over the same administrator-
+filtered set the public board uses, so the two cannot disagree ON THAT DIMENSION
+(both read 173, never 175). They can still differ on p_limit: the board is
+truncated by its caller''s limit while total_staff counts the whole filtered set
+— pre-existing behaviour, unchanged here.';
