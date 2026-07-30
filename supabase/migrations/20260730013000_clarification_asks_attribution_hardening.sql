@@ -73,7 +73,18 @@
 --    nothing downstream can leak it even by mistake.
 --    Horizon: 90 IST days — comfortably wider than the widest reader window
 --    (30d). Widening a reader past 90 days REQUIRES widening this first.
+--
+--    The DROP is defensive, not required today (this view is new, so the
+--    CREATE OR REPLACE below would succeed on its own). It is here because
+--    CREATE OR REPLACE VIEW carries the SAME restriction that just broke the
+--    function below — it cannot change an existing relation's column list — so
+--    without the drop, the first future migration that adds or reorders a
+--    column here would fail at apply time, in production, at whatever hour the
+--    apply is gated to. Nothing depends on this view (both readers are plpgsql
+--    and resolve it at execution time), so dropping it is free.
 -- ---------------------------------------------------------------------------
+DROP VIEW IF EXISTS public.v_clarification_ask_attribution;
+
 CREATE OR REPLACE VIEW public.v_clarification_ask_attribution AS
 WITH horizon AS (
   SELECT ((now() AT TIME ZONE 'Asia/Kolkata')::date - 90) AS since
@@ -368,7 +379,19 @@ GRANT  EXECUTE ON FUNCTION public.fn_work_signals_for(date, date) TO authenticat
 --    timetable slot identifier, NOT a person — it is returned so the card can
 --    key rows per session and so two periods of one course on one day stop
 --    merging. student_id is never selected anywhere in this chain.
+--
+--    DROP FIRST — REQUIRED, do not "simplify" this away. The applied version in
+--    20260730001500 returns a DIFFERENT row type (this one adds period_id and
+--    the two 30-day scalars), and CREATE OR REPLACE cannot change the row type
+--    defined by a function's OUT parameters: Postgres refuses with 42P13
+--    ("cannot change return type of existing function"). The drop is safe here:
+--    no database object depends on this function (the card reaches it over
+--    PostgREST, which is late-bound), the grants and COMMENT are re-asserted
+--    immediately after the CREATE below, and inside the migration's transaction
+--    the gap between DROP and CREATE is invisible to any client.
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.fn_scf_clarification_sessions_for_me();
+
 CREATE OR REPLACE FUNCTION public.fn_scf_clarification_sessions_for_me()
  RETURNS TABLE(attendance_date date, period_id text, course_code text,
                course_name text, asks integer, still_open integer,
