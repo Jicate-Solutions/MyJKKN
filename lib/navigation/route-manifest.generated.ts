@@ -1628,6 +1628,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Policies",
             "iconName": "BookText",
             "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/reports",
+            "label": "Reports",
+            "iconName": "FileBarChart",
+            "children": []
           }
         ]
       },
@@ -2023,7 +2029,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/billing/schedule/bulk-create",
             "label": "Bulk Create",
             "iconName": "CalendarClock",
-            "children": []
+            "children": [
+              {
+                "path": "/billing/schedule/bulk-create/upload",
+                "label": "Upload",
+                "iconName": "CalendarClock",
+                "children": []
+              }
+            ]
           },
           {
             "path": "/billing/schedule/bulk-edit",

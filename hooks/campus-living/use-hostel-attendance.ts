@@ -14,7 +14,8 @@ import type {
 export const hostelAttendanceKeys = {
   all: ['hostel-attendance'] as const,
   list: (filters: Record<string, unknown>) => ['hostel-attendance', 'list', filters] as const,
-  byDate: (institutionId: string | undefined, date: string) => ['hostel-attendance', 'by-date', institutionId, date] as const,
+  byDate: (institutionId: string | undefined, date: string, blockId?: string) =>
+    ['hostel-attendance', 'by-date', institutionId, date, blockId] as const,
   detail: (id: string) => ['hostel-attendance', 'detail', id] as const,
   markable: (institutionId: string | undefined, blockId: string | undefined) =>
     ['hostel-attendance', 'markable', institutionId, blockId] as const,
@@ -81,12 +82,23 @@ export function useMarkableResidents(institutionId: string | undefined, blockId?
   });
 }
 
-export function useAttendanceByDate(institutionId: string | undefined, date: string) {
+// blockId, when given, scopes the query to that block directly instead of the
+// viewer's own institution_id — a block can house residents from multiple
+// affiliated colleges (hostel-rooms-v2), so filtering by the marking staff
+// member's own institution wrongly hides records for residents of other
+// institutions housed in the same block (same pitfall getMarkableResidents
+// below already documents and avoids).
+export function useAttendanceByDate(institutionId: string | undefined, date: string, blockId?: string) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: hostelAttendanceKeys.byDate(institutionId, date),
-    queryFn: () => HostelAttendanceService.getAttendanceByDate(isSuperAdmin ? undefined : institutionId, date),
-    enabled: (isSuperAdmin || !!institutionId) && !!date,
+    queryKey: hostelAttendanceKeys.byDate(institutionId, date, blockId),
+    queryFn: () =>
+      HostelAttendanceService.getAttendanceByDate(
+        blockId ? undefined : (isSuperAdmin ? undefined : institutionId),
+        date,
+        blockId
+      ),
+    enabled: (isSuperAdmin || !!institutionId || !!blockId) && !!date,
   });
 }
 

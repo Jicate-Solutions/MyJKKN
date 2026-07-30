@@ -55,6 +55,7 @@ import {
   summariseClusterSpan,
   type SpanInstitution,
 } from './_lib/cluster-scope';
+import { MeasuredMetricsSection } from './_components/measured-metrics-section';
 
 const COMMITTEES_HUB = '/accreditation/naac/committees';
 
@@ -227,6 +228,16 @@ export default function ClusterAcademicCouncilPage() {
             ))}
           </div>
         )}
+
+        {/* The measured section. Added 2026-07-30 against the CEO's July 2026
+            CAC framework, which had no representation anywhere in the platform.
+            It amends the "no scorecard" decision above rather than reversing it:
+            the council now reads real numbers, and still awards no marks, no
+            total and no ranking. Measurement without a league table. */}
+        <MeasuredMetricsSection
+          institutions={institutionList}
+          institutionsLoading={institutionsLoading}
+        />
 
         {/* Footer — where the row physically lives, which is not the same as
             whose council it is. Both facts matter and neither is obvious. */}

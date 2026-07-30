@@ -42,6 +42,15 @@ const ATTENDANCE_METRIC = 'attendance_rate_daily';
 const MISSING_DATA_METRIC = 'attendance_missing_data';
 /** Decision #6: the Principal has 24h to explain before a meeting is scheduled. */
 const EXPLANATION_WINDOW_HOURS = 24;
+/**
+ * Director decision 2026-07-30 #4: nudge once before the window closes rather
+ * than putting a meeting on someone's calendar with no warning. Most people
+ * answer after a reminder, so this should mean far fewer auto-booked meetings —
+ * and nobody can say a review meeting appeared out of nowhere while they were
+ * travelling. Sent AT MOST ONCE per event, enforced by the DB's idempotency
+ * index rather than a read-then-write check.
+ */
+const REMINDER_BEFORE_DEADLINE_HOURS = 4;
 /** Re-check the last N days each run so late-marked attendance is still caught (decision E4). */
 const LOOKBACK_DAYS = 3;
 const MIN_EXPLANATION_LENGTH = 20;
@@ -720,6 +729,8 @@ export async function evaluateMissingDataTriggers(
 
 export interface ReconcileResult {
   explained: number;
+  /** Nudged once because the explanation window was about to close. */
+  reminded: number;
   escalated: number;
   errors: string[];
 }
@@ -831,6 +842,161 @@ async function getExecutiveAdminOfficerIds(
   return (byEmail ?? []).map((r: any) => r.id).filter(Boolean);
 }
 
+/** The standing project that holds cross-college operational follow-ups. */
+const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
+
+/**
+ * profile_id → staff.id. The Projects module keys on staff, the meetings engine
+ * on profiles; `staff.profile_id` is the ONLY correct bridge. Matching on email
+ * is wrong and quietly lossy — measured 2026-07-30, email matched 5 of 10
+ * principals while staff.profile_id matched all 10.
+ */
+async function mapProfilesToStaff(
+  db: SupabaseClient,
+  profileIds: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(profileIds.filter(Boolean))] as string[];
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+  const { data } = await db
+    .from('staff')
+    .select('id, profile_id, is_active')
+    .in('profile_id', ids);
+  for (const r of (data ?? []) as any[]) {
+    if (r.profile_id && r.is_active && !map.has(r.profile_id)) {
+      map.set(r.profile_id, r.id);
+    }
+  }
+  return map;
+}
+
+/**
+ * Raise a follow-up task in the standing Campus Operations project.
+ *
+ * Director decisions 2026-07-30: chase-ups are a REAL task (not only a bell), in
+ * ONE standing project rather than one per college, carrying RACI — the EAO is
+ * Accountable, the college's Principal is Consulted.
+ *
+ * Fails soft on purpose. The Projects module has never been used in anger
+ * (0 tasks on prod at time of writing), so a schema or permissions surprise here
+ * must NOT take down the accountability loop that already works. Every path
+ * returns null instead of throwing, and the caller still sends its bell.
+ *
+ * Decision #7 — "let it queue": when there is no active EAO the task is still
+ * CREATED, just unassigned. Queuing means waiting for somebody, never silently
+ * dropping the work.
+ */
+async function createCampusOpsTask(
+  db: SupabaseClient,
+  opts: {
+    title: string;
+    description: string;
+    /** The EAO — Accountable. Null when the post is vacant (task still created). */
+    accountableProfileId?: string | null;
+    /** The college's principal(s) — Consulted. */
+    consultedProfileIds?: string[];
+    /** Days from today for the due date. */
+    dueInDays?: number;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<string | null> {
+  try {
+    const { data: project } = await db
+      .from('projects')
+      .select('id')
+      .eq('code', CAMPUS_OPS_PROJECT_CODE)
+      .maybeSingle();
+    if (!project?.id) {
+      console.warn(
+        `[meeting-trigger] ${CAMPUS_OPS_PROJECT_CODE} project not found — skipping task creation`
+      );
+      return null;
+    }
+
+    const consulted = opts.consultedProfileIds ?? [];
+    const staffByProfile = await mapProfilesToStaff(db, [
+      opts.accountableProfileId,
+      ...consulted
+    ]);
+    const accountableStaffId = opts.accountableProfileId
+      ? staffByProfile.get(opts.accountableProfileId) ?? null
+      : null;
+
+    const dueDate = opts.dueInDays
+      ? new Date(Date.now() + opts.dueInDays * 86_400_000).toISOString().slice(0, 10)
+      : null;
+
+    const { data: task, error: taskError } = await db
+      .from('project_tasks')
+      .insert({
+        project_id: project.id,
+        title: opts.title.slice(0, 300),
+        description: opts.description,
+        task_type: 'task',
+        status_key: 'todo',
+        owner_staff_id: accountableStaffId,
+        due_date: dueDate,
+        metadata: { ...(opts.metadata ?? {}), source: 'meetings:accountability-engine' }
+      })
+      .select('id')
+      .single();
+
+    if (taskError || !task?.id) {
+      console.error('[meeting-trigger] campus-ops task insert failed:', taskError?.message);
+      return null;
+    }
+
+    // RACI. Rows are best-effort: a task with no assignee is still a visible,
+    // actionable task, whereas throwing here would lose it entirely.
+    const rows: Array<{ task_id: string; staff_id: string; role: string }> = [];
+    if (accountableStaffId) {
+      rows.push({ task_id: task.id, staff_id: accountableStaffId, role: 'accountable' });
+    }
+    for (const pid of consulted) {
+      const sid = staffByProfile.get(pid);
+      if (sid && sid !== accountableStaffId) {
+        rows.push({ task_id: task.id, staff_id: sid, role: 'consulted' });
+      }
+    }
+    if (rows.length > 0) {
+      const { error: assigneeError } = await db.from('project_task_assignees').insert(rows);
+      if (assigneeError) {
+        console.error(
+          '[meeting-trigger] campus-ops assignees failed:',
+          assigneeError.message
+        );
+      }
+    }
+
+    return task.id as string;
+  } catch (e: any) {
+    console.error('[meeting-trigger] createCampusOpsTask threw:', e?.message ?? e);
+    return null;
+  }
+}
+
+/**
+ * Does this explanation amount to "that day was not a working day for us"?
+ *
+ * Director decision 2026-07-28: JKKN does NOT encode recurring weekly holidays
+ * in code — colleges record their off-days in the leave calendar, and the
+ * attendance engine already honours APPROVED `institution_leaves`. The gap was
+ * that a principal's reply saying exactly that went nowhere, so the identical
+ * false alert fired again the following week. This is the detector that turns
+ * such a reply into a task for the EAO to file the off-day.
+ *
+ * Deliberately conservative: a miss simply means no task is raised (the
+ * explanation is still recorded and still routed to the Director as before),
+ * whereas a false positive would ask the EAO to mark a real teaching day as a
+ * holiday. The EAO is a human check on that either way.
+ */
+function looksLikeOffDayClaim(text: string): boolean {
+  const t = (text ?? '').toLowerCase();
+  return /\b(off[- ]?day|holiday|holidays|non[- ]?working|not a working day|no class(es)?|no working|leave day|vacation|closed)\b/.test(
+    t
+  );
+}
+
 /**
  * Reconcile open breach events against the explanation valve:
  *  - a Principal explanation (action_responses.text_response) → status
@@ -844,12 +1010,12 @@ export async function reconcileExplanations(
 ): Promise<ReconcileResult> {
   const db = opts.client ?? createServiceRoleClient();
   const nowISO = (opts.now ?? new Date()).toISOString();
-  const result: ReconcileResult = { explained: 0, escalated: 0, errors: [] };
+  const result: ReconcileResult = { explained: 0, reminded: 0, escalated: 0, errors: [] };
 
   const { data: events, error } = await db
     .from('meeting_trigger_events')
     .select(
-      'id, rule_id, institution_id, metric_key, observed_value, threshold, breach_date, notification_id, explanation_deadline, status'
+      'id, rule_id, institution_id, metric_key, observed_value, threshold, breach_date, notification_id, explanation_deadline, status, notified_profile_ids'
     )
     .eq('status', 'notified')
     // Attendance events only — project (subject-scoped) events are reconciled by
@@ -862,6 +1028,8 @@ export async function reconcileExplanations(
   }
 
   const admins = await getSuperAdminIds(db);
+  // The EAO is Accountable for the off-day follow-ups raised below.
+  const eaoIds = await getExecutiveAdminOfficerIds(db);
 
   for (const ev of (events ?? []) as any[]) {
     try {
@@ -919,13 +1087,116 @@ export async function reconcileExplanations(
               }
             });
           }
+          // The reply says "that day was not a working day for us" → close the
+          // loop. Without this the SAME false alert fires again next week: the
+          // engine honours only APPROVED institution_leaves, and nothing was
+          // turning a principal's answer into a calendar entry. Measured
+          // 2026-07-30: Arts & Science had filed and approved its Saturdays and
+          // correctly fired nothing, while Nursing (filed but left pending) and
+          // Allied Health (never filed) would both false-fire.
+          if (looksLikeOffDayClaim(r.text_response)) {
+            const instName = await getInstitutionName(db, ev.institution_id);
+            const { recipientIds: principalIds } = ev.institution_id
+              ? await resolveRecipients(db, ev.institution_id)
+              : { recipientIds: [] as string[] };
+
+            const taskId = await createCampusOpsTask(db, {
+              title: `Add ${ev.breach_date} to ${instName}'s leave calendar`,
+              description:
+                `${instName} was flagged on ${ev.breach_date} and the reply was:\n\n` +
+                `"${r.text_response}"\n\n` +
+                `If that day was genuinely an off-day, add it to the college's leave ` +
+                `calendar and APPROVE it. The attendance engine only honours approved ` +
+                `entries, so an unapproved one still raises the same alert next time.`,
+              accountableProfileId: eaoIds[0] ?? null,
+              consultedProfileIds: principalIds,
+              dueInDays: 7,
+              metadata: {
+                event_id: ev.id,
+                institution_id: ev.institution_id,
+                breach_date: ev.breach_date,
+                kind: 'off_day_claim'
+              }
+            });
+
+            // Bell as well as task (Director decision 2026-07-30 #1): the
+            // Projects module had 0 tasks on prod, so a task alone would sit
+            // unseen. Idempotency key makes this at-most-once per event even if
+            // the hourly cron reconciles the same row twice.
+            if (eaoIds.length > 0) {
+              await createBellNotification(db, {
+                recipientIds: eaoIds,
+                createdBy: eaoIds[0],
+                title: `Off-day to file — ${instName}`,
+                body:
+                  `${instName} says ${ev.breach_date} was not a working day:\n\n` +
+                  `"${r.text_response}"\n\n` +
+                  `Please add it to their leave calendar and approve it, so the same ` +
+                  `alert doesn't repeat.`,
+                url: taskId ? `/projects` : '/academic/attendance',
+                category: 'meetings:off-day-followup',
+                idempotencyKey: `meetings:off-day-followup:${ev.id}`,
+                metadata: {
+                  event_id: ev.id,
+                  institution_id: ev.institution_id,
+                  breach_date: ev.breach_date,
+                  task_id: taskId,
+                  source: 'cron:meeting-trigger-reconcile'
+                }
+              });
+            }
+          }
+
           result.explained++;
           explained = true;
         }
       }
       if (explained) continue;
 
-      // 2. Deadline passed with no explanation → escalate to a meeting.
+      // 2a. Deadline approaching, still no explanation → ONE reminder first.
+      // Sent to the people who were actually asked, not to the Director.
+      if (ev.explanation_deadline && nowISO <= ev.explanation_deadline) {
+        const remindFromISO = new Date(
+          new Date(ev.explanation_deadline).getTime() -
+            REMINDER_BEFORE_DEADLINE_HOURS * 3_600_000
+        ).toISOString();
+
+        if (nowISO >= remindFromISO) {
+          let askedIds: string[] = (ev.notified_profile_ids ?? []).filter(Boolean);
+          if (askedIds.length === 0 && ev.institution_id) {
+            askedIds = (await resolveRecipients(db, ev.institution_id)).recipientIds;
+          }
+          if (askedIds.length > 0) {
+            const instName = await getInstitutionName(db, ev.institution_id);
+            // At-most-once per event: a duplicate insert hits
+            // idx_notifications_idempotency and returns null, so the hourly cron
+            // re-reading this row cannot nag the same person repeatedly.
+            await createBellNotification(db, {
+              recipientIds: askedIds,
+              createdBy: askedIds[0],
+              title: `Reminder — ${instName} attendance note due soon`,
+              body:
+                `We still haven't had a note about ${instName} on ${ev.breach_date}. ` +
+                `If we don't hear back within about ${REMINDER_BEFORE_DEADLINE_HOURS} hours, ` +
+                `a short ${REVIEW_MEETING_MIN}-minute review meeting will be scheduled ` +
+                `automatically. A sentence or two is enough to close this off.`,
+              url: '/academic/attendance',
+              category: 'attendance:breach-reminder',
+              idempotencyKey: `meetings:explanation-reminder:${ev.id}`,
+              metadata: {
+                event_id: ev.id,
+                institution_id: ev.institution_id,
+                breach_date: ev.breach_date,
+                source: 'cron:meeting-trigger-reconcile'
+              }
+            });
+            result.reminded++;
+          }
+        }
+        continue; // window still open — nothing to escalate yet
+      }
+
+      // 2b. Deadline passed with no explanation → escalate to a meeting.
       if (ev.explanation_deadline && nowISO > ev.explanation_deadline) {
         await db
           .from('meeting_trigger_events')
@@ -1534,7 +1805,7 @@ export async function reconcileProjectExplanations(
 ): Promise<ReconcileResult> {
   const db = opts.client ?? createServiceRoleClient();
   const nowISO = (opts.now ?? new Date()).toISOString();
-  const result: ReconcileResult = { explained: 0, escalated: 0, errors: [] };
+  const result: ReconcileResult = { explained: 0, reminded: 0, escalated: 0, errors: [] };
 
   const { data: events, error } = await db
     .from('meeting_trigger_events')
@@ -3113,7 +3384,15 @@ export async function sendWeeklyCalendarConnectSummary(
       try {
         const { recipientIds, createdBy, fallbackToAdmin } =
           await resolveRecipients(db, institutionId);
-        const audience = [...new Set([...recipientIds, ...eaoIds])];
+        // Director decision 2026-07-30 #5: this summary goes ONLY to principals
+        // who are themselves connected, plus the EAO. Previously an unconnected
+        // principal received a list of other unconnected people and reasonably
+        // concluded the message was not about them — which is a large part of
+        // why 9 of 11 principals were still unconnected. The unconnected are now
+        // chased by the EAO in person, not by a note they discount.
+        const audience = [
+          ...new Set([...recipientIds.filter((id) => healthy.has(id)), ...eaoIds])
+        ];
         if (audience.length === 0 || !createdBy) continue;
 
         const instName = await getInstitutionName(db, institutionId);

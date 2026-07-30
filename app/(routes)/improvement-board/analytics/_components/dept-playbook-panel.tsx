@@ -1,11 +1,19 @@
 'use client';
 
-// Department Playbook panel — three AI-drafted artifacts (organogram / SOP /
-// workflow) per department, each drafted on the ₹0 Max lane and approved by a
-// human manager. Self-contained: it reads /api/mba/dept-artifacts, triggers a
-// draft + polls the collect route, and (for managers) calls the approve /
-// request-changes RPCs directly. Dropped into each area section of the analytics
-// dashboard; harmless when nothing is drafted yet (shows a "Draft with AI" cta).
+// Department Playbook panel — four artifacts per department (organogram / SOP /
+// workflow / policy), each drafted on the ₹0 Max lane and approved by a human.
+// Self-contained: it reads /api/mba/dept-artifacts, triggers a draft + polls the
+// collect route, and (for managers) calls the approve / request-changes RPCs
+// directly. Dropped into each area section of the analytics dashboard; harmless
+// when nothing is drafted yet (shows a "Draft with AI" cta).
+//
+// The POLICY card is the one that behaves differently:
+//   • An officer (CEO / CAO / EAO) can UPLOAD the department's real policy
+//     document. That upload IS the policy — the AI draft becomes history, and
+//     the card stops offering a re-draft.
+//   • Only officers can upload or sign off a policy. Managers draft and read it.
+//   • Documents live in a private bucket and open through a signed URL that the
+//     server mints per click; there is no shareable link.
 
 import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -24,6 +32,9 @@ import {
   AlertCircle,
   Trash2,
   Users,
+  ShieldCheck,
+  FileUp,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -33,17 +44,22 @@ import {
   RequestChangesDialog,
   HistoryDialog,
   ConfirmDeleteDialog,
+  UploadPolicyDialog,
+  openPolicyDocument,
 } from './playbook-dialogs';
 
 // Kept inline so this panel builds standalone (the matching backend types live
 // in lib/services/mba-dept-artifacts, shipped in the drafting-engine PR).
-const ARTIFACT_TYPES = ['organogram', 'sop', 'workflow'] as const;
+const ARTIFACT_TYPES = ['organogram', 'sop', 'workflow', 'policy'] as const;
 type ArtifactType = (typeof ARTIFACT_TYPES)[number];
 const ARTIFACT_LABEL: Record<ArtifactType, string> = {
   organogram: 'Organogram',
   sop: 'Standard Operating Procedure',
   workflow: 'Workflow',
+  policy: 'Department Policy',
 };
+/** Officer-only: upload the real policy document, or sign a drafted one off. */
+const POLICY_PERMISSION = 'improvement.area_policy.approve';
 interface MbaDeptArtifact {
   id: string;
   area_id: string;
@@ -57,6 +73,10 @@ interface MbaDeptArtifact {
   reviewed_at: string | null;
   review_notes: string | null;
   updated_at: string | null;
+  /** 'upload' means a real document is on file and it IS the artifact. */
+  source: 'ai_draft' | 'upload';
+  file_name: string | null;
+  uploaded_at: string | null;
 }
 
 /** A standing organogram role holder (hr_additional_roles, area-scoped). */
@@ -77,7 +97,18 @@ const TYPE_ICON: Record<ArtifactType, typeof FileText> = {
   organogram: Network,
   sop: FileText,
   workflow: GitBranch,
+  policy: ShieldCheck,
 };
+
+/**
+ * The AI fills every unnamed role with a bracketed placeholder ("[Manager to
+ * complete]"). Printed as-is it reads like a person's name, so a role nobody
+ * holds looks assigned. Anything bracketed, or empty, is nobody.
+ */
+function isUnfilledHolder(v: string | null | undefined): boolean {
+  const s = (v ?? '').trim();
+  return s === '' || /^\[[^\]]*\]$/.test(s);
+}
 
 const STATUS_STYLE: Record<string, string> = {
   ai_drafted: 'border-blue-200 bg-blue-50 text-blue-700',
@@ -133,6 +164,28 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
       /* keep last state */
     }
   }, [areaId, canManage]);
+
+  // Uploading or signing off a policy is an officer action (CEO / CAO / EAO) held
+  // under its own key. The DB enforces it; this only decides which controls to
+  // render, so nobody is offered a button the server will refuse.
+  const [canPolicy, setCanPolicy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const supabase = createClientSupabaseClient() as unknown as {
+      rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
+    };
+    supabase
+      .rpc('user_has_permission', { permission_name: POLICY_PERMISSION })
+      .then(({ data }) => {
+        if (!cancelled) setCanPolicy(data === true);
+      })
+      .catch(() => {
+        if (!cancelled) setCanPolicy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void refetch();
@@ -235,14 +288,16 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
     [areaId, refetch],
   );
 
-  // Draft all three at once — handy for a brand-new department. Skips locked
-  // (approved) ones and runs the rest concurrently, reusing draft()'s per-type
-  // busy + failure handling.
+  // Draft everything at once — handy for a brand-new department. Skips locked
+  // (approved) ones and anything satisfied by an uploaded document, and runs the
+  // rest concurrently, reusing draft()'s per-type busy + failure handling.
+  const draftable = useCallback(
+    (t: ArtifactType) => byType[t]?.status !== 'approved' && byType[t]?.source !== 'upload',
+    [byType],
+  );
   const draftAll = useCallback(async () => {
-    await Promise.all(
-      ARTIFACT_TYPES.filter((t) => byType[t]?.status !== 'approved').map((t) => draft(t)),
-    );
-  }, [byType, draft]);
+    await Promise.all(ARTIFACT_TYPES.filter(draftable).map((t) => draft(t)));
+  }, [draftable, draft]);
 
   const deleteArtifact = useCallback(
     async (type: ArtifactType) => {
@@ -269,6 +324,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
   const [reqType, setReqType] = useState<ArtifactType | null>(null);
   const [histType, setHistType] = useState<ArtifactType | null>(null);
   const [delType, setDelType] = useState<ArtifactType | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   return (
     <Card className="border-dashed">
@@ -281,7 +337,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               AI draft · human approves
             </Badge>
           </div>
-          {canManage && ARTIFACT_TYPES.some((t) => byType[t]?.status !== 'approved') && (
+          {canManage && ARTIFACT_TYPES.some(draftable) && (
             <Button
               size="sm"
               variant="outline"
@@ -290,13 +346,15 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               onClick={() => void draftAll()}
             >
               <Sparkles className="mr-1 h-3 w-3" />
-              Draft all three
+              Draft all
             </Button>
           )}
         </div>
         <p className="text-muted-foreground text-xs">
-          AI proposes a starter organogram, SOP and workflow for {areaLabel}. A
-          manager reviews and completes each before it becomes official.
+          AI proposes a starter organogram, SOP, workflow and policy for {areaLabel}. A
+          manager reviews and completes each before it becomes official. The policy can
+          instead be satisfied by uploading the department&apos;s real document — an
+          uploaded document always takes precedence.
         </p>
 
         {holders.length > 0 && (
@@ -305,29 +363,47 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               <Users className="text-muted-foreground h-3.5 w-3.5" />
               <span className="text-xs font-medium">Who holds what</span>
               <Badge variant="outline" className="text-[10px]">
-                {holders.length}
+                {holders.filter((h) => h.staff_id || !isUnfilledHolder(h.holder_name)).length} of{' '}
+                {holders.length} named
               </Badge>
             </div>
             <ul className="grid gap-1 sm:grid-cols-2">
-              {holders.map((h) => (
-                <li key={h.role_type} className="text-[11px] leading-tight">
-                  <span className="text-muted-foreground">{h.role_type}: </span>
-                  <span className="font-medium">{h.holder_name ?? 'Unnamed'}</span>
-                  {!h.staff_id && (
-                    <span className="text-muted-foreground"> (not a MyJKKN record)</span>
-                  )}
-                </li>
-              ))}
+              {holders.map((h) => {
+                // A role whose "holder" is still the AI's bracketed placeholder has
+                // nobody in it. Saying so plainly is the difference between an
+                // organogram that is honest and one that looks fully staffed.
+                const unfilled = !h.staff_id && isUnfilledHolder(h.holder_name);
+                return (
+                  <li key={h.role_type} className="text-[11px] leading-tight">
+                    <span className="text-muted-foreground">{h.role_type}: </span>
+                    {unfilled ? (
+                      <span className="text-muted-foreground italic">Not assigned yet</span>
+                    ) : (
+                      <>
+                        <span className="font-medium">{h.holder_name ?? 'Unnamed'}</span>
+                        {!h.staff_id && (
+                          <span className="text-muted-foreground"> (not a MyJKKN record)</span>
+                        )}
+                      </>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
       </CardHeader>
-      <CardContent className="grid gap-3 pt-0 md:grid-cols-3">
+      <CardContent className="grid gap-3 pt-0 sm:grid-cols-2 xl:grid-cols-4">
         {ARTIFACT_TYPES.map((type) => {
           const art = byType[type];
           const Icon = TYPE_ICON[type];
           const status = art?.status;
           const working = busy[type];
+          // An uploaded document is the record: no re-draft, no approve, no reopen.
+          const uploaded = art?.source === 'upload';
+          const isPolicy = type === 'policy';
+          // Officers own the policy; managers own the other three.
+          const canReview = isPolicy ? canPolicy : canManage;
           return (
             <div key={type} className="flex flex-col rounded-md border p-3">
               <div className="mb-2 flex items-center gap-1.5">
@@ -338,9 +414,13 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               {status && (
                 <Badge
                   variant="outline"
-                  className={`mb-2 w-fit text-[11px] ${STATUS_STYLE[status] ?? ''}`}
+                  className={`mb-2 w-fit text-[11px] ${
+                    uploaded
+                      ? 'border-slate-200 bg-slate-50 text-slate-700'
+                      : (STATUS_STYLE[status] ?? '')
+                  }`}
                 >
-                  {STATUS_LABEL[status] ?? status}
+                  {uploaded ? 'Uploaded document — official' : (STATUS_LABEL[status] ?? status)}
                 </Badge>
               )}
 
@@ -359,10 +439,24 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                 </p>
               )}
 
-              {art ? (
+              {art && uploaded ? (
+                <div className="mb-3 space-y-1">
+                  <p className="truncate text-xs font-medium" title={art.file_name ?? ''}>
+                    {art.file_name || 'Policy document'}
+                  </p>
+                  <p className="text-muted-foreground text-[11px]">
+                    {art.uploaded_at
+                      ? `Uploaded ${new Date(art.uploaded_at).toLocaleDateString()}`
+                      : 'Uploaded document'}
+                    {' · this document is the policy'}
+                  </p>
+                </div>
+              ) : art ? (
                 <ArtifactPreview type={type} content={art.content} />
               ) : (
-                <p className="text-muted-foreground mb-3 text-xs">Not drafted yet.</p>
+                <p className="text-muted-foreground mb-3 text-xs">
+                  {isPolicy ? 'No policy on file yet.' : 'Not drafted yet.'}
+                </p>
               )}
 
               {failed[type] && !working && (
@@ -375,8 +469,38 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
               )}
 
               <div className="mt-auto flex flex-wrap gap-1.5 pt-2">
-                {/* Drafting is manager-only and blocked on approved (locked). */}
-                {canManage && status !== 'approved' && (
+                {/* Uploaded document: open it. The URL is minted per click. */}
+                {uploaded && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => void openPolicyDocument(areaId)}
+                  >
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    Open document
+                  </Button>
+                )}
+
+                {/* Only officers put a policy document on file, or replace one. */}
+                {isPolicy && canPolicy && (
+                  <Button
+                    size="sm"
+                    variant={uploaded ? 'outline' : 'default'}
+                    className="h-7 text-xs"
+                    disabled={Boolean(working)}
+                    onClick={() => setUploadOpen(true)}
+                  >
+                    <FileUp className="mr-1 h-3 w-3" />
+                    {uploaded ? 'Replace document' : 'Upload document'}
+                  </Button>
+                )}
+
+                {/* Drafting is manager-driven, blocked on approved (locked), and
+                    pointless once a real document is on file. Officers can draft a
+                    policy too — otherwise the people who sign it off could not
+                    produce a starting point (the draft route allows both). */}
+                {(canManage || (isPolicy && canPolicy)) && status !== 'approved' && !uploaded && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -393,7 +517,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                   </Button>
                 )}
 
-                {canManage && art && status !== 'approved' && (
+                {canReview && art && status !== 'approved' && !uploaded && (
                   <>
                     <Button
                       size="sm"
@@ -402,7 +526,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                       onClick={() => setEditType(type)}
                     >
                       <Check className="mr-1 h-3 w-3" />
-                      Review &amp; approve
+                      {isPolicy ? 'Review & sign off' : 'Review & approve'}
                     </Button>
                     <Button
                       size="sm"
@@ -416,8 +540,21 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                   </>
                 )}
 
+                {/* A drafted policy a manager may read but not sign off. */}
+                {isPolicy && !canPolicy && art && status !== 'approved' && !uploaded && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    onClick={() => setEditType(type)}
+                  >
+                    <Eye className="mr-1 h-3 w-3" />
+                    Read the draft
+                  </Button>
+                )}
+
                 {/* Approved: anyone with access can View / download; managers can Reopen. */}
-                {art && status === 'approved' && (
+                {art && status === 'approved' && !uploaded && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -428,7 +565,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                     View / download
                   </Button>
                 )}
-                {art && status === 'approved' && (
+                {art && (status === 'approved' || uploaded) && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -439,7 +576,7 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                     History
                   </Button>
                 )}
-                {canManage && status === 'approved' && (
+                {canReview && status === 'approved' && !uploaded && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -462,7 +599,13 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
                   </p>
                 )}
 
-                {canManage && art && (
+                {isPolicy && !canPolicy && (art?.status === 'approved' || uploaded) && (
+                  <p className="text-muted-foreground text-[11px]">
+                    Only the CEO, CAO or Executive Administrative Officer can change this.
+                  </p>
+                )}
+
+                {(isPolicy ? canPolicy : canManage) && art && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -499,12 +642,27 @@ export function DeptPlaybookPanel({ areaId, areaLabel, canManage }: Props) {
 
       {viewType && byType[viewType] && (
         <ViewPlaybookDialog
+          areaId={areaId}
           areaLabel={areaLabel}
           artifactType={viewType}
           content={byType[viewType]!.content}
           open={viewType !== null}
           onOpenChange={(o) => {
             if (!o) setViewType(null);
+          }}
+        />
+      )}
+
+      {uploadOpen && (
+        <UploadPolicyDialog
+          areaId={areaId}
+          areaLabel={areaLabel}
+          hasExisting={byType.policy?.source === 'upload'}
+          open={uploadOpen}
+          onOpenChange={setUploadOpen}
+          onUploaded={() => {
+            setUploadOpen(false);
+            void refetch();
           }}
         />
       )}
@@ -580,6 +738,8 @@ function ArtifactPreview({
     );
   } else if (type === 'sop') {
     rows = asArray(content.steps).map((s) => `${str(s.n)}. ${str(s.title)}`.trim());
+  } else if (type === 'policy') {
+    rows = asArray(content.clauses).map((c) => `${str(c.n)}. ${str(c.title)}`.trim());
   } else {
     rows = asArray(content.stages).map((s) => `${str(s.n)}. ${str(s.name)}`.trim());
   }
