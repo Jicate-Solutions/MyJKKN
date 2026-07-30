@@ -83,6 +83,28 @@ const TIER_ORDER: Record<string, number> = {
   low: 3,
   healthy: 4,
 };
+/**
+ * How long a verdict stays fresh before its learner is due another, by risk
+ * tier. This is a ROLLING window, NOT "has a verdict dated today" — a verdict is
+ * written by the NEXT run's COLLECT leg and carries the SUBMITTING run's date,
+ * so a same-day test is never satisfied at submit time and the loop would
+ * re-pick the same top-ranked learners every night forever, leaving the ~4,100
+ * lower-risk learners a narrative they were promised and never get.
+ * At MAX_JOBS_PER_RUN x LEARNERS_PER_JOB = 200/night, one full sweep of prod's
+ * 4,342 learners takes ~22 nights, so the slow lane's window sits comfortably
+ * beyond that while critical/high learners come round again every week.
+ */
+const REFRESH_DAYS_BY_TIER: Record<string, number> = {
+  critical: 7,
+  high: 7,
+  moderate: 30,
+  low: 30,
+  healthy: 30,
+};
+const MAX_REFRESH_DAYS = 30;
+const DAY_MS = 86_400_000;
+const dayStamp = (msAgo: number) =>
+  new Date(Date.now() - msAgo).toISOString().slice(0, 10);
 
 interface VerdictContext {
   institution_id: string;
@@ -221,17 +243,31 @@ export async function GET(request: NextRequest) {
     type RiskRow = NonNullable<typeof riskRows>[number];
     const risks = (riskRows ?? []) as RiskRow[];
 
-    // Learners already carrying today's verdict are done — never regenerate.
+    // Who already has a FRESH verdict. Read the whole longest window once and
+    // keep each learner's most recent verdict date; freshness is then judged
+    // per risk tier below.
     const { data: doneRows } = await admin
       .from('learner_360_verdicts')
-      .select('learner_id')
-      .eq('verdict_date', today);
-    const done = new Set(
-      ((doneRows ?? []) as Array<{ learner_id: string }>).map((r) => r.learner_id),
-    );
+      .select('learner_id, verdict_date')
+      .gte('verdict_date', dayStamp(MAX_REFRESH_DAYS * DAY_MS));
+    const latestByLearner = new Map<string, string>();
+    for (const row of (doneRows ?? []) as Array<{
+      learner_id: string;
+      verdict_date: string;
+    }>) {
+      const prev = latestByLearner.get(row.learner_id);
+      // ISO yyyy-mm-dd sorts lexicographically, so a string compare is a date compare.
+      if (!prev || row.verdict_date > prev) latestByLearner.set(row.learner_id, row.verdict_date);
+    }
+    const isFresh = (learnerId: string, tier: string | null): boolean => {
+      const last = latestByLearner.get(learnerId);
+      if (!last) return false;
+      const days = REFRESH_DAYS_BY_TIER[tier ?? ''] ?? MAX_REFRESH_DAYS;
+      return last >= dayStamp(days * DAY_MS);
+    };
 
     const pending = risks
-      .filter((r) => r.learner_id && r.institution_id && !done.has(r.learner_id))
+      .filter((r) => r.learner_id && r.institution_id && !isFresh(r.learner_id, r.risk_tier))
       .sort(
         (a, b) =>
           (TIER_ORDER[a.risk_tier ?? ''] ?? 9) - (TIER_ORDER[b.risk_tier ?? ''] ?? 9) ||

@@ -137,15 +137,23 @@ CREATE POLICY l360_verdicts_service_all
   USING (auth.role() = 'service_role');
 
 -- 3b. Team members who may already see learner standing, scoped to their institution.
+--     The is_admin() branch is institution-scoped here, exactly as on the admin
+--     table below. is_admin() is platform-wide (true for an admin in ANY tenant,
+--     see supabase/setup/02_functions.sql), and these rows are a personal
+--     narrative about a named learner — the whole feature turns on tenant
+--     isolation, so an unscoped branch would hand every tenant admin every other
+--     college's learners. Only is_super_admin() reads across tenants.
 DROP POLICY IF EXISTS l360_verdicts_select_staff ON public.learner_360_verdicts;
 CREATE POLICY l360_verdicts_select_staff
   ON public.learner_360_verdicts FOR SELECT
   TO authenticated
   USING (
     COALESCE(is_super_admin(), false)
-    OR COALESCE(is_admin(), false)
     OR (
-      COALESCE(user_has_permission('learners.standing.view'), false)
+      (
+        COALESCE(is_admin(), false)
+        OR COALESCE(user_has_permission('learners.standing.view'), false)
+      )
       AND COALESCE(role_has_institution_access(institution_id), false)
     )
   );
@@ -328,13 +336,24 @@ BEGIN
     FROM public.learner_360_verdicts v
    WHERE v.id = p_verdict_id;
 
-  -- Barrier 2: every term COALESCEd to false and the whole expression COALESCEd
-  -- again, so a NULL from any present or future term fails CLOSED.
-  -- v_institution IS NULL (unknown verdict) makes role_has_institution_access
-  -- NULL -> false, so an unknown id lands on the SAME 42501 as a forbidden one.
-  -- That identical outcome is deliberate: returning a distinguishable result for
-  -- "exists but not yours" would hand any authenticated caller a cross-tenant
-  -- existence oracle for verdict ids.
+  -- Barrier 2: an unknown verdict id raises the SAME 42501 as a forbidden one,
+  -- so the caller cannot tell the two apart and gains no cross-tenant "does this
+  -- verdict id exist" oracle.
+  --
+  -- ⚠️ This MUST be an explicit IS NULL branch and must come FIRST.
+  -- role_has_institution_access(NULL) returns **true** — it treats a NULL
+  -- institution as a system-wide record (20260521_role_has_institution_access
+  -- _cas_aware.sql, first branch). So a NULL v_institution does NOT fail closed
+  -- through the guard below; it would sail past it for any override-holder and
+  -- return a clean `false`, which is exactly the oracle. Do not "simplify" this
+  -- away by trusting the COALESCE.
+  IF v_institution IS NULL THEN
+    RAISE EXCEPTION 'fn_learner_360_set_override: no such verdict, or not permitted'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Every term COALESCEd to false and the whole expression COALESCEd again, so a
+  -- NULL from any present or future term fails CLOSED.
   SELECT COALESCE(
     COALESCE(is_super_admin(), false)
     OR (
@@ -349,10 +368,6 @@ BEGIN
   IF NOT COALESCE(v_may, false) THEN
     RAISE EXCEPTION 'fn_learner_360_set_override: no such verdict, or not permitted'
       USING ERRCODE = '42501';
-  END IF;
-
-  IF v_institution IS NULL THEN
-    RETURN false;  -- super admin, unknown id: nothing written, nothing leaked
   END IF;
 
   v_clean := NULLIF(btrim(COALESCE(p_override, '')), '');
