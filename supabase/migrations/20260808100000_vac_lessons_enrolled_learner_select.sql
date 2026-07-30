@@ -64,7 +64,7 @@
 --
 --   Residual, and deliberate: within one institution a learner could still forge
 --   an enrolment into another of their own college's courses. That grants no
---   more than the platform already grants every institution-scoped staff member
+--   more than the platform already grants every institution-scoped team member
 --   through vac_lessons_select, and is a far smaller surface than a cross-tenant
 --   read. The underlying fix is to constrain course_id in
 --   `vac_enrollments_insert`; that policy is out of this change's scope and is
