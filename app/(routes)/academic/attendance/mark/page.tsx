@@ -1514,6 +1514,10 @@ export default function AttendanceMarkPage() {
         attendance_data: attendancePayload,
         marked_by: profile?.id || '',
         institution_id: institutionId,
+        // department_id must be forwarded: the service's HOD edit-scope check
+        // compares the timetable's department_id against this field, and an
+        // undefined value here always fails that comparison (BUG-003149).
+        department_id: contextData?.department_id,
         // Audit trail fields (Added: 2026-03-20)
         is_edit_mode: isEditMode && !!existingAttendance,
         period_id_being_edited: isEditMode ? (periodId ?? undefined) : undefined,
