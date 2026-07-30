@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Printer, History, FileUp, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { displayHolder } from './holder-display';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow' | 'policy';
 
@@ -93,7 +94,10 @@ function rowsFor(
   if (artifactType === 'organogram') {
     return asArray(content.roles).map((r) => ({
       a: str(r.title),
-      b: [str(r.holder), r.reports_to ? `reports to ${str(r.reports_to)}` : '']
+      // displayHolder, not str: this dialog is the read-only view AND the source of
+      // the printed PDF, so a raw "[Manager to complete]" here leaves the placeholder
+      // on a document someone hands to an accreditor.
+      b: [displayHolder(r.holder), r.reports_to ? `reports to ${str(r.reports_to)}` : '']
         .filter(Boolean)
         .join(' · '),
     }));
