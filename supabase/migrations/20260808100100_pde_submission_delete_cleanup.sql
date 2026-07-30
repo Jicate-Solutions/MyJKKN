@@ -132,10 +132,22 @@ UPDATE public.pde_engagement_events e
                 THEN (e.metadata ->> 'submission_id')::uuid
               END;
 
+-- SECURITY DEFINER, deliberately. The lookup asks "does this submission EXIST",
+-- which is not the same question as "can the current writer SEE it". As
+-- SECURITY INVOKER the SELECT ran under caller RLS, so any writer without a
+-- read path to the submission — anything other than the owning learner, whose
+-- pde_sub_own_read policy is what makes the route path work today — would fail
+-- to resolve the link, leave source_submission_id NULL, and thereby let that
+-- event ESCAPE the cascade cleanup this migration exists to guarantee. The
+-- orphan would come back silently. Reading existence with definer rights makes
+-- the link independent of who is writing.
+--
+-- This leaks nothing: the function returns no data to the caller, and writes
+-- only an id the caller already supplied inside metadata.
 CREATE OR REPLACE FUNCTION public.fn_pde_engagement_link_submission()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $fn$
 DECLARE
@@ -180,7 +192,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_pde_engagement_link_submission() IS
-  'BEFORE INSERT/UPDATE on pde_engagement_events: mirrors metadata->>''submission_id'' into source_submission_id when that submission exists, so the FK cascade works without any route change. Never raises.';
+  'BEFORE INSERT/UPDATE on pde_engagement_events: sets source_submission_id to whatever metadata->>''submission_id'' resolves to, and to NULL otherwise, so the FK cascade works without any route change. SECURITY DEFINER because it asks whether the submission EXISTS, not whether the writer can see it — under caller RLS any writer other than the owning learner would fail to link and that event would escape the cascade cleanup. The column is strictly derived and never trusted from caller input. Never raises.';
 
 -- Trigger function: not reachable as a PostgREST RPC (RETURNS trigger), locked
 -- anyway because Supabase default privileges hand anon EXECUTE on every new
@@ -314,13 +326,37 @@ BEGIN
   v_status := CASE WHEN v_best_score >= v_threshold
                    THEN 'demonstrated' ELSE 'in_progress' END;
 
+  -- NO-OP GUARD. This trigger fires on every pde_submissions delete, not just
+  -- clinical-case ones, because every skip condition that could narrow it was
+  -- also able to skip a recompute that was needed. Writing unconditionally would
+  -- therefore churn the row on unrelated deletes — rewriting evidence and
+  -- stamping recomputed_after_deleted_submission with, say, an MCQ attempt id
+  -- that had nothing to do with this capability. So the write is skipped when the
+  -- recomputed result is identical to what is already stored. Correctness is
+  -- unchanged (the recompute still runs for every delete, so it can never be
+  -- missed); only the pointless write disappears.
+  IF EXISTS (
+    SELECT 1 FROM public.pde_learner_capabilities lc
+     WHERE lc.id = v_lc_id
+       AND lc.demonstration_score = v_best_score
+       AND lc.status = v_status
+       AND lc.demonstration_evidence ->> 'submission_id' = v_best_id::text
+  ) THEN
+    RETURN OLD;
+  END IF;
+
   UPDATE public.pde_learner_capabilities lc
      SET demonstration_score = v_best_score,
          status              = v_status,
          demonstrated_at     = CASE WHEN v_status = 'demonstrated'
                                     THEN COALESCE(lc.demonstrated_at, now())
                                     ELSE NULL END,
-         demonstration_evidence = jsonb_build_object(
+         -- MERGED onto the existing evidence, not built fresh. The scoring route
+         -- may write keys this trigger does not know about (course or context
+         -- fields added later); a wholesale jsonb_build_object would silently
+         -- drop every one of them on the first delete-triggered recompute.
+         demonstration_evidence = COALESCE(lc.demonstration_evidence, '{}'::jsonb)
+           || jsonb_build_object(
            'submission_id',  v_best_id,
            'attempt_number', v_best_attempt,
            'domain_scores',  v_best_osce -> 'domain_scores',
