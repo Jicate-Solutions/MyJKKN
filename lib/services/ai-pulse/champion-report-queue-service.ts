@@ -174,12 +174,23 @@ export function useDecideOnReportedBuild() {
 //   RELEASE fn_ai_pulse_release_prompt_build_safety(p_build_id)   failed -> passed
 //   HEALTH  fn_ai_pulse_prompt_safety_health()                    decision #10
 //
-// Decision #10: the safety check runs on a */10 cron. If it silently stops, every
-// new build stays 'pending' and simply never appears — and an empty feed is
-// indistinguishable from "nobody is writing prompts". last_checked_at is the only
-// liveness signal that exists, which is why the health read carries it.
+// Decision #10: the safety check runs every ten minutes on a cron. If it silently
+// stops, every new build stays 'pending' and simply never appears — and an empty
+// feed is indistinguishable from "nobody is writing prompts". The health read is
+// the only place that distinction is visible.
 //
-// Substrate: migration 20260805100000_ai_pulse_safety_review_queue.sql.
+// Director decision #2 (2026-07-30) then corrected WHICH signal it watches. The
+// first version read max(safety_checked_at) over builds, which measures work
+// done, not the checker being alive: the cron stamps a build only when one is
+// eligible, so a healthy run with nothing to do stamps nothing. Measured on prod
+// that day — 0 eligible builds, 357 minutes since the last stamp, alarm firing,
+// cron perfectly healthy, and no way for it to ever clear. The health read now
+// carries BOTH, and only the first is the heartbeat:
+//   checker_last_ran_at    from the ai_pulse_cron_runs run log   (liveness)
+//   last_build_checked_at  max(safety_checked_at)                (throughput)
+//
+// Substrate: migrations 20260805100000_ai_pulse_safety_review_queue.sql and
+// 20260805140000_ai_pulse_cron_heartbeat.sql.
 // All three are SECURITY DEFINER, gated on super admin OR aiPulse:anomaly.review,
 // institution-scoped, with anon and PUBLIC revoked.
 
@@ -207,9 +218,15 @@ export interface PromptSafetyHealth {
   rejected_count: number;
   passed_count: number;
   oldest_waiting_at: string | null;
-  /** The safety cron's heartbeat. Null, or stale, means the check may have
-   *  stopped — that is the whole point of decision #10. */
-  last_checked_at: string | null;
+  /** LIVENESS — when the checker itself last ran, from the ai_pulse_cron_runs
+   *  run log. This is the heartbeat. Null means no run has ever been recorded,
+   *  which on a fresh deploy is expected and is NOT an alarm. */
+  checker_last_ran_at: string | null;
+  /** THROUGHPUT — when a prompt was last stamped, i.e. max(safety_checked_at).
+   *  Deliberately NOT the heartbeat: this route stamps a build only when one is
+   *  eligible, so a healthy cron with nothing to do freezes this value. Reading
+   *  it as liveness produced a permanent false alarm (Director decision #2). */
+  last_build_checked_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +284,8 @@ async function fetchPromptSafetyHealth(): Promise<PromptSafetyHealth> {
     rejected_count: Number(row?.rejected_count ?? 0),
     passed_count: Number(row?.passed_count ?? 0),
     oldest_waiting_at: (row?.oldest_waiting_at as string | null) ?? null,
-    last_checked_at: (row?.last_checked_at as string | null) ?? null,
+    checker_last_ran_at: (row?.checker_last_ran_at as string | null) ?? null,
+    last_build_checked_at: (row?.last_build_checked_at as string | null) ?? null,
   };
 }
 
