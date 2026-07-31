@@ -2,22 +2,27 @@
 // ============================================================================
 // Outbound (travelled-to) tournament capture helpers.
 //
-// WHY A DESCRIPTION CONVENTION AND NOT A COLUMN
+// THE HOST IS NOW A COLUMN — THIS CONVENTION IS THE LEGACY READ PATH (D14)
 //   The real driver for this work is a paper letter: learners of one JKKN
 //   college travelling to an EXTERNAL institution's tournament (e.g. a STATE
 //   level paramedical meet hosted by another university). Recording that
-//   honestly needs the host/organiser name — and health_sports_achievements has
-//   no host column (id, learner_id, achievement_date, sport, event_name,
-//   event_level, achievement_type, description, certificate_url, verified,
-//   verified_by, created_at, category).
+//   honestly needs the host/organiser name, and health_sports_achievements had
+//   no column for it — so the organiser was stored as a structured FIRST LINE
+//   of the free-text description ("Hosted by: <name>") and parsed back out.
 //
-//   Adding one means DDL, and migrations in this repo are Director-gated files
-//   that are NOT applied by merge or deploy — so a host_institution column would
-//   leave this capture dark for an unknown number of days. Instead the organiser
-//   is stored as a structured FIRST LINE of the existing free-text description
-//   ("Hosted by: <name>") and parsed back out for display. No schema change, the
-//   value stays machine-recoverable for accreditation, and it works the moment
-//   this deploys.
+//   That worked, but buried prose cannot be COUNTED or FILTERED, which is
+//   exactly what an accreditation reviewer asks of it. D14 therefore adds a real
+//   `host_institution` column to health_sports_achievements AND to
+//   health_tournament_permissions (migration 20260808163000, Director-gated),
+//   backfills the rows written with the marker, and carries the value into the
+//   NAAC 8.3 evidence metadata.
+//
+//   `composeDescription` still accepts a host because migrations here are NOT
+//   applied by merge or deploy: if the column is not there yet the write falls
+//   back to this convention rather than failing the learner's save. Readers
+//   prefer the column and fall back to `parseDescription`, so rows written
+//   either way display identically. Do not remove this path until every row
+//   carrying the marker has been backfilled.
 //
 //   Parsing is deliberately strict — only leading lines, only the exact
 //   markers — so a learner who happens to type "hosted by" inside their notes is
