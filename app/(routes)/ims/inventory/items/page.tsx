@@ -32,6 +32,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ShieldCheck } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import {
   Table,
   TableBody,
@@ -75,6 +78,10 @@ import {
   useToggleImsItemActive,
   useImsCategoriesForSelect,
 } from '@/hooks/ims/use-ims-inventory';
+import {
+  useCreateImsItemChangeRequest,
+  useImsPendingItemChangeIds,
+} from '@/hooks/ims/use-ims-item-change-requests';
 import { useImsUnitsForSelect } from '@/hooks/ims/use-ims-settings';
 import type {
   ImsItemFilters,
@@ -201,6 +208,11 @@ function InventoryItemsPageInner() {
   const { canAccess, isSuperAdmin: permsIsSuperAdmin } = usePermissions();
   const canCreate = permsIsSuperAdmin || canAccess('ims.inventory', 'create');
   const canEdit = permsIsSuperAdmin || canAccess('ims.inventory', 'edit');
+  // A third state between "can edit" and "cannot touch": may open the form and
+  // Save, but Save raises a change request for a super admin instead of writing
+  // to the item. Only meaningful when canEdit is false.
+  const canProposeEdit = !canEdit && canAccess('ims.inventory', 'propose_edit');
+  const router = useRouter();
   const canDelete = permsIsSuperAdmin || canAccess('ims.inventory', 'delete');
   const canAdjust = permsIsSuperAdmin || canAccess('ims.stock', 'adjust');
 
@@ -267,6 +279,8 @@ function InventoryItemsPageInner() {
   // Mutations
   const createItem = useCreateImsItem();
   const updateItem = useUpdateImsItem();
+  const createChangeRequest = useCreateImsItemChangeRequest();
+  const { data: pendingChangeIds } = useImsPendingItemChangeIds(institutionId);
   const deleteItem = useDeleteImsItem();
   const toggleActive = useToggleImsItemActive();
 
@@ -370,6 +384,30 @@ function InventoryItemsPageInner() {
           is_sellable_to_students: formData.is_sellable_to_students,
           image_url: formData.image_url || null,
         };
+        // ── Propose, don't apply ────────────────────────────────────────────
+        // A role that may REQUEST item changes but not make them (POS store
+        // manager) gets the same form and the same Save button — only the
+        // destination differs. The request records what changed and what those
+        // fields held, and a super admin's approval is what writes to the item.
+        //
+        // Returns early: the stock operations below adjust quantities directly,
+        // which this role has no permission for and which are not part of what
+        // is being approved.
+        if (!canEdit && canProposeEdit) {
+          await createChangeRequest.mutateAsync({
+            itemId: editingItem.id,
+            institutionId: institutionId || '',
+            storeId: storeId || null,
+            requestedBy: profile?.id || '',
+            original: editingItem as unknown as Record<string, unknown>,
+            proposed: updateData as unknown as Record<string, unknown>,
+          });
+          setDialogOpen(false);
+          setEditingItem(null);
+          setFormData(emptyFormData);
+          return;
+        }
+
         await updateItem.mutateAsync({ id: editingItem.id, data: updateData });
 
         // Stock-side updates: opening_quantity and current_quantity live on
@@ -526,7 +564,10 @@ function InventoryItemsPageInner() {
   };
 
   const isMutating =
-    createItem.isPending || updateItem.isPending || isUploadingImage;
+    createItem.isPending ||
+    updateItem.isPending ||
+    createChangeRequest.isPending ||
+    isUploadingImage;
 
   return (
     <ContentLayout title="Inventory Items">
@@ -556,6 +597,22 @@ function InventoryItemsPageInner() {
               >
                 <IndianRupee className="h-4 w-4 mr-2" />
                 Update Prices
+              </Button>
+            )}
+            {/* Shown to whoever can approve AND to whoever can only propose — the
+                requester needs somewhere to see what happened to their request. */}
+            {(canEdit || canProposeEdit) && (
+              <Button
+                variant="outline"
+                onClick={() => router.push('/ims/inventory/item-approvals')}
+              >
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Change Requests
+                {pendingChangeIds && pendingChangeIds.size > 0 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {pendingChangeIds.size}
+                  </Badge>
+                )}
               </Button>
             )}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1153,6 +1210,21 @@ function InventoryItemsPageInner() {
                 )}
               </div>
 
+              {/* Say what Save will do BEFORE it is pressed. Someone who thinks
+                  they just edited a price, and later finds it unchanged, has been
+                  misled by the form — the approval step has to be visible here,
+                  not discovered afterwards. */}
+              {editingItem && canProposeEdit && (
+                <Alert className="border-amber-500/50">
+                  <ShieldCheck className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-sm">
+                    You can request changes but not apply them. Saving sends what you
+                    changed to a super admin for approval — the item stays as it is
+                    until they approve it.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <DialogFooter>
                 <Button
                   variant="outline"
@@ -1163,7 +1235,11 @@ function InventoryItemsPageInner() {
                 </Button>
                 <Button onClick={handleSubmit} disabled={isMutating}>
                   {isMutating && <BeatLoader color="#fff" size={8} className="mr-2" />}
-                  {editingItem ? 'Update Item' : 'Create Item'}
+                  {editingItem
+                    ? canProposeEdit
+                      ? 'Send for approval'
+                      : 'Update Item'
+                    : 'Create Item'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1406,6 +1482,17 @@ function InventoryItemsPageInner() {
                         </TableCell>
                         <TableCell>
                           <p className="font-medium">{item.name}</p>
+                          {/* Visible to everyone who can see the item, not just
+                              the requester: it explains why a value someone
+                              expected to have changed still reads the old one. */}
+                          {pendingChangeIds?.has(item.id) && (
+                            <Badge
+                              variant="outline"
+                              className="mt-1 text-amber-600 border-amber-500/50 text-[10px]"
+                            >
+                              Change awaiting approval
+                            </Badge>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {item.category?.name || '—'}
@@ -1471,10 +1558,12 @@ function InventoryItemsPageInner() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              {canEdit && (
+                              {(canEdit || canProposeEdit) && (
                                 <DropdownMenuItem onClick={() => handleEdit(item)}>
                                   <Pencil className="h-4 w-4 mr-2" />
-                                  Edit
+                                  {/* Same form either way — only where Save lands
+                                      differs, and the dialog says so. */}
+                                  {canEdit ? 'Edit' : 'Request change'}
                                 </DropdownMenuItem>
                               )}
                               {canAdjust && (
