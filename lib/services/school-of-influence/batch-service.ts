@@ -42,10 +42,6 @@
 // the shared config reader is S1's file, not ours.
 
 import { CohortService } from '@/lib/services/cohort-core/cohort-service';
-import {
-  MEMBERSHIP_TRANSITIONS,
-  isTerminalMembershipStatus,
-} from '@/lib/services/cohort-core/lifecycle';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   Cohort,
@@ -53,39 +49,28 @@ import type {
   MembershipStatus,
   TransitionOptions,
 } from '@/lib/types/cohort-core';
+import {
+  SOI_COHORT_KIND,
+  SOI_OCCUPYING_STATUSES,
+  SOI_POLICY_DEFAULTS,
+  isWithinSoiIntakeWindow,
+  type SoiBatchFullBehaviour,
+  type SoiMemberType,
+} from '@/lib/services/school-of-influence/constants';
 
-/** cohorts.kind for a School of Influence batch. */
-export const SOI_COHORT_KIND = 'school_of_influence' as const;
-
-/**
- * Which member shapes a batch admits. 'learner' and 'staff' are BOTH inside the
- * spine's IDENTITY_MEMBER_TYPES set, so both go through assertMemberIdentity.
- * 'team' is excluded on purpose — it is the one member_type the spine does NOT
- * identity-check (its member_ref is an enrollment id, not a profile), which is
- * exactly how SF100 admitted fabricated humans.
- */
-export type SoiMemberType = 'learner' | 'staff';
-
-/**
- * Spec §4 defaults for the policy keys THIS section reads. These are the locked
- * decision values, used verbatim as the fn_get_policy_* fallback.
- */
-export const SOI_POLICY_DEFAULTS = {
-  /** D5 — the most people one batch can hold. */
-  batchCapacity: { key: 'soi.batch_capacity', value: 30 },
-  /** D5 — what happens when a batch is full. */
-  batchFullBehaviour: {
-    key: 'soi.batch_full_behaviour',
-    value: 'offer_another_batch' as SoiBatchFullBehaviour,
-  },
-  /** D13 — each batch opens and closes applications on its own dates. */
-  intakeDatesPerBatch: { key: 'soi.intake_dates_per_batch', value: true },
-  /** D7 — only a coordinator may move someone between batches. */
-  transferStaffOnly: { key: 'soi.transfer_staff_only', value: true },
-} as const;
-
-/** D5 — how a full batch behaves. */
-export type SoiBatchFullBehaviour = 'waitlist' | 'offer_another_batch';
+// The domain's PURE values moved to ./constants (2026-07-31, S4) so the apply
+// flow can read them SERVER-side. Importing this file off-browser is fatal —
+// createClientSupabaseClient() runs at module load and @supabase/ssr's
+// createBrowserClient throws when constructed outside a browser. The symbols are
+// re-exported verbatim so this module's public API is unchanged and there is
+// still exactly ONE definition of each.
+export {
+  SOI_COHORT_KIND,
+  SOI_OCCUPYING_STATUSES,
+  SOI_POLICY_DEFAULTS,
+  type SoiBatchFullBehaviour,
+  type SoiMemberType,
+};
 
 /**
  * The permission a coordinator needs to move someone between batches (D7). Reuses
@@ -94,18 +79,6 @@ export type SoiBatchFullBehaviour = 'waitlist' | 'offer_another_batch';
  * would have no way to grant.
  */
 const SOI_TRANSFER_PERMISSION = 'cohort.manage';
-
-/**
- * The membership statuses that OCCUPY a seat, derived from the spine's own
- * transition map so it can never drift from it: everything that still has an
- * outgoing edge. Today that is invited / enrolled / active / paused — 'paused' is
- * included because a paused member is still in the batch (paused → active is
- * legal), so pausing must not silently free a seat. Mirrors the predicate of
- * uniq_soi_one_active_batch_per_person exactly.
- */
-export const SOI_OCCUPYING_STATUSES: MembershipStatus[] = (
-  Object.keys(MEMBERSHIP_TRANSITIONS) as MembershipStatus[]
-).filter((status) => !isTerminalMembershipStatus(status));
 
 export interface CreateSoiBatchInput {
   /** Display name, e.g. "Batch A". */
@@ -295,15 +268,12 @@ export class SoiBatchService {
   }
 
   /**
-   * PURE — is this batch inside its intake window? A null bound is unbounded on
-   * that side, so a batch with neither bound set is always open (that is the
-   * spine's existing semantics for opens_at/closes_at, not a new rule).
+   * PURE — is this batch inside its intake window? Delegates to the free
+   * function in ./constants so the server-side apply flow evaluates the very
+   * same window rule (see that file's header for why it cannot import this one).
    */
   static isWithinIntakeWindow(batch: Cohort, now: Date = new Date()): boolean {
-    const at = now.getTime();
-    if (batch.opens_at && at < new Date(batch.opens_at).getTime()) return false;
-    if (batch.closes_at && at > new Date(batch.closes_at).getTime()) return false;
-    return true;
+    return isWithinSoiIntakeWindow(batch, now);
   }
 
   // ── Capacity (D5) ───────────────────────────────────────────────────────────
