@@ -4825,6 +4825,42 @@ CREATE TABLE IF NOT EXISTS public.hr_leave_types (
 
 CREATE INDEX IF NOT EXISTS idx_hlt_org_active ON public.hr_leave_types(hr_organization_id, is_active);
 
+-- Updated: 2026-07-31 - WHO PAYS each staff member (HR only)
+-- staff.institution_id means WHERE SOMEONE WORKS. The paying organisation is a
+-- separate, narrower fact that only HR may see, so it lives here rather than as
+-- a column on staff: Supabase RLS is row-level, so a column would be readable by
+-- everyone who can read the staff row (StaffService, /api/api-management/staff
+-- and the MCP server all select('*')).
+-- NO ROW = payer not yet recorded — a work queue for HR, never a silent default.
+-- is_payroll_entity is always true and exists only to carry the composite FK
+-- that stops a work-location-only organisation (JKKN Main Office) being a payer.
+CREATE TABLE IF NOT EXISTS public.hr_staff_payroll (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id           uuid NOT NULL UNIQUE REFERENCES public.staff(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES public.hr_organizations(id),
+  is_payroll_entity  boolean NOT NULL DEFAULT true CHECK (is_payroll_entity),
+  notes              text,
+  created_at         timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at         timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  created_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT hr_staff_payroll_org_must_run_payroll
+    FOREIGN KEY (hr_organization_id, is_payroll_entity)
+    REFERENCES public.hr_organizations (id, is_payroll_entity)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_staff_payroll_organization
+  ON public.hr_staff_payroll (hr_organization_id);
+
+-- Which organisations actually run a payroll. A flag rather than a hardcoded
+-- name check, so a future non-paying entity is a data edit and not a patch.
+ALTER TABLE public.hr_organizations
+  ADD COLUMN IF NOT EXISTS is_payroll_entity boolean NOT NULL DEFAULT true;
+ALTER TABLE public.hr_organizations
+  DROP CONSTRAINT IF EXISTS hr_organizations_id_payroll_entity_key;
+ALTER TABLE public.hr_organizations
+  ADD CONSTRAINT hr_organizations_id_payroll_entity_key UNIQUE (id, is_payroll_entity);
+
 -- Updated: 2026-04-18 - Call Notes dialog enrichment
 -- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
 -- to admission_call_logs so counselors can record richer context when

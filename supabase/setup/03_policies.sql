@@ -8203,6 +8203,38 @@ CREATE POLICY hlt_write ON public.hr_leave_types
   USING      (public.user_has_permission('hr.leave.types.manage'))
   WITH CHECK (public.user_has_permission('hr.leave.types.manage'));
 
+-- Updated: 2026-07-31 - hr_staff_payroll: WHO PAYS each staff member.
+-- HR only. These policies are the ONLY thing keeping the paying organisation off
+-- everyone else's screen, which is why the fact lives in its own table rather
+-- than as a column on staff (row-level RLS cannot hide a column).
+-- Gated on permission KEYS, never on role names — the sibling hr_payslips
+-- policies still hardcode role_key IN ('hr_officer','hr_admin',...); that
+-- pattern is deliberately not copied here.
+-- Each check is wrapped in (SELECT ...) so Postgres evaluates it ONCE per query
+-- instead of once per row (the variable-free-check rule behind the 57014
+-- timeouts on this database).
+ALTER TABLE public.hr_staff_payroll ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_staff_payroll_select ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_select ON public.hr_staff_payroll
+  FOR SELECT TO authenticated
+  USING ((SELECT public.user_has_permission('hr.payroll.institution.view')));
+
+DROP POLICY IF EXISTS hr_staff_payroll_write ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_write ON public.hr_staff_payroll
+  FOR ALL TO authenticated
+  USING      ((SELECT public.user_has_permission('hr.payroll.institution.manage')))
+  WITH CHECK ((SELECT public.user_has_permission('hr.payroll.institution.manage')));
+
+DROP POLICY IF EXISTS hr_staff_payroll_service_role ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_service_role ON public.hr_staff_payroll
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Anon must never see payroll data. REVOKE FROM anon (not FROM public — that
+-- would also strip authenticated and service_role).
+REVOKE ALL ON public.hr_staff_payroll FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_payroll TO authenticated;
+
 -- Updated: 2026-07-24 - ID Card bridge heartbeat policies (migration
 -- 20260724045622_id_card_agent_status.sql). Reads mirror
 -- id_card_print_jobs_admin_view (queue viewers + admins); writes are

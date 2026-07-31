@@ -752,6 +752,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
       { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
 
+      // ── Payroll organisation (2026-07-31) ────────────────────────────────
+      // WHO PAYS a staff member, held in hr_staff_payroll. Deliberately a
+      // separate table and not a column on staff: Supabase RLS is row-level, so
+      // a column would be readable by everyone who can read the staff row —
+      // and StaffService, /api/api-management/staff and the MCP server all
+      // select('*'). These two keys are the ONLY thing that exposes it; they
+      // are genuinely enforced in hr_staff_payroll's RLS.
+      // staff.institution_id means WHERE SOMEONE WORKS and is unaffected.
+      { key: 'hr.payroll.institution.view', label: 'View Payroll Organisation' },
+      { key: 'hr.payroll.institution.manage', label: 'Manage Payroll Organisation' },
+
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
       // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:

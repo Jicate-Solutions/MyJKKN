@@ -43203,6 +43203,7 @@ export type Database = {
           gps_geofence_radius_m: number | null
           id: string
           institution_id: string | null
+          is_payroll_entity: boolean
           name: string
           slug: string
           source: string
@@ -43218,6 +43219,7 @@ export type Database = {
           gps_geofence_radius_m?: number | null
           id?: string
           institution_id?: string | null
+          is_payroll_entity?: boolean
           name: string
           slug: string
           source: string
@@ -43233,6 +43235,7 @@ export type Database = {
           gps_geofence_radius_m?: number | null
           id?: string
           institution_id?: string | null
+          is_payroll_entity?: boolean
           name?: string
           slug?: string
           source?: string
@@ -47046,6 +47049,64 @@ export type Database = {
             foreignKeyName: "hr_staff_institution_allocation_staff_id_fkey"
             columns: ["staff_id"]
             isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_staff_payroll: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          hr_organization_id: string
+          id: string
+          is_payroll_entity: boolean
+          notes: string | null
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id: string
+          id?: string
+          is_payroll_entity?: boolean
+          notes?: string | null
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          hr_organization_id?: string
+          id?: string
+          is_payroll_entity?: boolean
+          notes?: string | null
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_staff_payroll_hr_organization_id_fkey"
+            columns: ["hr_organization_id"]
+            isOneToOne: false
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_staff_payroll_org_must_run_payroll"
+            columns: ["hr_organization_id", "is_payroll_entity"]
+            isOneToOne: false
+            referencedRelation: "hr_organizations"
+            referencedColumns: ["id", "is_payroll_entity"]
+          },
+          {
+            foreignKeyName: "hr_staff_payroll_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
             referencedRelation: "staff"
             referencedColumns: ["id"]
           },
