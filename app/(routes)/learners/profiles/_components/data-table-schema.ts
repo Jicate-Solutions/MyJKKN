@@ -16,6 +16,9 @@ export const profilesSearchParamsSchema = z.object({
   page: z.coerce.number().catch(1),
   pageSize: z.coerce.number().catch(50),
 
+  // Selected lifecycle tab — drives which (single) tab the server fetches
+  tab: z.enum(['active', 'inactive', 'exited']).optional().catch(undefined),
+
   // Search
   search: z.string().optional().catch(undefined),
   search_case_sensitive: z.string().optional().catch(undefined),

@@ -12,7 +12,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Upload } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ProfilesStatusTabs } from './_components/profiles-status-tabs';
+import { isProfileTab } from './_components/profile-tabs';
 import { ProfilesTableServer } from './_components/profiles-table-server';
 import { ProfilesFilters } from './_components/profiles-filters';
 import { ProfilesSearchWrapper } from './_components/profiles-search-wrapper';
@@ -177,6 +178,10 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
     isStudent = profile?.role === 'student';
   }
 
+  // Selected lifecycle tab, read from the URL so only one tab is ever fetched.
+  // Anything unrecognised (or absent) falls back to 'active'.
+  const activeTab: LifecycleStatus = isProfileTab(params.tab) ? params.tab : 'active';
+
   // Conditional title and breadcrumb based on role
   const pageTitle = isStudent ? 'My Profile' : 'Learners Management';
   const breadcrumbLabel = isStudent ? 'My Profile' : 'Learners Management';
@@ -244,38 +249,21 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
             <ProfilesSearchWrapper />
             <ProfilesFilters searchParams={profilesSearchParamsSchema.safeParse(params).data ?? { page: 1, pageSize: 50 }} />
 
-            {/* Tabs with data tables inside Suspense */}
-            <Tabs defaultValue="active" className="w-full">
-              <TabsList>
-                <TabsTrigger value="active">Active</TabsTrigger>
-                <TabsTrigger value="inactive">Inactive</TabsTrigger>
-                <TabsTrigger value="exited">Exited</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="active" className="space-y-4">
-                <Suspense
-                  fallback={<TableSkeleton rows={10} columns={10} />}
-                >
-                  <ProfilesContent searchParams={params} statusFilter="active" />
-                </Suspense>
-              </TabsContent>
-
-              <TabsContent value="inactive" className="space-y-4">
-                <Suspense
-                  fallback={<TableSkeleton rows={10} columns={10} />}
-                >
-                  <ProfilesContent searchParams={params} statusFilter="inactive" />
-                </Suspense>
-              </TabsContent>
-
-              <TabsContent value="exited" className="space-y-4">
-                <Suspense
-                  fallback={<TableSkeleton rows={10} columns={10} />}
-                >
-                  <ProfilesContent searchParams={params} statusFilter="exited" />
-                </Suspense>
-              </TabsContent>
-            </Tabs>
+            {/*
+              Only the selected tab is fetched. Rendering all three here made
+              React await three <ProfilesContent> server components per page
+              load — three learners_profiles reads plus their unbounded exact
+              -count scans, all concurrent under RLS, against an 8s
+              statement_timeout. See profiles-status-tabs.tsx.
+            */}
+            <ProfilesStatusTabs value={activeTab}>
+              <Suspense
+                key={activeTab}
+                fallback={<TableSkeleton rows={10} columns={10} />}
+              >
+                <ProfilesContent searchParams={params} statusFilter={activeTab} />
+              </Suspense>
+            </ProfilesStatusTabs>
           </div>
         )}
       </div>
