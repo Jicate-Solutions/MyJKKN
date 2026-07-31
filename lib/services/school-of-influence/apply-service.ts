@@ -40,6 +40,20 @@
 // resolves to the programme-wide cohort default seeded by S1 (precedence 5 in
 // 20260731180000_platform_policies_cohort_scope.sql). Per-batch keys are read
 // with that batch's cohorts.id, so a per-batch row shadows the default.
+//
+// ── NO INSTITUTION GATE, ON PURPOSE ──────────────────────────────────────────
+// Eligibility is audience-only (D4: JKKN learners and team members, no external
+// applicants). A learner or team member of ANY JKKN institution may apply to a
+// programme hosted by another, and the application records the APPLICANT's
+// institution so the reviewer can see where they came from.
+// That is deliberate, not an oversight: all JKKN colleges are one walkable
+// campus, institutions are an organisational grouping rather than a boundary,
+// and none of the 14 locked decisions asks for a same-institution restriction.
+// Adding one unasked would silently refuse cross-college applicants — the
+// opposite of what a campus-wide influence programme is for.
+// If the Director does want it scoped, the change is one comparison here
+// (events.institution_id vs the applicant's) plus a refusal code; it should be
+// a decision, not a default.
 
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
@@ -508,13 +522,24 @@ export async function buildSoiApplyContext(
 
   const existingApplication = await findLiveApplication(eventId, applicant.profileId);
   if (existingApplication) {
+    // Only claim a review is under way when the record actually says so. S5 owns
+    // the status vocabulary from here, and asserting "a coordinator is reviewing
+    // your application" over a decided one would be a comforting sentence that
+    // is simply untrue.
+    const stillUnderReview = ['pending', 'waitlisted'].includes(
+      String(existingApplication.status)
+    );
     return refuseWithBatches(
       {
         code: 'already_applied',
         status: 409,
-        message:
-          'You have already applied to this programme. A coordinator is reviewing your ' +
-          'application — you will be told the outcome, and you do not need to apply again.',
+        message: stillUnderReview
+          ? 'You have already applied to this programme. A coordinator is reviewing ' +
+            'your application — you will be told the outcome, and you do not need to ' +
+            'apply again.'
+          : 'You have already applied to this programme and your application has been ' +
+            'dealt with, so it cannot be submitted again. Contact the programme ' +
+            'coordinator if you think it should be looked at afresh.',
       },
       { existingApplication }
     );
@@ -571,7 +596,19 @@ function formatDay(value: string): string {
     : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-/** A non-terminal membership in any batch of this programme (the D10 predicate). */
+/**
+ * A non-terminal membership in any batch of this programme (the D10 predicate).
+ *
+ * `member_ref` is matched against the PROFILE id, not a learner id, and that is
+ * load-bearing rather than incidental. Other cohort domains key a learner
+ * membership by learners_profiles.id, but S3 chose profiles.id for School of
+ * Influence deliberately: the spine accepts either, and allowing both would let
+ * one human hold two different member_ref values and therefore two seats in the
+ * same programme, defeating D10 (see SoiBatchService.addMember). Matching on a
+ * learner id here would silently fail to spot a learner who already has a
+ * place. Whoever implements S5 must write memberships with profiles.id for the
+ * same reason.
+ */
 async function findLiveMembership(
   profileId: string,
   batchRows: Cohort[]

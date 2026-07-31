@@ -53,6 +53,9 @@ interface Props {
   onApplied: () => void;
 }
 
+/** How long to wait for the submit before giving the applicant a way out. */
+const SUBMIT_TIMEOUT_MS = 20_000;
+
 const seatsLabel = (batch: SoiApplyBatchView) => {
   const free = Math.max(batch.capacity - batch.occupancy, 0);
   if (!batch.intakeOpen) return 'applications closed';
@@ -70,8 +73,21 @@ export function SoiApplyForm({ context, onApplied }: Props) {
   const [result, setResult] = useState<SoiApplyResult | null>(null);
 
   const mustChooseBatch = context.policy.batchChoiceMode === 'participant_choose';
+  /**
+   * Offer exactly what the server will accept, and nothing else.
+   *
+   * The window is non-negotiable: a batch outside its own intake dates is
+   * refused with `batch_not_open` no matter how full-behaviour is set, so a
+   * closed waitlist batch must NOT appear here. Fullness is negotiable — a full
+   * batch is still choosable when its rule is to hold people on a list.
+   * Listing anything else would let somebody fill the whole form in and only
+   * then be bounced.
+   */
   const choosableBatches = useMemo(
-    () => context.batches.filter((b) => b.acceptingNow || b.fullBehaviour === 'waitlist'),
+    () =>
+      context.batches.filter(
+        (b) => b.intakeOpen && (!b.isFull || b.fullBehaviour === 'waitlist')
+      ),
     [context.batches]
   );
 
@@ -82,10 +98,17 @@ export function SoiApplyForm({ context, onApplied }: Props) {
   const submit = async () => {
     setSubmitting(true);
     setError(null);
+    // Without this, a stalled connection leaves the promise unsettled: `finally`
+    // never runs, the button spins forever, and there is no way to retry. A
+    // spinner that never resolves is a silent failure wearing a progress
+    // indicator.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
     try {
       const response = await fetch('/api/school-of-influence/apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           eventId: context.eventId,
           answers,
@@ -101,9 +124,14 @@ export function SoiApplyForm({ context, onApplied }: Props) {
       }
       setResult(payload as SoiApplyResult);
       onApplied();
-    } catch {
-      setError('Your application could not be submitted. Check your connection and try again.');
+    } catch (err) {
+      setError(
+        (err as Error)?.name === 'AbortError'
+          ? 'Submitting took too long, so nothing was sent. Check your connection and try again.'
+          : 'Your application could not be submitted. Check your connection and try again.'
+      );
     } finally {
+      clearTimeout(timeout);
       setSubmitting(false);
     }
   };
