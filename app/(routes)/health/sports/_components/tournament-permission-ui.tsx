@@ -21,6 +21,8 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  Building2,
+  CircleDotDashed,
   MinusCircle,
   Plane,
   Users,
@@ -167,6 +169,10 @@ export function learnerName(
 export function OverallStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     approved: 'bg-green-100 text-green-700 border-green-200',
+    // D13 — its own colour, never green. Some colleges said yes and some said
+    // no; showing this as "Approved" is the over-report the state exists to
+    // prevent.
+    partially_approved: 'bg-orange-100 text-orange-700 border-orange-200',
     rejected: 'bg-red-100 text-red-700 border-red-200',
     completed: 'bg-blue-100 text-blue-700 border-blue-200',
     // D10 — never styled as approved or rejected. A called-off trip is its own
@@ -176,6 +182,7 @@ export function OverallStatusBadge({ status }: { status: string }) {
   };
   const label: Record<string, string> = {
     approved: 'Approved',
+    partially_approved: 'Some colleges approved',
     rejected: 'Rejected',
     completed: 'Completed',
     cancelled: 'Cancelled',
@@ -316,6 +323,10 @@ export function ApprovalPath({ perm }: { perm: TournamentPermissionRecord }) {
       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
         {steps.map((step) => {
           const notRequired = step.status === 'not_required';
+          // D13 — its own colour, never the green of 'approved' and never the
+          // amber of 'pending': the colleges have all answered, they simply did
+          // not agree.
+          const partial = step.status === 'partially_approved';
           return (
             <div
               key={step.label}
@@ -323,11 +334,13 @@ export function ApprovalPath({ perm }: { perm: TournamentPermissionRecord }) {
                 'rounded-lg border px-2 py-2 text-center',
                 notRequired
                   ? 'border-dashed border-slate-200 bg-slate-50'
-                  : step.status === 'approved'
-                    ? 'border-green-200 bg-green-50'
-                    : step.status === 'rejected'
-                      ? 'border-red-200 bg-red-50'
-                      : 'border-amber-200 bg-amber-50'
+                  : partial
+                    ? 'border-orange-200 bg-orange-50'
+                    : step.status === 'approved'
+                      ? 'border-green-200 bg-green-50'
+                      : step.status === 'rejected'
+                        ? 'border-red-200 bg-red-50'
+                        : 'border-amber-200 bg-amber-50'
               )}
             >
               <div className="mb-1 flex justify-center">
@@ -338,17 +351,19 @@ export function ApprovalPath({ perm }: { perm: TournamentPermissionRecord }) {
                   'text-xs font-medium leading-tight',
                   notRequired
                     ? 'text-slate-400 line-through'
-                    : step.status === 'approved'
-                      ? 'text-green-700'
-                      : step.status === 'rejected'
-                        ? 'text-red-600'
-                        : 'text-amber-700'
+                    : partial
+                      ? 'text-orange-700'
+                      : step.status === 'approved'
+                        ? 'text-green-700'
+                        : step.status === 'rejected'
+                          ? 'text-red-600'
+                          : 'text-amber-700'
                 )}
               >
                 {step.label}
               </p>
               <p className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400">
-                {notRequired ? 'Not required' : step.status}
+                {notRequired ? 'Not required' : partial ? 'Some approved' : step.status}
               </p>
             </div>
           );
@@ -363,6 +378,10 @@ function StepIcon({ status }: { status: TournamentStepStatus }) {
     return <MinusCircle className="h-4 w-4 text-slate-300" />;
   if (status === 'approved')
     return <CheckCircle2 className="h-4 w-4 text-green-600" />;
+  // D13 — a half-filled mark, not a tick. Some colleges' learners travel and
+  // some do not, and a tick here would say the whole squad was cleared.
+  if (status === 'partially_approved')
+    return <CircleDotDashed className="h-4 w-4 text-orange-500" />;
   if (status === 'rejected') return <XCircle className="h-4 w-4 text-red-500" />;
   return <Clock className="h-4 w-4 text-amber-500" />;
 }
@@ -470,6 +489,18 @@ export function RequestCard({
           </div>
           <OverallStatusBadge status={perm.overall_status} />
         </div>
+
+        {/* D14 — the OUTSIDE body that runs the event. An accreditation reviewer
+            asks exactly this, so it is shown as its own line rather than left
+            inside the justification prose. Absent means it is held at JKKN. */}
+        {perm.host_institution ? (
+          <div className="flex items-start gap-2 rounded-lg bg-violet-50 p-2.5">
+            <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />
+            <p className="text-xs text-violet-900">
+              Hosted by {perm.host_institution}
+            </p>
+          </div>
+        ) : null}
 
         {perm.travel_required ? (
           <div className="flex items-start gap-2 rounded-lg bg-sky-50 p-2.5">

@@ -33,8 +33,19 @@ const supabase = createClientSupabaseClient();
 // 'not_required' state and the squad-roster fields stay scoped to this flow.
 // ----------------------------------------------------------------------------
 
-/** Step status including the "nobody approves this step" state. */
-export type TournamentStepStatus = ApprovalStatus | 'not_required';
+/**
+ * Step status including the "nobody approves this step" state, and D13's
+ * "the colleges decided and disagreed" state.
+ *
+ * 'partially_approved' reaches the Principal step because the derived
+ * `step3_principal_status` mirror now carries the same verdict as
+ * `overall_status` — showing a partly-approved trip as plain 'approved' there
+ * would be exactly the over-report D13 exists to prevent.
+ */
+export type TournamentStepStatus =
+  | ApprovalStatus
+  | 'not_required'
+  | 'partially_approved';
 
 /** One college's decision on one request (D6). */
 export interface TournamentCollegeApproval {
@@ -128,8 +139,30 @@ export interface SquadRequestInput {
   end_date: string;
   travel_required: boolean;
   travel_details: string | null;
+  /** D14 — the OUTSIDE institution hosting the tournament. NULL = held at JKKN. */
+  host_institution: string | null;
   justification: string | null;
   members: TournamentSquadMember[];
+}
+
+/**
+ * Does this PostgREST failure mean the column simply does not exist yet?
+ *
+ * Migrations in this repo are Director-gated FILES that neither merge nor
+ * deploy applies, so a UI that writes a new column can ship days before the
+ * column is there. PostgREST answers such a write with PGRST204 ("Could not
+ * find the '<column>' column ... in the schema cache"). Callers use this to
+ * retry once WITHOUT the column, so the live form keeps working in the gap
+ * instead of breaking until someone applies the migration.
+ *
+ * Deliberately narrow — the PostgREST code AND the column name — so a real
+ * failure that merely mentions the column is never swallowed as "not migrated".
+ */
+export function isMissingColumnError(err: unknown, column: string): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; message?: unknown };
+  if (e.code !== 'PGRST204') return false;
+  return typeof e.message !== 'string' || e.message.includes(column);
 }
 
 /**
@@ -333,23 +366,38 @@ export class HealthSportsService {
     if (input.members.length === 0) {
       throw new Error('Select at least one participating learner before filing.');
     }
+    const payload = {
+      learner_id: input.members[0].learner_id,
+      filed_by_profile_id: filedByProfileId,
+      tournament_name: input.tournament_name,
+      tournament_level: input.tournament_level,
+      sport: input.sport,
+      start_date: input.start_date,
+      end_date: input.end_date,
+      travel_required: input.travel_required,
+      travel_details: input.travel_details,
+      justification: input.justification,
+      team_members: input.members,
+      overall_status: 'pending',
+      step3_principal_status: 'pending',
+    };
+
     const { data, error } = await (supabase as any)
-      .from('health_tournament_permissions').insert({
-        learner_id: input.members[0].learner_id,
-        filed_by_profile_id: filedByProfileId,
-        tournament_name: input.tournament_name,
-        tournament_level: input.tournament_level,
-        sport: input.sport,
-        start_date: input.start_date,
-        end_date: input.end_date,
-        travel_required: input.travel_required,
-        travel_details: input.travel_details,
-        justification: input.justification,
-        team_members: input.members,
-        overall_status: 'pending',
-        step3_principal_status: 'pending',
-      }).select(PERMISSION_SELECT).single();
-    if (error) throw error;
+      .from('health_tournament_permissions')
+      .insert({ ...payload, host_institution: input.host_institution })
+      .select(PERMISSION_SELECT).single();
+
+    if (error) {
+      // D14 deploy-order safety: the `host_institution` column ships in a
+      // Director-gated migration that merge and deploy do not apply. Losing the
+      // host is far better than losing the whole request, so file it without.
+      if (!isMissingColumnError(error, 'host_institution')) throw error;
+      const retry = await (supabase as any)
+        .from('health_tournament_permissions')
+        .insert(payload).select(PERMISSION_SELECT).single();
+      if (retry.error) throw retry.error;
+      return retry.data as TournamentPermissionRecord;
+    }
     return data as TournamentPermissionRecord;
   }
 
