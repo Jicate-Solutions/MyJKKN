@@ -119,8 +119,19 @@ export function StoreSwitcher() {
     // Only for till-only staff: a store admin switching stores is usually
     // comparing stock or receiving goods, and yanking them to the till would
     // interrupt exactly the work they switched to do.
-    if (isTillOnly && pathname !== '/ims/sales') {
+    // BOTH halves of the condition: a till person, AND a store that is a shop.
+    // The store they just picked is not necessarily the one the hook has resolved
+    // yet, so read the flag off the selection itself rather than from state that
+    // is still catching up.
+    const picked = stores.find((s) => s.id === selectedId);
+    const pickedIsCounter = picked ? picked.is_pos_store !== false : true;
+
+    if (isTillOnly && pickedIsCounter && pathname !== '/ims/sales') {
       router.push('/ims/sales');
+    } else if (isTillOnly && !pickedIsCounter && pathname === '/ims/sales') {
+      // They were at a till and switched to a store that has no counter. Leaving
+      // them on the POS would let them build a cart the checkout will refuse.
+      router.push('/ims/dashboard');
     }
   };
 

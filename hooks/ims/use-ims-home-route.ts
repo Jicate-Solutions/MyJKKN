@@ -20,18 +20,37 @@
 // list.
 
 import { usePermissions } from '@/hooks/use-permissions';
+import { useImsStoresForSelect } from '@/hooks/ims/use-ims-stores';
+import { useImsActiveStore } from '@/hooks/ims/use-ims-active-store';
+import { useStore } from '@/hooks/use-store';
 
 export interface ImsHomeRoute {
   /** Where to send this user when they open IMS. */
   route: string;
   /** True when selling is the only thing they can do in IMS. */
   isTillOnly: boolean;
-  /** False while permissions are still loading — do not redirect yet. */
+  /** True when the ACTIVE store actually has a selling counter. */
+  isPosStore: boolean;
+  /**
+   * The condition the user asked for: "POS + store". Both halves must hold —
+   * this person only works the till, AND the store they are in is a shop.
+   */
+  shouldOpenTill: boolean;
+  /** False while permissions or stores are still loading — do not redirect yet. */
   isReady: boolean;
 }
 
 export function useImsHomeRoute(): ImsHomeRoute {
   const { canAccess, isSuperAdmin, isLoading } = usePermissions();
+
+  const activeStoreId = useStore(useImsActiveStore, (s) => s.storeId);
+  const { data: stores, isLoading: storesLoading } = useImsStoresForSelect();
+
+  // Unknown store → assume it IS a counter. Every store was a counter before this
+  // flag existed, so guessing "not a shop" while the list loads would bounce a
+  // cashier to the inventory page for a frame and then correct itself.
+  const activeStore = stores?.find((s) => s.id === activeStoreId);
+  const isPosStore = activeStore ? activeStore.is_pos_store !== false : true;
 
   const canSell = isSuperAdmin || canAccess('ims.sales', 'create');
 
@@ -51,12 +70,19 @@ export function useImsHomeRoute(): ImsHomeRoute {
 
   const isTillOnly = !isLoading && canSell && !canRunStore;
 
+  // BOTH halves, which is the point. A cashier who switches to the lab store is
+  // not at a counter, so sending them to a till there would offer to sell from a
+  // place that has nothing to sell — and the checkout would refuse anyway.
+  const shouldOpenTill = isTillOnly && isPosStore;
+
   return {
-    route: isTillOnly ? '/ims/sales' : '/ims/dashboard',
+    route: shouldOpenTill ? '/ims/sales' : '/ims/dashboard',
     isTillOnly,
+    isPosStore,
+    shouldOpenTill,
     // canAccess returns false for EVERYTHING while permissions load, which would
     // read as "cannot run the store" and bounce an admin to the till for a frame.
     // Nothing may redirect until this is true.
-    isReady: !isLoading,
+    isReady: !isLoading && !storesLoading,
   };
 }
