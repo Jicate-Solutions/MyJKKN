@@ -155,6 +155,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Foundation & Competitive-Exam Programme
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
+  // The learner surface. Most-specific match wins, so this reads
+  // foundation.practice.take rather than inheriting the operator key on
+  // '/foundation' — somebody sitting the programme has no reason to hold
+  // foundation.dashboard.view.
+  '/foundation/practice': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -1705,6 +1710,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           href: '/foundation',
           label: 'Foundation Programme',
           active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
+          icon: Target,
+          submenus: []
+        },
+        {
+          // The learner's own door into the same programme. Separate entry
+          // rather than a submenu because the audience is disjoint: whoever
+          // sits the programme holds foundation.practice.take and none of the
+          // operator keys, so '/foundation' above never renders for them.
+          href: '/foundation/practice',
+          label: 'Foundation Practice',
+          active: pathname.startsWith('/foundation/practice'),
           icon: Target,
           submenus: []
         },
