@@ -130,6 +130,16 @@ COMMENT ON FUNCTION public.fn_get_policy(text, uuid) IS
 -- ACL; these statements make it explicit and auditable rather than implicit.
 REVOKE EXECUTE ON FUNCTION public.fn_get_policy(text, uuid) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_get_policy(text, uuid) TO authenticated, service_role;
--- ci:intentional-public — pre-existing anon reach, see header. Removing this is a
--- separate security decision, not a side effect of adding cohort scope.
-GRANT  EXECUTE ON FUNCTION public.fn_get_policy(text, uuid) TO anon;
+-- CORRECTED 2026-07-31. This line previously read
+--     GRANT EXECUTE ON FUNCTION public.fn_get_policy(text, uuid) TO anon;
+-- and it re-opened a live credential leak. The header above justifies it on the
+-- grounds that an unauthenticated route calls this function directly; that is
+-- false — app/api/webhooks/meta/instagram-messaging/route.ts uses
+-- createServiceRoleClient(), which bypasses grants, as does the leadgen route.
+-- Those are the only two callers. With anon EXECUTE, fn_get_policy returned the
+-- Meta webhook verify tokens in full to anyone holding the public anon key
+-- (measured live 2026-07-30 and again 2026-07-31 after this migration merged).
+-- The grant is replaced by the revoke it should always have been, so that
+-- re-applying this file is genuinely idempotent instead of quietly reopening the
+-- hole. See migration 20260731200000 for the full account.
+REVOKE EXECUTE ON FUNCTION public.fn_get_policy(text, uuid) FROM anon;
