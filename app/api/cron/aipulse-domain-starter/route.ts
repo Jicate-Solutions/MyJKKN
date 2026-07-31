@@ -22,8 +22,22 @@
 //
 // CAP + CARRY-OVER (decision #5): ~121 candidates against CAP=60 means a run
 // cannot serve them all. The RPC excludes topics already holding a starter for
-// this cycle, so each run continues where the last stopped, and `remaining` in
-// the response says how many are still waiting. Never truncate in silence.
+// this cycle, so each run continues where the last stopped. CAP bounds
+// OUTSTANDING work (enqueued + in-flight), never round-trips, because a single
+// Windows seat drains this lane and fn_ai_claim has no job_type filter.
+// `remaining` = topics that STILL hold no prompt; `not_yet_queued` = the ones no
+// run has reached yet. Never truncate in silence.
+//
+// TELEMETRY: `sweep` separates the two zero-candidate cases that used to emit
+// identical JSON — 'complete' (every topic authored) vs 'source_empty' (the
+// source is dead, which is what produced 0 starters on 8 of 10 cycles).
+//
+// ⚠️ CADENCE DEPENDS ON THE MIGRATION. vercel.json runs this Sat/Sun/Mon/Tue
+// 09:08 UTC. Until 20260805150000 is applied, the live attendance-based RPC
+// yields nothing at 09:08 on ANY weekday — measured across all 10 cycles, zero
+// check-ins have ever existed before 09:08 UTC (first is always ~13:10). The
+// four runs are therefore harmless no-ops, but generation only starts working
+// once the migration lands. Applying it is Director-gated.
 //
 // FLOW (one route, re-entrant, idempotent — mirrors scf-generate-suggestions):
 //   COLLECT first: drain done ai_jobs, parse the pack, record via
@@ -120,11 +134,34 @@ function copiesWord(n: unknown): string {
   return 'many';
 }
 
-function liftWord(n: unknown): string {
-  if (n === null || n === undefined) return 'was not measured';
+/** The engagement clause — emitted ONLY when a real lift number arrived.
+ *  dept_outcome_lift is NULL on every starter ever recorded (56/56 measured on
+ *  prod 2026-07-31): fn_ai_pulse_measure_domain_starters can only reach a topic
+ *  via ai_pulse_live_attendance -> fn_ai_pulse_learner_topics, so a topic is
+ *  measurable only if its learners checked in, and a topic_type='general' row
+ *  is unmeasurable by construction (that resolver returns 'course'/'programme'
+ *  only). Saying "engagement was not measured" every single cycle told the model
+ *  its prompt had failed when the loop had simply never looked. Silence is the
+ *  honest signal for an absent measurement. */
+function liftClause(n: unknown): string {
+  if (n === null || n === undefined) return '';
   const l = Number(n);
-  if (!Number.isFinite(l)) return 'was not measured';
-  return l > 0.02 ? 'rose' : l < -0.02 ? 'dropped' : 'was about the same';
+  if (!Number.isFinite(l)) return '';
+  const word = l > 0.02 ? 'rose' : l < -0.02 ? 'dropped' : 'was about the same';
+  return `, and their engagement ${word}`;
+}
+
+/** The prior-cycle usage sentence, or '' when the loop genuinely has no signal.
+ *  views/copies ARE real: fn_ai_pulse_domain_starter_used live-increments both
+ *  on every learner view/copy. So views > 0 is genuine exposure and a copies
+ *  count is then honest and actionable ("96 saw it, none copied it" is a real
+ *  verdict on the prompt). views = 0 means nobody ever SAW it — reporting
+ *  "almost no learners copied it" there describes an absence of exposure, not a
+ *  weak prompt. Measured on prod 2026-07-31: 23 of 56 starters have views=0. */
+function priorSignalSentence(prior: Record<string, unknown> | null): string {
+  const views = Number(prior?.prior_views);
+  if (!Number.isFinite(views) || views <= 0) return '';
+  return `It was shown to ${views} learners, and ${copiesWord(prior?.prior_copies)} learners copied it${liftClause(prior?.prior_lift)}. `;
 }
 
 /** Assemble the full prompt string the ₹0 drain feeds the model (system + user).
@@ -148,17 +185,21 @@ function buildPrompt(topicLabel: string, prior: Record<string, unknown> | null):
     // back toward that better version instead of continuing from the worse one.
     // reverted is only ever set when the domain_starter_autorevert_enabled switch
     // is on; otherwise this branch is never taken and the wording is unchanged.
+    // The usage sentence is omitted entirely when the loop has no signal, so an
+    // unmeasured prompt reads as "no signal yet" instead of "nobody used it".
+    const signal = priorSignalSentence(prior);
+    const noSignal = 'There is no usage signal for it yet. ';
     if (prior?.reverted === true) {
       improveBlock =
         `\n\nYour MOST RECENT version of this subject's prompts was copied by FEWER learners than an earlier version. ` +
         `Here is that earlier, better-performing "build" prompt: "${priorPrompt}". ` +
-        `It was copied by ${copiesWord(prior?.prior_copies)} learners, and their engagement ${liftWord(prior?.prior_lift)}. ` +
+        `${signal}` +
         `Go BACK toward this earlier version and improve from HERE — do NOT continue from your last attempt. ` +
         `Make it sharper, simpler, and more hands-on so more learners actually use it, and do NOT repeat the same build idea.`;
     } else {
       improveBlock =
         `\n\nLAST CYCLE you wrote this "build" prompt for this subject: "${priorPrompt}". ` +
-        `It was copied by ${copiesWord(prior?.prior_copies)} learners, and their engagement ${liftWord(prior?.prior_lift)}. ` +
+        `${signal || noSignal}` +
         `Make this cycle's prompts sharper, simpler, and more hands-on so more learners actually use them — and do NOT repeat the same build idea.`;
     }
   }
@@ -236,12 +277,27 @@ export async function GET(request: NextRequest) {
   let recorded = 0;
   let enqueued = 0;
   let skipped = 0;
-  // Carry-over reporting (decision #5): how many candidate topics this run
-  // could NOT reach because of CAP. A bounded sweep must never look like a
+  // Carry-over reporting (decision #5). A bounded sweep must never look like a
   // complete one — before this, the cap truncated in silence.
+  //   candidatesTotal — topics holding NO prompt for this cycle, at query time.
+  //   remaining       — topics that STILL hold no prompt after this run. Enqueuing
+  //                     does not author anything (the lane is async), so this is
+  //                     exactly candidatesTotal. Reporting `candidatesTotal
+  //                     - enqueued` here used to claim a 121-topic cycle was ~50%
+  //                     done while 0 topics actually held a prompt.
+  //   notYetQueued    — of those, the ones no run has even queued yet (the true
+  //                     CAP-truncation signal that `remaining` must not absorb).
   let candidatesTotal = 0;
   let remaining = 0;
   let inFlight = 0;
+  let notYetQueued = 0;
+  // Health of the candidate SOURCE itself. Zero candidates is ambiguous on its
+  // own — it is the healthy end-state of a finished sweep AND the signature of
+  // the dead-source defect that produced 0 starters on 8 of 10 cycles for two
+  // months. They are separated by whether the cycle holds any starter at all.
+  let sweep: 'in_progress' | 'complete' | 'source_empty' | 'error' = 'in_progress';
+  let alert: string | null = null;
+  let candidateError: string | null = null;
 
   // ── COLLECT: drain done jobs, record their packs. ──────────────────────────
   try {
@@ -287,6 +343,10 @@ export async function GET(request: NextRequest) {
       p_min_learners: minLearners,
     });
     if (candErr) {
+      // An errored source must not be reported as a quiet, healthy zero.
+      sweep = 'error';
+      candidateError = candErr.message;
+      alert = 'candidate source errored — no topics could be read this run';
       console.error('[cron/aipulse-domain-starter] candidates failed:', candErr.message);
     } else {
       // The RPC already excludes topics that hold a starter for this cycle and
@@ -294,15 +354,28 @@ export async function GET(request: NextRequest) {
       // head of the next run's list — carry-over needs no state kept here.
       const all = (candidates as CandidateRow[] | null) ?? [];
       candidatesTotal = all.length;
-      // Stop at CAP SUCCESSFUL enqueues, not at CAP rows. A topic whose job is
-      // still queued/claimed/running holds no starter yet, so it comes back as
-      // a candidate and the lane's dedupe answers 'in_flight'. Counting those
-      // against CAP would pin every run to the same unfinished head, and a lane
-      // that merely lags would look like a loop making zero progress. Walking
-      // past them lets each run find work the lane has not seen.
+      // CAP bounds OUTSTANDING work, not round-trips: a topic already queued/
+      // claimed/running is unfinished work this run must count, so the bound is
+      // `enqueued + inFlight`. Capping successful enqueues alone let run 1 queue
+      // 60, run 2 walk past those 60 and queue 60 more — up to ~121 concurrent
+      // jobs against ONE Windows drain seat, and fn_ai_claim has no job_type
+      // filter (lane is the only isolation), so that backlog queues ahead of
+      // every other Max-lane consumer (PDE, SCF, RCLTP).
+      //
+      // This does NOT reintroduce the stall that `slice(0, CAP)` caused: that
+      // truncated the LIST at 60 rows and so never looked past an unfinished
+      // head. Here the full ordered list is walked and only outstanding work is
+      // bounded, so each run enqueues exactly as many topics as the lane drained
+      // since the last run — backpressure, not a stall.
       for (const row of all) {
-        if (enqueued >= CAP) break;
-        const control = isControlTopic(row.topic_id, cycleId);
+        if (enqueued + inFlight >= CAP) break;
+        // The general fallback is never part of the experiment: it is shown to a
+        // different (and much smaller) audience than its learner_count implies,
+        // so it cannot be compared with programme rows. Marking it control would
+        // only cost it its improvement hint. fn_ai_pulse_control_vs_tuned also
+        // excludes it by topic_type — that exclusion is the guarantee, this is
+        // just not pretending it was ever enrolled.
+        const control = row.topic_type !== 'general' && isControlTopic(row.topic_id, cycleId);
         const ctx: StarterContext = {
           cycle_id: cycleId,
           topic_type: row.topic_type,
@@ -332,18 +405,49 @@ export async function GET(request: NextRequest) {
           }
         }
       }
-      // Decision #5: say how many topics still have no prompt for this cycle —
-      // the ones this run could not reach AND the ones the lane is still
-      // working on. A bounded sweep must never read as a complete one.
-      remaining = candidatesTotal - enqueued;
-      if (remaining > 0) {
+      // Decision #5: `remaining` is how many topics still hold NO prompt for
+      // this cycle. Enqueuing authors nothing (generation is async on the Max
+      // lane), so every candidate is still promptless when this run returns.
+      remaining = candidatesTotal;
+      notYetQueued = Math.max(0, candidatesTotal - enqueued - inFlight);
+
+      if (candidatesTotal === 0) {
+        // Ambiguous zero, disambiguated: a finished sweep leaves starters behind,
+        // a dead source leaves none. THIS is the failure the telemetry exists to
+        // catch — it produced byte-identical {candidates_total:0, enqueued:0}
+        // output on 8 of 10 cycles and nobody could see it.
+        const { count, error: countErr } = await admin
+          .from('ai_pulse_domain_starters')
+          .select('id', { count: 'exact', head: true })
+          .eq('cycle_id', cycleId)
+          .not('final_prompt', 'is', null);
+        if (countErr) {
+          sweep = 'error';
+          candidateError = countErr.message;
+          alert = 'candidate source returned nothing and the starter count could not be read';
+          console.error(`[cron/aipulse-domain-starter] ${alert}: ${countErr.message}`);
+        } else if ((count ?? 0) > 0) {
+          sweep = 'complete';
+          console.log(
+            `[cron/aipulse-domain-starter] sweep complete for cycle ${cycleId}: all topics hold a prompt (${count} starter(s)).`,
+          );
+        } else {
+          sweep = 'source_empty';
+          alert =
+            'candidate source returned NOTHING and this cycle has no starters — generation is dead, not finished';
+          console.warn(`[cron/aipulse-domain-starter] ${alert} (cycle ${cycleId}).`);
+        }
+      } else {
         console.warn(
-          `[cron/aipulse-domain-starter] ${remaining} of ${candidatesTotal} topic(s) still without a prompt this cycle ` +
-            `(enqueued ${enqueued}/${CAP} this run, ${inFlight} already in flight) — they lead the next run.`,
+          `[cron/aipulse-domain-starter] ${remaining} topic(s) still without a prompt this cycle ` +
+            `(enqueued ${enqueued} this run, ${inFlight} already in flight, ${notYetQueued} not yet queued; cap ${CAP} on outstanding work).`,
         );
       }
     }
   } catch (e) {
+    sweep = 'error';
+    candidateError = e instanceof Error ? e.message : String(e);
+    alert = 'submit phase threw — no topics were enqueued this run';
     console.error('[cron/aipulse-domain-starter] submit failed:', e);
   }
 
@@ -358,7 +462,14 @@ export async function GET(request: NextRequest) {
     cap: CAP,
     candidates_total: candidatesTotal,
     in_flight: inFlight,
+    // Topics still holding no prompt for this cycle (see the counter block above).
     remaining,
+    not_yet_queued: notYetQueued,
+    // A healthy run and a dead run are never byte-identical: 'complete' means
+    // every topic holds a prompt, 'source_empty' means the source is dead.
+    sweep,
+    alert,
+    candidate_error: candidateError,
     elapsed_ms: Date.now() - started,
   });
 }

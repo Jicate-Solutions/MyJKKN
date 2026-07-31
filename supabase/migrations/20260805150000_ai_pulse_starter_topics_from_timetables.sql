@@ -352,3 +352,82 @@ GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_my_domain_starters(uuid) TO servic
 
 COMMENT ON FUNCTION public.fn_ai_pulse_my_domain_starters(uuid) IS
   'AI Pulse learner read: this cycle''s starter pack for the learner''s own course/programme, falling back to the cycle general prompt when their subject has none (Director decision #6, 2026-07-30).';
+
+-- ---------------------------------------------------------------------
+-- 4. Keep the new 'general' row OUT of the loop's own A/B verdict, and stop
+--    dropping zero-enrolment programmes in silence.
+--    Replaced from the LIVE definition (pg_get_functiondef md5
+--    ab46816e438ce5fd6e170d83eab7518b); the cycle resolution, the unweighted
+--    avg, the is_control split and the rounding are all preserved exactly.
+--
+--    WHY: fn_ai_pulse_control_vs_tuned averages copies/learner_count UNWEIGHTED
+--    over rows WHERE learner_count > 0, split by is_control. The general row
+--    carries learner_count = every active learner (4,342 on prod) but
+--    fn_ai_pulse_my_domain_starters shows it ONLY to learners whose own
+--    programme has no starter — so its denominator overstates its real audience
+--    60-100x and it is guaranteed to be a near-zero copy-rate outlier. In an
+--    unweighted mean one such row moves the whole cohort average, and
+--    isControlTopic() is a hash of (topic_id | cycle_id), so roughly one cycle
+--    in ten it lands in the CONTROL arm and deflates the control average —
+--    INFLATING the reported tuning lift. Excluding it by topic_type is the
+--    explicit fix; relying on the denominator accident is not a fix.
+--    (The route also no longer marks a general row is_control at all, so the
+--    fallback keeps its improvement hint. This exclusion is the guarantee.)
+--
+--    AND: `learner_count > 0` silently dropped the 44 active programmes with no
+--    enrolled learners — the same invisible-exclusion class this migration
+--    exists to end. They still cannot be averaged (copy_rate divides by
+--    learner_count), but the count is now RETURNED instead of vanishing.
+--
+--    DROP + CREATE, not CREATE OR REPLACE: the RETURNS TABLE shape gains two
+--    columns. Verified on prod before writing — no view and no other function
+--    references this function, and the repo's only mentions are a comment in
+--    the cron route and its own origin migration, so nothing breaks. Live ACL
+--    {postgres, authenticated, service_role} is re-asserted below.
+-- ---------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.fn_ai_pulse_control_vs_tuned(uuid);
+
+CREATE OR REPLACE FUNCTION public.fn_ai_pulse_control_vs_tuned(p_cycle_id uuid DEFAULT NULL::uuid)
+RETURNS TABLE(cycle_id uuid, tuned_n integer, tuned_avg_copy_rate numeric,
+              control_n integer, control_avg_copy_rate numeric, tuning_lift numeric,
+              excluded_general integer, excluded_no_learners integer)
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  WITH c AS (
+    SELECT COALESCE(p_cycle_id,
+      (SELECT d.cycle_id FROM ai_pulse_domain_starters d ORDER BY d.created_at DESC LIMIT 1)) AS cid
+  ),
+  scope AS (
+    -- every starter in the cycle, before any exclusion — so the exclusions can
+    -- be counted instead of disappearing.
+    SELECT d.is_control, d.topic_type, d.learner_count,
+           d.copies::numeric / NULLIF(d.learner_count, 0) AS copy_rate
+    FROM ai_pulse_domain_starters d, c
+    WHERE d.cycle_id = c.cid
+  ),
+  base AS (
+    SELECT s.is_control, s.copy_rate FROM scope s
+    WHERE s.topic_type <> 'general'   -- the fallback row is not in the experiment
+      AND s.learner_count > 0
+  )
+  SELECT (SELECT cid FROM c),
+    count(*) FILTER (WHERE NOT is_control)::int,
+    round(avg(copy_rate) FILTER (WHERE NOT is_control), 4),
+    count(*) FILTER (WHERE is_control)::int,
+    round(avg(copy_rate) FILTER (WHERE is_control), 4),
+    round(COALESCE(avg(copy_rate) FILTER (WHERE NOT is_control),0)
+        - COALESCE(avg(copy_rate) FILTER (WHERE is_control),0), 4),
+    (SELECT count(*) FROM scope s WHERE s.topic_type = 'general')::int,
+    (SELECT count(*) FROM scope s WHERE s.topic_type <> 'general'
+                                    AND COALESCE(s.learner_count, 0) = 0)::int
+  FROM base;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_ai_pulse_control_vs_tuned(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_control_vs_tuned(uuid) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_ai_pulse_control_vs_tuned(uuid) TO service_role;
+
+COMMENT ON FUNCTION public.fn_ai_pulse_control_vs_tuned(uuid) IS
+  'AI Pulse starter A/B: tuned-vs-control avg copy rate for a cycle. Excludes the topic_type=''general'' fallback (its learner_count is every active learner, so it would be a guaranteed near-zero outlier able to inflate the reported lift) and RETURNS the count of rows excluded for zero enrolment rather than dropping them silently.';
