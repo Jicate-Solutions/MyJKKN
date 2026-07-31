@@ -27,6 +27,7 @@ import { Plus, X } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { PersonPicker } from './person-picker';
+import { displayHolder, isUnfilledHolder } from './holder-display';
 
 type ArtifactType = 'organogram' | 'sop' | 'workflow' | 'policy';
 /** Content key holding the picked person's team member id, alongside `holder`. */
@@ -34,8 +35,6 @@ const HOLDER_ID_KEY = 'holder_staff_id';
 /** Assigning a role holder is an officer action; so is signing off a policy. */
 const ASSIGN_PERMISSION = 'improvement.area_role.assign';
 const POLICY_PERMISSION = 'improvement.area_policy.approve';
-/** Placeholder text the AI emits for a role nobody has been named for yet. */
-const UNFILLED_HOLDER = /^\s*\[[^\]]*\]\s*$/;
 interface Assignment {
   role_type: string;
   staff_id: string | null;
@@ -104,18 +103,6 @@ function errMsg(e: unknown): string {
 /** Role titles are edited free-hand — match them the way the database does. */
 function normTitle(v: unknown): string {
   return str(v).trim().toLowerCase();
-}
-/**
- * The AI fills every unnamed role with a bracketed placeholder ("[Manager to
- * complete]"). Rendered as-is it reads like a person's name, so an unfilled role
- * looks assigned. Anything bracketed, or empty, is nobody.
- */
-function isUnfilledHolder(v: unknown): boolean {
-  const s = str(v).trim();
-  return s === '' || UNFILLED_HOLDER.test(s);
-}
-function displayHolder(v: unknown): string {
-  return isUnfilledHolder(v) ? 'Not assigned yet' : str(v).trim();
 }
 
 export function EditArtifactDialog({

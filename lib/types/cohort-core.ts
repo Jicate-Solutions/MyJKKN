@@ -11,8 +11,17 @@
 
 // ── Union types (mirror the CHECK constraints in the migration) ───────────────
 
-/** cohorts.kind — which domain registered this container. */
-export type CohortKind = 'sf100' | 'foundations' | 'cdc' | 'trainer';
+/**
+ * cohorts.kind — which domain registered this container.
+ * 'school_of_influence' added 2026-07-30 (a batch IS a cohort; spec §7 S3,
+ * migration 20260808130000_soi_batches_on_cohort_spine.sql widens the DB CHECK).
+ */
+export type CohortKind =
+  | 'sf100'
+  | 'foundations'
+  | 'cdc'
+  | 'trainer'
+  | 'school_of_influence';
 
 /** cohorts.status lifecycle: draft → enrolling → active → completed → archived */
 export type CohortStatus =
