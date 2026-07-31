@@ -2012,7 +2012,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
       { key: 'health.programs.view', label: 'View Wellness Programs' },
-      { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
+      { key: 'health.programs.manage', label: 'Manage Wellness Programs' },
+      // Added 2026-07-30 — tournament permission approver inbox. Gates
+      // /health/sports/approvals AND the health_tournament_permissions RLS
+      // policy, so the same key decides the page and the rows: granting it in
+      // Role Management is the whole switch. Director-locked path is two
+      // parties — the Physical Director files for the squad, the Principal
+      // decides — so this belongs to the Principal and NOT to the role that
+      // files, which would let one person approve their own request.
+      { key: 'health.sports.approve', label: 'Approve Tournament Permission Requests' },
+      // The other half of the two-party path. Grants FILING one request for a
+      // whole squad (and reading back only what you filed) — deliberately a
+      // different key from .approve so no single holder can do both.
+      { key: 'health.sports.file_request', label: 'File Tournament Permission for a Squad' }
     ]
   },
   // Added 2026-06-22 — Sports Tournament Conducting (PR1). A tournament is an

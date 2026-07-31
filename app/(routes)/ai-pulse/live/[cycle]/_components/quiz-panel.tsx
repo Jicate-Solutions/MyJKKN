@@ -70,10 +70,13 @@ export function QuizPanel({
   const [shownScore, setShownScore] = useState<number | null>(
     existingScore ?? null,
   );
-  // Pass thresholds come from the authored quiz (config.quiz). Defaults match
-  // the platform policy seeds: live 40, async make-up 60.
+  // Pass thresholds come from the authored quiz (config.quiz). These literals
+  // mirror DEFAULT_QUIZ in quiz-service.ts — live 50 (raised from 40 on
+  // 2026-07-30, decision #10), async make-up 60. They are a read-side fallback
+  // only: an authored quiz always supplies its own stored values below, so
+  // changing them cannot re-score any cycle that has a quiz on file.
   const [thresholds, setThresholds] = useState<{ live: number; async: number }>({
-    live: 40,
+    live: 50,
     async: 60,
   });
 
@@ -93,7 +96,7 @@ export function QuizPanel({
         const ctx = await QuizService.getQuiz(cycleId);
         if (cancelled) return;
         setThresholds({
-          live: ctx?.quiz.pass_threshold_live ?? 40,
+          live: ctx?.quiz.pass_threshold_live ?? 50,
           async: ctx?.quiz.pass_threshold_async ?? 60,
         });
         const mapped: QuizQuestion[] = (ctx?.quiz.questions ?? [])
