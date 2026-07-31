@@ -34,6 +34,8 @@ import { useImsStoresForSelect } from '@/hooks/ims/use-ims-stores';
 import { useImsCartStore } from '@/lib/stores/ims-cart-store';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useStore } from '@/hooks/use-store';
+import { useImsHomeRoute } from '@/hooks/ims/use-ims-home-route';
+import { useRouter, usePathname } from 'next/navigation';
 
 export function StoreSwitcher() {
   const [open, setOpen] = useState(false);
@@ -44,6 +46,9 @@ export function StoreSwitcher() {
   } | null>(null);
   const queryClient = useQueryClient();
   const { isSuperAdmin, userProfile, isLoading: isPermissionsLoading } = usePermissions();
+  const { isTillOnly } = useImsHomeRoute();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const storeId = useStore(useImsActiveStore, (s) => s.storeId);
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
@@ -105,6 +110,18 @@ export function StoreSwitcher() {
         return typeof key === 'string' && key.startsWith('ims-');
       },
     });
+
+    // Someone whose only job is the counter has picked a counter — take them to
+    // it. Without this the switch changes which store the page is showing but
+    // leaves them wherever they were (typically the item list), which reads as
+    // "I clicked my store and got the inventory".
+    //
+    // Only for till-only staff: a store admin switching stores is usually
+    // comparing stock or receiving goods, and yanking them to the till would
+    // interrupt exactly the work they switched to do.
+    if (isTillOnly && pathname !== '/ims/sales') {
+      router.push('/ims/sales');
+    }
   };
 
   const handleStoreSelect = (selectedId: string) => {
