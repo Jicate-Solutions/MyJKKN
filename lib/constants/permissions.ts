@@ -1041,6 +1041,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'startup_studio.foundations.manage', label: 'Foundations — Manage cohorts, worksheets & enrolment' },
       { key: 'startup_studio.foundations.review', label: 'Foundations — Review submissions (mentor feedback)' },
 
+      // -----------------------------------------------------------------
+      // School of Influence — programme settings (S2)
+      // Spec: specs/school-of-influence-batches-2026-07-30.md §7
+      // Gates /startup-studio/school-of-influence/admin/settings, which edits
+      // the soi.* rows in platform_policies (who may apply, batch size, what
+      // happens when a batch is full, the inactivity thresholds). Registered
+      // here so Role Management can grant it — the same key is used by the
+      // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
+      // disagree. Super admins bypass both.
+      // -----------------------------------------------------------------
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
       { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
