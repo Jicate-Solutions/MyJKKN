@@ -291,6 +291,16 @@ interface EnquiryFormProps {
    * not a decision being made now.
    */
   enforceAdmissionRules?: boolean;
+  /**
+   * Show the final submit button on every step instead of only the last one,
+   * so a step form can be finalised from wherever the user happens to be.
+   * "Save & Next" keeps advancing step by step; the submit button validates
+   * every tab, saves, and hands off to onSuccess (which redirects).
+   *
+   * Learner Profiles edit passes true: an officer correcting one field on the
+   * first tab should not have to walk through four more tabs to commit it.
+   */
+  allowSubmitFromAnyTab?: boolean;
 }
 
   const ALL_TABS = [
@@ -662,7 +672,8 @@ export function EnquiryForm({
   submitLabel,
   hideDraft = false,
   isStudentView = false,
-  enforceAdmissionRules = true
+  enforceAdmissionRules = true,
+  allowSubmitFromAnyTab = false
 }: EnquiryFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1314,9 +1325,16 @@ export function EnquiryForm({
             }))
         : [],
 
-      // System fields - Preserve existing values when editing, default to 'enquiry' when creating
+      // System fields. On CREATE, seed the entry-point status.
       // 2026-05-20: Updated default from 'admitted' (old entry-point) to 'enquiry'.
-      lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
+      // On EDIT, never resend it: this function builds a FULL-ROW payload, so
+      // shipping lifecycle_status made every routine field edit rewrite the
+      // learner's status, and `|| 'enquiry'` would silently demote any learner
+      // whose status failed to load. Status transitions belong to the explicit
+      // status actions (row-actions / enquiry-status-update), not to a field
+      // edit. Auto-activation is unaffected — the service reads the status back
+      // off the updated row, not off this DTO.
+      ...(learner ? {} : { lifecycle_status: 'enquiry' as const }),
       is_profile_complete: learner?.is_profile_complete ?? false,
     };
   };
@@ -1602,7 +1620,7 @@ export function EnquiryForm({
               toast.error('Profile saved, but fee structure could not be applied.');
             }
           }
-        } else if (isLegacy && isAdmitted) {
+        } else if (isLegacy && isAtEntry) {
           // Saved but still incomplete — explicit "we know, here's why" toast
           toast(
             `Profile saved. Fee structure will be applied once the following ${missingFeeDims.length === 1 ? 'field is' : 'fields are'} filled.`,
@@ -2208,9 +2226,24 @@ export function EnquiryForm({
               </Button>
             )}
 
-            {/* Submit Button - Show only on last tab */}
-            {isLastTab && (
-              <Button type="submit" disabled={isSubmitting || isSavingDraft} className="w-full sm:w-auto text-sm sm:text-base py-2">
+            {/* Final submit. Last tab only by default; allowSubmitFromAnyTab
+                puts it next to "Save & Next" on every step so the form can be
+                finalised without walking to the end.
+
+                In that mode the button is type="button" with an explicit
+                handleSubmit call rather than type="submit". A submit button
+                present on every tab switches on the browser's implicit
+                submission, and Enter in any of this form's ~70 inputs would
+                then finalise and redirect mid-typing. Validation is identical
+                either way — handleSubmit runs the same resolver and routes to
+                onInvalid, which jumps to the first tab holding an error. */}
+            {(isLastTab || allowSubmitFromAnyTab) && (
+              <Button
+                type={allowSubmitFromAnyTab ? 'button' : 'submit'}
+                onClick={allowSubmitFromAnyTab ? form.handleSubmit(onSubmit, onInvalid) : undefined}
+                disabled={isSubmitting || isSavingDraft}
+                className="w-full sm:w-auto text-sm sm:text-base py-2"
+              >
                 {isSubmitting && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
                 {!isSubmitting && <Send className="mr-1 sm:mr-2 h-4 w-4" />}
                 {submitLabel || (learner

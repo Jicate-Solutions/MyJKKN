@@ -131,6 +131,16 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
             // Freshers rules belong to admission capture, and applying them here
             // hid real departments and overwrote real semesters.
             enforceAdmissionRules={false}
+            // Two explicit choices on every step, nothing else:
+            //   "Save & Next"      — commit this step, advance to the next tab
+            //   "Update & Finish"  — validate every tab, commit, redirect to
+            //                        the detail page via handleEditSuccess
+            // hideDraft removes the third "Update" button, which saved without
+            // validating and without redirecting — indistinguishable from the
+            // other two at a glance and the reason edits felt half-applied.
+            allowSubmitFromAnyTab
+            hideDraft
+            submitLabel="Update & Finish"
           />
         </Card>
       </div>
