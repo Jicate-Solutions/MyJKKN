@@ -323,6 +323,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "🔒 HARD DATA BOUNDARY: reads ONLY learner_risk_assessments, learner_contribution_scores and mv_learner_attendance_summary. It must NEVER read or join session_feedback, event_session_feedback, carre_micro_impressions or scf_learner_notes — those hold feedback the learner GAVE under an explicit anonymity promise (aggregated-and-anonymous UI copy, a fully_anonymous mode stripping author_id, k>=3 suppression), so scoring the author would break it — nor any health_*/medical table. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-360-verdict'), NOT a raw vercel.json cron: vercel.json already carries exactly 100 crons, the plan ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later; a ?mode=collect tick drains the previous run. Idempotent: per-cohort/day dedupe, collect claims each job once, and the record RPC upserts on (learner_id, verdict_date). Recommendation-only — any verdict can be corrected by a human via fn_learner_360_set_override, and the override is what every surface must then display."
   },
   {
+    "id": "learner-risk-staff-notifications",
+    "name": "Learner Risk → Department Head Notifications",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 17:20 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/learner-risk-notifications",
+    "callsClaude": false,
+    "whatItDoes": "Tells the head of a learner's own department which of THEIR learners newly entered — or worsened within — high/critical risk, with the evidence attached: tier, composite score, 14-day attendance and its change, overdue bill count, and the engine's suggested actions. The risk engine has written assessments daily since its first successful run on 2026-07-30 (4,342 rows; 59 critical, 403 high) and notified nobody until this routine existed. Recipients are TEAM MEMBERS ONLY — no learner and no family is notified by any path here.",
+    "configKnobs": "platform_policies keys under learner_risk.notifications.* — enabled (default on), mode (digest | individual; digest is the default and groups one message per department), include_department_staff (default off; adds 203 recipients across the affected departments), expiry_hours (72), min_score_delta (5), max_learners_per_message (25). No model, no LLM.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to department heads, and one learner_risk_notification_log row per learner announced. Every notification row carries an explicit expires_at. Sends nothing when the ledger table is absent (fails closed with 503) or when enabled is false.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-risk-staff-notifications'), NOT a raw vercel.json cron — `crons` is at the 100-entry plan cap and a 101st would fail the build for every deploy. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent three ways: UNIQUE(learner_id, notified_on) on the ledger, a per-department-per-day idempotency_key on the notification, and a dedupe that only sends on a CHANGE in standing (new / escalated / worsening) so an unchanged learner is never re-announced. Use ?dryRun=1 to see exactly what would be sent without writing. Marked unsafe-to-manual because a run delivers messages naming real learners to real department heads."
+  },
+  {
     "id": "health-sports-approval-nudge",
     "name": "Tournament Squad Permission — Undecided College Reminder",
     "category": "misc-ai",
