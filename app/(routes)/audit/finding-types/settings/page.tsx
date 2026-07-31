@@ -188,7 +188,9 @@ function FindingTypesTable() {
       items={data}
       loading={isLoading}
       error={isError ? 'Failed to load finding types.' : null}
-      onRefresh={refetch}
+      onRefresh={() => {
+        refetch();
+      }}
       onBulkDelete={async (ids) => {
         const supabase = createClientSupabaseClient();
         const success: string[] = [];
