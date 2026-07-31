@@ -7,6 +7,11 @@
 // RATIFIED INVARIANTS enforced here (substrate: 20260729184500):
 //   • ONE item per submission — the server records the offer and refuses a
 //     second for the same session, so this component cannot double-ask.
+//     ⚠️ AS AMENDED BY THE DIRECTOR 2026-07-30 (deliberate — do not "fix"
+//     back): the learner's OWN "did it help?" follow-up (clarification-
+//     followup-card, mounted above this component) is EXEMPT from this cap.
+//     On a day when both are due the learner sees BOTH, follow-up first —
+//     the cap is one rotation question + (when due) their own follow-up.
 //   • ALWAYS SKIPPABLE — Skip is a first-class recorded answer.
 //   • NEVER BLOCKING — nothing here can fail loudly. No toasts, no thrown
 //     errors, no interference with closing the dialog. While loading, and on
