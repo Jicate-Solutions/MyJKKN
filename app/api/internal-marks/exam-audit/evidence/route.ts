@@ -148,6 +148,7 @@ export async function GET(request: NextRequest) {
           student_id: string;
           present: number;
           total: number;
+          protected: number;
         }>,
       );
 

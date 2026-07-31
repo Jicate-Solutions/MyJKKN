@@ -281,6 +281,26 @@ interface EnquiryFormProps {
   submitLabel?: string;
   hideDraft?: boolean;
   isStudentView?: boolean;
+  /**
+   * Apply admission-capture policy on the Course Selection tab (first-year =>
+   * Science & Humanities department only, semester locked to Freshers/section
+   * A). Defaults to true for the enquiry/admission flow.
+   *
+   * Learner Profiles create + edit pass false: those screens serve the entire
+   * existing population, whose entry_type records how they joined years ago,
+   * not a decision being made now.
+   */
+  enforceAdmissionRules?: boolean;
+  /**
+   * Show the final submit button on every step instead of only the last one,
+   * so a step form can be finalised from wherever the user happens to be.
+   * "Save & Next" keeps advancing step by step; the submit button validates
+   * every tab, saves, and hands off to onSuccess (which redirects).
+   *
+   * Learner Profiles edit passes true: an officer correcting one field on the
+   * first tab should not have to walk through four more tabs to commit it.
+   */
+  allowSubmitFromAnyTab?: boolean;
 }
 
   const ALL_TABS = [
@@ -353,7 +373,7 @@ function normalizeReferenceType(referenceType: string | undefined): string {
  * Helper function to convert location name back to ID for editing
  * Database stores names, but form needs IDs for dropdowns
  */
-function getLocationIdByName(
+function findKnownLocationId(
   name: string | undefined,
   type: 'state' | 'district' | 'taluk',
   stateId?: string
@@ -438,6 +458,26 @@ function getLocationIdByName(
 }
 
 /**
+ * Name/ID -> picker ID, preserving values the picker has never heard of.
+ *
+ * lib/data/locations.ts is a fixed dataset; production rows predate it and hold
+ * free-text that isn't in it (e.g. taluk 'KANAGAGRI' under SALEM, whose taluk
+ * list is Salem/Attur/Edappadi/…). Returning '' for those blanked a REQUIRED
+ * field, so opening the edit form showed missing data and the only way to save
+ * was to pick a different taluk — overwriting the real value. Passing the raw
+ * value through keeps it visible, valid and re-savable; getLocationNameById
+ * round-trips it back out unchanged.
+ */
+function getLocationIdByName(
+  name: string | undefined,
+  type: 'state' | 'district' | 'taluk',
+  stateId?: string
+): string | undefined {
+  if (!name) return '';
+  return findKnownLocationId(name, type, stateId) || name;
+}
+
+/**
  * Mapping of form fields to their respective tabs
  * Used for auto-switching tabs on validation errors
  */
@@ -493,7 +533,7 @@ const fieldToTabMap: Record<string, string> = {
   academic_year_id: 'course-selection',
   semester_id: 'course-selection',
   section_id: 'course-selection',
-  college_email: 'course-selection',
+  college_email: 'contact-details',
   regulation_id: 'course-selection',
   batch_id: 'course-selection',
 
@@ -631,7 +671,9 @@ export function EnquiryForm({
   onSubmit: onSubmitProp,
   submitLabel,
   hideDraft = false,
-  isStudentView = false
+  isStudentView = false,
+  enforceAdmissionRules = true,
+  allowSubmitFromAnyTab = false
 }: EnquiryFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1108,17 +1150,21 @@ export function EnquiryForm({
         // Use already imported location data
         name = indianStates.find((s: any) => s.id === id)?.name;
       } else if (type === 'district') {
-        if (!stateId) return undefined;
-        const districts = getDistrictsByState(stateId);
-        name = districts.find((d: any) => d.id === id)?.name;
+        if (stateId) {
+          const districts = getDistrictsByState(stateId);
+          name = districts.find((d: any) => d.id === id)?.name;
+        }
       } else if (type === 'taluk') {
-        if (!stateId || !districtId) return undefined;
-        const taluks = getTaluksByDistrict(stateId, districtId);
-        name = taluks.find((t: any) => t.id === id)?.name;
+        if (stateId && districtId) {
+          const taluks = getTaluksByDistrict(stateId, districtId);
+          name = taluks.find((t: any) => t.id === id)?.name;
+        }
       }
 
-      // Convert location names to uppercase for consistency
-      return name ? name.toUpperCase() : undefined;
+      // No match means the form is carrying a raw stored value the picker
+      // doesn't know (see getLocationIdByName). Write it back as-is instead of
+      // undefined, which would blank the column on every unrelated edit.
+      return (name || id).toUpperCase();
     };
 
     // accommodation_type TEXT is retired — resolve the HOSTEL/DAY SCHOLAR choice
@@ -1279,9 +1325,16 @@ export function EnquiryForm({
             }))
         : [],
 
-      // System fields - Preserve existing values when editing, default to 'enquiry' when creating
+      // System fields. On CREATE, seed the entry-point status.
       // 2026-05-20: Updated default from 'admitted' (old entry-point) to 'enquiry'.
-      lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
+      // On EDIT, never resend it: this function builds a FULL-ROW payload, so
+      // shipping lifecycle_status made every routine field edit rewrite the
+      // learner's status, and `|| 'enquiry'` would silently demote any learner
+      // whose status failed to load. Status transitions belong to the explicit
+      // status actions (row-actions / enquiry-status-update), not to a field
+      // edit. Auto-activation is unaffected — the service reads the status back
+      // off the updated row, not off this DTO.
+      ...(learner ? {} : { lifecycle_status: 'enquiry' as const }),
       is_profile_complete: learner?.is_profile_complete ?? false,
     };
   };
@@ -1567,7 +1620,7 @@ export function EnquiryForm({
               toast.error('Profile saved, but fee structure could not be applied.');
             }
           }
-        } else if (isLegacy && isAdmitted) {
+        } else if (isLegacy && isAtEntry) {
           // Saved but still incomplete — explicit "we know, here's why" toast
           toast(
             `Profile saved. Fee structure will be applied once the following ${missingFeeDims.length === 1 ? 'field is' : 'fields are'} filled.`,
@@ -2040,13 +2093,17 @@ export function EnquiryForm({
               </div>
             )}
             <Card className="p-3 sm:p-4 md:p-6">
-              <ContactDetailsSection form={form} />
+              <ContactDetailsSection form={form} showCollegeEmail={!isStudentView} />
             </Card>
           </TabsContent>
 
           <TabsContent value="course-selection" className="space-y-4 mt-4">
             <Card className="p-3 sm:p-4 md:p-6">
-              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
+              <CourseSelectionSection
+                form={form}
+                showLearnerType={!!learner && !isStudentView}
+                enforceAdmissionRules={enforceAdmissionRules}
+              />
             </Card>
           </TabsContent>
 
@@ -2169,9 +2226,24 @@ export function EnquiryForm({
               </Button>
             )}
 
-            {/* Submit Button - Show only on last tab */}
-            {isLastTab && (
-              <Button type="submit" disabled={isSubmitting || isSavingDraft} className="w-full sm:w-auto text-sm sm:text-base py-2">
+            {/* Final submit. Last tab only by default; allowSubmitFromAnyTab
+                puts it next to "Save & Next" on every step so the form can be
+                finalised without walking to the end.
+
+                In that mode the button is type="button" with an explicit
+                handleSubmit call rather than type="submit". A submit button
+                present on every tab switches on the browser's implicit
+                submission, and Enter in any of this form's ~70 inputs would
+                then finalise and redirect mid-typing. Validation is identical
+                either way — handleSubmit runs the same resolver and routes to
+                onInvalid, which jumps to the first tab holding an error. */}
+            {(isLastTab || allowSubmitFromAnyTab) && (
+              <Button
+                type={allowSubmitFromAnyTab ? 'button' : 'submit'}
+                onClick={allowSubmitFromAnyTab ? form.handleSubmit(onSubmit, onInvalid) : undefined}
+                disabled={isSubmitting || isSavingDraft}
+                className="w-full sm:w-auto text-sm sm:text-base py-2"
+              >
                 {isSubmitting && <Loader2 className="mr-1 sm:mr-2 h-4 w-4 animate-spin" />}
                 {!isSubmitting && <Send className="mr-1 sm:mr-2 h-4 w-4" />}
                 {submitLabel || (learner

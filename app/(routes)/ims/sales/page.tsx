@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -14,6 +15,8 @@ import { ImsStoreService } from '@/lib/services/ims/store-service';
 import { buildReceiptData, formatCurrencyINR } from '@/lib/utils/ims-receipt';
 import { generateAndUploadReceiptPdf } from '@/lib/utils/ims-receipt-pdf';
 import { PaymentModal } from '@/components/ims/payment-modal';
+import { GatewayPaymentReturn } from '@/components/ims/gateway-payment';
+import { useImsHomeRoute } from '@/hooks/ims/use-ims-home-route';
 import { ReceiptModal } from '@/components/ims/receipt-modal';
 import type {
   ImsSellableItem,
@@ -41,14 +44,23 @@ import { usePermissions } from '@/hooks/use-permissions';
 export default function PointOfSalePage() {
   return (
     <ImsPageGuard module="ims.sales" action="create">
-      <PointOfSalePageInner />
+      {/* useSearchParams below reads the ?gp= handle Razorpay's hosted checkout
+          returns with; Next requires it to sit under a Suspense boundary. */}
+      <Suspense fallback={null}>
+        <PointOfSalePageInner />
+      </Suspense>
     </ImsPageGuard>
   );
 }
 
 function PointOfSalePageInner() {
   const { profile } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { storeId, institutionId } = useImsStoreContext();
+  // A store with no selling counter cannot book a sale — ims_pos_checkout refuses
+  // it outright. Say so before a cashier builds a cart, rather than after.
+  const { isPosStore, isReady: storeCheckReady } = useImsHomeRoute();
   const { canAccess, isSuperAdmin } = usePermissions();
   const canCheckout = isSuperAdmin || canAccess('ims.sales', 'create');
 
@@ -78,6 +90,35 @@ function PointOfSalePageInner() {
   // Receipt modal
   const [receiptData, setReceiptData] = useState<ImsReceiptData | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
+
+  // ── Returning from the payment gateway ──
+  // Razorpay's hosted checkout sends the browser back to /ims/sales?gp=<id>. That
+  // id is the handle on a payment that may already be paid but not yet booked, so
+  // the page picks it up and polls until a sale exists.
+  //
+  // Derived straight from the URL rather than copied into state on mount. The URL
+  // IS the source of truth here, and that has a property that matters at a counter:
+  // if the cashier refreshes while the sale is being booked, ?gp= is still there
+  // and the page resumes polling instead of losing a paid payment.
+  const gatewayPaymentId = searchParams.get('gp');
+  const gatewayAbandoned = searchParams.get('payment') === 'cancelled';
+  const gatewayOutcome = searchParams.get('payment');
+
+  // Cleared only once the payment is resolved — see above.
+  const clearGatewayReturn = useCallback(() => {
+    router.replace('/ims/sales', { scroll: false });
+  }, [router]);
+
+  // Came back carrying an outcome but no payment handle: nothing to poll, but say
+  // so rather than dropping the cashier on a silent till. Ref-guarded so a
+  // re-render cannot toast twice.
+  const strandedReported = useRef(false);
+  useEffect(() => {
+    if (gatewayPaymentId || !gatewayOutcome || strandedReported.current) return;
+    strandedReported.current = true;
+    toast.error('The payment could not be matched. The cart is still here.');
+    router.replace('/ims/sales', { scroll: false });
+  }, [gatewayPaymentId, gatewayOutcome, router]);
 
   // Data hooks — now using storeId
   const { data: sellableItems, isLoading: itemsLoading } =
@@ -193,6 +234,30 @@ function PointOfSalePageInner() {
     },
     [storeId, clearCart]
   );
+
+  // Not a shop. Show why and where to go, instead of a till that cannot complete
+  // a sale — the checkout would refuse it at the last step, after the customer is
+  // already standing there.
+  if (storeCheckReady && !isPosStore) {
+    return (
+      <ContentLayout title="Point of Sale">
+        <Card className="max-w-xl mx-auto mt-8">
+          <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
+            <ShoppingCart className="h-10 w-10 text-muted-foreground opacity-30" />
+            <p className="text-base font-medium">This store has no selling counter</p>
+            <p className="text-sm text-muted-foreground max-w-sm">
+              It is set up for issuing and stock, not for selling to customers.
+              Switch to a store that has a counter, or ask a super admin to enable
+              one for this store.
+            </p>
+            <Button variant="outline" onClick={() => router.push('/ims/dashboard')}>
+              Go to the dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Point of Sale">
@@ -434,6 +499,23 @@ function PointOfSalePageInner() {
         onValidateStock={handleValidateStock}
         onCreateSale={handleCreateSale}
       />
+
+      {/* Returning from the gateway. Rendered outside the payment modal because
+          the modal is long gone by now — the browser left the page entirely. */}
+      {gatewayPaymentId && (
+        <GatewayPaymentReturn
+          paymentId={gatewayPaymentId}
+          abandoned={gatewayAbandoned}
+          onPaid={(saleId) => {
+            clearGatewayReturn();
+            setShowPayment(false);
+            // The sale already exists. handleSaleComplete only reads .id and
+            // re-fetches the rest, so this is all it needs.
+            void handleSaleComplete({ id: saleId } as ImsSale);
+          }}
+          onDismiss={clearGatewayReturn}
+        />
+      )}
 
       {/* Receipt Modal */}
       <ReceiptModal

@@ -5,11 +5,8 @@
  * Used by the server component to pre-render data on the server.
  */
 
-
-
 import { createClient } from '@/lib/supabase/server';
 import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
-
 
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 
@@ -45,14 +42,6 @@ interface GetLearnerProfilesResult {
   };
 }
 
-/**
- * Get learner profiles with server-side caching
- *
- * Cache Strategy: WARM (5 minutes TTL)
- * - Student data changes moderately (several times per hour)
- * - Balance between freshness and performance
- * - Cache tags allow targeted invalidation when profiles are created/updated/deleted
- */
 // Whitelist of valid sortable columns to prevent DB errors from URL tampering
 const VALID_SORT_COLUMNS = new Set([
   'first_name', 'last_name', 'roll_number', 'register_number',
@@ -64,21 +53,37 @@ const EMPTY_RESULT: GetLearnerProfilesResult = {
   metadata: { total_items: 0, page: 1, limit: 10, total_pages: 0 },
 };
 
-export async function getLearnerProfiles(
-  params: GetLearnerProfilesParams = {}
-): Promise<GetLearnerProfilesResult> {
-  try {
-  // Debug: Log all filter params received
-  if (process.env.NODE_ENV === 'development') {
-    const activeFilters = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null);
-    console.log('[getLearnerProfiles] Filters received:', Object.fromEntries(activeFilters));
-  }
+// Only the relations `_components/columns.tsx` actually renders.
+//
+// Every embed is a per-row lookup that re-evaluates the joined table's own RLS
+// policies, and those policies call SECURITY DEFINER functions (is_super_admin /
+// is_admin / user_has_permission / api_key_has_permission) once per row rather
+// than once per query. Measured at pageSize=50: the same query costs 75ms with
+// RLS bypassed vs 1,920ms under RLS, and each embed adds ~140ms.
+// degree / department / academic_year / regulation / batch were fetched but
+// never rendered — the detail view (get-learner-profile.ts), the export dialog
+// (LearnerProfileService) and the promotion page all fetch their own data, so
+// nothing downstream reads them from this payload.
+const LIST_SELECT = `
+  *,
+  institution:institutions(id, name, counselling_code),
+  program:programs(id, program_name),
+  semester:semesters(id, semester_name, semester_code),
+  section:sections(id, section_name),
+  admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
+`;
 
-  const supabase = await createClient();
-
+/**
+ * Apply every filter to a query builder.
+ *
+ * Shared by the page query and the count fallback ON PURPOSE: these were two
+ * hand-maintained copies of the same twelve predicates, which is exactly how a
+ * filter silently stops applying to one of them. A previous copy-pasted version
+ * omitted `learner_id`, which made a student's `total_items` count every profile
+ * they could see instead of just their own row.
+ */
+function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
   const {
-    page = 1,
-    limit = 10,
     search,
     search_case_sensitive,
     search_exact_match,
@@ -93,194 +98,147 @@ export async function getLearnerProfiles(
     academic_year_id,
     gender,
     is_profile_complete,
-    sortBy: rawSortBy = 'first_name',
-    sortOrder = 'asc',
-    learner_id // Added: For student self-view filtering
+    learner_id,
   } = params;
 
-  // Validate sortBy against whitelist to prevent DB errors from URL tampering
-  const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
+  let q = query as any;
 
-  // Build query with relations
-  let query = supabase
-    .from('learners_profiles')
-    .select(
-      `
-      *,
-      institution:institutions(id, name, counselling_code),
-      degree:degrees(id, degree_name, degree_id),
-      department:departments(id, department_name),
-      program:programs(id, program_name),
-      semester:semesters(id, semester_name, semester_code),
-      section:sections(id, section_name),
-      academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
-      regulation:regulations(id, regulation_code, regulation_year),
-      batch:batches(id, batch_name, batch_code),
-      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
-    `,
-      { count: 'exact' }
-    );
-
-  // Apply filters - Parse advanced search format
   if (search) {
     const searchConditions = buildLearnerSearchConditions(search, {
       caseSensitive: search_case_sensitive,
       exactMatch: search_exact_match,
-      searchFields: search_fields
+      searchFields: search_fields,
     });
-
     if (searchConditions.length > 0) {
-      query = query.or(searchConditions.join(','));
+      q = q.or(searchConditions.join(','));
     }
   }
 
-  if (lifecycle_status) {
-    query = query.eq('lifecycle_status', lifecycle_status);
-  }
-
-  if (institution_id) {
-    query = query.eq('institution_id', institution_id);
-  }
+  if (lifecycle_status) q = q.eq('lifecycle_status', lifecycle_status);
+  if (institution_id) q = q.eq('institution_id', institution_id);
 
   // Student self-view filter (highest priority - students can only see own profile)
-  if (learner_id) {
-    query = query.eq('id', learner_id);
-  }
+  if (learner_id) q = q.eq('id', learner_id);
 
-  if (degree_id) {
-    query = query.eq('degree_id', degree_id);
-  }
+  if (degree_id) q = q.eq('degree_id', degree_id);
+  if (department_id) q = q.eq('department_id', department_id);
+  if (program_id) q = q.eq('program_id', program_id);
+  if (semester_id) q = q.eq('semester_id', semester_id);
+  if (section_id) q = q.eq('section_id', section_id);
+  if (academic_year_id) q = q.eq('academic_year_id', academic_year_id);
 
-  if (department_id) {
-    query = query.eq('department_id', department_id);
-  }
-
-  if (program_id) {
-    query = query.eq('program_id', program_id);
-  }
-
-  if (semester_id) {
-    query = query.eq('semester_id', semester_id);
-  }
-
-  if (section_id) {
-    query = query.eq('section_id', section_id);
-  }
-
-  if (academic_year_id) {
-    query = query.eq('academic_year_id', academic_year_id);
-  }
-
-  if (gender) {
-    query = query.eq('gender', gender);
-  }
+  // gender is stored upper-case ('MALE' / 'FEMALE') but has been written in
+  // mixed case by older forms. Match case-insensitively so the filter can never
+  // again silently return zero rows because the dropdown said 'Male'.
+  // There is no index on gender and the table is ~4k rows, so ilike costs nothing.
+  if (gender) q = q.ilike('gender', gender);
 
   if (is_profile_complete !== undefined) {
     if (is_profile_complete === false) {
       // Include both explicit false AND null values (treat null as incomplete)
-      query = query.or('is_profile_complete.eq.false,is_profile_complete.is.null');
+      q = q.or('is_profile_complete.eq.false,is_profile_complete.is.null');
     } else {
-      query = query.eq('is_profile_complete', true);
+      q = q.eq('is_profile_complete', true);
     }
   }
 
-  // Apply sorting
-  query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+  return q as T;
+}
 
-  // Apply pagination
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  // Execute the main query
-  const { data, error } = await query.range(from, to);
-
-  // Handle pagination range error gracefully
-  // PGRST103: "Requested range not satisfiable" - happens when offset > total rows
-  // This can occur when user navigates to page 2 but filters reduce results to 1 row
-  if (error) {
-    if (error.code === 'PGRST103') {
-      // Range not satisfiable - return empty data instead of throwing
-      // The count query below will return the correct total
-      console.warn('[getLearnerProfiles] Pagination range exceeds available rows, returning empty result');
-    } else {
-      // Other errors should still throw
-      console.error('[getLearnerProfiles] Error fetching profiles:', error);
-      throw new Error(`Failed to fetch learner profiles: ${error.message}`);
+/**
+ * Get learner profiles with server-side caching
+ *
+ * Cache Strategy: WARM (5 minutes TTL)
+ * - Student data changes moderately (several times per hour)
+ * - Balance between freshness and performance
+ * - Cache tags allow targeted invalidation when profiles are created/updated/deleted
+ */
+export async function getLearnerProfiles(
+  params: GetLearnerProfilesParams = {}
+): Promise<GetLearnerProfilesResult> {
+  try {
+    // Debug: Log all filter params received
+    if (process.env.NODE_ENV === 'development') {
+      const activeFilters = Object.entries(params).filter(
+        ([_, v]) => v !== undefined && v !== null
+      );
+      console.log(
+        '[getLearnerProfiles] Filters received:',
+        Object.fromEntries(activeFilters)
+      );
     }
-  }
 
-  // Get accurate count with a separate simplified query
-  let countQuery = supabase
-    .from('learners_profiles')
-    .select('*', { count: 'exact', head: true });
+    const supabase = await createClient();
 
-  // Apply the same filters as the main query
-  if (search) {
-    const searchConditions = buildLearnerSearchConditions(search, {
-      caseSensitive: search_case_sensitive,
-      exactMatch: search_exact_match,
-      searchFields: search_fields
-    });
+    const {
+      page = 1,
+      limit = 10,
+      sortBy: rawSortBy = 'first_name',
+      sortOrder = 'asc',
+    } = params;
 
-    if (searchConditions.length > 0) {
-      countQuery = countQuery.or(searchConditions.join(','));
+    // Validate sortBy against whitelist to prevent DB errors from URL tampering
+    const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const query = applyLearnerFilters(
+      supabase
+        .from('learners_profiles')
+        .select(LIST_SELECT, { count: 'exact' }),
+      params
+    )
+      .order(sortBy, { ascending: sortOrder === 'asc' })
+      .range(from, to);
+
+    const { data, error, count } = await query;
+
+    let total = count ?? 0;
+
+    if (error) {
+      // PGRST103: "Requested range not satisfiable" - happens when offset > total
+      // rows, e.g. the user is on page 2 and a filter cuts the result to 1 row.
+      // The row count does not come back with this error, so this is the ONE case
+      // that still needs a dedicated count round-trip. The happy path uses the
+      // count returned by the query above instead of re-counting every time.
+      if (error.code === 'PGRST103') {
+        console.warn(
+          '[getLearnerProfiles] Pagination range exceeds available rows, returning empty result'
+        );
+
+        const { count: fallbackCount, error: countError } =
+          await applyLearnerFilters(
+            supabase
+              .from('learners_profiles')
+              .select('id', { count: 'exact', head: true }),
+            params
+          );
+
+        if (countError) {
+          console.error('[getLearnerProfiles] Error fetching count:', countError);
+        }
+        total = fallbackCount ?? 0;
+      } else {
+        console.error('[getLearnerProfiles] Error fetching profiles:', error);
+        throw new Error(`Failed to fetch learner profiles: ${error.message}`);
+      }
     }
-  }
-  if (lifecycle_status) {
-    countQuery = countQuery.eq('lifecycle_status', lifecycle_status);
-  }
-  if (institution_id) {
-    countQuery = countQuery.eq('institution_id', institution_id);
-  }
-  if (degree_id) {
-    countQuery = countQuery.eq('degree_id', degree_id);
-  }
-  if (department_id) {
-    countQuery = countQuery.eq('department_id', department_id);
-  }
-  if (program_id) {
-    countQuery = countQuery.eq('program_id', program_id);
-  }
-  if (semester_id) {
-    countQuery = countQuery.eq('semester_id', semester_id);
-  }
-  if (section_id) {
-    countQuery = countQuery.eq('section_id', section_id);
-  }
-  if (academic_year_id) {
-    countQuery = countQuery.eq('academic_year_id', academic_year_id);
-  }
-  if (gender) {
-    countQuery = countQuery.eq('gender', gender);
-  }
-  if (is_profile_complete !== undefined) {
-    if (is_profile_complete === false) {
-      // Include both explicit false AND null values (treat null as incomplete)
-      countQuery = countQuery.or('is_profile_complete.eq.false,is_profile_complete.is.null');
-    } else {
-      countQuery = countQuery.eq('is_profile_complete', true);
-    }
-  }
 
-  const { count, error: countError } = await countQuery;
-
-  if (countError) {
-    console.error('[getLearnerProfiles] Error fetching count:', countError);
-  }
-
-  const totalPages = count ? Math.ceil(count / limit) : 0;
-
-  return {
-    data: (data as LearnerProfile[]) || [],
-    metadata: {
-      total_items: count || 0,
-      page,
-      limit,
-      total_pages: totalPages
-    }
-  };
+    return {
+      data: (data as LearnerProfile[]) || [],
+      metadata: {
+        total_items: total,
+        page,
+        limit,
+        total_pages: total ? Math.ceil(total / limit) : 0,
+      },
+    };
   } catch (error) {
-    console.error('[getLearnerProfiles] Unexpected error, returning empty result:', error);
+    console.error(
+      '[getLearnerProfiles] Unexpected error, returning empty result:',
+      error
+    );
     return EMPTY_RESULT;
   }
 }

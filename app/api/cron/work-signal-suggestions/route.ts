@@ -145,7 +145,24 @@ export async function GET(request: NextRequest) {
   // ── ENQUEUE (weekly run only) ─────────────────────────────────────────────
   let enqueued = 0;
   let skipped = 0;
+  let termClosed = 0;
   if (!collectOnly) {
+    // ── Term-close ride-along (weekly, same clock — spec decision 7) ────────
+    // Two-sided close for re-explanation asks: still-silent asks whose
+    // academic year has ENDED close as 'term_ended_unreported' — excluded
+    // from all rates, counted against no one. fn_clarification_term_close is
+    // service_role-only and no-ops when the classroom_practice.acts kill
+    // switch is off. Failures are logged, never fatal — this ride-along must
+    // not break the suggestion loop it piggybacks on.
+    {
+      const { data: tc, error: tcErr } = await admin.rpc('fn_clarification_term_close');
+      if (tcErr) {
+        console.warn(`[cron/work-signal-suggestions] term close skipped: ${tcErr.message}`);
+      } else {
+        termClosed = Number((tc as { closed?: number } | null)?.closed ?? 0);
+      }
+    }
+
     // Subjects = people with real queue activity: pending now OR decided in
     // 30d — the same canonical source as fn_work_signals_for's od_* signals.
     // Direct aggregate as service_role (bypasses RLS by design for a cron).
@@ -242,5 +259,6 @@ export async function GET(request: NextRequest) {
     recorded,
     enqueued,
     skipped,
+    term_closed: termClosed,
   });
 }

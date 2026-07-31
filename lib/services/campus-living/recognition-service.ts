@@ -32,6 +32,11 @@ export interface MyRecognitionRow {
   title: string;
   detail: string | null;
   fired_at: string;
+  /** The confer's stable source keys (e.g. { suggestion_id } for
+   *  voice_confirmed_better, { build_id } for gold_prompt). Consumers that
+   *  need to line a conferred act up against the act that earned it read
+   *  this; feeds that only render title/detail can ignore it. */
+  ref?: Record<string, unknown> | null;
 }
 
 /** A public win — attributable (first name only; the RPC controls columns). */
@@ -40,11 +45,16 @@ export interface PublicWinRow extends MyRecognitionRow {
 }
 
 export class RecognitionService {
-  /** Own rows, newest first. Optionally scoped to one module. */
+  /** Own rows, newest first. Optionally scoped to one module and/or one
+   *  event_type. RLS does the real scoping: the select policy returns a row
+   *  only when it is public or the caller's own, so a PRIVATE confer
+   *  (is_public = false, e.g. voice_confirmed_better) reaches its own learner
+   *  here and nobody else. */
   static async getMyRecognition(
     learnerId: string,
     module?: string,
-    limit = 10
+    limit = 10,
+    eventType?: string
   ): Promise<MyRecognitionRow[]> {
     if (!learnerId) return [];
     try {
@@ -53,11 +63,12 @@ export class RecognitionService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let q = (supabase as any)
         .from('campus_living_recognition')
-        .select('id, module, event_type, title, detail, fired_at')
+        .select('id, module, event_type, title, detail, fired_at, ref')
         .eq('learner_id', learnerId)
         .order('fired_at', { ascending: false })
         .limit(limit);
       if (module) q = q.eq('module', module);
+      if (eventType) q = q.eq('event_type', eventType);
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as MyRecognitionRow[];

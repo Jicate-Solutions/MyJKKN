@@ -267,7 +267,9 @@ export class ImsStoreService {
 
       let query = this.supabase
         .from('ims_stores')
-        .select('id, name, code, institution_id')
+        // is_pos_store rides along so the switcher can label counters and the
+        // routing rule can tell a shop from a lab without another round-trip.
+        .select('id, name, code, institution_id, is_pos_store')
         .eq('is_active', true)
         .order('name');
 

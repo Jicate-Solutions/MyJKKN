@@ -179,6 +179,102 @@ async function alertEnumerationFailure(
 }
 
 /**
+ * Enumerate Facebook Pages + their linked Instagram Business accounts for a
+ * given Meta access token via the paginated `GET /me/accounts` page-edge.
+ * Returns igUserId → parent-Page info (Page id, Page token, IG username) and an
+ * `error` string when enumeration failed (transient failures are retried; the
+ * safety cap marks an incomplete enumeration as an error).
+ *
+ * Extracted so BOTH the primary system-user token AND each extra-portfolio
+ * token resolve their own Page edges the same way. A Page edge yields the Page
+ * token that IG `graph` insights require, so a department account reachable via
+ * its own portfolio's Page routes to 'graph' instead of the
+ * 'business_discovery' fallback (a system-user token only sees /me/accounts for
+ * Pages its OWN portfolio owns, so the primary token never returns dept Pages).
+ */
+async function enumeratePageEdges(
+  token: string
+): Promise<{ pages: Map<string, ParentPageInfo>; error: string | null }> {
+  const pages = new Map<string, ParentPageInfo>();
+  let error: string | null = null;
+
+  const PAGE_FIELDS =
+    'id,name,access_token,instagram_business_account{id,username}';
+  const MAX_PAGES = 50; // safety cap: 50 × 100 = 5000 Pages
+  const MAX_ATTEMPTS = 3; // per-request retries on transient failure
+  let nextUrl: string | null =
+    `${GRAPH_API}/me/accounts?fields=${encodeURIComponent(PAGE_FIELDS)}` +
+    `&limit=100&access_token=${encodeURIComponent(token)}`;
+  let pageCount = 0;
+
+  // Follow paging.next so the Page set is COMPLETE — a truncated list would
+  // make a parent-less account on a later page look unowned and misroute it.
+  // Each request is retried a few times on transient failure (HTTP 429 /
+  // 5xx / network) before the run is marked failed.
+  while (nextUrl && pageCount < MAX_PAGES && !error) {
+    pageCount++;
+    let followUrl: string | null = null; // next page, set when this one succeeds
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        // 15s timeout so a hung connection aborts (→ throws → retried as
+        // transient) instead of stalling the whole sync inside the loop.
+        const meRes = await fetch(nextUrl, {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(15000),
+        });
+        const meJson = (await meRes.json()) as MeAccountsResponse;
+        if (!meRes.ok || meJson.error) {
+          const msg =
+            meJson.error?.message ??
+            `Meta /me/accounts returned HTTP ${meRes.status}`;
+          // Retry only transient failures; a hard 4xx (other than 429)
+          // won't recover, so fail fast without burning retries.
+          if (
+            (meRes.status === 429 || meRes.status >= 500) &&
+            attempt < MAX_ATTEMPTS
+          ) {
+            await sleep(attempt * 500);
+            continue;
+          }
+          error = msg;
+          break;
+        }
+        for (const page of meJson.data ?? []) {
+          const igId = page.instagram_business_account?.id;
+          if (!igId) continue;
+          pages.set(igId, {
+            pageId: page.id,
+            pageToken: page.access_token || null,
+            igUsername: page.instagram_business_account?.username || null,
+          });
+        }
+        followUrl = meJson.paging?.next ?? null;
+        break;
+      } catch (err) {
+        if (attempt < MAX_ATTEMPTS) {
+          await sleep(attempt * 500);
+          continue;
+        }
+        error =
+          err instanceof Error ? err.message : 'Failed to call /me/accounts';
+        break;
+      }
+    }
+    nextUrl = followUrl;
+  }
+
+  // Hit the safety cap with pages still remaining → treat enumeration as
+  // incomplete so unclassifiable accounts are skipped, not misrouted.
+  if (pageCount >= MAX_PAGES && nextUrl) {
+    error =
+      error ??
+      `/me/accounts exceeded ${MAX_PAGES}-page safety cap; enumeration incomplete`;
+  }
+
+  return { pages, error };
+}
+
+/**
  * Run a full Instagram account discovery + classification sync.
  *
  * @param serviceClient a service-role Supabase client (RLS-bypassing). Both
@@ -214,83 +310,17 @@ export async function runIgAccountsSync(
   // given, AND parent-page resolution (per-page token + fb_pages →
   // institution_id) for the upsert. A failure here is non-fatal when
   // explicit ig_user_ids were provided.
+  // Primary token: enumerate its Pages + linked IG accounts. A resolved parent
+  // Page is what routes an account to 'graph' (full insights via the Page
+  // token); `meAccountsError` gates the "skip unclassifiable accounts" logic
+  // below, so it reflects the PRIMARY enumeration only (extra-portfolio
+  // enumeration failures are non-critical — see Step 1b).
   const parentPageByIgId = new Map<string, ParentPageInfo>();
-  let meAccountsError: string | null = null;
-
-  {
-    const PAGE_FIELDS =
-      'id,name,access_token,instagram_business_account{id,username}';
-    const MAX_PAGES = 50; // safety cap: 50 × 100 = 5000 Pages
-    const MAX_ATTEMPTS = 3; // per-request retries on transient failure
-    let nextUrl: string | null =
-      `${GRAPH_API}/me/accounts?fields=${encodeURIComponent(PAGE_FIELDS)}` +
-      `&limit=100&access_token=${encodeURIComponent(accessToken)}`;
-    let pageCount = 0;
-
-    // Follow paging.next so the Page set is COMPLETE — a truncated list would
-    // make a parent-less account on a later page look unowned and misroute it.
-    // Each request is retried a few times on transient failure (HTTP 429 /
-    // 5xx / network) before the run is marked failed.
-    while (nextUrl && pageCount < MAX_PAGES && !meAccountsError) {
-      pageCount++;
-      let followUrl: string | null = null; // next page, set when this one succeeds
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-          // 15s timeout so a hung connection aborts (→ throws → retried as
-          // transient) instead of stalling the whole sync inside the loop.
-          const meRes = await fetch(nextUrl, {
-            cache: 'no-store',
-            signal: AbortSignal.timeout(15000),
-          });
-          const meJson = (await meRes.json()) as MeAccountsResponse;
-          if (!meRes.ok || meJson.error) {
-            const msg =
-              meJson.error?.message ??
-              `Meta /me/accounts returned HTTP ${meRes.status}`;
-            // Retry only transient failures; a hard 4xx (other than 429)
-            // won't recover, so fail fast without burning retries.
-            if (
-              (meRes.status === 429 || meRes.status >= 500) &&
-              attempt < MAX_ATTEMPTS
-            ) {
-              await sleep(attempt * 500);
-              continue;
-            }
-            meAccountsError = msg;
-            break;
-          }
-          for (const page of meJson.data ?? []) {
-            const igId = page.instagram_business_account?.id;
-            if (!igId) continue;
-            parentPageByIgId.set(igId, {
-              pageId: page.id,
-              pageToken: page.access_token || null,
-              igUsername: page.instagram_business_account?.username || null,
-            });
-          }
-          followUrl = meJson.paging?.next ?? null;
-          break;
-        } catch (err) {
-          if (attempt < MAX_ATTEMPTS) {
-            await sleep(attempt * 500);
-            continue;
-          }
-          meAccountsError =
-            err instanceof Error ? err.message : 'Failed to call /me/accounts';
-          break;
-        }
-      }
-      nextUrl = followUrl;
-    }
-
-    // Hit the safety cap with pages still remaining → treat enumeration as
-    // incomplete so unclassifiable accounts are skipped, not misrouted.
-    if (pageCount >= MAX_PAGES && nextUrl) {
-      meAccountsError =
-        meAccountsError ??
-        `/me/accounts exceeded ${MAX_PAGES}-page safety cap; enumeration incomplete`;
-    }
+  const primaryEdges = await enumeratePageEdges(accessToken);
+  for (const [igId, info] of primaryEdges.pages) {
+    parentPageByIgId.set(igId, info);
   }
+  const meAccountsError: string | null = primaryEdges.error;
 
   if (meAccountsError) {
     console.warn('[ig-sync] /me/accounts enumeration failed:', meAccountsError);
@@ -299,11 +329,42 @@ export async function runIgAccountsSync(
 
   // Step 1b: extra portfolios. Department accounts are owned by OTHER
   // Business Portfolios (e.g. "JKKN All Departments"), each with its own
-  // token — a system-user token only reads its own portfolio's assets. Build
-  // igId -> {token, username} via owned_instagram_accounts per portfolio so
-  // the upsert can store the correct per-account token (the poller reads it).
+  // token — a system-user token only reads its own portfolio's assets. For
+  // each portfolio we FIRST resolve its Page edges (with its own token) so a
+  // Page-connected department account routes to 'graph' (full insights via the
+  // Page token), THEN fall back to owned_instagram_accounts for any account
+  // without a reachable Page — stored as 'business_discovery' with the
+  // per-account token the discovery poller reads.
   const extraByIgId = new Map<string, { token: string; username: string | null }>();
   for (const portfolio of getExtraIgPortfolios()) {
+    // Page-edge resolution with THIS portfolio's own token. A resolved Page
+    // yields the Page token that IG graph insights require — the reason the
+    // owned_instagram_accounts-only path below can't reach 'graph' (a bare
+    // business/user token hits the documented insights error 33). Non-critical:
+    // a failure just leaves the account on the business_discovery fallback.
+    try {
+      const { pages: extraPages, error: extraPagesError } =
+        await enumeratePageEdges(portfolio.token);
+      if (extraPagesError) {
+        console.warn(
+          `[ig-sync] extra-portfolio ${portfolio.businessId} /me/accounts failed (non-critical):`,
+          extraPagesError
+        );
+      }
+      // Primary-token edges win if somehow present; portfolios are otherwise
+      // disjoint by ownership, so in practice this only ADDS department Pages.
+      for (const [igId, info] of extraPages) {
+        if (!parentPageByIgId.has(igId)) parentPageByIgId.set(igId, info);
+      }
+    } catch (err) {
+      console.warn(
+        `[ig-sync] extra-portfolio ${portfolio.businessId} page-edge resolution failed (non-critical):`,
+        err
+      );
+    }
+
+    // owned_instagram_accounts fallback: any account NOT resolved as a Page
+    // edge above still surfaces (as 'business_discovery') so nothing is dropped.
     try {
       const summaries = await discoverAccounts(portfolio.businessId, {
         accessToken: portfolio.token,

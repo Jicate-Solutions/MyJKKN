@@ -2,10 +2,17 @@
 
 // app/(routes)/ai-pulse/admin/reports/page.tsx
 // ============================================================================
-// AI PULSE — CHAMPION REVIEW QUEUE (Director moderation decision #3)
+// AI PULSE — CHAMPION REVIEW QUEUE (Director moderation decisions #3, #8, #10)
 //
 // "REPORT SPEED = a champion decides — reported feed prompts route to a senior
 //  learner to decide; NO auto-hide."
+//
+// Two queues live here, because they are the same job for the same audience:
+//   Tab "Reported"     — learners flagged it after it appeared        (#3)
+//   Tab "AI-rejected"  — the automatic checker refused it            (#8)
+// and above both, the safety-check heartbeat card                    (#10),
+// which is the only place on the platform that can tell "the */10 cron stopped"
+// apart from "nobody is writing prompts".
 //
 // Route:        /ai-pulse/admin/reports
 // Permission:   super_admin OR aiPulse:anomaly.review  (registered at
@@ -40,9 +47,12 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { usePermissions } from '@/hooks/use-permissions';
 
 import { ReportQueueList } from './_components/report-queue-list';
+import { SafetyHealthCard } from './_components/safety-health-card';
+import { SafetyReviewList } from './_components/safety-review-list';
 
 const CHAMPION_PERMISSION = 'aiPulse:anomaly.review';
 
@@ -85,8 +95,21 @@ export default function AiPulseReportQueuePage() {
           { label: 'Reported Prompts' },
         ]}
       />
-      <div className='mt-4'>
-        <ReportQueueList />
+      <div className='mt-4 space-y-6'>
+        <SafetyHealthCard />
+
+        <Tabs defaultValue='reported'>
+          <TabsList>
+            <TabsTrigger value='reported'>Reported</TabsTrigger>
+            <TabsTrigger value='ai-rejected'>AI-rejected</TabsTrigger>
+          </TabsList>
+          <TabsContent value='reported' className='mt-4'>
+            <ReportQueueList />
+          </TabsContent>
+          <TabsContent value='ai-rejected' className='mt-4'>
+            <SafetyReviewList />
+          </TabsContent>
+        </Tabs>
       </div>
     </ContentLayout>
   );

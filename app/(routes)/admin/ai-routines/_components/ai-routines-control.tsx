@@ -316,7 +316,9 @@ function RoutineRow({
                 </span>
               )}
               {r.maxLane ? (
-                <MaxLaneNote />
+                // Renders nothing unless this routine's cloud cron provably
+                // consults shouldDeferToMaxLane — see MaxLaneNote.
+                <MaxLaneNote routineId={r.id} schedule={maxSchedule} />
               ) : !r.callsClaude ? (
                 <span className="text-xs text-muted-foreground">
                   rules-based — no AI calls, so there&apos;s nothing to shift to the Max lane

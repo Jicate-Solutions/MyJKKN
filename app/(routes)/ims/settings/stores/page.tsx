@@ -92,6 +92,7 @@ interface StoreFormData {
   receipt_footer: string;
   sale_number_prefix: string;
   is_central_supply_store: boolean;
+  is_pos_store: boolean;
 }
 
 const emptyFormData: StoreFormData = {
@@ -109,6 +110,7 @@ const emptyFormData: StoreFormData = {
   receipt_footer: '',
   sale_number_prefix: 'INV',
   is_central_supply_store: false,
+  is_pos_store: false,
 };
 
 export default function StoresPage() {
@@ -190,6 +192,7 @@ function StoresPageInner() {
       receipt_footer: store.receipt_footer || '',
       sale_number_prefix: store.sale_number_prefix || 'INV',
       is_central_supply_store: store.is_central_supply_store ?? false,
+      is_pos_store: store.is_pos_store ?? false,
     });
     setDialogOpen(true);
   };
@@ -231,6 +234,7 @@ function StoresPageInner() {
           receipt_footer: formData.receipt_footer || null,
           sale_number_prefix: formData.sale_number_prefix || 'INV',
           is_central_supply_store: formData.is_central_supply_store,
+          is_pos_store: formData.is_pos_store,
         };
         await updateStore.mutateAsync({
           id: editingStore.id,
@@ -254,6 +258,7 @@ function StoresPageInner() {
           receipt_footer: formData.receipt_footer || null,
           sale_number_prefix: formData.sale_number_prefix || 'INV',
           is_central_supply_store: formData.is_central_supply_store,
+          is_pos_store: formData.is_pos_store,
           manager_id: null,
           is_active: true,
           created_by: userProfile?.id || null,
@@ -650,6 +655,27 @@ function StoresPageInner() {
                 checked={formData.is_central_supply_store}
                 onCheckedChange={(checked) =>
                   setFormData((prev) => ({ ...prev, is_central_supply_store: checked }))
+                }
+              />
+            </div>
+
+            {/* Whether this store is a SHOP. Off by default: a lab or supply store
+                issues stock but never sells, and ims_pos_checkout refuses to book
+                a sale against one. */}
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-0.5 pr-4">
+                <Label htmlFor="store-pos">Has a selling counter (POS)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Turn on for a store that sells to customers over a counter. Leave off
+                  for lab, supply or warehouse stores — the point of sale is hidden for
+                  them and a sale cannot be booked against them.
+                </p>
+              </div>
+              <Switch
+                id="store-pos"
+                checked={formData.is_pos_store}
+                onCheckedChange={(checked) =>
+                  setFormData((prev) => ({ ...prev, is_pos_store: checked }))
                 }
               />
             </div>

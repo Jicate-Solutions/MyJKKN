@@ -975,6 +975,22 @@ CREATE TRIGGER trg_validate_learner_admission_year_scope
   EXECUTE FUNCTION public.validate_learner_admission_year_scope();
 
 -- =====================================================
+-- learners_profiles academic-scope validator — Added 2026-07-30
+-- Fires BEFORE INSERT/UPDATE (all columns, so an institution_id move is caught
+-- alongside the FK columns). Calls validate_learner_semester_year_scope()
+-- (02_functions.sql), which rejects a degree_id / department_id / semester_id /
+-- academic_year_id belonging to another institution.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_validate_learner_semester_year_scope
+  ON public.learners_profiles;
+
+CREATE TRIGGER trg_validate_learner_semester_year_scope
+  BEFORE INSERT OR UPDATE
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.validate_learner_semester_year_scope();
+
+-- =====================================================
 -- admission_years single-current enforcement — Added 2026-07-25
 -- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
 -- Calls admission_years_enforce_single_current() (02_functions.sql), which

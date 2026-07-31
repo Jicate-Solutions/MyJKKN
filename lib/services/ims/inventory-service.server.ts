@@ -756,4 +756,200 @@ export class ImsInventoryServiceServer {
 
     return { errors, dispatched, storesServed, skipped };
   }
+
+  /**
+   * Update selling price, MRP and POS sellability on items that ALREADY EXIST.
+   *
+   * Why this exists rather than reusing bulkImport(): bulkImport is insert-only —
+   * it treats any code already present in the institution as a duplicate and
+   * rejects the row (see the pre-flight check above). So it cannot be used to fill
+   * in prices for a catalogue that has already been loaded, which is exactly the
+   * situation JKKN Pharmacy was in: 761 items, every one with selling_price = 0,
+   * mrp = 0 and is_sellable_to_students = false, which left the POS grid empty and
+   * every bill at zero.
+   *
+   * Deliberately narrow. It touches ONLY selling_price, mrp and
+   * is_sellable_to_students. A general-purpose upsert would let a price sheet
+   * silently overwrite names, units, categories or GST rates — too much blast
+   * radius for a file someone assembled in a hurry.
+   *
+   * Matching is on UPPER(code) within institution_id, mirroring the
+   * ims_items_institution_code_unique constraint scope.
+   */
+  static async bulkUpdatePrices(
+    rows: Array<{
+      row_number: number;
+      code: string;
+      selling_price: number | null;
+      mrp: number | null;
+      is_sellable: boolean | null;
+    }>,
+    institutionId: string
+  ): Promise<ImsImportResult> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase = (await createServerSupabaseClient()) as any;
+
+    const errors: ImsImportError[] = [];
+    const totalRows = rows.length;
+
+    if (!institutionId) {
+      return {
+        success: false,
+        successCount: 0,
+        errorCount: 1,
+        totalRows,
+        errors: [{ row: 0, field: 'institution', message: 'An institution is required' }],
+      };
+    }
+
+    // ── Row-level validation ────────────────────────────────────────────────
+    const valid: typeof rows = [];
+    const seen = new Map<string, number>();
+
+    for (const r of rows) {
+      const code = r.code.trim().toUpperCase();
+
+      if (!code) {
+        errors.push({ row: r.row_number, field: 'code', message: 'Code is required' });
+        continue;
+      }
+
+      if (seen.has(code)) {
+        errors.push({
+          row: r.row_number,
+          field: 'code',
+          message: `Code "${code}" duplicated in this file (first seen row ${seen.get(code)})`,
+        });
+        continue;
+      }
+
+      if (r.selling_price !== null && (!Number.isFinite(r.selling_price) || r.selling_price < 0)) {
+        errors.push({
+          row: r.row_number,
+          field: 'selling_price',
+          message: 'Selling Price must be a number >= 0',
+        });
+        continue;
+      }
+
+      if (r.mrp !== null && (!Number.isFinite(r.mrp) || r.mrp < 0)) {
+        errors.push({ row: r.row_number, field: 'mrp', message: 'MRP must be a number >= 0' });
+        continue;
+      }
+
+      // The whole point of this import is to stop items reaching the POS at zero.
+      // An item flagged sellable with no price would bill at 0.00, so refuse it
+      // here rather than let it through and be discovered at the counter.
+      if (r.is_sellable === true && !(r.selling_price && r.selling_price > 0)) {
+        errors.push({
+          row: r.row_number,
+          field: 'selling_price',
+          message: 'Sellable items need a Selling Price greater than 0',
+        });
+        continue;
+      }
+
+      // Priced above MRP is a pricing mistake, not a rounding artefact.
+      if (
+        r.selling_price !== null &&
+        r.mrp !== null &&
+        r.mrp > 0 &&
+        r.selling_price > r.mrp
+      ) {
+        errors.push({
+          row: r.row_number,
+          field: 'selling_price',
+          message: `Selling Price (${r.selling_price}) is above MRP (${r.mrp})`,
+        });
+        continue;
+      }
+
+      seen.set(code, r.row_number);
+      valid.push({ ...r, code });
+    }
+
+    if (valid.length === 0) {
+      return {
+        success: false,
+        successCount: 0,
+        errorCount: errors.length,
+        totalRows,
+        errors,
+      };
+    }
+
+    // ── Resolve codes to ids, so an unknown code is reported per row rather
+    //    than silently matching nothing ──────────────────────────────────────
+    const { data: existing, error: lookupError } = await supabase
+      .from('ims_items')
+      .select('id, code, cost_price')
+      .eq('institution_id', institutionId)
+      .in('code', valid.map((v) => v.code));
+
+    if (lookupError) {
+      console.error('[ImsInventoryServiceServer] bulkUpdatePrices lookup:', lookupError);
+      return {
+        success: false,
+        successCount: 0,
+        errorCount: errors.length + 1,
+        totalRows,
+        errors: [...errors, { row: 0, field: 'code', message: lookupError.message }],
+      };
+    }
+
+    const byCode = new Map<string, { id: string; cost_price: number | null }>(
+      // Codes are stored upper-case by bulkImport, but normalise anyway so a
+      // legacy lower-case row still matches.
+      (existing || []).map((e: any) => [
+        (e.code as string).toUpperCase(),
+        { id: e.id, cost_price: e.cost_price },
+      ])
+    );
+
+    let successCount = 0;
+
+    for (const r of valid) {
+      const match = byCode.get(r.code);
+
+      if (!match) {
+        errors.push({
+          row: r.row_number,
+          field: 'code',
+          message: `Code "${r.code}" does not exist in this institution — add the item first`,
+        });
+        continue;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (r.selling_price !== null) patch.selling_price = r.selling_price;
+      if (r.mrp !== null) patch.mrp = r.mrp;
+      if (r.is_sellable !== null) patch.is_sellable_to_students = r.is_sellable;
+
+      const { error: updateError } = await supabase
+        .from('ims_items')
+        .update(patch)
+        .eq('id', match.id)
+        .eq('institution_id', institutionId);
+
+      if (updateError) {
+        errors.push({
+          row: r.row_number,
+          field: 'code',
+          message: `Update failed for "${r.code}": ${updateError.message}`,
+        });
+        continue;
+      }
+
+      successCount += 1;
+    }
+
+    return {
+      success: successCount > 0,
+      successCount,
+      errorCount: errors.length,
+      totalRows,
+      errors,
+    };
+  }
 }
