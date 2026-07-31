@@ -75,3 +75,9 @@ BEGIN
 END;
 $function$
 ;
+
+-- Lock (CI: check-secdef-anon-revoke): SECURITY DEFINER must not be anonymously
+-- callable. Mirrors the live production ACL exactly — postgres owner,
+-- authenticated, service_role; no anon, no PUBLIC.
+REVOKE EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_scf_pending_for_learner(integer) TO authenticated, service_role;
