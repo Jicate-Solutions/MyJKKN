@@ -76,6 +76,8 @@ export function FileSquadDialog({
   onFiled: (row: TournamentPermissionRecord) => void;
 }) {
   const [tournamentName, setTournamentName] = useState('');
+  // D14 — the OUTSIDE institution hosting the event. Blank means held at JKKN.
+  const [hostInstitution, setHostInstitution] = useState('');
   const [level, setLevel] = useState<SportLevel | ''>('');
   const [sport, setSport] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -155,6 +157,7 @@ export function FileSquadDialog({
 
   function reset() {
     setTournamentName('');
+    setHostInstitution('');
     setLevel('');
     setSport('');
     setStartDate('');
@@ -179,6 +182,7 @@ export function FileSquadDialog({
     try {
       const row = await HealthSportsService.fileSquadPermissionRequest(filedByProfileId, {
         tournament_name: tournamentName.trim(),
+        host_institution: hostInstitution.trim() || null,
         tournament_level: level,
         sport,
         start_date: startDate,
@@ -229,6 +233,21 @@ export function FileSquadDialog({
               placeholder="e.g. Anna University Zonal Meet"
               value={tournamentName}
               onChange={(e) => setTournamentName(e.target.value)}
+            />
+          </div>
+
+          {/* D14 — who is RUNNING the event. An accreditation reviewer asks
+              which outside body hosted it, and that cannot be answered from the
+              tournament name alone. Blank when we host it ourselves. */}
+          <div className="space-y-1">
+            <Label className="text-xs" htmlFor="squad-host">
+              Hosted by (leave blank if held at JKKN)
+            </Label>
+            <Input
+              id="squad-host"
+              placeholder="e.g. Vinayaka Missions Research Foundation, Salem"
+              value={hostInstitution}
+              onChange={(e) => setHostInstitution(e.target.value)}
             />
           </div>
 

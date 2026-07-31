@@ -1111,6 +1111,14 @@ function overallStatusBadge(status: string) {
           Approved
         </Badge>
       );
+    // D13 — every college decided and they disagreed. Its own colour, never
+    // green: a partly-approved trip must never read as a fully-approved one.
+    case 'partially_approved':
+      return (
+        <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200 text-xs">
+          Some colleges approved
+        </Badge>
+      );
     case 'rejected':
       return (
         <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border-red-200 text-xs">

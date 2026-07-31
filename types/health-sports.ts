@@ -197,13 +197,32 @@ export interface HealthTournamentPermission {
   end_date: string;
   travel_required: boolean;
   travel_details: string | null;
+  /**
+   * D14: the OUTSIDE institution hosting the tournament, e.g. "Vinayaka Missions
+   * Research Foundation, Salem". NULL means it was held at JKKN. Optional
+   * because the column ships in a Director-gated migration that merge and
+   * deploy do not apply, so this UI can run before it exists.
+   */
+  host_institution?: string | null;
   team_members: { learner_id: string; name: string }[];
   justification: string | null;
   step1_sports_coordinator_status: ApprovalStatus;
   step2_hod_status: ApprovalStatus;
-  step3_principal_status: ApprovalStatus;
+  step3_principal_status: ApprovalStatus | 'partially_approved';
   step4_pe_director_status: ApprovalStatus;
-  overall_status: 'pending' | 'approved' | 'rejected' | 'completed';
+  /**
+   * D13: 'partially_approved' means every participating college has decided and
+   * they disagreed — some colleges' learners travel and some do not. It is
+   * deliberately NOT folded into 'approved': a partly-approved trip must never
+   * be read as a fully-approved one.
+   */
+  overall_status:
+    | 'pending'
+    | 'approved'
+    | 'partially_approved'
+    | 'rejected'
+    | 'completed'
+    | 'cancelled';
   credit_hours_earned: number;
   created_at: string;
   updated_at: string;
@@ -249,6 +268,13 @@ export interface HealthSportsAchievement {
   event_name: string;
   event_level: SportLevel;
   achievement_type: AchievementType;
+  /**
+   * D14: the OUTSIDE institution that hosted the event. Replaces the
+   * "Hosted by: <name>" first line previously folded into `description`, which
+   * could not be counted or filtered. NULL means it was held at JKKN. Optional
+   * for the same deploy-order reason as on the permission request.
+   */
+  host_institution?: string | null;
   description: string | null;
   certificate_url: string | null;
   verified: boolean;
