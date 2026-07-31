@@ -129,6 +129,18 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/social/admin',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-07-31 — School of Influence (S2). Both of these are
+  // redirect-to-first-child landings whose ONLY reason to exist is
+  // that Next.js 404s a directory with no page.tsx (the "Hub Page
+  // Reachability" gate). Neither is a chip surface: the chip points
+  // straight at .../admin/settings, which IS chip-reachable from the
+  // Startup Studio nav-config group. Exactly the same class as
+  // '/admission/social/admin' directly above.
+  // ────────────────────────────────────────────────────────────
+  '/startup-studio/school-of-influence',
+  '/startup-studio/school-of-influence/admin',
+
+  // ────────────────────────────────────────────────────────────
   // 2026-06-11 admin-cluster relocation wave-2 — departments
   // (HoD assignment). Moved out of /admin/departments (auto-chip-
   // reachable via the filesystem-derived admin tree) into the

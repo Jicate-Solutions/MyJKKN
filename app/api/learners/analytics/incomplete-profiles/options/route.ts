@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { resolveInstitutionScope } from '@/lib/auth/institution-scope';
 
 /** Hard cap per list so a super admin querying every institution stays bounded. */
 const MAX_OPTIONS = 500;
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id')
+      .select('role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -59,12 +60,7 @@ export async function GET(request: NextRequest) {
     const explicitIds = institutionIdsParam
       ? institutionIdsParam.split(',').filter(Boolean)
       : [];
-    const institutionIds =
-      explicitIds.length > 0
-        ? explicitIds
-        : profile.institution_id
-        ? [profile.institution_id]
-        : [];
+    const institutionIds = resolveInstitutionScope(profile, explicitIds) ?? [];
 
     // With no institution at all (a super admin viewing "all institutions") the
     // queries run unscoped and RLS decides what comes back.

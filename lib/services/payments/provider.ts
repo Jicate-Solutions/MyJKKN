@@ -1,6 +1,6 @@
 import type { Paise } from './amount';
 
-export type PaymentModule = 'billing' | 'events';
+export type PaymentModule = 'billing' | 'events' | 'ims';
 
 export type PaymentProviderName = 'hdfc_smartgateway' | 'razorpay';
 

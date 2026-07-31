@@ -6,7 +6,9 @@
  * attempt is submitted. Computes the OSCE score across all rubric domains and
  * writes the four downstream effects:
  *
- *   1. UPDATE pde_submissions.metadata.osce_score (and domain_scores)
+ *   1. UPDATE pde_submissions (auto_score / final_score / passed / osce_score)
+ *      — via the SERVICE-ROLE client: the table has no RLS UPDATE policy, so a
+ *      session-scoped update silently matches zero rows and raises nothing.
  *   2. UPSERT pde_learner_capabilities (keeping max score — "best score wins")
  *   3. INSERT pde_engagement_events (event_type='clinical_case_completed')
  *   4. If score ≥ clinical_reasoning.evidence_threshold_pct (default 60):
@@ -240,7 +242,19 @@ export async function POST(request: NextRequest) {
   const passingPct = await getPassingThresholdPct(supabase);
   const passed = osce.percentage >= passingPct;
 
-  const { error: updSubErr } = await supabase
+  // This write MUST go through the service-role client. pde_submissions has RLS
+  // enabled with only INSERT + SELECT policies — there is no UPDATE policy and
+  // no ALL policy. Under RLS a missing UPDATE policy matches zero rows and
+  // raises NOTHING, so the session-scoped update this used to run reported
+  // success while the honest score never landed: the naive client-computed
+  // score stayed in pde_submissions forever, and one attempt could show 100%
+  // here while the rubric score written to pde_learner_capabilities was a fail.
+  // Adding an RLS UPDATE policy would be worse — USING (learner_id = auth.uid())
+  // would let a learner forge their own final_score straight through the REST
+  // API with the public anon key. Server-side service-role is the trust
+  // boundary; ownership was already proven by the session-scoped read above,
+  // which 404s for a submission that is not the caller's.
+  const { data: updatedRows, error: updSubErr } = await svc
     .from('pde_submissions')
     .update({
       auto_score: osce.percentage,
@@ -252,11 +266,23 @@ export async function POST(request: NextRequest) {
         osce_score: osce,
       } as unknown,
     })
-    .eq('id', submission.id);
+    .eq('id', submission.id)
+    .select('id');
   if (updSubErr) {
     return NextResponse.json(
       {
         error: `Failed to write submission score: ${updSubErr.message}`,
+      },
+      { status: 500 },
+    );
+  }
+  // A zero-row update is the exact failure this fix exists to kill — it is never
+  // success. Fail loudly rather than returning a score that was not stored.
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          'Failed to write submission score: the update affected 0 rows. The score was NOT stored.',
       },
       { status: 500 },
     );

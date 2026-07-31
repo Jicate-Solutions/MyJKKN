@@ -2,7 +2,7 @@
  * T4.4 — Payslip Generation Engine
  *
  * Orchestrates payslip generation for a payroll period:
- *   1. Load active staff for the period's institution
+ *   1. Load active staff PAID BY the period's organisation (hr_staff_payroll)
  *   2. Look up each staff member's pay scale (by designation/cadre)
  *   3. Calculate earnings from pay components
  *   4. Apply LOP adjustment
@@ -11,7 +11,11 @@
  *   7. Update period aggregates (total_gross, total_deductions, total_net, staff_count)
  *
  * Design locks (T4.0, 2026-05-24):
- *   - Staff scope: all active staff in institution
+ *   - Staff scope: all active staff whose RECORDED PAYER is this organisation.
+ *     Revised 2026-07-31: was "all active staff in institution", which read
+ *     staff.institution_id — that column now means WHERE SOMEONE WORKS, and a
+ *     person's work location is not who bears their salary. No payroll row =
+ *     no recorded payer = excluded from every run until HR records one.
  *   - Deductions: auto-calculate with manual override (override is a separate PATCH)
  *   - PDF: deferred to T4.5
  *   - Bank file: deferred (user will share format spec)
@@ -65,7 +69,8 @@ export interface GenerationResult {
 
 export class PayslipGenerator {
   /**
-   * Generate payslips for all active staff in a period's institution.
+   * Generate payslips for every active staff member whose recorded payer is
+   * this period's organisation (hr_staff_payroll), not everyone who works there.
    * Period must be in 'prepared' status (draft → prepared transition triggers generation).
    */
   static async generate(
@@ -98,15 +103,66 @@ export class PayslipGenerator {
       throw new Error(`Period already has ${existingCount} active payslips. Delete or supersede them first.`);
     }
 
-    // 3. Load active staff for the institution
-    const { data: staffList, error: staffErr } = await supabase
-      .from('staff')
-      .select('id, first_name, last_name, institution_id')
-      .eq('institution_id', period.institution_id)
-      .eq('is_active', true);
+    // 3. Load the active staff PAID BY this period's organisation.
+    //
+    // The payer comes from hr_staff_payroll, NOT from staff.institution_id.
+    // Since 2026-07-31 staff.institution_id means WHERE SOMEONE WORKS, so
+    // reading it here would pay the wrong people the moment a central officer's
+    // work location is corrected — the CEO is paid by Engineering but works at
+    // Main Office, and correcting that would move them into Main Office's run.
+    //
+    // Someone with NO hr_staff_payroll row has no recorded payer and is
+    // deliberately NOT swept into any run: they surface in the "payer not
+    // recorded" queue instead, so HR records the answer rather than a payroll
+    // run guessing it. That is the state of everyone whose work location does
+    // not run a payroll (the shared campus-services team at Main Office).
+    const { data: payerRows, error: payerErr } = await (supabase as any)
+      .from('hr_staff_payroll')
+      .select('staff_id')
+      .eq('hr_organization_id', period.hr_organization_id);
 
-    if (staffErr) throw new Error(`Failed to load staff: ${staffErr.message}`);
-    if (!staffList || staffList.length === 0) {
+    if (payerErr) throw new Error(`Failed to load payroll assignments: ${payerErr.message}`);
+
+    const payeeIds: string[] = (payerRows ?? []).map((r: { staff_id: string }) => r.staff_id);
+
+    // hr_staff_payroll is gated on hr.payroll.institution.view, so an operator
+    // without that key reads ZERO rows and NO error — indistinguishable from
+    // "nobody here has a payer recorded yet". Those two demand OPPOSITE actions,
+    // so ask directly rather than infer from emptiness. Same reasoning as the
+    // hr_staff_details check below; only runs in the degenerate case.
+    if (payeeIds.length === 0) {
+      const { data: canSeePayroll } = await (supabase as any).rpc('user_has_permission', {
+        permission_name: 'hr.payroll.institution.view',
+      });
+      if (!canSeePayroll) {
+        throw new Error(
+          'Cannot read payroll organisation assignments: this account is missing hr.payroll.institution.view. Generating here would produce zero payslips and look like an empty organisation. Ask an administrator to grant it.',
+        );
+      }
+      return { generated: 0, skipped: 0, errors: [], totals: { gross: 0, deductions: 0, net: 0 } };
+    }
+
+    // Chunked for the same reason as hr_staff_details below: a single `.in()`
+    // over a whole organisation can truncate silently, and the `in.(...)` list
+    // inflates the query string past what a proxy will accept.
+    const STAFF_CHUNK = 100;
+    const staffList: StaffPayInfo[] = [];
+
+    for (let i = 0; i < payeeIds.length; i += STAFF_CHUNK) {
+      const { data: chunk, error: staffErr } = await supabase
+        .from('staff')
+        .select('id, first_name, last_name, institution_id')
+        .in('id', payeeIds.slice(i, i + STAFF_CHUNK))
+        .eq('is_active', true);
+
+      // Abort rather than continue: a partial staff read produces a PARTIAL
+      // payroll run that reports success, which is not obvious until somebody
+      // is paid twice on the rerun.
+      if (staffErr) throw new Error(`Failed to load team members: ${staffErr.message}`);
+      staffList.push(...((chunk ?? []) as StaffPayInfo[]));
+    }
+
+    if (staffList.length === 0) {
       return { generated: 0, skipped: 0, errors: [], totals: { gross: 0, deductions: 0, net: 0 } };
     }
 

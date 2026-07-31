@@ -16,7 +16,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/hooks/use-auth';
-import { HealthSportsService } from '@/lib/services/health/health-sports-service';
+import {
+  HealthSportsService,
+  isMissingColumnError,
+} from '@/lib/services/health/health-sports-service';
 import type {
   HealthSportsAchievement,
   SportLevel,
@@ -199,10 +202,18 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
   );
   const style = MEDAL_CARD_STYLE[achievement.achievement_type];
   const levelInfo = LEVEL_BADGE[achievement.event_level];
-  // The organiser of an outbound (travelled-to) event, and the D11 reserve flag,
-  // live in the structured leading lines of description — see _lib/outbound.ts
-  // for why neither is a column.
-  const { host, isReserve } = parseDescription(achievement.description);
+  // D11's reserve flag still lives in the structured leading lines of
+  // description (see _lib/outbound.ts). The organiser no longer does: D14 made
+  // `host_institution` a real column, so it is preferred here. The parsed value
+  // is the fallback for rows written before that column existed — and for rows
+  // written after the UI deployed but before the migration was applied.
+  //
+  // `??` alone is not enough: an empty or whitespace column value is not null,
+  // so it would win over a real legacy "Hosted by:" line and render a blank
+  // host. Blank in the column means "no host recorded here", so it falls
+  // through — this must not depend on every writer normalising '' to NULL.
+  const { host: legacyHost, isReserve } = parseDescription(achievement.description);
+  const host = achievement.host_institution?.trim() || legacyHost;
 
   return (
     <div
@@ -410,7 +421,7 @@ function AddAchievementForm({
     setSaving(true);
     setError('');
     try {
-      const created = await HealthSportsService.addAchievement(learnerId, {
+      const basePayload = {
         achievement_date: date,
         event_name: eventName,
         // D11 again, at the write itself: a reserve is stored as participation
@@ -419,7 +430,6 @@ function AddAchievementForm({
           ? 'participation'
           : achievementType) as AchievementType,
         event_level: level as SportLevel,
-        description: composeDescription(hostInstitution, description, isReserve),
         // Only a link the learner pasted. An uploaded scan is attached AFTER
         // this insert, by the server action, which authorizes the caller against
         // the row it is attaching to — see _actions/upload-certificate.ts.
@@ -436,7 +446,32 @@ function AddAchievementForm({
         // new column and fail with a clear message until the migration is
         // applied (see catch below).
         ...(category === 'sports' ? { sport } : { category, sport: null }),
-      });
+      };
+
+      // D14: the host is a REAL column now, so it stops being folded into the
+      // description — buried prose cannot be counted or filtered, which is the
+      // whole complaint. The description carries only the D11 reserve marker
+      // and the learner's own notes.
+      //
+      // That column ships in a Director-gated migration that neither merge nor
+      // deploy applies, so if it is not there yet we fall back to exactly
+      // today's behaviour (host in the description) rather than failing the
+      // save. The reader prefers the column and falls back to the prose, so a
+      // row written either way displays identically.
+      let created;
+      try {
+        created = await HealthSportsService.addAchievement(learnerId, {
+          ...basePayload,
+          host_institution: hostInstitution.trim() || null,
+          description: composeDescription('', description, isReserve),
+        });
+      } catch (err) {
+        if (!isMissingColumnError(err, 'host_institution')) throw err;
+        created = await HealthSportsService.addAchievement(learnerId, {
+          ...basePayload,
+          description: composeDescription(hostInstitution, description, isReserve),
+        });
+      }
 
       // The scan goes up only now that there is a row to attach it to — the
       // action refuses anyone who is not that row's learner, the IQAC team, or

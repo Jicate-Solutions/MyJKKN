@@ -155,6 +155,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Foundation & Competitive-Exam Programme
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
+  // The learner surface. Most-specific match wins, so this reads
+  // foundation.practice.take rather than inheriting the operator key on
+  // '/foundation' — somebody sitting the programme has no reason to hold
+  // foundation.dashboard.view.
+  '/foundation/practice': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -293,6 +298,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // from the catalog would only hide them from Role Management, not revoke.
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
+  // WHO PAYS each team member. This entry is load-bearing, not decorative:
+  // app/(routes)/hr/layout.tsx guards the subtree by LONGEST PREFIX, so without
+  // it this page would fall through to '/hr' → 'hr.view' — a key almost every
+  // role holds — and the paying organisation is HR-only by design.
+  '/hr/payroll/organisation': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar.
@@ -888,6 +898,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
+  // School of Influence — programme settings (S2, 2026-07-31). Deliberately
+  // gated on its OWN key rather than startup_studio.analytics.view: the page
+  // guard uses the same key, so the chip is visible to exactly the people the
+  // page admits (plus super admins, who bypass both). Mapping it to a broad
+  // .view key would surface a chip that then denies — the sidebar-shows /
+  // page-denies anti-pattern.
+  '/startup-studio/school-of-influence/admin/settings': 'startup_studio.school_of_influence.configure',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
@@ -907,6 +924,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // School of Influence — coordinator register + completion (spec §7 S6).
+  // MUST stay declared: RoutePermissionGuard treats a route with NO entry here as
+  // visible to every authenticated user, so without this line any learner could
+  // open the staff tick-list by typing the URL. 'cohort.manage' is the same
+  // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
+  // and the database cannot disagree about who belongs here.
+  '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -1689,6 +1714,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // The learner's own door into the same programme. Separate entry
+          // rather than a submenu because the audience is disjoint: whoever
+          // sits the programme holds foundation.practice.take and none of the
+          // operator keys, so '/foundation' above never renders for them.
+          href: '/foundation/practice',
+          label: 'Foundation Practice',
+          active: pathname.startsWith('/foundation/practice'),
+          icon: Target,
+          submenus: []
+        },
+        {
           // D3: click → module root. `/academic` resolves to the in-page
           // AcademicNav (nav-config.ts) which handles all drill-down.
           href: '/academic',
@@ -2259,6 +2295,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
             { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            // Gates on hr.payroll.institution.view, held by hr_admin / hr_head /
+            // hr_manager only — so this row is invisible to the rest of the HR
+            // group rather than visible-and-denied.
+            { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
           ]
         },
         {

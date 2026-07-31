@@ -4332,6 +4332,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/hr/payroll",
+        "label": "Payroll",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/hr/payroll/organisation",
+            "label": "Organisation",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/hr/performance-reviews",
         "label": "Performance Reviews",
         "iconName": "FileText",
@@ -6763,6 +6776,32 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Problem Bank",
         "iconName": "FileText",
         "children": []
+      },
+      {
+        "path": "/startup-studio/school-of-influence",
+        "label": "School Of Influence",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/startup-studio/school-of-influence/admin",
+            "label": "Admin",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/startup-studio/school-of-influence/admin/attendance",
+                "label": "Attendance",
+                "iconName": "CheckSquare",
+                "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/settings",
+                "label": "School of Influence Settings",
+                "iconName": "SlidersHorizontal",
+                "children": []
+              }
+            ]
+          }
+        ]
       },
       {
         "path": "/startup-studio/solve-for-100",

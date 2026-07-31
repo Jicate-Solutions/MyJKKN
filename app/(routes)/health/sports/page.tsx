@@ -61,6 +61,7 @@ import {
   MinusCircle,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { HealthSportsService } from '@/lib/services/health/health-sports-service';
 import type {
   HealthSportsProfile,
@@ -78,9 +79,17 @@ import {
 } from '@/types/health-sports';
 import { cn } from '@/lib/utils';
 import {
-  isSchemaNotApplied,
-  readFailure,
+  NotALearnerNotice,
+  SquadFilingDoorNotice,
+  SubmitFailureAlert,
 } from './_components/tournament-permission-ui';
+
+/**
+ * The squad-filing door. Same key the /health/sports/squad-requests page and the
+ * `health_tournament_permissions_filer_insert` policy read, so page, route and
+ * row all agree on who files for other people.
+ */
+const FILE_REQUEST_KEY = 'health.sports.file_request';
 
 // ============================================================================
 // Helpers
@@ -267,8 +276,12 @@ function MySportsSection({
   onProfileUpdated: (updated: HealthSportsProfile) => void;
 }) {
   const { profile: authProfile } = useAuth();
-  const learnerId =
-    authProfile?.learner_id ?? authProfile?.id ?? '';
+  // `profiles.learner_id`, and ONLY that — it is the same value the database's
+  // get_my_learner_id() returns, which is what every policy on these tables
+  // tests. Falling back to `authProfile.id` used to hand a non-learner their own
+  // profile id dressed up as a learner id, which is how a member of the team
+  // ended up writing to learner-keyed rows and being refused by the row policy.
+  const learnerId = authProfile?.learner_id ?? '';
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState<SportFormState>(EMPTY_FORM);
@@ -866,11 +879,10 @@ function RequestPermissionModal({
   const [form, setForm] = useState<PermissionForm>(EMPTY_PERMISSION_FORM);
   const [submitting, setSubmitting] = useState(false);
   // A failed submit used to log to the console and close as if nothing happened —
-  // the learner saw a form that simply did nothing (CLAUDE.md #27). Now the real
-  // reason is shown in the dialog.
-  const [failure, setFailure] = useState<{ message: string; code: string | null } | null>(
-    null
-  );
+  // the learner saw a form that simply did nothing (CLAUDE.md #27). The reason is
+  // now shown in the dialog, in words, with the driver's own sentence kept to the
+  // console where support can read it.
+  const [failure, setFailure] = useState<unknown>(null);
 
   const handleSubmit = async () => {
     if (
@@ -881,6 +893,17 @@ function RequestPermissionModal({
       !form.end_date
     )
       return;
+    // Belt and braces: this dialog is only mounted for a learner, but a request
+    // with no learner behind it can only be refused by the row policy, and being
+    // refused is not something to show anybody when we already know.
+    if (!learnerId) {
+      setFailure(
+        new Error(
+          'Your account is not linked to a learner record, so this request cannot be filed from here.'
+        )
+      );
+      return;
+    }
     setSubmitting(true);
     setFailure(null);
     try {
@@ -899,7 +922,7 @@ function RequestPermissionModal({
       setForm(EMPTY_PERMISSION_FORM);
     } catch (err) {
       console.error('[health/sports] Failed to submit permission request', err);
-      setFailure(readFailure(err));
+      setFailure(err);
     } finally {
       setSubmitting(false);
     }
@@ -998,18 +1021,18 @@ function RequestPermissionModal({
             />
           </div>
           {failure ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-2.5">
-              <p className="text-xs font-medium text-red-900">
-                {failure.code ? `${failure.code}: ` : ''}
-                {failure.message}
-              </p>
-              <p className="mt-0.5 text-xs text-red-800">
-                Nothing was submitted.{' '}
-                {isSchemaNotApplied(failure.code, failure.message)
-                  ? 'The database change for tournament permission has not been applied to this environment yet — ask an administrator to apply the pending migration.'
-                  : 'Please try again, or tell an administrator what this message says.'}
-              </p>
-            </div>
+            <SubmitFailureAlert
+              err={failure}
+              whatHappened="Nothing was submitted."
+              notPermitted={
+                <p>
+                  This form files a request for you, the signed-in learner, and only for
+                  you. If you are filing on behalf of a squad, that is done at Squad
+                  Tournament Requests instead — ask the Physical Director, or an
+                  administrator if you should have that desk yourself.
+                </p>
+              }
+            />
           ) : null}
         </div>
         <DialogFooter>
@@ -1109,6 +1132,14 @@ function overallStatusBadge(status: string) {
       return (
         <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-green-200 text-xs">
           Approved
+        </Badge>
+      );
+    // D13 — every college decided and they disagreed. Its own colour, never
+    // green: a partly-approved trip must never read as a fully-approved one.
+    case 'partially_approved':
+      return (
+        <Badge className="bg-orange-100 text-orange-700 hover:bg-orange-100 border-orange-200 text-xs">
+          Some colleges approved
         </Badge>
       );
     case 'rejected':
@@ -1283,7 +1314,23 @@ function TournamentPermissionsCard({
 
 export default function SportsProfilePage() {
   const { profile: authProfile, isLoading: authLoading } = useAuth();
-  const learnerId = authProfile?.learner_id ?? authProfile?.id ?? '';
+  const { can, isSuperAdmin, isLoading: permsLoading } = usePermissions();
+
+  // WHICH DOOR IS THIS READER STANDING AT?
+  //
+  // `profiles.learner_id` is exactly what the database's get_my_learner_id()
+  // returns, and the self-service row policy on health_tournament_permissions
+  // accepts an INSERT only when `learner_id = get_my_learner_id()`. So a reader
+  // with no learner record CANNOT succeed at this page's request form, however
+  // carefully they fill it in — the row is refused after they have typed
+  // everything. Previously this line fell back to `authProfile.id`, which made
+  // every reader look like a learner and sent the Physical Director into a form
+  // whose only possible ending was a refusal.
+  const learnerId = authProfile?.learner_id ?? '';
+  const isLearner = learnerId.length > 0;
+  // The other door: one request for a whole squad, at /health/sports/squad-requests.
+  const maySquadFile = isSuperAdmin || can(FILE_REQUEST_KEY);
+  const gatesLoading = authLoading || permsLoading;
 
   const [sportsProfile, setSportsProfile] = useState<HealthSportsProfile | null>(null);
   const [scholarship, setScholarship] = useState<HealthSportsScholarship | null>(null);
@@ -1323,12 +1370,17 @@ export default function SportsProfilePage() {
   }, [learnerId]);
 
   useEffect(() => {
-    if (!authLoading && learnerId) {
-      load();
+    if (gatesLoading) return;
+    // Nothing on this page is readable without a learner record, so a
+    // non-learner must not be left on a skeleton that never resolves.
+    if (!isLearner) {
+      setLoading(false);
+      return;
     }
-  }, [authLoading, learnerId, load]);
+    load();
+  }, [gatesLoading, isLearner, load]);
 
-  const isLoading = authLoading || loading;
+  const isLoading = gatesLoading || loading;
 
   return (
     <ContentLayout title="Sports Profile">
@@ -1345,40 +1397,76 @@ export default function SportsProfilePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Sports Profile</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Your sports identity, credits, and scholarship at JKKN.
+            {isLearner || gatesLoading
+              ? 'Your sports identity, credits, and scholarship at JKKN.'
+              : 'A learner’s sports identity, credits, and scholarship at JKKN.'}
           </p>
         </div>
 
-        {/* 1. Sports Identity Card */}
-        <SportsIdentityCard profile={sportsProfile} isLoading={isLoading} />
+        {gatesLoading ? (
+          <>
+            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton className="h-32 w-full rounded-xl" />
+          </>
+        ) : /* ---------------------------------------------------------------
+              BRANCH 1 — the reader IS a learner. Their own record, unchanged:
+              every card below is keyed to their learner id and the request form
+              files for them, which is precisely what the self-service row
+              policy accepts.
+             --------------------------------------------------------------- */
+        isLearner ? (
+          <>
+            {/* A learner who ALSO files for squads still gets their own page —
+                the extra door is offered, never substituted. */}
+            {maySquadFile ? (
+              <SquadFilingDoorNotice heading="Filing for a whole squad instead?" />
+            ) : null}
 
-        {/* 2. My Sports */}
-        <MySportsSection
-          profile={sportsProfile}
-          isLoading={isLoading}
-          onProfileUpdated={setSportsProfile}
-        />
+            {/* 1. Sports Identity Card */}
+            <SportsIdentityCard profile={sportsProfile} isLoading={isLoading} />
 
-        {/* 3. Coach Info */}
-        <CoachInfoCard profile={sportsProfile} isLoading={isLoading} />
+            {/* 2. My Sports */}
+            <MySportsSection
+              profile={sportsProfile}
+              isLoading={isLoading}
+              onProfileUpdated={setSportsProfile}
+            />
 
-        {/* 4. Scholarship */}
-        {(isLoading || scholarship) && (
-          <ScholarshipCard scholarship={scholarship} isLoading={isLoading} />
+            {/* 3. Coach Info */}
+            <CoachInfoCard profile={sportsProfile} isLoading={isLoading} />
+
+            {/* 4. Scholarship */}
+            {(isLoading || scholarship) && (
+              <ScholarshipCard scholarship={scholarship} isLoading={isLoading} />
+            )}
+
+            {/* 5. Credits This Semester */}
+            <CreditsCard credits={credits} isLoading={isLoading} />
+
+            {/* 6. Tournament Permissions */}
+            <TournamentPermissionsCard
+              permissions={permissions}
+              isLoading={isLoading}
+              learnerId={learnerId}
+              onPermissionCreated={(p) =>
+                setPermissions((prev) => [p, ...prev])
+              }
+            />
+          </>
+        ) : /* ---------------------------------------------------------------
+              BRANCH 2 — not a learner, but this reader files for a squad. The
+              Physical Director lands here first because Sports is the obvious
+              place to look. Send them to the desk that works instead of showing
+              a form the row policy will refuse.
+             --------------------------------------------------------------- */
+        maySquadFile ? (
+          <SquadFilingDoorNotice />
+        ) : (
+          /* -----------------------------------------------------------------
+             BRANCH 3 — neither. Say who this page is for and who to ask.
+             ----------------------------------------------------------------- */
+          <NotALearnerNotice />
         )}
-
-        {/* 5. Credits This Semester */}
-        <CreditsCard credits={credits} isLoading={isLoading} />
-
-        {/* 6. Tournament Permissions */}
-        <TournamentPermissionsCard
-          permissions={permissions}
-          isLoading={isLoading}
-          learnerId={learnerId}
-          onPermissionCreated={(p) =>
-            setPermissions((prev) => [p, ...prev])
-          }
-        />
       </div>
     </ContentLayout>
   );

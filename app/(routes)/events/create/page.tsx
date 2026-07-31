@@ -269,7 +269,7 @@ export default function CreateEventPage() {
         ]}
       />
 
-      <div className="mx-auto mt-6 max-w-2xl space-y-4">
+      <div className="mx-auto mt-6 max-w-full space-y-4">
         {/* Step indicator */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {STEP_ORDER.map((s, i) => (

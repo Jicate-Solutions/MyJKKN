@@ -537,7 +537,9 @@ export class LearnerProfileService {
     if (semester_id) query = query.eq('semester_id', semester_id);
     if (section_id) query = query.eq('section_id', section_id);
     if (academic_year_id) query = query.eq('academic_year_id', academic_year_id);
-    if (gender) query = query.eq('gender', gender);
+    // Case-insensitive: gender is stored upper-case ('MALE' / 'FEMALE') while
+    // older forms wrote mixed case. An eq() here silently returned zero rows.
+    if (gender) query = query.ilike('gender', gender);
     if (entry_type) query = query.eq('entry_type', entry_type);
 
     if (typeof is_profile_complete === 'boolean') {
