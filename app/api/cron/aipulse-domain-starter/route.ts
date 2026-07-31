@@ -161,7 +161,7 @@ function liftClause(n: unknown): string {
 function priorSignalSentence(prior: Record<string, unknown> | null): string {
   const views = Number(prior?.prior_views);
   if (!Number.isFinite(views) || views <= 0) return '';
-  return `It was shown to ${views} learners, and ${copiesWord(prior?.prior_copies)} learners copied it${liftClause(prior?.prior_lift)}. `;
+  return `It was shown to ${views} learner${views === 1 ? '' : 's'}, and ${copiesWord(prior?.prior_copies)} learners copied it${liftClause(prior?.prior_lift)}. `;
 }
 
 /** Assemble the full prompt string the ₹0 drain feeds the model (system + user).
