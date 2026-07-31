@@ -181,7 +181,9 @@ function OpenReports({
       {flags.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           Nothing reported. Anyone signed in can report a question that looks
-          wrong, and it stops counting toward mastery until it is reviewed.
+          wrong. A question only stops counting toward mastery scores once
+          enough different people have reported the same one, and that change
+          takes effect from the next recalculation.
         </div>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-amber-300/60 bg-amber-50/40 dark:border-amber-900/50 dark:bg-amber-950/10">
