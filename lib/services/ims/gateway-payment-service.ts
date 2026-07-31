@@ -75,6 +75,44 @@ export interface GatewayPaymentStatus {
 
 export class ImsGatewayPaymentService {
   /**
+   * Write to a payment row — and never let a rejected write pass unnoticed.
+   *
+   * Every `await client.from(…).update(…)` in this file used to drop its `error` on
+   * the floor. That is tolerable in a list view; here it meant a payment could be
+   * captured at Razorpay while our record of it silently refused to move, and the
+   * only symptom was a counter stuck on a spinner with no clue anywhere as to why.
+   *
+   * `onlyWhenStatusIn` is the one filter that varies between call sites: it keeps a
+   * slow path from overwriting a status a faster one already resolved. A write that
+   * matches nothing because of it is NOT an error — it is the guard doing its job —
+   * so it is reported separately from a rejection.
+   */
+  private static async writeRow(
+
+    service: any,
+    id: string,
+    values: Record<string, unknown>,
+    what: string,
+    onlyWhenStatusIn?: string[],
+  ): Promise<boolean> {
+    let query = service.from('ims_gateway_payments').update(values).eq('id', id);
+    if (onlyWhenStatusIn) query = query.in('status', onlyWhenStatusIn);
+
+    const { error } = await query;
+    if (error) {
+      logger.error('ims/gateway-payment', `write REJECTED: ${what}`, {
+        id,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        error: error.message,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Verify the caller may bill for this store.
    *
    * Mirrors the ownership check ImsPaymentService.generateUpiQr makes, and the one
@@ -298,14 +336,22 @@ export class ImsGatewayPaymentService {
         },
       });
 
-      await service
-        .from('ims_gateway_payments')
-        .update({
+      // If THIS write is rejected we have a live order nothing points at. The
+      // notes carry gateway_payment_id precisely so the webhook can still find the
+      // row, but a silent failure here is exactly the kind we stopped tolerating.
+      const linked = await this.writeRow(
+        service,
+        row.id,
+        {
           razorpay_order_id: order.gatewayOrderId,
           gateway_response: order.raw as Record<string, unknown>,
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
+        },
+        'attach razorpay_order_id',
+      );
+      if (!linked) {
+        throw new Error('Could not record the payment order — please try again');
+      }
 
       return {
         id: row.id as string,
@@ -324,10 +370,13 @@ export class ImsGatewayPaymentService {
         expiresAt: expiresAt.toISOString(),
       };
     } catch (err) {
-      await service
-        .from('ims_gateway_payments')
-        .update({ status: 'failed', finalize_error: err instanceof Error ? err.message : String(err) })
-        .eq('id', row.id);
+      await this.writeRow(
+        service,
+        row.id,
+        { status: 'failed', finalize_error: err instanceof Error ? err.message : String(err) },
+        'mark failed (could not open the order)',
+        ['initiated'],
+      );
       logger.error('ims/gateway-payment', 'createOrder failed', err);
       throw err;
     }
@@ -437,7 +486,7 @@ export class ImsGatewayPaymentService {
         // NOT final: a later credit is still honoured (see qr_code.credited).
         const expired = new Date(row.expires_at).getTime() < Date.now();
         const patch = expired ? { ...stamp, status: 'expired' } : stamp;
-        await service.from('ims_gateway_payments').update(patch).eq('id', row.id);
+        await this.writeRow(service, row.id, patch, 'stamp inquiry / expire');
         return { ...row, ...patch };
       }
 
@@ -453,7 +502,7 @@ export class ImsGatewayPaymentService {
           razorpay_payment_id: captured.id,
           captured_amount_paise: capturedPaise,
         };
-        await service.from('ims_gateway_payments').update(patch).eq('id', row.id);
+        await this.writeRow(service, row.id, patch, 'mark amount_mismatch (poll)');
         logger.error('ims/gateway-payment', 'captured amount does not match the bill', {
           id: row.id, expectedPaise: row.amount_paise, capturedPaise,
         });
@@ -469,18 +518,14 @@ export class ImsGatewayPaymentService {
         late_credit: row.status === 'expired',
       };
       // Guarded so this cannot overwrite a status the webhook already resolved.
-      await service
-        .from('ims_gateway_payments')
-        .update(patch)
-        .eq('id', row.id)
-        .in('status', ['initiated', 'expired']);
+      await this.writeRow(service, row.id, patch, 'mark paid (poll)', ['initiated', 'expired']);
 
       return { ...row, ...patch };
     } catch (err) {
       // An inquiry failure must not break the cashier's screen — the webhook may
       // still resolve it, and the next poll will try again.
-      logger.warn('ims/gateway-payment', 'QR inquiry failed (non-fatal)', err);
-      await service.from('ims_gateway_payments').update(stamp).eq('id', row.id);
+      logger.warn('ims/gateway-payment', 'gateway inquiry failed (non-fatal)', err);
+      await this.writeRow(service, row.id, stamp, 'stamp inquiry after failure');
       return { ...row, ...stamp };
     }
   }
@@ -488,96 +533,82 @@ export class ImsGatewayPaymentService {
   /**
    * Book the sale for a confirmed payment.
    *
-   * Claims the row first: two polls can both observe paid + no sale, and without a
-   * claim both would call ims_pos_checkout — deducting stock twice and burning two
-   * invoice numbers before the unique index caught the second link.
+   * One RPC. Claiming the lease, running ims_pos_checkout from the stored
+   * server-priced cart, and linking both sides all happen inside
+   * ims_gateway_finalize_sale, in a single transaction.
+   *
+   * This used to be three round trips from here, and that shape was wrong twice
+   * over — see the long note at the top of
+   * 20260731103000_ims_gateway_finalize_sale.sql. The short version:
+   *
+   *   - the claim discarded its error, so a rejected write and a contended lease
+   *     were indistinguishable, and a poll could return having silently done
+   *     nothing while a customer's money sat captured;
+   *
+   *   - the sale committed before the back-link was written, so an interruption in
+   *     between left a sale nothing pointed at — and the next poll booked a second
+   *     one, which the unique index could not catch because the first was unlinked.
+   *
+   * Called through the CASHIER'S session client: ims_pos_checkout derives the
+   * cashier from auth.uid(), and the RPC's own guard refuses payments outside the
+   * caller's institutions.
    */
   private static async finalize(row: any, sessionClient: any): Promise<any> {
     const service = createServiceRoleClient() as any;
 
-    const { data: claimed } = await service
-      .from('ims_gateway_payments')
-      .update({ finalize_claimed_at: new Date().toISOString() })
-      .eq('id', row.id)
-      .eq('status', 'paid')
-      .is('sale_id', null)
-      .or(`finalize_claimed_at.is.null,finalize_claimed_at.lt.${new Date(Date.now() - 120_000).toISOString()}`)
-      .select()
-      .maybeSingle();
+    const { data: result, error: rpcError } = await sessionClient.rpc(
+      'ims_gateway_finalize_sale',
+      { p_payment_id: row.id },
+    );
 
-    // Someone else owns it, or it is already booked. Re-read and report.
-    if (!claimed) {
-      const { data: fresh } = await service
-        .from('ims_gateway_payments').select('*').eq('id', row.id).maybeSingle();
-      return fresh ?? row;
-    }
-
-    const snapshot = row.cart_snapshot;
-
-    try {
-      // Booked from the SERVER-PRICED snapshot, never from anything the browser
-      // sends now — that is what keeps the amount charged and the amount booked
-      // the same number.
-      const { data: result, error: rpcError } = await sessionClient.rpc('ims_pos_checkout', {
-        p_store_id:               row.store_id,
-        p_institution_id:         row.institution_id,
-        p_customer_type:          row.customer_type,
-        p_customer_name:          row.customer_name,
-        p_customer_id:            null,
-        p_payment_method:         'upi_qr',
-        p_cash_amount:            0,
-        p_gpay_amount:            0,
-        p_card_amount:            0,
-        p_upi_qr_amount:          Number(row.amount),
-        p_gpay_transaction_id:    null,
-        p_upi_qr_transaction_ref: row.transaction_ref,
-        p_additional_discount:    0,
-        p_lines: (snapshot?.lines ?? []).map((l: any) => ({
-          item_id:          l.item_id,
-          quantity:         l.quantity,
-          unit_price:       l.unit_price,
-          cost_price:       l.cost_price,
-          discount_percent: l.discount_percent,
-        })),
-      });
-
-      if (rpcError) throw new Error(rpcError.message || 'Checkout failed');
-
-      const saleId = result?.sale_id;
-      if (!saleId) throw new Error('Checkout returned no sale');
-
-      // Link both ways. ims_sales.gateway_payment_id is what marks this sale as
-      // gateway-VERIFIED, and its unique index is the hard floor against a second
-      // sale for the same payment.
-      await service.from('ims_sales').update({ gateway_payment_id: row.id }).eq('id', saleId);
-
-      const { data: done } = await service
-        .from('ims_gateway_payments')
-        .update({
-          sale_id: saleId,
-          finalize_claimed_at: null,
-          finalize_error: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id)
-        .select()
-        .maybeSingle();
-
-      return done ?? { ...row, sale_id: saleId };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Release the claim and record why. The row stays 'paid' — the money IS ours,
-      // so the cashier must never be told to collect again. The screen shows
-      // "payment received, completing sale" with a retry.
-      await service
-        .from('ims_gateway_payments')
-        .update({ finalize_claimed_at: null, finalize_error: message })
-        .eq('id', row.id);
+    if (rpcError) {
+      const message = rpcError.message || 'Booking the sale failed';
+      // Record why, and say so loudly. The row stays 'paid' — the money IS ours, so
+      // the cashier must never be told to collect again; the screen offers to retry
+      // BOOKING only.
+      //
+      // The lease needs no releasing: the RPC's transaction rolled back with the
+      // error, taking the claim with it.
       logger.error('ims/gateway-payment', 'booking the sale failed after payment', {
-        id: row.id, error: message,
+        id: row.id,
+        code: rpcError.code,
+        details: rpcError.details,
+        hint: rpcError.hint,
+        error: message,
       });
+
+      const { error: noteErr } = await service
+        .from('ims_gateway_payments')
+        .update({ finalize_error: message, updated_at: new Date().toISOString() })
+        .eq('id', row.id);
+      if (noteErr) {
+        logger.error('ims/gateway-payment', 'could not even record the booking failure', {
+          id: row.id, error: noteErr.message,
+        });
+      }
+
       return { ...row, finalize_error: message };
     }
+
+    // Not claimed means someone else got there first — normally the previous poll,
+    // which has already booked it. Report what is true rather than treating a
+    // healthy race as a failure.
+    if (result && result.claimed === false) {
+      if (!result.sale_id) {
+        logger.warn('ims/gateway-payment', 'finalize could not claim and no sale exists', {
+          id: row.id, status: result.status,
+        });
+      }
+      return { ...row, sale_id: result.sale_id ?? null, status: result.status ?? row.status };
+    }
+
+    const saleId = result?.sale_id ?? null;
+    if (!saleId) {
+      logger.error('ims/gateway-payment', 'finalize returned no sale id', { id: row.id, result });
+      return row;
+    }
+
+    return { ...row, sale_id: saleId, finalize_claimed_at: null, finalize_error: null };
   }
 
   // ── Hosted-checkout return path ────────────────────────────────────────────
@@ -650,15 +681,17 @@ export class ImsGatewayPaymentService {
       logger.error('ims/gateway-payment', 'callback signature verification FAILED', {
         id: row.id, razorpayOrderId: args.razorpayOrderId,
       });
-      await service
-        .from('ims_gateway_payments')
-        .update({
+      await this.writeRow(
+        service,
+        row.id,
+        {
           status: 'failed',
           finalize_error: 'Callback signature verification failed',
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id)
-        .in('status', ['initiated', 'expired']);
+        },
+        'mark failed (bad signature)',
+        ['initiated', 'expired'],
+      );
       return { id: row.id, paid: false, reason: 'bad_signature' };
     }
 
@@ -669,33 +702,37 @@ export class ImsGatewayPaymentService {
     const inquiry = await provider.dualInquiry(args.razorpayOrderId, args.razorpayPaymentId);
 
     if (inquiry.status !== 'captured') {
-      await service
-        .from('ims_gateway_payments')
-        .update({
+      await this.writeRow(
+        service,
+        row.id,
+        {
           status: 'failed',
           razorpay_payment_id: args.razorpayPaymentId,
           finalize_error: `Gateway reported ${inquiry.status}, not captured`,
           gateway_response: inquiry.raw as Record<string, unknown>,
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id)
-        .in('status', ['initiated', 'expired']);
+        },
+        'mark failed (not captured)',
+        ['initiated', 'expired'],
+      );
       return { id: row.id, paid: false, reason: inquiry.status };
     }
 
     // 3. Paise-exact amount check. Same rule the webhook and the poll apply.
     const capturedPaise = Number(inquiry.amountPaise ?? 0);
     if (capturedPaise !== Number(row.amount_paise)) {
-      await service
-        .from('ims_gateway_payments')
-        .update({
+      await this.writeRow(
+        service,
+        row.id,
+        {
           status: 'amount_mismatch',
           razorpay_payment_id: args.razorpayPaymentId,
           captured_amount_paise: capturedPaise,
           gateway_response: inquiry.raw as Record<string, unknown>,
           updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.id);
+        },
+        'mark amount_mismatch (callback)',
+      );
 
       logger.error('ims/gateway-payment', 'callback: captured amount does not match the bill', {
         id: row.id, expectedPaise: row.amount_paise, capturedPaise,
@@ -706,9 +743,10 @@ export class ImsGatewayPaymentService {
     // 4. The money is ours. Honour a credit that landed after our own window —
     //    refusing it would leave a customer who has paid facing a counter that
     //    says otherwise.
-    await service
-      .from('ims_gateway_payments')
-      .update({
+    await this.writeRow(
+      service,
+      row.id,
+      {
         status: 'paid',
         razorpay_payment_id: args.razorpayPaymentId,
         captured_amount_paise: capturedPaise,
@@ -717,9 +755,10 @@ export class ImsGatewayPaymentService {
         gateway_response: inquiry.raw as Record<string, unknown>,
         finalize_error: null,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', row.id)
-      .in('status', ['initiated', 'expired']);
+      },
+      'mark paid (callback)',
+      ['initiated', 'expired'],
+    );
 
     return { id: row.id, paid: true };
   }
@@ -747,16 +786,18 @@ export class ImsGatewayPaymentService {
 
     if (!row) return { id: null };
 
-    await service
-      .from('ims_gateway_payments')
-      .update({
+    await this.writeRow(
+      service,
+      row.id,
+      {
         status: args.cancelled ? 'cancelled' : 'failed',
         razorpay_payment_id: args.razorpayPaymentId ?? null,
         finalize_error: args.reason ?? null,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', row.id)
-      .in('status', ['initiated', 'expired']);
+      },
+      args.cancelled ? 'mark cancelled (callback)' : 'mark failed (callback)',
+      ['initiated', 'expired'],
+    );
 
     return { id: row.id };
   }

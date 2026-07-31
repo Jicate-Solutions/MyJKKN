@@ -232,9 +232,20 @@ interface ReturnProps {
   abandoned?: boolean;
 }
 
+/**
+ * How long "paid, but no sale yet" may go on before the screen stops pretending it
+ * is about to finish. Booking normally takes one poll.
+ */
+const BOOKING_PATIENCE_MS = 30_000;
+
 export function GatewayPaymentReturn({ paymentId, onPaid, onDismiss, abandoned }: ReturnProps) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [settled, setSettled] = useState(false);
+  const [bookingStalled, setBookingStalled] = useState(false);
+
+  // When the money first landed. Used only to decide when to stop showing a
+  // spinner — polling itself never gives up.
+  const paidSinceRef = useRef<number | null>(null);
 
   // Poll. This is not merely reading our own table — the endpoint asks Razorpay
   // directly AND books the sale, so it is what completes the payment when no
@@ -259,7 +270,17 @@ export function GatewayPaymentReturn({ paymentId, onPaid, onDismiss, abandoned }
           return;
         }
 
-        // 'paid' is NOT terminal — keep polling while the sale is booked.
+        // 'paid' is NOT terminal — keep polling while the sale is booked. But stop
+        // *claiming* it is nearly done after a while: a cashier watching a spinner
+        // that never resolves has no way to tell a slow booking from a stuck one,
+        // and may sell the goods again or take payment twice.
+        if (s.status === 'paid') {
+          paidSinceRef.current ??= Date.now();
+          if (Date.now() - paidSinceRef.current > BOOKING_PATIENCE_MS) {
+            setBookingStalled(true);
+          }
+        }
+
         if (['failed', 'cancelled', 'amount_mismatch'].includes(s.status)) {
           setSettled(true);
         }
@@ -283,7 +304,33 @@ export function GatewayPaymentReturn({ paymentId, onPaid, onDismiss, abandoned }
 
   let body: ReactNode;
 
-  if (moneyIsIn) {
+  if (moneyIsIn && bookingStalled) {
+    // The money is in and the sale is not. Say exactly that. Polling continues
+    // underneath, so this can still resolve itself into a receipt.
+    body = (
+      <>
+        <CheckCircle2 className="h-10 w-10 text-green-600" />
+        <p className="text-base font-medium text-green-600">Payment received</p>
+        <p className="text-sm font-medium">The sale has not been completed yet.</p>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          The customer has paid and the money is safe — do <strong>not</strong> take
+          payment again. Check Sales History before handing over or re-selling.
+        </p>
+        <p className="text-xs text-muted-foreground font-mono">
+          Ref {s?.id?.slice(0, 8)}
+          {s?.finalize_error ? ` · ${s.finalize_error}` : ''}
+        </p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Still trying to complete it
+        </div>
+        {/* Deliberately no "collect payment again" anywhere on this screen. */}
+        <Button variant="outline" size="sm" onClick={onDismiss}>
+          Back to the till
+        </Button>
+      </>
+    );
+  } else if (moneyIsIn) {
     body = (
       <>
         <CheckCircle2 className="h-10 w-10 text-green-600" />
