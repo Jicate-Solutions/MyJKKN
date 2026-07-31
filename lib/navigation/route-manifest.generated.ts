@@ -6775,6 +6775,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "iconName": "FileText",
             "children": [
               {
+                "path": "/startup-studio/school-of-influence/admin/attendance",
+                "label": "Attendance",
+                "iconName": "CheckSquare",
+                "children": []
+              },
+              {
                 "path": "/startup-studio/school-of-influence/admin/settings",
                 "label": "School of Influence Settings",
                 "iconName": "SlidersHorizontal",
