@@ -87,6 +87,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       `[health-sports-approval-nudge] ${summary.no_approver} college(s) have no approver — those requests can never be decided.`,
     );
   }
+  // The RPC contains a per-college failure rather than abandoning the run, so a
+  // non-zero count here is the only place a persistent breakage becomes visible.
+  if (typeof summary.failed === 'number' && summary.failed > 0) {
+    console.error(
+      `[health-sports-approval-nudge] ${summary.failed} college(s) failed to notify — see Postgres warnings for the reason.`,
+    );
+  }
 
   return NextResponse.json({ ok: true, ...summary });
 }

@@ -337,6 +337,7 @@ DECLARE
   v_no_approver  int := 0;
   v_already      int := 0;
   v_would        int := 0;
+  v_failed       int := 0;
   v_reached      int;
 BEGIN
   FOR r IN
@@ -360,29 +361,40 @@ BEGIN
       CONTINUE;
     END IF;
 
-    v_reached := public.fn_health_tournament_notify_college(
-      r.permission_id, r.institution_id, 'reminder',
-      'htp_nudge:' || r.permission_id::text || ':' || r.institution_id::text || ':' || v_today
-    );
+    -- Per-college containment: one unnotifiable row must not abandon every
+    -- other college in the run. A cron that dies on its first bad row is how a
+    -- reminder loop silently stops working.
+    BEGIN
+      v_reached := public.fn_health_tournament_notify_college(
+        r.permission_id, r.institution_id, 'reminder',
+        'htp_nudge:' || r.permission_id::text || ':' || r.institution_id::text || ':' || v_today
+      );
 
-    IF v_reached > 0 THEN
-      v_notified    := v_notified + 1;
-      v_reached_tot := v_reached_tot + v_reached;
-      -- fn_health_tournament_recompute_status sets myjkkn.htp_internal itself,
-      -- but the flag is set here too so this UPDATE matches the shape the D9
-      -- reminder already uses, and stays correct if that ever changes.
-      PERFORM set_config('myjkkn.htp_internal', 'on', true);
-      UPDATE public.health_tournament_permission_approvals
-         SET last_nudged_at = now()
-       WHERE id = r.id;
-      PERFORM set_config('myjkkn.htp_internal', 'off', true);
-    ELSIF v_reached = 0 THEN
-      v_no_approver := v_no_approver + 1;
-      RAISE WARNING '[htp nudge] request % — nobody at institution % holds health.sports.approve; reminder reached no one.',
-        r.permission_id, r.institution_id;
-    ELSE
-      v_already := v_already + 1;
-    END IF;
+      IF v_reached > 0 THEN
+        v_notified    := v_notified + 1;
+        v_reached_tot := v_reached_tot + v_reached;
+        -- fn_health_tournament_recompute_status sets myjkkn.htp_internal itself,
+        -- but the flag is set here too so this UPDATE matches the shape the D9
+        -- reminder already uses, and stays correct if that ever changes.
+        PERFORM set_config('myjkkn.htp_internal', 'on', true);
+        UPDATE public.health_tournament_permission_approvals
+           SET last_nudged_at = now()
+         WHERE id = r.id;
+        PERFORM set_config('myjkkn.htp_internal', 'off', true);
+      ELSIF v_reached = 0 THEN
+        v_no_approver := v_no_approver + 1;
+        RAISE WARNING '[htp nudge] request % — nobody at institution % holds health.sports.approve; reminder reached no one.',
+          r.permission_id, r.institution_id;
+      ELSE
+        v_already := v_already + 1;
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      -- Counted and logged, never swallowed into a clean-looking summary: the
+      -- route reports `failed` so a persistent breakage is visible.
+      v_failed := v_failed + 1;
+      RAISE WARNING '[htp nudge] request % college % failed: %',
+        r.permission_id, r.institution_id, SQLERRM;
+    END;
   END LOOP;
 
   RETURN jsonb_build_object(
@@ -391,6 +403,7 @@ BEGIN
     'approvers_reached', v_reached_tot,
     'no_approver',    v_no_approver,
     'already_sent',   v_already,
+    'failed',         v_failed,
     'would_send',     v_would,
     'stale_hours',    v_hours,
     'dry_run',        COALESCE(p_dry_run, false)
