@@ -191,6 +191,35 @@ describe('auto_score — an unmarked MCQ is not scored as wrong', () => {
     expect(result.passed).toBe(false);
   });
 
+  it('counts the question again once a retry succeeds — exclusion must not outlive the outage', async () => {
+    // Marking fails, the learner retries, marking comes back up and says WRONG.
+    // The successful envelope replaces the unmarked one (recordAnswer overwrites
+    // by question_id) and carries no marking_failed, so the question must return
+    // to the denominator and score 0 — not stay excluded and flatter the learner.
+    rpc.mockResolvedValueOnce({ data: null, error: { message: 'RPC unavailable' } });
+    rpc.mockResolvedValueOnce({ data: { is_correct: false, correct_id: 'q1-b' }, error: null });
+
+    render(
+      <CaseAttempt bundle={bundleOf([mcq('q1', 'Only question')])} rollNumberSnapshot="R1" />,
+    );
+
+    chooseAndSubmit(/orthopantomogram/i);
+    await waitFor(() => expect(screen.getByText(/could not be checked right now/i)).toBeInTheDocument());
+
+    // Retry the same selection; this time the server answers.
+    fireEvent.click(screen.getByRole('button', { name: /submit answer/i }));
+    await clickWhenReady(/submit attempt/i);
+
+    await waitFor(() => expect(completeMutate).toHaveBeenCalledTimes(1));
+    const result = submitted();
+
+    expect(result.autoScore).toBe(0);
+    expect(result.passed).toBe(false);
+    const q1 = result.answers.find((a) => a.question_id === 'q1');
+    expect(q1?.is_correct).toBe(false);
+    expect(q1?.marking_failed).toBeUndefined();
+  });
+
   it('leaves auto_score null (never NaN) when every scorable answer is unresolved', async () => {
     rpc.mockResolvedValue({ data: null, error: { message: 'RPC unavailable' } });
 
