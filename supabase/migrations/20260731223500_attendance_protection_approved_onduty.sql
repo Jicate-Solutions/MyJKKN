@@ -103,7 +103,7 @@ STABLE SECURITY DEFINER
 SET search_path TO 'public'
 SET statement_timeout TO '10s'
 AS $function$
-DECLARE v_ids uuid[];
+DECLARE v_ids uuid[]; v_privileged boolean; v_self uuid;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'fn_attendance_protected_days: not authenticated';
@@ -128,6 +128,26 @@ BEGIN
   END IF;
   IF v_ids IS NULL OR array_length(v_ids, 1) IS NULL THEN RETURN; END IF;
 
+  -- Passing the institution gate is NOT enough to read the whole college's
+  -- squads. Verified on prod 2026-07-31 against a real learner: role 'student',
+  -- role_has_institution_access(own institution) = TRUE, but
+  -- academic.attendance.view = FALSE and exam_audit.view = FALSE. Without the
+  -- self-scope below, that learner could call this RPC with the public anon
+  -- key's authenticated session and enumerate every squad roster and every
+  -- on-duty application in their college — the caller-identity IDOR shape this
+  -- repo has already had to sweep out of 75 functions.
+  --
+  -- Privileged callers (the Registrar's audit, attendance staff) see everyone
+  -- in scope; everyone else sees only their own days. A learner's own card is
+  -- unaffected: fn_vsr_attendance_core resolves the learner from auth.uid().
+  v_privileged := COALESCE(public.is_super_admin(), false)
+               OR public.user_has_permission('academic.attendance.view')
+               OR public.user_has_permission('academic.internal_marks.exam_audit.view');
+  IF NOT v_privileged THEN
+    SELECT p.learner_id INTO v_self FROM public.profiles p WHERE p.id = auth.uid();
+    IF v_self IS NULL THEN RETURN; END IF;  -- not a learner, no permission: nothing to show
+  END IF;
+
   RETURN QUERY
   SELECT v.learner_id,
          d::date AS protected_date,
@@ -142,6 +162,7 @@ BEGIN
   WHERE v.institution_id = ANY(v_ids)
     AND v.start_date <= p_to
     AND v.end_date   >= p_from
+    AND (v_privileged OR v.learner_id = v_self)
 
   UNION ALL
 
@@ -157,6 +178,13 @@ BEGIN
          SELECT tm.learner_id FROM public.leave_onduty_team_members tm
          WHERE tm.application_id = a.id
        ) AS m
+  -- A team member is only credited inside the institution the application was
+  -- filed under. Without this join, auditing two colleges together (v_ids =
+  -- [X, Y]) would let an application filed under X excuse a learner of Y —
+  -- cross-tenant credit that would surface only in a combined audit.
+  JOIN public.learners_profiles mlp
+    ON mlp.id = m.member_id
+   AND mlp.institution_id = a.institution_id
   CROSS JOIN LATERAL generate_series(
          GREATEST(a.start_date, p_from),
          LEAST(a.end_date, p_to),
@@ -167,7 +195,8 @@ BEGIN
     AND a.period_type = 'fullday'
     AND a.start_date <= p_to
     AND a.end_date   >= p_from
-    AND m.member_id IS NOT NULL;
+    AND m.member_id IS NOT NULL
+    AND (v_privileged OR m.member_id = v_self);
 END;
 $function$;
 
@@ -209,7 +238,7 @@ CREATE OR REPLACE FUNCTION public.fn_exam_audit_attendance(p_institution_ids uui
  SET search_path TO 'public'
  SET statement_timeout TO '20s'
 AS $function$
-DECLARE v_ids uuid[];
+DECLARE v_ids uuid[]; v_to date;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'fn_exam_audit_attendance: not authenticated';
@@ -237,6 +266,13 @@ BEGIN
   END IF;
   IF v_ids IS NULL OR array_length(v_ids, 1) IS NULL THEN RETURN; END IF;
 
+  -- ONE upper bound for both the attendance scan and the protection lookup.
+  -- Previously the scan was unbounded when p_to was NULL while protection
+  -- stopped at CURRENT_DATE, so a day past the boundary could be counted into
+  -- `total` but was never eligible for credit — an asymmetry that can only ever
+  -- push a percentage down.
+  v_to := COALESCE(p_to, CURRENT_DATE);
+
   RETURN QUERY
   WITH periods AS (
     SELECT CASE WHEN (e.val->>'course_id') ~ '^[0-9a-fA-F-]{36}$'
@@ -247,8 +283,8 @@ BEGIN
          LATERAL jsonb_each(sa.attendance_data) AS e(k, val)
     WHERE sa.institution_id = ANY(v_ids)
       AND jsonb_typeof(sa.attendance_data) = 'object'
-      AND (p_from IS NULL OR sa.attendance_date >= p_from)
-      AND (p_to   IS NULL OR sa.attendance_date <= p_to)
+      AND sa.attendance_date >= p_from
+      AND sa.attendance_date <= v_to
   ),
   studs AS (
     SELECT p.cid, p.adate,
@@ -264,7 +300,7 @@ BEGIN
   -- multiply the learner's rows and inflate `total`.
   prot AS (
     SELECT DISTINCT pd.learner_id, pd.protected_date
-    FROM public.fn_attendance_protected_days(v_ids, p_from, COALESCE(p_to, CURRENT_DATE)) pd
+    FROM public.fn_attendance_protected_days(v_ids, p_from, v_to) pd
   )
   SELECT st.sid AS student_id,
          st.cid AS course_id,
@@ -335,11 +371,19 @@ BEGIN
   bounds AS (
     SELECT MIN(ad) AS lo, MAX(ad) AS hi FROM mine
   ),
+  -- Bounds are COALESCEd rather than filtered: fn_attendance_protected_days
+  -- RAISEs on a NULL window, and relying on `WHERE b.lo IS NOT NULL` to dodge
+  -- that only works while the planner pushes the qual below the LATERAL. A
+  -- learner with no attendance rows now asks a harmless one-day question and
+  -- joins to nothing, instead of depending on a plan shape.
   prot AS (
     SELECT DISTINCT pd.protected_date
     FROM bounds b,
-         LATERAL public.fn_attendance_protected_days(ARRAY[p_inst], b.lo, b.hi) pd
-    WHERE b.lo IS NOT NULL AND pd.learner_id = p_learner
+         LATERAL public.fn_attendance_protected_days(
+                   ARRAY[p_inst],
+                   COALESCE(b.lo, CURRENT_DATE),
+                   COALESCE(b.hi, CURRENT_DATE)) pd
+    WHERE pd.learner_id = p_learner
   )
   SELECT m.cid AS course_id,
          c.course_code::text,

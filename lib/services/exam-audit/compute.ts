@@ -373,6 +373,7 @@ export function aggregateAttendanceByStudent(
  *  days, over every session held. Only a day marked absent can be excused, so
  *  this can never exceed 100. */
 export function eligiblePct(att: { present: number; protected?: number; total: number }): number {
+  if (att.total <= 0) return 0; // no sessions held is not 0% attendance, but it is never a band
   return (100 * (att.present + (att.protected ?? 0))) / att.total;
 }
 
