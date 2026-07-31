@@ -293,6 +293,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // from the catalog would only hide them from Role Management, not revoke.
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
+  // WHO PAYS each team member. This entry is load-bearing, not decorative:
+  // app/(routes)/hr/layout.tsx guards the subtree by LONGEST PREFIX, so without
+  // it this page would fall through to '/hr' → 'hr.view' — a key almost every
+  // role holds — and the paying organisation is HR-only by design.
+  '/hr/payroll/organisation': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar.
@@ -2274,6 +2279,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
             { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            // Gates on hr.payroll.institution.view, held by hr_admin / hr_head /
+            // hr_manager only — so this row is invisible to the rest of the HR
+            // group rather than visible-and-denied.
+            { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
           ]
         },
         {
