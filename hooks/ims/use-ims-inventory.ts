@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ImsInventoryService } from '@/lib/services/ims/inventory-service';
 import type { ImsItemForSelect } from '@/lib/services/ims/inventory-service';
 import { ImsCategoryService } from '@/lib/services/ims/category-service';
@@ -89,6 +90,30 @@ export function useToggleImsItemActive() {
       queryClient.invalidateQueries({ queryKey: ['ims-items'] });
       queryClient.invalidateQueries({ queryKey: ['ims-sellable-items'] });
     },
+  });
+}
+
+/**
+ * Bulk "add to POS" / "remove from POS".
+ *
+ * Invalidates ims-sellable-items as well as ims-items — that is the query the till
+ * itself reads, so without it a cashier keeps seeing the old catalogue.
+ */
+export function useSetPosVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof ImsInventoryService.setPosVisibility>[0]) =>
+      ImsInventoryService.setPosVisibility(input),
+    onSuccess: (result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['ims-items'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-sellable-items'] });
+      toast.success(
+        variables.action === 'add'
+          ? `${result.updated} item${result.updated === 1 ? '' : 's'} now sell at the counter`
+          : `${result.updated} item${result.updated === 1 ? '' : 's'} removed from the counter`,
+      );
+    },
+    onError: (err: Error) => toast.error(err.message),
   });
 }
 

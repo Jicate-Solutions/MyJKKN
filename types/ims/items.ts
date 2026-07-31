@@ -62,6 +62,12 @@ export interface ImsItemFilters {
   brand?: string;
   institution_id?: string;
   store_id?: string;
+  /**
+   * Narrow to items that do / do not appear at the POS. Backed by
+   * `is_sellable_to_students` — the legacy column name; the UI says "At POS"
+   * because the counter also serves walk-ins and patients.
+   */
+  pos_visibility?: 'at_pos' | 'not_at_pos';
   page?: number;
   limit?: number;
 }

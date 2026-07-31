@@ -77,6 +77,7 @@ import {
   useDeleteImsItem,
   useToggleImsItemActive,
   useImsCategoriesForSelect,
+  useSetPosVisibility,
 } from '@/hooks/ims/use-ims-inventory';
 import {
   useCreateImsItemChangeRequest,
@@ -222,6 +223,14 @@ function InventoryItemsPageInner() {
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [posFilter, setPosFilter] = useState<'all' | 'at_pos' | 'not_at_pos'>('all');
+
+  // Bulk selection. `selectAllMatching` is the difference between "these 20 rows"
+  // and "every row this filter matches" — the second cannot be a list of ids,
+  // because only one page of them has ever been loaded.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
+  const [bulkConfirm, setBulkConfirm] = useState<'add' | 'remove' | null>(null);
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -258,7 +267,15 @@ function InventoryItemsPageInner() {
   // Snap back to page 1 whenever the active filters change.
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, categoryFilter, typeFilter]);
+  }, [debouncedSearch, categoryFilter, typeFilter, posFilter]);
+
+  // A selection describes rows in a particular result set. Once the filters move,
+  // those rows may not even be on screen — carrying the selection across would let
+  // someone act on items they can no longer see.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+  }, [debouncedSearch, categoryFilter, typeFilter, posFilter, page]);
 
   // Build filters
   const filters: ImsItemFilters = {
@@ -267,6 +284,7 @@ function InventoryItemsPageInner() {
     item_type: (typeFilter as ImsItemType) || undefined,
     store_id: storeId || '',
     institution_id: institutionId,
+    pos_visibility: posFilter === 'all' ? undefined : posFilter,
     page,
     limit: PAGE_SIZE,
   };
@@ -280,6 +298,64 @@ function InventoryItemsPageInner() {
   const createItem = useCreateImsItem();
   const updateItem = useUpdateImsItem();
   const createChangeRequest = useCreateImsItemChangeRequest();
+  const setPosVisibility = useSetPosVisibility();
+
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  const rows = items?.data ?? [];
+  const totalMatching = items?.metadata?.total ?? 0;
+
+  const toggleSelect = (id: string) => {
+    setSelectAllMatching(false);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectAllMatching(false);
+    setSelectedIds((prev) =>
+      prev.size === rows.length ? new Set() : new Set(rows.map((r) => r.id)),
+    );
+  };
+
+  // What the buttons promise, and what the server will be told to expect.
+  const affectedCount = selectAllMatching ? totalMatching : selectedIds.size;
+
+  const runBulk = (action: 'add' | 'remove') => {
+    setPosVisibility.mutate(
+      selectAllMatching
+        ? {
+            action,
+            institutionId: institutionId || '',
+            expectedCount: totalMatching,
+            mode: 'filter',
+            filter: {
+              search: debouncedSearch || undefined,
+              category_id: categoryFilter || undefined,
+              item_type: typeFilter || undefined,
+              pos_visibility: posFilter === 'all' ? undefined : posFilter,
+            },
+          }
+        : {
+            action,
+            institutionId: institutionId || '',
+            expectedCount: selectedIds.size,
+            mode: 'ids',
+            ids: [...selectedIds],
+          },
+      {
+        onSuccess: () => {
+          setSelectedIds(new Set());
+          setSelectAllMatching(false);
+          setBulkConfirm(null);
+        },
+        onError: () => setBulkConfirm(null),
+      },
+    );
+  };
   const { data: pendingChangeIds } = useImsPendingItemChangeIds(institutionId);
   const deleteItem = useDeleteImsItem();
   const toggleActive = useToggleImsItemActive();
@@ -1421,9 +1497,94 @@ function InventoryItemsPageInner() {
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Finding what is NOT on the counter is the reason this exists —
+                  with most of a catalogue hidden, scanning pages is not a search. */}
+              <Select
+                value={posFilter}
+                onValueChange={(val) => setPosFilter(val as typeof posFilter)}
+              >
+                <SelectTrigger className="w-full sm:w-[180px]">
+                  <SelectValue placeholder="POS" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All items</SelectItem>
+                  <SelectItem value="at_pos">At POS</SelectItem>
+                  <SelectItem value="not_at_pos">Not at POS</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
+
+        {/* Bulk action bar — only while something is selected. */}
+        {canEdit && selectedIds.size > 0 && (
+          <Card className="border-primary/40">
+            <CardContent className="py-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm">
+                  <span className="font-medium">
+                    {affectedCount} item{affectedCount === 1 ? '' : 's'} selected
+                  </span>
+                  {/* The page holds 20 ids; "all matching" cannot be a list, so it
+                      switches the request to filter mode server-side. */}
+                  {!selectAllMatching &&
+                    selectedIds.size === rows.length &&
+                    totalMatching > rows.length && (
+                      <button
+                        type="button"
+                        className="ml-2 underline text-primary"
+                        onClick={() => setSelectAllMatching(true)}
+                      >
+                        Select all {totalMatching} matching
+                      </button>
+                    )}
+                  {selectAllMatching && (
+                    <button
+                      type="button"
+                      className="ml-2 underline text-muted-foreground"
+                      onClick={() => setSelectAllMatching(false)}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={setPosVisibility.isPending}
+                    onClick={() =>
+                      selectAllMatching ? setBulkConfirm('add') : runBulk('add')
+                    }
+                  >
+                    <ShieldCheck className="h-4 w-4 mr-1" />
+                    Add to POS ({affectedCount})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={setPosVisibility.isPending}
+                    onClick={() =>
+                      selectAllMatching ? setBulkConfirm('remove') : runBulk('remove')
+                    }
+                  >
+                    Remove from POS ({affectedCount})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedIds(new Set());
+                      setSelectAllMatching(false);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Items Table */}
         <Card>
@@ -1447,6 +1608,17 @@ function InventoryItemsPageInner() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {canEdit && (
+                        <TableHead className="w-[36px]">
+                          <input
+                            type="checkbox"
+                            checked={rows.length > 0 && selectedIds.size === rows.length}
+                            onChange={toggleSelectAll}
+                            className="h-4 w-4 rounded border-border"
+                            aria-label="Select all rows on this page"
+                          />
+                        </TableHead>
+                      )}
                       <TableHead>Code</TableHead>
                       <TableHead className="w-14">Image</TableHead>
                       <TableHead>Name</TableHead>
@@ -1459,6 +1631,7 @@ function InventoryItemsPageInner() {
                       <TableHead className="text-right">Cost Price</TableHead>
                       <TableHead className="text-right">MRP</TableHead>
                       <TableHead className="text-center">GST %</TableHead>
+                      <TableHead className="text-center">At POS</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -1466,6 +1639,17 @@ function InventoryItemsPageInner() {
                   <TableBody>
                     {(items?.data ?? []).map((item: ImsItemWithRelations) => (
                       <TableRow key={item.id}>
+                        {canEdit && (
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectAllMatching || selectedIds.has(item.id)}
+                              onChange={() => toggleSelect(item.id)}
+                              className="h-4 w-4 rounded border-border"
+                              aria-label={`Select ${item.name}`}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="font-mono text-sm">{item.code}</TableCell>
                         <TableCell>
                           <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center overflow-hidden">
@@ -1538,6 +1722,17 @@ function InventoryItemsPageInner() {
                           {Number(item.gst_rate) > 0 ? (
                             <Badge variant="outline" className="font-mono text-xs">
                               {item.gst_rate}%
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        {/* Whether the till will list it. Without this column the
+                            only way to know is to open the item. */}
+                        <TableCell className="text-center">
+                          {item.is_sellable_to_students ? (
+                            <Badge variant="outline" className="text-green-600 border-green-500/50 text-xs">
+                              At POS
                             </Badge>
                           ) : (
                             <span className="text-muted-foreground text-xs">—</span>
@@ -1655,6 +1850,39 @@ function InventoryItemsPageInner() {
         storeId={storeId ?? ''}
         onClose={() => setViewBatchItem(null)}
       />
+
+      {/* Confirm only for "all matching" — that path can touch hundreds of rows the
+          user never saw, so the count is worth stating before it happens. A plain
+          20-row selection is visible on screen and needs no ceremony. */}
+      <Dialog open={!!bulkConfirm} onOpenChange={(o) => !o && setBulkConfirm(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {bulkConfirm === 'add' ? 'Add to POS' : 'Remove from POS'}
+            </DialogTitle>
+            <DialogDescription>
+              This will {bulkConfirm === 'add' ? 'put' : 'take'}{' '}
+              <strong>{totalMatching} items</strong>{' '}
+              {bulkConfirm === 'add' ? 'on' : 'off'} the counter — every item matching
+              your current filters, including those on other pages.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={setPosVisibility.isPending}
+              onClick={() => bulkConfirm && runBulk(bulkConfirm)}
+            >
+              {setPosVisibility.isPending && (
+                <BeatLoader color="#fff" size={8} className="mr-2" />
+              )}
+              {bulkConfirm === 'add' ? 'Add all' : 'Remove all'} {totalMatching}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

@@ -152,6 +152,15 @@ export class ImsInventoryService {
         query = query.eq('is_active', filters.is_active);
       }
 
+      // On the counter or not. The whole reason this filter exists is finding the
+      // items that are NOT at the POS — with 164 of 165 hidden, eyeballing nine
+      // pages is not a search strategy.
+      if (filters.pos_visibility === 'at_pos') {
+        query = query.eq('is_sellable_to_students', true);
+      } else if (filters.pos_visibility === 'not_at_pos') {
+        query = query.eq('is_sellable_to_students', false);
+      }
+
       // The CATALOG is institution-scoped, not store-scoped: ims_items is
       // UNIQUE (institution_id, code), so an item code exists once per
       // institution regardless of how many stores it is stocked in.
@@ -303,6 +312,43 @@ export class ImsInventoryService {
       console.error('[ImsInventoryService] Error in updateItem:', error);
       throw error;
     }
+  }
+
+  /**
+   * Put items on the counter, or take them off, in bulk.
+   *
+   * Goes through an API route rather than updating here, for two reasons the client
+   * cannot cover: "select all N matching" has to re-run the filter server-side
+   * (the browser holds only one page of ids), and the count interlock has to be
+   * checked against the same predicates the update will use.
+   */
+  static async setPosVisibility(input: {
+    action: 'add' | 'remove';
+    institutionId: string;
+    expectedCount: number;
+    mode: 'ids' | 'filter';
+    ids?: string[];
+    filter?: {
+      search?: string;
+      category_id?: string;
+      item_type?: string;
+      is_active?: boolean;
+      pos_visibility?: 'at_pos' | 'not_at_pos';
+    };
+  }): Promise<{ updated: number }> {
+    const res = await fetch('/api/ims/inventory/pos-visibility', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+
+    const body = await res.json();
+    if (!res.ok) {
+      // 409 carries the two counts, which is the whole point of the interlock —
+      // surface the server's message rather than a generic failure.
+      throw new Error(body?.error || 'Could not update what appears at the POS');
+    }
+    return body as { updated: number };
   }
 
   /**
