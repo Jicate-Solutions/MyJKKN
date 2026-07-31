@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRecordAttempt } from '@/hooks/foundation/use-foundation';
+import { ItemFlagButton } from '../../_components/item-flag-button';
 import { cn } from '@/lib/utils';
 
 interface Option {
