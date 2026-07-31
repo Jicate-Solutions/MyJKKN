@@ -7,7 +7,7 @@
 // Shared by /learners/class-feedback and /learners/my-attendance.
 // Spec: specs/faculty-feedback-exam-link-2026-07-05.md
 
-import { ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
+import { AlertTriangle, ShieldCheck, TrendingDown, TrendingUp, Info } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   useMyConfirmedAttendance,

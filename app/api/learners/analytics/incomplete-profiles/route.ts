@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { resolveInstitutionScope } from '@/lib/auth/institution-scope';
 import {
   PROFILE_FIELD_MISSING,
   type IncompleteProfileDetail,
@@ -114,7 +115,7 @@ export async function GET(request: NextRequest) {
     // Check permissions
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, institution_id')
+      .select('role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -236,14 +237,16 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Institution scope ─────────────────────────────────────────────────
+    // An omitted `institutionIds` means "all institutions" from the client, so
+    // it must NOT collapse to the caller's own institution for a super admin —
+    // theirs points at their employer, not a college. See resolveInstitutionScope.
     const institutionIdsParam = searchParams.get('institutionIds');
-    if (institutionIdsParam) {
-      const institutionIds = institutionIdsParam.split(',').filter(Boolean);
-      if (institutionIds.length > 0) {
-        query = query.in('institution_id', institutionIds);
-      }
-    } else if (profile.institution_id) {
-      query = query.eq('institution_id', profile.institution_id);
+    const institutionScope = resolveInstitutionScope(
+      profile,
+      institutionIdsParam ? institutionIdsParam.split(',').filter(Boolean) : null
+    );
+    if (institutionScope) {
+      query = query.in('institution_id', institutionScope);
     }
 
     const { data, error, count } = await query

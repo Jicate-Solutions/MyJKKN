@@ -172,6 +172,38 @@ export interface RecordAttemptResponse {
   time_ms?: number;
 }
 
+/**
+ * A raised concern about one question. `open` suppresses the question from
+ * mastery scoring (fn_fp_recompute_weakness skips it); `dismissed` and `fixed`
+ * both restore it on the next recompute. Nothing is ever deleted — the row is
+ * the record that the question was looked at.
+ */
+export type ItemFlagStatus = 'open' | 'dismissed' | 'fixed';
+/** The two ways a reviewer may close a report. */
+export type ItemFlagResolution = Exclude<ItemFlagStatus, 'open'>;
+
+export interface ItemFlag {
+  id: string;
+  item_id: string;
+  flagged_by: string | null;
+  reason: string | null;
+  status: ItemFlagStatus;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at?: string;
+  updated_at?: string;
+  item?: Pick<
+    FoundationItem,
+    'id' | 'exam_definition_id' | 'topic_id' | 'difficulty' | 'stem' | 'is_active'
+  > | null;
+}
+
+export interface ListItemFlagsFilters {
+  status?: ItemFlagStatus;
+  examDefinitionId?: string;
+  itemId?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -559,5 +591,69 @@ export class FoundationService {
       throw error;
     }
     return data;
+  }
+
+  // =========================================================================
+  // Reported questions (fp_item_flags)
+  // =========================================================================
+  // Unlike the rest of this file these go through /api/foundation/item-flags
+  // rather than the browser client. Raising a report is open to anyone signed
+  // in while closing one needs foundation.items.manage, and a route is where
+  // that asymmetry produces an explicit, readable 403 instead of an empty
+  // result set. The database policies enforce it either way.
+
+  static async listItemFlags(
+    filters: ListItemFlagsFilters = {},
+  ): Promise<ItemFlag[]> {
+    const qs = new URLSearchParams();
+    if (filters.status) qs.set('status', filters.status);
+    if (filters.examDefinitionId)
+      qs.set('examDefinitionId', filters.examDefinitionId);
+    if (filters.itemId) qs.set('itemId', filters.itemId);
+
+    const res = await fetch(`/api/foundation/item-flags?${qs.toString()}`, {
+      cache: 'no-store',
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.error(LOG, 'listItemFlags failed', json);
+      throw new Error(json?.error ?? 'Could not load reported questions');
+    }
+    return (json?.data ?? []) as ItemFlag[];
+  }
+
+  static async raiseItemFlag(
+    itemId: string,
+    reason?: string | null,
+  ): Promise<ItemFlag> {
+    const res = await fetch('/api/foundation/item-flags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: itemId, reason: reason ?? null }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.error(LOG, 'raiseItemFlag failed', json);
+      throw new Error(json?.error ?? 'Could not record the report');
+    }
+    logger.dev(LOG, 'question reported', { itemId });
+    return json.data as ItemFlag;
+  }
+
+  static async resolveItemFlag(
+    flagId: string,
+    status: ItemFlagResolution,
+  ): Promise<ItemFlag> {
+    const res = await fetch(`/api/foundation/item-flags/${flagId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      logger.error(LOG, 'resolveItemFlag failed', json);
+      throw new Error(json?.error ?? 'Could not close the report');
+    }
+    return json.data as ItemFlag;
   }
 }

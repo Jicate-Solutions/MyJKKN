@@ -9332,6 +9332,101 @@ END;
 $$;
 
 -- =====================================================
+-- validate_learner_semester_year_scope() — Added 2026-07-30
+--   Migration: 20260730160000_repair_cross_institution_learner_semester_academic_year.sql
+--   Extended 2026-07-30 by 20260808100000_repair_learner_degree_id_cross_institution.sql
+--   to also cover degree_id and department_id.
+-- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
+--
+-- Rejects a learners_profiles row whose degree_id, department_id, semester_id
+-- or academic_year_id belongs to a DIFFERENT institution. These tables are all
+-- institution-scoped and carry duplicate NAMES across institutions (nine rows
+-- named 'Undergraduate', one per institution), so a mis-pointed FK renders
+-- identically in the UI and is invisible until a filter silently returns zero
+-- rows. Two separate bulk writes on 2026-07-30 did exactly that.
+--
+-- Validates only on INSERT or when the value (or institution_id) ACTUALLY
+-- CHANGES — unlike validate_learner_admission_year_scope, which validates
+-- unconditionally. That is safe there because no bad rows exist. Here 319
+-- known-unresolvable semester rows deliberately remain, and an unconditional
+-- guard would make those learners impossible to edit at all, including to fix
+-- them.
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.validate_learner_semester_year_scope()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inst uuid;
+BEGIN
+  -- Cannot judge scope without an institution on the learner.
+  IF NEW.institution_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.degree_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.degree_id      IS DISTINCT FROM OLD.degree_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT g.institution_id INTO v_inst
+      FROM public.degrees g WHERE g.id = NEW.degree_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'degree_id % belongs to institution %, not the learner''s institution %',
+        NEW.degree_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.department_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.department_id  IS DISTINCT FROM OLD.department_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT dp.institution_id INTO v_inst
+      FROM public.departments dp WHERE dp.id = NEW.department_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'department_id % belongs to institution %, not the learner''s institution %',
+        NEW.department_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.semester_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.semester_id     IS DISTINCT FROM OLD.semester_id
+          OR NEW.institution_id  IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT s.institution_id INTO v_inst
+      FROM public.semesters s WHERE s.id = NEW.semester_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'semester_id % belongs to institution %, not the learner''s institution %',
+        NEW.semester_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.academic_year_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.academic_year_id IS DISTINCT FROM OLD.academic_year_id
+          OR NEW.institution_id   IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT a.institution_id INTO v_inst
+      FROM public.academic_years a WHERE a.id = NEW.academic_year_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'academic_year_id % belongs to institution %, not the learner''s institution %',
+        NEW.academic_year_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- =====================================================
 -- admission_years_enforce_single_current() — Added 2026-07-25
 -- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
 -- Wired by trg_admission_years_single_current in 04_triggers.sql.
@@ -13319,9 +13414,19 @@ GRANT EXECUTE ON FUNCTION public.get_billing_today_collections(uuid[]) TO authen
 GRANT EXECUTE ON FUNCTION public.get_billing_collection_trend(uuid[], date, date, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_institution(uuid[], date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_aging(uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
-REVOKE ALL ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon;
-GRANT EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
+-- Updated: 2026-07-30 — close anon EXECUTE on these two SECURITY DEFINER RPCs.
+-- `REVOKE ALL ... FROM anon` alone is NOT enough: Postgres grants EXECUTE to
+-- PUBLIC by default (the `=X/owner` ACL entry) and `anon` inherits through
+-- PUBLIC, so the old single-role revoke below was a no-op and both functions
+-- were anon-executable on production. Mirrors migration
+-- 20260807190000_revoke_anon_billing_analytics_rpcs.sql; fixes the defect
+-- introduced by 20260801012000_billing_collection_split_rpcs.sql.
+REVOKE EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_billing_user_activity(uuid[], date, date) TO authenticated;
 
 
@@ -21637,6 +21742,17 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 --   courses_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is
 --   evaluated ONCE (hashed subplan) instead of a per-row function call — the
 --   per-row form full-scanned courses and hit the 8s statement_timeout (57014).
+-- staff_ids_visiting_accessible_institutions() RETURNS uuid[]  (migration
+--   optimize_staff_select_rls_dashboard_perf, 2026-07-30)
+--   STABLE SECURITY DEFINER, parameterless SET form of
+--   staff_is_visiting_in_accessible_institution: the DISTINCT set of staff_ids that
+--   teach in an institution the CURRENT USER can access. Used by
+--   staff_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is evaluated
+--   ONCE. The per-row form made every unbounded `staff` read cost 1245 ms / 33,766
+--   buffers for an own_institution user, which the analytics dashboard then paid 9x
+--   (its "Loading Dashboard..." hang). MUST stay SECURITY DEFINER: staff_plan_courses
+--   and staff_plans carry their own RLS, so inlining the join into the policy would
+--   evaluate it as the querying user and silently narrow the grant.
 -- fn_attendance_roster (UPDATED 20260706): institution gate is now
 --   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
 --   permission — visiting staff can load the roster where they teach.

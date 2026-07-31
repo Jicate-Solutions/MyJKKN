@@ -26,6 +26,7 @@ import {
   FileText,
   ChevronRight,
   Globe,
+  Users,
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -54,6 +55,7 @@ import {
   isGeneralEventActive,
 } from '@/types/events';
 import type { Event, EventStatus } from '@/types/events';
+import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
 
 /** 'cultural' → 'Cultural', 'sports_day' → 'Sports Day' (raw types render readable). */
@@ -217,6 +219,10 @@ export default function GeneralEventDetailPage() {
   const home = (event.config as Record<string, unknown> | null)?.home as
     | string
     | undefined;
+  // Compared as a string, like formatEventType above: events.event_type is free
+  // text in the database (spec §6 P3 — no CHECK constrains it), so the TS union
+  // is a convenience listing rather than the real vocabulary.
+  const isSchoolOfInfluence = (event.event_type as string) === SOI_EVENT_TYPE;
 
   return (
     <ContentLayout title={event.name}>
@@ -320,14 +326,49 @@ export default function GeneralEventDetailPage() {
                 <ChevronRight className="h-4 w-4" />
               </Link>
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Note: the form is saved against this event, but general events do
-              not yet have a public registration page — only sports tournaments
-              have one today. Until that ships, use this to define the form;
-              responses cannot be collected from the public site yet.
-            </p>
+            {isSchoolOfInfluence ? (
+              <p className="text-xs text-muted-foreground">
+                This form is what applicants answer on the School of Influence
+                application page below.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Note: the form is saved against this event, but general events do
+                not yet have a public registration page — only sports tournaments
+                have one today. Until that ships, use this to define the form;
+                responses cannot be collected from the public site yet.
+              </p>
+            )}
           </CardContent>
         </Card>
+
+        {/* School of Influence — the programme's application door. Shown only
+            for the SoI event type so no other event grows a stray link; the
+            page itself decides whether an applicant may apply, from the batches
+            and the config, so this is a shortcut and never an authority. */}
+        {isSchoolOfInfluence && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Users className="h-4 w-4 text-muted-foreground" />
+                Applications
+              </CardTitle>
+              <CardDescription>
+                The page learners and team members use to apply to this
+                programme. Each person applies for themselves — eligibility, the
+                intake window and batch capacity are all checked when they submit.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="outline" className="gap-1.5">
+                <Link href={`/events/${event.id}/apply`}>
+                  Open the application page
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <EditGeneralEventDialog

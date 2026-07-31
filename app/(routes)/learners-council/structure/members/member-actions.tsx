@@ -8,8 +8,8 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PersonPicker } from './person-picker';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -132,15 +132,11 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
           </div>
 
           <div>
-            <Label htmlFor="assign-user">Learner User ID</Label>
-            <Input
-              id="assign-user"
-              placeholder="Enter the learner's user ID"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-            />
+            <Label htmlFor="assign-user">Learner</Label>
+            <PersonPicker id="assign-user" value={userId} onChange={setUserId} />
             <p className="text-xs text-muted-foreground mt-1">
-              The UUID of the learner from the profiles table
+              Search by name or email. Only learners from institutions you can
+              access are listed.
             </p>
           </div>
 

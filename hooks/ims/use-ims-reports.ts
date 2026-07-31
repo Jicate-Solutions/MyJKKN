@@ -103,6 +103,25 @@ export function useImsUpiAuditReport(
   });
 }
 
+/**
+ * Gateway-verified counter payments. Unlike useImsUpiAuditReport this reads the
+ * payments table, so it also returns attempts that never became a sale.
+ */
+export function useImsGatewayPaymentsReport(
+  storeId: string,
+  dateFrom: string,
+  dateTo: string,
+  institutionId?: string
+) {
+  return useQuery({
+    queryKey: ['ims-gateway-payments', storeId, dateFrom, dateTo],
+    queryFn: () =>
+      ImsReportsService.getGatewayPaymentsReport(storeId, dateFrom, dateTo, institutionId),
+    enabled: !!storeId && !!dateFrom && !!dateTo,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
 export function useImsAlertSummary(storeId: string, institutionId?: string) {
   return useQuery({
     queryKey: ['ims-alert-summary', storeId],
