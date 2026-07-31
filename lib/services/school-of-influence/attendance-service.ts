@@ -11,7 +11,7 @@
 // public.event_sessions rows and marks are public.event_session_attendance rows
 // — the pair that already carries 855 marks across 43 sessions. Every call here
 // is a thin wrapper over one of the SECURITY DEFINER RPCs in
-// supabase/migrations/20260808140000_soi_attendance_completion.sql.
+// supabase/migrations/20260808145000_soi_attendance_completion.sql.
 //
 // WHY RPCs AND NOT TABLE READS. Both tables are already RLS-locked against this
 // module: event_sessions is admin-only (event_sessions_admin), and

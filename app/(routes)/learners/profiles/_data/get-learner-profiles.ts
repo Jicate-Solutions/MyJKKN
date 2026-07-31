@@ -5,11 +5,8 @@
  * Used by the server component to pre-render data on the server.
  */
 
-
-
 import { createClient } from '@/lib/supabase/server';
 import { buildLearnerSearchConditions } from '@/lib/utils/learner-search';
-
 
 import type { LearnerProfile, LifecycleStatus } from '@/types/learner-profile';
 
@@ -45,14 +42,6 @@ interface GetLearnerProfilesResult {
   };
 }
 
-/**
- * Get learner profiles with server-side caching
- *
- * Cache Strategy: WARM (5 minutes TTL)
- * - Student data changes moderately (several times per hour)
- * - Balance between freshness and performance
- * - Cache tags allow targeted invalidation when profiles are created/updated/deleted
- */
 // Whitelist of valid sortable columns to prevent DB errors from URL tampering
 const VALID_SORT_COLUMNS = new Set([
   'first_name', 'last_name', 'roll_number', 'register_number',
@@ -64,17 +53,36 @@ const EMPTY_RESULT: GetLearnerProfilesResult = {
   metadata: { total_items: 0, page: 1, limit: 10, total_pages: 0 },
 };
 
-/**
- * Apply every list filter to a query builder.
- *
- * Shared by the data query and the fallback count query so the two can never
- * drift. A previous copy-pasted version of this block omitted `learner_id`,
- * which made a student's `total_items` count every profile they could see
- * instead of just their own row.
- */
-function applyProfileFilters<Q>(query: Q, params: GetLearnerProfilesParams): Q {
-  let q = query as any;
+// Only the relations `_components/columns.tsx` actually renders.
+//
+// Every embed is a per-row lookup that re-evaluates the joined table's own RLS
+// policies, and those policies call SECURITY DEFINER functions (is_super_admin /
+// is_admin / user_has_permission / api_key_has_permission) once per row rather
+// than once per query. Measured at pageSize=50: the same query costs 75ms with
+// RLS bypassed vs 1,920ms under RLS, and each embed adds ~140ms.
+// degree / department / academic_year / regulation / batch were fetched but
+// never rendered — the detail view (get-learner-profile.ts), the export dialog
+// (LearnerProfileService) and the promotion page all fetch their own data, so
+// nothing downstream reads them from this payload.
+const LIST_SELECT = `
+  *,
+  institution:institutions(id, name, counselling_code),
+  program:programs(id, program_name),
+  semester:semesters(id, semester_name, semester_code),
+  section:sections(id, section_name),
+  admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
+`;
 
+/**
+ * Apply every filter to a query builder.
+ *
+ * Shared by the page query and the count fallback ON PURPOSE: these were two
+ * hand-maintained copies of the same twelve predicates, which is exactly how a
+ * filter silently stops applying to one of them. A previous copy-pasted version
+ * omitted `learner_id`, which made a student's `total_items` count every profile
+ * they could see instead of just their own row.
+ */
+function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
   const {
     search,
     search_case_sensitive,
@@ -93,13 +101,14 @@ function applyProfileFilters<Q>(query: Q, params: GetLearnerProfilesParams): Q {
     learner_id,
   } = params;
 
+  let q = query as any;
+
   if (search) {
     const searchConditions = buildLearnerSearchConditions(search, {
       caseSensitive: search_case_sensitive,
       exactMatch: search_exact_match,
-      searchFields: search_fields
+      searchFields: search_fields,
     });
-
     if (searchConditions.length > 0) {
       q = q.or(searchConditions.join(','));
     }
@@ -117,7 +126,12 @@ function applyProfileFilters<Q>(query: Q, params: GetLearnerProfilesParams): Q {
   if (semester_id) q = q.eq('semester_id', semester_id);
   if (section_id) q = q.eq('section_id', section_id);
   if (academic_year_id) q = q.eq('academic_year_id', academic_year_id);
-  if (gender) q = q.eq('gender', gender);
+
+  // gender is stored upper-case ('MALE' / 'FEMALE') but has been written in
+  // mixed case by older forms. Match case-insensitively so the filter can never
+  // again silently return zero rows because the dropdown said 'Male'.
+  // There is no index on gender and the table is ~4k rows, so ilike costs nothing.
+  if (gender) q = q.ilike('gender', gender);
 
   if (is_profile_complete !== undefined) {
     if (is_profile_complete === false) {
@@ -128,124 +142,103 @@ function applyProfileFilters<Q>(query: Q, params: GetLearnerProfilesParams): Q {
     }
   }
 
-  return q as Q;
+  return q as T;
 }
 
+/**
+ * Get learner profiles with server-side caching
+ *
+ * Cache Strategy: WARM (5 minutes TTL)
+ * - Student data changes moderately (several times per hour)
+ * - Balance between freshness and performance
+ * - Cache tags allow targeted invalidation when profiles are created/updated/deleted
+ */
 export async function getLearnerProfiles(
   params: GetLearnerProfilesParams = {}
 ): Promise<GetLearnerProfilesResult> {
   try {
-  // Debug: Log all filter params received
-  if (process.env.NODE_ENV === 'development') {
-    const activeFilters = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null);
-    console.log('[getLearnerProfiles] Filters received:', Object.fromEntries(activeFilters));
-  }
-
-  const supabase = await createClient();
-
-  // Filters are applied via applyProfileFilters(params); only pagination and
-  // sorting need to be read out here.
-  const {
-    page = 1,
-    limit = 10,
-    sortBy: rawSortBy = 'first_name',
-    sortOrder = 'asc'
-  } = params;
-
-  // Validate sortBy against whitelist to prevent DB errors from URL tampering
-  const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
-
-  // Build query with relations
-  let query = supabase
-    .from('learners_profiles')
-    // Only the embeds that columns.tsx actually renders.
-    //
-    // Every embed is a per-row lookup that re-evaluates the joined table's own
-    // RLS policies, and those policies call SECURITY DEFINER functions
-    // (is_super_admin / is_admin / user_has_permission / api_key_has_permission)
-    // once per row rather than once per query. Measured at pageSize=50: the
-    // same query costs 75ms with RLS bypassed vs 1,920ms under RLS, and each
-    // embed adds ~140ms. degree/department/academic_year/regulation/batch were
-    // fetched but never rendered — the detail view (get-learner-profile.ts),
-    // the export dialog (LearnerProfileService) and the promotion page all
-    // fetch their own data, so nothing downstream reads them from this payload.
-    .select(
-      `
-      *,
-      institution:institutions(id, name, counselling_code),
-      program:programs(id, program_name),
-      semester:semesters(id, semester_name, semester_code),
-      section:sections(id, section_name),
-      admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
-    `,
-      { count: 'exact' }
-    );
-
-  // Apply filters - Parse advanced search format
-  query = applyProfileFilters(query, params);
-
-  // Apply sorting
-  query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-
-  // Apply pagination
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
-
-  // Execute the main query.
-  //
-  // `count: 'exact'` above already makes PostgREST emit a dedicated
-  // `pgrst_source_count` CTE that scans the base table with these same filters
-  // and NO limit, so `count` here is the exact total. Re-deriving it with a
-  // second head-count query doubled that unbounded scan — and under RLS on
-  // learners_profiles a full scan costs orders of magnitude more than the
-  // 10-row page itself, which is what pushed this route past the 8s
-  // statement_timeout. Reuse the count we already paid for.
-  const { data, error, count: exactCount } = await query.range(from, to);
-
-  let count = exactCount ?? 0;
-
-  // Handle pagination range error gracefully
-  // PGRST103: "Requested range not satisfiable" - happens when offset > total rows
-  // This can occur when user navigates to page 2 but filters reduce results to 1 row
-  if (error) {
-    if (error.code === 'PGRST103') {
-      // Range not satisfiable - return empty data instead of throwing.
-      // The failed request carries no count, so this is the one case where a
-      // dedicated count query is warranted.
-      console.warn('[getLearnerProfiles] Pagination range exceeds available rows, returning empty result');
-
-      const countQuery = applyProfileFilters(
-        supabase.from('learners_profiles').select('id', { count: 'exact', head: true }),
-        params
+    // Debug: Log all filter params received
+    if (process.env.NODE_ENV === 'development') {
+      const activeFilters = Object.entries(params).filter(
+        ([_, v]) => v !== undefined && v !== null
       );
+      console.log(
+        '[getLearnerProfiles] Filters received:',
+        Object.fromEntries(activeFilters)
+      );
+    }
 
-      const { count: fallbackCount, error: countError } = await countQuery;
+    const supabase = await createClient();
 
-      if (countError) {
-        console.error('[getLearnerProfiles] Error fetching count:', countError);
+    const {
+      page = 1,
+      limit = 10,
+      sortBy: rawSortBy = 'first_name',
+      sortOrder = 'asc',
+    } = params;
+
+    // Validate sortBy against whitelist to prevent DB errors from URL tampering
+    const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    const query = applyLearnerFilters(
+      supabase
+        .from('learners_profiles')
+        .select(LIST_SELECT, { count: 'exact' }),
+      params
+    )
+      .order(sortBy, { ascending: sortOrder === 'asc' })
+      .range(from, to);
+
+    const { data, error, count } = await query;
+
+    let total = count ?? 0;
+
+    if (error) {
+      // PGRST103: "Requested range not satisfiable" - happens when offset > total
+      // rows, e.g. the user is on page 2 and a filter cuts the result to 1 row.
+      // The row count does not come back with this error, so this is the ONE case
+      // that still needs a dedicated count round-trip. The happy path uses the
+      // count returned by the query above instead of re-counting every time.
+      if (error.code === 'PGRST103') {
+        console.warn(
+          '[getLearnerProfiles] Pagination range exceeds available rows, returning empty result'
+        );
+
+        const { count: fallbackCount, error: countError } =
+          await applyLearnerFilters(
+            supabase
+              .from('learners_profiles')
+              .select('id', { count: 'exact', head: true }),
+            params
+          );
+
+        if (countError) {
+          console.error('[getLearnerProfiles] Error fetching count:', countError);
+        }
+        total = fallbackCount ?? 0;
+      } else {
+        console.error('[getLearnerProfiles] Error fetching profiles:', error);
+        throw new Error(`Failed to fetch learner profiles: ${error.message}`);
       }
-
-      count = fallbackCount ?? 0;
-    } else {
-      // Other errors should still throw
-      console.error('[getLearnerProfiles] Error fetching profiles:', error);
-      throw new Error(`Failed to fetch learner profiles: ${error.message}`);
     }
-  }
 
-  const totalPages = count ? Math.ceil(count / limit) : 0;
-
-  return {
-    data: (data as LearnerProfile[]) || [],
-    metadata: {
-      total_items: count || 0,
-      page,
-      limit,
-      total_pages: totalPages
-    }
-  };
+    return {
+      data: (data as LearnerProfile[]) || [],
+      metadata: {
+        total_items: total,
+        page,
+        limit,
+        total_pages: total ? Math.ceil(total / limit) : 0,
+      },
+    };
   } catch (error) {
-    console.error('[getLearnerProfiles] Unexpected error, returning empty result:', error);
+    console.error(
+      '[getLearnerProfiles] Unexpected error, returning empty result:',
+      error
+    );
     return EMPTY_RESULT;
   }
 }

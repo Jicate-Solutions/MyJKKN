@@ -114,6 +114,23 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
           <EnquiryForm
             learner={learner}
             onSuccess={handleEditSuccess}
+            // Finance Details is admission-capture only (fee structure chosen
+            // when a lead is admitted); fees for an existing learner live in
+            // Billing. Same five tabs the Profiles create form shows. Safe to
+            // drop: every finance field is nullable+optional in the schema, so
+            // nothing required is stranded on an unreachable tab.
+            visibleTabs={[
+              'basic-details',
+              'contact-details',
+              'course-selection',
+              'academic-information',
+              'accommodation-preferences',
+            ]}
+            // Existing learners: any department stays selectable and the stored
+            // semester is left alone. The first-year => Science & Humanities +
+            // Freshers rules belong to admission capture, and applying them here
+            // hid real departments and overwrote real semesters.
+            enforceAdmissionRules={false}
           />
         </Card>
       </div>
