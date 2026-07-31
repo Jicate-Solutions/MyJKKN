@@ -131,13 +131,6 @@
       "reason": "Public scoreboard by event id \u2014 published deliberately."
     },
     {
-      "name": "fn_update_recruitment_step_comment",
-      "args": "p_candidate_id uuid, p_step_index integer, p_comment text",
-      "status": "grandfathered",
-      "writes_data": true,
-      "reason": "STILL OPEN \u2014 DO NOT APPROVE. Anonymous WRITE path. The guard reads (v_decided_by = v_uid) OR is_super_admin() OR user_has_permission(...); for anon v_uid is NULL so the first term is NULL, the whole expression is NULL, NOT NULL is NULL, and Postgres treats a NULL IF as false \u2014 so the RAISE is SKIPPED and execution falls through to the UPDATE. Evaluated against production 2026-07-30 under live anonymous conditions: returns NULL. 7 of 19 recruitment candidates carry the decided_by precondition and are writable by an anonymous caller holding the candidate UUID. Fix is COALESCE(..., false); revoke and delete this entry once patched. Tracked as a separate PR, Director-approved 2026-07-30."
-    },
-    {
       "name": "fn_user_can_access_room",
       "args": "check_room_id uuid",
       "status": "approved",
