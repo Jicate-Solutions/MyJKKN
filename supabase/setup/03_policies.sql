@@ -7810,16 +7810,44 @@ CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_pro
 -- policies untouched. Helpers are SECURITY DEFINER (see 02_functions.sql).
 -- ============================================================================
 
+-- `staff` (856 rows) is read unbounded by the analytics dashboard, list pages, pickers
+-- and exports. The per-row form below caused a multi-second "Loading Dashboard..." hang
+-- (1245 ms / 33,766 buffers for one scan as an own_institution user). Both staff SELECT
+-- policies now use the once-evaluated forms -- see
+-- supabase/migrations/optimize_staff_select_rls_dashboard_perf.sql for the measurements
+-- and the 11-user equivalence proof. Keep these two policies in sync with that migration;
+-- the pre-optimisation shapes live in 20260511_staff_module_scope_lockdown.sql and in the
+-- Cross-institution teaching migration and must NOT be restored.
+DROP POLICY IF EXISTS "staff_select_scope_aware" ON public.staff;
+CREATE POLICY "staff_select_scope_aware" ON public.staff
+FOR SELECT USING (
+  (SELECT is_super_admin())
+  OR (
+    (SELECT user_has_permission('staff.view'))
+    AND (
+      CASE (SELECT get_user_module_scope('staff'))
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN (
+          staff.institution_id IS NULL
+          OR staff.institution_id IN (SELECT unnest(public._user_accessible_institutions()))
+        )
+        WHEN 'own_records'      THEN staff.profile_id = (SELECT auth.uid())
+        ELSE FALSE
+      END
+    )
+  )
+);
+
 DROP POLICY IF EXISTS "staff_select_visiting_teacher" ON public.staff;
 CREATE POLICY "staff_select_visiting_teacher" ON public.staff
 FOR SELECT USING (
   (
-    user_has_permission('academic.staff.planning.view')
-    OR user_has_permission('academic.timetables.view')
-    OR user_has_permission('academic.attendance.mark')
-    OR user_has_permission('academic.attendance.view')
+    (SELECT user_has_permission('academic.staff.planning.view'))
+    OR (SELECT user_has_permission('academic.timetables.view'))
+    OR (SELECT user_has_permission('academic.attendance.mark'))
+    OR (SELECT user_has_permission('academic.attendance.view'))
   )
-  AND staff_is_visiting_in_accessible_institution(staff.id)
+  AND staff.id IN (SELECT unnest(public.staff_ids_visiting_accessible_institutions()))
 );
 
 -- Visiting teachers can read the academic structure of institutions they teach in.
