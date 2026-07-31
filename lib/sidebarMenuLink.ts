@@ -165,6 +165,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  // Gemba visits — the screen that records someone going to look. Same key as
+  // the board itself: a posted associate holds improvement.ideas.view, and the
+  // RPC does the real gating (posted to that department, or an officer).
+  '/improvement-board/gemba': 'improvement.ideas.view',
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
@@ -1580,6 +1584,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
             { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
             { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // Gemba visits — records that somebody went and looked, which is the
+            // only thing that makes a department playbook official (improvement.ideas.view).
+            { href: '/improvement-board/gemba', label: 'Gemba Visits', active: pathname === '/improvement-board/gemba' },
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
