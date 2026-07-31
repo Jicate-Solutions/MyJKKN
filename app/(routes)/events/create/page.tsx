@@ -437,17 +437,15 @@ export default function CreateEventPage() {
           <Card>
             <CardHeader>
               <CardTitle>Event details</CardTitle>
-              <CardDescription>
-                {formatDef && home && (
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant="outline">{formatDef.label}</Badge>
-                    <span className="text-muted-foreground">filed under</span>
-                    <Badge variant="outline">
-                      {EVENT_HOMES.find((h) => h.value === home)?.label}
-                    </Badge>
-                  </span>
-                )}
-              </CardDescription>
+              {formatDef && home && (
+                <div className="flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground">
+                  <Badge variant="outline">{formatDef.label}</Badge>
+                  <span>filed under</span>
+                  <Badge variant="outline">
+                    {EVENT_HOMES.find((h) => h.value === home)?.label}
+                  </Badge>
+                </div>
+              )}
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
