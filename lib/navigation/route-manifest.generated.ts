@@ -6765,6 +6765,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/startup-studio/school-of-influence",
+        "label": "School Of Influence",
+        "iconName": "FileText",
+        "children": [
+          {
+            "path": "/startup-studio/school-of-influence/admin",
+            "label": "Admin",
+            "iconName": "FileText",
+            "children": [
+              {
+                "path": "/startup-studio/school-of-influence/admin/attendance",
+                "label": "Attendance",
+                "iconName": "CheckSquare",
+                "children": []
+              }
+            ]
+          }
+        ]
+      },
+      {
         "path": "/startup-studio/solve-for-100",
         "label": "Solve For 100",
         "iconName": "FileText",
