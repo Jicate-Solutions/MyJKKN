@@ -106128,6 +106128,17 @@ export type Database = {
         Args: { p_table_name: string; p_user_id: string; p_version_id: string }
         Returns: string
       }
+      hr_staff_without_payer: {
+        Args: never
+        Returns: {
+          person_name: string
+          role_title: string
+          staff_code: string
+          staff_uuid: string
+          works_at_id: string
+          works_at_name: string
+        }[]
+      }
       ims_confirm_supply_receipt: {
         Args: {
           p_lines: Json
