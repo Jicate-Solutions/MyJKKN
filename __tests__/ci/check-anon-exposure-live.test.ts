@@ -133,6 +133,12 @@ describe('check-anon-exposure-live gate', () => {
   it('catches an exposed VIEW, not just tables', () => {
     // A view is not covered by the underlying table's RLS: unless it is
     // security_invoker it runs as its owner and republishes protected rows.
+    //
+    // NOTE: this test passed for two days while the sweep could not see a single
+    // view. It proves the CLASSIFIER handles a view row; it cannot prove the
+    // QUERY ever produces one, because --fixture replaces the query. The SQL-level
+    // suite below is what closes that gap. Left in place deliberately, as the
+    // example of a green test that guaranteed less than its name implied.
     const { code, out } = run(
       [row({ name: 'leaky_learner_view', kind: 'v', rls_on: false, rows: 500, identity_cols: 'full_name,email' })],
       [],
@@ -142,6 +148,44 @@ describe('check-anon-exposure-live gate', () => {
     expect(out).toContain('view');
   });
 
+  it('tells you to REVOKE a view, and does NOT tell you to enable RLS on it', () => {
+    // The remediation differs by kind and the wrong one is worse than none:
+    // PostgreSQL rejects a row-level policy on a view outright, so somebody who
+    // follows table advice writes a migration that errors — or "fixes" it by
+    // dropping the statement — and the exposure stays open, now with a ticket
+    // closed against it.
+    const { code, out } = run(
+      [row({ name: 'v_learner_hostelites', kind: 'v', rows: 719, identity_cols: 'full_name,email,father_name' })],
+      [],
+    );
+    expect(code).toBe(1);
+    expect(out).toContain('REVOKE ALL ON public.v_learner_hostelites FROM anon, PUBLIC');
+    expect(out).not.toContain('ALTER TABLE public.v_learner_hostelites ENABLE ROW LEVEL SECURITY');
+  });
+
+  it('gives table advice for a table and view advice for a view in the same run', () => {
+    const { code, out } = run(
+      [
+        row({ name: 'some_leaky_table', kind: 'r', rows: 21, identity_cols: 'roll_number' }),
+        row({ name: 'some_leaky_view', kind: 'v', rows: 7226, identity_cols: 'email' }),
+      ],
+      [],
+    );
+    expect(code).toBe(1);
+    expect(out).toContain('ALTER TABLE public.some_leaky_table ENABLE ROW LEVEL SECURITY');
+    expect(out).toContain('REVOKE ALL ON public.some_leaky_view FROM anon, PUBLIC');
+    expect(out).toContain('1 table(s), 1 view/matview(s)');
+  });
+
+  it('counts a MATERIALIZED VIEW as a view, not as a table', () => {
+    const { code, out } = run(
+      [row({ name: 'mv_learner_attendance_summary', kind: 'm', rows: 4551, identity_cols: 'learner_id' })],
+      [],
+    );
+    expect(code).toBe(1);
+    expect(out).toContain('materialized view');
+    expect(out).toContain('0 table(s), 1 view/matview(s)');
+  });
   it('catches a Shape-B relation — RLS ON but defeated by a TO public USING(true) policy', () => {
     const { code, out } = run(
       [row({ name: 'event_external_participants', rls_on: true, rows: 9, identity_cols: 'full_name,phone' })],
@@ -265,3 +309,106 @@ describe('check-anon-exposure-live gate', () => {
     expect(out).toContain('0 executable by the anon key');
   });
 });
+
+
+/**
+ * SQL-LEVEL REGRESSION SUITE — the tests that would have caught the real bug.
+ *
+ * Everything above drives the script with --fixture, which substitutes rows for
+ * the database. That boundary sits BETWEEN the query and the classifier, so no
+ * fixture test can observe the query at all: if EXPOSURE_SQL returned nothing
+ * forever, every test above would still be green. That is not hypothetical — it
+ * is what happened. Between 2026-07-29 and 2026-07-31 the qualifying clause
+ * admitted a relation only when it was a TABLE with RLS off, or when it had an
+ * RLS POLICY granted TO public. A view is neither and can never be either:
+ * PostgreSQL does not permit an RLS policy on a view or a materialized view. So
+ * views were excluded by construction while the suite reported them covered, and
+ * the live sweep printed 4 relations and a green tick while 34 views were
+ * serving rows to unauthenticated callers — 7,226 learner/staff profiles among
+ * them.
+ *
+ * These assert against the SQL the script ACTUALLY RUNS (via --print-sql) rather
+ * than against a copy, so they cannot drift from it.
+ */
+describe('check-anon-exposure-live EXPOSURE_SQL — the query itself', () => {
+  const sql = (): string => {
+    const r = spawnSync('node', [SCRIPT, '--print-sql'], { encoding: 'utf8' });
+    expect(r.status, `--print-sql failed: ${r.stderr}`).toBe(0);
+    return r.stdout;
+  };
+
+  /**
+   * Pull out the arms of the qualifying CASE, so an assertion can talk about the
+   * grant-only branch specifically instead of about the whole query. Matching the
+   * whole query would pass on a SQL that mentions views anywhere at all — which
+   * the BROKEN query did, in its relkind IN ('r','v','m') filter. That filter is
+   * exactly what made the bug look absent: the word "view" was present and the
+   * capability was not.
+   */
+  const caseArms = (text: string): string[] =>
+    text
+      .slice(text.indexOf('CASE'), text.indexOf('END AS shape'))
+      .split(/\bWHEN\b/)
+      .slice(1);
+
+  it('has a qualifying arm that admits a view/matview', () => {
+    const arms = caseArms(sql());
+    expect(arms.length).toBeGreaterThan(0);
+    const grantOnly = arms.filter((a) => a.includes('grant-only'));
+    expect(grantOnly, 'no CASE arm yields the grant-only shape').toHaveLength(1);
+    expect(grantOnly[0]).toMatch(/relkind\s+IN\s*\(\s*'v'\s*,\s*'m'\s*\)/);
+  });
+
+  it('REGRESSION: the view arm must not depend on RLS state in any form', () => {
+    // This is the whole defect in one assertion. A view carries no RLS and no
+    // policy, so any RLS reasoning in this arm silently reduces it to FALSE and
+    // the sweep goes blind again — passing, reporting nothing, looking healthy.
+    const [grantOnly] = caseArms(sql()).filter((a) => a.includes('grant-only'));
+    expect(grantOnly).toBeDefined();
+    expect(grantOnly).not.toMatch(/relrowsecurity/);
+    expect(grantOnly).not.toMatch(/pg_policies/);
+    expect(grantOnly).not.toMatch(/relkind\s*=\s*'r'/);
+  });
+
+  it('REGRESSION: the view arm is tested BEFORE the RLS arms', () => {
+    // CASE returns the first matching arm. If an RLS arm were ordered first it
+    // could never match a view — but the ordering is what makes that reasoning
+    // hold, so it is asserted rather than assumed.
+    const arms = caseArms(sql());
+    const iGrantOnly = arms.findIndex((a) => a.includes('grant-only'));
+    const iRlsOff = arms.findIndex((a) => a.includes('rls-off'));
+    const iPolicy = arms.findIndex((a) => a.includes('permissive-policy'));
+    expect(iGrantOnly).toBeGreaterThanOrEqual(0);
+    expect(iGrantOnly).toBeLessThan(iRlsOff);
+    expect(iGrantOnly).toBeLessThan(iPolicy);
+  });
+
+  it('still selects views and matviews into the candidate set at all', () => {
+    // The narrower failure that would defeat every assertion above: drop 'v'/'m'
+    // from the relkind filter and the grant-only arm becomes unreachable while
+    // still reading perfectly.
+    expect(sql()).toMatch(/relkind\s+IN\s*\(\s*'r'\s*,\s*'v'\s*,\s*'m'\s*\)/);
+  });
+
+  it('still qualifies tables both ways — the fix must not regress table detection', () => {
+    const arms = caseArms(sql());
+    const rlsOff = arms.find((a) => a.includes('rls-off'));
+    const policy = arms.find((a) => a.includes('permissive-policy'));
+    expect(rlsOff).toMatch(/relrowsecurity\s*=\s*false/);
+    expect(policy).toMatch(/pg_policies/);
+    expect(policy).toMatch(/'public'\s*=\s*ANY\(p\.roles\)/);
+  });
+
+  it('requires the anon SELECT grant by OID, not by name', () => {
+    // The text form of has_table_privilege resolves through search_path and dies
+    // on a same-named relation in another schema (hit live on
+    // storage.s3_multipart_uploads).
+    expect(sql()).toMatch(/has_table_privilege\(\s*'anon'\s*,\s*c\.oid\s*,\s*'SELECT'\s*\)/);
+  });
+
+  it('does not count rows on an unpopulated materialized view', () => {
+    // count(*) on one raises "has not been populated", and query_to_xml
+    // propagates it — aborting the entire sweep. Matviews only began reaching
+    // this count when the grant-only arm was added.
+    expect(sql()).toMatch(/relispopulated/);
+  });});
