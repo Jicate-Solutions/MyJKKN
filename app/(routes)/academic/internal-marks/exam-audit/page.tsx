@@ -79,6 +79,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { CountedAttendance } from '@/components/attendance/counted-attendance';
 import type {
   ExamAuditAttendanceBucket,
   ExamAuditEvidencePack,
@@ -357,7 +358,18 @@ function ProgramDrilldown({
                   <BucketBadge bucket={s.att_bucket} thresholds={data.thresholds} />
                 </TableCell>
                 <TableCell className="text-right text-xs tabular-nums">
-                  {s.att_pct === null ? '—' : `${s.att_present}/${s.att_total} · ${s.att_pct}%`}
+                  {s.att_pct === null ? (
+                    '—'
+                  ) : (
+                    <CountedAttendance
+                      value={{
+                        attended: s.att_present ?? 0,
+                        excused: s.att_protected ?? 0,
+                        total: s.att_total ?? 0,
+                        pct: s.att_pct,
+                      }}
+                    />
+                  )}
                 </TableCell>
                 <TableCell className="text-right text-xs tabular-nums">
                   {s.registered_courses}
