@@ -3,7 +3,8 @@
 // ============================================
 // Created: 2025-01-19
 // Updated: 2025-12-25 - Converted to server component with Cache Components
-// Purpose: List and manage active learner profiles
+// Updated: 2026-07-30 - One lifecycle tab fetched per request (was three)
+// Purpose: List and manage learner profiles
 // ============================================
 
 import { Suspense } from 'react';
@@ -12,11 +13,11 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Plus, Upload } from 'lucide-react';
-import { ProfilesStatusTabs } from './_components/profiles-status-tabs';
-import { isProfileTab } from './_components/profile-tabs';
 import { ProfilesTableServer } from './_components/profiles-table-server';
-import { ProfilesFilters } from './_components/profiles-filters';
+import { LearnerFilterBar } from './_components/learner-filter-bar';
 import { ProfilesSearchWrapper } from './_components/profiles-search-wrapper';
+import { LifecycleTabs } from './_components/lifecycle-tabs';
+import { resolveLifecycleTab } from './_components/lifecycle-status';
 import { profilesSearchParamsSchema } from './_components/data-table-schema';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-profiles-dialog-enhanced';
@@ -27,108 +28,58 @@ import { TableSkeleton } from '@/components/Loading';
 import { createClient } from '@/lib/supabase/server';
 import type { LifecycleStatus } from '@/types/learner-profile';
 
+type RawSearchParams = { [key: string]: string | string[] | undefined };
+
 interface ProfilesPageProps {
-  searchParams: Promise<{
-    [key: string]: string | string[] | undefined;
-  }>;
+  searchParams: Promise<RawSearchParams>;
 }
 
 /**
- * Async component that fetches and displays profiles data
- * This demonstrates the server component pattern with caching
+ * Fetches and renders the table for ONE lifecycle status.
+ *
+ * The viewer's identity is resolved once by the page and passed in — this used
+ * to re-run `auth.getUser()` plus a profiles lookup per rendered instance, and
+ * there were three instances.
  */
 async function ProfilesContent({
   searchParams,
-  statusFilter
+  statusFilter,
+  learnerIdFilter,
 }: {
-  searchParams: {
-    [key: string]: string | string[] | undefined;
-  };
+  searchParams: RawSearchParams;
   statusFilter: LifecycleStatus;
+  learnerIdFilter?: string;
 }) {
-  // Get current user and check if student
-  const supabase = await createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+  const str = (key: string) => (searchParams[key] as string) || undefined;
+  const bool = (key: string) =>
+    searchParams[key] ? searchParams[key] === 'true' : undefined;
 
-  let isStudent = false;
-  let learnerIdFilter: string | undefined = undefined;
+  const search_fields = str('search_fields')
+    ?.split(',')
+    .map((field) => field.trim())
+    .filter(Boolean);
 
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, learner_id')
-      .eq('id', user.id)
-      .single();
-
-    isStudent = profile?.role === 'student';
-
-    // If student, only show their own profile
-    if (isStudent && profile?.learner_id) {
-      learnerIdFilter = profile.learner_id;
-    }
-  }
-
-  // Debug: Log raw searchParams received by server component
-  if (process.env.NODE_ENV === 'development') {
-    const filterKeys = ['institution_id', 'degree_id', 'department_id', 'program_id', 'semester_id', 'section_id'];
-    const activeFilters = filterKeys.filter(k => searchParams[k]);
-    console.log(`[ProfilesContent] statusFilter=${statusFilter} | Active filters: ${activeFilters.join(', ') || 'none'} | Raw params:`,
-      Object.fromEntries(filterKeys.map(k => [k, searchParams[k] || '(empty)'])));
-  }
-
-  // Parse search parameters
-  const page = Number(searchParams.page) || 1;
-  const limit = Number(searchParams.pageSize) || Number(searchParams.limit) || 10; // Support both pageSize (DataTable) and limit (legacy)
-  const search = (searchParams.search as string) || undefined;
-  const search_case_sensitive = searchParams.search_case_sensitive
-    ? searchParams.search_case_sensitive === 'true'
-    : undefined;
-  const search_exact_match = searchParams.search_exact_match
-    ? searchParams.search_exact_match === 'true'
-    : undefined;
-  const search_fields = (searchParams.search_fields as string | undefined)
-    ? (searchParams.search_fields as string)
-        .split(',')
-        .map((field) => field.trim())
-        .filter(Boolean)
-    : undefined;
-  const institution_id = (searchParams.institution_id as string) || undefined;
-  const degree_id = (searchParams.degree_id as string) || undefined;
-  const department_id = (searchParams.department_id as string) || undefined;
-  const program_id = (searchParams.program_id as string) || undefined;
-  const semester_id = (searchParams.semester_id as string) || undefined;
-  const section_id = (searchParams.section_id as string) || undefined;
-  const academic_year_id = (searchParams.academic_year_id as string) || undefined;
-  const gender = (searchParams.gender as string) || undefined;
-  const is_profile_complete = searchParams.is_profile_complete
-    ? searchParams.is_profile_complete === 'true'
-    : undefined;
-  const sortBy = (searchParams.sort_by as string) || 'first_name';
-  const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
-
-  // Fetch data on server with caching
   const { data: profiles, metadata } = await getLearnerProfiles({
-    page,
-    limit,
-    search,
-    search_case_sensitive,
-    search_exact_match,
+    page: Number(searchParams.page) || 1,
+    // Support both pageSize (DataTable) and limit (legacy)
+    limit: Number(searchParams.pageSize) || Number(searchParams.limit) || 10,
+    search: str('search'),
+    search_case_sensitive: bool('search_case_sensitive'),
+    search_exact_match: bool('search_exact_match'),
     search_fields,
     lifecycle_status: statusFilter,
-    institution_id,
-    degree_id,
-    department_id,
-    program_id,
-    semester_id,
-    section_id,
-    academic_year_id,
-    gender,
-    is_profile_complete,
-    sortBy,
-    sortOrder,
-    learner_id: learnerIdFilter // Student filter - only see own profile
+    institution_id: str('institution_id'),
+    degree_id: str('degree_id'),
+    department_id: str('department_id'),
+    program_id: str('program_id'),
+    semester_id: str('semester_id'),
+    section_id: str('section_id'),
+    academic_year_id: str('academic_year_id'),
+    gender: str('gender'),
+    is_profile_complete: bool('is_profile_complete'),
+    sortBy: str('sort_by') || 'first_name',
+    sortOrder: (str('sort_order') as 'asc' | 'desc') || 'asc',
+    learner_id: learnerIdFilter, // Student filter - only see own profile
   });
 
   return (
@@ -143,51 +94,53 @@ async function ProfilesContent({
 /**
  * Learners Management Page - Server Component
  *
- * Performance improvements:
- * - Data fetched on server (faster TTI)
- * - Cached with 5 minute TTL (warm cache for student data)
- * - Streaming with Suspense (progressive loading)
- * - Client components only for interactive filters and row selection
- *
  * Features:
- * - Three tabs for different lifecycle statuses (active, inactive, exited)
- * - Advanced filtering and sorting
+ * - Lifecycle status tabs (active / inactive / exited) driven by `?status=`
+ * - Advanced filtering and sorting via URL state
  * - Bulk operations (promotion, bulk edit)
- * - URL state management
  * - Role-based permission access
  */
 export default async function ProfilesPage({ searchParams }: ProfilesPageProps) {
   // Await searchParams as per Next.js 16 async API
   const params = await searchParams;
 
-  // Get current user and check if student
+  // Resolve the viewer ONCE for the whole page.
   const supabase = await createClient();
   const {
-    data: { user }
+    data: { user },
   } = await supabase.auth.getUser();
 
   let isStudent = false;
+  let learnerIdFilter: string | undefined;
 
   if (user) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, learner_id')
       .eq('id', user.id)
       .single();
 
     isStudent = profile?.role === 'student';
+    if (isStudent && profile?.learner_id) {
+      learnerIdFilter = profile.learner_id;
+    }
   }
 
-  // Selected lifecycle tab, read from the URL so only one tab is ever fetched.
-  // Anything unrecognised (or absent) falls back to 'active'.
-  const activeTab: LifecycleStatus = isProfileTab(params.tab) ? params.tab : 'active';
+  // Students always see their own active profile; admins pick a tab.
+  const activeTab = isStudent ? 'active' : resolveLifecycleTab(params.status);
 
-  // Conditional title and breadcrumb based on role
+  // Re-key the boundary on the query so changing a filter or tab shows the
+  // skeleton instead of silently swapping rows under the user.
+  const suspenseKey = `${activeTab}:${new URLSearchParams(
+    Object.entries(params).flatMap(([k, v]) =>
+      typeof v === 'string' ? [[k, v] as [string, string]] : []
+    )
+  ).toString()}`;
+
   const pageTitle = isStudent ? 'My Profile' : 'Learners Management';
-  const breadcrumbLabel = isStudent ? 'My Profile' : 'Learners Management';
   const headerDescription = isStudent
     ? 'View and manage your student profile information'
-    : 'Manage currently enrolled and active student profiles';
+    : 'Manage enrolled learner profiles';
 
   return (
     <ContentLayout title={pageTitle}>
@@ -195,17 +148,18 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
         items={[
           { label: 'Home', href: '/' },
           { label: 'Learners' },
-          { label: breadcrumbLabel }
+          { label: pageTitle },
         ]}
       />
 
       <div className="space-y-6 mt-4">
         {/* Header */}
         <div className="space-y-4">
-          {/* Title Section */}
           <div>
             <h1 className="text-2xl font-bold py-1">{pageTitle}</h1>
-            <p className="text-sm sm:text-base text-muted-foreground">{headerDescription}</p>
+            <p className="text-sm sm:text-base text-muted-foreground">
+              {headerDescription}
+            </p>
           </div>
 
           {/* Action Buttons - Hidden for students */}
@@ -219,7 +173,9 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
               </Button>
               <CreateMissingProfilesButton />
               <BulkUploadProfilesDialogEnhanced />
-              <BulkUploadLearnerImages institutionId={params.institution_id as string | undefined} />
+              <BulkUploadLearnerImages
+                institutionId={params.institution_id as string | undefined}
+              />
               <BulkEditActiveDialog />
 
               <Button variant="outline" asChild>
@@ -232,38 +188,42 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
           )}
         </div>
 
-        {/* Conditional rendering: Tabs for admins, direct content for students */}
         {isStudent ? (
-          // Students see only their active profile (no tabs)
+          // Students see only their own active profile (no tabs, no filters)
           <div className="space-y-4">
-            <Suspense
-              fallback={<TableSkeleton rows={1} columns={10} />}
-            >
-              <ProfilesContent searchParams={params} statusFilter="active" />
+            <Suspense fallback={<TableSkeleton rows={1} columns={10} />}>
+              <ProfilesContent
+                searchParams={params}
+                statusFilter="active"
+                learnerIdFilter={learnerIdFilter}
+              />
             </Suspense>
           </div>
         ) : (
-          // Admins: search & filters outside Suspense so they stay visible during loading
           <div className="space-y-4">
-            {/* Search & Filters - always visible, never unmounted by Suspense */}
+            {/* Search & filters stay outside Suspense so they remain visible
+                and keep their state while the table streams. */}
             <ProfilesSearchWrapper />
-            <ProfilesFilters searchParams={profilesSearchParamsSchema.safeParse(params).data ?? { page: 1, pageSize: 50 }} />
+            <LearnerFilterBar
+              searchParams={
+                profilesSearchParamsSchema.safeParse(params).data ?? {
+                  page: 1,
+                  pageSize: 50,
+                }
+              }
+            />
 
-            {/*
-              Only the selected tab is fetched. Rendering all three here made
-              React await three <ProfilesContent> server components per page
-              load — three learners_profiles reads plus their unbounded exact
-              -count scans, all concurrent under RLS, against an 8s
-              statement_timeout. See profiles-status-tabs.tsx.
-            */}
-            <ProfilesStatusTabs value={activeTab}>
-              <Suspense
-                key={activeTab}
-                fallback={<TableSkeleton rows={10} columns={10} />}
-              >
-                <ProfilesContent searchParams={params} statusFilter={activeTab} />
-              </Suspense>
-            </ProfilesStatusTabs>
+            <LifecycleTabs value={activeTab} />
+
+            <Suspense
+              key={suspenseKey}
+              fallback={<TableSkeleton rows={10} columns={10} />}
+            >
+              <ProfilesContent
+                searchParams={params}
+                statusFilter={activeTab as LifecycleStatus}
+              />
+            </Suspense>
           </div>
         )}
       </div>

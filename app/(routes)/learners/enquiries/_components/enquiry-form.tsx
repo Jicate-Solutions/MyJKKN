@@ -281,6 +281,16 @@ interface EnquiryFormProps {
   submitLabel?: string;
   hideDraft?: boolean;
   isStudentView?: boolean;
+  /**
+   * Apply admission-capture policy on the Course Selection tab (first-year =>
+   * Science & Humanities department only, semester locked to Freshers/section
+   * A). Defaults to true for the enquiry/admission flow.
+   *
+   * Learner Profiles create + edit pass false: those screens serve the entire
+   * existing population, whose entry_type records how they joined years ago,
+   * not a decision being made now.
+   */
+  enforceAdmissionRules?: boolean;
 }
 
   const ALL_TABS = [
@@ -353,7 +363,7 @@ function normalizeReferenceType(referenceType: string | undefined): string {
  * Helper function to convert location name back to ID for editing
  * Database stores names, but form needs IDs for dropdowns
  */
-function getLocationIdByName(
+function findKnownLocationId(
   name: string | undefined,
   type: 'state' | 'district' | 'taluk',
   stateId?: string
@@ -438,6 +448,26 @@ function getLocationIdByName(
 }
 
 /**
+ * Name/ID -> picker ID, preserving values the picker has never heard of.
+ *
+ * lib/data/locations.ts is a fixed dataset; production rows predate it and hold
+ * free-text that isn't in it (e.g. taluk 'KANAGAGRI' under SALEM, whose taluk
+ * list is Salem/Attur/Edappadi/…). Returning '' for those blanked a REQUIRED
+ * field, so opening the edit form showed missing data and the only way to save
+ * was to pick a different taluk — overwriting the real value. Passing the raw
+ * value through keeps it visible, valid and re-savable; getLocationNameById
+ * round-trips it back out unchanged.
+ */
+function getLocationIdByName(
+  name: string | undefined,
+  type: 'state' | 'district' | 'taluk',
+  stateId?: string
+): string | undefined {
+  if (!name) return '';
+  return findKnownLocationId(name, type, stateId) || name;
+}
+
+/**
  * Mapping of form fields to their respective tabs
  * Used for auto-switching tabs on validation errors
  */
@@ -493,7 +523,7 @@ const fieldToTabMap: Record<string, string> = {
   academic_year_id: 'course-selection',
   semester_id: 'course-selection',
   section_id: 'course-selection',
-  college_email: 'course-selection',
+  college_email: 'contact-details',
   regulation_id: 'course-selection',
   batch_id: 'course-selection',
 
@@ -631,7 +661,8 @@ export function EnquiryForm({
   onSubmit: onSubmitProp,
   submitLabel,
   hideDraft = false,
-  isStudentView = false
+  isStudentView = false,
+  enforceAdmissionRules = true
 }: EnquiryFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1108,17 +1139,21 @@ export function EnquiryForm({
         // Use already imported location data
         name = indianStates.find((s: any) => s.id === id)?.name;
       } else if (type === 'district') {
-        if (!stateId) return undefined;
-        const districts = getDistrictsByState(stateId);
-        name = districts.find((d: any) => d.id === id)?.name;
+        if (stateId) {
+          const districts = getDistrictsByState(stateId);
+          name = districts.find((d: any) => d.id === id)?.name;
+        }
       } else if (type === 'taluk') {
-        if (!stateId || !districtId) return undefined;
-        const taluks = getTaluksByDistrict(stateId, districtId);
-        name = taluks.find((t: any) => t.id === id)?.name;
+        if (stateId && districtId) {
+          const taluks = getTaluksByDistrict(stateId, districtId);
+          name = taluks.find((t: any) => t.id === id)?.name;
+        }
       }
 
-      // Convert location names to uppercase for consistency
-      return name ? name.toUpperCase() : undefined;
+      // No match means the form is carrying a raw stored value the picker
+      // doesn't know (see getLocationIdByName). Write it back as-is instead of
+      // undefined, which would blank the column on every unrelated edit.
+      return (name || id).toUpperCase();
     };
 
     // accommodation_type TEXT is retired — resolve the HOSTEL/DAY SCHOLAR choice
@@ -2040,13 +2075,17 @@ export function EnquiryForm({
               </div>
             )}
             <Card className="p-3 sm:p-4 md:p-6">
-              <ContactDetailsSection form={form} />
+              <ContactDetailsSection form={form} showCollegeEmail={!isStudentView} />
             </Card>
           </TabsContent>
 
           <TabsContent value="course-selection" className="space-y-4 mt-4">
             <Card className="p-3 sm:p-4 md:p-6">
-              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
+              <CourseSelectionSection
+                form={form}
+                showLearnerType={!!learner && !isStudentView}
+                enforceAdmissionRules={enforceAdmissionRules}
+              />
             </Card>
           </TabsContent>
 

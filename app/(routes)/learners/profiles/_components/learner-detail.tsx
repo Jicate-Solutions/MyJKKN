@@ -754,24 +754,29 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                 {/* Address Information */}
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium">Address Information</h3>
+                  {/* One address is stored (permanent_address_*). A second
+                      "Communication Address" block used to render the SAME
+                      street column under a different heading, which read as two
+                      addresses that always agreed. Labels below match the
+                      columns and the edit form's Contact tab exactly. */}
                   <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
-                        Permanent Address
-                      </h4>
-                      <p className="text-sm">{learner.permanent_address_street || 'Not specified'}</p>
-                    </div>
-                    <div className="space-y-1">
-                      <h4 className="text-sm font-medium text-muted-foreground">
-                        Communication Address
+                        Street Address
                       </h4>
                       <p className="text-sm">{learner.permanent_address_street || 'Not specified'}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
-                        City
+                        Taluk
+                      </h4>
+                      <p className="text-sm">{learner.permanent_address_taluk || 'Not specified'}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-medium text-muted-foreground">
+                        District
                       </h4>
                       <p className="text-sm">{learner.permanent_address_district || 'Not specified'}</p>
                     </div>
@@ -783,7 +788,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     </div>
                     <div className="space-y-1">
                       <h4 className="text-sm font-medium text-muted-foreground">
-                        Pincode
+                        PIN Code
                       </h4>
                       <p className="text-sm">{learner.permanent_address_pin_code || 'Not specified'}</p>
                       <ViewOnMapLink
