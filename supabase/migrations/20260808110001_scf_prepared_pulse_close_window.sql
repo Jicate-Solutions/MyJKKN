@@ -1,5 +1,5 @@
 -- =============================================================================
--- 20260808110000_scf_prepared_pulse_close_window.sql
+-- 20260808110001_scf_prepared_pulse_close_window.sql
 -- Give an auto-opened pulse the SAME answer window as a team-member-opened one.
 -- =============================================================================
 -- Defect: fn_scf_prepared_pulse_sweep (20260802010000) hardcodes

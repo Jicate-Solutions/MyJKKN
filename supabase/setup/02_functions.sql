@@ -9334,7 +9334,7 @@ $$;
 -- =====================================================
 -- validate_learner_semester_year_scope() — Added 2026-07-30
 --   Migration: 20260730160000_repair_cross_institution_learner_semester_academic_year.sql
---   Extended 2026-07-30 by 20260808100000_repair_learner_degree_id_cross_institution.sql
+--   Extended 2026-07-30 by 20260808100001_repair_learner_degree_id_cross_institution.sql
 --   to also cover degree_id and department_id.
 -- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
 --
