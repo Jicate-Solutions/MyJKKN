@@ -59,16 +59,28 @@
 --
 -- WHY IT READS THE VIEW RATHER THAN RE-DERIVING "APPROVED"
 -- --------------------------------------------------------
--- v_health_tournament_participation already encodes cancelled_at IS NULL AND
--- overall_status = 'approved'. Consuming it means any later change to what
--- "approved" means per college flows here for free, and there is exactly one
--- definition of an approved squad in the platform instead of two.
+-- v_health_tournament_participation is the single definition of an approved
+-- squad. Consuming it means any later change to what "approved" means per
+-- college flows here for free, instead of a second opinion drifting apart from
+-- the first. That is not hypothetical: #2682 landed while this change was open
+-- and moved the view's gate from the trip-wide `overall_status = 'approved'` to
+-- the learner's OWN college's approval row, so a partly-approved trip now
+-- protects the approving colleges' learners and not the refusing college's.
+-- Nothing here needed to change for that, which is the point — and it is the
+-- behaviour the Principal's letter actually describes, since only a learner's
+-- own Principal can excuse their attendance. Re-verified against the merged
+-- definition: every column this file reads (permission_id, tournament_name,
+-- sport, start_date, end_date, learner_id, institution_id) survives #2682, and
+-- institution_id is still the LEARNER's college (learners_profiles.institution_id),
+-- never the new host_institution — which is what the institution filter below
+-- must be, because protection belongs to the college that sent the learner.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
 -- 1. fn_attendance_protected_days — the ONE answer to "was this learner's day
---    excused, and by what?". Every percentage that honours protection calls
---    this and nothing else, so the two surfaces below can never drift apart.
+--    excused, and by what?". Every percentage that honours protection resolves
+--    through the single _core query below and nothing else, so the two surfaces
+--    further down can never drift apart.
 --
 --    Sources, unioned:
 --      * tournament — approved squad participation, day by day across the
@@ -84,7 +96,125 @@
 --    Rows are NOT deduplicated — a day covered by both sources returns twice
 --    on purpose so the caller can show every reason. Callers that count days
 --    MUST dedupe on (learner_id, protected_date); both callers below do.
+--
+--    IT IS SPLIT IN TWO, and the split is load-bearing:
+--
+--      * _core — the query. NO authorization of its own, therefore NO grants
+--        (definer-chain only, the same convention the fn_vsr_*_core helpers in
+--        20260715070000 already use). It scopes to one learner when asked.
+--      * the public wrapper — authorization only, and the ONLY granted surface.
+--
+--    Why not one function that authorizes from auth.uid(): because a legitimate
+--    caller in this chain has no auth.uid() at all. fn_vsr_shared_record is the
+--    module's ONE deliberate anon surface — a local employer opening a learner's
+--    verify-link with no account — and it reaches this code through
+--    fn_vsr_record_core -> fn_vsr_attendance_core. SECURITY DEFINER changes the
+--    ROLE, never the JWT, so auth.uid() is NULL for the whole of that chain.
+--    Proven on prod 2026-07-31 inside BEGIN..ROLLBACK: with anon-shaped claims
+--    fn_vsr_attendance_core returned 26 rows before this migration and raised
+--    'fn_attendance_protected_days: not authenticated' after an earlier draft of
+--    it — i.e. a single auth.uid() guard in the shared helper takes out a live
+--    public page. The wrapper keeps the guard where a caller really is a
+--    request; the core is scoped by ARGUMENT where the caller was already
+--    authorized upstream by a share token.
 -- -----------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.fn_attendance_protected_days_core(
+  p_institution_ids uuid[],
+  p_from date,
+  p_to date,
+  p_learner uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  learner_id     uuid,
+  protected_date date,
+  source_kind    text,
+  source_id      uuid,
+  source_label   text
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+SET statement_timeout TO '10s'
+AS $function$
+BEGIN
+  -- No caller check here BY DESIGN — see the header. This function is reachable
+  -- only from a SECURITY DEFINER caller that has already decided who is asking,
+  -- which the empty grant list below is what enforces.
+  IF p_institution_ids IS NULL OR array_length(p_institution_ids, 1) IS NULL THEN
+    RETURN;
+  END IF;
+  -- Both bounds are mandatory: an unbounded generate_series over an approval
+  -- range is a trivially cheap way to make this function expensive.
+  IF p_from IS NULL OR p_to IS NULL THEN
+    RAISE EXCEPTION 'fn_attendance_protected_days_core: p_from and p_to are required';
+  END IF;
+
+  RETURN QUERY
+  SELECT v.learner_id,
+         d::date AS protected_date,
+         'tournament'::text AS source_kind,
+         v.permission_id AS source_id,
+         (v.tournament_name || ' — ' || v.sport)::text AS source_label
+  FROM public.v_health_tournament_participation v
+  CROSS JOIN LATERAL generate_series(
+         GREATEST(v.start_date, p_from),
+         LEAST(v.end_date, p_to),
+         interval '1 day') AS d
+  WHERE v.institution_id = ANY(p_institution_ids)
+    AND v.start_date <= p_to
+    AND v.end_date   >= p_from
+    AND (p_learner IS NULL OR v.learner_id = p_learner)
+
+  UNION ALL
+
+  SELECT m.member_id,
+         d::date AS protected_date,
+         'onduty'::text AS source_kind,
+         a.id AS source_id,
+         ('On duty — ' || a.sub_category)::text AS source_label
+  FROM public.leave_onduty_applications a
+  CROSS JOIN LATERAL (
+         SELECT a.learner_id AS member_id
+         UNION
+         SELECT tm.learner_id FROM public.leave_onduty_team_members tm
+         WHERE tm.application_id = a.id
+       ) AS m
+  -- A team member is only credited inside the institution the application was
+  -- filed under. Without this join, auditing two colleges together
+  -- (p_institution_ids = [X, Y]) would let an application filed under X excuse a
+  -- learner of Y — cross-tenant credit that would surface only in a combined audit.
+  JOIN public.learners_profiles mlp
+    ON mlp.id = m.member_id
+   AND mlp.institution_id = a.institution_id
+  CROSS JOIN LATERAL generate_series(
+         GREATEST(a.start_date, p_from),
+         LEAST(a.end_date, p_to),
+         interval '1 day') AS d
+  WHERE a.institution_id = ANY(p_institution_ids)
+    AND a.category = 'onduty'
+    AND a.status = 'approved'
+    AND a.period_type = 'fullday'
+    AND a.start_date <= p_to
+    AND a.end_date   >= p_from
+    AND m.member_id IS NOT NULL
+    AND (p_learner IS NULL OR m.member_id = p_learner);
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_attendance_protected_days_core(uuid[], date, date, uuid) IS
+  'Unauthorized core of the protected-day lookup: scoped by ARGUMENT, not by caller. '
+  'Deliberately carries NO grants — reachable only through a SECURITY DEFINER caller '
+  'that has already established who is asking (fn_attendance_protected_days for a live '
+  'request, fn_vsr_attendance_core for a share-token-authorized read).';
+
+-- A brand-new function is issued Supabase's default `GRANT ALL ON FUNCTIONS TO
+-- anon` (and authenticated), so this REVOKE is what actually keeps the core off
+-- the public anon key — not decoration. REVOKE first, and nothing is granted
+-- back: the definer chain does not need a grant, the function owner always may
+-- execute. Verified live after applying: acl shows postgres only.
+REVOKE EXECUTE ON FUNCTION public.fn_attendance_protected_days_core(uuid[], date, date, uuid)
+  FROM anon, authenticated, PUBLIC;
 
 CREATE OR REPLACE FUNCTION public.fn_attendance_protected_days(
   p_institution_ids uuid[],
@@ -111,8 +241,6 @@ BEGIN
   IF p_institution_ids IS NULL OR array_length(p_institution_ids, 1) IS NULL THEN
     RETURN;
   END IF;
-  -- Both bounds are mandatory: an unbounded generate_series over an approval
-  -- range is a trivially cheap way to make this function expensive.
   IF p_from IS NULL OR p_to IS NULL THEN
     RAISE EXCEPTION 'fn_attendance_protected_days: p_from and p_to are required';
   END IF;
@@ -135,75 +263,36 @@ BEGIN
   -- self-scope below, that learner could call this RPC with the public anon
   -- key's authenticated session and enumerate every squad roster and every
   -- on-duty application in their college — the caller-identity IDOR shape this
-  -- repo has already had to sweep out of 75 functions.
+  -- repo has already had to sweep out of 75 functions. Measured, not asserted:
+  -- before this scope existed the peer learner got back 4 rows belonging to a
+  -- learner who is not them; after it, 0.
   --
-  -- Privileged callers (the Registrar's audit, attendance staff) see everyone
-  -- in scope; everyone else sees only their own days. A learner's own card is
-  -- unaffected: fn_vsr_attendance_core resolves the learner from auth.uid().
+  -- Privileged callers (the Registrar's audit, attendance staff) see everyone in
+  -- scope; everyone else sees only their own days. COALESCE on each permission
+  -- read so a NULL cannot make `v_privileged` NULL, which `IF NOT v_privileged`
+  -- would then skip — leaving v_self NULL and silently returning nothing to a
+  -- caller who was entitled to an answer.
   v_privileged := COALESCE(public.is_super_admin(), false)
-               OR public.user_has_permission('academic.attendance.view')
-               OR public.user_has_permission('academic.internal_marks.exam_audit.view');
+               OR COALESCE(public.user_has_permission('academic.attendance.view'), false)
+               OR COALESCE(public.user_has_permission('academic.internal_marks.exam_audit.view'), false);
   IF NOT v_privileged THEN
     SELECT p.learner_id INTO v_self FROM public.profiles p WHERE p.id = auth.uid();
     IF v_self IS NULL THEN RETURN; END IF;  -- not a learner, no permission: nothing to show
   END IF;
 
   RETURN QUERY
-  SELECT v.learner_id,
-         d::date AS protected_date,
-         'tournament'::text AS source_kind,
-         v.permission_id AS source_id,
-         (v.tournament_name || ' — ' || v.sport)::text AS source_label
-  FROM public.v_health_tournament_participation v
-  CROSS JOIN LATERAL generate_series(
-         GREATEST(v.start_date, p_from),
-         LEAST(v.end_date, p_to),
-         interval '1 day') AS d
-  WHERE v.institution_id = ANY(v_ids)
-    AND v.start_date <= p_to
-    AND v.end_date   >= p_from
-    AND (v_privileged OR v.learner_id = v_self)
-
-  UNION ALL
-
-  SELECT m.member_id,
-         d::date AS protected_date,
-         'onduty'::text AS source_kind,
-         a.id AS source_id,
-         ('On duty — ' || a.sub_category)::text AS source_label
-  FROM public.leave_onduty_applications a
-  CROSS JOIN LATERAL (
-         SELECT a.learner_id AS member_id
-         UNION
-         SELECT tm.learner_id FROM public.leave_onduty_team_members tm
-         WHERE tm.application_id = a.id
-       ) AS m
-  -- A team member is only credited inside the institution the application was
-  -- filed under. Without this join, auditing two colleges together (v_ids =
-  -- [X, Y]) would let an application filed under X excuse a learner of Y —
-  -- cross-tenant credit that would surface only in a combined audit.
-  JOIN public.learners_profiles mlp
-    ON mlp.id = m.member_id
-   AND mlp.institution_id = a.institution_id
-  CROSS JOIN LATERAL generate_series(
-         GREATEST(a.start_date, p_from),
-         LEAST(a.end_date, p_to),
-         interval '1 day') AS d
-  WHERE a.institution_id = ANY(v_ids)
-    AND a.category = 'onduty'
-    AND a.status = 'approved'
-    AND a.period_type = 'fullday'
-    AND a.start_date <= p_to
-    AND a.end_date   >= p_from
-    AND m.member_id IS NOT NULL
-    AND (v_privileged OR m.member_id = v_self);
+  SELECT * FROM public.fn_attendance_protected_days_core(
+                  v_ids, p_from, p_to,
+                  CASE WHEN v_privileged THEN NULL ELSE v_self END);
 END;
 $function$;
 
 COMMENT ON FUNCTION public.fn_attendance_protected_days(uuid[], date, date) IS
   'Days an approved tournament permission or full-day on-duty application excuses, '
-  'with the source of each one. Read-time only: never writes student_attendance, so '
-  'withdrawing the approval withdraws the protection. Callers dedupe on (learner_id, protected_date).';
+  'with the source of each one. Authorizing wrapper: institution-scoped for every caller, '
+  'and self-scoped for a caller who holds neither academic.attendance.view nor '
+  'academic.internal_marks.exam_audit.view. Read-time only: never writes student_attendance, '
+  'so withdrawing the approval withdraws the protection. Callers dedupe on (learner_id, protected_date).';
 
 REVOKE EXECUTE ON FUNCTION public.fn_attendance_protected_days(uuid[], date, date) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_attendance_protected_days(uuid[], date, date) TO authenticated;
@@ -271,6 +360,13 @@ BEGIN
   -- stopped at CURRENT_DATE, so a day past the boundary could be counted into
   -- `total` but was never eligible for credit — an asymmetry that can only ever
   -- push a percentage down.
+  --
+  -- CHOICE: clamp BOTH windows to the same bound, rather than forbid a NULL
+  -- p_to the way p_from is forbidden. Both close the gap; clamping keeps the
+  -- function callable the way its signature already advertises (p_to optional)
+  -- and cannot break a caller that omits it, whereas raising would convert a
+  -- today-benign call into a hard error. Both API routes pass p_to today, so
+  -- neither choice changes live behaviour — this is about the next caller.
   v_to := COALESCE(p_to, CURRENT_DATE);
 
   RETURN QUERY
@@ -371,18 +467,30 @@ BEGIN
   bounds AS (
     SELECT MIN(ad) AS lo, MAX(ad) AS hi FROM mine
   ),
-  -- Bounds are COALESCEd rather than filtered: fn_attendance_protected_days
-  -- RAISEs on a NULL window, and relying on `WHERE b.lo IS NOT NULL` to dodge
-  -- that only works while the planner pushes the qual below the LATERAL. A
-  -- learner with no attendance rows now asks a harmless one-day question and
-  -- joins to nothing, instead of depending on a plan shape.
+  -- Bounds are COALESCEd rather than filtered: the lookup RAISEs on a NULL
+  -- window, and relying on `WHERE b.lo IS NOT NULL` to dodge that only works
+  -- while the planner pushes the qual below the LATERAL. A learner with no
+  -- attendance rows now asks a harmless one-day question and joins to nothing,
+  -- instead of depending on a plan shape. Verified live: 0 rows, no exception.
+  --
+  -- The _core is called, NOT the public wrapper: this function is already given
+  -- its learner as an argument, and its callers include fn_vsr_record_core,
+  -- which fn_vsr_shared_record reaches with NO auth.uid() at all (the module's
+  -- one deliberate anon surface — a share link opened by an employer with no
+  -- account). Going through the wrapper would raise 'not authenticated' there
+  -- and take that page down; proven on prod inside BEGIN..ROLLBACK. Scope is
+  -- therefore carried by the p_learner ARGUMENT, which is strictly narrower than
+  -- the wrapper's self-scope and cannot widen: the extra WHERE below is kept as
+  -- a second, independent bound so that dropping the argument by accident still
+  -- fails closed.
   prot AS (
     SELECT DISTINCT pd.protected_date
     FROM bounds b,
-         LATERAL public.fn_attendance_protected_days(
+         LATERAL public.fn_attendance_protected_days_core(
                    ARRAY[p_inst],
                    COALESCE(b.lo, CURRENT_DATE),
-                   COALESCE(b.hi, CURRENT_DATE)) pd
+                   COALESCE(b.hi, CURRENT_DATE),
+                   p_learner) pd
     WHERE pd.learner_id = p_learner
   )
   SELECT m.cid AS course_id,
