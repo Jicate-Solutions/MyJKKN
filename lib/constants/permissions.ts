@@ -2098,6 +2098,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.inventory.delete', label: 'Delete Inventory Items' },
       { key: 'ims.inventory.bulk_import', label: 'Bulk Import Inventory (Excel)' },
       { key: 'ims.inventory.categories.manage', label: 'Manage Item Categories' },
+      // Propose, don't apply. A role holding this (and NOT ims.inventory.edit)
+      // opens the item form as normal, but Save raises a change request for a
+      // super admin to approve — approving is what writes to the item.
+      { key: 'ims.inventory.propose_edit', label: 'Request Item Changes (needs approval)' },
+      { key: 'ims.inventory.approve_changes', label: 'Approve / Reject Item Change Requests' },
 
       // Stock (visibility + adjustments + GRN lifecycle)
       { key: 'ims.stock.view', label: 'View Stock (Summary, Batches, Department)' },
