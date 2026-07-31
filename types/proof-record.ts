@@ -12,11 +12,20 @@ export interface ProofLearnerHeader {
   institution_id: string | null;
 }
 
+/** Days marked absent that an approved tournament or on-duty permission
+ *  excuses. Optional because a record generated before the protection change
+ *  simply has no such key — those records read exactly as they always did. */
+export type ProofProtectedDays = number | null | undefined;
+
 export interface ProofAttendanceCourse {
   course_code: string | null;
   course_name: string | null;
+  /** Days marked present in session. NOT the numerator of `pct`. */
   present: number;
+  protected?: ProofProtectedDays;
   total: number;
+  /** (present + protected) / total — the same rule the Registrar's audit and
+   *  the learner's own card use, and the same rule `overall.pct` uses. */
   pct: number | null;
   first_session: string | null;
   last_session: string | null;
@@ -25,7 +34,15 @@ export interface ProofAttendanceCourse {
 export interface ProofAttendance {
   verified: boolean;
   courses: ProofAttendanceCourse[];
-  overall: { present: number; total: number; pct: number | null };
+  /** Sums of the per-course figures — including `protected`, so the overall
+   *  percentage counts exactly the days the per-course percentages count. One
+   *  document, one attendance rule. */
+  overall: {
+    present: number;
+    protected?: ProofProtectedDays;
+    total: number;
+    pct: number | null;
+  };
 }
 
 export interface ProofEngagement {

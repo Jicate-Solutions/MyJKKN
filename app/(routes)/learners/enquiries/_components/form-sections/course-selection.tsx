@@ -68,9 +68,24 @@ import { LookupService } from '@/lib/services/admission/lookup-service';
 interface CourseSelectionProps {
   form: UseFormReturn<any>;
   showLearnerType?: boolean;
+  /**
+   * Admission-time policy (SH-only first-year departments, Freshers/section-A
+   * lock). True for the enquiry + admission capture flow it was written for.
+   *
+   * Learner Profiles must pass FALSE. Those screens cover the whole existing
+   * population, where entry_type is a historical fact rather than a choice
+   * being made now: a FIRST YEAR learner already sitting in Semester III with a
+   * MECH department is normal, and enforcing the rule there hid their real
+   * department behind an SH-only list and rewrote their semester to Freshers.
+   */
+  enforceAdmissionRules?: boolean;
 }
 
-export function CourseSelectionSection({ form, showLearnerType = false }: CourseSelectionProps) {
+export function CourseSelectionSection({
+  form,
+  showLearnerType = false,
+  enforceAdmissionRules = true,
+}: CourseSelectionProps) {
   // Watch selections for cascading filters
   const watchedInstitutionId = form.watch('institution_id');
   const watchedDegreeId = form.watch('degree_id');
@@ -197,8 +212,10 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
   const institutionHasShDept = departments.some(
     (d: Department) => d.department_code === 'SH',
   );
-  const restrictToSh = institutionHasShDept && watchedEntryType === 'FIRST YEAR';
-  const hideSh = institutionHasShDept && watchedEntryType !== 'FIRST YEAR';
+  const restrictToSh =
+    enforceAdmissionRules && institutionHasShDept && watchedEntryType === 'FIRST YEAR';
+  const hideSh =
+    enforceAdmissionRules && institutionHasShDept && watchedEntryType !== 'FIRST YEAR';
   const displayedDepartments = useMemo(() => {
     if (!institutionHasShDept) return departments;
     if (restrictToSh) return departments.filter((d: Department) => d.department_code === 'SH');
@@ -287,7 +304,7 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
     (s: Section) => s.section_name?.trim().toUpperCase() === 'A',
   )?.id;
   const lockToFreshers =
-    watchedEntryType === 'FIRST YEAR' && !!freshersSemester;
+    enforceAdmissionRules && watchedEntryType === 'FIRST YEAR' && !!freshersSemester;
 
   // Enforce the pair. Runs on load and on every cascade step because the
   // lists arrive asynchronously: semester must be committed FIRST so the
@@ -585,6 +602,11 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
               <Select
                 onValueChange={(value) => {
                   field.onChange(value);
+
+                  // Profiles: entry_type is a historical attribute of an
+                  // existing learner, so changing it must not clear their
+                  // department or move their semester. Record it and stop.
+                  if (!enforceAdmissionRules) return;
 
                   // 2026-05-21: SH-dept first-year rule — if the entry-type
                   // change makes the currently-picked department invalid,
@@ -998,28 +1020,9 @@ export function CourseSelectionSection({ form, showLearnerType = false }: Course
           )}
         />
 
-        {/* College Email - OPTIONAL */}
-        <FormField
-          control={form.control}
-          name="college_email"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>College Email</FormLabel>
-              <FormControl>
-                <Input
-                  type="email"
-                  placeholder="student@jkkn.ac.in (optional)"
-                  {...field}
-                  value={field.value || ''}
-                />
-              </FormControl>
-              <FormDescription>
-                College email must use @jkkn.ac.in domain (optional)
-              </FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* College Email moved to the Contact Details tab (staff only), so the
+            edit form groups it with the other contact addresses the way the
+            profile detail page does. */}
 
         {/* Register Number - OPTIONAL */}
         <FormField

@@ -321,5 +321,19 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: upserts learner_360_verdicts + learner_360_verdicts_admin via fn_learner_360_record_verdict (service-role), and enqueues 'learner.360_verdict' jobs on the Max lane. No notifications, no external messages, nothing sent to any learner.",
     "safeToManualTrigger": true,
     "notes": "🔒 HARD DATA BOUNDARY: reads ONLY learner_risk_assessments, learner_contribution_scores and mv_learner_attendance_summary. It must NEVER read or join session_feedback, event_session_feedback, carre_micro_impressions or scf_learner_notes — those hold feedback the learner GAVE under an explicit anonymity promise (aggregated-and-anonymous UI copy, a fully_anonymous mode stripping author_id, k>=3 suppression), so scoring the author would break it — nor any health_*/medical table. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-360-verdict'), NOT a raw vercel.json cron: vercel.json already carries exactly 100 crons, the plan ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later; a ?mode=collect tick drains the previous run. Idempotent: per-cohort/day dedupe, collect claims each job once, and the record RPC upserts on (learner_id, verdict_date). Recommendation-only — any verdict can be corrected by a human via fn_learner_360_set_override, and the override is what every surface must then display."
+  },
+  {
+    "id": "health-sports-approval-nudge",
+    "name": "Tournament Squad Permission — Undecided College Reminder",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 09:33 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/health-sports-approval-nudge",
+    "callsClaude": false,
+    "whatItDoes": "A squad request names learners from several colleges, and nobody travels until every one of those colleges' Principals has decided. Filing already notifies each Principal; this reminds any college still undecided after 48 hours, naming the tournament, the host, the dates and how many of THAT college's learners are on the squad. It never decides on a Principal's behalf.",
+    "configKnobs": "p_stale_hours=48 (override per run with ?hours=), ?dry=1 reports what it would send without writing. Recipients = holders of health.sports.approve at that college, resolved via user_roles AND legacy profiles.role. Skips cancelled requests and any tournament whose end_date has passed.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to each undecided college's approver(s), and stamps last_nudged_at on that approval row. Writes NO approval status of any kind. No external messages (no email/WhatsApp/push).",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_health_tournament_nudge_stale_approvals (service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'health-sports-approval-nudge' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real notifications to real Principals; re-running is safe (idempotent per college per day). Reports no_approver rather than pretending a reminder landed when a college has nobody holding health.sports.approve."
   }
 ];

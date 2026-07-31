@@ -59,11 +59,51 @@ function buildStoragePath(saleId: string, storeId: string): string {
   return `${storeId}/${yyyy}-${mm}/${saleId}.pdf`;
 }
 
+/** Signed-link lifetime. Long enough to survive a WhatsApp/email round trip. */
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+
+/**
+ * Mint a time-limited link to a stored receipt.
+ *
+ * The ims-receipts bucket was `public = true` with a bucket-wide anon SELECT
+ * policy, which meant anyone could enumerate and download every customer's
+ * receipt — name, medicines purchased, amounts, cashier, store GSTIN. The bucket
+ * is private as of 20260730130000_ims_pos_anon_lockdown.sql, so links have to be
+ * signed. RLS on the object still applies, so this only succeeds for a caller who
+ * can reach the owning store.
+ */
+export async function getReceiptSignedUrl(path: string): Promise<string | null> {
+  try {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(path, SIGNED_URL_TTL_SECONDS);
+
+    if (error) {
+      console.error('[ims-receipt-pdf] Signed URL failed:', error);
+      return null;
+    }
+    return data?.signedUrl || null;
+  } catch (error) {
+    console.error('[ims-receipt-pdf] Error signing receipt URL:', error);
+    return null;
+  }
+}
+
 /**
  * Generate a receipt PDF and upload it to Supabase Storage.
- * Returns the public URL on success, or null on failure.
+ * Returns the storage PATH on success, or null on failure.
  *
- * Also updates the ims_sales row with receipt_pdf_url.
+ * Also stamps that path onto ims_sales.receipt_pdf_url.
+ *
+ * NOTE ON WHAT IS STORED: this used to persist a getPublicUrl() link, which only
+ * worked because the bucket was world-readable. A signed URL cannot be stored in
+ * its place — it expires, so the column would fill with links that are dead by
+ * the time anyone opens them. The stable identifier is the path; call
+ * getReceiptSignedUrl() to turn it into a link at the moment of sharing.
+ *
+ * Safe to change: receipt_pdf_url is written here and read nowhere in the app
+ * (checked across app/, components/, lib/, hooks/) — it is an archival pointer.
  */
 export async function generateAndUploadReceiptPdf(
   receiptData: ImsReceiptData,
@@ -90,20 +130,13 @@ export async function generateAndUploadReceiptPdf(
       return null;
     }
 
-    // Get public URL
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    const publicUrl = urlData?.publicUrl || null;
+    // Save the storage path to the sale record
+    await (supabase as any)
+      .from('ims_sales')
+      .update({ receipt_pdf_url: path })
+      .eq('id', saleId);
 
-    // Save URL to sale record
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (publicUrl) {
-      await (supabase as any)
-        .from('ims_sales')
-        .update({ receipt_pdf_url: publicUrl })
-        .eq('id', saleId);
-    }
-
-    return publicUrl;
+    return path;
   } catch (error) {
     console.error('[ims-receipt-pdf] Error generating/uploading PDF:', error);
     return null;

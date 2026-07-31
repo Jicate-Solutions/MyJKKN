@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Box,
   IndianRupee,
+  ShieldCheck,
 } from 'lucide-react';
 
 export default function ImsReportsPage() {
@@ -118,6 +119,20 @@ function ImsReportsPageInner() {
         'All UPI QR transactions with bank reference IDs',
         'Daily/weekly/monthly collection totals',
         'Cashier-wise UPI payment audit trail',
+      ],
+    },
+    {
+      title: 'Gateway Payments',
+      description:
+        'Verified counter collections from the payment gateway — who paid, from which UPI ID, and the bank reference. Includes payments that never became a sale.',
+      icon: ShieldCheck,
+      href: '/ims/reports/gateway-payments',
+      color: 'text-teal-600',
+      bgColor: 'bg-teal-50 dark:bg-teal-950/30',
+      features: [
+        'Payer UPI ID, method and bank RRN for every payment',
+        'Failed, cancelled and wrong-amount payments the sales reports cannot show',
+        'Flags money received but not yet booked as a sale',
       ],
     },
   ];

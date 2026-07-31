@@ -75,7 +75,10 @@ export function usePendingSessions(lookbackDays = 30) {
   return useQuery({
     queryKey: scfQueryKeys.pending(lookbackDays),
     queryFn: () => SessionFeedbackService.getPending(lookbackDays),
-    staleTime: 30 * 1000,
+    // 2026-07-31: 30s staleTime re-fired this heavy RPC on every tab refocus,
+    // multiplying peak-hour load (52k+ calls). Submit paths invalidate the
+    // query explicitly, so a longer staleTime costs no post-submit freshness.
+    staleTime: 120 * 1000,
   });
 }
 
@@ -84,7 +87,8 @@ export function useCarryforward(lookbackDays = 30) {
   return useQuery({
     queryKey: scfQueryKeys.carryforward(lookbackDays),
     queryFn: () => SessionFeedbackService.getCarryforward(lookbackDays),
-    staleTime: 30 * 1000,
+    staleTime: 120 * 1000, // 2026-07-31: see usePendingSessions
+
   });
 }
 
@@ -93,7 +97,8 @@ export function useConfirmationStatus(from: string, to: string) {
     queryKey: scfQueryKeys.confirmation(from, to),
     queryFn: () => SessionFeedbackService.getConfirmationStatus(from, to),
     enabled: !!from && !!to,
-    staleTime: 30 * 1000,
+    staleTime: 120 * 1000, // 2026-07-31: see usePendingSessions
+
   });
 }
 

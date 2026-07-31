@@ -141,6 +141,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'foundation.items.manage', label: 'Author Foundation Questions' },
       { key: 'foundation.assessments.view', label: 'View Foundation Assessments' },
       { key: 'foundation.assessments.manage', label: 'Build Foundation Assessments' },
+      // The learner-facing one. Everything above is an operator surface; this is
+      // the only key that opens /foundation/practice, where questions are
+      // actually answered. Grant it to the people sitting the programme.
+      { key: 'foundation.practice.take', label: 'Answer Foundation Practice Questions' },
     ]
   },
   {
@@ -337,6 +341,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.profiles.view', label: 'View Learner Profiles (Admin)' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
       { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
+      // Gates the learner_contribution_scores RLS policy (lcs_admin_select), which
+      // already referenced this key before it was registered here — so it could not
+      // be granted from Role Management at all. Admin-only by Director decision
+      // (2026-07-30): the risk BAND is visible to faculty and the learner, the
+      // contribution/value RANKING is not.
+      { key: 'learners.contribution.view', label: 'View Learner Contribution Ranking (Admin)' },
 
       // Learner 360 standing verdict (learner_360_verdicts).
       // The admin_note key is DELIBERATELY separate and grants access to a
@@ -762,6 +772,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
       { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
 
+      // ── Payroll organisation (2026-07-31) ────────────────────────────────
+      // WHO PAYS a staff member, held in hr_staff_payroll. Deliberately a
+      // separate table and not a column on staff: Supabase RLS is row-level, so
+      // a column would be readable by everyone who can read the staff row —
+      // and StaffService, /api/api-management/staff and the MCP server all
+      // select('*'). These two keys are the ONLY thing that exposes it; they
+      // are genuinely enforced in hr_staff_payroll's RLS.
+      // staff.institution_id means WHERE SOMEONE WORKS and is unaffected.
+      { key: 'hr.payroll.institution.view', label: 'View Payroll Organisation' },
+      { key: 'hr.payroll.institution.manage', label: 'Manage Payroll Organisation' },
+
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
       // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
@@ -1050,6 +1071,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'startup_studio.foundations.view', label: 'Foundations — View cohorts & worksheets' },
       { key: 'startup_studio.foundations.manage', label: 'Foundations — Manage cohorts, worksheets & enrolment' },
       { key: 'startup_studio.foundations.review', label: 'Foundations — Review submissions (mentor feedback)' },
+
+      // -----------------------------------------------------------------
+      // School of Influence — programme settings (S2)
+      // Spec: specs/school-of-influence-batches-2026-07-30.md §7
+      // Gates /startup-studio/school-of-influence/admin/settings, which edits
+      // the soi.* rows in platform_policies (who may apply, batch size, what
+      // happens when a batch is full, the inactivity thresholds). Registered
+      // here so Role Management can grant it — the same key is used by the
+      // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
+      // disagree. Super admins bypass both.
+      // -----------------------------------------------------------------
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
 
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
@@ -1787,13 +1820,28 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    // Baseline-only: app/(routes)/learners-council/ exists but no
-    // learners_council.* keys are enforced in lib/sidebarMenuLink.ts or in
-    // route guards on this branch. Seeded `.view` pending enforcement PR.
+    // Updated 2026-07-31: registers every learners_council.* key enforced by
+    // MENU_PERMISSIONS in lib/sidebarMenuLink.ts (24 /learners-council/*
+    // routes resolve to the 8 distinct section keys below). Previously only
+    // `view` and `events.view` were registered, so the other enforced keys
+    // could not be granted through Role Management at all.
+    // `learners_council.view` is the module gate used by the in-app guide and
+    // stays registered.
     name: 'Learners Council',
     key: 'learners_council',
     permissions: [
-      { key: 'learners_council.view', label: 'View Learners Council' }
+      { key: 'learners_council.view', label: 'View Learners Council' },
+      { key: 'learners_council.dashboard.view', label: 'View Council Dashboard' },
+      { key: 'learners_council.structure.view', label: 'View Council Structure' },
+      {
+        key: 'learners_council.communication.view',
+        label: 'View Council Communication'
+      },
+      { key: 'learners_council.events.view', label: 'View Council Events' },
+      { key: 'learners_council.od.view', label: 'View Council OD Requests' },
+      { key: 'learners_council.selection.view', label: 'View Council Selection' },
+      { key: 'learners_council.issues.view', label: 'View Council Issues' },
+      { key: 'learners_council.settings.view', label: 'View Council Settings' }
     ]
   },
   {
@@ -2016,7 +2064,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
       { key: 'health.programs.view', label: 'View Wellness Programs' },
-      { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
+      { key: 'health.programs.manage', label: 'Manage Wellness Programs' },
+      // Added 2026-07-30 — tournament permission approver inbox. Gates
+      // /health/sports/approvals AND the health_tournament_permissions RLS
+      // policy, so the same key decides the page and the rows: granting it in
+      // Role Management is the whole switch. Director-locked path is two
+      // parties — the Physical Director files for the squad, the Principal
+      // decides — so this belongs to the Principal and NOT to the role that
+      // files, which would let one person approve their own request.
+      { key: 'health.sports.approve', label: 'Approve Tournament Permission Requests' },
+      // The other half of the two-party path. Grants FILING one request for a
+      // whole squad (and reading back only what you filed) — deliberately a
+      // different key from .approve so no single holder can do both.
+      { key: 'health.sports.file_request', label: 'File Tournament Permission for a Squad' }
     ]
   },
   // Added 2026-06-22 — Sports Tournament Conducting (PR1). A tournament is an
@@ -2069,6 +2129,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.inventory.delete', label: 'Delete Inventory Items' },
       { key: 'ims.inventory.bulk_import', label: 'Bulk Import Inventory (Excel)' },
       { key: 'ims.inventory.categories.manage', label: 'Manage Item Categories' },
+      // Propose, don't apply. A role holding this (and NOT ims.inventory.edit)
+      // opens the item form as normal, but Save raises a change request for a
+      // super admin to approve — approving is what writes to the item.
+      { key: 'ims.inventory.propose_edit', label: 'Request Item Changes (needs approval)' },
+      { key: 'ims.inventory.approve_changes', label: 'Approve / Reject Item Change Requests' },
 
       // Stock (visibility + adjustments + GRN lifecycle)
       { key: 'ims.stock.view', label: 'View Stock (Summary, Batches, Department)' },

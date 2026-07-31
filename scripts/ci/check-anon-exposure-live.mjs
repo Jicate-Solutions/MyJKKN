@@ -24,15 +24,39 @@
  *   The companion guard's own header called for exactly this: "Pair this with a
  *   scheduled catalog assertion."
  *
- * WHAT IT CHECKS — both exposure shapes, because one sweep is blind to the other:
- *   Shape A  RLS off + anon holds the default grant.
- *   Shape B  RLS ON, defeated by a PERMISSIVE policy granted TO public with
- *            USING (true) — the catalog reads "protected" and PostgREST serves
- *            the rows anyway. Several such policies were literally named
- *            "System can manage …" while being wide open.
- *   Views and materialised views are included: Supabase's default privileges
- *   reach them too, and a view that is not security_invoker runs as its OWNER, so
- *   it can republish a correctly locked table.
+ * WHAT IT CHECKS — three exposure shapes, because one sweep is blind to the others:
+ *   Shape A  `rls-off`            RLS off + anon holds the default grant.
+ *   Shape B  `permissive-policy`  RLS ON, defeated by a PERMISSIVE policy granted
+ *            TO public with USING (true) — the catalog reads "protected" and
+ *            PostgREST serves the rows anyway. Several such policies were
+ *            literally named "System can manage …" while being wide open.
+ *   Shape C  `grant-only`         A VIEW or MATERIALIZED VIEW that anon can
+ *            SELECT. There is no shape B or C distinction to draw here, because
+ *            for a view THE GRANT IS THE ONLY ACCESS CONTROL THAT EXISTS.
+ *
+ * WHY SHAPE C NEEDED ITS OWN BRANCH — 2026-07-31
+ *   Shapes A and B both reason about RLS state. For a TABLE that is right: RLS is
+ *   the access control and the grant is secondary. For a VIEW or MATVIEW it is
+ *   incoherent — PostgreSQL does not allow an RLS policy on either one, at all.
+ *   So a qualifying test that asks "is RLS off?" or "is there a permissive
+ *   policy?" can never return true for a view, no matter how exposed the view is.
+ *
+ *   This query used to say exactly that. It selected relkind IN ('r','v','m') —
+ *   so it read as though views were covered, and the header above claimed they
+ *   were — but then required EITHER `relkind = 'r' AND relrowsecurity = false`
+ *   (needs a table) OR an EXISTS over pg_policies (needs a policy a view cannot
+ *   have). Every view failed both. Not sometimes: by construction, always.
+ *
+ *   That is why nobody noticed. The sweep was not wrong about the views it found;
+ *   it found none and reported success. Measured on 2026-07-31: 62 views and
+ *   matviews held an anon SELECT grant and 34 of them returned rows to a fully
+ *   unauthenticated HTTP caller — including 7,226 profiles (name, email, phone,
+ *   role) and 719 hostel residents (names, parents' names, room allocation) —
+ *   while this sweep printed 4 relations and a green tick.
+ *
+ *   The lesson generalises past this file: a check that reasons about the wrong
+ *   access-control mechanism does not under-report, it reports NOTHING, and a
+ *   gate reporting nothing is indistinguishable from a gate reporting safety.
  *
  * THE ALLOW-LIST IS A TRIPWIRE, NOT A PARDON (anon-exposure-allowlist.json)
  *   `approved`      — ruled on by a human. Silent.
@@ -64,6 +88,13 @@ const RED = '\x1b[31m', GREEN = '\x1b[32m', YELLOW = '\x1b[33m',
 const argv = process.argv.slice(2);
 const JSON_OUT = argv.includes('--json');
 const REPORT_ONLY = argv.includes('--report-only');
+// --print-sql: emit the exposure query and exit, so the test suite can assert on
+// the SQL THIS SCRIPT ACTUALLY RUNS. Fixtures deliberately bypass the database,
+// which means they also bypass the query — every fixture test passes whatever the
+// SQL says, including nothing. That gap is what hid the view blindness for two
+// days: a test literally named "catches an exposed VIEW" was green the whole time
+// because it fed the classifier a row the query could never have returned.
+const PRINT_SQL = argv.includes('--print-sql');
 const fixtureIdx = argv.indexOf('--fixture');
 // --fixture <file>: classify rows from a JSON file instead of querying the
 // database, so the decision logic is testable without production credentials.
@@ -99,7 +130,7 @@ const MGMT_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const MGMT_REF = process.env.SUPABASE_PROJECT_REF;
 const TRANSPORT = DB_URL ? 'postgres' : (MGMT_TOKEN && MGMT_REF ? 'mgmt-api' : null);
 
-if (!TRANSPORT && !FIXTURE) {
+if (!TRANSPORT && !FIXTURE && !PRINT_SQL) {
   console.error(`${RED}✗ No way to reach the database.${RESET}
 Set ONE of:
   SUPABASE_DB_URL                                (direct Postgres — use the
@@ -162,44 +193,109 @@ const IDENTITY_COL_RE =
  */
 
 /**
- * Both shapes in one pass. `has_table_privilege(role, c.oid, …)` uses the OID
- * form on purpose: the text form resolves through search_path and dies on a
- * same-named table in another schema (hit live on storage.s3_multipart_uploads).
+ * All three shapes in one pass.
+ *
+ * The qualifying test is a CASE that NAMES the shape rather than a boolean that
+ * hides it, for two reasons. It puts the reason a relation qualified into the
+ * output, where the remediation depends on it — a table gets an RLS policy, a
+ * view gets a REVOKE, and printing the wrong advice sends somebody to write a
+ * policy PostgreSQL will refuse. And it makes the grant-only branch a visible
+ * arm that a test can assert on, instead of a missing disjunct that looks like
+ * nothing. The previous bug was invisible precisely because absence has no shape.
+ *
+ * ORDER OF THE ARMS IS LOAD-BEARING. relkind v/m is tested FIRST and on the
+ * grant alone: no relrowsecurity, no pg_policies, no RLS reasoning of any kind.
+ * A view has neither of those things to reason about, and reintroducing such a
+ * condition here is the exact regression that made this sweep blind.
+ * __tests__/ci/check-anon-exposure-live.test.ts asserts that this arm stays free
+ * of them.
+ *
+ * `has_table_privilege(role, c.oid, …)` uses the OID form on purpose: the text
+ * form resolves through search_path and dies on a same-named table in another
+ * schema (hit live on storage.s3_multipart_uploads).
  */
 const EXPOSURE_SQL = `
+WITH candidate AS (
+  SELECT
+    c.oid,
+    c.relname,
+    c.relkind,
+    c.relrowsecurity,
+    c.relispopulated,
+    CASE
+      WHEN c.relkind IN ('v', 'm')                      THEN 'grant-only'
+      WHEN c.relkind = 'r' AND c.relrowsecurity = false  THEN 'rls-off'
+      WHEN EXISTS (
+        SELECT 1 FROM pg_policies p
+        WHERE p.schemaname = 'public' AND p.tablename = c.relname
+          AND p.permissive = 'PERMISSIVE'
+          AND p.cmd IN ('SELECT', 'ALL')
+          AND 'public' = ANY(p.roles)
+          AND coalesce(p.qual, 'true') = 'true'
+      )                                                  THEN 'permissive-policy'
+    END AS shape
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public'
+    AND c.relkind IN ('r', 'v', 'm')
+    AND has_table_privilege('anon', c.oid, 'SELECT')
+)
 SELECT
-  c.relname                                            AS name,
-  c.relkind::text                                      AS kind,
-  c.relrowsecurity                                     AS rls_on,
-  (xpath('/row/cnt/text()',
-     query_to_xml(format('SELECT count(*) AS cnt FROM public.%I', c.relname),
-                  false, true, '')))[1]::text::bigint  AS rows,
+  k.relname                                            AS name,
+  k.relkind::text                                      AS kind,
+  k.relrowsecurity                                     AS rls_on,
+  k.shape                                              AS shape,
+  -- An UNPOPULATED matview raises "has not been populated" on count(*), and
+  -- query_to_xml propagates it — which would abort the whole sweep on a relation
+  -- that is exposed but empty. Matviews only started reaching this count when the
+  -- grant-only arm was added, so this guard is new alongside it. NULL rows means
+  -- "not counted", and the allow-list tripwire treats it as 0, never as proof of
+  -- emptiness.
+  CASE WHEN k.relkind = 'm' AND NOT k.relispopulated THEN NULL ELSE
+    (xpath('/row/cnt/text()',
+       query_to_xml(format('SELECT count(*) AS cnt FROM public.%I', k.relname),
+                    false, true, '')))[1]::text::bigint
+  END                                                  AS rows,
   coalesce((
     SELECT string_agg(a.attname, ',' ORDER BY a.attnum)
     FROM pg_attribute a
-    WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE a.attrelid = k.oid AND a.attnum > 0 AND NOT a.attisdropped
       AND a.attname ~* '${IDENTITY_COL_RE}'
   ), '')                                               AS identity_cols
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = 'public'
-  AND c.relkind IN ('r', 'v', 'm')
-  AND has_table_privilege('anon', c.oid, 'SELECT')
-  AND (
-    (c.relkind = 'r' AND c.relrowsecurity = false)
-    OR EXISTS (
-      SELECT 1 FROM pg_policies p
-      WHERE p.schemaname = 'public' AND p.tablename = c.relname
-        AND p.permissive = 'PERMISSIVE'
-        AND p.cmd IN ('SELECT', 'ALL')
-        AND 'public' = ANY(p.roles)
-        AND coalesce(p.qual, 'true') = 'true'
-    )
-  )
-ORDER BY 4 DESC NULLS LAST, 1;
+FROM candidate k
+WHERE k.shape IS NOT NULL
+ORDER BY 5 DESC NULLS LAST, 1;  -- 5 = rows. Ordinal, because ROWS is a keyword.
 `;
 
 const KIND_LABEL = { r: 'table', v: 'view', m: 'materialized view' };
+
+/** A view/matview is locked by revoking the grant; RLS is not available on it. */
+const isViewKind = (kind) => kind === 'v' || kind === 'm';
+
+/**
+ * One line describing WHAT this relation is and WHY it qualified. "RLS OFF" next
+ * to a view name reads as though RLS were an option that happened to be switched
+ * off, which is the misunderstanding that produced the blindness in the first
+ * place — so a view says what is actually true of it instead.
+ *
+ * `shape` is derived when absent so hand-written fixtures stay valid.
+ */
+function describe(r) {
+  const kind = r.kind_label ?? KIND_LABEL[r.kind] ?? r.kind;
+  const shape = r.shape
+    ?? (isViewKind(r.kind) ? 'grant-only' : (r.rls_on ? 'permissive-policy' : 'rls-off'));
+  const why = shape === 'grant-only'
+    ? 'anon holds the SELECT grant — a view cannot carry RLS'
+    : shape === 'permissive-policy'
+      ? 'RLS on, defeated by a TO public USING(true) policy'
+      : 'RLS OFF';
+  return `${kind}, ${r.rows} rows, ${why}`;
+}
+
+if (PRINT_SQL) {
+  console.log(EXPOSURE_SQL);
+  process.exit(0);
+}
 
 /**
  * SECURITY DEFINER functions in schema public that `anon` can EXECUTE, excluding
@@ -359,7 +455,12 @@ if (JSON_OUT) {
     },
   }, null, 2));
 } else {
+  const nViews = exposed.filter((r) => isViewKind(r.kind)).length;
   console.log(`\n${BOLD}Live anon-exposure sweep${RESET} — ${exposed.length} relation(s) reachable by the anon key.`);
+  // Broken out by kind on purpose. This sweep reported views as covered while
+  // structurally unable to return one; a standing count of 0 views is now
+  // something a reader can notice rather than something absence hides.
+  console.log(`${DIM}  ${exposed.length - nViews} table(s) · ${nViews} view/matview(s)${RESET}`);
   console.log(`${DIM}  approved ${approved.length} · grandfathered ${warned.length} · escalated ${escalated.length} · unapproved ${unapproved.length}${RESET}`);
   console.log(`${BOLD}SECURITY DEFINER functions${RESET} — ${exposedFns.length} executable by the anon key.`);
   console.log(`${DIM}  approved ${fnApproved.length} · grandfathered ${fnWarned.length} · escalated ${fnEscalated.length} · unapproved ${fnUnapproved.length}${RESET}`);
@@ -417,19 +518,42 @@ allowed to write here.`);
   }
 
   if (unapproved.length) {
-    console.error(`\n${RED}${BOLD}✗ ${unapproved.length} relation(s) nobody approved:${RESET}`);
+    const badViews = unapproved.filter((r) => isViewKind(r.kind));
+    const badTables = unapproved.filter((r) => !isViewKind(r.kind));
+    console.error(`\n${RED}${BOLD}✗ ${unapproved.length} relation(s) nobody approved:${RESET}` +
+      `${DIM}  (${badTables.length} table(s), ${badViews.length} view/matview(s))${RESET}`);
     for (const r of unapproved) {
       const id = r.identity_cols.length ? `  ${RED}identity: ${r.identity_cols.join(', ')}${RESET}` : '';
-      console.error(`  ${RED}•${RESET} ${BOLD}${r.name}${RESET} ${DIM}(${r.kind_label}, ${r.rows} rows, RLS ${r.rls_on ? 'on' : 'OFF'})${RESET}${id}`);
+      console.error(`  ${RED}•${RESET} ${BOLD}${r.name}${RESET} ${DIM}(${describe(r)})${RESET}${id}`);
     }
-    console.error(`
-${YELLOW}If it should be private${RESET} — in a migration:
-  ${DIM}REVOKE ALL ON TABLE public.${unapproved[0].name} FROM anon, PUBLIC;${RESET}
-  ${DIM}ALTER TABLE public.${unapproved[0].name} ENABLE ROW LEVEL SECURITY;${RESET}
+
+    // Two different fixes, printed separately, because giving the wrong one sends
+    // somebody to write an RLS policy on a view — which PostgreSQL rejects
+    // outright, and the exposure stays open while it looks like it was handled.
+    if (badTables.length) {
+      console.error(`
+${YELLOW}For the ${badTables.length} TABLE(s), if it should be private${RESET} — in a migration:
+  ${DIM}REVOKE ALL ON TABLE public.${badTables[0].name} FROM anon, PUBLIC;${RESET}
+  ${DIM}ALTER TABLE public.${badTables[0].name} ENABLE ROW LEVEL SECURITY;${RESET}
   ${DIM}-- RLS on with no policy denies every role; service_role still bypasses it.${RESET}
 If RLS is already ON, look for a PERMISSIVE policy granted TO public with
-USING (true) — that makes RLS a no-op no matter how reassuring its name is.
+USING (true) — that makes RLS a no-op no matter how reassuring its name is.`);
+    }
 
+    if (badViews.length) {
+      console.error(`
+${YELLOW}For the ${badViews.length} VIEW/MATVIEW(s), the ONLY fix is the grant${RESET} — in a migration:
+  ${DIM}REVOKE ALL ON public.${badViews[0].name} FROM anon, PUBLIC;${RESET}
+  ${DIM}GRANT  SELECT ON public.${badViews[0].name} TO authenticated;  -- if callers need it${RESET}
+
+${YELLOW}Do not reach for RLS here.${RESET} PostgreSQL does not allow a row-level policy on a
+view or a materialized view, so there is no second line of defence behind the
+grant — the grant IS the access control. Note also that a view which is not
+declared WITH (security_invoker = true) executes as its OWNER, so it will happily
+republish rows from a table whose own RLS is perfectly correct.`);
+    }
+
+    console.error(`
 ${YELLOW}If it is public on purpose${RESET} — add it to scripts/ci/anon-exposure-allowlist.json
 with status "approved" and a reason a stranger can evaluate.`);
   }
@@ -451,7 +575,7 @@ reason that explains why those rows are public on purpose.`);
     console.log(`\n${YELLOW}⚠ ${warned.length} grandfathered relation(s) — exposed, never explicitly ruled on:${RESET}`);
     for (const r of warned) {
       const id = r.identity_cols.length ? ` ${YELLOW}[identity: ${r.identity_cols.join(', ')}]${RESET}` : '';
-      console.log(`  ${DIM}·${RESET} ${r.name} ${DIM}(${r.kind_label}, ${r.rows} rows)${RESET}${id}`);
+      console.log(`  ${DIM}·${RESET} ${r.name} ${DIM}(${describe(r)})${RESET}${id}`);
     }
     console.log(`${DIM}  Not failing the run. Each still deserves a yes/no — move it to "approved" or lock it.${RESET}`);
   }
