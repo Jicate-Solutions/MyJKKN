@@ -48,13 +48,36 @@ import type { LearnerContributionScore } from '@/types/learner-contribution';
  * So the first two stages must be resolved through `profiles.learner_id`, while
  * the last stage keys off the learner id directly.
  */
+/**
+ * One stage of the AI agency funnel.
+ *
+ * Deliberately NOT a plain number. A number cannot express "I was not allowed to
+ * look", and collapsing that case to 0 is how this card came to state false
+ * facts: on 2026-07-31, for a learner with two starter actions on record, both a
+ * super admin and a HOD were shown "0".
+ *
+ * The trap is that an RLS refusal is SILENT. PostgREST answers a refused read
+ * with an empty set, a count of 0 and NO error — RLS filters rows, it does not
+ * raise. So checking `error` is necessary but nowhere near sufficient; a zero is
+ * only trustworthy once we have positively proved the source is readable.
+ */
+export type FunnelStage =
+  /** Proven readable. `count` is a fact — a 0 here means the learner did nothing. */
+  | { status: 'counted'; count: number }
+  /** The read was refused outright and Postgres/PostgREST said so. */
+  | { status: 'denied' }
+  /** Nothing came back AND readability could not be proved. Never render as 0. */
+  | { status: 'unconfirmed' }
+  /** The learner has no platform login, so this stage is unmeasurable for them. */
+  | { status: 'unlinked' };
+
 export interface AiAgencyFunnel {
   /** Sessions attended live. */
-  attended: number;
+  attended: FunnelStage;
   /** Domain starter actions taken (the first act of authorship). */
-  starters: number;
+  starters: FunnelStage;
   /** Prompts actually assembled and submitted. */
-  builds: number;
+  builds: FunnelStage;
   /** False when the learner has no linked login, so the funnel is unmeasurable. */
   hasLinkedProfile: boolean;
 }
@@ -73,22 +96,54 @@ export interface Learner360 {
   funnel: AiAgencyFunnel;
 }
 
-/** Count rows matching an equality filter without transferring any of them. */
-async function countWhere(
+/**
+ * Count rows matching an equality filter, and report honestly when the count
+ * cannot be trusted.
+ *
+ * A zero is only returned as a fact once we have proved the viewer can read the
+ * table at all. That proof is one unfiltered "show me any single row" probe —
+ * which costs a LIMIT 1 and, crucially, does NOT duplicate the RLS predicate in
+ * TypeScript. Re-stating the policy here would only drift from the policy.
+ */
+async function readStage(
   supabase: Awaited<ReturnType<typeof createClient>>,
   table: 'ai_pulse_live_attendance' | 'ai_pulse_domain_starter_events' | 'ai_pulse_prompt_builds',
   column: 'profile_id' | 'learner_id',
   value: string,
-): Promise<number> {
+): Promise<FunnelStage> {
   const { count, error } = await supabase
     .from(table)
     .select('id', { count: 'exact', head: true })
     .eq(column, value);
+
   if (error) {
-    console.error(`[get-learner-360] count failed for ${table}:`, error);
-    return 0;
+    console.error(`[get-learner-360] ${table} read refused:`, error);
+    return { status: 'denied' };
   }
-  return count ?? 0;
+  if ((count ?? 0) > 0) {
+    return { status: 'counted', count: count as number };
+  }
+
+  // Zero rows. That is either a genuine zero or a silent RLS refusal, and the
+  // two are indistinguishable from the row count alone. Prove readability
+  // before we are willing to print a number.
+  const { data: anyRow, error: probeError } = await supabase
+    .from(table)
+    .select('id')
+    .limit(1);
+
+  if (probeError) {
+    console.error(`[get-learner-360] ${table} visibility probe refused:`, probeError);
+    return { status: 'denied' };
+  }
+  if ((anyRow?.length ?? 0) > 0) {
+    // We can see rows in this table, so the learner genuinely has none.
+    return { status: 'counted', count: 0 };
+  }
+  // We can see nothing at all here. Either the source is empty platform-wide or
+  // our role is refused; both look identical over PostgREST, so say so rather
+  // than invent a zero.
+  return { status: 'unconfirmed' };
 }
 
 export async function getLearner360(learnerId: string): Promise<Learner360> {
@@ -170,14 +225,15 @@ export async function getLearner360(learnerId: string): Promise<Learner360> {
     };
   }
 
+  const unlinked: FunnelStage = { status: 'unlinked' };
   const [attended, starters, builds] = await Promise.all([
     profileId
-      ? countWhere(supabase, 'ai_pulse_live_attendance', 'profile_id', profileId)
-      : Promise.resolve(0),
+      ? readStage(supabase, 'ai_pulse_live_attendance', 'profile_id', profileId)
+      : Promise.resolve(unlinked),
     profileId
-      ? countWhere(supabase, 'ai_pulse_domain_starter_events', 'profile_id', profileId)
-      : Promise.resolve(0),
-    countWhere(supabase, 'ai_pulse_prompt_builds', 'learner_id', learnerId),
+      ? readStage(supabase, 'ai_pulse_domain_starter_events', 'profile_id', profileId)
+      : Promise.resolve(unlinked),
+    readStage(supabase, 'ai_pulse_prompt_builds', 'learner_id', learnerId),
   ]);
 
   return {

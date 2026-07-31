@@ -20,30 +20,50 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import type { AiAgencyFunnel } from '../_data/get-learner-360';
+import type { AiAgencyFunnel, FunnelStage } from '../_data/get-learner-360';
 
 interface AiAgencyCardProps {
   funnel: AiAgencyFunnel;
 }
 
+/** True only when the stage is a proven zero — never for an unreadable one. */
+function isProvenZero(stage: FunnelStage): boolean {
+  return stage.status === 'counted' && stage.count === 0;
+}
+
+/**
+ * Render one stage.
+ *
+ * A number is printed ONLY for a `counted` stage, i.e. one where the read was
+ * proved to have been permitted. Every other state gets a worded blank, because
+ * a digit here is read as a fact about the learner and there is no honest digit
+ * for "we could not look".
+ */
 function Stage({
   label,
-  value,
+  stage,
   caption,
-  unmeasured,
 }: {
   label: string;
-  value: number;
+  stage: FunnelStage;
   caption: string;
-  unmeasured: boolean;
 }) {
   return (
     <div className="flex-1 rounded-lg border p-4">
       <p className="text-sm text-muted-foreground">{label}</p>
-      {unmeasured ? (
-        <p className="mt-1 text-sm italic text-muted-foreground">No data yet</p>
+      {stage.status === 'counted' ? (
+        <p className="mt-1 text-3xl font-bold tabular-nums">{stage.count}</p>
+      ) : stage.status === 'denied' ? (
+        <p className="mt-1 text-sm italic text-muted-foreground">
+          Not visible to your role
+        </p>
+      ) : stage.status === 'unlinked' ? (
+        <p className="mt-1 text-sm italic text-muted-foreground">Not measurable</p>
       ) : (
-        <p className="mt-1 text-3xl font-bold tabular-nums">{value}</p>
+        // `unconfirmed`. Deliberately NOT "No data yet": an empty source and a
+        // refused one are byte-identical over PostgREST, so claiming the source
+        // is empty would just swap one false statement for a quieter one.
+        <p className="mt-1 text-sm italic text-muted-foreground">Not visible</p>
       )}
       <p className="mt-1 text-xs text-muted-foreground">{caption}</p>
     </div>
@@ -52,14 +72,23 @@ function Stage({
 
 export function AiAgencyCard({ funnel }: AiAgencyCardProps) {
   const { attended, starters, builds, hasLinkedProfile } = funnel;
+  const stages = [attended, starters, builds];
 
-  // Nothing to say at all — don't render an empty shell.
-  if (!hasLinkedProfile && builds === 0) {
+  // Nothing to say at all — don't render an empty shell. Both guards now demand
+  // PROVEN zeroes: an unreadable stage must never be mistaken for "did nothing"
+  // and silently collapse the whole card.
+  if (!hasLinkedProfile && isProvenZero(builds)) {
     return null;
   }
-  if (hasLinkedProfile && attended === 0 && starters === 0 && builds === 0) {
+  if (hasLinkedProfile && stages.every(isProvenZero)) {
     return null;
   }
+
+  // Any stage we were not permitted to read (or could not confirm) means the
+  // funnel on screen is partial, and the reader has to be told that.
+  const anyUnreadable = stages.some(
+    (s) => s.status === 'denied' || s.status === 'unconfirmed',
+  );
 
   return (
     <Card>
@@ -77,21 +106,18 @@ export function AiAgencyCard({ funnel }: AiAgencyCardProps) {
         <div className="flex flex-col gap-3 sm:flex-row">
           <Stage
             label="Sessions attended"
-            value={attended}
+            stage={attended}
             caption="Live AI Pulse sessions joined"
-            unmeasured={!hasLinkedProfile}
           />
           <Stage
             label="Starter actions"
-            value={starters}
+            stage={starters}
             caption="Picked up a domain starter"
-            unmeasured={!hasLinkedProfile}
           />
           <Stage
             label="Prompts built"
-            value={builds}
+            stage={builds}
             caption="Assembled and submitted a prompt"
-            unmeasured={false}
           />
         </div>
 
@@ -100,7 +126,15 @@ export function AiAgencyCard({ funnel }: AiAgencyCardProps) {
             This learner has no linked platform login, so attendance and starter
             activity cannot be measured — these are unknown, not zero.
           </p>
-        ) : attended > 0 && builds === 0 ? (
+        ) : anyUnreadable ? (
+          <p className="text-xs italic text-muted-foreground">
+            A blank above is not a zero — either nothing has been recorded yet, or
+            your role may not read it. It is shown as unknown rather than counted
+            as nothing.
+          </p>
+        ) : attended.status === 'counted' &&
+          attended.count > 0 &&
+          isProvenZero(builds) ? (
           <p className="text-xs text-muted-foreground">
             Attended but has not yet built a prompt — the gap between showing up and
             practising.

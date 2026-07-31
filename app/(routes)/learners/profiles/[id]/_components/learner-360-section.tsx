@@ -210,8 +210,15 @@ export async function Learner360Section({ learnerId }: Learner360SectionProps) {
   const { risk, contribution, attendance, eligibility, funnel } = data;
 
   // Nothing readable for this viewer (or nothing computed yet) — render nothing
-  // rather than a shell of empty cards.
-  if (!risk && !contribution && !attendance && funnel.attended === 0 && funnel.builds === 0) {
+  // rather than a shell of empty cards. The funnel test demands PROVEN zeroes:
+  // a stage we were refused must not masquerade as "did nothing" and take the
+  // whole section down with it.
+  const funnelProvenEmpty =
+    funnel.attended.status === 'counted' &&
+    funnel.attended.count === 0 &&
+    funnel.builds.status === 'counted' &&
+    funnel.builds.count === 0;
+  if (!risk && !contribution && !attendance && funnelProvenEmpty) {
     return null;
   }
 
