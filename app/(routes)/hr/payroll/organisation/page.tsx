@@ -114,7 +114,7 @@ export default function PayrollOrganisationPage() {
                 Who pays these team members has not been recorded yet
               </p>
               <p className='text-amber-800 dark:text-amber-300'>
-                The staff record says where someone <strong>works</strong>. It does
+                The team member record says where someone <strong>works</strong>. It does
                 not say who bears their salary, and for these people the two are
                 not the same — they work at a location that runs no payroll. Until
                 a paying organisation is recorded here they are left out of every

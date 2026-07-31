@@ -158,7 +158,7 @@ export class PayslipGenerator {
       // Abort rather than continue: a partial staff read produces a PARTIAL
       // payroll run that reports success, which is not obvious until somebody
       // is paid twice on the rerun.
-      if (staffErr) throw new Error(`Failed to load staff: ${staffErr.message}`);
+      if (staffErr) throw new Error(`Failed to load team members: ${staffErr.message}`);
       staffList.push(...((chunk ?? []) as StaffPayInfo[]));
     }
 

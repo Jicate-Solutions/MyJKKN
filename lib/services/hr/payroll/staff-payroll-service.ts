@@ -66,7 +66,7 @@ export class StaffPayrollService {
 
     if (error) {
       throw new Error(
-        `Failed to load staff awaiting a payroll organisation: ${getErrorMessage(error)}`
+        `Failed to load team members awaiting a payroll organisation: ${getErrorMessage(error)}`
       );
     }
 
