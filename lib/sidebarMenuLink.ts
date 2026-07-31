@@ -888,6 +888,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
+  // School of Influence — programme settings (S2, 2026-07-31). Deliberately
+  // gated on its OWN key rather than startup_studio.analytics.view: the page
+  // guard uses the same key, so the chip is visible to exactly the people the
+  // page admits (plus super admins, who bypass both). Mapping it to a broad
+  // .view key would surface a chip that then denies — the sidebar-shows /
+  // page-denies anti-pattern.
+  '/startup-studio/school-of-influence/admin/settings': 'startup_studio.school_of_influence.configure',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',

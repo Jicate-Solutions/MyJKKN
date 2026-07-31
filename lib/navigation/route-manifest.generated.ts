@@ -6779,6 +6779,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "label": "Attendance",
                 "iconName": "CheckSquare",
                 "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/settings",
+                "label": "School of Influence Settings",
+                "iconName": "SlidersHorizontal",
+                "children": []
               }
             ]
           }
