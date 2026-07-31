@@ -141,6 +141,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'foundation.items.manage', label: 'Author Foundation Questions' },
       { key: 'foundation.assessments.view', label: 'View Foundation Assessments' },
       { key: 'foundation.assessments.manage', label: 'Build Foundation Assessments' },
+      // The learner-facing one. Everything above is an operator surface; this is
+      // the only key that opens /foundation/practice, where questions are
+      // actually answered. Grant it to the people sitting the programme.
+      { key: 'foundation.practice.take', label: 'Answer Foundation Practice Questions' },
     ]
   },
   {

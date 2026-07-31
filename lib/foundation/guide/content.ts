@@ -22,10 +22,71 @@ export const REQUIRES = {
   // The teacher who reviews a student's diagnostic and generates a revision
   // plan — the "help this student" gate.
   facilitator: "foundation.students.view",
+  // The person actually sitting the programme, answering the questions — the
+  // "practise" gate. Everything else in this module is an operator surface.
+  learner: "foundation.practice.take",
 } as const;
 
 export const GUIDES: GuideBook = {
   lanes: {
+    /* ── LEARNER (the person answering the questions) ───────────────────── */
+    learner: {
+      persona: "learner",
+      title: "Practice Guide",
+      tagline:
+        "You pick a subject, answer a short set of questions one at a time, and read why each answer was what it was.",
+      whyItMatters:
+        "Nothing here is a mark against you and nothing is timed. Getting one wrong is the useful part — the explanation afterwards is what you came for, and answering regularly is what tells your resource person where to help you.",
+      startHere: { label: "Open Practice", href: "/foundation/practice" },
+      requires: REQUIRES.learner,
+      journey: ["Pick a subject", "Answer the questions", "Read what each answer was"],
+      sections: [
+        {
+          id: "pick",
+          title: "Pick a subject",
+          steps: [
+            {
+              action:
+                "Open **Practice** and choose a subject from the list. Each one shows how many questions are ready.",
+              detail:
+                "Only subjects that have questions ready appear. If the list is empty, the questions are still being prepared — nothing is broken.",
+              prerequisite:
+                "Someone at your school has to enrol you on the programme first. Until then the page says so rather than showing subjects.",
+              platforms: {
+                web: "left sidebar → Foundation Practice",
+                mobile: "tap the menu (☰) → Foundation Practice",
+              },
+              link: { label: "Open Practice", href: "/foundation/practice" },
+            },
+          ],
+        },
+        {
+          id: "answer",
+          title: "Answer, then read the explanations",
+          steps: [
+            {
+              action:
+                "Tap the answer you think is right, then **Next**. You can go back with **Previous** and change it before you finish.",
+              detail:
+                "One question at a time, nothing timed. If you are unsure, move on — anything you leave is recorded as not attempted rather than wrong.",
+            },
+            {
+              action:
+                "On the last question tap **Finish and see how it went**, then read down the review.",
+              detail:
+                "The count at the top is the small part. Below it, every question shows what you chose, what the answer was, and why — that is the part worth reading.",
+            },
+            {
+              action:
+                "If a question looks wrong to you, use **Report a problem** on it.",
+              detail:
+                "Your report goes to whoever reviews the question bank. A question only stops counting toward mastery once enough different people have reported the same one.",
+            },
+          ],
+        },
+      ],
+    },
+
     /* ── COORDINATOR (resource person / foundation admin) ──────────────── */
     coordinator: {
       persona: "coordinator",
