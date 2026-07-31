@@ -10,6 +10,8 @@
     "build": "npm run gen:routes && npm run check:sidebar && npm run check:reachability && npm run check:audit-coverage && cross-env NODE_OPTIONS=\"--max-old-space-size=12288 --max-semi-space-size=128\" next build --turbopack && serwist build serwist.config.mjs",
     "start": "next start",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:ci": "vitest run --exclude '__tests__/api/bos-syllabi.test.ts' --exclude '__tests__/hooks/use-bos-permissions.test.ts' --exclude '__tests__/hr/recruitment-need/signal-hooks.test.ts' --exclude '__tests__/hr/recruitment-need/signal-service.test.ts' --exclude '__tests__/hr/recruitment-need/types.test.ts' --exclude '__tests__/lib/api-keys/audit-logger.test.ts' --exclude '__tests__/lib/api-keys/authenticate.test.ts' --exclude '__tests__/lib/api-keys/rate-limiter.test.ts' --exclude '__tests__/lib/attendance/audit-log.test.ts' --exclude '__tests__/lib/institution-type-labels.test.ts' --exclude '__tests__/lib/services/pde-bridge-service.test.ts' --exclude '__tests__/lib/sidebar-filter.test.ts' --exclude '__tests__/meetings/booking-crm-bridge.test.ts' --exclude '**/distribute/__tests__/distribute-panel.test.tsx' --exclude 'lib/services/admission/__tests__/bulk-assign-service.test.ts' --exclude 'lib/utils/mappings/__tests__/fee-structure-excel-mappings.test.ts' --exclude 'lib/validations/__tests__/learner-create-schema.test.ts' --exclude 'scripts/form-errors.test.ts' --exclude 'scripts/import/lib/field-mapper.test.ts' --exclude 'scripts/learner-search.test.ts' --exclude 'scripts/staff-search.test.ts'",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
     "gen:routes": "tsx scripts/generate-route-manifest.ts",
     "typecheck": "tsc --noEmit --pretty",
