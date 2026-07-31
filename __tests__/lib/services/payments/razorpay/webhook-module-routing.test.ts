@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const processSuccessfulPayment = vi.fn().mockResolvedValue(true);
 const logVerificationSuccess = vi.fn().mockResolvedValue(undefined);
+const logAmountMismatch = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@/lib/services/billing/payment-gateway-service', () => ({
   PaymentGatewayService: {
@@ -28,6 +29,7 @@ vi.mock('@/lib/services/billing/payment-gateway-service', () => ({
 vi.mock('@/lib/services/billing/security/payment-audit-service', () => ({
   PaymentAuditService: {
     logVerificationSuccess: (...args: unknown[]) => logVerificationSuccess(...args),
+    logAmountMismatch: (...args: unknown[]) => logAmountMismatch(...args),
     logInvalidWebhookSignature: vi.fn(),
   },
 }));
@@ -109,6 +111,7 @@ const capturedPayload = (module: string) => ({
 beforeEach(() => {
   processSuccessfulPayment.mockClear();
   logVerificationSuccess.mockClear();
+  logAmountMismatch.mockClear();
 });
 
 describe('webhook module registry', () => {
@@ -116,6 +119,19 @@ describe('webhook module registry', () => {
     for (const [name, cfg] of Object.entries(WEBHOOK_MODULES)) {
       expect(cfg.table, `${name} must declare a table`).toBeTruthy();
       expect(cfg.terminalStatuses.length).toBeGreaterThan(0);
+      // The status vocabulary is per-table, not shared. See the ims describe block.
+      expect(cfg.statuses?.captured, `${name} must declare a captured status`).toBeTruthy();
+      expect(cfg.statuses?.failed, `${name} must declare a failed status`).toBeTruthy();
+    }
+  });
+
+  it('declares the amount-check pair together or not at all', () => {
+    for (const [name, cfg] of Object.entries(WEBHOOK_MODULES)) {
+      // amountPaiseColumn without a mismatch status would compare and then have
+      // nowhere to record the answer — the check would silently do nothing.
+      if (cfg.amountPaiseColumn) {
+        expect(cfg.statuses.mismatch, `${name} checks amounts so it needs a mismatch status`).toBeTruthy();
+      }
     }
   });
 
@@ -236,6 +252,139 @@ describe('payment.failed routing', () => {
     const eUpdate = events.updates.find((u) => u.table === 'event_payment_transactions');
     expect(eUpdate!.values.status).toBe('failed');
     expect(eUpdate!.values.completed_at).toBeUndefined();
+  });
+});
+
+/**
+ * IMS counter sales joined the ORDER path when it turned out the QR Codes API is
+ * not provisioned on the merchant account. That is not a free move: the shared
+ * "captured" write used to hardcode `status: 'success'` and `captured_at`, and
+ * ims_gateway_payments accepts neither — its CHECK constraint allows
+ * initiated|paid|failed|expired|cancelled|amount_mismatch, and its timestamp column
+ * is paid_at. A hardcoded 'success' there is not a cosmetic mismatch; it is a
+ * constraint violation on every capture, i.e. money taken and the row never marked
+ * paid. These tests pin the vocabulary each module's table actually accepts.
+ */
+describe('ims order-path routing', () => {
+  const imsPayload = (amount: number) => ({
+    event: 'payment.captured',
+    payload: {
+      payment: {
+        entity: {
+          id: 'pay_IMS1',
+          order_id: 'order_IMS1',
+          amount,
+          method: 'upi',
+          created_at: 1780000000,
+          notes: { module: 'ims' },
+        },
+      },
+      order: { entity: { id: 'order_IMS1', notes: { module: 'ims' } } },
+    },
+  });
+
+  it("writes the ims table's own status words, not billing's", async () => {
+    const { client, updates } = makeClient({
+      ims_gateway_payments: { id: 'gp-1', status: 'initiated', amount_paise: 250000 },
+    });
+
+    await dispatchRazorpayWebhook(client as never, imsPayload(250000));
+
+    const upd = updates.find((u) => u.table === 'ims_gateway_payments');
+    expect(upd).toBeDefined();
+    expect(upd!.values.status).toBe('paid');            // NOT 'success'
+    expect(upd!.values.paid_at).toBeDefined();          // NOT captured_at
+    expect(upd!.values.captured_at).toBeUndefined();
+    expect(upd!.values.captured_amount_paise).toBe(250000);
+    expect(upd!.values.razorpay_payment_id).toBe('pay_IMS1');
+
+    // The webhook records the money and stops. Booking the sale needs auth.uid(),
+    // which a webhook has no way to supply — the cashier's poll does that.
+    expect(processSuccessfulPayment).not.toHaveBeenCalled();
+  });
+
+  it('refuses to finalize when the captured amount does not match the bill', async () => {
+    const { client, updates } = makeClient({
+      ims_gateway_payments: { id: 'gp-2', status: 'initiated', amount_paise: 250000 },
+    });
+
+    await dispatchRazorpayWebhook(client as never, imsPayload(100));
+
+    const upd = updates.find((u) => u.table === 'ims_gateway_payments');
+    expect(upd!.values.status).toBe('amount_mismatch');
+    expect(upd!.values.captured_amount_paise).toBe(100);
+    expect(logAmountMismatch).toHaveBeenCalledTimes(1);
+    // Never reported as a verified success — a human decides this one.
+    expect(logVerificationSuccess).not.toHaveBeenCalled();
+  });
+
+  it('leaves billing and events unchecked on amount — that gap is theirs, not ours to inherit', async () => {
+    const { client, updates } = makeClient({
+      payment_transactions: { id: 'txn-1', status: 'initiated', amount_paise: 999 },
+    });
+
+    // Captured 250000 against an expected 999: billing declares no amount column,
+    // so it finalizes exactly as it did before this change.
+    await dispatchRazorpayWebhook(client as never, capturedPayload('billing'));
+
+    const upd = updates.find((u) => u.table === 'payment_transactions');
+    expect(upd!.values.status).toBe('success');
+    expect(upd!.values.captured_at).toBeDefined();
+    expect(logAmountMismatch).not.toHaveBeenCalled();
+  });
+
+  it('skips payment.authorized entirely — ims has no intermediate status', async () => {
+    const { client, updates } = makeClient({
+      ims_gateway_payments: { id: 'gp-3', status: 'initiated', amount_paise: 250000 },
+    });
+
+    await dispatchRazorpayWebhook(client as never, {
+      event: 'payment.authorized',
+      payload: {
+        payment: { entity: { id: 'pay_IMS2', order_id: 'order_IMS1', notes: { module: 'ims' } } },
+        order: { entity: { id: 'order_IMS1', notes: { module: 'ims' } } },
+      },
+    });
+
+    // 'processing' would be rejected by the CHECK constraint, and auto-capture
+    // follows immediately, so there is nothing worth recording.
+    expect(updates.some((u) => u.table === 'ims_gateway_payments')).toBe(false);
+  });
+
+  it('does not write a failure over a row that is already paid', async () => {
+    const { client, updates } = makeClient({
+      ims_gateway_payments: { id: 'gp-4', status: 'paid', amount_paise: 250000 },
+    });
+
+    // Razorpay allows several attempts against one order, so a failure event for an
+    // abandoned first attempt can land after the retry succeeded. Overwriting would
+    // leave a customer who paid, a row saying failed, and no sale.
+    await dispatchRazorpayWebhook(client as never, {
+      event: 'payment.failed',
+      payload: {
+        payment: { entity: { id: 'pay_IMS3', order_id: 'order_IMS1', notes: { module: 'ims' } } },
+        order: { entity: { id: 'order_IMS1', notes: { module: 'ims' } } },
+      },
+    });
+
+    expect(updates.some((u) => u.table === 'ims_gateway_payments')).toBe(false);
+  });
+
+  it('still routes qr_code.credited — the QR path is dormant, not deleted', async () => {
+    const { client, updates } = makeClient({
+      ims_gateway_payments: { id: 'gp-5', status: 'initiated', amount_paise: 250000 },
+    });
+
+    await dispatchRazorpayWebhook(client as never, {
+      event: 'qr_code.credited',
+      payload: {
+        qr_code: { entity: { id: 'qr_1', notes: { module: 'ims', gateway_payment_id: 'gp-5' } } },
+        payment: { entity: { id: 'pay_QR1', amount: 250000, created_at: 1780000000 } },
+      },
+    });
+
+    const upd = updates.find((u) => u.table === 'ims_gateway_payments');
+    expect(upd!.values.status).toBe('paid');
   });
 });
 

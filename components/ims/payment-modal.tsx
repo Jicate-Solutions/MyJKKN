@@ -26,7 +26,7 @@ import { toast } from 'sonner';
 
 import { CustomerSearch } from './customer-search';
 import { UpiQrPayment } from './upi-qr-payment';
-import { GatewayQrPayment } from './gateway-qr-payment';
+import { GatewayPaymentLauncher } from './gateway-payment';
 import { formatCurrencyINR } from '@/lib/utils/ims-receipt';
 import type { ImsPaymentMethod, ImsCustomerType, ImsSale } from '@/types/ims';
 import type { ImsCartItem } from '@/lib/stores/ims-cart-store';
@@ -98,7 +98,6 @@ export function PaymentModal({
 
   // UPI QR state
   const [showQr, setShowQr] = useState(false);
-  const [showVerifiedQr, setShowVerifiedQr] = useState(false);
 
   // Mixed state
   const [mixCash, setMixCash] = useState('');
@@ -371,7 +370,6 @@ export function PaymentModal({
           onValueChange={(v) => {
             setActiveTab(v as PaymentTab);
             setShowQr(false);
-            setShowVerifiedQr(false);
           }}
         >
           <TabsList className="w-full grid grid-cols-6">
@@ -515,41 +513,25 @@ export function PaymentModal({
           </TabsContent>
 
           {/* ── UPI (verified) ──
-              Razorpay issues the QR and confirms the credit itself, so nobody has
-              to type a reference number and be believed. Note this tab does NOT
-              call onCreateSale: by the time it reports success the server has
-              already booked the sale from the cart IT priced when the QR opened.
-              Routing it back through the browser would reopen the very gap this
-              closes. */}
+              Razorpay takes the payment and confirms the credit itself, so nobody
+              has to type a reference number and be believed. Note this tab does NOT
+              call onCreateSale: the server books the sale from the cart IT priced
+              when the order opened. Routing it back through the browser would
+              reopen the very gap this closes.
+
+              The browser leaves for Razorpay's page here and returns to
+              /ims/sales?gp=<id>, where the POS picks the payment back up — so this
+              tab ends at "handed over", not at "paid". */}
           <TabsContent value="upi_verified" className="space-y-4">
-            {!showVerifiedQr ? (
-              <div className="flex flex-col items-center gap-4 py-4">
-                <ShieldCheck className="h-12 w-12 text-muted-foreground" />
-                <p className="text-sm text-muted-foreground text-center">
-                  Collect {formatCurrencyINR(total)} through the payment gateway.
-                  The customer scans and pays, and the payment is confirmed
-                  automatically — no reference number to type in.
-                </p>
-                <Button onClick={() => setShowVerifiedQr(true)}>
-                  Show QR
-                </Button>
-              </div>
-            ) : (
-              <GatewayQrPayment
-                storeId={storeId}
-                items={items}
-                customerType={customerType}
-                customerName={customerName}
-                customerPhone={customerPhone}
-                onPaid={(saleId) => {
-                  // The sale already exists. handleSaleComplete only reads .id and
-                  // re-fetches the rest, so this is all it needs.
-                  onSaleComplete({ id: saleId } as ImsSale);
-                  onOpenChange(false);
-                }}
-                onCancel={() => setShowVerifiedQr(false)}
-              />
-            )}
+            <GatewayPaymentLauncher
+              storeId={storeId}
+              items={items}
+              customerType={customerType}
+              customerName={customerName}
+              customerPhone={customerPhone}
+              amount={total}
+              onCancel={() => onOpenChange(false)}
+            />
           </TabsContent>
 
           {/* ── Mixed ── */}

@@ -23,9 +23,70 @@ import type { createServiceRoleClient } from '@/lib/supabase/server';
 
 export type WebhookServiceClient = ReturnType<typeof createServiceRoleClient>;
 
+/**
+ * The status words a module's table actually accepts.
+ *
+ * This exists because the handlers used to write a hardcoded `status: 'success'`.
+ * That looked like a shared column set, but it was a coincidence: billing and
+ * events happen to use the same vocabulary. `ims_gateway_payments` has its own
+ * CHECK constraint (initiated|paid|failed|expired|cancelled|amount_mismatch), so a
+ * hardcoded 'success' there is not a mismatched label — it is a constraint
+ * violation on every capture, leaving money taken and the row never marked paid.
+ *
+ * Making the vocabulary part of the declaration means a new module cannot join the
+ * order path without stating which words its table understands.
+ */
+export interface WebhookStatusVocabulary {
+  /** Written when Razorpay confirms the money is captured. */
+  captured: string;
+  /**
+   * Written on payment.authorized (auto-capture makes this transient).
+   * Undefined means the module has no such intermediate state and the handler
+   * skips it rather than writing a word the table would reject.
+   */
+  authorized?: string;
+  /** Written on payment.failed. */
+  failed: string;
+  /**
+   * Written when the captured amount does not equal the expected amount.
+   * Only meaningful together with `amountPaiseColumn`.
+   */
+  mismatch?: string;
+}
+
 export interface WebhookModuleConfig {
   /** Table holding this module's gateway transactions. */
   table: string;
+  /** The status words this module's table accepts. See WebhookStatusVocabulary. */
+  statuses: WebhookStatusVocabulary;
+  /**
+   * Column receiving the capture timestamp. Undefined means don't write one —
+   * billing and events have `captured_at`; IMS records `paid_at` instead and
+   * declares it here.
+   */
+  capturedAtColumn?: string;
+  /**
+   * Column holding the amount we EXPECTED, in paise. When set, payment.captured
+   * compares it against what Razorpay actually captured and refuses to finalize a
+   * mismatch.
+   *
+   * Left undefined for billing and events deliberately: adding the check there
+   * would change behaviour in a module this work is not allowed to disturb. It is
+   * a real gap on their side and is being raised separately — but it is theirs to
+   * close, and IMS must not inherit it just because it shares the handler.
+   */
+  amountPaiseColumn?: string;
+  /**
+   * Refuse to write a failure over a row that is already terminal.
+   *
+   * Opt-in rather than universal. Razorpay allows several payment attempts against
+   * one order, so a `payment.failed` for an abandoned first attempt can arrive
+   * AFTER the retry succeeded — flipping a paid row to failed. For a counter sale
+   * that means a customer who has paid, a row that says failed, and no sale. The
+   * flag is not switched on for billing/events only because changing their
+   * behaviour is out of scope here, not because it is safe there.
+   */
+  guardTerminalOnFailure?: boolean;
   /**
    * Column holding the Razorpay ORDER id, for modules that collect through orders
    * (hosted checkout). Undefined for order-less flows: a QR-code payment carries no
@@ -62,6 +123,8 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
   billing: {
     table: 'payment_transactions',
     orderIdColumn: 'razorpay_order_id',
+    statuses: { captured: 'success', authorized: 'processing', failed: 'failed' },
+    capturedAtColumn: 'captured_at',
     terminalStatuses: ['success', 'refunded'],
     capturedExtraColumns: (payment, capturedAtIso) => ({
       payment_date: capturedAtIso,
@@ -97,6 +160,8 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
   events: {
     table: 'event_payment_transactions',
     orderIdColumn: 'razorpay_order_id',
+    statuses: { captured: 'success', authorized: 'processing', failed: 'failed' },
+    capturedAtColumn: 'captured_at',
     terminalStatuses: ['success', 'refunded'],
     onCaptured: async (supabase, rowId) => {
       // Mark the linked registration paid (mirror the callback success side-effect).
@@ -115,18 +180,41 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
   },
 
   ims: {
-    // Counter sales. Collected by QR, so there is NO order id — the order-keyed
-    // handlers (payment.captured / authorized / failed) skip this module and the
-    // credit arrives as qr_code.credited instead.
+    // Counter sales, collected through hosted checkout — so BOTH keys are declared:
+    //
+    //   orderIdColumn  — the live path. The QR Codes API is not provisioned on this
+    //                    merchant account, so the counter collects via an order and
+    //                    the credit arrives as payment.captured.
+    //   qrCodeIdColumn — kept, not vestigial. qr_code.credited still routes, so the
+    //                    day Razorpay enables the QR API that flow works untouched.
     table: 'ims_gateway_payments',
+    orderIdColumn: 'razorpay_order_id',
     qrCodeIdColumn: 'razorpay_qr_code_id',
+
+    // This table's own vocabulary. 'success' and 'processing' would be rejected by
+    // its CHECK constraint — see WebhookStatusVocabulary.
+    statuses: { captured: 'paid', failed: 'failed', mismatch: 'amount_mismatch' },
+    // No `authorized`: auto-capture makes it transient, and writing an unsupported
+    // word to satisfy a moment nobody observes would only risk a failed update.
+    capturedAtColumn: 'paid_at',
+
+    // Counter takings are amount-checked. Booking a sale for a different figure
+    // than was collected is worse than making a human look at it.
+    amountPaiseColumn: 'amount_paise',
+    guardTerminalOnFailure: true,
+
     // 'paid' means Razorpay reported the credit. amount_mismatch is terminal too:
     // it needs a human, and must never be quietly overwritten by a retry.
     terminalStatuses: ['paid', 'amount_mismatch', 'cancelled'],
-    // No onCaptured. The sale is booked by the CASHIER'S poll, not here — that
-    // request carries a real session, so ims_pos_checkout's auth.uid() guard holds
-    // and nothing needs a service-role bypass. The webhook's job is only to record
-    // that the money arrived.
+
+    capturedExtraColumns: (payment) => ({
+      captured_amount_paise: Number(payment.amount ?? 0),
+    }),
+
+    // No onCaptured. The sale is booked by the CASHIER'S poll (or the callback),
+    // not here — those requests carry a real session, so ims_pos_checkout's
+    // auth.uid() guard holds and nothing needs a service-role bypass. The webhook's
+    // job is only to make "the money arrived" a fact the poll can act on.
   },
 };
 

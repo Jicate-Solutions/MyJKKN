@@ -4,9 +4,17 @@
 //
 // The manual UPI QR this sits beside cannot know whether money arrived — it points
 // at a bank account the application has no connection to, so "paid" means a cashier
-// typed a reference and clicked a button. Here Razorpay issues the QR against a
-// merchant account we can query, reports the credit itself, and tells us the amount
-// it actually captured.
+// typed a reference and clicked a button. Here the collection happens against a
+// merchant account we can query: Razorpay reports the credit itself, and tells us
+// the amount it actually captured.
+//
+// HOW THE MONEY IS COLLECTED. Through an ORDER and Razorpay's hosted checkout —
+// not the QR Codes API. That API is not provisioned on this merchant account
+// (a bare parameterless GET /payments/qr_codes fails exactly as the POST does,
+// while /orders answers 200), and neither are Payment Links or Virtual Accounts.
+// Orders are the one collection product the account has, and the one billing has
+// used for every Razorpay payment since 2026-06-04. The customer still scans a UPI
+// QR — Razorpay's hosted page renders one — so the counter experience survives.
 //
 // Two rules shape everything below:
 //
@@ -187,8 +195,8 @@ export class ImsGatewayPaymentService {
     return priced;
   }
 
-  /** Open a Razorpay QR for this cart. */
-  static async createQr(input: CreateGatewayPaymentInput, userId: string) {
+  /** Open a Razorpay payment session (order + hosted checkout) for this cart. */
+  static async createPaymentSession(input: CreateGatewayPaymentInput, userId: string) {
      
     const supabase = (await createServerSupabaseClient()) as any;
 
@@ -274,14 +282,15 @@ export class ImsGatewayPaymentService {
         purpose: 'create-order',
       })) as RazorpayProvider;
 
-      const qr = await provider.createQrCode({
+      const order = await provider.createOrder({
         transactionRef,
         amountPaise,
+        currency: 'INR',
         module: 'ims',
-        closeBy: Math.floor(expiresAt.getTime() / 1000),
-        name: storeName,
-        description: `${storeCode} · ${transactionRef}`,
         notes: {
+          // notes.module is what the webhook routes on; these extras are what let
+          // the handlers find OUR row even in the window where Razorpay accepted
+          // the order but our follow-up write of razorpay_order_id had not landed.
           gateway_payment_id: row.id,
           store_id: input.storeId,
           store_code: storeCode,
@@ -292,9 +301,8 @@ export class ImsGatewayPaymentService {
       await service
         .from('ims_gateway_payments')
         .update({
-          razorpay_qr_code_id: qr.id,
-          qr_image_url: qr.image_url,
-          gateway_response: qr as unknown as Record<string, unknown>,
+          razorpay_order_id: order.gatewayOrderId,
+          gateway_response: order.raw as Record<string, unknown>,
           updated_at: new Date().toISOString(),
         })
         .eq('id', row.id);
@@ -303,7 +311,16 @@ export class ImsGatewayPaymentService {
         id: row.id as string,
         transactionRef,
         amount: priced.total_amount,
-        qrImageUrl: qr.image_url,
+        amountPaise,
+        razorpayOrderId: order.gatewayOrderId,
+        // Publishable key id only — the secret never leaves the provider.
+        razorpayKeyId: order.clientKeyId ?? '',
+        storeName,
+        description: `${storeCode} · ${transactionRef}`,
+        customer: {
+          name: input.customerName ?? '',
+          phone: input.customerPhone ?? '',
+        },
         expiresAt: expiresAt.toISOString(),
       };
     } catch (err) {
@@ -311,7 +328,7 @@ export class ImsGatewayPaymentService {
         .from('ims_gateway_payments')
         .update({ status: 'failed', finalize_error: err instanceof Error ? err.message : String(err) })
         .eq('id', row.id);
-      logger.error('ims/gateway-payment', 'createQrCode failed', err);
+      logger.error('ims/gateway-payment', 'createOrder failed', err);
       throw err;
     }
   }
@@ -355,7 +372,12 @@ export class ImsGatewayPaymentService {
       !current.last_inquiry_at ||
       Date.now() - new Date(current.last_inquiry_at).getTime() > INQUIRY_COOLDOWN_MS;
 
-    if (current.status === 'initiated' && current.razorpay_qr_code_id && cooledDown) {
+    const hasInstrument = !!(current.razorpay_order_id || current.razorpay_qr_code_id);
+    // 'expired' is included on purpose: our own window closing is not Razorpay's
+    // verdict, and a credit that lands after it is still honoured (see below).
+    const worthAsking = current.status === 'initiated' || current.status === 'expired';
+
+    if (worthAsking && hasInstrument && cooledDown) {
       current = await this.inquireAndMarkPaid(current);
     }
 
@@ -387,18 +409,27 @@ export class ImsGatewayPaymentService {
     };
   }
 
-  /** Ask Razorpay whether this QR has been credited, and record the answer. */
+  /** Ask Razorpay whether this payment has been credited, and record the answer. */
   private static async inquireAndMarkPaid(row: any): Promise<any> {
     const service = createServiceRoleClient() as any;
     const stamp = { last_inquiry_at: new Date().toISOString() };
 
     try {
+      // Pin the account this payment was OPENED on. Resolving by institution again
+      // would silently follow a key rotation and query the wrong merchant.
       const provider = (await getPaymentProvider('ims', {
+        accountId: row.razorpay_account_id,
         institutionId: row.institution_id,
         feeHead: IMS_POS_FEE_HEAD,
       })) as RazorpayProvider;
 
-      const payments = await provider.getQrCodePayments(row.razorpay_qr_code_id);
+      // Two collection instruments, one question: has anything been captured?
+      // Orders are the live path; the QR branch stays for the day that API is
+      // enabled, and costs nothing while it is not.
+      const payments = row.razorpay_order_id
+        ? await provider.getOrderPayments(row.razorpay_order_id)
+        : await provider.getQrCodePayments(row.razorpay_qr_code_id);
+
       const captured = payments.find((p) => p.status === 'captured');
 
       if (!captured) {
@@ -547,5 +578,186 @@ export class ImsGatewayPaymentService {
       });
       return { ...row, finalize_error: message };
     }
+  }
+
+  // ── Hosted-checkout return path ────────────────────────────────────────────
+  //
+  // WHY THE CALLBACK DOES NOT BOOK THE SALE.
+  //
+  // Razorpay's hosted checkout returns by making the BROWSER submit a form POST to
+  // our callback_url. That is a cross-site POST, and a SameSite=Lax session cookie
+  // is not sent on one — Lax permits top-level GET navigation only. So the callback
+  // request arrives with NO cashier session, and ims_pos_checkout derives the
+  // cashier from auth.uid().
+  //
+  // Rather than weaken that guard with a service-role actor override, the callback
+  // does the half that needs no session — verify the signature, ask Razorpay
+  // directly, check the amount to the paise, record that the money is ours — and
+  // then redirects the cashier back to the POS. Their browser lands on
+  // /ims/sales?gp=<id> WITH cookies (a top-level GET), and the poll that page
+  // already runs books the sale inside their own session.
+  //
+  // This is the same division of labour the webhook already uses, for the same
+  // reason. Neither is a second finalizer competing with the poll; both make "the
+  // money arrived" a fact the poll can act on.
+
+  /**
+   * Verify a hosted-checkout return and record the outcome. Service-role: no
+   * session is available here (see above). Returns the row id so the route can
+   * redirect the cashier to a page that knows what to poll.
+   */
+  static async confirmFromCallback(args: {
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+    signature: string;
+  }): Promise<{ id: string | null; paid: boolean; reason?: string }> {
+    const service = createServiceRoleClient() as any;
+
+    const { data: row } = await service
+      .from('ims_gateway_payments')
+      .select('*')
+      .eq('razorpay_order_id', args.razorpayOrderId)
+      .maybeSingle();
+
+    if (!row) {
+      logger.warn('ims/gateway-payment', 'callback for unknown order', {
+        razorpayOrderId: args.razorpayOrderId,
+      });
+      return { id: null, paid: false, reason: 'unknown_order' };
+    }
+
+    // Already resolved — a replayed or duplicated callback must not disturb it.
+    if (['paid', 'amount_mismatch', 'cancelled'].includes(row.status)) {
+      return { id: row.id, paid: row.status === 'paid', reason: row.status };
+    }
+
+    const provider = (await getPaymentProvider('ims', {
+      accountId: row.razorpay_account_id,
+      institutionId: row.institution_id,
+      feeHead: IMS_POS_FEE_HEAD,
+    })) as RazorpayProvider;
+
+    // 1. HMAC over order_id|payment_id. Proves the pair was signed by someone
+    //    holding our key secret — i.e. that these ids were not invented by whoever
+    //    is driving the browser.
+    const signatureOk = provider.verifySignature({
+      gatewayOrderId: args.razorpayOrderId,
+      gatewayPaymentId: args.razorpayPaymentId,
+      signature: args.signature,
+    });
+
+    if (!signatureOk) {
+      logger.error('ims/gateway-payment', 'callback signature verification FAILED', {
+        id: row.id, razorpayOrderId: args.razorpayOrderId,
+      });
+      await service
+        .from('ims_gateway_payments')
+        .update({
+          status: 'failed',
+          finalize_error: 'Callback signature verification failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id)
+        .in('status', ['initiated', 'expired']);
+      return { id: row.id, paid: false, reason: 'bad_signature' };
+    }
+
+    // 2. Dual inquiry — mandatory per the Razorpay security audit, and not
+    //    redundant with step 1. A valid signature proves someone signed
+    //    order|payment; it does NOT prove the money was captured. Only asking
+    //    Razorpay does.
+    const inquiry = await provider.dualInquiry(args.razorpayOrderId, args.razorpayPaymentId);
+
+    if (inquiry.status !== 'captured') {
+      await service
+        .from('ims_gateway_payments')
+        .update({
+          status: 'failed',
+          razorpay_payment_id: args.razorpayPaymentId,
+          finalize_error: `Gateway reported ${inquiry.status}, not captured`,
+          gateway_response: inquiry.raw as Record<string, unknown>,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id)
+        .in('status', ['initiated', 'expired']);
+      return { id: row.id, paid: false, reason: inquiry.status };
+    }
+
+    // 3. Paise-exact amount check. Same rule the webhook and the poll apply.
+    const capturedPaise = Number(inquiry.amountPaise ?? 0);
+    if (capturedPaise !== Number(row.amount_paise)) {
+      await service
+        .from('ims_gateway_payments')
+        .update({
+          status: 'amount_mismatch',
+          razorpay_payment_id: args.razorpayPaymentId,
+          captured_amount_paise: capturedPaise,
+          gateway_response: inquiry.raw as Record<string, unknown>,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id);
+
+      logger.error('ims/gateway-payment', 'callback: captured amount does not match the bill', {
+        id: row.id, expectedPaise: row.amount_paise, capturedPaise,
+      });
+      return { id: row.id, paid: false, reason: 'amount_mismatch' };
+    }
+
+    // 4. The money is ours. Honour a credit that landed after our own window —
+    //    refusing it would leave a customer who has paid facing a counter that
+    //    says otherwise.
+    await service
+      .from('ims_gateway_payments')
+      .update({
+        status: 'paid',
+        razorpay_payment_id: args.razorpayPaymentId,
+        captured_amount_paise: capturedPaise,
+        paid_at: (inquiry.capturedAt ?? new Date()).toISOString(),
+        late_credit: row.status === 'expired',
+        gateway_response: inquiry.raw as Record<string, unknown>,
+        finalize_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      .in('status', ['initiated', 'expired']);
+
+    return { id: row.id, paid: true };
+  }
+
+  /**
+   * Record a hosted-checkout failure or cancellation.
+   *
+   * Deliberately never writes over a terminal row: Razorpay allows several attempts
+   * against one order, so a failure for an abandoned first attempt can arrive after
+   * a later one succeeded.
+   */
+  static async markFailedFromCallback(args: {
+    razorpayOrderId: string;
+    razorpayPaymentId?: string | null;
+    reason?: string | null;
+    cancelled?: boolean;
+  }): Promise<{ id: string | null }> {
+    const service = createServiceRoleClient() as any;
+
+    const { data: row } = await service
+      .from('ims_gateway_payments')
+      .select('id, status')
+      .eq('razorpay_order_id', args.razorpayOrderId)
+      .maybeSingle();
+
+    if (!row) return { id: null };
+
+    await service
+      .from('ims_gateway_payments')
+      .update({
+        status: args.cancelled ? 'cancelled' : 'failed',
+        razorpay_payment_id: args.razorpayPaymentId ?? null,
+        finalize_error: args.reason ?? null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', row.id)
+      .in('status', ['initiated', 'expired']);
+
+    return { id: row.id };
   }
 }

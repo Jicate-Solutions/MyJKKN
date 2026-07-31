@@ -109,9 +109,15 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
   // meaningless. Their credit arrives as qr_code.credited instead.
   if (!cfg.orderIdColumn) return;
 
+  // Pull the expected amount too when the module opts into amount checking, so the
+  // comparison below has something to compare against.
+  const selectCols = cfg.amountPaiseColumn
+    ? `id, status, ${cfg.amountPaiseColumn}`
+    : 'id, status';
+
   const { data: existing } = await (supabase as any)
     .from(table)
-    .select('id, status')
+    .select(selectCols)
     .eq(cfg.orderIdColumn, orderId)
     .single();
   if (!existing) {
@@ -130,10 +136,45 @@ async function handlePaymentCaptured(supabase: ServiceClient, payload: any) {
 
   const capturedAt = payment.created_at ? new Date(payment.created_at * 1000).toISOString() : new Date().toISOString();
 
+  // ── Amount check ────────────────────────────────────────────────────────────
+  // Only for modules that declared an expected-amount column. A signature and a
+  // capture event prove money moved; they do not prove the RIGHT amount moved.
+  // On a mismatch we record it and run NO downstream side-effect — no receipt, no
+  // sale — because both alternatives (charging the wrong amount, or handing over
+  // goods unpaid for) are worse than making a human look at it.
+  if (cfg.amountPaiseColumn && cfg.statuses.mismatch) {
+    const expectedPaise = Number((existing as any)[cfg.amountPaiseColumn] ?? 0);
+    const capturedPaise = Number(payment.amount ?? 0);
+
+    if (expectedPaise > 0 && capturedPaise !== expectedPaise) {
+      await (supabase as any).from(table).update({
+        status: cfg.statuses.mismatch,
+        razorpay_payment_id: payment.id,
+        gateway_response: payload,
+        updated_at: new Date().toISOString(),
+        ...(cfg.capturedExtraColumns?.(payment, capturedAt) ?? {}),
+      }).eq('id', existing.id);
+
+      logger.error('webhook/razorpay', 'payment.captured: captured amount does not match', {
+        table, id: existing.id, expectedPaise, capturedPaise,
+      });
+      await PaymentAuditService.logAmountMismatch(
+        existing.id,
+        'unknown',
+        'unknown',
+        expectedPaise / 100,
+        capturedPaise / 100,
+        undefined,
+        { source: 'razorpay_webhook', event: 'payment.captured', razorpay_payment_id: payment.id },
+      );
+      return;
+    }
+  }
+
   const capturedUpdate: Record<string, unknown> = {
     razorpay_payment_id: payment.id,
-    status: 'success',
-    captured_at: capturedAt,
+    status: cfg.statuses.captured,
+    ...(cfg.capturedAtColumn ? { [cfg.capturedAtColumn]: capturedAt } : {}),
     gateway_response: payload,
     ...(cfg.capturedExtraColumns?.(payment, capturedAt) ?? {}),
   };
@@ -287,13 +328,17 @@ async function handlePaymentAuthorized(supabase: ServiceClient, payload: any) {
   if (!mod) return;
   const cfgA = WEBHOOK_MODULES[mod];
   if (!cfgA.orderIdColumn) return;   // order-less module (QR) — nothing to update
+  // A module whose table has no intermediate state declares no `authorized` word.
+  // Writing one anyway would be rejected by its CHECK constraint, and for a moment
+  // nobody observes — auto-capture follows immediately.
+  if (!cfgA.statuses.authorized) return;
   const table = cfgA.table;
 
   // Authorized but not yet captured. We auto-capture via payment_capture=1 so this is
   // usually transient — log it but do not finalize status.
   await (supabase as any).from(table).update({
     razorpay_payment_id: payment.id,
-    status: 'processing',
+    status: cfgA.statuses.authorized,
     gateway_response: payload,
   }).eq(cfgA.orderIdColumn, orderId);
 }
@@ -311,9 +356,32 @@ async function handlePaymentFailed(supabase: ServiceClient, payload: any) {
   if (!cfg.orderIdColumn) return;   // order-less module (QR) — nothing to update
   const table = cfg.table;
 
+  // Razorpay allows several payment attempts against ONE order, so a failure event
+  // for an abandoned first attempt can arrive after the retry succeeded. Modules
+  // that opt in refuse to write over a row that is already terminal — for a counter
+  // sale the alternative is a customer who paid, a row that says failed, and no sale.
+  if (cfg.guardTerminalOnFailure) {
+    const { data: current } = await (supabase as any)
+      .from(table)
+      .select('id, status')
+      .eq(cfg.orderIdColumn, orderId)
+      .maybeSingle();
+
+    if (!current) {
+      logger.warn('webhook/razorpay', 'payment.failed: order not found', { table, orderId });
+      return;
+    }
+    if (cfg.terminalStatuses.includes(current.status)) {
+      logger.info('webhook/razorpay', 'payment.failed: row already terminal — not overwriting', {
+        table, id: current.id, status: current.status,
+      });
+      return;
+    }
+  }
+
   const failedUpdate: Record<string, unknown> = {
     razorpay_payment_id: payment.id,
-    status: 'failed',
+    status: cfg.statuses.failed,
     gateway_response: payload,
     ...(cfg.failedExtraColumns?.() ?? {}),
   };

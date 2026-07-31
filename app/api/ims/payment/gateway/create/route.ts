@@ -1,6 +1,6 @@
 // POST /api/ims/payment/gateway/create
 //
-// Opens a Razorpay QR for the current cart.
+// Opens a Razorpay payment session (order + hosted checkout) for the current cart.
 //
 // Note what this route does NOT accept: an amount, a unit price, or a cost price.
 // The browser says WHICH items and how many; the server reads what they cost. The
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await ImsGatewayPaymentService.createQr(
+    const result = await ImsGatewayPaymentService.createPaymentSession(
       {
         storeId,
         institutionId: '',   // resolved server-side from the store
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
-    console.error('[IMS Gateway QR] create failed:', error);
+    console.error('[IMS Gateway Payment] create failed:', error);
 
     if (message === 'Store not found') {
       return NextResponse.json({ error: message }, { status: 404 });
