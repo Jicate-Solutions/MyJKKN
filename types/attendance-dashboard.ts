@@ -130,3 +130,46 @@ export interface AttendanceTrendData {
   date: string;
   percentage: number;
 }
+
+/**
+ * Current-intake attendance readiness.
+ *
+ * 'blocked'     — the section holds current-intake learners but has NO timetable,
+ *                 so attendance cannot be marked at all. This is the case the
+ *                 Pending Attendance surface structurally cannot show: pending
+ *                 rows are derived from scheduled periods, and a section with no
+ *                 timetable produces no periods, so it reads as healthy.
+ * 'not_started' — a timetable exists but nothing has been marked in the window.
+ * 'ok'          — marked within the window.
+ */
+export type IntakeReadinessStatus = 'blocked' | 'not_started' | 'ok';
+
+/** One section holding current-intake learners, as returned by
+ *  fn_attendance_fresher_readiness. Field names mirror the RPC columns. */
+export interface IntakeReadinessRow {
+  institution_id: string;
+  institution_name: string;
+  department_id: string | null;
+  department_name: string;
+  semester_id: string | null;
+  semester_name: string;
+  section_id: string;
+  section_name: string;
+  learner_count: number;
+  timetable_count: number;
+  active_timetable_count: number;
+  last_marked_date: string | null;
+  readiness_status: IntakeReadinessStatus;
+}
+
+/** Per-institution rollup of IntakeReadinessRow, computed in the client. */
+export interface IntakeReadinessInstitutionSummary {
+  institution_id: string;
+  institution_name: string;
+  sections: number;
+  ok: number;
+  notStarted: number;
+  blocked: number;
+  learners: number;
+  learnersBlocked: number;
+}

@@ -13319,9 +13319,19 @@ GRANT EXECUTE ON FUNCTION public.get_billing_today_collections(uuid[]) TO authen
 GRANT EXECUTE ON FUNCTION public.get_billing_collection_trend(uuid[], date, date, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_institution(uuid[], date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_aging(uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
-REVOKE ALL ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon;
-GRANT EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
+-- Updated: 2026-07-30 — close anon EXECUTE on these two SECURITY DEFINER RPCs.
+-- `REVOKE ALL ... FROM anon` alone is NOT enough: Postgres grants EXECUTE to
+-- PUBLIC by default (the `=X/owner` ACL entry) and `anon` inherits through
+-- PUBLIC, so the old single-role revoke below was a no-op and both functions
+-- were anon-executable on production. Mirrors migration
+-- 20260807190000_revoke_anon_billing_analytics_rpcs.sql; fixes the defect
+-- introduced by 20260801012000_billing_collection_split_rpcs.sql.
+REVOKE EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_billing_user_activity(uuid[], date, date) TO authenticated;
 
 

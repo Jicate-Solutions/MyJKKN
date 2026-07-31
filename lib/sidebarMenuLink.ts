@@ -547,6 +547,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  // Champion review queue for REPORTED feed prompts (moderation #3). Same
+  // permission the page itself enforces, and the SAME key as the sibling
+  // champion console '/ai-pulse/admin/anomalies' directly above — the Director
+  // retargeted this surface to the designated-champion key (the purpose-built
+  // ai_pulse_champion role holds it; the Monday-Lab scoring key it used to
+  // carry is held by ~587 staff, who must not see reported prompts or the
+  // author names attached to them). Written plain, like its neighbour: this key
+  // has no segment the terminology delta gate matches, so no value split is
+  // needed here.
+  '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -651,6 +661,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
+  // Multi-step Excel upload reached from a button on bulk-create. Same key as
+  // its parent — it creates bills, it just reviews them first.
+  '/billing/schedule/bulk-create/upload': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
@@ -1236,6 +1249,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/profile': 'health.profile.view',
   '/health/leaderboard': 'health.leaderboard.view',
   '/health/sports': 'health.sports.view',
+  // Approver inbox (2026-07-30). Gated on .approve, NOT .view — the Principal
+  // decides tournament permission but is not a sports-profile viewer
+  // (health.sports.view is false for that role), so reusing .view would hide
+  // the inbox from the only person who can act on it.
+  '/health/sports/approvals': 'health.sports.approve',
+  // Filing desk (2026-07-30). Separate route from the inbox because the two
+  // parties hold DIFFERENT keys — one route can carry only one permission here,
+  // and merging them would hide whichever surface the viewer is not gated for.
+  '/health/sports/squad-requests': 'health.sports.file_request',
   '/health/fitness': 'health.fitness.view',
   '/health/training': 'health.training.view',
   '/health/achievements': 'health.achievements.view',
@@ -2719,6 +2741,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
@@ -2830,6 +2853,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/profile', label: 'My Health Profile', active: pathname === '/health/profile' },
             { href: '/health/leaderboard', label: 'Leaderboard', active: pathname === '/health/leaderboard' },
             { href: '/health/sports', label: 'Sports Profile', active: pathname === '/health/sports' },
+            { href: '/health/sports/squad-requests', label: 'Squad Requests', active: pathname === '/health/sports/squad-requests' },
+            { href: '/health/sports/approvals', label: 'Tournament Permissions', active: pathname === '/health/sports/approvals' },
             { href: '/health/fitness', label: 'Fitness Tests', active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/') },
             { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },

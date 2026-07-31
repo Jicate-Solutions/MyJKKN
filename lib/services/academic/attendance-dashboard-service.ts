@@ -7,7 +7,9 @@ import type {
   PendingAttendancePeriod,
   PendingAttendanceResponse,
   DashboardFilters,
-  AttendanceTrendData
+  AttendanceTrendData,
+  IntakeReadinessRow,
+  IntakeReadinessInstitutionSummary
 } from '@/types/attendance-dashboard';
 import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
@@ -981,5 +983,106 @@ export class AttendanceDashboardService {
       logger.error('academic/attendance-dashboard', 'Error in getAttendanceTrend', error);
       throw error;
     }
+  }
+
+  /**
+   * Current-intake attendance readiness, one row per section holding
+   * current-intake learners.
+   *
+   * DELIBERATELY NOT DERIVED FROM TIMETABLES. getPendingAttendance() above opens
+   * with `.from('timetables')`, so its rows are scheduled periods — and a section
+   * with no timetable produces no periods, therefore no pending rows, therefore
+   * reads as perfectly healthy. This call starts from the LEARNERS instead, so a
+   * section can never vanish by having nothing scheduled.
+   *
+   * The RPC is SECURITY DEFINER and self-authorizes on
+   * academic.attendance.dashboard.view, then bounds rows by
+   * role_has_institution_access — so a scope='own' caller reads only its own
+   * institution even if it passes another institution's id.
+   */
+  static async getIntakeReadiness(
+    windowDays: number = 21,
+    institutionId?: string,
+    departmentId?: string
+  ): Promise<IntakeReadinessRow[]> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_attendance_fresher_readiness',
+        {
+          p_window_days: windowDays,
+          // `?? null`, never `|| null`: '' would flow through as a real uuid
+          // parameter and match zero rows (breaking "All Institutions").
+          p_institution_id: institutionId ?? null,
+          p_department_id: departmentId ?? null
+        }
+      );
+
+      if (error) {
+        logger.error(
+          'academic/attendance',
+          'fn_attendance_fresher_readiness failed',
+          error
+        );
+        throw error;
+      }
+
+      return (data ?? []) as IntakeReadinessRow[];
+    } catch (error) {
+      logger.error(
+        'academic/attendance',
+        'Error in getIntakeReadiness',
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Roll section rows up per institution. Kept next to the fetch so the two
+   * cannot drift: every counter here is derived from readiness_status, the same
+   * field the table renders, so a card can never disagree with the rows beneath it.
+   */
+  static summariseIntakeReadiness(
+    rows: IntakeReadinessRow[]
+  ): IntakeReadinessInstitutionSummary[] {
+    const byInstitution = new Map<string, IntakeReadinessInstitutionSummary>();
+
+    rows.forEach((row) => {
+      let entry = byInstitution.get(row.institution_id);
+      if (!entry) {
+        entry = {
+          institution_id: row.institution_id,
+          institution_name: row.institution_name,
+          sections: 0,
+          ok: 0,
+          notStarted: 0,
+          blocked: 0,
+          learners: 0,
+          learnersBlocked: 0
+        };
+        byInstitution.set(row.institution_id, entry);
+      }
+
+      entry.sections += 1;
+      entry.learners += row.learner_count;
+
+      if (row.readiness_status === 'blocked') {
+        entry.blocked += 1;
+        entry.learnersBlocked += row.learner_count;
+      } else if (row.readiness_status === 'not_started') {
+        entry.notStarted += 1;
+      } else {
+        entry.ok += 1;
+      }
+    });
+
+    // Worst first: the institutions with the most unreachable learners are the
+    // ones an administrator has to act on today.
+    return Array.from(byInstitution.values()).sort(
+      (a, b) =>
+        b.learnersBlocked - a.learnersBlocked ||
+        b.blocked - a.blocked ||
+        b.sections - a.sections
+    );
   }
 }

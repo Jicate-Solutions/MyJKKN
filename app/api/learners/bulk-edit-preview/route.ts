@@ -12,7 +12,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
-import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
 
@@ -129,6 +129,14 @@ interface PreviewRow {
   error?: string;
   /** Labels that matched no lookup row — those fields are skipped on write. */
   warnings?: string[];
+  /**
+   * Where the fix lives, so the reviewer knows what to do:
+   *  - 'format' → edit the cell (bad email domain, 9-digit mobile…)
+   *  - 'record' → wrong learner for this flow (not found / not active / other institution)
+   */
+  issueKind?: 'format' | 'record';
+  /** Per-field format failures, mirroring what the write path enforces. */
+  issues?: Array<{ field: string; message: string }>;
 }
 
 /**
@@ -310,7 +318,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Parse Excel file
     console.log('[bulk-edit-preview] Parsing file:', file.name, 'Size:', file.size);
-    const parseResult = await parseExcelFile(file, 'Active Learners');
+    const parseResult = await parseExcelFile(file, 'Active Learners', COLUMN_MAPPING.id);
 
     if (parseResult.errors.length > 0) {
       console.error('[bulk-edit-preview] Parse errors:', parseResult.errors);
@@ -330,6 +338,23 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: 'No data found in file'
+        },
+        { status: 400 }
+      );
+    }
+
+    // The ID column - not the sheet name - is what identifies this as a bulk-edit
+    // file. Without it every row would come back "Learner not found", which reads
+    // like missing data when the real problem is the wrong file.
+    if (!hasColumn(parseResult.rows, COLUMN_MAPPING.id)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `No ID column found in the uploaded sheet (expected "ID*"). ` +
+            `Columns found: ${listColumns(parseResult.rows)}. ` +
+            `Use "Download Current Data" in this dialog and edit that file - the ` +
+            `Learners "Export" file has no ID column and cannot be used for bulk edit.`
         },
         { status: 400 }
       );
@@ -434,6 +459,28 @@ export async function POST(request: NextRequest) {
 
       const learnerId = sanitizedData.id;
 
+      // Field-format rules, run with the SAME service the write path uses
+      // (bulk-edit-exited calls validateBulkEditExited before processBulkEdit).
+      // Preview used to skip this entirely, so "College Email must end with
+      // @jkkn.ac.in" first appeared AFTER the update ran — the one thing a
+      // preview screen exists to prevent.
+      const fieldValidation = LearnerValidationService.validateBulkEditExited(sanitizedData);
+
+      if (!fieldValidation.isValid) {
+        previewRows.push({
+          learnerId,
+          learnerName:
+            [mappedData.first_name, mappedData.last_name].filter(Boolean).join(' ') || 'Unknown',
+          rowNumber: parsedRow.rowNumber,
+          changes: [],
+          status: 'error',
+          issueKind: 'format',
+          issues: fieldValidation.errors.map(e => ({ field: e.field, message: e.message })),
+          error: fieldValidation.errors.map(e => e.message).join(', ')
+        });
+        continue;
+      }
+
       // Validate learner exists
       const validation = await BulkLearnerEditService.previewChanges(
         learnerId,
@@ -449,6 +496,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'Learner not found'
         });
         continue;
@@ -461,6 +509,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'Learner is not in active status'
         });
         continue;
@@ -473,6 +522,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'No access to this learner (different institution)'
         });
         continue;
@@ -508,6 +558,10 @@ export async function POST(request: NextRequest) {
       valid_changes: previewRows.filter(r => r.status === 'valid').length,
       no_changes: previewRows.filter(r => r.status === 'no_changes').length,
       errors: previewRows.filter(r => r.status === 'error').length,
+      // Split by where the fix lives: a cell the uploader can edit, vs. the
+      // learner record itself. Billing's bulk-create groups issues the same way.
+      format_errors: previewRows.filter(r => r.issueKind === 'format').length,
+      record_errors: previewRows.filter(r => r.issueKind === 'record').length,
       // Rows carrying a label that matched no lookup row. Counted separately
       // from errors: the row still applies, just without that one field.
       warnings: previewRows.filter(r => (r.warnings?.length ?? 0) > 0).length,

@@ -1449,7 +1449,11 @@ export function EnquiryForm({
   const commitSubmit = async (values: EnquiryFormValues) => {
     setIsSubmitting(true);
     try {
-      // Upload pending image file first (if exists)
+      // Upload pending image file first (if exists). Non-blocking: a failed
+      // photo upload previously aborted the whole submit via an early return,
+      // which silently discarded every other field the user had filled in —
+      // the reported "can't add learner manually" bug. Now it just proceeds
+      // without a photo; the learner can add one later from Edit.
       if (pendingImageFile) {
         console.log('[enquiry-form] Uploading pending image file...');
         try {
@@ -1459,9 +1463,7 @@ export function EnquiryForm({
           toast.success('Image uploaded successfully');
         } catch (error) {
           console.error('[enquiry-form] Image upload failed:', error);
-          toast.error('Failed to upload image. Please try again.');
-          setIsSubmitting(false);
-          return; // Don't proceed if image upload fails
+          toast.error('Photo could not be uploaded — saving without it. You can add a photo later from Edit.');
         }
       }
 

@@ -175,6 +175,11 @@ export const PERMISSION_CATEGORIES = [
       // not a note on a playbook — so it is an officer action (CEO / CAO / EAO), held
       // separately from board.manage. Board managers can SEE holders, not change them.
       { key: 'improvement.area_role.assign', label: 'Assign Department Role Holders (CEO / CAO / EAO)' },
+      // A department policy is an official institution document. Board managers may
+      // draft one with AI and read it; only the CEO / CAO / EAO may UPLOAD the real
+      // document or sign a draft off. Registered here so Role Management can grant it
+      // — an unregistered key is ungrantable and silently becomes super-admin-only.
+      { key: 'improvement.area_policy.approve', label: 'Upload / Approve Department Policy (CEO / CAO / EAO)' },
       { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
       { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
     ]
@@ -1772,13 +1777,19 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    // Baseline-only: app/(routes)/learners-council/ exists but no
-    // learners_council.* keys are enforced in lib/sidebarMenuLink.ts or in
-    // route guards on this branch. Seeded `.view` pending enforcement PR.
+    // NOTE (2026-07-30): the old comment here said no learners_council.* keys
+    // were enforced. That has not been true for some time — MENU_PERMISSIONS in
+    // lib/sidebarMenuLink.ts enforces ~20 of them (structure, communication,
+    // events, od, selection). Keys enforced there but absent HERE cannot be
+    // granted through Role Management at all, which is why the catalog gate
+    // reports them as gaps. `events.view` is registered below because the event
+    // reviewer queue depends on it; the remaining granular keys are still
+    // unregistered and still gaps.
     name: 'Learners Council',
     key: 'learners_council',
     permissions: [
-      { key: 'learners_council.view', label: 'View Learners Council' }
+      { key: 'learners_council.view', label: 'View Learners Council' },
+      { key: 'learners_council.events.view', label: 'View Council Events' }
     ]
   },
   {
@@ -2001,7 +2012,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
       { key: 'health.programs.view', label: 'View Wellness Programs' },
-      { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
+      { key: 'health.programs.manage', label: 'Manage Wellness Programs' },
+      // Added 2026-07-30 — tournament permission approver inbox. Gates
+      // /health/sports/approvals AND the health_tournament_permissions RLS
+      // policy, so the same key decides the page and the rows: granting it in
+      // Role Management is the whole switch. Director-locked path is two
+      // parties — the Physical Director files for the squad, the Principal
+      // decides — so this belongs to the Principal and NOT to the role that
+      // files, which would let one person approve their own request.
+      { key: 'health.sports.approve', label: 'Approve Tournament Permission Requests' },
+      // The other half of the two-party path. Grants FILING one request for a
+      // whole squad (and reading back only what you filed) — deliberately a
+      // different key from .approve so no single holder can do both.
+      { key: 'health.sports.file_request', label: 'File Tournament Permission for a Squad' }
     ]
   },
   // Added 2026-06-22 — Sports Tournament Conducting (PR1). A tournament is an

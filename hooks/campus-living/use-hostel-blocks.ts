@@ -23,7 +23,14 @@ export const hostelBlockKeys = {
 export function useHostelBlocks(institutionId: string | undefined, filters?: BlockFilters) {
   const { isSuperAdmin } = usePermissions();
   return useQuery({
-    queryKey: hostelBlockKeys.list({ institutionId, ...filters }),
+    // isSuperAdmin must be in the key, not just used inside queryFn: it
+    // decides whether the institution filter is applied at all. Without it
+    // here, a query that first ran before permissions finished loading (a
+    // brief isSuperAdmin=false) got cached with the narrower filter, and
+    // React Query never refetched once isSuperAdmin resolved to true — since
+    // the cache key never changed, blocks outside that one institution (e.g.
+    // Girls Hostel B) silently stayed missing from every consumer forever.
+    queryKey: hostelBlockKeys.list({ institutionId, isSuperAdmin, ...filters }),
     queryFn: () => HostelBlockService.getBlocks(isSuperAdmin ? undefined : institutionId, filters),
     enabled: isSuperAdmin || !!institutionId,
   });
