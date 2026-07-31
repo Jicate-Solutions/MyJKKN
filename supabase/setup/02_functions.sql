@@ -21647,6 +21647,17 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 --   courses_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is
 --   evaluated ONCE (hashed subplan) instead of a per-row function call — the
 --   per-row form full-scanned courses and hit the 8s statement_timeout (57014).
+-- staff_ids_visiting_accessible_institutions() RETURNS uuid[]  (migration
+--   optimize_staff_select_rls_dashboard_perf, 2026-07-30)
+--   STABLE SECURITY DEFINER, parameterless SET form of
+--   staff_is_visiting_in_accessible_institution: the DISTINCT set of staff_ids that
+--   teach in an institution the CURRENT USER can access. Used by
+--   staff_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is evaluated
+--   ONCE. The per-row form made every unbounded `staff` read cost 1245 ms / 33,766
+--   buffers for an own_institution user, which the analytics dashboard then paid 9x
+--   (its "Loading Dashboard..." hang). MUST stay SECURITY DEFINER: staff_plan_courses
+--   and staff_plans carry their own RLS, so inlining the join into the policy would
+--   evaluate it as the querying user and silently narrow the grant.
 -- fn_attendance_roster (UPDATED 20260706): institution gate is now
 --   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
 --   permission — visiting staff can load the roster where they teach.

@@ -1041,6 +1041,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'startup_studio.foundations.manage', label: 'Foundations — Manage cohorts, worksheets & enrolment' },
       { key: 'startup_studio.foundations.review', label: 'Foundations — Review submissions (mentor feedback)' },
 
+      // -----------------------------------------------------------------
+      // School of Influence — programme settings (S2)
+      // Spec: specs/school-of-influence-batches-2026-07-30.md §7
+      // Gates /startup-studio/school-of-influence/admin/settings, which edits
+      // the soi.* rows in platform_policies (who may apply, batch size, what
+      // happens when a batch is full, the inactivity thresholds). Registered
+      // here so Role Management can grant it — the same key is used by the
+      // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
+      // disagree. Super admins bypass both.
+      // -----------------------------------------------------------------
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
       { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
@@ -1777,19 +1789,28 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    // NOTE (2026-07-30): the old comment here said no learners_council.* keys
-    // were enforced. That has not been true for some time — MENU_PERMISSIONS in
-    // lib/sidebarMenuLink.ts enforces ~20 of them (structure, communication,
-    // events, od, selection). Keys enforced there but absent HERE cannot be
-    // granted through Role Management at all, which is why the catalog gate
-    // reports them as gaps. `events.view` is registered below because the event
-    // reviewer queue depends on it; the remaining granular keys are still
-    // unregistered and still gaps.
+    // Updated 2026-07-31: registers every learners_council.* key enforced by
+    // MENU_PERMISSIONS in lib/sidebarMenuLink.ts (24 /learners-council/*
+    // routes resolve to the 8 distinct section keys below). Previously only
+    // `view` and `events.view` were registered, so the other enforced keys
+    // could not be granted through Role Management at all.
+    // `learners_council.view` is the module gate used by the in-app guide and
+    // stays registered.
     name: 'Learners Council',
     key: 'learners_council',
     permissions: [
       { key: 'learners_council.view', label: 'View Learners Council' },
-      { key: 'learners_council.events.view', label: 'View Council Events' }
+      { key: 'learners_council.dashboard.view', label: 'View Council Dashboard' },
+      { key: 'learners_council.structure.view', label: 'View Council Structure' },
+      {
+        key: 'learners_council.communication.view',
+        label: 'View Council Communication'
+      },
+      { key: 'learners_council.events.view', label: 'View Council Events' },
+      { key: 'learners_council.od.view', label: 'View Council OD Requests' },
+      { key: 'learners_council.selection.view', label: 'View Council Selection' },
+      { key: 'learners_council.issues.view', label: 'View Council Issues' },
+      { key: 'learners_council.settings.view', label: 'View Council Settings' }
     ]
   },
   {

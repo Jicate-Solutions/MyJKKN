@@ -132,10 +132,22 @@ UPDATE public.pde_engagement_events e
                 THEN (e.metadata ->> 'submission_id')::uuid
               END;
 
+-- SECURITY DEFINER, deliberately. The lookup asks "does this submission EXIST",
+-- which is not the same question as "can the current writer SEE it". As
+-- SECURITY INVOKER the SELECT ran under caller RLS, so any writer without a
+-- read path to the submission — anything other than the owning learner, whose
+-- pde_sub_own_read policy is what makes the route path work today — would fail
+-- to resolve the link, leave source_submission_id NULL, and thereby let that
+-- event ESCAPE the cascade cleanup this migration exists to guarantee. The
+-- orphan would come back silently. Reading existence with definer rights makes
+-- the link independent of who is writing.
+--
+-- This leaks nothing: the function returns no data to the caller, and writes
+-- only an id the caller already supplied inside metadata.
 CREATE OR REPLACE FUNCTION public.fn_pde_engagement_link_submission()
 RETURNS trigger
 LANGUAGE plpgsql
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path = public
 AS $fn$
 DECLARE
@@ -151,10 +163,23 @@ BEGIN
      AND v_raw ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
   THEN
     -- Only link to a submission that exists, so the FK can never reject a write
-    -- that succeeds today.
+    -- that succeeds today — AND only to one belonging to the same learner this
+    -- event is about.
+    --
+    -- That second predicate is what keeps definer rights safe. Without it the
+    -- lookup would resolve ANY submission on the platform, which turns the
+    -- trigger into a cross-tenant existence oracle (a caller learns whether a
+    -- guessed uuid is a submission by watching the column populate) and couples
+    -- the cascade across tenants: naming a foreign submission would let that
+    -- tenant's delete cascade away this event. Scoping to NEW.learner_id closes
+    -- both without giving back what INVOKER cost us — the link no longer depends
+    -- on whether the WRITER can see the row, only on whether the event and the
+    -- attempt describe the same learner, which is the only case the FK is
+    -- meaningful for anyway.
     SELECT s.id INTO v_link
       FROM public.pde_submissions s
-     WHERE s.id = v_raw::uuid;
+     WHERE s.id = v_raw::uuid
+       AND s.learner_id = NEW.learner_id;
   END IF;
 
   -- The column is STRICTLY DERIVED: after this trigger it is always exactly
@@ -180,7 +205,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_pde_engagement_link_submission() IS
-  'BEFORE INSERT/UPDATE on pde_engagement_events: mirrors metadata->>''submission_id'' into source_submission_id when that submission exists, so the FK cascade works without any route change. Never raises.';
+  'BEFORE INSERT/UPDATE on pde_engagement_events: sets source_submission_id to whatever metadata->>''submission_id'' resolves to, and to NULL otherwise, so the FK cascade works without any route change. SECURITY DEFINER because it asks whether the submission EXISTS, not whether the writer can see it — under caller RLS any writer other than the owning learner would fail to link and that event would escape the cascade cleanup. The column is strictly derived and never trusted from caller input. Never raises.';
 
 -- Trigger function: not reachable as a PostgREST RPC (RETURNS trigger), locked
 -- anyway because Supabase default privileges hand anon EXECUTE on every new
@@ -314,13 +339,56 @@ BEGIN
   v_status := CASE WHEN v_best_score >= v_threshold
                    THEN 'demonstrated' ELSE 'in_progress' END;
 
+  -- NO-OP GUARD. This trigger fires on every pde_submissions delete, not just
+  -- clinical-case ones, because every skip condition that could narrow it was
+  -- also able to skip a recompute that was needed. Writing unconditionally would
+  -- therefore churn the row on unrelated deletes — rewriting evidence and
+  -- stamping recomputed_after_deleted_submission with, say, an MCQ attempt id
+  -- that had nothing to do with this capability. So the write is skipped when the
+  -- recomputed result is identical to what is already stored. Correctness is
+  -- unchanged (the recompute still runs for every delete, so it can never be
+  -- missed); only the pointless write disappears.
+  -- The predicate covers EVERY column the UPDATE below writes, not just the
+  -- headline score: a row that agrees on score/status but carries a stale
+  -- attempt_number, or claims 'demonstrated' with a NULL demonstrated_at, is NOT
+  -- identical and must still be repaired. IS NOT DISTINCT FROM throughout so a
+  -- NULL on either side compares equal instead of collapsing the whole predicate
+  -- to NULL and skipping the guard.
+  IF EXISTS (
+    SELECT 1 FROM public.pde_learner_capabilities lc
+     WHERE lc.id = v_lc_id
+       AND lc.demonstration_score IS NOT DISTINCT FROM v_best_score
+       AND lc.status IS NOT DISTINCT FROM v_status
+       AND (lc.demonstration_evidence ->> 'submission_id')
+             IS NOT DISTINCT FROM v_best_id::text
+       AND (lc.demonstration_evidence ->> 'attempt_number')
+             IS NOT DISTINCT FROM v_best_attempt::text
+       AND (lc.demonstrated_at IS NOT NULL) = (v_status = 'demonstrated')
+  ) THEN
+    RETURN OLD;
+  END IF;
+
   UPDATE public.pde_learner_capabilities lc
      SET demonstration_score = v_best_score,
          status              = v_status,
          demonstrated_at     = CASE WHEN v_status = 'demonstrated'
                                     THEN COALESCE(lc.demonstrated_at, now())
                                     ELSE NULL END,
-         demonstration_evidence = jsonb_build_object(
+         -- MERGED onto the existing evidence, not built fresh. A wholesale
+         -- jsonb_build_object would silently drop any key the scoring route
+         -- writes that this trigger does not know about.
+         --
+         -- Merging can only add or overwrite, never remove, so the question is
+         -- whether an attempt-specific key could go stale. It cannot for
+         -- anything written today: the route's evidence object is exactly
+         -- {submission_id, attempt_number, domain_scores, total_score,
+         -- max_score, percentage, scored_at} (see side effect 2 in
+         -- app/api/pde/clinical-reasoning/score/route.ts) and all seven are
+         -- overwritten right here. A key neither the route nor this trigger
+         -- writes cannot be attempt-scoped by construction, so preserving it is
+         -- the safer default than deleting data whose meaning is unknown.
+         demonstration_evidence = COALESCE(lc.demonstration_evidence, '{}'::jsonb)
+           || jsonb_build_object(
            'submission_id',  v_best_id,
            'attempt_number', v_best_attempt,
            'domain_scores',  v_best_osce -> 'domain_scores',

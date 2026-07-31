@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     // Get user profile for role-based filtering
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, institution_id')
+      .select('role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 

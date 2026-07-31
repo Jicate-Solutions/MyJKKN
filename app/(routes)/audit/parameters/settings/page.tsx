@@ -204,7 +204,9 @@ function ParameterSettingsTable() {
       items={data}
       loading={isLoading}
       error={isError ? 'Failed to load parameters.' : null}
-      onRefresh={refetch}
+      onRefresh={() => {
+        refetch();
+      }}
       onBulkDelete={async (ids) => {
         const rowsToDelete = data.filter(
           (r) => ids.includes(r.id) && !r.is_system && r.institution_id

@@ -38,6 +38,20 @@ const JOB_TYPE = 'ai_pulse.prompt_safety';
 const ENABLED_KEY = 'prompt_safety_check_enabled';
 const CAP = 60; // max builds to submit/collect per run
 
+// Heartbeat key for the run log (ai_pulse_cron_runs). Director decision #2.
+//
+// WHY THIS ROUTE WRITES A HEARTBEAT AT ALL
+// The admin health card used to judge "is the checker alive?" from
+// max(safety_checked_at) across builds. That is throughput, not liveness: this
+// route stamps a build only when there IS an eligible build, so a run that
+// correctly finds nothing to do stamps nothing and the checker looks dead.
+// Measured on prod 2026-07-30: 0 eligible builds, 357 minutes since the last
+// stamp, alarm firing, cron perfectly healthy. The row written below is the only
+// evidence that this function executed, so it is written EARLY and
+// UNCONDITIONALLY — before the kill-switch return, before any "nothing to do"
+// exit, and regardless of whether anything is enqueued.
+const HEARTBEAT_JOB_KEY = 'aipulse_prompt_safety';
+
 type Admin = ReturnType<typeof createServiceRoleClient>;
 type SafetyContext = { build_id: string };
 type CandidateBuild = { id: string; assembled_prompt: string | null; grade: Record<string, unknown> | null };
@@ -93,6 +107,34 @@ function parseSafety(text: string | null): SafetyVerdict | null {
   }
 }
 
+// ── heartbeat write (best-effort; must never fail the run it observes) ───────
+// Mirrors the dispatcher lane's run log exactly: a SECURITY DEFINER writer
+// invoked as admin.rpc(...) on the service-role client, same as
+// app/api/cron/ai-routine-dispatcher/route.ts calls fn_ai_routine_record_fire.
+// Pass runId to MERGE the final counts into the row opened at the start of the
+// run, so one invocation is one row.
+async function recordRun(
+  admin: Admin,
+  outcome: Record<string, unknown>,
+  runId?: string | null,
+): Promise<string | null> {
+  try {
+    const { data, error } = await (admin as any).rpc('fn_ai_pulse_record_cron_run', {
+      p_job_key: HEARTBEAT_JOB_KEY,
+      p_outcome: outcome,
+      p_run_id: runId ?? null,
+    });
+    if (error) {
+      console.error('[cron/aipulse-prompt-safety] heartbeat write failed:', error.message);
+      return null;
+    }
+    return (data as string | null) ?? null;
+  } catch (e) {
+    console.error('[cron/aipulse-prompt-safety] heartbeat write threw:', e);
+    return null;
+  }
+}
+
 // A build's craft score lives in grade.score (jsonb). Feed candidates are 60-79.
 function scoreOf(grade: Record<string, unknown> | null): number | null {
   const raw = grade?.score;
@@ -114,8 +156,18 @@ export async function GET(request: NextRequest) {
   const started = Date.now();
   const admin = createServiceRoleClient();
 
+  const enabled = ((await readPolicy(admin, ENABLED_KEY)) as unknown) === true;
+
+  // HEARTBEAT — first side effect of the run, after auth and before every exit.
+  // A disabled checker is a distinct, reportable state, not silence: "switched
+  // off" and "crashed" must not look the same to whoever reads the health card.
+  const runId = await recordRun(admin, { enabled, phase: 'started' });
+
   // Kill switch. DARK until an admin flips prompt_safety_check_enabled = true.
-  if (((await readPolicy(admin, ENABLED_KEY)) as unknown) !== true) {
+  if (!enabled) {
+    // Only merge when the opening row exists; with runId null a second call
+    // would insert a second row and this run would be logged twice.
+    if (runId) await recordRun(admin, { phase: 'disabled' }, runId);
     return NextResponse.json({ ok: true, enabled: false, note: 'prompt_safety_check_enabled is off (DARK)' });
   }
 
@@ -194,6 +246,10 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     console.error('[cron/aipulse-prompt-safety] submit failed:', e);
   }
+
+  // Close the heartbeat row with what the run actually did. A row still reading
+  // phase 'started' is a run that died part-way — itself worth seeing.
+  if (runId) await recordRun(admin, { phase: 'done', recorded, enqueued, skipped }, runId);
 
   return NextResponse.json({
     ok: true,
