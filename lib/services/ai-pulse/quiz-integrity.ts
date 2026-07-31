@@ -53,14 +53,17 @@ function blank(s: unknown): boolean {
 /**
  * Structural + exploitability checks on a quiz's questions.
  *
- * `blindPassThreshold` is the live pass mark as a percentage (e.g. 40). It is
+ * `blindPassThreshold` is the live pass mark as a percentage (e.g. 50). It is
  * used only to explain the failure in the error message -- the hard limit is
  * MAX_SLOT_SHARE regardless, because the pass mark can be lowered later while
- * the quiz stays on file.
+ * the quiz stays on file. The fallback tracks DEFAULT_QUIZ.pass_threshold_live
+ * (50 since 2026-07-30, decision #10) so an unparameterised call never quotes a
+ * pass mark the platform no longer uses. Every real caller passes the actual
+ * value, so this default is explanatory only.
  */
 export function checkQuizIntegrity(
   questions: QuizQuestion[],
-  blindPassThreshold = 40,
+  blindPassThreshold = 50,
 ): QuizIntegrityReport {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -137,7 +140,7 @@ export function checkQuizIntegrity(
 /** Convenience: throws with every blocking reason at once. */
 export function assertQuizIntegrity(
   questions: QuizQuestion[],
-  blindPassThreshold = 40,
+  blindPassThreshold = 50,
 ): QuizIntegrityReport {
   const report = checkQuizIntegrity(questions, blindPassThreshold);
   if (report.errors.length > 0) {

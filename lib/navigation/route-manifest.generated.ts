@@ -3587,7 +3587,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/health/sports",
         "label": "Sports",
         "iconName": "Heart",
-        "children": []
+        "children": [
+          {
+            "path": "/health/sports/approvals",
+            "label": "Approvals",
+            "iconName": "Heart",
+            "children": []
+          },
+          {
+            "path": "/health/sports/squad-requests",
+            "label": "Squad Requests",
+            "iconName": "Heart",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/health/training",

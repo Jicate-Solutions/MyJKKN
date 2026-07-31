@@ -131,6 +131,79 @@ describe('CAC metric catalog — the Director decisions it has to enforce', () =
   });
 });
 
+describe('holistic development — outbound learner participation', () => {
+  const sports = () => allMetrics().find((m) => m.id === 'holistic-sports')!;
+  const cultural = () => allMetrics().find((m) => m.id === 'holistic-cultural')!;
+
+  it('leaves the CEO framework itself untouched', () => {
+    // Broadening the evidence must not become "add a metric". The document has
+    // 48 leaf metrics, these two carry the document's own wording, and the ids
+    // are the keys fn_cac_measured_metrics returns — all three are fixed.
+    expect(allMetrics()).toHaveLength(48);
+    expect(sports().ceoLabel).toBe('Sports');
+    expect(cultural().ceoLabel).toBe('Cultural Activities');
+    expect(sports().parent).toBe('Holistic Development');
+    expect(cultural().parent).toBe('Holistic Development');
+  });
+
+  it('names outbound participation and where it is read from', () => {
+    // The gap this closes: a state-level tournament our learners travel to
+    // creates no `events` row, so a hosted-only metric earns nothing for it.
+    for (const metric of [sports(), cultural()]) {
+      expect(metric.evidence).toContain('health_sports_achievements');
+      expect(metric.evidence.toLowerCase()).toContain('outbound');
+    }
+    expect(sports().evidence).toContain('event_level above the institution');
+  });
+
+  it('counts only levels above the institution, so nothing is counted twice', () => {
+    // intra_college activity is already a hosted `events` row. Naming it as an
+    // outbound level here would report one activity as two.
+    for (const level of ['inter_college', 'district', 'state', 'national', 'international']) {
+      expect(sports().evidence).toContain(level);
+    }
+    expect(sports().evidence).not.toContain('intra_college');
+  });
+
+  it('keeps verified rows distinguishable from unverified ones', () => {
+    for (const metric of [sports(), cultural()]) {
+      expect(metric.evidence).toMatch(/verified/);
+      expect(metric.evidence).toMatch(/unverified/);
+    }
+  });
+
+  it('does not claim broad outbound participation exists', () => {
+    // The source held one unverified row when this was written. The honest
+    // position is that the route is open and empty, and the string has to carry
+    // the date so a reader knows it is a dated observation.
+    expect(sports().evidence).toContain('2026-07-30');
+    expect(cultural().evidence).toContain('2026-07-30');
+    for (const metric of [sports(), cultural()]) {
+      expect(metric.evidence).not.toMatch(/broad outbound/i);
+      expect(metric.evidence).not.toMatch(/well[- ]evidenced/i);
+    }
+  });
+
+  it('asserts no NAAC metric number for the outbound half', () => {
+    // Numbering varies between SSR versions and between the university and
+    // affiliated-college manuals, and nobody has checked it against the current
+    // template. A confident 5.3.1 on screen would be a fabricated citation.
+    for (const metric of [sports(), cultural()]) {
+      expect(metric.evidence).not.toMatch(/\b\d\.\d(\.\d)?\b/);
+      expect(metric.evidence).not.toMatch(/NAAC/);
+    }
+  });
+
+  it('still reports the hosted half rather than replacing it', () => {
+    // Both metrics keep their measured state: the hosted events are real
+    // numbers today and the outbound read does not take their place.
+    expect(sports().substrate).toBe('measured');
+    expect(cultural().substrate).toBe('measured');
+    expect(sports().evidence).toContain('events_registrations');
+    expect(cultural().evidence).toContain('events_registrations');
+  });
+});
+
 describe('institution grouping', () => {
   const institutions: GroupableInstitution[] = [
     { id: 'c1', name: 'JKKN College of Pharmacy', iqac_code: 'PHAR' },
