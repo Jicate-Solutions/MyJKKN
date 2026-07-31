@@ -21,6 +21,8 @@ export interface AllocationBatch {
 /** Rooms used + beds filled for one room category within a batch. */
 export interface BatchCategoryBreakdown {
   category: string;
+  /** Comma-joined distinct floors this category touched within the batch (e.g. "2, 3"), or null. */
+  floors: string | null;
   rooms: number;
   beds: number;
 }

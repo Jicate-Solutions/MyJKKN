@@ -383,13 +383,22 @@ export class LeaveService {
       throw new Error('You cannot decide on your own leave application.');
     }
 
-    // Once flows pin concrete approvers, honour the assignment. Chains built
-    // before that carry approver_user_id = null, so this is a no-op for them
-    // rather than a hard block.
+    // Honour a pinned approver. Chains built before flows named concrete people
+    // carry approver_user_id = null, so this is a no-op for them rather than a
+    // hard block.
     const step = app.approval_chain?.[app.current_step];
     if (step?.approver_user_id && step.approver_user_id !== approverId) {
       throw new Error('This approval step is assigned to a different approver.');
     }
+
+    // A step routed to a ROLE is deliberately NOT checked here. custom_roles and
+    // user_roles are not readable by an ordinary member of staff, so a
+    // client-side lookup would come back empty for exactly the people it is
+    // meant to admit and block them — the silent-false-negative failure this
+    // module has already shipped twice. trg_hla_approver_gate performs that
+    // check in the database, where the tables are readable, and raises a
+    // message naming the required role. Duplicating it here would add a second
+    // answer that can disagree with the enforced one.
   }
 
   static async approveApplication(

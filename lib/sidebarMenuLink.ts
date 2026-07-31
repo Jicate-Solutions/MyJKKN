@@ -28,6 +28,7 @@ import {
   BookOpen,
   ClipboardCheck,
   Gauge,
+  IdCard,
   Lock,
   LucideIcon,
   LayoutGrid,
@@ -155,6 +156,29 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
 
+  // Improvement Board (MBA teaching-enterprise)
+  '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/dashboard': 'improvement.ideas.view',
+  '/improvement-board/leaderboard': 'improvement.ideas.view',
+  '/ceo-rounds': 'ceo_rounds.log',
+  // MBA Analyst dashboard — an associate's own assigned-department analytics.
+  '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA Analyst assignments — manager-only "who covers which department".
+  '/improvement-board/postings': 'improvement.board.manage',
+  // MBA Data Gaps — manager-only triage of gaps Associates reported.
+  '/improvement-board/data-gaps': 'improvement.board.manage',
+  // Manage boards — manager-only CRUD over the areas ideas are filed against.
+  '/improvement-board/manage-boards': 'improvement.board.manage',
+  // MBA Team Rotation — the rota chart is viewable by associates; team-builder
+  // and cycle-setup are manager-only (improvement.board.manage).
+  '/improvement-board/rotation': 'improvement.ideas.view',
+  '/improvement-board/rotation/teams': 'improvement.board.manage',
+  '/improvement-board/rotation/config': 'improvement.board.manage',
+  // Teaching-enterprise cohorts — the config rows that decide WHO participates
+  // (programme + semester window) and WHAT they get (role + contribution mode).
+  // Manager-only (improvement.board.manage); super admins pass via that check.
+  '/admin/teaching-cohorts': 'improvement.board.manage',
+
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
 
@@ -271,15 +295,47 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/employees/[id]': 'hr.employees.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
-  // HR Leave — parent + 6 submenus shown in sidebar
+  // HR Leave — parent + 6 submenus shown in sidebar.
+  // '/hr/leave' and '/hr/leave/calendar' are the SHARED/approver lens and keep
+  // the HR-tier 'hr.leave.view'. Everything an employee does with their OWN
+  // leave gates on a self-service key instead — see the block below.
   '/hr/leave': 'hr.leave.view',
   '/hr/leave/apply': 'hr.leave.apply',
-  '/hr/leave/my-applications': 'hr.leave.view',
   '/hr/leave/approve': 'hr.leave.approve',
   '/hr/leave/calendar': 'hr.leave.view',
   '/hr/leave/balance': 'hr.leave.balance.view',
   '/hr/leave/encashment': 'hr.leave.encashment.view',
-  '/hr/leave/[id]': 'hr.leave.view',
+  // ── Time Off self-service (2026-07-23) ──────────────────────────────────
+  // 'hr.leave.view' is DUAL-PURPOSE: besides gating these routes it is an
+  // org-wide read grant inside hla_select on hr_leave_applications
+  // (`user_has_permission('hr.leave.view') AND hr_organization_id IN
+  // fn_my_hr_organization_ids()`). Holding it at the 61-role self-service
+  // population meant every employee could read every colleague's leave in
+  // their HR organization. It is now an HR-tier key (7 roles).
+  //
+  // These routes therefore moved to 'hr.leave.apply'. Nothing is lost: hla_select
+  // already returns own rows through the IDENTITY clauses
+  // (`employee_id IN fn_my_staff_ids()` / `applied_by = auth.uid()`), so the
+  // route guard only has to let the applicant through — RLS still decides which
+  // rows they actually see.
+  //
+  // requests / compensatory-off / short-time-off / approvals had NO entry at all
+  // before today. They were gated purely by accident: the '[id]' line below
+  // inserts a '*' wildcard node in the route trie (lib/auth/route-matcher.ts:204),
+  // and they fell through to it. Deleting that one line would have left all four
+  // COMPLETELY ungated. They are declared explicitly now.
+  '/hr/leave/my-applications': 'hr.leave.apply',
+  '/hr/leave/requests': 'hr.leave.apply',
+  '/hr/leave/compensatory-off': 'hr.leave.apply',
+  '/hr/leave/short-time-off': 'hr.leave.apply',
+  // Approvals tab: visibility is a RUNTIME capability the static map cannot
+  // express — the page self-gates on hr_can_approve_leave() (which mirrors the
+  // hla_update policy) and renders a "not an approver" state otherwise. The
+  // static gate is deliberately the permissive self-service key so approvers
+  // whose authority comes from an approval flow rather than a permission key
+  // are not blocked at the route layer. See app/(routes)/hr/leave/approvals/page.tsx.
+  '/hr/leave/approvals': 'hr.leave.apply',
+  '/hr/leave/[id]': 'hr.leave.apply',
   // ── Employee Self Service (2026-07-21) ───────────────────────────────────
   // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx
   // wraps the whole /hr subtree in RoutePermissionGuard, and routeMatcher
@@ -291,6 +347,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // page.
   '/hr/attendance': 'hr.attendance.view_self',
   '/hr/attendance/regularize': 'hr.attendance.regularize_self',
+  // Biometric punch import — an HR-ops surface, NOT self-service. Without this
+  // line it inherited '/hr/attendance' -> hr.attendance.view_self and rendered
+  // for all 61 self-service roles; the page is deliberately permissive and lets
+  // /api/hr/attendance/import return the 403, so every non-HR user who opened it
+  // got a dead-end upload dialog. hr.dashboard.view is the same core-HR gate the
+  // other 99 admin pages use, and it is already in the permission catalog
+  // (hr.attendance.view_all is NOT — 2 roles carry it undeclared).
+  '/hr/attendance/import': 'hr.dashboard.view',
   '/hr/shifts/my': 'hr.shifts.view_own',
   '/hr/my-assets': 'hr.assets.view_own',
   '/hr/memos/my': 'hr.memos.view_own',
@@ -336,6 +400,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -415,6 +480,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admin lane of session feedback (D2 gate) — leadership-view key
   // (menu-visibility gap fix 2026-07-12)
   '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
+  // SCF note-safety loop Phase 0 (2026-07-26): the named-reviewer queue for
+  // AI-drafted learner support notes. Its own key (note-safety spec §6.3),
+  // held by the scf_note_reviewer role; the review/pending RPCs enforce the
+  // same permission server-side. Separate surface from the super-admin
+  // /admin/learner-notes queue (same RPCs underneath).
+  '/academic/session-feedback/note-review': 'scf.notes.review',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -459,6 +530,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // Leaderboard is public to any authenticated learner (Director decision #6);
+  // gate the sidebar entry on the same key as the AI Pulse landing page.
+  '/ai-pulse/leaderboard': 'ai_pulse.view',
   // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
   // lacks the permission its page enforces (each key = the gate on that tab's
   // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
@@ -473,8 +547,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  // Champion review queue for REPORTED feed prompts (moderation #3). Same
+  // permission the page itself enforces, and the SAME key as the sibling
+  // champion console '/ai-pulse/admin/anomalies' directly above — the Director
+  // retargeted this surface to the designated-champion key (the purpose-built
+  // ai_pulse_champion role holds it; the Monday-Lab scoring key it used to
+  // carry is held by ~587 staff, who must not see reported prompts or the
+  // author names attached to them). Written plain, like its neighbour: this key
+  // has no segment the terminology delta gate matches, so no value split is
+  // needed here.
+  '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
-  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -501,6 +584,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
+
+  // ID Cards (nav wiring 2026-07-24) — keys from PERMISSION_CATEGORIES
+  // (lib/constants/permissions.ts, id_cards group). Hub redirects to policy.
+  '/admin/id-cards': 'id_cards.jobs.view',
+  '/admin/id-cards/template': 'id_cards.templates.view',
+  '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Batch print enqueues jobs, so it needs the manage key (not just view).
+  '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
+  // so the nav entry mirrors it — no id_cards.* policy-view key exists.
+  '/admin/id-cards/policy': 'super_admin',
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
   // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
@@ -567,8 +661,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
+  // Multi-step Excel upload reached from a button on bulk-create. Same key as
+  // its parent — it creates bills, it just reviews them first.
+  '/billing/schedule/bulk-create/upload': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
-  '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
@@ -584,6 +680,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/refunds': 'billing.refunds.view',
   '/billing/refunds/[id]': 'billing.refunds.view',
   '/billing/refund-approvals': 'billing.refunds.configure',
+  // Gated on the REQUEST key so accounts staff can watch their own requests;
+  // approve/decline inside is gated separately and re-checked by the RPC.
+  '/billing/receipt-cancellations': 'billing.receipts.cancel.request',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -595,6 +694,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
+  '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
 
   // Resource Management
@@ -679,6 +779,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
@@ -786,6 +888,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
+  // School of Influence — programme settings (S2, 2026-07-31). Deliberately
+  // gated on its OWN key rather than startup_studio.analytics.view: the page
+  // guard uses the same key, so the chip is visible to exactly the people the
+  // page admits (plus super admins, who bypass both). Mapping it to a broad
+  // .view key would surface a chip that then denies — the sidebar-shows /
+  // page-denies anti-pattern.
+  '/startup-studio/school-of-influence/admin/settings': 'startup_studio.school_of_influence.configure',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
@@ -805,6 +914,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // School of Influence — coordinator register + completion (spec §7 S6).
+  // MUST stay declared: RoutePermissionGuard treats a route with NO entry here as
+  // visible to every authenticated user, so without this line any learner could
+  // open the staff tick-list by typing the URL. 'cohort.manage' is the same
+  // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
+  // and the database cannot disagree about who belongs here.
+  '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -936,6 +1053,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
   '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
   '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/naac/surveys/stakeholders': 'accreditation.naac.surveys.stakeholder.view', // employer + alumni half of NAAC 1.2
+  '/accreditation/naac/narratives': 'accreditation.naac.narrative.view',         // AI narrative drafter (list)
+  '/accreditation/naac/narratives/owners': 'accreditation.naac.narrative.manage', // IQAC owner-assignment desk
+  '/accreditation/naac/narratives/[id]': 'accreditation.naac.narrative.view',    // AI narrative drafter (detail)
   '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
   '/accreditation/nba': 'accreditation.nba.view',               // PR-A10
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
@@ -945,6 +1066,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
+  '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1029,6 +1151,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -1105,7 +1231,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Board of Studies — parent landing (children /bos/{compositions,experts,...} above)
   '/bos': 'bos.view',
-  // EKSAQ RCLTP — gated to content managers for now (only admin authoring +
+  // MyJKKN RCLTP — gated to content managers for now (only admin authoring +
   // policies exist in Phase 4a); broaden when student/teacher surfaces (4b/4c) land.
   '/rcltp': 'rcltp.config.manage',
 
@@ -1138,6 +1264,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/profile': 'health.profile.view',
   '/health/leaderboard': 'health.leaderboard.view',
   '/health/sports': 'health.sports.view',
+  // Approver inbox (2026-07-30). Gated on .approve, NOT .view — the Principal
+  // decides tournament permission but is not a sports-profile viewer
+  // (health.sports.view is false for that role), so reusing .view would hide
+  // the inbox from the only person who can act on it.
+  '/health/sports/approvals': 'health.sports.approve',
+  // Filing desk (2026-07-30). Separate route from the inbox because the two
+  // parties hold DIFFERENT keys — one route can carry only one permission here,
+  // and merging them would hide whichever surface the viewer is not gated for.
+  '/health/sports/squad-requests': 'health.sports.file_request',
   '/health/fitness': 'health.fitness.view',
   '/health/training': 'health.training.view',
   '/health/achievements': 'health.achievements.view',
@@ -1292,6 +1427,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents': 'ims.indents.view',
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
+  // Phase D: HOD queue — gated on view (queue itself is scoped by
+  // departments.head_of_department_id, so non-HODs just see an empty state)
+  '/ims/indents/hod-approvals': 'ims.indents.view',
   '/ims/indents/[id]': 'ims.indents.view',
   '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
@@ -1417,6 +1555,48 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Proof',
           active: pathname === '/my-proof',
           icon: BadgeCheck,
+          submenus: []
+        },
+        {
+          // MBA Improvement Board — business-case pipeline (kanban) + impact
+          // leaderboard. Gated by improvement.ideas.view via MENU_PERMISSIONS.
+          href: '/improvement-board',
+          label: 'Improvement Board',
+          active:
+            pathname === '/improvement-board' ||
+            pathname.startsWith('/improvement-board/'),
+          icon: Lightbulb,
+          submenus: [
+            { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
+            { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
+            { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
+            // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
+            { href: '/improvement-board/data-gaps', label: 'Data Gaps', active: pathname === '/improvement-board/data-gaps' },
+            // MBA Team Rotation — rota chart (associates + managers); team-builder
+            // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
+            { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
+            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' },
+            // Manage boards — manager-only CRUD over the areas ideas are filed
+            // against (improvement.board.manage).
+            { href: '/improvement-board/manage-boards', label: 'Manage Boards', active: pathname === '/improvement-board/manage-boards' },
+            // Teaching-enterprise cohort config — manager-only, hidden from
+            // participants via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
+          ]
+        },
+        {
+          // CEO Rounds — the daily rounds log (participation-graded attendance,
+          // rotating-associate summary, Rounds-task → Board link). Gated by
+          // ceo_rounds.log via MENU_PERMISSIONS.
+          href: '/ceo-rounds',
+          label: 'CEO Rounds',
+          active: pathname === '/ceo-rounds' || pathname.startsWith('/ceo-rounds/'),
+          icon: ClipboardList,
           submenus: []
         }
       ]
@@ -1574,7 +1754,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
-          // EKSAQ RCLTP — reading-assessment module. Role-aware landing at /rcltp
+          // MyJKKN RCLTP — reading-assessment module. Role-aware landing at /rcltp
           // routes each persona to their lane (admin authoring + policies live now;
           // student/teacher/principal surfaces land in Phase 4b/4c).
           href: '/rcltp',
@@ -1607,6 +1787,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Session Escalations',
           active: pathname.startsWith('/academic/session-feedback/principal'),
           icon: Activity,
+          submenus: []
+        },
+        {
+          // SCF note-safety loop Phase 0 (2026-07-26): the named reviewer's
+          // queue for AI-drafted learner support notes. Visible only to
+          // holders of scf.notes.review (via MENU_PERMISSIONS) — today the
+          // scf_note_reviewer role — plus the super-admin bypass. The page's
+          // RPCs re-enforce the same permission server-side.
+          href: '/academic/session-feedback/note-review',
+          label: 'Learner Note Review',
+          active: pathname.startsWith('/academic/session-feedback/note-review'),
+          icon: ClipboardCheck,
           submenus: []
         },
         {
@@ -1762,6 +1954,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/referral-rates',
+              label: 'Rates & Generate',
+              active: pathname === '/admission/consultants/referral-rates'
+            },
+            {
+              href: '/admission/consultants/import',
+              label: 'Import Referrals',
+              active: pathname === '/admission/consultants/import'
             },
             {
               href: '/admission/consultants/payouts',
@@ -2154,6 +2356,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
       ]
@@ -2320,11 +2523,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
+            { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
@@ -2360,6 +2565,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
+            { href: '/ims/indents/hod-approvals', label: 'Indents · HOD Approvals', active: pathname === '/ims/indents/hod-approvals' },
             { href: '/ims/transfers', label: 'Transfers', active: pathname.startsWith('/ims/transfers') },
             { href: '/ims/sales', label: 'Sales (POS)', active: pathname === '/ims/sales' },
             { href: '/ims/sales/history', label: 'Sales · History', active: pathname === '/ims/sales/history' },
@@ -2468,6 +2674,20 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
           ]
+        },
+        {
+          // ID Cards (nav wiring 2026-07-24) — print queue, template editor
+          // and printer policy for the on-prem card-print bridge.
+          href: '/admin/id-cards',
+          label: 'ID Cards',
+          active: pathname.startsWith('/admin/id-cards'),
+          icon: IdCard,
+          submenus: [
+            { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
+            { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
+            { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
+          ]
         }
       ]
     },
@@ -2533,10 +2753,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
-            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }
@@ -2647,6 +2868,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/profile', label: 'My Health Profile', active: pathname === '/health/profile' },
             { href: '/health/leaderboard', label: 'Leaderboard', active: pathname === '/health/leaderboard' },
             { href: '/health/sports', label: 'Sports Profile', active: pathname === '/health/sports' },
+            { href: '/health/sports/squad-requests', label: 'Squad Requests', active: pathname === '/health/sports/squad-requests' },
+            { href: '/health/sports/approvals', label: 'Tournament Permissions', active: pathname === '/health/sports/approvals' },
             { href: '/health/fitness', label: 'Fitness Tests', active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/') },
             { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },

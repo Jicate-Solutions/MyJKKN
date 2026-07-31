@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
+import { formatDays } from '../_components/format';
 import { ApplyCompOffDrawer } from '../_components/apply-comp-off-drawer';
 import { ClaimWorkedDayDialog } from '../_components/claim-worked-day-dialog';
 import { useMyApplications } from '@/hooks/hr/use-leave';
@@ -110,7 +111,7 @@ export default function CompensatoryOffPage() {
                       s.warn && (balance?.expired ?? 0) > 0 && 'text-red-600 dark:text-red-400'
                     )}
                   >
-                    {balanceLoading ? '—' : s.value}
+                    {balanceLoading ? '—' : formatDays(s.value)}
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{s.hint}</p>
                 </CardContent>
@@ -155,7 +156,7 @@ export default function CompensatoryOffPage() {
                       </span>
                     )}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">{c.credit_days}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatDays(c.credit_days)}</TableCell>
                   <TableCell className="capitalize text-muted-foreground">
                     {c.source.replace('_', ' ')}
                   </TableCell>
@@ -238,7 +239,7 @@ export default function CompensatoryOffPage() {
             {rows.map((a) => (
               <RequestRow key={a.id} status={a.status}>
                 <TableCell className="pl-4 font-medium">{fmtDate(a.start_date)}</TableCell>
-                <TableCell className="text-right tabular-nums">{a.total_days}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatDays(a.total_days)}</TableCell>
                 <TableCell><StatusBadge status={a.status} /></TableCell>
               </RequestRow>
             ))}

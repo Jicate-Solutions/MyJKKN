@@ -16,7 +16,8 @@
  */
 
 import { useMemo, useState } from 'react';
-import { AlertCircle, Check, ShieldAlert, X } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
+import { AlertCircle, Check, ShieldAlert, UserCheck, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { TableCell } from '@/components/ui/table';
@@ -32,8 +33,12 @@ import {
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
+import { CompOffClaimsQueue } from '../_components/comp-off-claims-queue';
+import { formatDays } from '../_components/format';
 import { useApplicationsByStatus, useDecideApplication } from '@/hooks/hr/use-leave';
 import { useCanApproveLeave } from '@/hooks/hr/use-hr-leave-types';
+import { useMyLeaveApprovalQueue } from '@/hooks/hr/use-leave-approval-flows';
+import { usePendingCompOffClaims } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
 import { LEAVE_DURATION_LABELS } from '@/types/hr';
@@ -42,7 +47,14 @@ import type { HRLeaveApplicationWithType } from '@/types/hr';
 const fmtDate = (d: string) =>
   d ? new Date(`${d}T00:00:00`).toLocaleDateString('en-GB') : '—';
 
+const SUB_TABS = [
+  { label: 'Leave Requests', href: '/hr/leave/approvals' },
+  { label: 'Comp Off Claims', href: '/hr/leave/approvals?tab=comp-off' },
+];
+
 export default function LeaveApprovalsPage() {
+  const params = useSearchParams();
+  const view = params.get('tab') === 'comp-off' ? 'comp-off' : 'leave';
   const { data: canApprove, isLoading: gateLoading } = useCanApproveLeave();
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
@@ -55,6 +67,7 @@ export default function LeaveApprovalsPage() {
     ['pending', 'escalated']
   );
   const decide = useDecideApplication();
+  const { data: claims } = usePendingCompOffClaims(canApprove === true);
 
   // NOT date-filtered. An approval queue must show everything awaiting a
   // decision; gating it by a "This Month" default hides a request dated next
@@ -64,10 +77,27 @@ export default function LeaveApprovalsPage() {
     () => (data?.data ?? []) as HRLeaveApplicationWithType[],
     [data]
   );
+  // "Waiting on me" comes from hr_leave_my_approval_queue(), which applies the
+  // same three tests as trg_hla_approver_gate — pinned to me, a role I hold, or
+  // a placeholder role. Deriving it here from approval_chain instead would need
+  // custom_roles, which staff cannot read, so a role-routed step would drop out
+  // of its own approver's queue.
+  const { data: mineIds } = useMyLeaveApprovalQueue(ctx.hrOrgId || undefined);
+  const [mineOnly, setMineOnly] = useState(false);
+
   const rows = useMemo(() => {
-    if (period.preset === 'all') return all;
-    return all.filter((a) => a.start_date <= period.to && a.end_date >= period.from);
-  }, [all, period]);
+    let list = all;
+    if (period.preset !== 'all') {
+      list = list.filter((a) => a.start_date <= period.to && a.end_date >= period.from);
+    }
+    if (mineOnly && mineIds) list = list.filter((a) => mineIds.has(a.id));
+    return list;
+  }, [all, period, mineOnly, mineIds]);
+
+  const mineCount = useMemo(
+    () => (mineIds ? all.filter((a) => mineIds.has(a.id)).length : 0),
+    [all, mineIds]
+  );
 
   const onApprove = async (id: string) => {
     setError(null);
@@ -96,7 +126,7 @@ export default function LeaveApprovalsPage() {
 
   if (gateLoading) {
     return (
-      <TimeOffShell title="Approvals">
+      <TimeOffShell title="Approvals" subTabs={SUB_TABS}>
         <Skeleton className="h-64" />
       </TimeOffShell>
     );
@@ -114,8 +144,18 @@ export default function LeaveApprovalsPage() {
     );
   }
 
+  const claimCount = claims?.length ?? 0;
+  const subTabs = SUB_TABS.map((t) =>
+    t.href.includes('comp-off') && claimCount > 0
+      ? { ...t, label: `${t.label} (${claimCount})` }
+      : t
+  );
+
   return (
-    <TimeOffShell title="Approvals">
+    <TimeOffShell title="Approvals" subTabs={subTabs}>
+      {view === 'comp-off' ? (
+        <CompOffClaimsQueue />
+      ) : (
       <div className="space-y-4">
         <PeriodFilter
           value={period}
@@ -123,6 +163,25 @@ export default function LeaveApprovalsPage() {
           onRefresh={() => refetch()}
           isRefreshing={isFetching}
         />
+
+        {/* Off by default. Until a leave type has a flow naming real approvers,
+            every step carries the seeded placeholder role and "waiting on me"
+            equals the whole queue — defaulting it on would look broken. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant={mineOnly ? 'default' : 'outline'}
+            onClick={() => setMineOnly((v) => !v)}
+          >
+            <UserCheck className="mr-2 h-4 w-4" />
+            Waiting on me{mineIds ? ` (${mineCount})` : ''}
+          </Button>
+          {mineOnly && (
+            <span className="text-xs text-muted-foreground">
+              Showing only requests whose current step you can decide.
+            </span>
+          )}
+        </div>
 
         {error && (
           <Alert variant="destructive">
@@ -152,7 +211,7 @@ export default function LeaveApprovalsPage() {
               </TableCell>
               <TableCell>{fmtDate(a.start_date)}</TableCell>
               <TableCell>{fmtDate(a.end_date)}</TableCell>
-              <TableCell className="text-right tabular-nums">{a.total_days}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatDays(a.total_days)}</TableCell>
               <TableCell className="text-muted-foreground">
                 {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
               </TableCell>
@@ -183,6 +242,7 @@ export default function LeaveApprovalsPage() {
           ))}
         </RequestTable>
       </div>
+      )}
 
       <Dialog open={!!rejectId} onOpenChange={(v) => { if (!v) setRejectId(null); }}>
         <DialogContent>

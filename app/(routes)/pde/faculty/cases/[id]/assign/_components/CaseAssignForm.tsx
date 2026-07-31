@@ -8,6 +8,10 @@ interface Section {
   // "Programme · Semester · Section" — disambiguates the many identically-named
   // sections (e.g. "G" exists in 4 Year and in CRRI). Supplied by the API.
   label: string | null;
+  // false = archived section that still has enrolled learners. Shown with an
+  // "(archived)" tag and sorted last (the API orders active first) so a Senior Learner
+  // can still deliberately assign to it. Absent/true = active.
+  is_active?: boolean;
 }
 interface Assignment {
   section_id: string;
@@ -81,7 +85,11 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
         body: JSON.stringify({
           visibility_mode: visibility,
           section_ids: visibility === 'class_only' ? [...selected] : [...selected],
-          due_at: dueAt ? new Date(dueAt).toISOString() : null,
+          // A date-only pick ("2026-07-22") means "due by the END of that day,
+          // India time" — not UTC midnight, which would lock the case at ~5:30 AM
+          // IST that morning and cost learners the whole due day. JKKN is
+          // India-only, so a fixed IST offset (+05:30, no DST) is correct here.
+          due_at: dueAt ? new Date(`${dueAt}T23:59:59.999+05:30`).toISOString() : null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -160,7 +168,16 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
             filtered.map((s) => (
               <label key={s.id} className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-accent">
                 <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} />
-                <span>{s.label || s.section_name || s.id.slice(0, 8)}</span>
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className={s.is_active === false ? 'text-muted-foreground' : undefined}>
+                    {s.label || s.section_name || s.id.slice(0, 8)}
+                  </span>
+                  {s.is_active === false ? (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                      archived
+                    </span>
+                  ) : null}
+                </span>
               </label>
             ))
           )}
@@ -176,7 +193,9 @@ export function CaseAssignForm({ caseId }: { caseId: string }) {
       <button
         type="button"
         onClick={save}
-        disabled={saving}
+        // A locked case with no sections would be hidden from everyone — block the
+        // save here too (the API rejects it as well) so it can't happen by accident.
+        disabled={saving || (visibility === 'class_only' && selected.size === 0)}
         className="inline-flex items-center justify-center rounded-md px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         style={{ backgroundColor: BRAND_GREEN }}
       >

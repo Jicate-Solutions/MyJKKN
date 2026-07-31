@@ -59,6 +59,40 @@ export interface SendEmailResult {
   error?: string;
 }
 
+/**
+ * Visible From: display name for a BoS-family send, keyed by meeting_type.
+ *
+ *   • BoS meetings        → smtpConfig.sender_name as configured
+ *     (e.g. "BOS - JKKN College of Arts & Science (Autonomous)")
+ *   • Governing Body      → rewrite leading "BOS" / "BoS" / "Board of Studies"
+ *     to "Governing Body" (e.g. "Governing Body - JKKN College…")
+ *   • Academic Council    → ac_sender_name when configured, otherwise the
+ *     same rewrite with "Academic Council"
+ */
+export function resolveBosSenderDisplayName(
+  meetingType: string | null | undefined,
+  cfg: Pick<BosSmtpConfig, 'sender_name' | 'ac_sender_name'>,
+): string {
+  if (meetingType === 'academic_council' && cfg.ac_sender_name?.trim()) {
+    return cfg.ac_sender_name.trim();
+  }
+
+  const label =
+    meetingType === 'governing_body'
+      ? 'Governing Body'
+      : meetingType === 'academic_council'
+        ? 'Academic Council'
+        : null;
+
+  if (!label) return cfg.sender_name;
+
+  const rewritten = cfg.sender_name.replace(
+    /^(BOS|BoS|Board of Studies)\s*[-–—]\s*/i,
+    `${label} - `,
+  );
+  return rewritten !== cfg.sender_name ? rewritten : `${label} - ${cfg.sender_name}`;
+}
+
 // ── SMTP config resolver ──────────────────────────────────────────────────────
 
 /**
@@ -94,6 +128,94 @@ export async function resolveBosSmtpConfig(
     return null;
   }
   return (data as BosSmtpConfig) ?? null;
+}
+
+// ── Board-level sender override ────────────────────────────────────────────────
+
+export interface BosBoardSender {
+  sender_email: string;
+  sender_name: string | null;
+  // ── Model 3: optional per-board SMTP account (20260725) ────────────────────
+  // When smtp_user + smtp_password_encrypted are set, the board authenticates
+  // as its own mailbox. host/port/secure are optional overrides (NULL inherits
+  // the institution config).
+  smtp_host?: string | null;
+  smtp_port?: number | null;
+  smtp_secure?: boolean | null;
+  smtp_user?: string | null;
+  smtp_password_encrypted?: string | null;
+}
+
+/**
+ * Resolve a per-board sender override for (institutionsId, boardId). ECE and
+ * EEE can each send from their own address — either as a From-only override on
+ * the shared institution account (Models 1/2), or, when smtp_user/password are
+ * set, by authenticating as their own mailbox (Model 3). Returns null when no
+ * active override exists → caller falls back to the institution default
+ * (and, for Academic Council, its ac_sender_email).
+ *
+ * Never throws; a lookup failure degrades to null (institution default).
+ */
+export async function resolveBosBoardSender(
+  supabase: SupabaseClient,
+  institutionsId: string,
+  boardId: string | null | undefined,
+): Promise<BosBoardSender | null> {
+  if (!boardId) return null;
+
+  const { data, error } = await supabase
+    .from('bos_board_senders')
+    .select(
+      'sender_email, sender_name, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted',
+    )
+    .eq('institutions_id', institutionsId)
+    .eq('board_id', boardId)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[bos-email-sender] resolveBosBoardSender error:', error);
+    return null;
+  }
+  const row = data as BosBoardSender | null;
+  if (!row?.sender_email?.trim()) return null;
+  return row;
+}
+
+/**
+ * Build the effective SMTP config for a send, given the institution config and
+ * an optional per-board sender.
+ *
+ *   • Board has its own smtp_user + password → Model 3: authenticate AS the
+ *     board mailbox. host/port/secure override the institution's when set,
+ *     otherwise inherit. `usesBoardAuth` = true.
+ *   • Board has no credentials (or no board) → Model 1/2: return the
+ *     institution config unchanged; the caller applies the From-only override
+ *     via sendBosEmail's fromEmail/fromName. `usesBoardAuth` = false.
+ *
+ * The transporter cache keys on host:port:user, so each board account that
+ * authenticates as itself naturally gets its own connection pool.
+ */
+export function mergeBoardSmtpConfig(
+  base: BosSmtpConfig,
+  board: BosBoardSender | null,
+): { cfg: BosSmtpConfig; usesBoardAuth: boolean } {
+  const user = board?.smtp_user?.trim();
+  const pass = board?.smtp_password_encrypted?.trim();
+  if (!board || !user || !pass) {
+    return { cfg: base, usesBoardAuth: false };
+  }
+  return {
+    usesBoardAuth: true,
+    cfg: {
+      ...base,
+      smtp_host: board.smtp_host?.trim() || base.smtp_host,
+      smtp_port: board.smtp_port ?? base.smtp_port,
+      smtp_secure: board.smtp_secure ?? base.smtp_secure,
+      smtp_user: user,
+      smtp_password_encrypted: pass,
+    },
+  };
 }
 
 // ── Transporter cache ─────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
+import { formatHours } from '../_components/format';
 import { ApplyShortTimeOffDrawer } from '../_components/apply-short-time-off-drawer';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
@@ -34,7 +35,7 @@ function hoursBetween(start: string | null, end: string | null): string {
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
   const mins = eh * 60 + em - (sh * 60 + sm);
-  return mins > 0 ? (mins / 60).toFixed(2) : '—';
+  return mins > 0 ? formatHours(mins / 60) : '—';
 }
 
 export default function ShortTimeOffPage() {

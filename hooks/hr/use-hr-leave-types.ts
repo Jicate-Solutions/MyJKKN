@@ -103,3 +103,48 @@ export function useGenerateBalances() {
     },
   });
 }
+
+/**
+ * Short Time Off usage for one person and type in the current period.
+ * Disabled until both ids are known, so the drawer does not fire on open.
+ */
+export function useStoUsage(
+  employeeId: string | undefined,
+  leaveTypeId: string | undefined,
+  academicYearId: string | null,
+  /** The request date. The period window is computed from it, not from today. */
+  onDate?: string
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, academicYearId, onDate ?? null],
+    queryFn: () =>
+      HRLeaveTypeService.getStoUsage(
+        supabase, employeeId!, leaveTypeId!, academicYearId, onDate
+      ),
+    enabled: !!employeeId && !!leaveTypeId,
+  });
+}
+
+/**
+ * Day-based leave usage for one person and type in the current period — the
+ * "2 a month" throttle. Disabled until both ids are known, so the drawer does
+ * not fire on open.
+ */
+export function useLeavePeriodUsage(
+  employeeId: string | undefined,
+  leaveTypeId: string | undefined,
+  academicYearId: string | null,
+  /** The request date. The period window is computed from it, not from today. */
+  onDate?: string
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: ['hr-leave-period-usage', employeeId, leaveTypeId, academicYearId, onDate ?? null],
+    queryFn: () =>
+      HRLeaveTypeService.getLeavePeriodUsage(
+        supabase, employeeId!, leaveTypeId!, academicYearId, onDate
+      ),
+    enabled: !!employeeId && !!leaveTypeId,
+  });
+}

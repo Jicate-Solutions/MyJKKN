@@ -12,7 +12,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
-import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
 
@@ -29,10 +29,17 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'date_of_birth': ['Date of Birth', 'DOB', 'date_of_birth', 'dob'],
   'gender': ['Gender', 'gender'],
   'religion': ['Religion', 'religion'],
+  // FK-backed fields ship as a paired "<Field> ID" + readable label column.
+  // The ID column wins; the label is resolved to the same FK when the ID is
+  // blank. Both are compared as ids, never as text — the legacy TEXT columns
+  // (community/caste/quota/accommodation_type/admission_year) were dropped.
+  'community_category_id': ['Community ID', 'community_category_id'],
   'community': ['Community', 'community'],
+  'caste_id': ['Caste ID', 'caste_id'],
   'caste': ['Caste', 'caste'],
   'aadhar_number': ['Aadhar Number', 'aadhar_number', 'aadhaar'],
   'blood_group': ['Blood Group', 'blood_group'],
+  'admission_year_id': ['Admission Year ID', 'admission_year_id'],
   'admission_year': ['Admission Year', 'admission_year'],
 
   // SECTION 2: Parent/Guardian Information
@@ -90,6 +97,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'counseling_number': ['Counseling Number', 'counseling_number'],
 
   // SECTION 9: Accommodation Details
+  'accommodation_type_id': ['Accommodation Type ID', 'accommodation_type_id'],
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
@@ -100,6 +108,7 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   // SECTION 11: Student Specific
   'roll_number': ['Roll Number', 'roll_number'],
   'register_number': ['Register Number', 'register_number'],
+  'quota_id': ['Quota ID', 'quota_id'],
   'quota': ['Quota', 'quota'],
   'student_photo_url': ['Photo URL', 'photo_url', 'student_photo_url'],
 };
@@ -118,6 +127,16 @@ interface PreviewRow {
   changes: FieldChange[];
   status: 'valid' | 'error' | 'no_changes';
   error?: string;
+  /** Labels that matched no lookup row — those fields are skipped on write. */
+  warnings?: string[];
+  /**
+   * Where the fix lives, so the reviewer knows what to do:
+   *  - 'format' → edit the cell (bad email domain, 9-digit mobile…)
+   *  - 'record' → wrong learner for this flow (not found / not active / other institution)
+   */
+  issueKind?: 'format' | 'record';
+  /** Per-field format failures, mirroring what the write path enforces. */
+  issues?: Array<{ field: string; message: string }>;
 }
 
 /**
@@ -299,7 +318,7 @@ export async function POST(request: NextRequest) {
 
     // 4. Parse Excel file
     console.log('[bulk-edit-preview] Parsing file:', file.name, 'Size:', file.size);
-    const parseResult = await parseExcelFile(file, 'Active Learners');
+    const parseResult = await parseExcelFile(file, 'Active Learners', COLUMN_MAPPING.id);
 
     if (parseResult.errors.length > 0) {
       console.error('[bulk-edit-preview] Parse errors:', parseResult.errors);
@@ -319,6 +338,23 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: 'No data found in file'
+        },
+        { status: 400 }
+      );
+    }
+
+    // The ID column - not the sheet name - is what identifies this as a bulk-edit
+    // file. Without it every row would come back "Learner not found", which reads
+    // like missing data when the real problem is the wrong file.
+    if (!hasColumn(parseResult.rows, COLUMN_MAPPING.id)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `No ID column found in the uploaded sheet (expected "ID*"). ` +
+            `Columns found: ${listColumns(parseResult.rows)}. ` +
+            `Use "Download Current Data" in this dialog and edit that file - the ` +
+            `Learners "Export" file has no ID column and cannot be used for bulk edit.`
         },
         { status: 400 }
       );
@@ -350,6 +386,26 @@ export async function POST(request: NextRequest) {
         if (normalized) sanitizedData.blood_group = normalized;
       }
       if (mappedData.admission_year) sanitizedData.admission_year = mappedData.admission_year;
+
+      // FK-backed "<Field> ID" cells pass through UNTOUCHED — sanitizeValue()
+      // upper-cases, which would mangle a uuid. The service resolves these and
+      // the label columns above to the same FK, then diffs id-to-id.
+      if (mappedData.community_category_id) sanitizedData.community_category_id = mappedData.community_category_id;
+      if (mappedData.caste_id) sanitizedData.caste_id = mappedData.caste_id;
+      if (mappedData.quota_id) sanitizedData.quota_id = mappedData.quota_id;
+      if (mappedData.accommodation_type_id) sanitizedData.accommodation_type_id = mappedData.accommodation_type_id;
+      if (mappedData.admission_year_id) sanitizedData.admission_year_id = mappedData.admission_year_id;
+
+      // Accommodation Type and Bus Required were mapped but never sanitized
+      // here, so preview showed nothing for them while bulk-edit-exited applied
+      // them anyway — edits landed without ever being reviewed. Mirrors the
+      // write route's handling exactly, including the Yes/No → boolean cast.
+      if (mappedData.accommodation_type) sanitizedData.accommodation_type = sanitizeValue(mappedData.accommodation_type, 'text');
+      if (mappedData.bus_required !== undefined && mappedData.bus_required !== '') {
+        const b = String(mappedData.bus_required).trim().toLowerCase();
+        if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;
+        else if (['no', 'n', 'false', '0'].includes(b)) sanitizedData.bus_required = false;
+      }
 
       // SECTION 2: Parent/Guardian Information
       if (mappedData.father_name) sanitizedData.father_name = sanitizeValue(mappedData.father_name, 'text');
@@ -403,6 +459,28 @@ export async function POST(request: NextRequest) {
 
       const learnerId = sanitizedData.id;
 
+      // Field-format rules, run with the SAME service the write path uses
+      // (bulk-edit-exited calls validateBulkEditExited before processBulkEdit).
+      // Preview used to skip this entirely, so "College Email must end with
+      // @jkkn.ac.in" first appeared AFTER the update ran — the one thing a
+      // preview screen exists to prevent.
+      const fieldValidation = LearnerValidationService.validateBulkEditExited(sanitizedData);
+
+      if (!fieldValidation.isValid) {
+        previewRows.push({
+          learnerId,
+          learnerName:
+            [mappedData.first_name, mappedData.last_name].filter(Boolean).join(' ') || 'Unknown',
+          rowNumber: parsedRow.rowNumber,
+          changes: [],
+          status: 'error',
+          issueKind: 'format',
+          issues: fieldValidation.errors.map(e => ({ field: e.field, message: e.message })),
+          error: fieldValidation.errors.map(e => e.message).join(', ')
+        });
+        continue;
+      }
+
       // Validate learner exists
       const validation = await BulkLearnerEditService.previewChanges(
         learnerId,
@@ -418,6 +496,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'Learner not found'
         });
         continue;
@@ -430,6 +509,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'Learner is not in active status'
         });
         continue;
@@ -442,6 +522,7 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'error',
+          issueKind: 'record',
           error: 'No access to this learner (different institution)'
         });
         continue;
@@ -454,7 +535,8 @@ export async function POST(request: NextRequest) {
           rowNumber: parsedRow.rowNumber,
           changes: [],
           status: 'no_changes',
-          error: 'No changes detected'
+          error: 'No changes detected',
+          warnings: validation.warnings
         });
         continue;
       }
@@ -464,7 +546,8 @@ export async function POST(request: NextRequest) {
         learnerName: validation.learnerName || 'Unknown',
         rowNumber: parsedRow.rowNumber,
         changes: validation.changes,
-        status: 'valid'
+        status: 'valid',
+        warnings: validation.warnings
       });
     }
 
@@ -475,6 +558,13 @@ export async function POST(request: NextRequest) {
       valid_changes: previewRows.filter(r => r.status === 'valid').length,
       no_changes: previewRows.filter(r => r.status === 'no_changes').length,
       errors: previewRows.filter(r => r.status === 'error').length,
+      // Split by where the fix lives: a cell the uploader can edit, vs. the
+      // learner record itself. Billing's bulk-create groups issues the same way.
+      format_errors: previewRows.filter(r => r.issueKind === 'format').length,
+      record_errors: previewRows.filter(r => r.issueKind === 'record').length,
+      // Rows carrying a label that matched no lookup row. Counted separately
+      // from errors: the row still applies, just without that one field.
+      warnings: previewRows.filter(r => (r.warnings?.length ?? 0) > 0).length,
       preview: previewRows
     });
 

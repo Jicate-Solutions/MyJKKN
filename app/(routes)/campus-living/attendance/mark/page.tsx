@@ -27,6 +27,7 @@ import {
   useMarkAttendance,
   useMarkableResidents,
   useMyBlockAccess,
+  useAttendanceByDate,
 } from '@/hooks/campus-living/use-hostel-attendance';
 import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import type { HostelAttendanceStatus, MarkableResident } from '@/types/campus-living';
@@ -94,6 +95,10 @@ export default function MarkAttendancePage() {
       setSelectedFloor('all');
       setSelectedCategory('all');
     } else if (selectedBlock !== 'all' && !myBlockIds.includes(selectedBlock)) {
+      // Previously reverted silently — the operator would pick a block outside
+      // their access and just watch the selection snap back with no
+      // explanation, reading as "the dropdown won't let me choose anything."
+      toast.warning("You don't have access to that block — showing your assigned block instead.");
       setSelectedBlock(myBlockIds[0]);
       setSelectedFloor('all');
       setSelectedCategory('all');
@@ -161,6 +166,48 @@ export default function MarkAttendancePage() {
   const markAttendance = useMarkAttendance();
 
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
+
+  // Pre-fill from whatever was already saved for this date — BUG-003327's fix
+  // (above) removed the existing-attendance fetch entirely because it made the
+  // whole roster disappear when nothing was marked yet. That was the wrong
+  // trade: it also meant re-opening a date that WAS already submitted (e.g.
+  // after handleSubmit's router.push away and back) always showed 0 marked,
+  // even though the records existed. This fetch is additive — the resident
+  // roster above still always renders from useMarkableResidents — it only
+  // pre-fills the local marks, keyed by the resident row (not learner_id, so
+  // it lines up with handleMarkStatus/handleSubmit's own keying).
+  // Scoped by the selected BLOCK, not the marker's own institution_id — a
+  // block can house residents from several affiliated colleges, so filtering
+  // by the marker's institution silently hid real records for residents of a
+  // different institution in the same block (confirmed bug: attendance saved
+  // correctly but never showed up on reload).
+  const { data: existingAttendance } = useAttendanceByDate(
+    profile?.institution_id ?? '',
+    attendanceDate,
+    selectedBlock !== 'all' ? selectedBlock : undefined
+  );
+  useEffect(() => {
+    if (!existingAttendance || !students) return;
+    const statusByLearnerId = new Map(
+      existingAttendance.map((r) => [r.learner_id, r.evening_status as AttendanceStatus])
+    );
+    const next: Record<string, AttendanceStatus> = {};
+    students.forEach((s) => {
+      const status = statusByLearnerId.get(s.profile_id);
+      if (status) next[s.id] = status;
+    });
+    setAttendance(next);
+    // Must re-run (and REPLACE, not merge) whenever `students` changes — that
+    // happens when the Hostel Block dropdown loads a genuinely different
+    // resident set, not just when floor/category/search narrow the CURRENT
+    // one. Without `students` here, switching blocks left the previous
+    // block's marks stuck in state — markedCount/presentCount/absentCount
+    // below intentionally sum the whole `attendance` object (so marking
+    // everyone, then searching one name, doesn't reset the count), which
+    // made the leftover marks from the old block silently keep counting
+    // toward the new block's totals, and handleSubmit would have tried to
+    // submit them under the new block's id.
+  }, [existingAttendance, attendanceDate, students]);
 
   const handleMarkStatus = useCallback((studentId: string, status: AttendanceStatus) => {
     setAttendance((prev) => ({
@@ -327,7 +374,13 @@ export default function MarkAttendancePage() {
 
   const markedCount = Object.values(attendance).filter(Boolean).length;
   const presentCount = Object.values(attendance).filter((s) => s === 'present').length;
-  const absentCount = Object.values(attendance).filter((s) => s === 'absent').length;
+  // Summary bar only ever shows Present/Absent (no separate On Leave slot),
+  // so On Leave is folded into the Absent count here — otherwise those
+  // students counted toward "Marked" with no visible bucket, which read as
+  // "vanished". Each resident's own status button still shows the real
+  // 'On Leave' state, and the submitted record still saves evening_status
+  // as 'on_leave' distinctly — only this rolled-up display number merges it.
+  const absentCount = Object.values(attendance).filter((s) => s === 'absent' || s === 'on_leave').length;
 
   // Confirmation-report breakdown — counts EVERY marked status (not just the
   // filtered view) because handleSubmit submits all of `attendance`, including

@@ -9,6 +9,7 @@
 // ============================================================================
 
 import { useEffect, useState } from 'react';
+import { QueueHealthCard } from './queue-health-card';
 import {
   Bot,
   Clock,
@@ -315,7 +316,9 @@ function RoutineRow({
                 </span>
               )}
               {r.maxLane ? (
-                <MaxLaneNote />
+                // Renders nothing unless this routine's cloud cron provably
+                // consults shouldDeferToMaxLane — see MaxLaneNote.
+                <MaxLaneNote routineId={r.id} schedule={maxSchedule} />
               ) : !r.callsClaude ? (
                 <span className="text-xs text-muted-foreground">
                   rules-based — no AI calls, so there&apos;s nothing to shift to the Max lane
@@ -527,6 +530,9 @@ export function AiRoutinesControl() {
         {/* Liveness of the Windows Max-lane box — render only once schedules have
             loaded, so a slow fetch doesn't flash the "not found" warning. */}
         {!loading && <WindowsEngineHeartbeat initial={map.get(HEARTBEAT_ROW_ID)} />}
+        {/* The banner above says the engine is alive; this says what it is FACING.
+            Together they answer "is work moving?" — neither does alone. */}
+        <QueueHealthCard />
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-muted/30 p-4">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5" style={{ color: BRAND }} />

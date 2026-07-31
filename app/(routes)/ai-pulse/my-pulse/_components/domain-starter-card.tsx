@@ -71,7 +71,11 @@ interface PromptPack {
 
 interface DomainStarterRow {
   starter_id: string;
-  topic_type: string; // 'course' | 'programme'
+  // 'course' | 'programme' | 'general'. 'general' is the all-subject fallback
+  // returned when this cycle has no prompt for the reader's own programme
+  // (Director decision #6, 2026-07-30) — it must be labelled as general, never
+  // dressed up as one written for their subject.
+  topic_type: string;
   topic_label: string;
   final_prompt: string;
   prompt_pack: PromptPack | null;
@@ -239,7 +243,9 @@ function StarterItem({ row }: { row: DomainStarterRow }) {
           <p className="text-xs text-muted-foreground">
             {row.topic_type === 'course'
               ? 'For your subject'
-              : 'For your programme'}
+              : row.topic_type === 'general'
+                ? 'A general prompt — not written for your subject'
+                : 'For your programme'}
           </p>
         </div>
         {tamilReady && (

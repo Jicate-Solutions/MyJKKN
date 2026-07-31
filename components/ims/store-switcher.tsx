@@ -87,7 +87,15 @@ export function StoreSwitcher() {
   const performSwitch = (selectedId: string, institutionId: string, name: string) => {
     clearCart();
     setCartStoreScope(selectedId);
-    setActiveStore(selectedId, institutionId, name);
+    // Mark the current allocation as reconciled: this switch is deliberate, so
+    // useImsStoreContext must not snap the user back to their assigned store.
+    // A *future* re-allocation will differ from this mark and still apply once.
+    setActiveStore(
+      selectedId,
+      institutionId,
+      name,
+      userProfile?.assigned_store_id ?? null
+    );
     setOpen(false);
     setConfirmStore(null);
 

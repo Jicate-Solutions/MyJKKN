@@ -312,8 +312,8 @@ export function AttendanceTab({
       )}
 
       {/* ── Quorum indicator ───────────────────────────────── */}
-      <div className='flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5'>
-        <div className='flex items-center gap-3 text-sm'>
+      <div className='flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-4 py-2.5'>
+        <div className='flex flex-wrap items-center gap-x-3 gap-y-1 text-sm'>
           <Users className='h-4 w-4 text-muted-foreground' />
           <span className='text-muted-foreground'>
             Present: <strong className='text-foreground'>{presentCount}</strong> / {totalCount}

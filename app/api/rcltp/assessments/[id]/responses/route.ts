@@ -3,7 +3,7 @@
  * RCLTP v2 Phase 3 — student records Part B answers (raw capture, LAST-WINS).
  * Upserts on (assessment_id, question_id): re-answering a question before submit
  * OVERWRITES the prior answer (one authoritative row per question). is_correct /
- * score stay NULL and auto_graded = false — grading is the EKSAQ scoring step
+ * score stay NULL and auto_graded = false — grading is the MyJKKN scoring step
  * (gated). We never fabricate grades here.
  * Gate: rcltp.assessment.take. Ownership: parent assessment → session learner.
  * Status-guarded (open sittings only); question_ids validated against the assessment's
@@ -101,7 +101,7 @@ export const POST = withAuth(
       question_id: r.question_id,
       institution_id: auth.user.institution_id,
       response: r.response ?? null,
-      // Raw capture — grading is deferred to the EKSAQ scoring step.
+      // Raw capture — grading is deferred to the MyJKKN scoring step.
       auto_graded: false,
     }));
 

@@ -36,10 +36,8 @@ export async function GET(request: NextRequest) {
     const institutionId = searchParams.get('institutionId') ?? null;
 
     // ── Fetch reference data via service ─────────────────────────────────────
-    const { categories, units } = await ImsInventoryServiceServer.getImportTemplateData(
-      institutionId,
-      storeId
-    );
+    const { categories, units, destinationStores } =
+      await ImsInventoryServiceServer.getImportTemplateData(institutionId, storeId);
 
     if (!categories || categories.length === 0) {
       return NextResponse.json(
@@ -54,6 +52,14 @@ export async function GET(request: NextRequest) {
     const categoryNames: string[] = categories.map((c) => c.name);
     const unitDisplayStrings: string[] = units.map((u) =>
       buildUnitDisplay(u.name, u.abbreviation)
+    );
+
+    // "Dental Clinic Store (DCH-CLINIC)" — the name is what the user recognises,
+    // the code in brackets is what the importer matches on. Same convention as
+    // buildUnitDisplay, so the importer can parse the code back out even if two
+    // stores share a name.
+    const storeDisplayStrings: string[] = destinationStores.map(
+      (s) => `${s.name} (${s.code})`
     );
 
     // ── Build workbook ───────────────────────────────────────────────────────
@@ -173,6 +179,7 @@ export async function GET(request: NextRequest) {
       { header: 'Unit',      width: 22 },
       { header: 'GST Rate',  width: 10 },
       { header: 'Yes/No',    width: 8  },
+      { header: 'Store',     width: 40 },
     ];
 
     const ITEM_TYPES = ['consumable', 'equipment', 'medicine', 'stationery', 'other'];
@@ -185,6 +192,7 @@ export async function GET(request: NextRequest) {
       unitDisplayStrings.length,
       GST_RATES.length,
       YES_NO.length,
+      storeDisplayStrings.length,
     );
 
     for (let i = 0; i < maxLists; i++) {
@@ -194,6 +202,7 @@ export async function GET(request: NextRequest) {
         unitDisplayStrings[i]  ?? null,
         GST_RATES[i]           ?? null,
         YES_NO[i]              ?? null,
+        storeDisplayStrings[i] ?? null,
       ]);
     }
 
@@ -280,6 +289,74 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ── SHEET: Distribution (optional warehouse → store split) ───────────────
+    // Everything on the Items sheet lands in the warehouse. This sheet is how a
+    // single upload also says "…and send 50 of these to the Clinic and 50 to the
+    // Lab", instead of doing it store by store in the UI afterwards.
+    //
+    // The store column is a dropdown built from the institution's REGISTERED
+    // stores at download time, and it is errorStyle 'stop' rather than the
+    // 'warning' used elsewhere: a mistyped category is a recoverable annoyance,
+    // but a mistyped store name means real stock cannot be routed, so the sheet
+    // refuses the value outright rather than letting the import fail later.
+    const distSheet = workbook.addWorksheet('Distribution');
+    distSheet.columns = [
+      { width: 22 }, // A: Item Code
+      { width: 40 }, // B: Send To Store
+      { width: 14 }, // C: Quantity
+    ];
+
+    const distHeader = distSheet.addRow(['Item Code *', 'Send To Store *', 'Quantity *']);
+    distHeader.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    distHeader.height = 22;
+    distHeader.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
+    distSheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    if (storeDisplayStrings.length === 0) {
+      // No operating stores yet — say so in the sheet rather than shipping an
+      // empty dropdown the user cannot use and cannot explain.
+      const note = distSheet.addRow([
+        'This institution has no operating stores yet.',
+        'Create one in IMS Settings → Stores, then download the template again.',
+        '',
+      ]);
+      note.font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FF9A3412' } };
+    } else {
+      // Sample row, same yellow convention as the Items sheet
+      const sample = distSheet.addRow(['SAMPLE-001', storeDisplayStrings[0], 50]);
+      sample.font = { name: 'Arial', size: 10, color: { argb: 'FF374151' } };
+      sample.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF9C3' } };
+      });
+
+      for (let row = 2; row <= END_ROW; row++) {
+        distSheet.getCell(`B${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`Lists!$F$2:$F$${storeDisplayStrings.length + 1}`],
+          showErrorMessage: true,
+          errorStyle: 'stop',
+          errorTitle: 'Pick a registered store',
+          error:
+            'Choose a store from the dropdown. Typed-in names are not accepted, because stock can only be sent to a store that exists.',
+        };
+
+        distSheet.getCell(`C${row}`).dataValidation = {
+          type: 'decimal',
+          operator: 'greaterThan',
+          formulae: [0],
+          allowBlank: true,
+          showErrorMessage: true,
+          errorStyle: 'stop',
+          errorTitle: 'Invalid quantity',
+          error: 'Quantity must be greater than 0.',
+        };
+      }
+    }
+
     // ── SHEET 5: Instructions ────────────────────────────────────────────────
     const instrSheet = workbook.addWorksheet('Instructions');
     instrSheet.columns = [{ width: 90 }];
@@ -332,6 +409,27 @@ export async function GET(request: NextRequest) {
       '   c. Click "Import Items" on the Inventory Items page',
       '   d. Upload the file — valid rows are inserted, errors are reported',
       '   e. Fix errors and re-upload only the failed rows',
+      '',
+      '6. DISTRIBUTION SHEET (optional — split stock across your stores):',
+      '   Everything on the Items sheet is loaded into the WAREHOUSE. Use the',
+      '   "Distribution" sheet if you also want part of it sent on to your',
+      '   operating stores in the same upload.',
+      '',
+      '   A  Item Code       — Must match a code on the Items sheet, or an item that already exists',
+      '   B  Send To Store   — PICK FROM THE DROPDOWN. It lists your institution\'s registered',
+      '                        stores only; a typed-in name is rejected, because stock cannot be',
+      '                        sent to a store that does not exist',
+      '   C  Quantity        — How many units to send. Must not exceed the warehouse stock',
+      '',
+      '   Use one row per item PER store. To send 50 units to each of two stores,',
+      '   write two rows for the same item code:',
+      '        DEN-001 | Dental Clinic Store (DCH-CLINIC) | 50',
+      '        DEN-001 | Dental Ward Store (DCH-WARD)     | 50',
+      '',
+      '   Items are created in the warehouse FIRST, then the distribution runs, so you can',
+      '   distribute stock that this very upload just created (via Opening Stock, col V).',
+      '   Each destination store then confirms receipt, exactly like any other transfer.',
+      '   Leave this sheet empty if you only want to load the catalog.',
       '',
       'For help, contact your system administrator.',
     ];

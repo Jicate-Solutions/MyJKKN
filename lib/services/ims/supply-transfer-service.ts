@@ -20,7 +20,7 @@ export class ImsSupplyTransferService {
   private static readonly SHIPMENT_SELECT = `
     *,
     source_store:ims_stores!source_store_id(id,name,code),
-    destination_institution:institutions!destination_institution_id(id,institution_name),
+    destination_institution:institutions!destination_institution_id(id,name),
     destination_store:ims_stores!destination_store_id(id,name,code),
     dispatched_by_profile:profiles!dispatched_by(full_name),
     items:ims_supply_shipment_items(
@@ -145,6 +145,50 @@ export class ImsSupplyTransferService {
       return full as ImsSupplyShipment;
     } catch (error) {
       console.error('[ImsSupplyTransferService] createShipment error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Warehouse-initiated ("push") distribution: send stock to an operating store
+   * without waiting for that store to request it.
+   *
+   * All of it happens in one SECURITY DEFINER RPC — request, shipment, FEFO
+   * batch allocation and (by default) dispatch — so there is no window where a
+   * half-built transfer can be left behind by a failed round trip. The RPC
+   * auto-creates an already-approved `intra_institution` request because
+   * `ims_supply_shipments.request_id` is NOT NULL; that keeps every push
+   * traceable and reuses the whole dispatch/receive engine unchanged.
+   *
+   * The receiving store still confirms receipt, which is what credits its stock.
+   */
+  static async createPushTransfer(dto: {
+    warehouse_store_id: string;
+    destination_store_id: string;
+    actor_id: string;
+    purpose?: string;
+    items: { item_id: string; quantity: number }[];
+    dispatch_now?: boolean;
+  }): Promise<{ request_id: string; shipment_id: string }> {
+    try {
+      const { data, error } = await this.supabase.rpc('ims_create_push_transfer', {
+        p_warehouse_store_id: dto.warehouse_store_id,
+        p_dest_store_id: dto.destination_store_id,
+        p_actor: dto.actor_id,
+        p_purpose: dto.purpose ?? 'Warehouse distribution',
+        p_lines: dto.items,
+        p_dispatch_now: dto.dispatch_now ?? true,
+      });
+
+      if (error) throw error;
+
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.shipment_id) {
+        throw new Error('Push transfer did not return a shipment');
+      }
+      return row as { request_id: string; shipment_id: string };
+    } catch (error) {
+      console.error('[ImsSupplyTransferService] createPushTransfer error:', error);
       throw error;
     }
   }

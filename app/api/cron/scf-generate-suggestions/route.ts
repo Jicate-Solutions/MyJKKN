@@ -130,6 +130,30 @@ const WIDENED_MIN_ASKS = 2;
 // MAX_COLLECT_ATTEMPTS (the stuck-job cap) is imported from ai-clients/batch so
 // the collect-error path and this domain-record path share one threshold.
 
+// Carry-forward answers ride INTO the free-text body as bracketed markers, prepended
+// by learners/class-feedback/_components/feedback-dialog.tsx:
+//   "[carry-forward: Yes]"  /  "[freetext-carry \"<summary>\": Partly]"
+// A learner who answered the carry-forward question but wrote NO prose stores a
+// comment that is only a marker — nothing for the judge to read. Left unstripped
+// those markers count toward WIDENED_MIN_COMMENTS, so a class with zero written
+// feedback still opens the widened gate and burns a judge run on empty strings.
+// Measured on prod 2026-07-30: 2,923 of 5,642 stored free-text rows (51.8%) over
+// 21 days are pure marker, and 93 of 284 judge runs were admitted to the gate by
+// markers alone. Anchored at the START and non-greedy on "]" so a summary that
+// itself contains "]" under-strips (leaves prose) rather than eating real text.
+const CARRY_MARKER_RE = /^\s*\[(?:carry-forward|freetext-carry)\b[^\]]*\]\s*/i;
+
+/** Strip leading carry-forward markers; '' when the comment was only markers. */
+function stripCarryMarkers(raw: string): string {
+  let out = raw.trim();
+  let prev = '';
+  while (out !== prev) {
+    prev = out;
+    out = out.replace(CARRY_MARKER_RE, '');
+  }
+  return out.trim();
+}
+
 // Replicated verbatim from ai-suggest-improvement/route.ts so the model's
 // output shape is identical — the record RPC stores the same JSON structure.
 const SYSTEM_PROMPT = `You are a teaching-improvement assistant for an Indian higher-education institution. A class's students gave anonymous post-class feedback on how well they understood a session. You receive ONLY aggregate signals and anonymized comment text — never any student identity.
@@ -237,11 +261,19 @@ function groupSizeWord(n: number): string {
   return n < 6 ? 'a few learners' : n < 16 ? 'a small group' : 'a larger group';
 }
 
+// Display band shown to the facilitator/AI. Recalibrated 2026-07-24 (Director
+// interview) to Strong >= 4.0, mirroring understandingLevel in
+// components/session-feedback/understanding-band.tsx. NOTE the deliberate decouple:
+// this DISPLAY band (4.0) is intentionally NOT STANDOUT_THRESHOLD (4.5), which still
+// gates success-vs-improvement note generation. So a 4.0-4.5 session reads "strong"
+// yet may still receive a gentle improvement note. Do not collapse these two back
+// together without Director sign-off (moving STANDOUT to 4.0 ~4x's success-note volume).
+const STRONG_BAND_THRESHOLD = 4.0;
 function understandingBandWord(avg: number | null | undefined): string {
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'unknown';
   const a = Number(avg);
   if (a < LOW_UNDERSTOOD_THRESHOLD) return 'low';
-  if (a < STANDOUT_THRESHOLD) return 'mixed';
+  if (a < STRONG_BAND_THRESHOLD) return 'mixed';
   return 'strong';
 }
 
@@ -1100,7 +1132,7 @@ export async function GET(request: NextRequest) {
           ? Number(signal.avg_understood)
           : null;
       const freeTexts: string[] = (signal?.free_texts ?? [])
-        .map((t) => String(t ?? '').trim())
+        .map((t) => stripCarryMarkers(String(t ?? '')))
         .filter((t) => t.length > 0);
       const freeTextCount = freeTexts.length;
       const lowResponses = Number(signal?.low_responses ?? 0);

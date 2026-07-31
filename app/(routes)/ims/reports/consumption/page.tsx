@@ -173,7 +173,7 @@ function ConsumptionReportPageInner() {
                   {preset.label}
                 </Button>
               ))}
-              <div className='flex items-center gap-2 ml-auto'>
+              <div className='flex w-full items-center gap-2 sm:ml-auto sm:w-auto'>
                 <Input
                   type='date'
                   value={dateFrom}
@@ -181,7 +181,7 @@ function ConsumptionReportPageInner() {
                     setDateFrom(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
                 <span className='text-muted-foreground'>to</span>
                 <Input
@@ -191,7 +191,7 @@ function ConsumptionReportPageInner() {
                     setDateTo(e.target.value);
                     handleCustomDate();
                   }}
-                  className='w-40'
+                  className='w-full sm:w-40'
                 />
               </div>
             </div>

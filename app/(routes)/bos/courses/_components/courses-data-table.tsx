@@ -43,6 +43,9 @@ export function CoursesDataTable({
   const columns = useMemo(
     () => createCoursesColumns(institutionName, {
       hidePart: institutionSkipsPartLevel(institutionCode),
+      // College of Pharmacy hosts year-based Pharm.D courses alongside B.Pharm —
+      // surface the Academic Year column so year placement is visible.
+      showAcademicYear: institutionCode?.trim().toUpperCase() === 'COP',
     }),
     [institutionName, institutionCode],
   );

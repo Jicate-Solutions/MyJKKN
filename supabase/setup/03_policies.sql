@@ -1397,6 +1397,10 @@ ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 -- user_has_permission() calls over ~10k rows cost ~4s and blew the 8s
 -- statement timeout (57014) for all-institution non-admin users on
 -- /billing/schedule. Visible-row set unchanged.
+-- Updated: 2026-08-01 - the SELF branch now also hides categories flagged
+-- visible_to_learners = false. Staff/admin branches are untouched, so Accounts
+-- still sees every fee. `IN (SELECT ...)` (not `= ANY(fn())`) so the var-free
+-- sub-select is evaluated once per query, not once per row.
 CREATE POLICY "bills_select_scoped" ON billing_student_bills
     FOR SELECT USING (
         (SELECT is_super_admin() OR is_admin())
@@ -1405,11 +1409,39 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
             WHERE user_has_permission('billing.bills.view')
                OR user_has_permission('billing.schedule.view')
         )
-        OR student_id IN (
+        OR (
+            student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid()
+            )
+            AND (
+                item_category_id IS NULL
+                OR item_category_id IN (
+                    SELECT id FROM billing_categories WHERE visible_to_learners
+                )
+            )
+        )
+    );
+
+-- Reconciled: 2026-08-01 - lives in the DB since the my-bills build (2026-06-22)
+-- but was never mirrored here. Second permissive SELECT policy exposing bills to
+-- a learner; permissive policies are OR'd, so it carries the same
+-- visible_to_learners clause as the self branch above or hidden rows leak here.
+CREATE POLICY "Students can view their own bills" ON billing_student_bills
+    FOR SELECT TO authenticated USING (
+        student_id IN (
             SELECT lp.id
             FROM learners_profiles lp
             JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
-            WHERE p.id = auth.uid()
+            WHERE p.id = auth.uid() AND p.role = 'student'
+        )
+        AND (
+            item_category_id IS NULL
+            OR item_category_id IN (
+                SELECT id FROM billing_categories WHERE visible_to_learners
+            )
         )
     );
 
@@ -1425,11 +1457,13 @@ CREATE POLICY "bills_update_admin" ON billing_student_bills
         OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.edit'))
     );
 
-CREATE POLICY "bills_delete_admin" ON billing_student_bills
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.delete'))
-    );
+DROP POLICY IF EXISTS bills_delete_admin ON public.billing_student_bills;
+CREATE POLICY bills_delete_admin
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.bills.delete') AND role_has_institution_access(institution_id))
+  );
 
 CREATE POLICY "bills_select_student" ON billing_student_bills
     FOR SELECT USING (
@@ -7776,16 +7810,44 @@ CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_pro
 -- policies untouched. Helpers are SECURITY DEFINER (see 02_functions.sql).
 -- ============================================================================
 
+-- `staff` (856 rows) is read unbounded by the analytics dashboard, list pages, pickers
+-- and exports. The per-row form below caused a multi-second "Loading Dashboard..." hang
+-- (1245 ms / 33,766 buffers for one scan as an own_institution user). Both staff SELECT
+-- policies now use the once-evaluated forms -- see
+-- supabase/migrations/optimize_staff_select_rls_dashboard_perf.sql for the measurements
+-- and the 11-user equivalence proof. Keep these two policies in sync with that migration;
+-- the pre-optimisation shapes live in 20260511_staff_module_scope_lockdown.sql and in the
+-- Cross-institution teaching migration and must NOT be restored.
+DROP POLICY IF EXISTS "staff_select_scope_aware" ON public.staff;
+CREATE POLICY "staff_select_scope_aware" ON public.staff
+FOR SELECT USING (
+  (SELECT is_super_admin())
+  OR (
+    (SELECT user_has_permission('staff.view'))
+    AND (
+      CASE (SELECT get_user_module_scope('staff'))
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN (
+          staff.institution_id IS NULL
+          OR staff.institution_id IN (SELECT unnest(public._user_accessible_institutions()))
+        )
+        WHEN 'own_records'      THEN staff.profile_id = (SELECT auth.uid())
+        ELSE FALSE
+      END
+    )
+  )
+);
+
 DROP POLICY IF EXISTS "staff_select_visiting_teacher" ON public.staff;
 CREATE POLICY "staff_select_visiting_teacher" ON public.staff
 FOR SELECT USING (
   (
-    user_has_permission('academic.staff.planning.view')
-    OR user_has_permission('academic.timetables.view')
-    OR user_has_permission('academic.attendance.mark')
-    OR user_has_permission('academic.attendance.view')
+    (SELECT user_has_permission('academic.staff.planning.view'))
+    OR (SELECT user_has_permission('academic.timetables.view'))
+    OR (SELECT user_has_permission('academic.attendance.mark'))
+    OR (SELECT user_has_permission('academic.attendance.view'))
   )
-  AND staff_is_visiting_in_accessible_institution(staff.id)
+  AND staff.id IN (SELECT unnest(public.staff_ids_visiting_accessible_institutions()))
 );
 
 -- Visiting teachers can read the academic structure of institutions they teach in.
@@ -8140,3 +8202,82 @@ CREATE POLICY hlt_write ON public.hr_leave_types
   FOR ALL TO authenticated
   USING      (public.user_has_permission('hr.leave.types.manage'))
   WITH CHECK (public.user_has_permission('hr.leave.types.manage'));
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat policies (migration
+-- 20260724045622_id_card_agent_status.sql). Reads mirror
+-- id_card_print_jobs_admin_view (queue viewers + admins); writes are
+-- service-role only (the jobs route heartbeat).
+ALTER TABLE public.id_card_agent_status ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "id_card_agent_status_view" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_view"
+  ON public.id_card_agent_status FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('id_cards.jobs.view')
+  );
+
+DROP POLICY IF EXISTS "id_card_agent_status_service_role_all" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_service_role_all"
+  ON public.id_card_agent_status FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+-- Voided receipts are staff-only. Unlike billing_receipts_select_permission
+-- there is deliberately NO student self-view branch: a learner must not keep
+-- seeing a receipt that no longer settles anything.
+ALTER TABLE public.billing_receipts_voided ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS billing_receipts_voided_select_permission ON public.billing_receipts_voided;
+CREATE POLICY billing_receipts_voided_select_permission
+  ON public.billing_receipts_voided FOR SELECT
+  USING (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+-- No INSERT/UPDATE/DELETE policies: written only by fn_void_billing_receipt.
+
+-- Receipt cancellation requests: SELECT-only. Every write goes through the
+-- SECURITY DEFINER RPCs, so the audit trail cannot be edited by whoever it
+-- incriminates.
+ALTER TABLE public.billing_receipt_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_receipt_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT
+  USING (
+    is_super_admin()
+    OR requested_by = auth.uid()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM public.billing_receipt_cancel_requests r
+    WHERE r.id = request_id
+      AND (
+        is_super_admin()
+        OR r.requested_by = auth.uid()
+        OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(r.institution_id))
+      )
+  ));
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_receipts_delete_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_delete_permission
+  ON public.billing_receipts FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(institution_id))
+  );
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_bills_delete_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_delete_permission
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.schedule.delete') AND role_has_institution_access(institution_id))
+  );

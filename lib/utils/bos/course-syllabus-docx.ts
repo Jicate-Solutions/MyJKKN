@@ -113,6 +113,10 @@ export interface CourseSyllabusDOCXData {
 	contact_hours?: number | null
 	credits?: number | null
 
+	/** PCI/pharmacy "Scope" paragraph, printed above Course Objectives. */
+	scope?: string
+	/** Hide the Course Designer / BoS Chairman signature block (COP temporary). */
+	hideSignature?: boolean
 	objectives?: BosCourseObjective[]
 	clos?: BosCourseLearnOutcome[]
 	k_values?: Record<string, string>
@@ -354,6 +358,19 @@ function rowsCodeHoursCredits(data: CourseSyllabusDOCXData): TableRow[] {
 					[p(data.credits != null ? String(data.credits) : '–', { alignment: AlignmentType.CENTER })],
 					{ columnSpan: 2 },
 				),
+			],
+		}),
+	]
+}
+
+function rowsScope(data: CourseSyllabusDOCXData): TableRow[] {
+	// PCI/pharmacy "Scope" paragraph, above Course Objectives. Only when present.
+	if (!data.scope || !data.scope.trim()) return []
+	return [
+		new TableRow({
+			children: [
+				tc([p('Scope', { bold: true })]),
+				tc([p(data.scope.trim())], { columnSpan: 4 }),
 			],
 		}),
 	]
@@ -1001,6 +1018,7 @@ function buildMasterTable(data: CourseSyllabusDOCXData): Table {
 	const rows: TableRow[] = [
 		...rowsCoursePart(data),
 		...rowsCodeHoursCredits(data),
+		...rowsScope(data),
 		...rowsObjectives(data),
 		...rowsCLOs(data),
 		...rowsCourseContent(data),
@@ -1032,8 +1050,11 @@ export async function generateCourseSyllabusDOCX(data: CourseSyllabusDOCXData): 
 	// BoS Chairman sign off below the full assessment spec (after the LLC
 	// block). The empty paragraph keeps it structurally separate from the
 	// preceding table (two adjacent tables would merge in Word).
-	body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
-	body.push(buildSignatureTable())
+	// Signature hidden for COP (pharmacy) syllabi on request (temporary).
+	if (!data.hideSignature) {
+		body.push(new Paragraph({ spacing: { line: LINE_276, lineRule: LineRuleType.AUTO, before: 0, after: 0 } }))
+		body.push(buildSignatureTable())
+	}
 
 	const doc = new Document({
 		styles: {

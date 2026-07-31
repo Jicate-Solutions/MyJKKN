@@ -178,7 +178,7 @@ export interface HRRecruitmentCandidatePackage {
   hr_organization_id: string | null;
 
   proposed_by: string;
-  proposed_monthly_salary: number;
+  proposed_monthly_salary: number | null;   // optional — package may be proposed without a figure
   proposed_monthly_salary_breakdown: MonthlySalaryBreakdown | null;
   currency: string;
 
@@ -197,7 +197,7 @@ export interface HRRecruitmentCandidatePackageInsert {
   candidate_id: string;
   hr_organization_id?: string | null;
   proposed_by: string;
-  proposed_monthly_salary: number;
+  proposed_monthly_salary?: number | null;
   proposed_monthly_salary_breakdown?: MonthlySalaryBreakdown | null;
   currency?: string;
   is_counter_offer?: boolean;

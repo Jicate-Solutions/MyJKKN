@@ -742,6 +742,20 @@ export interface CreateHostelRoomDTO {
 
 export type UpdateHostelRoomDTO = Partial<CreateHostelRoomDTO>;
 
+// Condition-check photos — Drive-backed (not Supabase Storage), 1-to-many
+// against hostel_rooms. See hostel_room_condition_photos migration.
+export interface HostelRoomConditionPhoto {
+  id: string;
+  room_id: string;
+  drive_file_id: string;
+  file_url: string;
+  file_name: string;
+  file_size_bytes: number;
+  mime_type: string;
+  uploaded_by: string;
+  uploaded_at: string;
+}
+
 export interface RoomFilters {
   block_id?: string;
   floor?: number;

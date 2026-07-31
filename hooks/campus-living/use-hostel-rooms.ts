@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { HostelRoomService } from '@/lib/services/campus-living/hostel-room-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { hostelAttendanceKeys } from '@/hooks/campus-living/use-hostel-attendance';
 import type {
   HostelRoom,
   CreateHostelRoomDTO,
@@ -112,6 +113,11 @@ export function useUpdateHostelRoom() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelRoomKeys.detail(variables.id) });
+      // Attendance's markable-residents list embeds each resident's room
+      // number via a join — a room_number edit here (not a transfer) needs
+      // the same cache refresh, or the Attendance page keeps showing the
+      // pre-edit room number until its 5-minute cache expires.
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
       toast.success('Room updated');
     },
     onError: (error: Error) => {

@@ -52,6 +52,7 @@ import { StudentReceiptsTable } from './_components/student-receipts-table';
 import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
 import { StudentRefundHistory } from './_components/student-refund-history';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
+import { isBillableBill } from '@/lib/billing/bill-status';
 import { toast } from 'react-hot-toast';
 
 export default function StudentBillingDetailPage() {
@@ -284,6 +285,11 @@ export default function StudentBillingDetailPage() {
     (sum, bill) => sum + Number(bill.refunded_amount ?? 0),
     0
   );
+
+  // summary.total_bills is a raw row count from the service and includes
+  // cancelled/superseded bills, so the card read "2 bills" for a learner with
+  // one live bill and one cancelled one.
+  const billableBillCount = billingSummary.bills.filter(isBillableBill).length;
 
   return (
     <ContentLayout title='Student Billing Details'>
@@ -548,13 +554,21 @@ export default function StudentBillingDetailPage() {
               <IndianRupee className='h-4 w-4 text-blue-600' />
             </CardHeader>
             <CardContent>
+              {/* Void bills (cancelled AND superseded) are excluded. This
+                  previously excluded only superseded, so a cancelled bill still
+                  inflated Total Fees for an amount the learner does not owe. */}
               <div className='text-xl sm:text-2xl font-bold text-blue-600'>
                 {formatCurrency(
-                  billingSummary.bills.reduce((sum, bill) => sum + (bill.status !== 'superseded' ? bill.final_amount : 0), 0)
+                  billingSummary.bills.reduce(
+                    (sum, bill) => sum + (isBillableBill(bill) ? bill.final_amount : 0),
+                    0
+                  )
                 )}
               </div>
               <p className='text-xs text-muted-foreground'>
-                {billingSummary.summary.total_bills} bill{billingSummary.summary.total_bills !== 1 ? 's' : ''}
+                {/* Counted from the bill list rather than summary.total_bills,
+                    which is a raw row count and includes void bills. */}
+                {billableBillCount} bill{billableBillCount !== 1 ? 's' : ''}
               </p>
             </CardContent>
           </Card>

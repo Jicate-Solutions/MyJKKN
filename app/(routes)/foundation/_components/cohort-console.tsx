@@ -35,6 +35,7 @@ import {
 import type { FoundationCohort } from '@/lib/services/foundation/foundation-service';
 import { ItemAuthorDialog } from './item-author-dialog';
 import { AssessmentBuilderDialog } from './assessment-builder-dialog';
+import { ItemReviewPanel } from './item-review-panel';
 
 const KIND_STYLES: Record<string, string> = {
   diagnostic: 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300',
@@ -56,7 +57,7 @@ export function CohortConsole() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
         <div className="space-y-2">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-24 w-full rounded-xl" />
@@ -93,8 +94,8 @@ export function CohortConsole() {
   const selected = cohorts.find((c) => c.id === selectedId) ?? cohorts[0];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-      <aside className="space-y-2">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+      <aside className="min-w-0 space-y-2">
         {cohorts.map((c) => (
           <CohortCard
             key={c.id}
@@ -105,7 +106,7 @@ export function CohortConsole() {
         ))}
       </aside>
 
-      <section>
+      <section className="min-w-0">
         <CohortDetail cohort={selected} />
       </section>
     </div>
@@ -186,7 +187,7 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
             </span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
           {canAuthorItems && (
             <ItemAuthorDialog examDefinitionId={examId} examName={examName} />
           )}
@@ -201,6 +202,7 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
       </div>
 
       <AssessmentStrip cohortId={cohort.id} />
+      <ItemReviewPanel examDefinitionId={examId} />
       <RosterTable cohortId={cohort.id} />
     </div>
   );
@@ -222,20 +224,20 @@ function AssessmentStrip({ cohortId }: { cohortId: string }) {
         {assessments.map((a) => (
           <div
             key={a.id}
-            className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
+            className="flex max-w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2"
           >
             <span
               className={cn(
-                'rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
                 KIND_STYLES[a.kind] ?? 'bg-muted text-muted-foreground',
               )}
             >
               {a.kind}
             </span>
-            <span className="text-sm font-medium text-foreground">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
               {a.title}
             </span>
-            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
               {a.item_count ?? 0} Q
             </span>
           </div>

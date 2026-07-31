@@ -119,12 +119,12 @@ function PolicyRow({ policy }: { policy: AiPulsePolicyRow }) {
     <Card>
       <CardHeader>
         <div className='flex items-start justify-between gap-4'>
-          <div>
+          <div className='min-w-0'>
             <CardTitle className='text-base'>{policy.display_name}</CardTitle>
             <CardDescription className='mt-1'>{policy.description}</CardDescription>
           </div>
-          <div className='flex flex-col items-end gap-1 text-right'>
-            <code className='rounded bg-muted px-2 py-0.5 text-xs'>{policy.config_key}</code>
+          <div className='flex min-w-0 flex-col items-end gap-1 text-right'>
+            <code className='break-all rounded bg-muted px-2 py-0.5 text-xs'>{policy.config_key}</code>
             <span className='text-xs text-muted-foreground'>type: {policy.data_type}</span>
             {policy.locked_by_q && (
               <span className='text-xs text-muted-foreground'>locked: {policy.locked_by_q}</span>

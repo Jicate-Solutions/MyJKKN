@@ -1001,9 +1001,12 @@ export class FoundationsService extends BaseService {
     const { data: notification, error: insErr } = await this.supabase
       .from('notifications')
       .insert({
-        type: 'startup_studio',
         title: params.title,
-        message: params.message,
+        body: params.message,
+        category: 'startup_studio',
+        kind: 'work_item',
+        created_by: params.userIds[0],
+        targeting: { type: 'user', user_ids: params.userIds },
         metadata: {
           source: 'foundations',
           event_type: params.eventType,

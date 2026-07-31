@@ -273,10 +273,10 @@ export function ImportDialog({
                 </>
               ) : (
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileSpreadsheet className="h-8 w-8 text-green-600" />
-                    <div className="text-left">
-                      <p className="font-medium">{file.name}</p>
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileSpreadsheet className="h-8 w-8 text-green-600 shrink-0" />
+                    <div className="text-left min-w-0">
+                      <p className="font-medium truncate">{file.name}</p>
                       <p className="text-sm text-gray-500">
                         {(file.size / 1024).toFixed(2)} KB
                       </p>

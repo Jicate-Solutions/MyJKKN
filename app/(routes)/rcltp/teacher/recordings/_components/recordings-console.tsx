@@ -9,9 +9,9 @@
 //
 // CONTENT-SAFETY (non-negotiable):
 //   - Manual review fields start EMPTY — never pre-filled with a number.
-//   - The auto voice-scoring engine is EKSAQ-gated (POST .../score returns 501),
+//   - The auto voice-scoring engine is MyJKKN-gated (POST .../score returns 501),
 //     so where an auto-score would be we show an honest "Auto-scoring engine
-//     pending (EKSAQ)" note instead of any fabricated value.
+//     pending (MyJKKN)" note instead of any fabricated value.
 //   - audio_path is a Storage key in the PRIVATE rcltp-audio bucket; we mint a
 //     short-lived signed URL to play it, and handle a null path honestly.
 // =============================================================================
@@ -65,7 +65,7 @@ interface Institution {
 
 // scoring_status manual values a reviewer may set. 'scored' here means the
 // reviewer's MANUAL judgement is complete — the auto-engine ('pending') stays
-// pending until EKSAQ lands. 'low_confidence_review' flags for a second look.
+// pending until MyJKKN lands. 'low_confidence_review' flags for a second look.
 const REVIEW_SCORING_STATUSES: RcltpScoringStatus[] = [
   'pending',
   'low_confidence_review',
@@ -270,11 +270,11 @@ function RecordingCard({ recording }: { recording: RcltpPartARecording }) {
           )}
         </div>
 
-        {/* EKSAQ-honest auto-score note */}
+        {/* MyJKKN-honest auto-score note */}
         <Alert>
           <ShieldAlert className='h-4 w-4' aria-hidden='true' />
           <AlertDescription className='text-sm'>
-            <span className='font-medium'>Auto-scoring engine pending (EKSAQ).</span>{' '}
+            <span className='font-medium'>Auto-scoring engine pending (MyJKKN).</span>{' '}
             Automatic accuracy / fluency / pronunciation scoring isn’t available
             yet, so no machine score is shown. Enter your manual review below — the
             fields start empty on purpose.
@@ -285,7 +285,7 @@ function RecordingCard({ recording }: { recording: RcltpPartARecording }) {
 
         {/* Manual review form — fields START EMPTY */}
         <div className='space-y-3'>
-          <div className='grid grid-cols-2 gap-3'>
+          <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
             <div>
               <Label className='text-xs'>Scoring status</Label>
               <Select
@@ -414,9 +414,9 @@ export function RecordingsConsole() {
             Listen to each Part A reading and record your manual review.
           </p>
         </div>
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-col gap-2 sm:flex-row sm:items-center'>
           <Select value={instFilter} onValueChange={setInstFilter}>
-            <SelectTrigger className='w-56'>
+            <SelectTrigger className='w-full sm:w-56'>
               <SelectValue placeholder='Select school' />
             </SelectTrigger>
             <SelectContent>
@@ -428,7 +428,7 @@ export function RecordingsConsole() {
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className='w-44'>
+            <SelectTrigger className='w-full sm:w-44'>
               <SelectValue placeholder='All statuses' />
             </SelectTrigger>
             <SelectContent>

@@ -334,7 +334,18 @@ export interface ConsultantLeadAttribution {
 
   // Relationships (optional populated)
   consultant?: { id: string; name: string; code: string | null };
-  lead?: { id: string; full_name: string; phone: string; email: string | null };
+  institution?: { id: string; name: string } | null;
+  lead?: {
+    id: string;
+    full_name: string;
+    phone: string;
+    email: string | null;
+    funnel_stage?: string | null;
+    program_id?: string | null;
+    program?: { id: string; program_name: string } | null;
+    // Learner admission workflow status (enquiry → enquiry_submitted → reserved → account → admitted …)
+    learner_profile?: { id: string; lifecycle_status: string } | null;
+  };
 }
 
 export interface CreateLeadAttributionInput {

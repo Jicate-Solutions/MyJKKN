@@ -28,8 +28,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
+import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
+import { formatDays } from './format';
+import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import type { LeaveDurationType } from '@/types/hr';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
@@ -95,6 +98,22 @@ export function ApplyLeaveDrawer({
   const overContinuous =
     selected?.max_continuous_days != null && requestedDays > selected.max_continuous_days;
 
+  // The per-period throttle ("2 Casual Leave days a month") sits alongside the
+  // annual entitlement, so a request can be well inside the balance and still be
+  // refused. Keyed on startDate, not today: trg_hla_leave_period_cap resolves the
+  // window from the request's start_date, and a readout for a different month
+  // would show a figure that is not the one enforced.
+  const { data: periodUsage } = useLeavePeriodUsage(
+    ctx.employeeId || undefined,
+    leaveTypeId || undefined,
+    ctx.academicYearId || null,
+    startDate || undefined
+  );
+
+  const periodCapped = !!periodUsage?.limited && !periodUsage.window_unresolved;
+  const periodWindowBroken = !!periodUsage?.limited && !!periodUsage.window_unresolved;
+  const overPeriod = periodCapped && requestedDays > Number(periodUsage?.days_left ?? 0);
+
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
     setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
@@ -103,6 +122,7 @@ export function ApplyLeaveDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous &&
+    !overPeriod && !periodWindowBroken &&
     requestedDays > 0 && !mutation.isPending;
 
   const submit = async () => {
@@ -180,7 +200,7 @@ export function ApplyLeaveDrawer({
                         <SelectItem key={b.leave_type_id} value={b.leave_type_id}>
                           {b.leave_type_name}
                           <span className="ml-2 text-xs text-muted-foreground">
-                            {avail.toFixed(1)} day(s) available
+                            {formatDays(avail)} day(s) available
                           </span>
                         </SelectItem>
                       );
@@ -194,6 +214,14 @@ export function ApplyLeaveDrawer({
                     {selected.max_continuous_days != null && (
                       <> · max {selected.max_continuous_days} day(s) at a time</>
                     )}
+                  </p>
+                )}
+                {periodCapped && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <strong>{formatDays(periodUsage?.days_left)}</strong> of{' '}
+                    {formatDays(periodUsage?.max_days)} day(s) left{' '}
+                    {LIMIT_PERIOD_LABELS[periodUsage!.limit_period ?? 'month'].toLowerCase()}
+                    {' '}({periodUsage?.period_start} to {periodUsage?.period_end})
                   </p>
                 )}
               </div>
@@ -240,8 +268,8 @@ export function ApplyLeaveDrawer({
 
               {requestedDays > 0 && (
                 <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                  Requesting <strong>{requestedDays.toFixed(1)}</strong> day(s)
-                  {available !== null && <> of {available.toFixed(1)} available</>}
+                  Requesting <strong>{formatDays(requestedDays)}</strong> day(s)
+                  {available !== null && <> of {formatDays(available)} available</>}
                 </div>
               )}
 
@@ -249,8 +277,8 @@ export function ApplyLeaveDrawer({
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    Requested {requestedDays.toFixed(1)} day(s) exceeds your available{' '}
-                    {available?.toFixed(1)}.
+                    Requested {formatDays(requestedDays)} day(s) exceeds your available{' '}
+                    {formatDays(available)}.
                   </AlertDescription>
                 </Alert>
               )}
@@ -260,6 +288,27 @@ export function ApplyLeaveDrawer({
                   <AlertDescription>
                     {selected?.leave_type_name} allows at most{' '}
                     {selected?.max_continuous_days} consecutive day(s).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {overPeriod && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Only {formatDays(periodUsage?.days_left)} day(s) of{' '}
+                    {selected?.leave_type_name} left for{' '}
+                    {periodUsage?.period_start} to {periodUsage?.period_end}
+                    {' '}(limit {formatDays(periodUsage?.max_days)} day(s)).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {periodWindowBroken && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    The {periodUsage?.limit_period ?? 'period'} limit for{' '}
+                    {selected?.leave_type_name} cannot be resolved for this date, so the
+                    request would be rejected. Please contact HR.
                   </AlertDescription>
                 </Alert>
               )}

@@ -280,7 +280,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-base flex items-center gap-2">
               Sessions
@@ -293,7 +293,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             <CardDescription>The day-by-day schedule — topics, speakers, venues, outcomes, and resources.</CardDescription>
           </div>
           {canManage && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button size="sm" variant="ghost" className="gap-1">
@@ -490,7 +490,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                       const isMySession = speakers.some((u) => u.id === profile?.id);
                       const canOperate = canManage || isMySession;
                       return (
-                      <div key={s.id} className="group flex gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30">
+                      <div key={s.id} className="group flex flex-wrap gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30">
                         {/* time gutter */}
                         <div className="w-14 shrink-0 pt-0.5 text-right">
                           <div className="text-sm font-semibold leading-tight tabular-nums">{fmtTime(s.start_at)}</div>
@@ -542,7 +542,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           )}
                         </div>
                         {/* actions — operate on assigned sessions; edit/delete for managers only */}
-                        <div className="flex gap-1 shrink-0">
+                        <div className="flex gap-1 shrink-0 w-full justify-end sm:w-auto">
                           {canOperate && (
                             <>
                               <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />

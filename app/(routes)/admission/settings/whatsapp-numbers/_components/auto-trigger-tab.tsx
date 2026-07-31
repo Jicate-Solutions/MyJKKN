@@ -192,7 +192,7 @@ function MissedCallAutoReplyCard({ institutionId }: { institutionId: string }) {
         </div>
 
         {/* Stats */}
-        <div className="flex gap-3 text-xs text-muted-foreground pt-2 border-t">
+        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pt-2 border-t">
           <span>24h dedup active</span>
           <span>Admission calls only</span>
           <span>Triggers on missed calls</span>
@@ -394,8 +394,8 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
           {rules.map((rule) => (
             <Card key={rule.id} className={!rule.is_active ? 'opacity-60' : ''}>
               <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
                     <CardTitle className="text-base">{rule.name}</CardTitle>
                     <Badge variant={rule.is_active ? 'default' : 'secondary'}>
                       {rule.is_active ? 'Active' : 'Disabled'}
@@ -404,7 +404,7 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
                       {EVENT_TYPE_LABELS[rule.event_type]?.label || rule.event_type}
                     </Badge>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -429,7 +429,7 @@ export function AutoTriggerTab({ institutionId }: AutoTriggerTabProps) {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="flex gap-4 text-sm text-muted-foreground">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   <span>
                     Template: <span className="font-medium text-foreground">{rule.template?.name || 'None'}</span>
                   </span>

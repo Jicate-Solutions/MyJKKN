@@ -200,7 +200,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
   return (
     <Card>
       <CardHeader>
-        <div className='flex items-center justify-between'>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
           <div>
             <CardTitle className='flex items-center gap-2'>
               <User className='h-5 w-5' />
@@ -215,7 +215,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
       </CardHeader>
       <CardContent>
         <Tabs defaultValue='completion' className='space-y-4'>
-          <TabsList>
+          <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
             <TabsTrigger value='completion'>Field Completion</TabsTrigger>
             <TabsTrigger value='categories'>By Category</TabsTrigger>
             <TabsTrigger value='missing'>Missing Fields</TabsTrigger>
@@ -516,8 +516,8 @@ function IncompleteStaffTable({ filters }: { filters?: StaffDashboardFilters }) 
   return (
     <Card className='mt-6'>
       <CardHeader>
-        <div className='flex items-center justify-between'>
-          <div>
+        <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='min-w-0'>
             <CardTitle className='flex items-center gap-2'>
               <AlertCircle className='h-5 w-5 text-orange-600' />
               Employees with Incomplete Profiles
@@ -527,7 +527,7 @@ function IncompleteStaffTable({ filters }: { filters?: StaffDashboardFilters }) 
               {data?.total ? ` (showing ${data.profiles.length} of ${data.total})` : ''}
             </CardDescription>
           </div>
-          <div className='flex items-center gap-4'>
+          <div className='flex flex-wrap items-center gap-4 shrink-0'>
             <div className='flex items-center gap-2'>
               <Switch
                 id='required-only'

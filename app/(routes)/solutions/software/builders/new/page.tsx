@@ -409,7 +409,7 @@ export default function NewBuilderPage() {
               <CardContent className="space-y-4">
                 {/* Skill Input Row */}
                 <div className="flex items-end gap-3">
-                  <div className="flex-1 space-y-2">
+                  <div className="min-w-0 flex-1 space-y-2">
                     <Label htmlFor="newSkillName">Skill Name</Label>
                     <Input
                       id="newSkillName"

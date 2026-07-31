@@ -100,7 +100,7 @@ export function BoardPsoCard({
   return (
     <div className='border rounded-md overflow-hidden'>
       <div
-        className='flex items-center justify-between px-4 py-3 bg-muted/40 cursor-pointer select-none'
+        className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 bg-muted/40 cursor-pointer select-none'
         onClick={() => setIsExpanded((prev) => !prev)}
       >
         <div className='flex items-center gap-2 flex-wrap'>
@@ -126,7 +126,7 @@ export function BoardPsoCard({
 
         {canEdit && (
           <div
-            className='flex items-center gap-2'
+            className='flex flex-wrap items-center gap-2'
             onClick={(e) => e.stopPropagation()}
           >
             {!isEditing && (

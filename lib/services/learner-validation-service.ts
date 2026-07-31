@@ -423,7 +423,10 @@ export class LearnerValidationService {
     // Use admin client for server-side validation
     const { data: learner, error } = await supabaseAdmin
       .from('learners_profiles')
-      .select('id, lifecycle_status, institution_id')
+      // community_category_id is carried so bulk-edit can scope caste
+      // resolution to the learner's existing community (caste names repeat
+      // across communities) when the upload doesn't set a new one.
+      .select('id, lifecycle_status, institution_id, community_category_id')
       .eq('id', learnerId)
       .maybeSingle();
 

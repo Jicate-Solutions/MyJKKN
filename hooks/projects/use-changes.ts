@@ -17,6 +17,7 @@ import { ChangeService } from '@/lib/services/projects/change-service';
 import type {
   ChangeRequestFilters,
   ChangeRequestInsert,
+  ChangeRequestUpdate,
   ChangeRequestDecision,
 } from '@/lib/services/projects/change-service';
 
@@ -33,6 +34,7 @@ export const changeKeys = {
   byProject: (projectId: string) => [...changeKeys.lists(), 'project', projectId] as const,
   details: () => [...changeKeys.all, 'detail'] as const,
   detail: (id: string) => [...changeKeys.details(), id] as const,
+  context: (projectId: string) => [...changeKeys.all, 'context', projectId] as const,
 };
 
 // ─── Queries ─────────────────────────────────────────────────────────────────────
@@ -60,6 +62,17 @@ export function useChangeRequest(id: string | null | undefined) {
   });
 }
 
+/** Per-viewer capability flags for this project — drives which action buttons
+ *  render. Server RPCs remain the real enforcement. */
+export function useChangeRequestContext(projectId: string | null | undefined) {
+  return useQuery({
+    queryKey: changeKeys.context(projectId ?? ''),
+    queryFn: () => ChangeService.getContext(getSupabase(), projectId as string),
+    enabled: !!projectId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 // ─── Mutations ───────────────────────────────────────────────────────────────────
 
 function invalidateChangeLists(queryClient: ReturnType<typeof useQueryClient>) {
@@ -83,7 +96,7 @@ export function useUpdateChangeRequest() {
       input,
     }: {
       id: string;
-      input: Partial<ChangeRequestInsert>;
+      input: ChangeRequestUpdate;
     }) => ChangeService.updateChangeRequest(getSupabase(), id, input),
     onSuccess: (cr) => {
       invalidateChangeLists(queryClient);

@@ -70,6 +70,26 @@ const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
   { key: 'bill_academic_year', label: 'Billing Academic Year', width: 18 },
 ];
 
+// PDF gets a printable SUBSET of the 28 spreadsheet columns — an A4 page can't
+// carry the full detail set legibly (emails, parent names and the billing
+// rollup collapse to unreadable slivers). These are the roster fields a warden
+// actually needs on paper: who they are, where they live, and whether they've
+// paid. CSV/XLSX still export everything.
+const RESIDENT_PDF_KEYS = [
+  'roll_no',
+  'full_name',
+  'gender',
+  'institution_name',
+  'program',
+  'year_of_study',
+  'block',
+  'room',
+  'bed',
+  'room_category_name',
+  'mess_category_name',
+  'payment_status',
+];
+
 const RESIDENT_EXPORT_HEADERS = RESIDENT_EXPORT_COLUMNS.map((c) => c.key);
 const RESIDENT_EXPORT_MAPPING: Record<string, string> = Object.fromEntries(
   RESIDENT_EXPORT_COLUMNS.map((c) => [c.key, c.label]),
@@ -205,6 +225,12 @@ export function LearnersTab() {
       headers: RESIDENT_EXPORT_HEADERS,
       columnMapping: RESIDENT_EXPORT_MAPPING,
       columnWidths: RESIDENT_EXPORT_WIDTHS,
+      // Opting in here is what adds the PDF entries to the Export menu.
+      pdf: {
+        headers: RESIDENT_PDF_KEYS,
+        title: 'Hostel Residents — Learners',
+        orientation: 'landscape' as const,
+      },
       transformFunction: (row: LearnerHostelite) => {
         const b = row.bill_status;
         const name =
@@ -271,6 +297,9 @@ export function LearnersTab() {
             enableDateFilter: false,
             enableExport: true,
             enableRowSelection: false,
+            // Export the whole residents dataset by default (not just the visible
+            // page); "Export Current Page" stays available as a secondary option.
+            exportAllPagesByDefault: true,
           }}
         />
       </div>

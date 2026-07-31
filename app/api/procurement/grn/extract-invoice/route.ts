@@ -1,18 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireStaff } from '@/lib/utils/parent-admin-auth';
-import { extractInvoiceFromPdf, type ExtractItem } from '@/lib/procurement/invoice-pdf-extract';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Claude PDF read can take a few seconds
+export const maxDuration = 15;
 
 const MAX_BYTES = 15 * 1024 * 1024; // 15 MB
 
 /**
  * POST /api/procurement/grn/extract-invoice  (multipart/form-data)
- * Fields: file (PDF), items (JSON array of { id, item_name } — the PO's line items)
- * Returns { header, lines, matched, unmatched } — invoice header + per-line qty/price/
- * batch/expiry read by Claude and matched to the PO's items. The client pre-fills these
- * into the (editable) goods-receipt form for review — never auto-committed.
+ *
+ * AI invoice reading is OFF pending its ₹0 Max-lane arm.
+ *
+ * This route previously called the PAID Anthropic API directly. That path is
+ * removed: procurement PDF reading now runs only on the ₹0 Max lane
+ * (Director decision, 2026-07-28 — "delete the paid code"). The quotation side
+ * is already migrated; the GRN/invoice side needs its own result contract
+ * (invoice header + per-line batch/expiry, richer than the quotation shape) and
+ * a matching runner arm — see specs/procurement-pdf-max-lane-2026-07-28.md.
+ *
+ * Until that lands this returns the same honest outcome the UI already handles:
+ * enter the invoice details manually. This removes NO working capability —
+ * ai_model_usage shows procurement.invoice_extract was never once invoked in
+ * production.
+ *
+ * The request is still validated so the client keeps its existing error
+ * messages for an oversized or non-PDF file.
  */
 export async function POST(req: NextRequest) {
   const user = await requireStaff();
@@ -29,30 +41,13 @@ export async function POST(req: NextRequest) {
   if (file.type !== 'application/pdf')
     return NextResponse.json({ error: 'Invoice reading supports PDF files only.' }, { status: 400 });
 
-  let items: ExtractItem[];
-  try {
-    const parsed = JSON.parse(String(form.get('items') ?? '[]'));
-    items = Array.isArray(parsed)
-      ? parsed
-          .filter((i) => i && typeof i.id === 'string' && typeof i.item_name === 'string')
-          .map((i) => ({ id: i.id, item_name: i.item_name }))
-      : [];
-  } catch {
-    return NextResponse.json({ error: 'Invalid items payload.' }, { status: 400 });
-  }
-  if (items.length === 0)
-    return NextResponse.json({ error: 'No PO items to match against.' }, { status: 400 });
-
-  try {
-    const pdfBase64 = Buffer.from(await file.arrayBuffer()).toString('base64');
-    const result = await extractInvoiceFromPdf(pdfBase64, items);
-    return NextResponse.json(result);
-  } catch (err) {
-    console.error('[procurement grn extract-invoice] error:', err);
-    const message =
-      err instanceof Error && err.message.includes('API key')
-        ? 'AI invoice reading is not configured on the server.'
-        : 'Could not read the invoice. Enter the details manually.';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
+  // 503 deliberately: the existing client already throws on a non-OK response
+  // and toasts `error`, so this needs no UI change to degrade cleanly.
+  return NextResponse.json(
+    {
+      error: 'AI invoice reading is unavailable — please enter the invoice details manually.',
+      unavailable: true,
+    },
+    { status: 503 },
+  );
 }

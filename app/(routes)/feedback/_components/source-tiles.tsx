@@ -45,7 +45,7 @@ const SOURCES: FeedbackSource[] = [
 export function SourceTiles({ summary, isLoading }: SourceTilesProps) {
   if (isLoading) {
     return (
-      <div className="grid gap-3 grid-cols-4 lg:grid-cols-8">
+      <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-8">
         {Array.from({ length: 8 }).map((_, i) => (
           <Card key={i}>
             <CardHeader className="pb-1 pt-3 px-3">
@@ -61,7 +61,7 @@ export function SourceTiles({ summary, isLoading }: SourceTilesProps) {
   }
 
   return (
-    <div className="grid gap-3 grid-cols-4 lg:grid-cols-8">
+    <div className="grid gap-3 grid-cols-2 sm:grid-cols-4 lg:grid-cols-8">
       {SOURCES.map((src) => {
         const meta = SOURCE_META[src];
         const count = summary?.bySource[src] ?? 0;

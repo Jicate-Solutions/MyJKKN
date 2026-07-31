@@ -75,7 +75,7 @@ export default function CategoriesPage() {
       </Breadcrumb>
 
       <div className='space-y-6 mt-4'>
-        <div className='flex justify-between items-center'>
+        <div className='flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center'>
           <div>
             <h1 className='text-2xl font-bold py-1'>Categories</h1>
             <p className='text-sm sm:text-base text-muted-foreground'>
@@ -83,12 +83,12 @@ export default function CategoriesPage() {
             </p>
           </div>
           {canCreateCategories ? (
-            <Button onClick={() => setShowCreateModal(true)}>
+            <Button onClick={() => setShowCreateModal(true)} className='shrink-0'>
               <Plus className='mr-2 h-4 w-4' />
               Add Category
             </Button>
           ) : (
-            <Button disabled variant='outline' className='opacity-50'>
+            <Button disabled variant='outline' className='opacity-50 shrink-0'>
               <Plus className='mr-2 h-4 w-4' />
               Add Category
             </Button>

@@ -73,8 +73,8 @@ export default async function SelectionPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Vote className="h-6 w-6 text-primary" />
             Selection & Elections
@@ -84,7 +84,9 @@ export default async function SelectionPage() {
           </p>
         </div>
         {showManageActions && (
-          <SelectionClientActions userId={profile.id} />
+          <div className="shrink-0">
+            <SelectionClientActions userId={profile.id} />
+          </div>
         )}
       </div>
 

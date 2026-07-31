@@ -193,7 +193,7 @@ export default function StaffFdpApplyPage() {
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex flex-wrap items-center gap-2 pt-2">
                 <Button
                   onClick={handleSubmit}
                   disabled={!staffId || submitting || success}
