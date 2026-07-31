@@ -370,6 +370,14 @@ function Review({
                   {q.explanation}
                 </p>
               )}
+
+              {/* Reporting lives here rather than beside the question while it
+                  is being answered: offering it mid-run signals that something
+                  might be wrong with the question, which is a hint. After the
+                  answer is revealed, the learner can actually judge. */}
+              <div className="mt-3">
+                <ItemFlagButton itemId={q.itemId} existingFlag={null} />
+              </div>
             </li>
           );
         })}
