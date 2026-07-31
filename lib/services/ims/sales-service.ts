@@ -154,6 +154,58 @@ export class ImsSalesService {
   }
 
   /**
+   * The gateway payment behind a sale, or null for a cash/manual sale.
+   *
+   * Read through the caller's session, so the payment table's institution-scoped
+   * RLS decides visibility — a sale you can open is a payment you can see.
+   *
+   * Note what is NOT selected: nothing from razorpay_accounts. That table is
+   * service_role-only, so "paid to" is the denormalised publishable key id on the
+   * payment row rather than a join.
+   */
+  static async getGatewayPaymentForSale(saleId: string): Promise<{
+    id: string;
+    status: string;
+    amount: number;
+    captured_amount_paise: number | null;
+    transaction_ref: string;
+    gateway_method: string | null;
+    payer_vpa: string | null;
+    payer_contact: string | null;
+    payer_email: string | null;
+    payer_bank: string | null;
+    payer_wallet: string | null;
+    bank_rrn: string | null;
+    upi_transaction_id: string | null;
+    razorpay_payment_id: string | null;
+    razorpay_order_id: string | null;
+    razorpay_key_id: string | null;
+    gateway_fee_paise: number | null;
+    late_credit: boolean;
+    paid_at: string | null;
+  } | null> {
+    try {
+      const { data, error } = await this.supabase
+        .from('ims_gateway_payments')
+        .select(
+          `id, status, amount, captured_amount_paise, transaction_ref,
+           gateway_method, payer_vpa, payer_contact, payer_email, payer_bank,
+           payer_wallet, bank_rrn, upi_transaction_id, razorpay_payment_id,
+           razorpay_order_id, razorpay_key_id, gateway_fee_paise, late_credit, paid_at`
+        )
+        .eq('sale_id', saleId)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data ?? null;
+    } catch (error) {
+      console.error('[ImsSalesService] Error in getGatewayPaymentForSale:', error);
+      // A missing payment panel must not take the sale page down with it.
+      return null;
+    }
+  }
+
+  /**
    * Get items available for sale (sellable, in-stock items).
    *
    * Catalog is institution-scoped (ims_items is UNIQUE(institution_id, code));

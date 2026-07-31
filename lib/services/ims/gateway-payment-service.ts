@@ -32,6 +32,7 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import { getPaymentProvider } from '@/lib/services/payments/factory';
 import { RazorpayProvider } from '@/lib/services/payments/razorpay/razorpay-provider';
 import { IMS_POS_FEE_HEAD } from '@/lib/services/payments/fee-heads';
+import { payerDetailsFrom } from '@/lib/services/payments/razorpay/payer-details';
 import { toPaise } from '@/lib/services/payments/amount';
 import { priceCart, type PriceableSaleLine } from '@/lib/services/ims/sale-pricing';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -307,6 +308,12 @@ export class ImsGatewayPaymentService {
         customer_phone: input.customerPhone ?? null,
         expires_at: expiresAt.toISOString(),
         razorpay_account_id: creds.accountId ?? null,
+        // "Paid to", recorded at the moment we commit to an account. The
+        // PUBLISHABLE key id only — it is already sent to the browser at checkout,
+        // while the secret stays encrypted in the vault. Denormalised because
+        // razorpay_accounts is service_role-only under RLS, so a report running in
+        // the cashier's session cannot join to it.
+        razorpay_key_id: creds.keyId ?? null,
       })
       .select()
       .single();
@@ -516,6 +523,8 @@ export class ImsGatewayPaymentService {
         captured_amount_paise: capturedPaise,
         paid_at: new Date().toISOString(),
         late_credit: row.status === 'expired',
+        // Same extractor the webhook and the callback use.
+        ...payerDetailsFrom(captured),
       };
       // Guarded so this cannot overwrite a status the webhook already resolved.
       await this.writeRow(service, row.id, patch, 'mark paid (poll)', ['initiated', 'expired']);
@@ -753,6 +762,10 @@ export class ImsGatewayPaymentService {
         paid_at: (inquiry.capturedAt ?? new Date()).toISOString(),
         late_credit: row.status === 'expired',
         gateway_response: inquiry.raw as Record<string, unknown>,
+        // dualInquiry returns the PAYMENT entity when a payment id is known, which
+        // is the shape the extractor expects. On the order-only fallback these come
+        // back null and the poll or webhook fills them in later.
+        ...payerDetailsFrom(inquiry.raw),
         finalize_error: null,
         updated_at: new Date().toISOString(),
       },

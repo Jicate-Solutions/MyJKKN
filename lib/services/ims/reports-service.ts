@@ -912,6 +912,136 @@ export class ImsReportsService {
   }
 
   /**
+   * Gateway-verified counter payments, for reconciliation against the Razorpay
+   * dashboard and the bank statement.
+   *
+   * WHY THIS IS NOT A FEW MORE COLUMNS ON getUpiAuditReport. That report reads
+   * `ims_sales`, so it can only ever show a payment that ALREADY BECAME A SALE. A
+   * payment that failed, was cancelled at the gateway, or came in for the wrong
+   * amount never produces a sale row and is invisible there by construction — and
+   * those are precisely the ones somebody needs to look at. This reads
+   * `ims_gateway_payments`, which holds every attempt whatever its outcome.
+   *
+   * Runs in the cashier's session, so the table's institution-scoped RLS policy
+   * decides what comes back. `razorpay_accounts` is service_role-only and cannot be
+   * joined here — which is why "paid to" is the denormalised publishable key id.
+   */
+  static async getGatewayPaymentsReport(
+    storeId: string,
+    dateFrom: string,
+    dateTo: string,
+    institutionId?: string
+  ): Promise<{
+    transactions: Array<{
+      id: string;
+      status: string;
+      amount: number;
+      captured_amount: number | null;
+      transaction_ref: string;
+      gateway_method: string | null;
+      payer_vpa: string | null;
+      payer_contact: string | null;
+      bank_rrn: string | null;
+      upi_transaction_id: string | null;
+      razorpay_payment_id: string | null;
+      razorpay_order_id: string | null;
+      razorpay_key_id: string | null;
+      gateway_fee_paise: number | null;
+      customer_name: string | null;
+      cashier_name: string;
+      sale_id: string | null;
+      sale_number: string | null;
+      late_credit: boolean;
+      finalize_error: string | null;
+      created_at: string;
+      paid_at: string | null;
+    }>;
+    summary: {
+      collected_amount: number;
+      collected_count: number;
+      failed_count: number;
+      needs_attention_count: number;
+      gateway_fee: number;
+    };
+  }> {
+    try {
+      let query = this.supabase
+        .from('ims_gateway_payments')
+        .select(
+          `id, status, amount, captured_amount_paise, transaction_ref,
+           gateway_method, payer_vpa, payer_contact, bank_rrn, upi_transaction_id,
+           razorpay_payment_id, razorpay_order_id, razorpay_key_id,
+           gateway_fee_paise, customer_name, sale_id, late_credit, finalize_error,
+           created_at, paid_at,
+           cashier:profiles!cashier_id(full_name),
+           sale:ims_sales!sale_id(sale_number)`
+        )
+        .gte('created_at', dateFrom)
+        .lte('created_at', dateTo)
+        .order('created_at', { ascending: false });
+
+      if (storeId) {
+        query = query.eq('store_id', storeId);
+      } else if (institutionId) {
+        query = query.eq('institution_id', institutionId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const transactions = ((data || []) as any[]).map((row) => ({
+        id: row.id,
+        status: row.status,
+        amount: Number(row.amount ?? 0),
+        captured_amount:
+          row.captured_amount_paise == null ? null : Number(row.captured_amount_paise) / 100,
+        transaction_ref: row.transaction_ref,
+        gateway_method: row.gateway_method,
+        payer_vpa: row.payer_vpa,
+        payer_contact: row.payer_contact,
+        bank_rrn: row.bank_rrn,
+        upi_transaction_id: row.upi_transaction_id,
+        razorpay_payment_id: row.razorpay_payment_id,
+        razorpay_order_id: row.razorpay_order_id,
+        razorpay_key_id: row.razorpay_key_id,
+        gateway_fee_paise: row.gateway_fee_paise,
+        customer_name: row.customer_name,
+        cashier_name: row.cashier?.full_name || 'N/A',
+        sale_id: row.sale_id,
+        sale_number: row.sale?.sale_number ?? null,
+        late_credit: !!row.late_credit,
+        finalize_error: row.finalize_error,
+        created_at: row.created_at,
+        paid_at: row.paid_at,
+      }));
+
+      const paid = transactions.filter((t) => t.status === 'paid');
+
+      return {
+        transactions,
+        summary: {
+          // Only money actually received counts as collected. An `initiated` row is
+          // an open offer, not a takings figure.
+          collected_amount: paid.reduce((sum, t) => sum + t.amount, 0),
+          collected_count: paid.length,
+          failed_count: transactions.filter((t) =>
+            ['failed', 'cancelled', 'expired'].includes(t.status)
+          ).length,
+          // Paid but unbooked, or the wrong amount arrived. Someone must look at these.
+          needs_attention_count: transactions.filter(
+            (t) => t.status === 'amount_mismatch' || (t.status === 'paid' && !t.sale_id)
+          ).length,
+          gateway_fee: paid.reduce((sum, t) => sum + (t.gateway_fee_paise ?? 0), 0) / 100,
+        },
+      };
+    } catch (error) {
+      console.error('[ImsReportsService] Error in getGatewayPaymentsReport:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get alert summary (out-of-stock, low stock, expiring, expired).
    */
   static async getAlertSummary(storeId: string, institutionId?: string): Promise<ImsAlertSummary> {

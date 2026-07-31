@@ -20,6 +20,7 @@
 
 import type { PaymentModule } from '../provider';
 import type { createServiceRoleClient } from '@/lib/supabase/server';
+import { payerDetailsFrom } from './payer-details';
 
 export type WebhookServiceClient = ReturnType<typeof createServiceRoleClient>;
 
@@ -207,8 +208,13 @@ export const WEBHOOK_MODULES: Record<PaymentModule, WebhookModuleConfig> = {
     // it needs a human, and must never be quietly overwritten by a retry.
     terminalStatuses: ['paid', 'amount_mismatch', 'cancelled'],
 
+    // The payer columns come from the SHARED extractor, so the webhook records
+    // exactly what the callback and the cashier's poll record. Three paths can
+    // confirm a counter payment; which one wins is a race the user cannot see, so
+    // it must not change the answer to "who paid?".
     capturedExtraColumns: (payment) => ({
       captured_amount_paise: Number(payment.amount ?? 0),
+      ...payerDetailsFrom(payment),
     }),
 
     // No onCaptured. The sale is booked by the CASHIER'S poll (or the callback),
