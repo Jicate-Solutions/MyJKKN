@@ -155,14 +155,17 @@ export interface SquadRequestInput {
  * retry once WITHOUT the column, so the live form keeps working in the gap
  * instead of breaking until someone applies the migration.
  *
- * Deliberately narrow — the PostgREST code AND the column name — so a real
- * failure that merely mentions the column is never swallowed as "not migrated".
+ * Deliberately narrow — the PostgREST code AND the column name must BOTH match.
+ * A PGRST204 without a readable message naming this column returns false, so an
+ * unrelated schema-cache failure is surfaced to the caller rather than silently
+ * retried with the value dropped. Losing the host quietly is worse than saying
+ * what actually went wrong.
  */
 export function isMissingColumnError(err: unknown, column: string): boolean {
   if (!err || typeof err !== 'object') return false;
   const e = err as { code?: unknown; message?: unknown };
   if (e.code !== 'PGRST204') return false;
-  return typeof e.message !== 'string' || e.message.includes(column);
+  return typeof e.message === 'string' && e.message.includes(column);
 }
 
 /**

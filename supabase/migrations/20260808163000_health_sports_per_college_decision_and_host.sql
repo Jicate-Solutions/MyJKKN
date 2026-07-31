@@ -150,6 +150,101 @@ COMMENT ON COLUMN public.health_sports_achievements.host_institution IS
   'first line previously folded into `description`, which could not be counted or filtered. '
   'NULL means the event was held at JKKN.';
 
+-- -----------------------------------------------------------------------------
+-- 2a. D14 — carry the host into the accreditation evidence.
+--
+-- `event_name` is already in this k-anonymous metadata; the host belongs beside
+-- it, because "which outside body ran the event" is the question the reviewer
+-- actually asks and the whole point of D14 is that the answer be filterable
+-- rather than buried in prose.
+--
+-- ⚠️ THIS MUST COME BEFORE THE BACKFILL BELOW. The backfill UPDATE fires
+-- `trg_hsa_evidence_fanout`, whose ON CONFLICT DO UPDATE rewrites the row's
+-- NAAC 8.3 `metadata` wholesale. Redefining this function AFTER the backfill
+-- would therefore re-emit exactly the rows the marker convention produced with
+-- the OLD host-unaware body, so the host would land in the column but never in
+-- the evidence — defeating the point of the backfill. Caught in review.
+--
+-- Body copied VERBATIM from the live production definition (read via
+-- pg_get_functiondef before writing this file) with ONE key added, so no later
+-- work is silently reverted by this replace.
+--
+-- Grants re-asserted to EXACTLY the live ACL — postgres + service_role. This is
+-- a trigger function no signed-in user calls; granting it to `authenticated`
+-- would widen it for no reason.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.emit_learner_achievement_evidence()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_institution_id uuid;
+BEGIN
+  IF NOT COALESCE(NEW.verified, false) THEN
+    -- State regression: un-verified (or never verified) → no auto evidence.
+    DELETE FROM public.quality_evidence_mappings
+    WHERE source_table = 'health_sports_achievements'
+      AND source_id = NEW.id
+      AND is_auto;
+    RETURN NEW;
+  END IF;
+
+  SELECT lp.institution_id INTO v_institution_id
+  FROM public.learners_profiles lp
+  WHERE lp.id = NEW.learner_id;
+
+  IF v_institution_id IS NULL THEN
+    DELETE FROM public.quality_evidence_mappings
+    WHERE source_table = 'health_sports_achievements'
+      AND source_id = NEW.id
+      AND is_auto;
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.quality_evidence_mappings (
+    source_table, source_id, institution_id,
+    body_code, metric_code, period_label,
+    mapped_by, is_auto, metadata, mapped_at
+  ) VALUES (
+    'health_sports_achievements', NEW.id, v_institution_id,
+    'NAAC', '8.3',
+    public.fn_accreditation_ay_label(NEW.achievement_date::timestamptz),
+    NEW.verified_by, true,
+    -- K-ANONYMOUS: category / type / level / event / host / year — no learner
+    -- detail. `host_institution` is the OUTSIDE body that ran the event, which
+    -- is an attribute of the event and carries no personal information.
+    jsonb_build_object(
+      'category',         NEW.category,
+      'achievement_type', NEW.achievement_type,
+      'event_level',      NEW.event_level,
+      'event_name',       NEW.event_name,
+      'host_institution', NEW.host_institution,
+      'achievement_year', EXTRACT(YEAR FROM NEW.achievement_date)::int,
+      'source_trigger',   'emit_learner_achievement_evidence'
+    ),
+    now()
+  )
+  ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
+    SET institution_id = EXCLUDED.institution_id,
+        period_label   = EXCLUDED.period_label,
+        metadata       = EXCLUDED.metadata,
+        is_auto        = true,
+        mapped_at      = now()
+    WHERE public.quality_evidence_mappings.is_auto;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.emit_learner_achievement_evidence() FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.emit_learner_achievement_evidence() TO service_role;
+
+
+-- -----------------------------------------------------------------------------
+-- 2b. D14 — backfill the host out of the legacy prose convention.
+-- -----------------------------------------------------------------------------
 -- Lift the value out of the prose convention for rows already written that way.
 -- Only the FIRST line, only the exact marker — the same strictness the parser in
 -- _lib/outbound.ts applies, so free text that merely mentions a host is never
@@ -342,87 +437,3 @@ COMMENT ON VIEW public.v_health_tournament_participation IS
 -- revoke is load-bearing, not decoration.
 REVOKE ALL ON public.v_health_tournament_participation FROM anon, PUBLIC;
 GRANT SELECT ON public.v_health_tournament_participation TO authenticated;
-
--- -----------------------------------------------------------------------------
--- 5. D14 — carry the host into the accreditation evidence.
---
--- `event_name` is already in this k-anonymous metadata; the host belongs beside
--- it, because "which outside body ran the event" is the question the reviewer
--- actually asks and the whole point of D14 is that the answer be filterable
--- rather than buried in prose.
---
--- Body copied VERBATIM from the live production definition (read via
--- pg_get_functiondef before writing this file) with ONE key added, so no later
--- work is silently reverted by this replace.
---
--- Grants re-asserted to EXACTLY the live ACL — postgres + service_role. This is
--- a trigger function no signed-in user calls; granting it to `authenticated`
--- would widen it for no reason.
--- -----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.emit_learner_achievement_evidence()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_institution_id uuid;
-BEGIN
-  IF NOT COALESCE(NEW.verified, false) THEN
-    -- State regression: un-verified (or never verified) → no auto evidence.
-    DELETE FROM public.quality_evidence_mappings
-    WHERE source_table = 'health_sports_achievements'
-      AND source_id = NEW.id
-      AND is_auto;
-    RETURN NEW;
-  END IF;
-
-  SELECT lp.institution_id INTO v_institution_id
-  FROM public.learners_profiles lp
-  WHERE lp.id = NEW.learner_id;
-
-  IF v_institution_id IS NULL THEN
-    DELETE FROM public.quality_evidence_mappings
-    WHERE source_table = 'health_sports_achievements'
-      AND source_id = NEW.id
-      AND is_auto;
-    RETURN NEW;
-  END IF;
-
-  INSERT INTO public.quality_evidence_mappings (
-    source_table, source_id, institution_id,
-    body_code, metric_code, period_label,
-    mapped_by, is_auto, metadata, mapped_at
-  ) VALUES (
-    'health_sports_achievements', NEW.id, v_institution_id,
-    'NAAC', '8.3',
-    public.fn_accreditation_ay_label(NEW.achievement_date::timestamptz),
-    NEW.verified_by, true,
-    -- K-ANONYMOUS: category / type / level / event / host / year — no learner
-    -- detail. `host_institution` is the OUTSIDE body that ran the event, which
-    -- is an attribute of the event and carries no personal information.
-    jsonb_build_object(
-      'category',         NEW.category,
-      'achievement_type', NEW.achievement_type,
-      'event_level',      NEW.event_level,
-      'event_name',       NEW.event_name,
-      'host_institution', NEW.host_institution,
-      'achievement_year', EXTRACT(YEAR FROM NEW.achievement_date)::int,
-      'source_trigger',   'emit_learner_achievement_evidence'
-    ),
-    now()
-  )
-  ON CONFLICT (source_table, source_id, body_code, metric_code) DO UPDATE
-    SET institution_id = EXCLUDED.institution_id,
-        period_label   = EXCLUDED.period_label,
-        metadata       = EXCLUDED.metadata,
-        is_auto        = true,
-        mapped_at      = now()
-    WHERE public.quality_evidence_mappings.is_auto;
-
-  RETURN NEW;
-END;
-$$;
-
-REVOKE EXECUTE ON FUNCTION public.emit_learner_achievement_evidence() FROM anon, PUBLIC, authenticated;
-GRANT  EXECUTE ON FUNCTION public.emit_learner_achievement_evidence() TO service_role;

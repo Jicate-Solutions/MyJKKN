@@ -207,8 +207,13 @@ function MedalCard({ achievement }: { achievement: HealthSportsAchievement }) {
   // `host_institution` a real column, so it is preferred here. The parsed value
   // is the fallback for rows written before that column existed — and for rows
   // written after the UI deployed but before the migration was applied.
+  //
+  // `??` alone is not enough: an empty or whitespace column value is not null,
+  // so it would win over a real legacy "Hosted by:" line and render a blank
+  // host. Blank in the column means "no host recorded here", so it falls
+  // through — this must not depend on every writer normalising '' to NULL.
   const { host: legacyHost, isReserve } = parseDescription(achievement.description);
-  const host = achievement.host_institution ?? legacyHost;
+  const host = achievement.host_institution?.trim() || legacyHost;
 
   return (
     <div
