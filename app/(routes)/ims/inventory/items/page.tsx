@@ -62,6 +62,7 @@ import {
   Layers,
   Upload,
   UploadCloud,
+  IndianRupee,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -83,6 +84,7 @@ import type {
   UpdateImsItemDto,
 } from '@/types/ims';
 import { BulkImportDialog } from './_components/bulk-import-dialog';
+import { PriceUpdateDialog } from './_components/price-update-dialog';
 import { AddBatchModal } from '@/components/ims/add-batch-modal';
 import { BatchesDialog } from '@/components/ims/batches-dialog';
 import { ImsPageGuard } from '@/components/ims/ims-page-guard';
@@ -214,6 +216,7 @@ function InventoryItemsPageInner() {
   const [editingItem, setEditingItem] = useState<ImsItemWithRelations | null>(null);
   const [formData, setFormData] = useState<ItemFormData>(emptyFormData);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [priceDialogOpen, setPriceDialogOpen] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   // Batch modals state
@@ -544,6 +547,15 @@ function InventoryItemsPageInner() {
               >
                 <Upload className="h-4 w-4 mr-2" />
                 Import Items
+              </Button>
+            )}
+            {canEdit && (
+              <Button
+                variant="outline"
+                onClick={() => setPriceDialogOpen(true)}
+              >
+                <IndianRupee className="h-4 w-4 mr-2" />
+                Update Prices
               </Button>
             )}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -1166,6 +1178,15 @@ function InventoryItemsPageInner() {
           storeId={storeId}
           institutionId={institutionId || ''}
           onImportComplete={handleImportComplete}
+        />
+
+        {/* Price & POS-sellability update — updates existing items only, unlike
+            BulkImportDialog above which is insert-only. */}
+        <PriceUpdateDialog
+          open={priceDialogOpen}
+          onOpenChange={setPriceDialogOpen}
+          institutionId={institutionId || ''}
+          onUpdateComplete={handleImportComplete}
         />
 
         {/* Adjust Stock Dialog */}
