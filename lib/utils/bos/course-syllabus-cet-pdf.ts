@@ -46,10 +46,18 @@ function sanitize(text: string): string {
 }
 
 // ── Book formatter (author, title, publisher, year.) ──────────────────────────
+// Imported syllabi routinely carry the publisher AND year inside the title text
+// itself ("Calculus: Early transcendentals. John Wiley & Sons. (2021)") while
+// ALSO filling publication_year, which printed the year twice — "… (2021),
+// 2021.". Append the year only when it isn't already present in the author or
+// title, so both data shapes render one clean citation.
 function fmtBook(b: BosTextbook): string {
-	const parts = [b.author, b.title, b.publication_year ? String(b.publication_year) : '']
-		.filter(Boolean)
-		.map(sanitize)
+	const author = sanitize(b.author ?? '')
+	const title = sanitize(b.title ?? '')
+	const year = b.publication_year ? String(b.publication_year).trim() : ''
+	const yearAlreadyShown =
+		year !== '' && new RegExp(`\\b${year}\\b`).test(`${author} ${title}`)
+	const parts = [author, title, yearAlreadyShown ? '' : year].filter(Boolean)
 	return `${parts.join(', ')}.`
 }
 
@@ -117,6 +125,59 @@ export function renderEngineeringSyllabusPDF(
 			else doc.text(ln, lx, y, { baseline: 'top' })
 			y += LH
 		})
+	}
+
+	// Wrapped paragraph whose leading label ("Activities:", "Book 3:") prints
+	// bold and the remainder in body weight. jsPDF has no rich-text runs, so the
+	// wrap is done by hand: the FIRST line is short by the label's width, every
+	// continuation line gets the full column. `sep` is the whitespace that stood
+	// between label and body in the source, preserved so "Activities:Virtual"
+	// and "Activities: Virtual" each render as authored.
+	const paragraphBoldLabel = (label: string, rest: string, sep: string, x: number, maxW: number) => {
+		doc.setFontSize(FS)
+		doc.setFont(FONT, 'bold')
+		const labelW = doc.getTextWidth(label)
+		doc.setFont(FONT, 'normal')
+		const indent = labelW + (sep ? doc.getTextWidth(sep) : 0)
+
+		const words = rest.split(/\s+/).filter(Boolean)
+		const lines: string[] = []
+		let cur = ''
+		let avail = maxW - indent
+		for (const w of words) {
+			const trial = cur ? `${cur} ${w}` : w
+			// `!cur` forces at least one word per line, so a word wider than the
+			// column overflows rather than looping forever.
+			if (!cur || doc.getTextWidth(trial) <= avail) cur = trial
+			else { lines.push(cur); cur = w; avail = maxW }
+		}
+		if (cur || lines.length === 0) lines.push(cur)
+
+		lines.forEach((ln, i) => {
+			ensure(LH)
+			if (i === 0) {
+				doc.setFont(FONT, 'bold')
+				doc.text(label, x, y, { baseline: 'top' })
+				doc.setFont(FONT, 'normal')
+			}
+			if (ln) {
+				const lx = i === 0 ? x + indent : x
+				const lw = i === 0 ? maxW - indent : maxW
+				if (i < lines.length - 1) drawJustified(ln, lx, lw)
+				else doc.text(ln, lx, y, { baseline: 'top' })
+			}
+			y += LH
+		})
+	}
+
+	// One authored free-text line (unit remark / instruction), with a leading
+	// label bolded when the line opens with one — "Activities:", "Book 3:",
+	// "Weightage:". The 40-char cap keeps a colon deep inside a sentence from
+	// bolding half the paragraph.
+	const labelledLine = (text: string) => {
+		const m = text.match(/^([^:]{1,40}:)(\s*)([\s\S]*)$/)
+		if (m) paragraphBoldLabel(m[1], m[3], m[2], LEFT, CONTENT_W)
+		else paragraph(text, LEFT, CONTENT_W, { justify: true })
 	}
 
 	// ── INSTITUTION BANNER ────────────────────────────────────────────────────
@@ -216,18 +277,31 @@ export function renderEngineeringSyllabusPDF(
 	// hours still render once a course total is supplied via the notes.
 	const units = data.units ?? []
 	const unitCount = units.length
-	const parsed = units.map(u => {
-		// Prefer the structured `hours` field ("6+6"). index === null means the
-		// title needs no stripping (marker lives in its own field).
-		const hoursField = (u.hours ?? '').trim()
-		if (hoursField) {
-			const hm = hoursField.match(/(\d+)\s*\+\s*(\d*)/)
-			if (hm) {
-				const th = parseInt(hm[1], 10)
-				return { th, tu: hm[2] ? parseInt(hm[2], 10) : th, index: null as number | null }
-			}
+	// The Content tab's per-unit Hours box is free text, so it holds EITHER an
+	// Anna-University "theory + tutorial" split ("9 + 3", or "9+" where the docx
+	// import dropped the tutorial half) OR a single number ("12") for a course
+	// with no tutorial hours. Only the split shape used to be recognised, which
+	// silently dropped the marker from every plain-number syllabus.
+	// `tu === null` records "no split" so the marker prints as "12", not "12+0".
+	const parseHours = (raw: string): { th: number; tu: number | null } | null => {
+		const s = raw.trim()
+		if (!s) return null
+		const split = s.match(/(\d+)\s*\+\s*(\d*)/)
+		if (split) {
+			const th = parseInt(split[1], 10)
+			return { th, tu: split[2] ? parseInt(split[2], 10) : th }
 		}
-		// Legacy: a trailing "6+6" embedded in unit_title.
+		const plain = s.match(/(\d+)/)
+		return plain ? { th: parseInt(plain[1], 10), tu: null } : null
+	}
+	const parsed = units.map(u => {
+		// Prefer the structured `hours` field. index === null means the title
+		// needs no stripping (the marker lives in its own field).
+		const fromField = parseHours(u.hours ?? '')
+		if (fromField) return { ...fromField, index: null as number | null }
+		// Legacy: a trailing "6+6" embedded in unit_title. Only the split shape
+		// is stripped from titles — a bare trailing number is far more likely to
+		// be part of the title itself ("… Chapter 12") than an hour marker.
 		const mm = sanitize(u.unit_title || '').match(/\s+(\d+)\s*\+\s*(\d*)\s*$/)
 		if (!mm) return null
 		const th = parseInt(mm[1], 10)
@@ -243,16 +317,24 @@ export function renderEngineeringSyllabusPDF(
 	let totalTheory = 0
 	let totalTut = 0
 	let sawHours = false
+	// True once any unit carries a theory+tutorial split, which decides whether
+	// the summed TOTAL line prints as "30+30" or as a single "45".
+	let sawSplit = false
 	for (let ui = 0; ui < units.length; ui++) {
 		const unit = units[ui]
 		const p = parsed[ui]
 		const rawTitle = sanitize(unit.unit_title || '')
 		let hoursLabel = ''
 		if (p) {
-			sawHours = true; totalTheory += p.th; totalTut += p.tu
-			hoursLabel = `${p.th}+${p.tu}`
+			sawHours = true; totalTheory += p.th
+			if (p.tu == null) {
+				hoursLabel = String(p.th)
+			} else {
+				sawSplit = true; totalTut += p.tu
+				hoursLabel = `${p.th}+${p.tu}`
+			}
 		} else if (dist) {
-			sawHours = true; totalTheory += dist.th; totalTut += dist.tu
+			sawHours = true; sawSplit = true; totalTheory += dist.th; totalTut += dist.tu
 			hoursLabel = `${dist.th}+${dist.tu}`
 		}
 		const cleanTitle = (p && p.index != null) ? rawTitle.slice(0, p.index).trim() : rawTitle
@@ -285,16 +367,37 @@ export function renderEngineeringSyllabusPDF(
 			doc.setFont(FONT, 'normal'); doc.setFontSize(FS)
 			paragraph(parts.join(' '), LEFT, CONTENT_W, { justify: true })
 		}
+
+		// Per-unit REMARKS (Content tab) — e.g. "Activities: Determination of Hall
+		// coefficient", or a book/section reference. Authored per unit but never
+		// printed, so every such line was silently dropped from the document.
+		// Rendered directly under the unit content, matching how the reference
+		// syllabus prints its "Activities:…" tail — with the label bolded. Newlines
+		// are kept as separate paragraphs (sanitize() would otherwise collapse them).
+		const remarkLines = (unit.remarks ?? '').split(/\r?\n/).map(sanitize).filter(Boolean)
+		if (remarkLines.length > 0) {
+			y += 1.5
+			doc.setFont(FONT, 'normal'); doc.setFontSize(FS)
+			for (const rl of remarkLines) labelledLine(rl)
+		}
 		y += 5.5 // gap between units
 	}
 
-	// TOTAL line (right-aligned). Prefer the exact course total when we
-	// distributed it (avoids rounding drift from summing per-unit values).
-	if (sawHours) {
+	// TOTAL line (right-aligned). The author's own "Total Hours" box wins — it is
+	// the number they typed and see in the form, and it is the ONLY source when
+	// the units carry no per-unit markers at all. Falling back: the exact course
+	// total when we distributed it (avoids rounding drift from summing per-unit
+	// values), then the sum of the per-unit markers.
+	const explicitTotal = sanitize(data.content_total_hours ?? '')
+	if (sawHours || explicitTotal) {
 		ensure(LH + 2)
-		const totLabel = (!anyMarker && data.total_periods)
-			? `${data.total_periods.theory}+${data.total_periods.tut}`
-			: `${totalTheory}+${totalTut}`
+		const totLabel = explicitTotal
+			? explicitTotal
+			: (!anyMarker && data.total_periods)
+				? `${data.total_periods.theory}+${data.total_periods.tut}`
+				: sawSplit
+					? `${totalTheory}+${totalTut}`
+					: `${totalTheory}`
 		doc.setFont(FONT, 'bold'); doc.setFontSize(FS)
 		doc.text(`TOTAL: ${totLabel} PERIODS`, RIGHT, y, { baseline: 'top', align: 'right' })
 		y += LH + 3
@@ -336,18 +439,38 @@ export function renderEngineeringSyllabusPDF(
 			}
 			y += 0.5 // breathing room between experiments
 		}
-		// TOTAL: 60 PERIODS — prefer the explicit theory+tut split, then the
-		// course total/contact hours; omit the line when nothing is known.
+		// TOTAL: 60 PERIODS — the author's own "Total Hours" box first (the only
+		// source for a lab syllabus whose hours live nowhere else), then the
+		// explicit theory+tut split, then the course total/contact hours; omit the
+		// line when nothing is known.
 		const totalPeriods = data.total_periods
 			? data.total_periods.theory + data.total_periods.tut
 			: (data.total_hours || data.contact_hours || 0)
-		if (totalPeriods > 0) {
+		const totalLabel = explicitTotal || (totalPeriods > 0 ? String(totalPeriods) : '')
+		if (totalLabel) {
 			ensure(LH + 2)
 			doc.setFont(FONT, 'bold'); doc.setFontSize(FS)
-			doc.text(`TOTAL: ${totalPeriods} PERIODS`, RIGHT, y, { baseline: 'top', align: 'right' })
+			doc.text(`TOTAL: ${totalLabel} PERIODS`, RIGHT, y, { baseline: 'top', align: 'right' })
 			y += LH
 		}
 		y += 3
+	}
+
+	// ── INSTRUCTIONS (Content tab, below the units) ───────────────────────────
+	// Free-text notes authored under the course content — in practice the
+	// assessment weightage block ("Weightage: Continuous Assessment: 40%…",
+	// "Assessment Methodology: Quiz (10%)…"). The field was collected by the form
+	// and passed to the renderer, but never drawn, so it was dropped from every
+	// engineering PDF. Each authored line is its own paragraph with its label
+	// bolded, so the block reads the way it does in the form.
+	if (data.instruction) {
+		const instructionLines = data.instruction.split(/\r?\n/).map(sanitize).filter(Boolean)
+		if (instructionLines.length > 0) {
+			ensure(LH + 4)
+			doc.setFont(FONT, 'normal'); doc.setFontSize(FS)
+			for (const ln of instructionLines) labelledLine(ln)
+			y += 5
+		}
 	}
 
 	// ── COURSE OUTCOMES ───────────────────────────────────────────────────────
@@ -383,6 +506,25 @@ export function renderEngineeringSyllabusPDF(
 		doc.setFont(FONT, 'normal')
 		data.references.forEach((b, i) => {
 			paragraph(`${i + 1}. ${fmtBook(b)}`, LEFT, CONTENT_W - 6, { hangIndent: 6 })
+		})
+		y += 5
+	}
+
+	// ── WEB RESOURCES ─────────────────────────────────────────────────────────
+	// Authored on the Textbooks tab and printed by the A&S renderer, but never by
+	// this one — so a lab syllabus whose source document carries a "Web
+	// Resources" list lost it on export. URL first with the title as a trailing
+	// description, matching the source document's "https://… - Excel tutorials".
+	if (data.web_resources && data.web_resources.length > 0) {
+		ensure(10)
+		doc.setFont(FONT, 'bold'); doc.setFontSize(FS)
+		doc.text('WEB RESOURCES :', LEFT, y, { baseline: 'top' }); y += 6
+		doc.setFont(FONT, 'normal')
+		data.web_resources.forEach((r, i) => {
+			const url = sanitize(r.url || '')
+			const title = sanitize(r.title || '')
+			const text = url && title && title !== url ? `${url} - ${title}` : (url || title)
+			if (text) paragraph(`${i + 1}. ${text}`, LEFT, CONTENT_W - 6, { hangIndent: 6 })
 		})
 		y += 5
 	}

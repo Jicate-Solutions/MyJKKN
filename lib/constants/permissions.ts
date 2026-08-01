@@ -681,11 +681,33 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
+      // the /billing/schedule/bulk-create flow (pick many learners, or upload
+      // an Excel of bills). Separate from billing.schedule.create so the bulk
+      // path can be revoked without removing single-bill creation.
+      //
+      // ADDITIVE, NOT A REPLACEMENT: every surface checks create AND
+      // bulk_create together, because the RLS INSERT policy on
+      // billing_student_bills still gates on billing.schedule.create. Granting
+      // bulk_create alone would render the button and then fail every insert
+      // with an RLS denial.
+      { key: 'billing.schedule.bulk_create', label: 'Bulk Create Bills' },
       { key: 'billing.receipts.view', label: 'View Receipts' },
       { key: 'billing.receipts.create', label: 'Create Receipts' },
       { key: 'billing.receipts.edit', label: 'Edit Receipts' },
       { key: 'billing.receipts.delete', label: 'Delete/Void Receipts Directly' },
       { key: 'billing.receipts.generate', label: 'Generate Receipts' },
+      // Bulk receipt generation from the Billing Schedule page: download a
+      // pre-filled Excel of outstanding bills, fill "Paid Amount", upload, and
+      // create one receipt per (student, paid date, payment mode) group — up to
+      // 5000 bills per batch. Deliberately a SEPARATE key from
+      // billing.receipts.create: the single-receipt key is held by 7 roles, and
+      // one mis-filled sheet here writes thousands of payment rows at once, so
+      // the bulk path is opted into per role rather than inherited.
+      // The three API routes behind it run on the service-role client (RLS is
+      // bypassed), so they check THIS key plus the caller's accessible
+      // institutions — see lib/auth/bulk-receipt-access.ts.
+      { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
       // Cancelling a receipt reverses money, so it is split in two: staff RAISE
       // a request, and only a SUPER ADMIN decides it. There is deliberately no
       // "cancel.approve" key — approval is gated on is_super_admin() in
