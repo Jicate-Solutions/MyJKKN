@@ -35,6 +35,8 @@ export type CacMetricIndex = Record<string, Record<string, CacMeasuredRow>>;
 export const cacMetricKeys = {
   all: ['accreditation', 'cac-metrics'] as const,
   measured: () => [...cacMetricKeys.all, 'measured'] as const,
+  attendanceRollup: () =>
+    [...cacMetricKeys.all, 'attendance-rollup-freshness'] as const,
 };
 
 /**
@@ -145,6 +147,93 @@ export function useCacMeasuredMetrics() {
     // The underlying records change on other modules' timelines, not this
     // page's. Five minutes keeps the attendance window aggregation off the
     // critical path of every navigation back to the page.
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// How old the attendance rollup is.
+//
+// cac_attendance_rollup holds the all-history attendance totals, recomputed
+// nightly as `postgres` because the live JSONB expansion cannot finish inside
+// the 8s statement_timeout the `authenticated` role carries. Nothing on the
+// page reads its NUMBERS yet — that rewire is deliberately deferred — but the
+// council still has to be told when the figure behind attendance was last
+// worked out, because a nightly job that quietly stops looks exactly like a
+// nightly job that is working.
+//
+// The read is one row: the newest computed_at the viewer is allowed to see.
+// ---------------------------------------------------------------------------
+
+/** Past this age the rollup is called out rather than simply reported. */
+export const CAC_ROLLUP_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * `never`   — the rollup holds nothing. The nightly job has not produced a
+ *             figure the viewer can see, so there is no date to show and
+ *             showing one anyway would invent a computation that never ran.
+ * `fresh`   — computed inside the window.
+ * `stale`   — computed, but longer ago than the window allows.
+ * `unknown` — the read failed, or the stored value would not parse. Kept
+ *             apart from `never` on purpose: "nobody has computed this" and
+ *             "we could not find out" are different claims, and only one of
+ *             them is a statement about the job.
+ */
+export type CacRollupFreshness =
+  | { state: 'never' }
+  | { state: 'unknown' }
+  | { state: 'fresh'; computedAt: Date }
+  | { state: 'stale'; computedAt: Date };
+
+export function classifyRollupFreshness(
+  computedAt: string | null | undefined,
+  readFailed: boolean,
+  now: Date = new Date(),
+  staleAfterMs: number = CAC_ROLLUP_STALE_AFTER_MS,
+): CacRollupFreshness {
+  if (readFailed) return { state: 'unknown' };
+  if (!computedAt) return { state: 'never' };
+
+  const at = new Date(computedAt);
+  // An unparseable timestamp is not evidence that nothing ran, so it must not
+  // borrow the `never` wording — every downstream branch would then read a
+  // storage fault as a finding about the job.
+  if (Number.isNaN(at.getTime())) return { state: 'unknown' };
+
+  const age = now.getTime() - at.getTime();
+  return age > staleAfterMs
+    ? { state: 'stale', computedAt: at }
+    : { state: 'fresh', computedAt: at };
+}
+
+/**
+ * The newest computed_at in cac_attendance_rollup, or null when the table
+ * holds no row the viewer may read.
+ *
+ * `null` is a real answer here, not a missing one, which is why the query
+ * resolves rather than throws on an empty table — the caller distinguishes it
+ * from a failure through `error`. RLS on the table is per-institution, so this
+ * is "the newest figure you are allowed to see", which is the only honest
+ * reading a page can offer.
+ */
+export function useCacAttendanceRollupFreshness() {
+  return useQuery({
+    queryKey: cacMetricKeys.attendanceRollup(),
+    queryFn: async (): Promise<string | null> => {
+      const sb = createClientSupabaseClient() as any;
+      // ORDER BY ... LIMIT 1 rather than an aggregate: PostgREST returns the
+      // rows RLS allows, and max() over a denied set is indistinguishable from
+      // max() over an empty one anyway. One row off a ten-row table.
+      const { data, error } = await sb
+        .from('cac_attendance_rollup')
+        .select('computed_at')
+        .order('computed_at', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      return (data?.[0]?.computed_at as string | undefined) ?? null;
+    },
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
     retry: false,
