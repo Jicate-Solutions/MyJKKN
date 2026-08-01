@@ -83,6 +83,7 @@ function normalizeHref(href: string): string {
 /* ── 2. Build the real route set from the filesystem ─────────────────────── */
 
 const PAGE = /^page\.(tsx|ts|jsx|js)$/;
+const ROUTE = /^route\.(tsx|ts|jsx|js)$/;
 const GROUP = /^\(.*\)$/; // route group, e.g. (routes) — not part of the URL
 
 /** Walk app/(routes) and collect every route path as an array of segments,
@@ -94,7 +95,22 @@ async function collectRoutes(dir: string, segs: string[], acc: string[][]): Prom
   } catch {
     return;
   }
-  if (entries.some((e) => e.isFile() && PAGE.test(e.name))) acc.push(segs);
+  let served = entries.some((e) => e.isFile() && PAGE.test(e.name));
+  if (!served) {
+    // A GET-exporting Route Handler serves the path with a real HTTP 307
+    // (pure-redirect landing pattern, PR #2763/#2777) — reachable exactly
+    // like a page.tsx. Non-GET handlers don't serve a navigable document.
+    const routeFile = entries.find((e) => e.isFile() && ROUTE.test(e.name));
+    if (routeFile) {
+      try {
+        const src = await fs.readFile(path.join(dir, routeFile.name), "utf8");
+        served = /export\s+(async\s+)?function\s+GET\b|export\s+const\s+GET\b/.test(src);
+      } catch {
+        /* unreadable route file — treat as not serving */
+      }
+    }
+  }
+  if (served) acc.push(segs);
   for (const e of entries) {
     if (!e.isDirectory()) continue;
     if (e.name.startsWith("@") || e.name.startsWith("_")) continue; // parallel/private
