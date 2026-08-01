@@ -75,6 +75,64 @@ export function metricsWithData(rows: CacMeasuredRow[]): Set<string> {
   );
 }
 
+/**
+ * How much of the measured read can be believed at all.
+ *
+ * `values`           — the read worked and something came back with a number.
+ * `read-failed`      — the request errored. Nothing is known about any value.
+ * `nothing-returned` — the request succeeded and carried no value for any metric
+ *                      of any institution.
+ *
+ * The third state exists because it is neither of the other two and must not be
+ * folded into either. It is not a failure — the request came back 200 — so
+ * saying "could not be read" would misdescribe what happened. It is also not a
+ * finding: every wired metric emptying at the same moment is a fault in the read
+ * path, not fourteen institutions going quiet at once. Kept apart, the page can
+ * say the true thing, which is that one read returned nothing.
+ */
+export type CacReadOutcome = 'values' | 'read-failed' | 'nothing-returned';
+
+export function classifyMeasuredRead(
+  rows: CacMeasuredRow[] | undefined,
+  readFailed: boolean,
+): CacReadOutcome {
+  if (readFailed) return 'read-failed';
+  // Deliberately not `rows.length === 0`. A response of value-less placeholder
+  // rows carries exactly as much information as no response, and the page must
+  // treat the two the same or the emptier-looking one gets the better wording.
+  if (!rows || metricsWithData(rows).size === 0) return 'nothing-returned';
+  return 'values';
+}
+
+/**
+ * Which wired metrics came back with nothing at all.
+ *
+ * A metric the catalog calls `measured` has real substrate behind it, so an
+ * absence spanning every institution is far more likely to be a broken feed than
+ * a cluster that genuinely emptied. Several of these depend on an overnight job
+ * — the exam mirror into coe_naac_evidence among them — and a job that stops
+ * leaves the RPC returning 200 with the other metrics intact.
+ *
+ * Without this, every institution's cell for such a metric falls to the
+ * no-row branch and prints "none recorded", which this page's own legend defines
+ * as a fact about that institution. A dead overnight job would then read as a
+ * finding against every college, and keep reading that way for as long as it
+ * stayed broken.
+ *
+ * Guarded on the whole-read outcome for a reason: when nothing came back at all,
+ * every wired metric is trivially absent, and reporting each one as
+ * independently stopped would turn a single fault into a screenful of alarms.
+ * That case belongs to the caller's banner, so this returns nothing for it.
+ */
+export function stoppedReportingMetrics(
+  measuredMetricIds: readonly string[],
+  live: Set<string>,
+  outcome: CacReadOutcome,
+): Set<string> {
+  if (outcome !== 'values') return new Set();
+  return new Set(measuredMetricIds.filter((id) => !live.has(id)));
+}
+
 export function useCacMeasuredMetrics() {
   return useQuery({
     queryKey: cacMetricKeys.measured(),
