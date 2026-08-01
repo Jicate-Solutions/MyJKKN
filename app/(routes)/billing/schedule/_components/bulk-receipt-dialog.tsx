@@ -451,13 +451,11 @@ export function BulkReceiptDialog({
           <DialogTitle className='flex items-center gap-2'>
             <Receipt className='h-5 w-5 text-emerald-600' />
             Bulk Generate Receipts
-            <Badge variant='outline' className='ml-2 border-emerald-600 text-emerald-700'>
-              Super Admin
-            </Badge>
           </DialogTitle>
           <DialogDescription>
             Generate payment receipts in bulk for outstanding student bills.
             One receipt is created per student covering all their filled rows.
+            Results are limited to the institutions you have access to.
           </DialogDescription>
         </DialogHeader>
 

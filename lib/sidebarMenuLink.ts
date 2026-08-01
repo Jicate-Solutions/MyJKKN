@@ -2932,6 +2932,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
+            // The parent "Events" row is a PURE ACCORDION TOGGLE at runtime
+            // (components/Navbar/menu.tsx: `e.preventDefault(); toggleModule(...)`),
+            // so its own href was never clickable and /events had no sidebar path
+            // at all — the hub's General Events list (the only surface listing
+            // wizard-created lectures/cultural/convocation events) was reachable
+            // only via Ctrl+K or a typed URL. check:reachability did NOT catch
+            // this: it seeds from every literal href in this file and assumes
+            // sidebar links are reachable, which the accordion parent is not.
+            // Same parent-href-as-leaf fix as '/users' → "All Users" and
+            // '/procurement' → "Overview". Also restores the chip gateway to
+            // /events/proposals, which AutoTabNav only renders from /events.
+            { href: '/events', label: 'All Events', active: pathname === '/events' },
             // Events Platform Promotion PR9 (2026-06-23): one create flow asks format + home
             { href: '/events/create', label: 'Create an Event', active: pathname === '/events/create' },
             { href: '/events/presets', label: 'Event Presets', active: pathname === '/events/presets' },

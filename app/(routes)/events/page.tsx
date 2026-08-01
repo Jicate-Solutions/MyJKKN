@@ -1,62 +1,21 @@
 'use client';
 
+// Events Hub — the all-events list.
+//
+// Was a grid of four event-type navigation cards plus a card list of general
+// events. The cards are gone: the sidebar now carries Marathon · All Events,
+// Tournament · All and Induction directly, so they were a second, weaker copy
+// of navigation that already exists — and they pushed the actual event data
+// below the fold. What replaces them is one advanced DataTable over EVERY
+// event row (search, type/status filters, sort, pagination, column
+// visibility/resizing, export), with each row opening in its own console.
+
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Timer, Music, Mic2, Dumbbell, BookOpen, Users, FileText, Plus, Rocket, Trophy } from 'lucide-react';
-import { GeneralEventsSection } from './_components/general-events-section';
-
-interface EventTypeCard {
-  title: string;
-  description: string;
-  href: string;
-  icon: React.ElementType;
-  available: boolean;
-}
-
-const EVENT_TYPES: EventTypeCard[] = [
-  {
-    title: 'Event Proposals',
-    description:
-      'Submit a new event idea and track approval status. Directors approve proposals here.',
-    href: '/events/proposals',
-    icon: FileText,
-    available: true,
-  },
-  {
-    title: 'Marathon',
-    description:
-      'Organize running events with registration, bib management, live tracking, and results.',
-    href: '/events/marathon',
-    icon: Timer,
-    available: true,
-  },
-  {
-    title: 'Sports Tournament',
-    description:
-      'Run inter-institution tournaments: divisions, entries, fixtures, live scores, standings, and medals.',
-    href: '/events/tournament',
-    icon: Trophy,
-    available: true,
-  },
-  {
-    title: 'Induction',
-    description:
-      "Run a college's fresher induction: build the schedule, auto-enroll new students, split into batches, and track who completes.",
-    href: '/events/induction',
-    icon: Rocket,
-    available: true,
-  }
-];
+import { Plus } from 'lucide-react';
+import { EventsDataTable } from './_components/events-data-table';
 
 export default function EventsHubPage() {
   return (
@@ -73,10 +32,15 @@ export default function EventsHubPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Events Hub</h1>
             <p className="text-sm text-muted-foreground">
-              Manage all types of institutional events from a single place.
+              Every event across the platform — marathons, tournaments,
+              inductions and one-off programmes. Tag an event with NAAC evidence
+              criteria so it emits accreditation evidence once it completes.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/events/proposals">Proposals</Link>
+            </Button>
             <Button asChild variant="outline">
               <Link href="/events/presets">Presets</Link>
             </Button>
@@ -89,55 +53,7 @@ export default function EventsHubPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {EVENT_TYPES.map((eventType) => {
-            const Icon = eventType.icon;
-            const CardWrapper = eventType.available ? Link : 'div';
-            const wrapperProps = eventType.available
-              ? { href: eventType.href }
-              : {};
-
-            return (
-              <CardWrapper
-                key={eventType.title}
-                {...(wrapperProps as any)}
-                className={eventType.available ? 'block' : 'block'}
-              >
-                <Card
-                  className={`h-full transition-colors ${
-                    eventType.available
-                      ? 'hover:border-primary/50 cursor-pointer'
-                      : 'opacity-60'
-                  }`}
-                >
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-primary/10">
-                          <Icon className="h-5 w-5 text-primary" />
-                        </div>
-                        <CardTitle className="text-lg">
-                          {eventType.title}
-                        </CardTitle>
-                      </div>
-                      {!eventType.available && (
-                        <Badge variant="secondary">Coming Soon</Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>{eventType.description}</CardDescription>
-                  </CardContent>
-                </Card>
-              </CardWrapper>
-            );
-          })}
-        </div>
-
-        {/* Wizard-created events with no dedicated console — list, NAAC
-            evidence tags, and a minimal edit dialog. Owns its own
-            loading/error state so a fetch failure never blanks the hub. */}
-        <GeneralEventsSection />
+        <EventsDataTable />
       </div>
     </ContentLayout>
   );
