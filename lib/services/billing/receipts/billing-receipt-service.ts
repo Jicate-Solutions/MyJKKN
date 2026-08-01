@@ -878,6 +878,13 @@ export class BillingReceiptService {
   static async getOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /**
+       * Tenant boundary for callers that reach this method through the
+       * service-role client (the bulk-template API routes), where RLS is not
+       * in the path. Restricts the result to these institutions regardless of
+       * `institution_id`. Omit ONLY for super admins.
+       */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -939,6 +946,12 @@ export class BillingReceiptService {
       )
       .in('status', ['unpaid', 'partially_paid']);
 
+    // Applied BEFORE the caller's own institution filter and independently of
+    // it: institution_id narrows what the user asked for, institution_ids
+    // bounds what they are allowed to see. Both may be present.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1029,6 +1042,8 @@ export class BillingReceiptService {
   static async countOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /** See getOutstandingBillsForBulk — same tenant boundary, kept in lock-step. */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -1072,6 +1087,12 @@ export class BillingReceiptService {
 
     query = query.in('status', ['unpaid', 'partially_paid']);
 
+    // Mirrors getOutstandingBillsForBulk — the live preview count must reflect
+    // the same tenant boundary as the file the user will actually download,
+    // otherwise a scoped user sees "1,200 bills match" and receives 40.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
