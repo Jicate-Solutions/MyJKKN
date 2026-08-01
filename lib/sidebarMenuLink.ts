@@ -933,6 +933,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // and the database cannot disagree about who belongs here.
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
 
+  // School of Influence — folding a batch too small to run (Director decision
+  // 2026-08-02). Declared for the same reason as the line above: an undeclared
+  // route inherits the broad '/startup-studio' key, and this screen names the
+  // people a fold would move. 'cohort.manage' is the same already-registered key
+  // fn_soi_merge_plan and fn_soi_record_batch_merge check, so the screen and the
+  // database cannot disagree about who belongs here.
+  '/startup-studio/school-of-influence/admin/merge': 'cohort.manage',
+
   '/staff': 'staff.view',
   '/hr': 'hr.view',
 
