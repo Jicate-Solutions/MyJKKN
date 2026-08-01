@@ -22,6 +22,17 @@
  * but it never decides. A client-side eligibility test that disagreed with the
  * RPC would be a second source of truth, and the wrong one.
  *
+ * READS ARE NOT YET RESTRICTED BY THE DATABASE. The SELECT policy live on
+ * production is `ss_case_studies_select FOR SELECT TO authenticated USING
+ * (true)`, created 2026-02-27 with the Solutions Studio tables: every signed-in
+ * account can read every row. The policy that limits a case to its author, its
+ * graders and the published set arrives with migration `20260809010000` in
+ * sibling PR #2759, which is open and NOT applied. Merging that PR does not
+ * apply it — migrations here are applied by hand as a separate deliberate act.
+ * Until that apply happens, the filters in this file and the permission check
+ * on the screen are the ONLY things limiting what comes back. Treat every one
+ * of them as load-bearing.
+ *
  * DEGRADING HONESTLY. The four RPCs and the six columns this screen reads are
  * added by a sibling migration that may not be applied yet. Until it is, every
  * query here fails with a missing-object error rather than returning empty —
@@ -262,8 +273,21 @@ export class CaseStudyService {
 
   /**
    * The caller's own cases — drafts, submitted, graded and published alike.
-   * RLS already limits this to `author_id = auth.uid()`; the filter is here so
-   * a manager (who may read every case) still sees only their own in this lane.
+   *
+   * THE `author_id` FILTER IS THE ONLY THING NARROWING THIS TODAY. Do not
+   * remove it. The policy live on production is still the one created with the
+   * Solutions Studio tables on 2026-02-27 — `ss_case_studies_select FOR SELECT
+   * TO authenticated USING (true)` — so every signed-in account can read every
+   * row, unfinished drafts included. Verified over the wire: an unrelated real
+   * account read back another author's draft title AND full body.
+   *
+   * The narrowing policy (author, graders, published) arrives with migration
+   * `20260809010000` in sibling PR #2759, which is open and NOT yet applied.
+   * Merging #2759 does not apply it — migrations here are applied by hand — so
+   * this filter stays load-bearing until that separate apply happens.
+   *
+   * Once applied, the filter is still wanted: an `improvement.board.manage`
+   * holder may read every case, and this lane means only their own.
    */
   static async listMyCases(userId: string): Promise<CaseStudyEnriched[]> {
     const supabase = this.getSupabase();
@@ -284,9 +308,20 @@ export class CaseStudyService {
   }
 
   /**
-   * The review queue — everything submitted and waiting for a grade. Readable
-   * only by `improvement.board.manage` holders; for anyone else RLS returns
-   * zero rows silently, which is why the screen gates on the permission too.
+   * The review queue — everything submitted and waiting for a grade.
+   *
+   * THE DATABASE DOES NOT RESTRICT THIS TODAY. Under the live
+   * `USING (true)` policy, any signed-in account that reached this method would
+   * get the whole queue back. The only thing holding it to graders right now is
+   * the caller: the screen checks `improvement.board.manage` before it calls
+   * this at all. That check is the whole protection, not a belt-and-braces
+   * second copy of a database rule.
+   *
+   * Migration `20260809010000` (sibling PR #2759, open and NOT yet applied) is
+   * what adds the database-side limit. Note what it actually does when it
+   * lands: it narrows reads to graders PLUS each author's own rows PLUS
+   * published rows — so even then this query is not "graders only" on its own,
+   * and the permission check above it still has to stand.
    */
   static async listReviewQueue(): Promise<CaseStudyEnriched[]> {
     const supabase = this.getSupabase();
