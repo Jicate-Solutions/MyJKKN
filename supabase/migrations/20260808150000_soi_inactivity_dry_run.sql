@@ -360,6 +360,20 @@ REVOKE EXECUTE ON FUNCTION public.fn_soi_inactivity_core(uuid) FROM anon, PUBLIC
 -- Deliberately NO grant to authenticated or service_role: the only legitimate
 -- callers are the two SECURITY DEFINER functions below, which reach it as the
 -- definer and therefore need no grant of their own.
+--
+-- WRITING NO GRANT IS NOT THE SAME AS DENYING ONE. Supabase ships
+--   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO authenticated
+-- which is a DIRECT grant applied to every newly created function, independent of
+-- PUBLIC. So the comment above described the intent while the platform silently did
+-- the opposite: measured on production 2026-08-01, authenticated held EXECUTE on
+-- this function. Because it is SECURITY DEFINER and carries no permission check of
+-- its own (the check lives in fn_soi_inactivity_preview), any signed-in user could
+-- call it directly and read who the engine would nudge, pause or remove — across
+-- every batch. The explicit revoke below is what actually enforces the intent.
+--
+-- Note the CI gate "New SECURITY DEFINER functions lock anon" passes either way:
+-- it is anon-only by construction and never inspects the authenticated grant.
+REVOKE EXECUTE ON FUNCTION public.fn_soi_inactivity_core(uuid) FROM authenticated;
 
 
 -- ── 3. Guarded preview — what the admin list reads ───────────────────────────
@@ -627,6 +641,19 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
      AND has_function_privilege('authenticated', 'public.fn_soi_record_inactivity_dry_run(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'assert failed: the recorder is reachable by any signed-in caller; it is service-role only.';
+  END IF;
+
+  -- The same assert for the unguarded engine. fn_soi_inactivity_core is SECURITY
+  -- DEFINER and carries no permission check of its own (the check lives in
+  -- fn_soi_inactivity_preview), so a signed-in caller holding EXECUTE could read
+  -- every batch's nudge/pause/remove verdicts directly. Only the guarded preview
+  -- and the service-role recorder may reach it, and both do so as the definer
+  -- without needing a grant. Measured on production 2026-08-01: authenticated DID
+  -- hold EXECUTE here, via Supabase's ALTER DEFAULT PRIVILEGES, despite the
+  -- migration never granting it.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated')
+     AND has_function_privilege('authenticated', 'public.fn_soi_inactivity_core(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'assert failed: the unguarded inactivity engine is reachable by any signed-in caller.';
   END IF;
 
   -- Reported, never enforced: this migration must not fail an apply just because
