@@ -1473,6 +1473,26 @@ CREATE POLICY "bills_select_student" ON billing_student_bills
         )
     );
 
+-- Updated 2026-08-01 (migration 20260801120000): the billing.schedule.* family
+-- of policies. This INSERT policy previously gated on the permission key ALONE
+-- while its UPDATE/DELETE siblings ANDed in role_has_institution_access — so an
+-- institution-scoped role could create a bill against any institution and then
+-- be unable to edit it. Now symmetric.
+-- The (SELECT fn()) wrappers are deliberate: those calls reference no column,
+-- so the subquery forces once-per-statement evaluation. role_has_institution_access
+-- DOES reference a column and must stay unwrapped (per-row).
+DROP POLICY IF EXISTS billing_bills_insert_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_insert_permission
+  ON public.billing_student_bills FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.schedule.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
+
 -- BILLING_RECEIPTS TABLE (8 policies)
 ALTER TABLE billing_receipts ENABLE ROW LEVEL SECURITY;
 
@@ -1508,6 +1528,26 @@ CREATE POLICY "receipts_select_student" ON billing_receipts
             WHERE email = (SELECT email FROM profiles WHERE id = auth.uid())
         )
     );
+
+-- Updated 2026-08-01 (migration 20260801120000): same asymmetry fix as
+-- billing_bills_insert_permission above. Note this uses
+-- role_has_institution_access(institution_id) rather than the older
+-- `institution_id = get_current_user_institution_id()` form used by the
+-- receipts_*_admin policies — the function additionally honours
+-- custom_roles.institution_scope='all', CAS sibling institutions, and
+-- user_institution_access grants, so scope='all' finance roles keep working
+-- even when their profiles.institution_id is NULL.
+DROP POLICY IF EXISTS billing_receipts_insert_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_insert_permission
+  ON public.billing_receipts FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.receipts.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
 
 CREATE POLICY "receipts_select_accountant" ON billing_receipts
     FOR SELECT USING (accountant_id = auth.uid());

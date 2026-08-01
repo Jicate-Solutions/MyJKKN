@@ -29,10 +29,15 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
   // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
 
-  // Permission checks
+  // Permission checks. "Create Bill" (single) needs only create; "Bulk Create
+  // Bills" additionally needs bulk_create — create stays in the expression
+  // because it is what the RLS INSERT policy on billing_student_bills checks.
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
-  const canBulkCreate = isSuperAdmin || canAccess('billing.schedule', 'create');
+  const canBulkCreate =
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
 
   // Check if we have meaningful search criteria (now optional - allows viewing all students)
   const hasSearchCriteria = React.useMemo(() => {
