@@ -36,7 +36,7 @@
 //
 // If a future requirement seems to need one of these, the answer is a new
 // consented input, not a join. The same boundary is restated in the migration
-// (supabase/migrations/20260808110000_learner_360_verdict.sql) and in the job
+// (supabase/migrations/20260808110003_learner_360_verdict.sql) and in the job
 // type's description row, so it has to be crossed three times to be crossed.
 // ============================================================================
 
