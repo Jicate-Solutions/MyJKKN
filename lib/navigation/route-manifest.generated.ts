@@ -426,6 +426,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/accreditation/iqac",
+        "label": "Iqac",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/accreditation/manage",
         "label": "Manage",
         "iconName": "Settings",
@@ -1657,12 +1663,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/ai-pulse/guide",
-        "label": "Guide",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
         "path": "/ai-pulse/lab",
         "label": "Lab",
         "iconName": "FileText",
@@ -2673,12 +2673,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
-            "path": "/campus-living/my-hostel/guide",
-            "label": "Guide",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
             "path": "/campus-living/my-hostel/housekeeping",
             "label": "Room Cleaning",
             "iconName": "Brush",
@@ -3504,9 +3498,9 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
-        "path": "/foundation/students",
-        "label": "Students",
-        "iconName": "GraduationCap",
+        "path": "/foundation/practice",
+        "label": "Practice",
+        "iconName": "FileText",
         "children": []
       }
     ]
@@ -4239,26 +4233,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CalendarOff",
         "children": [
           {
-            "path": "/hr/leave/apply",
-            "label": "Apply",
-            "iconName": "CalendarOff",
-            "children": []
-          },
-          {
             "path": "/hr/leave/approvals",
             "label": "Approvals",
-            "iconName": "CalendarOff",
-            "children": []
-          },
-          {
-            "path": "/hr/leave/approve",
-            "label": "Approve",
-            "iconName": "CalendarOff",
-            "children": []
-          },
-          {
-            "path": "/hr/leave/balance",
-            "label": "Balance",
             "iconName": "CalendarOff",
             "children": []
           },
@@ -4277,12 +4253,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/hr/leave/encashment",
             "label": "Encashment",
-            "iconName": "CalendarOff",
-            "children": []
-          },
-          {
-            "path": "/hr/leave/my-applications",
-            "label": "My Applications",
             "iconName": "CalendarOff",
             "children": []
           },
@@ -4581,6 +4551,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/ims/inventory/item-approvals",
+            "label": "Item Approvals",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/ims/inventory/items",
             "label": "Items",
             "iconName": "FileText",
@@ -4615,6 +4591,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/ims/reports/consumption",
             "label": "Consumption",
+            "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ims/reports/gateway-payments",
+            "label": "Gateway Payments",
             "iconName": "FileBarChart",
             "children": []
           },
@@ -5731,8 +5713,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           },
           {
             "path": "/pde/admin/compliance",
-            "label": "PDE Compliance",
-            "iconName": "ShieldCheck",
+            "label": "Compliance",
+            "iconName": "FileText",
             "children": [
               {
                 "path": "/pde/admin/compliance/per-college",
@@ -5924,12 +5906,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
-        "path": "/pde/guide",
-        "label": "Guide",
-        "iconName": "FileText",
-        "children": []
-      },
-      {
         "path": "/pde/learn",
         "label": "Learn",
         "iconName": "FileText",
@@ -6106,12 +6082,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Student",
         "iconName": "FileText",
         "children": [
-          {
-            "path": "/rcltp/student/assessment",
-            "label": "Assessment",
-            "iconName": "FileText",
-            "children": []
-          },
           {
             "path": "/rcltp/student/practice",
             "label": "Practice",
@@ -6422,6 +6392,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/solutions/departments",
+        "label": "Departments",
+        "iconName": "Building2",
+        "children": []
       },
       {
         "path": "/solutions/discovery",
@@ -6788,9 +6764,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "iconName": "FileText",
             "children": [
               {
+                "path": "/startup-studio/school-of-influence/admin/applications",
+                "label": "Applications",
+                "iconName": "ClipboardList",
+                "children": []
+              },
+              {
                 "path": "/startup-studio/school-of-influence/admin/attendance",
                 "label": "Attendance",
                 "iconName": "CheckSquare",
+                "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/lifecycle",
+                "label": "Lifecycle",
+                "iconName": "FileText",
                 "children": []
               },
               {
@@ -6850,12 +6838,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/startup-studio/solve-for-100/mentor",
             "label": "Mentor",
             "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/startup-studio/solve-for-100/programs",
-            "label": "Programs",
-            "iconName": "BookOpen",
             "children": []
           }
         ]
