@@ -221,12 +221,18 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/solutions/paradigm-shift',
         '/solutions/ai-solution-compliance',
+        '/solutions/departments',
       ],
       children: [
         {
           label: 'Paradigm Shift',
           icon: 'Lightbulb',
           href: '/solutions/paradigm-shift',
+        },
+        {
+          label: 'Department Capabilities',
+          icon: 'Tags',
+          href: '/solutions/departments',
         },
         {
           label: 'Paradigm Leaderboard',
