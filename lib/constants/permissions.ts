@@ -1211,6 +1211,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.edit', label: 'Edit Counselors' },
       { key: 'admission.counselors.delete', label: 'Delete Counselors' },
       { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+      // 2026-08-02 — admission_counselor_duty_log's SELECT policy demanded this
+      // key and it existed nowhere. Kept separate from performance.view: a duty
+      // log is an attendance-shaped record of an individual's working day.
+      { key: 'admission.counselors.duty_log.view', label: 'View Counselor Duty Log' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
