@@ -3458,6 +3458,21 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
+            // Improvement Board — the oversight read (HOD / principal). They
+            // hold improvement.ideas.view_scoped and NOT one of the keys any
+            // submenu below declares, so the .some() would hide the whole
+            // parent and the rows the RLS branch hands them stay unreachable
+            // except by typing the URL. MENU_PERMISSIONS is one key per route
+            // and cannot express the union, so the union is carried here — the
+            // same idiom the submenu filter below already uses for several
+            // routes. The matching submenu case opens the board itself ONLY.
+            if (
+              menu.href === '/improvement-board' &&
+              userRole.permissions['improvement.ideas.view_scoped'] === true
+            ) {
+              return true;
+            }
+
             // Show parent if any submenu is accessible
             return menu.submenus.some((submenu) => {
               const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
@@ -3504,6 +3519,26 @@ export function GetRoleBasedPages(
             // But All Bug Reports (admin page) requires permission
             if (submenu.href === '/my-bug-reports' || submenu.href === '/bug-leaderboard') {
               return true;
+            }
+
+            // Improvement Board — the oversight read. A HOD / principal holding
+            // improvement.ideas.view_scoped reads open ideas raised inside their
+            // own institution (the branch this PR adds to improvement_ideas_select),
+            // but MENU_PERMISSIONS is one key per route and can only name
+            // improvement.ideas.view. Without this case the rows arrive and the
+            // link does not, so the board is reachable only by typing the URL.
+            //
+            // DELIBERATELY the board itself and nothing else. My Dashboard,
+            // Team Rotation and My Analytics are cohort-management surfaces
+            // (an associate's own contribution, the rota, the analyst views);
+            // an oversight reader has no use for them and opening them would
+            // hand a HOD the associate-management surface nobody asked for.
+            // They stay on improvement.ideas.view.
+            if (submenu.href === '/improvement-board') {
+              return (
+                userRole.permissions['improvement.ideas.view'] === true ||
+                userRole.permissions['improvement.ideas.view_scoped'] === true
+              );
             }
 
             // Student-portal links (My Attendance / My Profile / My Marks /
