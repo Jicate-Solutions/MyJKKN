@@ -126,13 +126,18 @@ export async function getRoleWidgetMap(): Promise<RoleWidgetMap> {
 }
 
 /**
- * Return the ordered list of widget IDs to render for a given role.
+ * Pure selection half of {@link getWidgetsForRole} — no I/O.
  *
- * `roleKey` should be the lowercased `profiles.role` value. Pass `null` for
- * unauthenticated callers — they get the `_default` list.
+ * Extracted 2026-08-01 (dashboard TTFB): the map fetch does not depend on the
+ * viewer's role, so /dashboard fetches the map in parallel with persona
+ * resolution and then applies this exact selection logic synchronously.
+ * Byte-for-byte the same resolution order getWidgetsForRole always used:
+ * role entry → _default entry → hardcoded _default.
  */
-export async function getWidgetsForRole(roleKey: string | null): Promise<string[]> {
-  const map = await getRoleWidgetMap();
+export function pickWidgetsForRole(
+  map: RoleWidgetMap,
+  roleKey: string | null
+): string[] {
   if (roleKey && map[roleKey] && map[roleKey].length > 0) {
     return map[roleKey];
   }
@@ -140,6 +145,17 @@ export async function getWidgetsForRole(roleKey: string | null): Promise<string[
     return map._default;
   }
   return HARDCODED_DEFAULT._default;
+}
+
+/**
+ * Return the ordered list of widget IDs to render for a given role.
+ *
+ * `roleKey` should be the lowercased `profiles.role` value. Pass `null` for
+ * unauthenticated callers — they get the `_default` list.
+ */
+export async function getWidgetsForRole(roleKey: string | null): Promise<string[]> {
+  const map = await getRoleWidgetMap();
+  return pickWidgetsForRole(map, roleKey);
 }
 
 /**
