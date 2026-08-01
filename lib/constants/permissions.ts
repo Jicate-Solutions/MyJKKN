@@ -1493,6 +1493,22 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
 
+      // 2026-08-02 — registered because the RLS already DEMANDED them.
+      // public.quality_evidence_mappings — the "collect once, report many"
+      // ledger that maps one piece of evidence onto many accreditation bodies —
+      // has carried qem_select / qem_insert / qem_update since
+      // 20260417000001_compliance_unification_substrate, each calling
+      // user_has_permission() on one of these three keys. None of the three was
+      // ever added here, and that migration's own comment says so ("expected to
+      // be added ... in a follow-up commit. Until then, super_admin bypass
+      // handles all testing"). The follow-up never came, so for ~3.5 months the
+      // table has been reachable by super admins alone — not by policy, but
+      // because a key registered nowhere cannot be ticked in Role Management.
+      // Registering a key grants it to NOBODY; it only makes it assignable.
+      { key: 'accreditation.evidence.view', label: 'View Evidence-to-Body Mappings' },
+      { key: 'accreditation.evidence.create', label: 'Map Evidence to an Accreditation Body' },
+      { key: 'accreditation.evidence.manage', label: 'Edit Evidence-to-Body Mappings' },
+
       // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
       // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
       { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
