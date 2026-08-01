@@ -168,6 +168,7 @@ function toPreviewField(f: EditableField, index: number): EventRegistrationFormF
   return {
     id: f.uid,
     section_id: '',
+    form_id: '',
     event_id: '',
     field_key: f.field_key ?? `preview_${index}`,
     field_label: f.field_label || 'Untitled field',
@@ -294,10 +295,18 @@ function FieldRow({
 
 export function RegistrationFormEditor({
   eventId,
+  formId,
   variant = 'tournament',
   backHref,
 }: {
   eventId: string;
+  /**
+   * WHICH form on the event is being edited. An event holds many named forms
+   * (one per monthly run, say), so the builder is addressed by form, not by
+   * event — keying it on eventId is what used to make every form show every
+   * other form's fields.
+   */
+  formId: string;
   /**
    * Which event this builder is editing. 'tournament' shows the built-in
    * division / roster / entry-fee panels; 'general' hides them, because a
@@ -312,7 +321,7 @@ export function RegistrationFormEditor({
   const router = useRouter();
   const isTournament = variant === 'tournament';
   const backTo = backHref ?? `/events/tournament/${eventId}`;
-  const { data: form, isLoading } = useRegistrationForm(eventId);
+  const { data: form, isLoading } = useRegistrationForm(formId);
   const save = useSaveRegistrationForm(eventId);
 
   const [sections, setSections] = useState<EditableSection[]>([]);
@@ -427,7 +436,7 @@ export function RegistrationFormEditor({
       })
     );
 
-    await save.mutateAsync({ isEnabled: enabledSnapshot, sections: payload });
+    await save.mutateAsync({ formId, isEnabled: enabledSnapshot, sections: payload });
 
     // Inputs and the enable switch stay live during a save, so anything changed
     // in that window was never sent. Every local edit replaces the sections

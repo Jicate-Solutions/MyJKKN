@@ -19,11 +19,14 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  Building2,
   CalendarDays,
+  CalendarClock,
+  Clock,
+  Hash,
   MapPin,
   Pencil,
   Loader2,
-  FileText,
   ChevronRight,
   Globe,
   Users,
@@ -57,6 +60,8 @@ import {
 import type { Event, EventStatus } from '@/types/events';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
+import { EventFormCards } from '@/components/events/registration/event-form-cards';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 /** 'cultural' → 'Cultural', 'sports_day' → 'Sports Day' (raw types render readable). */
 const formatEventType = (type: string) =>
@@ -75,6 +80,48 @@ const formatDate = (value: string | null) => {
     year: 'numeric',
   });
 };
+
+/** "9:30 am" from a time or timestamp column; null when unparseable. */
+const formatTime = (value: string | null) => {
+  if (!value) return null;
+  // start_time/end_time are `time` columns ("09:30:00"), which Date() cannot
+  // parse on its own — give them a date before handing them over.
+  const d = new Date(/^\d{2}:\d{2}/.test(value) ? `1970-01-01T${value}` : value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+};
+
+/** A date range that collapses to one date when both ends match (or one is absent). */
+const formatRange = (from: string | null, to: string | null) => {
+  const a = formatDate(from);
+  const b = formatDate(to);
+  if (a && b) return a === b ? a : `${a} → ${b}`;
+  return a ?? b ?? null;
+};
+
+/** One labelled fact in the details grid. Renders a muted dash rather than vanishing,
+ *  so a missing value reads as "not set" instead of the row silently disappearing. */
+function Fact({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="break-words text-sm font-medium">
+          {value || <span className="font-normal text-muted-foreground">Not set</span>}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Draft <-> Active. General events run the 2-state model in
@@ -165,6 +212,7 @@ export default function GeneralEventDetailPage() {
   const id = String(params?.id ?? '');
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
+  const { institutions } = useInstitutionsWithAccess();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   // A specialised event type reached through this URL belongs to its own
@@ -215,7 +263,32 @@ export default function GeneralEventDetailPage() {
 
   if (dedicatedConsole) return null; // redirecting to the specialised console
 
-  const dateLabel = formatDate(event.event_date ?? event.start_date);
+  const dateLabel =
+    formatRange(event.event_date ?? event.start_date, event.end_date) ?? null;
+
+  const startTime = formatTime(event.start_time ?? event.start_date);
+  const endTime = formatTime(event.end_time ?? event.end_date);
+  const timeLabel = startTime && endTime ? `${startTime} – ${endTime}` : startTime;
+
+  const registrationWindow = formatRange(
+    event.registration_open_date,
+    event.registration_close_date
+  );
+
+  const capacityLabel = event.max_registrations
+    ? `${event.max_registrations} max${event.target_registrations ? ` · ${event.target_registrations} target` : ''}`
+    : event.target_registrations
+      ? `${event.target_registrations} target`
+      : null;
+
+  const createdLabel = formatDate(event.created_at);
+
+  // Resolve the host institution's NAME from the list the user can already see.
+  // The event row carries only institution_id, and a separate fetch per event
+  // detail view would be a round-trip for one string this hook already holds.
+  const hostName =
+    institutions.find((i) => i.id === event.institution_id)?.name ?? null;
+
   const home = (event.config as Record<string, unknown> | null)?.home as
     | string
     | undefined;
@@ -264,83 +337,101 @@ export default function GeneralEventDetailPage() {
           </div>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Event details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <CalendarDays className="h-4 w-4" />
-                {dateLabel ?? 'No date set'}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <MapPin className="h-4 w-4" />
-                {event.venue || event.venue_text || 'No venue set'}
-              </span>
-            </div>
+        {/* Details left, the levers that change what the world sees on the right. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Event details</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+                <Fact icon={CalendarDays} label="Date" value={dateLabel} />
+                <Fact icon={Clock} label="Time" value={timeLabel} />
+                <Fact
+                  icon={MapPin}
+                  label="Venue"
+                  value={event.venue || event.venue_text}
+                />
+                <Fact icon={Building2} label="Host institution" value={hostName} />
+                <Fact
+                  icon={CalendarClock}
+                  label="Registration window"
+                  value={registrationWindow}
+                />
+                <Fact icon={Users} label="Capacity" value={capacityLabel} />
+              </div>
 
-            {event.description && (
-              <p className="whitespace-pre-line text-sm">{event.description}</p>
-            )}
-
-            <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">
-                NAAC evidence criteria
-              </p>
-              {(event.naac_criteria ?? []).length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1">
-                  <NaacCriteriaChips codes={event.naac_criteria ?? []} />
+              {event.description && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">Description</p>
+                  <p className="whitespace-pre-line text-sm">{event.description}</p>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  No NAAC evidence tags yet — add them from Edit.
-                </p>
               )}
-            </div>
 
-            <PublicVisibilityToggle event={event} />
-          </CardContent>
-        </Card>
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">NAAC evidence criteria</p>
+                {(event.naac_criteria ?? []).length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <NaacCriteriaChips codes={event.naac_criteria ?? []} />
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No NAAC evidence tags yet — add them from Edit.
+                  </p>
+                )}
+              </div>
 
-        {/* Registration form. Deliberately a link, not a live field count: the
-            form row is lazily CREATED on first read, so fetching it here would
-            materialise a row (and hard-error under stricter RLS) merely by
-            viewing the event. */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              Registration Form
-            </CardTitle>
-            <CardDescription>
-              Build the questions attendees answer when they register for this
-              event — sections, field types, required flags, and conditional
-              logic.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Button asChild variant="outline" className="gap-1.5">
-              <Link href={`/events/${event.id}/registration-form`}>
-                Manage registration form
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </Button>
-            {isSchoolOfInfluence ? (
-              <p className="text-xs text-muted-foreground">
-                This form is what applicants answer on the School of Influence
-                application page below.
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Note: the form is saved against this event, but general events do
-                not yet have a public registration page — only sports tournaments
-                have one today. Until that ships, use this to define the form;
-                responses cannot be collected from the public site yet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <Hash className="h-3.5 w-3.5" />
+                  {event.slug}
+                </span>
+                {event.year && <span>Year {event.year}</span>}
+                {createdLabel && <span>Created {createdLabel}</span>}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Visibility</CardTitle>
+              <CardDescription>
+                Who can see this event, and whether outsiders may register.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <PublicVisibilityToggle event={event} />
+              <div className="space-y-2 rounded-lg border p-3 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">External registration</span>
+                  <Badge variant={event.allow_external_registration ? 'success' : 'secondary'}>
+                    {event.allow_external_registration ? 'Allowed' : 'JKKN only'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Audience</span>
+                  <Badge variant="outline">{event.visibility ?? 'institution'}</Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Registration forms — an event holds many (one per monthly run).
+            Rendering the live list here is safe because listForms() is a pure
+            SELECT; the old single-link card avoided any live read because its
+            only reader, getOrCreateForm(), INSERTS a row on first read. */}
+        <EventFormCards
+          eventId={event.id}
+          editHrefFor={(formId) => `/events/${event.id}/registration-form?form=${formId}`}
+        />
+
+        {isSchoolOfInfluence && (
+          <p className="text-xs text-muted-foreground">
+            These forms are what applicants answer on the School of Influence
+            application page below.
+          </p>
+        )}
 
         {/* School of Influence — the programme's application door. Shown only
             for the SoI event type so no other event grows a stray link; the

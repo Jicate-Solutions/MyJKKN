@@ -3592,12 +3592,22 @@ CREATE INDEX IF NOT EXISTS idx_events_registrations_institution ON public.events
 -- tournament_divisions' pattern rather than requiring a 3-way join through
 -- form_id/section_id on every check. Submitted answers land in
 -- events_registrations.custom_fields, keyed by field_key.
+-- An event holds MANY registration forms — typically one per run of a recurring
+-- event. Each is addressed publicly by (event_id, slug) so a month's link
+-- resolves to its own form and an old link keeps pointing at the month it
+-- belonged to. There is deliberately NO unique on event_id.
 CREATE TABLE IF NOT EXISTS event_registration_forms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id uuid NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name text NOT NULL DEFAULT 'Registration Form',
+  slug text NOT NULL,
+  description text,
   is_enabled boolean NOT NULL DEFAULT true,
+  display_order int NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (event_id, slug),
+  CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
 );
 
 CREATE TABLE IF NOT EXISTS event_registration_form_sections (
@@ -3613,6 +3623,9 @@ CREATE TABLE IF NOT EXISTS event_registration_form_sections (
 CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   section_id uuid NOT NULL REFERENCES event_registration_form_sections(id) ON DELETE CASCADE,
+  -- Owning form. An event holds MANY forms (one per monthly run), so field_key
+  -- is unique per form, not per event.
+  form_id uuid NOT NULL REFERENCES event_registration_forms(id) ON DELETE CASCADE,
   event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   field_key text NOT NULL,
   field_label text NOT NULL,
@@ -3632,11 +3645,13 @@ CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   condition jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (event_id, field_key)
+  UNIQUE (form_id, field_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_registration_form_sections_form ON event_registration_form_sections(form_id);
 CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_section ON event_registration_form_fields(section_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_form_id ON event_registration_form_fields(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_forms_event_id ON event_registration_forms(event_id);
 
 -- Payment transactions for events (separate from billing payment_transactions)
 CREATE TABLE IF NOT EXISTS public.event_payment_transactions (

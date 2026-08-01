@@ -42,6 +42,7 @@ import { ArrowLeft, ArrowRight, Loader2, Check, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import { PresetManager } from '@/components/events/shared/preset-manager';
 import { VenueRoomPicker } from '@/components/events/venue/venue-room-picker';
@@ -67,7 +68,27 @@ export default function CreateEventPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId || profile?.institution_id || '';
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
+
+  // HOST INSTITUTION — the college that owns this event. It is what `institution_id`
+  // is set to, and what the booking spine compares the room's owner against to decide
+  // whether the hold is same-college (auto) or cross-college (needs approval). It
+  // defaults to the user's current institution context but stays explicitly
+  // selectable: a coordinator with access to several colleges may run an event on
+  // behalf of any of them, and the default is not always the one they mean.
+  const [hostOverride, setHostOverride] = useState<string | null>(null);
+  const ambientInstitutionId = selectedInstitutionId || profile?.institution_id || '';
+  const institutionId = useMemo(() => {
+    if (hostOverride) return hostOverride;
+    // Before the accessible list resolves, keep the ambient value so nothing that
+    // gates on institutionId flickers.
+    if (!institutions.length) return ambientInstitutionId;
+    // Only default to the ambient institution if the user can actually host under
+    // it — otherwise the Select would sit on a value that isn't one of its options.
+    return institutions.some((i) => i.id === ambientInstitutionId)
+      ? ambientInstitutionId
+      : institutions[0].id;
+  }, [hostOverride, institutions, ambientInstitutionId]);
 
   const [step, setStep] = useState<Step>('format');
   const [format, setFormat] = useState<EventFormat | null>(null);
@@ -269,7 +290,7 @@ export default function CreateEventPage() {
         ]}
       />
 
-      <div className="mx-auto mt-6 max-w-2xl space-y-4">
+      <div className="mx-auto mt-6 max-w-full space-y-4">
         {/* Step indicator */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {STEP_ORDER.map((s, i) => (
@@ -297,9 +318,9 @@ export default function CreateEventPage() {
           ))}
         </div>
 
-        {!institutionId && (
+        {!institutionId && !institutionsLoading && (
           <p className="text-sm text-destructive">
-            No institution selected — pick an institution before creating an event.
+            You don&apos;t have access to any institution to host an event under.
           </p>
         )}
 
@@ -468,6 +489,36 @@ export default function CreateEventPage() {
                 </p>
               ) : (
                 <>
+                  {/* Host institution — sits above Venue on purpose: it decides whether
+                      picking a room is a same-college hold or a cross-college request. */}
+                  <div className="space-y-2">
+                    <Label htmlFor="host_institution">
+                      Host Institution <span className="text-destructive">*</span>
+                    </Label>
+                    <Select value={institutionId} onValueChange={setHostOverride}>
+                      <SelectTrigger id="host_institution">
+                        <SelectValue
+                          placeholder={
+                            institutionsLoading
+                              ? 'Loading institutions…'
+                              : 'Select host institution'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {institutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      The college this event is filed under. Booking a room owned by a
+                      different college needs that college&apos;s approval.
+                    </p>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="event_date">Date</Label>
                     <Input

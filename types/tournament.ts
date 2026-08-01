@@ -356,6 +356,8 @@ export interface FormFieldCondition {
 export interface EventRegistrationFormField {
   id: string;
   section_id: string;
+  /** Owning form. field_key is unique per (form_id, field_key), NOT per event. */
+  form_id: string;
   event_id: string;
   field_key: string;
   field_label: string;
@@ -389,10 +391,23 @@ export interface EventRegistrationFormSection {
 export interface EventRegistrationForm {
   id: string;
   event_id: string;
+  /** Organizer-facing label, e.g. "January 2026". */
+  name: string;
+  /** URL segment for the public link: /…/register?form=<slug>. Unique per event. */
+  slug: string;
+  description: string | null;
+  /** Open/closed switch for this form's own intake. */
   is_enabled: boolean;
+  display_order: number;
   created_at: string;
   updated_at: string;
   sections?: EventRegistrationFormSection[];
+}
+
+/** A form in the picker list, with the counts the list needs. */
+export interface EventRegistrationFormSummary extends EventRegistrationForm {
+  field_count: number;
+  response_count: number;
 }
 
 export interface CreateFormSectionDto {

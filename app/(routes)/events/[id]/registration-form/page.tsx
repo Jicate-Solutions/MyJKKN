@@ -23,7 +23,7 @@ import {
   useGeneralEvent,
   DEDICATED_EVENT_CONSOLES,
 } from '@/hooks/events/use-general-events';
-import { RegistrationFormEditor } from '../../tournament/[id]/registration-form/_components/registration-form-editor';
+import { RegistrationFormsPanel } from '@/components/events/registration/registration-forms-panel';
 
 export default function GeneralEventRegistrationFormPage() {
   const params = useParams();
@@ -82,7 +82,7 @@ export default function GeneralEventRegistrationFormPage() {
         ]}
       />
       <div className="mt-4">
-        <RegistrationFormEditor
+        <RegistrationFormsPanel
           eventId={id}
           variant="general"
           backHref={`/events/${id}`}
