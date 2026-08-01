@@ -203,8 +203,14 @@ export default function BulkCreateUploadPage() {
     preview.validRows > 0 &&
     (preview.errorRows === 0 || skipInvalidAck);
 
+  // Both actions required (PermissionGuard's anyAction defaults to false):
+  // bulk_create opens the Excel flow, create is what the RLS INSERT policy on
+  // billing_student_bills checks.
   return (
-    <PermissionGuard module='billing.schedule' action='create'>
+    <PermissionGuard
+      module='billing.schedule'
+      action={['create', 'bulk_create']}
+    >
       <ContentLayout title='Upload Bills from Excel'>
         <div className='space-y-6'>
           <Breadcrumb>

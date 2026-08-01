@@ -28,7 +28,14 @@ export default function BillingSchedulePage() {
   const searchParams = useSearchParams();
   const [useAdvancedFilters, setUseAdvancedFilters] = useState(false);
   const [bulkReceiptOpen, setBulkReceiptOpen] = useState(false);
-  const { isSuperAdmin, can } = usePermissions();
+  const { can } = usePermissions();
+
+  // Bulk receipt generation is delegable through Role Management rather than
+  // reserved for super admins. `can()` already returns true for super admins,
+  // so this single check covers both. The API routes behind the dialog
+  // re-check the same key and additionally bound the batch to the caller's
+  // accessible institutions — see lib/auth/bulk-receipt-access.ts.
+  const canBulkGenerateReceipts = can('billing.receipts.bulk_create');
 
   // Parse current search parameters
   const search = billingScheduleSearchParamsSchema.parse(
@@ -128,14 +135,14 @@ export default function BillingSchedulePage() {
             </div>
 
             <div className='flex flex-wrap items-center gap-2 shrink-0'>
-              {/* Super-admin only: bulk receipt generation from current filters */}
-              {isSuperAdmin && (
+              {/* Bulk receipt generation from current filters */}
+              {canBulkGenerateReceipts && (
                 <Button
                   variant='default'
                   size='sm'
                   onClick={() => setBulkReceiptOpen(true)}
                   className='bg-emerald-600 hover:bg-emerald-700 flex items-center gap-2'
-                  title='Generate receipts in bulk for the currently filtered bills (super admin only)'
+                  title='Generate receipts in bulk for the currently filtered bills'
                 >
                   <Receipt className='h-4 w-4' />
                   Bulk Generate Receipts
@@ -198,8 +205,8 @@ export default function BillingSchedulePage() {
           </Card>
         </div>
 
-        {/* Bulk Receipt Dialog — super admin only, gated above */}
-        {isSuperAdmin && (
+        {/* Bulk Receipt Dialog — gated on the same permission as the button */}
+        {canBulkGenerateReceipts && (
           <BulkReceiptDialog
             open={bulkReceiptOpen}
             onOpenChange={setBulkReceiptOpen}
