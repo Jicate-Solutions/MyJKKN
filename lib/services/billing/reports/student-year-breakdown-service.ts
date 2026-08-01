@@ -8,7 +8,7 @@ import type {
 /**
  * Year-wise learner counts and amounts for the /billing/reports dashboard.
  *
- * One RPC call (migration billing_page_consolidation.sql). This used to be
+ * One RPC call (migration 20260802023000_billing_year_breakdown_rpc.sql). This used to be
  * computed client-side by paging the ENTIRE billing_student_bills table
  * through PostgREST in 1000-row pages — 10,763 bills → ELEVEN sequential
  * requests to /rest/v1/billing_student_bills on every dashboard load
