@@ -12,8 +12,9 @@ export const dynamic = 'force-dynamic';
 // window / form / capacity checks below (RLS is the backstop, not the gate).
 //
 // PAYMENT. The fee comes from the FORM, not the event: an event holds many forms
-// and each monthly run can charge differently. When it is > 0 the order is
-// created against the HOST institution's Razorpay account —
+// and each monthly run can charge differently. It is charged only when the form
+// has the fee SWITCHED ON and priced (see effectiveFee). When it applies, the
+// order is created against the HOST institution's Razorpay account —
 // `institutionIdOverride: ev.institution_id` — so money settles into the college
 // that is running the event, never the registrant's own college (guests have
 // none at all). Identical to what the tournament route does with a division fee.
@@ -22,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
+import { effectiveFee } from '@/types/tournament';
 
 /**
  * Event fees resolve the host institution's 'tuition' account, the same slot
@@ -96,6 +98,7 @@ export async function POST(
     let formRow: {
       id: string;
       is_enabled: boolean;
+      fee_enabled: boolean;
       fee_amount: unknown;
       fee_label: string | null;
     } | null = null;
@@ -103,7 +106,7 @@ export async function POST(
     if (dto.form_id) {
       const { data } = await (svc as any)
         .from('event_registration_forms')
-        .select('id, is_enabled, fee_amount, fee_label')
+        .select('id, is_enabled, fee_enabled, fee_amount, fee_label')
         .eq('id', dto.form_id)
         .eq('event_id', eventId)
         .maybeSingle();
@@ -117,7 +120,7 @@ export async function POST(
     } else {
       const { data } = await (svc as any)
         .from('event_registration_forms')
-        .select('id, is_enabled, fee_amount, fee_label')
+        .select('id, is_enabled, fee_enabled, fee_amount, fee_label')
         .eq('event_id', eventId)
         .eq('is_enabled', true)
         .order('display_order', { ascending: true })
@@ -179,11 +182,12 @@ export async function POST(
     }
 
     // ---- fee ----
-    // The fee is read from the DB, never from the request: a client-supplied
-    // amount is a client-chosen price.
-    // Number() because PostgREST serialises numeric as a string — "0.00" is
-    // truthy, so an unconverted value makes every free form paid.
-    const fee = Number(formRow.fee_amount ?? 0) || 0;
+    // Read from the DB, never from the request: a client-supplied amount is a
+    // client-chosen price. effectiveFee applies BOTH gates (fee_enabled AND
+    // amount > 0) and does the string→number coercion PostgREST forces on
+    // numeric — testing fee_amount alone here would charge a form whose fee the
+    // organizer had switched off.
+    const fee = effectiveFee(formRow);
     const paymentStatus = fee > 0 ? 'pending' : 'not_required';
 
     // ---- registration ----

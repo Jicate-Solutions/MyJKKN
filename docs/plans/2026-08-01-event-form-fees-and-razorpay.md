@@ -2,6 +2,26 @@
 
 Date: 2026-08-01 · Status: **IMPLEMENTED** (all 7 phases; migration applied to prod)
 
+## Follow-up: explicit fee toggle (2026-08-01)
+
+`fee_amount > 0` was the only signal a form charged, which overloaded one number
+with two meanings — "free" and "nobody has priced it yet" were indistinguishable,
+and turning a fee off meant destroying the amount.
+
+Migration `20260801120000_event_form_fee_enabled_toggle.sql` adds
+`fee_enabled boolean NOT NULL DEFAULT false`, backfilled `true` wherever
+`fee_amount > 0` (none today — the clause is for correctness whenever it runs).
+
+**A fee applies only when `fee_enabled AND fee_amount > 0`.** That rule lives in
+exactly one place: `effectiveFee()` in `types/tournament.ts`. Four callers need
+it (builder card, list badge, public page, submit route) and a rule copied four
+times is a rule that drifts. It takes a loose shape on purpose so the submit
+route can pass a raw PostgREST row — numeric arrives as a string, so the
+coercion happens inside the helper rather than being assumed of the caller.
+
+Switching the fee OFF writes only `fee_enabled: false`, leaving the amount and
+label intact so switching back on restores the price.
+
 ## Delivered
 
 | Phase | Files |

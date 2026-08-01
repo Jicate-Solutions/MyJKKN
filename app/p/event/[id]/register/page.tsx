@@ -17,6 +17,7 @@ import type { Metadata } from 'next';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
+import { effectiveFee } from '@/types/tournament';
 import { EventRegisterForm } from './_components/event-register-form';
 
 export const dynamic = 'force-dynamic';
@@ -108,7 +109,7 @@ export default async function PublicEventRegisterPage({
 
   const formQuery = svc
     .from('event_registration_forms')
-    .select('id, slug, name, description, is_enabled, fee_amount, fee_label')
+    .select('id, slug, name, description, is_enabled, fee_enabled, fee_amount, fee_label')
     .eq('event_id', id);
 
   const { data: formRows } = requestedSlug
@@ -198,9 +199,10 @@ export default async function PublicEventRegisterPage({
     /* no session — guest flow */
   }
 
-  // PostgREST returns numeric as a string; Number() before any comparison, or
-  // "0.00" reads as truthy and a free form starts asking for money.
-  const fee = Number(formRow.fee_amount ?? 0) || 0;
+  // effectiveFee applies BOTH gates (switched on AND priced) and does the
+  // string→number coercion PostgREST forces on numeric. Testing either field
+  // alone here is how a form with the fee switched off would still charge.
+  const fee = effectiveFee(formRow);
   const when = ev.event_date ?? ev.start_date;
   const where = ev.venue || ev.venue_text;
 

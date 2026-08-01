@@ -120,6 +120,7 @@ export function useUpdateRegistrationForm(eventId: string) {
         is_enabled?: boolean;
         name?: string;
         description?: string | null;
+        fee_enabled?: boolean;
         fee_amount?: number;
         fee_label?: string | null;
       };

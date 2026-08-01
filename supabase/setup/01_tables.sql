@@ -3605,9 +3605,12 @@ CREATE TABLE IF NOT EXISTS event_registration_forms (
   is_enabled boolean NOT NULL DEFAULT true,
   display_order int NOT NULL DEFAULT 0,
   -- Registration fee for THIS form: an event holds many forms and each monthly
-  -- run can charge a different amount. 0 = free (no Razorpay order created).
+  -- run can charge a different amount. A fee is collected only when
+  -- fee_enabled AND fee_amount > 0 — the switch is separate from the price so a
+  -- fee can be turned off without destroying the amount.
   -- No fee_head column on purpose — event fees resolve the HOST institution's
   -- 'tuition' account, exactly as tournament entry fees do.
+  fee_enabled boolean NOT NULL DEFAULT false,
   fee_amount numeric(10,2) NOT NULL DEFAULT 0,
   fee_label text,
   created_at timestamptz NOT NULL DEFAULT now(),

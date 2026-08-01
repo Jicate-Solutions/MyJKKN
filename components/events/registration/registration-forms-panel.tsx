@@ -62,7 +62,7 @@ import {
   useDeleteRegistrationForm,
   useUpdateRegistrationForm,
 } from '@/hooks/events/use-tournament-registration-form';
-import type { EventRegistrationFormSummary } from '@/types/tournament';
+import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
 import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
 import { RegistrationFeeCard } from './registration-fee-card';
 
@@ -83,9 +83,9 @@ function publicFormUrl(
   return `${origin}/p/${base}/${eventId}/register?form=${encodeURIComponent(slug)}`;
 }
 
-/** "₹200 · Delegate fee", or null when the form is free. */
+/** "₹200 · Delegate fee", or null when the form is free (fee off, or unpriced). */
 function feeLabelFor(form: EventRegistrationFormSummary): string | null {
-  const amount = Number(form.fee_amount ?? 0);
+  const amount = effectiveFee(form);
   if (!(amount > 0)) return null;
   const money = `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   return form.fee_label ? `${money} · ${form.fee_label}` : money;

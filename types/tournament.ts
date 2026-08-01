@@ -400,9 +400,17 @@ export interface EventRegistrationForm {
   is_enabled: boolean;
   display_order: number;
   /**
+   * Whether this form charges at all. Separate from the amount so a fee can be
+   * switched off without destroying the price — and so "free" is distinguishable
+   * from "nobody has set a price yet".
+   *
+   * A fee is collected only when `fee_enabled && fee_amount > 0`. Use
+   * `effectiveFee()` rather than testing either field alone.
+   */
+  fee_enabled: boolean;
+  /**
    * Registration fee in INR for THIS form — an event holds many forms and each
-   * run can charge differently. 0 means free: no Razorpay order is created and
-   * the registration confirms immediately (payment_status 'not_required').
+   * run can charge differently. Ignored entirely while `fee_enabled` is false.
    * Postgres numeric arrives over PostgREST as a STRING, so callers must
    * Number() it rather than trusting the declared type at runtime.
    */
@@ -412,6 +420,28 @@ export interface EventRegistrationForm {
   created_at: string;
   updated_at: string;
   sections?: EventRegistrationFormSection[];
+}
+
+/**
+ * What a registrant is actually charged for this form: the amount when the fee
+ * is switched on and priced, otherwise 0.
+ *
+ * The ONE place the "enabled AND > 0" rule lives. Four callers need it — the
+ * builder card, the forms list badge, the public page and the submit route — and
+ * a rule copied four times is a rule that drifts. A form left enabled with no
+ * price is free, not broken.
+ *
+ * Takes a loose shape on purpose: the submit route reads a raw PostgREST row,
+ * where numeric arrives as a STRING ("200.00" — truthy even at zero), so the
+ * Number() coercion has to happen HERE rather than being assumed of the caller.
+ */
+export function effectiveFee(form: {
+  fee_enabled?: boolean | null;
+  fee_amount?: unknown;
+}): number {
+  if (!form.fee_enabled) return 0;
+  const amount = Number(form.fee_amount ?? 0);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
 /** A form in the picker list, with the counts the list needs. */

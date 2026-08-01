@@ -20,8 +20,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useUpdateRegistrationForm } from '@/hooks/events/use-tournament-registration-form';
-import type { EventRegistrationFormSummary } from '@/types/tournament';
+import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
 
 interface AccountStatus {
   hasAccount: boolean;
@@ -39,13 +40,19 @@ export function RegistrationFeeCard({
 
   // Seeded per form; the key on the caller remounts this when the selection
   // changes, so a half-typed amount never leaks onto another form.
+  const [enabled, setEnabled] = useState(!!form.fee_enabled);
   const [amount, setAmount] = useState(String(form.fee_amount ?? 0));
   const [label, setLabel] = useState(form.fee_label ?? '');
   const [account, setAccount] = useState<AccountStatus | null>(null);
 
   const parsed = Number(amount);
-  const invalid = amount.trim() === '' || Number.isNaN(parsed) || parsed < 0;
-  const dirty = !invalid && (parsed !== Number(form.fee_amount ?? 0) || (label || null) !== (form.fee_label ?? null));
+  // An amount only has to be valid while the fee is switched ON. Turning the fee
+  // off must never be blocked by a price the organizer no longer cares about.
+  const invalid = enabled && (amount.trim() === '' || Number.isNaN(parsed) || parsed <= 0);
+  const dirty =
+    enabled !== !!form.fee_enabled ||
+    (enabled &&
+      (parsed !== Number(form.fee_amount ?? 0) || (label || null) !== (form.fee_label ?? null)));
 
   // Which Razorpay account a fee on this event would settle into. Read from a
   // server route because razorpay_accounts is unreadable by `authenticated` —
@@ -67,13 +74,18 @@ export function RegistrationFeeCard({
 
   const save = () => {
     if (invalid) return;
+    // Switching OFF keeps the stored amount and label untouched — that is the
+    // point of a separate toggle. Switching back on restores the old price
+    // instead of making the organizer retype it.
     updateForm.mutate({
       formId: form.id,
-      updates: { fee_amount: parsed, fee_label: label.trim() || null },
+      updates: enabled
+        ? { fee_enabled: true, fee_amount: parsed, fee_label: label.trim() || null }
+        : { fee_enabled: false },
     });
   };
 
-  const willFallBack = account && !account.hasAccount && parsed > 0;
+  const willFallBack = account && !account.hasAccount && enabled && parsed > 0;
 
   return (
     <Card>
@@ -83,13 +95,33 @@ export function RegistrationFeeCard({
           Registration fee — {form.name}
         </CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          Charged to everyone who registers through this form. Set 0 to make it
-          free — no payment is requested and the registration confirms
-          immediately.
+          Off by default. Switch it on only if this form should collect money —
+          while it is off the form is free and no payment is ever requested.
         </p>
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="min-w-0 pr-3">
+            <Label htmlFor={`fee_enabled_${form.id}`} className="cursor-pointer">
+              Charge a registration fee
+            </Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {enabled
+                ? 'Registrants pay through Razorpay before their place is confirmed.'
+                : 'This form is free — registrations confirm immediately.'}
+            </p>
+          </div>
+          <Switch
+            id={`fee_enabled_${form.id}`}
+            checked={enabled}
+            onCheckedChange={setEnabled}
+          />
+        </div>
+
+        {/* Hidden rather than disabled while off: a greyed-out price still reads
+            as "this form costs ₹500", which is the opposite of what off means. */}
+        {enabled && (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor={`fee_amount_${form.id}`}>Amount (INR)</Label>
@@ -105,7 +137,7 @@ export function RegistrationFeeCard({
             />
             {invalid && (
               <p className="text-xs text-destructive">
-                Enter an amount of 0 or more.
+                Enter an amount greater than 0, or switch the fee off.
               </p>
             )}
           </div>
@@ -122,6 +154,7 @@ export function RegistrationFeeCard({
             />
           </div>
         </div>
+        )}
 
         {/* D3: never let money route silently. When the host institution has no
             Razorpay account of its own, resolveRazorpayCredentials falls back to
@@ -144,11 +177,13 @@ export function RegistrationFeeCard({
             {updateForm.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Save fee
           </Button>
-          {parsed === 0 && !invalid && (
-            <span className="text-xs text-muted-foreground">
-              This form is free.
-            </span>
-          )}
+          {/* Reflects what is SAVED, not what is typed — otherwise the line
+              flips to "free" the moment a field is cleared, before any save. */}
+          <span className="text-xs text-muted-foreground">
+            {effectiveFee(form) > 0
+              ? `Currently charging ₹${effectiveFee(form).toLocaleString('en-IN')}.`
+              : 'This form is currently free.'}
+          </span>
         </div>
       </CardContent>
     </Card>
