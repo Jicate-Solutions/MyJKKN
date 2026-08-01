@@ -123,11 +123,19 @@ COMMENT ON VIEW public.v_cac_solution_funnel IS
 -- The hub is identified by name, not by a hardcoded id: identifiers differ
 -- between production and staging, names do not — the same reasoning
 -- cac-institution-groups.ts already uses for the two schools.
+--
+-- Matched on lower(btrim(name)), NOT a raw `=`. institutions.name is a typed
+-- value in an editable table, so a trailing space or a case edit would make
+-- the hub CTE return no rows — every one of the 63 hub bookings would then
+-- reclassify as peer collaboration and the headline would read 78 instead of
+-- 15, with no error raised anywhere. cac-institution-groups.ts normalises the
+-- same way and for the same stated reason.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW public.v_cac_exchange_edges
 WITH (security_invoker = true) AS
 WITH hub AS (
-  SELECT id FROM public.institutions WHERE name = 'JKKN Main Office'
+  SELECT id FROM public.institutions
+   WHERE lower(btrim(name)) = 'jkkn main office'
 ),
 teaching AS (
   SELECT
@@ -304,13 +312,15 @@ COMMENT ON VIEW public.v_cac_curriculum_overlap_summary IS
 CREATE OR REPLACE VIEW public.v_cac_collaboration_isolation
 WITH (security_invoker = true) AS
 WITH hub AS (
-  SELECT id FROM public.institutions WHERE name = 'JKKN Main Office'
+  SELECT id FROM public.institutions
+   WHERE lower(btrim(name)) = 'jkkn main office'
 ),
 teaching_institutions AS (
   SELECT i.id, i.name, i.iqac_code
   FROM public.institutions i
   WHERE i.iqac_code IS NOT NULL
-     OR i.name IN ('JKKN Matric Higher Secondary School', 'Nattraja Vidhyalya CBSE')
+     OR lower(btrim(i.name)) IN ('jkkn matric higher secondary school',
+                                'nattraja vidhyalya cbse')
 ),
 booking_edges AS (
   SELECT
