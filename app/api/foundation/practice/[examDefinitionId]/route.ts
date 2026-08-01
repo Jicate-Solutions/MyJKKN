@@ -24,6 +24,19 @@ const UUID_RE =
 
 const DEFAULT_QUESTION_COUNT = 10;
 
+/** Mirrors fn_fp_recompute_weakness's own fallback for the same policy key. */
+const DEFAULT_FLAG_THRESHOLD = 2;
+
+/** Fisher-Yates, returning a new array. */
+function shuffle<T>(input: T[]): T[] {
+  const out = [...input];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ examDefinitionId: string }> },
@@ -108,25 +121,91 @@ export async function GET(
       );
     }
 
-    // Fisher-Yates over the candidate set, then take the first N. Shuffling in
-    // the app rather than ORDER BY random() keeps this to one query, and the
-    // candidate set is small by construction (one exam's active bank).
-    const shuffled = [...items];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    const itemIds = items.map((it: any) => it.id);
+
+    // ---- Drop questions enough different people have reported --------------
+    // Same rule mastery scoring already applies (fn_fp_recompute_weakness reads
+    // the identical policy key and the identical count(DISTINCT flagged_by)
+    // predicate). Until now a reported question stopped counting toward mastery
+    // but kept being SERVED, so learners went on meeting a question already
+    // flagged as wrong. One threshold, one meaning, both places.
+    let threshold = DEFAULT_FLAG_THRESHOLD;
+    const { data: configuredThreshold } = await (admin as any).rpc(
+      'fn_get_policy_int',
+      {
+        p_key: 'foundation.item_flag.suppress_threshold',
+        p_default: DEFAULT_FLAG_THRESHOLD,
+      },
+    );
+    if (typeof configuredThreshold === 'number' && configuredThreshold > 0) {
+      threshold = configuredThreshold;
     }
+
+    const { data: openFlags } = await (admin as any)
+      .from('fp_item_flags')
+      .select('item_id, flagged_by')
+      .eq('status', 'open')
+      .in('item_id', itemIds);
+
+    const reportersByItem = new Map<string, Set<string>>();
+    for (const f of openFlags ?? []) {
+      if (!reportersByItem.has(f.item_id)) {
+        reportersByItem.set(f.item_id, new Set());
+      }
+      // DISTINCT people, not distinct reports — one person cannot suppress a
+      // question by reporting it repeatedly.
+      reportersByItem.get(f.item_id)!.add(f.flagged_by);
+    }
+
+    const usable = items.filter(
+      (it: any) => (reportersByItem.get(it.id)?.size ?? 0) < threshold,
+    );
+
+    if (usable.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Every question in this subject is waiting to be checked. Please try again later.',
+        },
+        { status: 404 },
+      );
+    }
+
+    // ---- Prefer questions this learner has not met before ------------------
+    // Drawing 10 at random from 116 with no memory repeats questions often
+    // enough to feel broken, and leaves parts of the syllabus unpractised.
+    // Unseen questions go first; within each group the order is still random,
+    // so nothing becomes predictable.
+    const { data: myAttempts } = await (admin as any)
+      .from('fp_attempts')
+      .select('id')
+      .eq('student_id', learner.id);
+
+    const attemptIds = (myAttempts ?? []).map((a: any) => a.id);
+    const { data: alreadyAnswered } = attemptIds.length
+      ? await (admin as any)
+          .from('fp_responses')
+          .select('item_id')
+          .in('attempt_id', attemptIds)
+      : { data: [] };
+
+    const seen = new Set((alreadyAnswered ?? []).map((r: any) => r.item_id));
+
+    const fresh = shuffle(usable.filter((it: any) => !seen.has(it.id)));
+    const repeats = shuffle(usable.filter((it: any) => seen.has(it.id)));
 
     return NextResponse.json({
       assessmentId: pool.id,
       learnerId: learner.id,
-      questions: shuffled.slice(0, questionCount).map((it: any) => ({
-        id: it.id,
-        stem: it.stem,
-        options: it.options,
-        difficulty: it.difficulty,
-        q_type: it.q_type,
-      })),
+      questions: [...fresh, ...repeats]
+        .slice(0, questionCount)
+        .map((it: any) => ({
+          id: it.id,
+          stem: it.stem,
+          options: it.options,
+          difficulty: it.difficulty,
+          q_type: it.q_type,
+        })),
     });
   } catch (err: any) {
     return NextResponse.json(
