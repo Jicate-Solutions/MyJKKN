@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useMemo, useRef } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { getQueryClient } from '@/providers/query-client-provider';
 import type { Profile } from '@/types/auth';
 
 interface AuthContextValue {
@@ -153,6 +154,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // stale body can't be served to the new user.
       if (event === 'SIGNED_IN') {
         purgeApiCache();
+        // The browser-singleton QueryClient survives layout unmounts (2026-08-02
+        // dedupe); non-user-keyed entries could otherwise serve the prior
+        // user's rows for up to their staleTime after an in-tab user switch.
+        getQueryClient().clear();
       }
 
       setIsLoading(true);

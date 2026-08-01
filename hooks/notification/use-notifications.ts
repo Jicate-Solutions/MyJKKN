@@ -156,14 +156,14 @@ export function useUnreadNotifications(userId: string | undefined) {
       };
     },
     enabled: !!userId,
-    // 60s freshness for the badge (2026-08-02 shell dedupe). Freshness does
-    // NOT depend on this window: the realtime subscription above invalidates
-    // the query the instant a notification row is inserted/updated, so new
-    // notifications still appear immediately. The staleTime/poll pair only
-    // bounds the FALLBACK path — at 5s/30s every navbar remount refired the
-    // fetch and the badge polled twice per minute per consumer tree.
-    staleTime: 60 * 1000,
-    refetchInterval: 60 * 1000 // Fallback poll if realtime misses
+    // 30s poll retained (2026-08-02 verify pass): user_notifications is NOT
+    // in the supabase_realtime publication on prod, so the postgres_changes
+    // subscription above never fires there — this poll IS the delivery path,
+    // not a fallback. The dedupe win stands regardless: one QueryClient means
+    // ONE 30s poller instead of two. staleTime 15s keeps remounts cheap
+    // without letting a navigation show a >15s-stale badge.
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000 // primary delivery path in prod (see above)
   });
 }
 
