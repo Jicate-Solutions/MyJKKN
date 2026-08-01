@@ -967,7 +967,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/matlab': 'solutions.matlab.view',
   '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
   '/solutions/ai-solution-compliance': 'solutions.compliance.view',
-  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
+  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift.
+  // Reinstated 2026-08-01 as the capability register only (the nomination /
+  // approval workflow stays retired). Reached from the Solutions Hub tab bar.
+  '/solutions/departments': 'solutions.departments.view',
 
   // Learners Council
   '/learners-council': 'learners_council.dashboard.view',
