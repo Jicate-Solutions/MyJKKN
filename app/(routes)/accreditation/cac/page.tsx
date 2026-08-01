@@ -56,6 +56,7 @@ import {
   type SpanInstitution,
 } from './_lib/cluster-scope';
 import { MeasuredMetricsSection } from './_components/measured-metrics-section';
+import { ClusterCollaborationSection } from './_components/cluster-collaboration-section';
 
 const COMMITTEES_HUB = '/accreditation/naac/committees';
 
@@ -238,6 +239,15 @@ export default function ClusterAcademicCouncilPage() {
           institutions={institutionList}
           institutionsLoading={institutionsLoading}
         />
+
+        {/* The collaboration section. Added 2026-08-01. The measured section
+            above reads each institution on its own and sets them side by side;
+            this one reads what passes BETWEEN them, which is the only question
+            a cluster body exists to answer and which nothing on this page could
+            answer before. Same discipline as its neighbour: real numbers, no
+            score, no ranking — and it stores nothing, every figure being derived
+            from records other modules already own. */}
+        <ClusterCollaborationSection />
 
         {/* Footer — where the row physically lives, which is not the same as
             whose council it is. Both facts matter and neither is obvious. */}
