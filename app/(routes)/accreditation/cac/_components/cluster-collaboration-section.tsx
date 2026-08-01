@@ -35,13 +35,15 @@
 //      of this module once already when the data moved and the sentences did
 //      not.
 //
-// ON WHAT "EMPTY" MEANS HERE. The five views behind this section are
-// `security_invoker`, so they return the rows THIS viewer is allowed to see.
-// A short read can therefore mean the cluster is quiet or it can mean the
-// viewer's access rules are narrow, and from the client the two are
-// indistinguishable. Rather than guess, each panel that could be affected says
-// so once, plainly, and no absence is presented as a finding without that
-// caveat attached.
+// ON WHAT "EMPTY" MEANS HERE. Every figure comes from `fn_cac_cluster_totals()`,
+// which reads the five views as its definer and therefore returns the cluster,
+// not the viewer's slice of it. An empty panel now means one thing only: the
+// platform holds nothing at that stage. It is no longer capable of meaning "your
+// access rules are narrower than the cluster", which is what it could mean until
+// 2026-08-01 and which made every absence unreadable — a council member scoped
+// to one college was shown 0 cross-campus bookings and 0 shared course titles
+// while the cluster held 78 and 1,067. That ambiguity is gone, so the panels
+// state absences plainly instead of hedging them.
 // ============================================================================
 
 'use client';
@@ -141,8 +143,10 @@ function ScopeNote({ children }: { children: React.ReactNode }) {
   return <p className="text-[11px] italic text-muted-foreground">{children}</p>;
 }
 
+// The name is null only when the view's LEFT JOIN to `institutions` found no
+// row. Now that the read is cluster-wide it is never a viewer-scope effect.
 const instLabel = (name: string | null, code: string | null) =>
-  name ? `${code ? `[${code}] ` : ''}${name}` : 'An institution outside what you can see';
+  name ? `${code ? `[${code}] ` : ''}${name}` : 'An institution with no row on record';
 
 // ----------------------------------------------------------------------------
 // PANEL 1 — the solution funnel.
@@ -198,7 +202,8 @@ function SolutionFunnelPanel() {
         <Skeleton className="h-32 w-full" />
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No solution department is visible to you, so there is no funnel to draw.
+          No college has activated a solution department yet, so there is no
+          funnel to draw.
         </p>
       ) : (
         <>
@@ -479,7 +484,7 @@ function CurriculumOverlapPanel() {
               <div className="mt-1">
                 <Figure
                   value={summary?.distinct_titles}
-                  reason="no course is visible to you"
+                  reason="no course is recorded yet"
                 />
               </div>
             </div>
@@ -527,7 +532,7 @@ function CurriculumOverlapPanel() {
                       </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {(row.institution_names ?? []).join(' · ') ||
-                          'outside what you can see'}
+                          'no institution name on record'}
                       </td>
                     </tr>
                   ))}
@@ -589,8 +594,7 @@ function IsolationPanel() {
         <Skeleton className="h-40 w-full" />
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No teaching institution is visible to you, so neither reading can be
-          drawn.
+          No teaching institution is on record, so neither reading can be drawn.
         </p>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
@@ -628,7 +632,7 @@ function IsolationPanel() {
               <p className="pt-1 text-[11px] text-muted-foreground">
                 Read the other way round:{' '}
                 {neverLent
-                  .map((r) => r.institution_name ?? 'an institution outside your access')
+                  .map((r) => r.institution_name ?? 'an institution with no row on record')
                   .join(', ')}{' '}
                 {neverLent.length === 1 ? 'has' : 'have'} had nothing of theirs
                 booked by anyone at all, the central office included. Whatever
@@ -715,11 +719,10 @@ export function ClusterCollaborationSection() {
         <IsolationPanel />
 
         <p className="text-[11px] italic text-muted-foreground">
-          Every panel reads through your own access rules. If yours are narrower
-          than the cluster, a figure here can be lower than the cluster&apos;s
-          true figure — so a small number may mean the colleges are quiet or may
-          mean you are seeing part of the picture, and this page cannot tell the
-          two apart. Someone with cluster-wide access sees the whole of it.
+          Every panel here is the whole cluster, the same for everyone on the
+          council, whichever college you belong to. A small number means the
+          colleges are quiet — it can no longer mean you are seeing part of the
+          picture.
         </p>
       </CardContent>
     </Card>
