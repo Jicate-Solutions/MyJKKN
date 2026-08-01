@@ -165,9 +165,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
-  // Gemba visits — the screen that records someone going to look. Same key as
-  // the board itself: a posted associate holds improvement.ideas.view, and the
-  // RPC does the real gating (posted to that department, or an officer).
+  // Gemba visits — the screen that records someone going to look. A posted
+  // associate holds improvement.ideas.view, and the RPC does the real gating
+  // (posted to that department, or an officer). NOTE: the database grants read
+  // on a UNION this one-key-per-route map cannot express — the CAO, Executive
+  // Administrative Officers and MBA Faculty reach it on
+  // improvement.area_role.assign / improvement.board.manage and hold no
+  // ideas.view at all. The submenu filter in GetRoleBasedPages carries that
+  // union; keep the two in step.
   '/improvement-board/gemba': 'improvement.ideas.view',
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
@@ -3541,6 +3546,21 @@ export function GetRoleBasedPages(
               if (submenu.href.includes('/leaderboard')) return true;
               if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;
               return false;
+            }
+
+            // Gemba visits — the database grants read on a union MENU_PERMISSIONS
+            // (one key per route) cannot express. `gemba_observations_read` allows
+            // improvement.area_role.assign OR improvement.board.manage as well as
+            // a posting, because — as that migration records — the CAO and
+            // Executive Administrative Officers hold no improvement.ideas.view at
+            // all. Without this the link is hidden from the very officers the
+            // RPC's officer lane exists for.
+            if (submenu.href === '/improvement-board/gemba') {
+              return (
+                userRole.permissions['improvement.ideas.view'] === true ||
+                userRole.permissions['improvement.area_role.assign'] === true ||
+                userRole.permissions['improvement.board.manage'] === true
+              );
             }
 
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];

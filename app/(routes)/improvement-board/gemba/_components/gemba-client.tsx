@@ -59,6 +59,13 @@ import { RecordVisitDialog } from './record-visit-dialog';
 /** Officers may record a visit anywhere — the RPC's second lane. */
 const OFFICER_PERMISSION = 'improvement.area_role.assign';
 
+/**
+ * Officers who may READ the screen but not necessarily record anywhere.
+ * `gemba_observations_read` grants SELECT on this key too; the record RPC does
+ * not, so it is deliberately absent from OFFICER_PERMISSION above.
+ */
+const BOARD_MANAGE_PERMISSION = 'improvement.board.manage';
+
 function formatWhen(value: string | null): string {
   if (!value) return '—';
   const d = new Date(value);
@@ -81,7 +88,17 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
   const { can, isLoading: permsLoading, isSuperAdmin } = usePermissions();
   // can() returns false while permissions load, so branch on permsLoading FIRST
   // below — a still-loading state must never read as "denied".
-  const canView = isSuperAdmin || can('improvement.ideas.view');
+  // Open the screen to the same union the database already grants read on.
+  // `gemba_observations_read` allows improvement.area_role.assign OR
+  // improvement.board.manage as well as a posting, and that migration's own
+  // comment records why: "the CAO and Executive Administrative Officers do not
+  // hold ideas.view at all." Gating on ideas.view alone locked out every
+  // officer the RPC's officer lane exists for.
+  const canView =
+    isSuperAdmin ||
+    can('improvement.ideas.view') ||
+    can(OFFICER_PERMISSION) ||
+    can(BOARD_MANAGE_PERMISSION);
   const isOfficer = isSuperAdmin || can(OFFICER_PERMISSION);
 
   const [postedAreas, setPostedAreas] = useState<GembaArea[] | null>(null);
