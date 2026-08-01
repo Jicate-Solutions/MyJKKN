@@ -1,5 +1,5 @@
 {
-  "_comment": "Snapshot of public.ai_job_types.job_type taken from production 2026-08-02. Guards lib/ai-routines/* featureKey values against typos and against links to job types that were never registered. REFRESH: select json_agg(job_type order by job_type) from ai_job_types;",
+  "_comment": "Snapshot of public.ai_job_types.job_type taken from production 2026-08-02 (refreshed after 20260808110003_learner_360_verdict.sql was applied). Guards lib/ai-routines/* featureKey values against typos and against links to job types that were never registered. REFRESH: select json_agg(job_type order by job_type) from ai_job_types;",
   "generatedAt": "2026-08-02",
   "jobTypes": [
     "accreditation.cac_brief",
@@ -35,6 +35,7 @@
     "improvement.rank_ideas",
     "induction.generate_playbook",
     "induction.session_effectiveness",
+    "learner.360_verdict",
     "mba.draft_dept_artifact",
     "model_compare.judge",
     "model_compare.replay",

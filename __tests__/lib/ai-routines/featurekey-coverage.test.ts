@@ -8,16 +8,16 @@ import knownJobTypes from './known-job-types.json';
 // invent keys. Remove an entry the moment its migration is applied; the
 // resolution test below then enforces it for good.
 // ---------------------------------------------------------------------------
-const KNOWN_UNREGISTERED: Record<string, string> = {
-  'learner.360_verdict':
-    'app/api/cron/learner-360-verdict/route.ts is DEPLOYED and enqueues this ' +
-    'job type, but supabase/migrations/20260808110003_learner_360_verdict.sql ' +
-    '(which carries the INSERT INTO ai_job_types that registers it) has never ' +
-    'been applied to production. Verified 2026-08-02: zero learner_360* tables, ' +
-    'zero learner% rows in ai_job_types, zero ai_jobs rows. Until that migration ' +
-    'is applied, fn_ai_enqueue answers every enqueue with a silent ' +
-    "{ok:false,'unknown or disabled job_type'}. Delete this entry once applied.",
-};
+// Currently empty, and that is the healthy state. The first entry here was
+// 'learner.360_verdict': its route shipped deployed while
+// supabase/migrations/20260808110003_learner_360_verdict.sql had never been
+// applied, so every enqueue would have answered with a silent
+// {ok:false,'unknown or disabled job_type'}. The migration was applied to
+// production on 2026-08-02 (2 tables, 2 SECDEF RPCs, the ai_job_types row and
+// the 06:37 IST schedule row), the snapshot below was refreshed to 61 job
+// types, and the entry was deleted — which is exactly what the staleness test
+// at the bottom of this file exists to force.
+const KNOWN_UNREGISTERED: Record<string, string> = {};
 
 // ---------------------------------------------------------------------------
 // featureKey coverage invariant.
