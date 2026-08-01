@@ -8313,3 +8313,26 @@ CREATE POLICY billing_bills_delete_permission
     is_super_admin()
     OR (user_has_permission('billing.schedule.delete') AND role_has_institution_access(institution_id))
   );
+
+-- ============================================================================
+-- 2026-08-01 — IQAC committee RLS realigned onto the GRANTABLE permission family
+-- (mig 20260808210000_accreditation_committee_rls_naac_permission_family)
+--
+-- These eight policies checked accreditation.committees.* (no `naac` segment) —
+-- keys that exist on ZERO roles and in ZERO lines of lib/constants/permissions.ts,
+-- so Role Management could never grant them and only is_super_admin()/is_admin()
+-- could reach the module. The UI, and the RLS on accreditation_committee_meetings
+-- and accreditation_committee_resolutions, already use accreditation.naac.committees.*
+-- — which IS registered and grantable. Only the key string changed; the policy
+-- shape and the role_has_institution_access(institution_id) conjunct are
+-- byte-identical to the live production expressions.
+-- ============================================================================
+ALTER POLICY "committees_select" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_insert" ON public.accreditation_committees WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.create'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_update" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_delete" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.delete'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+ALTER POLICY "members_select" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission)));
+ALTER POLICY "members_insert" ON public.accreditation_committee_members WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+ALTER POLICY "members_update" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+ALTER POLICY "members_delete" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
