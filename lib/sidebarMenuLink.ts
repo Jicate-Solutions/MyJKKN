@@ -174,6 +174,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/data-gaps': 'improvement.board.manage',
   // Manage boards — manager-only CRUD over the areas ideas are filed against.
   '/improvement-board/manage-boards': 'improvement.board.manage',
+  // Department owners — names ONE accountable person per board. Two tiers:
+  // improvement.board.manage OR improvement.area_role.assign may SEE it, but
+  // only improvement.area_role.assign may CHANGE an owner (the RPC refuses
+  // everyone else). This map holds one key per route, so the broader SEE tier
+  // is declared here and the officer half of the union is carried at the two
+  // nav filter sites via OWNERS_UNION_PERMISSIONS below — an officer role that
+  // does not also hold board.manage would otherwise get a page it can use and
+  // no link to reach it.
+  '/improvement-board/owners': 'improvement.board.manage',
   // MBA Team Rotation — the rota chart is viewable by associates; team-builder
   // and cycle-setup are manager-only (improvement.board.manage).
   '/improvement-board/rotation': 'improvement.ideas.view',
@@ -1602,6 +1611,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Manage boards — manager-only CRUD over the areas ideas are filed
             // against (improvement.board.manage).
             { href: '/improvement-board/manage-boards', label: 'Manage Boards', active: pathname === '/improvement-board/manage-boards' },
+            // Department owners — who is accountable for each board. Visible to
+            // board managers AND to the officers who assign holders; see
+            // OWNERS_UNION_PERMISSIONS for why that union is not in MENU_PERMISSIONS.
+            { href: '/improvement-board/owners', label: 'Department Owners', active: pathname === '/improvement-board/owners' },
             // Teaching-enterprise cohort config — manager-only, hidden from
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
@@ -3334,6 +3347,44 @@ export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
     .filter((group) => group.menus.length > 0);
 }
 
+/**
+ * Routes whose visibility is a UNION of permissions, not the single key in
+ * MENU_PERMISSIONS. That map is typed one key per route and ~10 consumers plus
+ * a regex-parsing catalog script read it, so widening the TYPE to accept an
+ * array would ripple far beyond the one route that needs it. The union is
+ * carried here instead and applied at BOTH nav filter sites below — the
+ * submenu filter and the parent-row filter. Missing the parent one hides the
+ * whole module row for a user whose only key is the extra one.
+ *
+ * /improvement-board/owners — a board manager may SEE who owns each department;
+ * an officer (improvement.area_role.assign) is the only one who may CHANGE it,
+ * and is the screen's real audience. Declaring only the officer key would hide
+ * it from managers; declaring only the manager key would hide it from an
+ * officer role that does not also hold board.manage. Both are listed.
+ */
+const MENU_UNION_PERMISSIONS: Record<string, string[]> = {
+  '/improvement-board/owners': [
+    'improvement.board.manage',
+    'improvement.area_role.assign',
+  ],
+};
+
+/**
+ * Whether a user can see a nav entry: its declared MENU_PERMISSIONS key, OR any
+ * key in that route's union. Used by both filter sites so they cannot drift.
+ */
+function navEntryVisible(
+  href: string,
+  permissions: Record<string, boolean>
+): boolean {
+  const route = normalizeRoute(href);
+  const union = MENU_UNION_PERMISSIONS[route];
+  if (union) return union.some((key) => permissions[key] === true);
+  const requiredPermission = MENU_PERMISSIONS[route];
+  if (!requiredPermission) return false;
+  return permissions[requiredPermission] === true;
+}
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
@@ -3478,14 +3529,12 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
-            // Show parent if any submenu is accessible
-            return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              return (
-                requiredPermission &&
-                userRole.permissions[requiredPermission] === true
-              );
-            });
+            // Show parent if any submenu is accessible. Union-permission routes
+            // count here too — a user whose ONLY key is the union's extra one
+            // would otherwise lose the entire module row, not just that link.
+            return menu.submenus.some((submenu) =>
+              navEntryVisible(submenu.href, userRole.permissions)
+            );
           }
 
           // Check if user has permission for this menu
@@ -3569,7 +3618,11 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            return userRole.permissions[requiredPermission] === true;
+            // Union-permission routes (MENU_UNION_PERMISSIONS) match on ANY of
+            // their keys; everything else falls through to its single declared
+            // key. Same helper as the parent-row filter above, so the two
+            // cannot disagree about who sees a link.
+            return navEntryVisible(submenu.href, userRole.permissions);
           }).map((submenu) => {
             // Change submenu labels for students
             if (isStudent) {
