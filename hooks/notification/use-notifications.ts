@@ -156,8 +156,14 @@ export function useUnreadNotifications(userId: string | undefined) {
       };
     },
     enabled: !!userId,
-    staleTime: 5 * 1000, // 5 seconds for unread count
-    refetchInterval: 30 * 1000 // Fallback poll if realtime misses
+    // 60s freshness for the badge (2026-08-02 shell dedupe). Freshness does
+    // NOT depend on this window: the realtime subscription above invalidates
+    // the query the instant a notification row is inserted/updated, so new
+    // notifications still appear immediately. The staleTime/poll pair only
+    // bounds the FALLBACK path — at 5s/30s every navbar remount refired the
+    // fetch and the badge polled twice per minute per consumer tree.
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000 // Fallback poll if realtime misses
   });
 }
 

@@ -43,6 +43,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Memoize the supabase client to prevent re-creation
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
+  // True while a loadUserAndProfile pass is running. On every page load the
+  // initial effect kicks off a load AND supabase-js fires SIGNED_IN as it
+  // restores the cookie session — the profileRef guard below can't catch that
+  // because the first load hasn't set profileRef yet. Result (measured
+  // 2026-08-02): the profiles select ran twice on EVERY page, platform-wide.
+  // The in-flight pass reads getSession() itself, so the concurrent trigger
+  // is pure duplication — skip it.
+  const loadInFlightRef = useRef(false);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -52,6 +61,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.location.pathname.startsWith('/auth/');
 
     const loadUserAndProfile = async () => {
+      if (loadInFlightRef.current) return;
+      loadInFlightRef.current = true;
       try {
         // 1. Get User from Supabase Auth
         const {
@@ -94,6 +105,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(null);
         }
       } finally {
+        loadInFlightRef.current = false;
         if (isMounted) {
           setIsLoading(false);
         }
