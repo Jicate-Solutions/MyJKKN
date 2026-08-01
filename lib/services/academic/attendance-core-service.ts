@@ -294,6 +294,17 @@ export class AttendanceCoreService {
         return { isAuthorized: true, reason: `Assigned ${authType} member`, authorizationType: 'assigned_faculty' };
       }
 
+      // STEP 8.5: Faculty with the general attendance-marking permission (e.g. covering
+      // a period outside their own department/timetable, such as a library/study hour)
+      // are already let past the roster-level gate by canMarkAttendanceForSlot's third
+      // tier (checkFacultyAttendancePermission) — mirror that here, otherwise the page
+      // lets them fill out and submit attendance that this save-time check then silently
+      // rejects, since they're neither specifically assigned nor HOD of that department.
+      const hasRolePermission = await this.checkFacultyAttendancePermission();
+      if (hasRolePermission) {
+        return { isAuthorized: true, reason: 'Role-based attendance permission', authorizationType: 'permission_based' };
+      }
+
       // STEP 9: For development/testing - if no assignments found, allow with warning
       if (allAssignedIds.size === 0) {
         logger.warn('academic/attendance', 'No staff/profile assignments found in timetable - allowing access for testing');
