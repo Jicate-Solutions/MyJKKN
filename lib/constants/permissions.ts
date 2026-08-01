@@ -1520,7 +1520,21 @@ export const PERMISSION_CATEGORIES = [
       // re-assignment control now") — releases HELD CO/PO rollups into the
       // evidence ledger by assigning the right college. Gates
       // fn_copo_restamp_rollup_institution (super admins bypass).
-      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' }
+      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' },
+
+      // 2026-08-02 — registered because the RLS already DEMANDED them.
+      // accreditation_survey_consents and accreditation_submissions carry
+      // policies calling user_has_permission() on these six keys, none of which
+      // existed here, so no role could ever hold one and every non-admin read
+      // and write against those two tables was denied with no way to grant it.
+      // Registering a key grants it to nobody — it only makes it assignable in
+      // Role Management, which is the missing half of the lock.
+      { key: 'accreditation.consents.view', label: 'View Accreditation Survey Consents' },
+      { key: 'accreditation.consents.create', label: 'Record Accreditation Survey Consent' },
+      { key: 'accreditation.consents.withdraw', label: 'Withdraw Accreditation Survey Consent' },
+      { key: 'accreditation.submissions.view', label: 'View Accreditation Submissions' },
+      { key: 'accreditation.submissions.create', label: 'Create Accreditation Submissions' },
+      { key: 'accreditation.submissions.manage', label: 'Manage Accreditation Submissions' }
     ]
   },
   {
