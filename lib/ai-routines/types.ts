@@ -44,7 +44,15 @@ export interface AIRoutine {
    * the "Used by" column on /admin/ai-models. Unset when the routine has no
    * config row (rules-based routines, or no matching seeded key).
    */
-  featureKey?: string;
+  featureKey?: string | null;
+  /**
+   * Why this routine has NO featureKey — required whenever featureKey is
+   * null/undefined (asserted by __tests__/lib/ai-routines/featurekey-coverage.test.ts).
+   * "Unlinked" is a legitimate answer: many routines are rules-based SQL, or
+   * enqueue more than one job type. Recording the reason is what stops the
+   * registry from drifting back into "nobody knows whether this was deliberate".
+   */
+  featureKeyNote?: string | null;
   /**
    * platform_policies key holding this routine's editable per-run batch cap
    * (global scope). Drives the cap chip on /admin/ai-routines: shows the live
