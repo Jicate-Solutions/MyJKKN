@@ -226,7 +226,18 @@ Be calibrated:
 - neutral (0.4-0.7): exploring, no objection, no commitment
 - concerned (0.2-0.4): hesitant, has questions, fees/hostel/distance worries
 - anxious (0.1-0.3): family pressure, deadline stress, financial uncertainty
-- hostile (<0.2): rude, refusing, complaint about JKKN`;
+- hostile (<0.2): rude, refusing, complaint about JKKN
+
+NO-CONTENT CASE — this is a VALID result, not an error. A counselor often records
+a memo for a call that was never answered, so the transcript legitimately carries
+no conversation (e.g. "No response.", "The candidate not attend the call.", a
+placeholder line, or a few words with no exchange in them). When that happens do
+NOT ask for the transcript and do NOT explain that you cannot analyze it — that
+is not a usable answer to this request. Return exactly:
+{"sentiment":"neutral","sentiment_score":0.5,"summary":"No usable content — the call was not answered or the memo captured no conversation.","categories":["other"]}
+
+Return the JSON object and nothing else: no prose before or after it, no question
+back to the caller, no apology. Your entire reply must parse as JSON.`;
 
 // ============================================================================
 // SHAPE NORMALIZER — clamps + fills defaults regardless of provider
