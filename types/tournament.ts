@@ -399,6 +399,16 @@ export interface EventRegistrationForm {
   /** Open/closed switch for this form's own intake. */
   is_enabled: boolean;
   display_order: number;
+  /**
+   * Registration fee in INR for THIS form — an event holds many forms and each
+   * run can charge differently. 0 means free: no Razorpay order is created and
+   * the registration confirms immediately (payment_status 'not_required').
+   * Postgres numeric arrives over PostgREST as a STRING, so callers must
+   * Number() it rather than trusting the declared type at runtime.
+   */
+  fee_amount: number;
+  /** Optional label beside the amount, e.g. "Delegate fee". */
+  fee_label: string | null;
   created_at: string;
   updated_at: string;
   sections?: EventRegistrationFormSection[];

@@ -116,7 +116,13 @@ export function useUpdateRegistrationForm(eventId: string) {
       updates,
     }: {
       formId: string;
-      updates: { is_enabled?: boolean; name?: string; description?: string | null };
+      updates: {
+        is_enabled?: boolean;
+        name?: string;
+        description?: string | null;
+        fee_amount?: number;
+        fee_label?: string | null;
+      };
     }) => EventRegistrationFormService.updateForm(formId, updates),
     onSuccess: () => invalidateForms(qc, eventId),
     onError: (e: Error) => toast.error(getErrorMessage(e) || 'Failed to update form'),
