@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Eye,
   AlertTriangle,
+  ShieldAlert,
   CalendarClock,
   ExternalLink,
 } from 'lucide-react';
@@ -32,6 +33,10 @@ import {
   type QuizPayload,
   type QuizQuestion,
 } from '@/lib/services/ai-pulse/quiz-service';
+import {
+  checkQuizIntegrity,
+  type QuizIntegrityReport,
+} from '@/lib/services/ai-pulse/quiz-integrity';
 import { QuestionRow } from './question-row';
 import { AiSuggestButton } from './ai-suggest-button';
 import { QuizPreviewDialog } from './quiz-preview-dialog';
@@ -98,6 +103,16 @@ export function QuizEditor({ cycleId }: QuizEditorProps) {
   const validation = useMemo<QuizValidation>(() => {
     if (!draft) return { ok: false, errors: [] };
     return validateQuiz(draft);
+  }, [draft]);
+
+  // Answer-key exploitability, recomputed as the author edits. This report was
+  // already being produced inside QuizService.saveQuiz (via assertQuizIntegrity)
+  // but its `warnings` were thrown away and its `errors` only ever reached the
+  // author as a save-time toast — a guard nobody sees is not a guard. Surfaced
+  // here so a clustered answer key is visible while it can still be fixed.
+  const integrity = useMemo<QuizIntegrityReport>(() => {
+    if (!draft) return { errors: [], warnings: [], slotCounts: [] };
+    return checkQuizIntegrity(draft.questions, draft.pass_threshold_live);
   }, [draft]);
 
   const isDirty = useMemo(() => {
@@ -343,6 +358,43 @@ export function QuizEditor({ cycleId }: QuizEditorProps) {
         </Alert>
       )}
 
+      {/* Answer-key integrity — blocking. Save is refused while these hold
+          (QuizService.saveQuiz throws); showing them here means the author
+          sees the reason before pressing Save, not as a toast afterwards. */}
+      {integrity.errors.length > 0 && (
+        <Alert variant="destructive">
+          <ShieldAlert className="h-4 w-4" />
+          <AlertTitle>This answer key can be passed without knowing anything</AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs">
+              {integrity.errors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs">
+              Saving is refused until this is fixed. Move the correct answers to
+              different option slots.
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Answer-key integrity — advisory. Under the hard limit but clustered
+          enough to be worth telling the author about. */}
+      {integrity.warnings.length > 0 && (
+        <Alert className="border-amber-500/50 text-amber-900 dark:text-amber-200 [&>svg]:text-amber-600">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Answer key is worth a second look</AlertTitle>
+          <AlertDescription>
+            <ul className="mt-2 list-inside list-disc space-y-0.5 text-xs">
+              {integrity.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Question list */}
       <div className="space-y-4">
         {draft.questions.length === 0 ? (
@@ -374,7 +426,9 @@ export function QuizEditor({ cycleId }: QuizEditorProps) {
         <CardHeader>
           <CardTitle className="text-base">Pass thresholds & publication</CardTitle>
           <CardDescription>
-            Spec defaults: live ≥ 40%, async ≥ 60% (engagement-gate signals).
+            Defaults for a new cycle: live ≥ 50%, async ≥ 60% (engagement-gate
+            signals). The live default rose from 40% on 2026-07-30 so that
+            picking one option letter throughout no longer reaches a pass.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

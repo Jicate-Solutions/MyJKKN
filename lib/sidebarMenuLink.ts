@@ -155,6 +155,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Foundation & Competitive-Exam Programme
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
+  // The learner surface. Most-specific match wins, so this reads
+  // foundation.practice.take rather than inheriting the operator key on
+  // '/foundation' — somebody sitting the programme has no reason to hold
+  // foundation.dashboard.view.
+  '/foundation/practice': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -293,6 +298,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // from the catalog would only hide them from Role Management, not revoke.
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
+  // WHO PAYS each team member. This entry is load-bearing, not decorative:
+  // app/(routes)/hr/layout.tsx guards the subtree by LONGEST PREFIX, so without
+  // it this page would fall through to '/hr' → 'hr.view' — a key almost every
+  // role holds — and the paying organisation is HR-only by design.
+  '/hr/payroll/organisation': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar.
@@ -888,6 +898,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
+  // School of Influence — programme settings (S2, 2026-07-31). Deliberately
+  // gated on its OWN key rather than startup_studio.analytics.view: the page
+  // guard uses the same key, so the chip is visible to exactly the people the
+  // page admits (plus super admins, who bypass both). Mapping it to a broad
+  // .view key would surface a chip that then denies — the sidebar-shows /
+  // page-denies anti-pattern.
+  '/startup-studio/school-of-influence/admin/settings': 'startup_studio.school_of_influence.configure',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
@@ -907,6 +924,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // School of Influence — coordinator register + completion (spec §7 S6).
+  // MUST stay declared: RoutePermissionGuard treats a route with NO entry here as
+  // visible to every authenticated user, so without this line any learner could
+  // open the staff tick-list by typing the URL. 'cohort.manage' is the same
+  // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
+  // and the database cannot disagree about who belongs here.
+  '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -942,7 +967,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/matlab': 'solutions.matlab.view',
   '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
   '/solutions/ai-solution-compliance': 'solutions.compliance.view',
-  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
+  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift.
+  // Reinstated 2026-08-01 as the capability register only (the nomination /
+  // approval workflow stays retired). Reached from the Solutions Hub tab bar.
+  '/solutions/departments': 'solutions.departments.view',
 
   // Learners Council
   '/learners-council': 'learners_council.dashboard.view',
@@ -1032,6 +1060,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
+  // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
+  // is not in lib/constants/permissions.ts is ungrantable and never appears as
+  // a toggle in the role dialog.
+  '/accreditation/iqac': 'accreditation.metrics.view',          // IQAC master framework dashboard
   '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 c1 NAAC IQAC dashboard
   '/accreditation/naac/committees': 'accreditation.naac.committees.view',         // PR-A8 c2
   '/accreditation/naac/committees/[id]': 'accreditation.naac.committees.view',    // PR-A8 c2
@@ -1249,6 +1282,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/profile': 'health.profile.view',
   '/health/leaderboard': 'health.leaderboard.view',
   '/health/sports': 'health.sports.view',
+  // Approver inbox (2026-07-30). Gated on .approve, NOT .view — the Principal
+  // decides tournament permission but is not a sports-profile viewer
+  // (health.sports.view is false for that role), so reusing .view would hide
+  // the inbox from the only person who can act on it.
+  '/health/sports/approvals': 'health.sports.approve',
+  // Filing desk (2026-07-30). Separate route from the inbox because the two
+  // parties hold DIFFERENT keys — one route can carry only one permission here,
+  // and merging them would hide whichever surface the viewer is not gated for.
+  '/health/sports/squad-requests': 'health.sports.file_request',
   '/health/fitness': 'health.fitness.view',
   '/health/training': 'health.training.view',
   '/health/achievements': 'health.achievements.view',
@@ -1676,6 +1718,17 @@ export function GetPages(pathname: string): MenuGroup[] {
           href: '/foundation',
           label: 'Foundation Programme',
           active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
+          icon: Target,
+          submenus: []
+        },
+        {
+          // The learner's own door into the same programme. Separate entry
+          // rather than a submenu because the audience is disjoint: whoever
+          // sits the programme holds foundation.practice.take and none of the
+          // operator keys, so '/foundation' above never renders for them.
+          href: '/foundation/practice',
+          label: 'Foundation Practice',
+          active: pathname.startsWith('/foundation/practice'),
           icon: Target,
           submenus: []
         },
@@ -2250,6 +2303,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
             { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            // Gates on hr.payroll.institution.view, held by hr_admin / hr_head /
+            // hr_manager only — so this row is invisible to the rest of the HR
+            // group rather than visible-and-denied.
+            { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
           ]
         },
         {
@@ -2844,6 +2901,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/profile', label: 'My Health Profile', active: pathname === '/health/profile' },
             { href: '/health/leaderboard', label: 'Leaderboard', active: pathname === '/health/leaderboard' },
             { href: '/health/sports', label: 'Sports Profile', active: pathname === '/health/sports' },
+            { href: '/health/sports/squad-requests', label: 'Squad Requests', active: pathname === '/health/sports/squad-requests' },
+            { href: '/health/sports/approvals', label: 'Tournament Permissions', active: pathname === '/health/sports/approvals' },
             { href: '/health/fitness', label: 'Fitness Tests', active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/') },
             { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },
@@ -2873,6 +2932,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
+            // The parent "Events" row is a PURE ACCORDION TOGGLE at runtime
+            // (components/Navbar/menu.tsx: `e.preventDefault(); toggleModule(...)`),
+            // so its own href was never clickable and /events had no sidebar path
+            // at all — the hub's General Events list (the only surface listing
+            // wizard-created lectures/cultural/convocation events) was reachable
+            // only via Ctrl+K or a typed URL. check:reachability did NOT catch
+            // this: it seeds from every literal href in this file and assumes
+            // sidebar links are reachable, which the accordion parent is not.
+            // Same parent-href-as-leaf fix as '/users' → "All Users" and
+            // '/procurement' → "Overview". Also restores the chip gateway to
+            // /events/proposals, which AutoTabNav only renders from /events.
+            { href: '/events', label: 'All Events', active: pathname === '/events' },
             // Events Platform Promotion PR9 (2026-06-23): one create flow asks format + home
             { href: '/events/create', label: 'Create an Event', active: pathname === '/events/create' },
             { href: '/events/presets', label: 'Event Presets', active: pathname === '/events/presets' },

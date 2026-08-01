@@ -94,8 +94,13 @@ export function BillingScheduleDataTable({
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Bulk create needs BOTH keys: bulk_create opens the flow, create is what the
+  // RLS INSERT policy on billing_student_bills actually checks. Requiring only
+  // bulk_create would show the button and fail every insert with an RLS denial.
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
   const canCancelBills =
     isSuperAdmin || canAccess('billing.schedule', 'update');
 

@@ -3592,12 +3592,42 @@ CREATE INDEX IF NOT EXISTS idx_events_registrations_institution ON public.events
 -- tournament_divisions' pattern rather than requiring a 3-way join through
 -- form_id/section_id on every check. Submitted answers land in
 -- events_registrations.custom_fields, keyed by field_key.
+-- An event holds MANY registration forms — typically one per run of a recurring
+-- event. Each is addressed publicly by (event_id, slug) so a month's link
+-- resolves to its own form and an old link keeps pointing at the month it
+-- belonged to. There is deliberately NO unique on event_id.
 CREATE TABLE IF NOT EXISTS event_registration_forms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id uuid NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name text NOT NULL DEFAULT 'Registration Form',
+  slug text NOT NULL,
+  description text,
   is_enabled boolean NOT NULL DEFAULT true,
+  display_order int NOT NULL DEFAULT 0,
+  -- Registration fee for THIS form: an event holds many forms and each monthly
+  -- run can charge a different amount. A fee is collected only when
+  -- fee_enabled AND fee_amount > 0 — the switch is separate from the price so a
+  -- fee can be turned off without destroying the amount.
+  -- No fee_head column on purpose — event fees resolve the HOST institution's
+  -- 'tuition' account, exactly as tournament entry fees do.
+  fee_enabled boolean NOT NULL DEFAULT false,
+  fee_amount numeric(10,2) NOT NULL DEFAULT 0,
+  fee_label text,
+  -- Active window. Openness is DERIVED at read time
+  -- (is_enabled AND now within [starts_at, ends_at]) rather than a job flipping
+  -- is_enabled when ends_at passes: a stored flag would leave an expired form
+  -- collecting registrations whenever the job failed, would not reopen when the
+  -- end date is extended, and would make "closed by hand" and "closed by time"
+  -- indistinguishable. See formRegistrationState() in types/tournament.ts.
+  starts_at timestamptz,
+  ends_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (event_id, slug),
+  CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  CONSTRAINT event_registration_forms_fee_amount_check CHECK (fee_amount >= 0),
+  CONSTRAINT event_registration_forms_window_check
+    CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at >= starts_at)
 );
 
 CREATE TABLE IF NOT EXISTS event_registration_form_sections (
@@ -3613,11 +3643,19 @@ CREATE TABLE IF NOT EXISTS event_registration_form_sections (
 CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   section_id uuid NOT NULL REFERENCES event_registration_form_sections(id) ON DELETE CASCADE,
+  -- Owning form. An event holds MANY forms (one per monthly run), so field_key
+  -- is unique per form, not per event.
+  form_id uuid NOT NULL REFERENCES event_registration_forms(id) ON DELETE CASCADE,
   event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   field_key text NOT NULL,
   field_label text NOT NULL,
+  -- 'file' and 'image' answers are stored in events_registrations.custom_fields
+  -- as an EventFormUpload OBJECT ({path,name,size,mime}), not a scalar — the
+  -- object lives in the PRIVATE `event-registration-uploads` bucket and is read
+  -- through short-lived signed URLs. 'image' differs from 'file' only in that
+  -- the UI previews it and the upload route refuses non-image MIME types.
   field_type text NOT NULL CHECK (field_type IN (
-    'text','number','phone','email','select','multi_select','date','textarea','file','checkbox','radio'
+    'text','number','phone','email','select','multi_select','date','textarea','file','image','checkbox','radio'
   )),
   is_required boolean NOT NULL DEFAULT false,
   display_order int NOT NULL DEFAULT 0,
@@ -3632,11 +3670,13 @@ CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   condition jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (event_id, field_key)
+  UNIQUE (form_id, field_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_registration_form_sections_form ON event_registration_form_sections(form_id);
 CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_section ON event_registration_form_fields(section_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_form_id ON event_registration_form_fields(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_forms_event_id ON event_registration_forms(event_id);
 
 -- Payment transactions for events (separate from billing payment_transactions)
 CREATE TABLE IF NOT EXISTS public.event_payment_transactions (
@@ -4824,6 +4864,42 @@ CREATE TABLE IF NOT EXISTS public.hr_leave_types (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hlt_org_active ON public.hr_leave_types(hr_organization_id, is_active);
+
+-- Updated: 2026-07-31 - WHO PAYS each staff member (HR only)
+-- staff.institution_id means WHERE SOMEONE WORKS. The paying organisation is a
+-- separate, narrower fact that only HR may see, so it lives here rather than as
+-- a column on staff: Supabase RLS is row-level, so a column would be readable by
+-- everyone who can read the staff row (StaffService, /api/api-management/staff
+-- and the MCP server all select('*')).
+-- NO ROW = payer not yet recorded — a work queue for HR, never a silent default.
+-- is_payroll_entity is always true and exists only to carry the composite FK
+-- that stops a work-location-only organisation (JKKN Main Office) being a payer.
+CREATE TABLE IF NOT EXISTS public.hr_staff_payroll (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id           uuid NOT NULL UNIQUE REFERENCES public.staff(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES public.hr_organizations(id),
+  is_payroll_entity  boolean NOT NULL DEFAULT true CHECK (is_payroll_entity),
+  notes              text,
+  created_at         timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at         timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  created_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT hr_staff_payroll_org_must_run_payroll
+    FOREIGN KEY (hr_organization_id, is_payroll_entity)
+    REFERENCES public.hr_organizations (id, is_payroll_entity)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_staff_payroll_organization
+  ON public.hr_staff_payroll (hr_organization_id);
+
+-- Which organisations actually run a payroll. A flag rather than a hardcoded
+-- name check, so a future non-paying entity is a data edit and not a patch.
+ALTER TABLE public.hr_organizations
+  ADD COLUMN IF NOT EXISTS is_payroll_entity boolean NOT NULL DEFAULT true;
+ALTER TABLE public.hr_organizations
+  DROP CONSTRAINT IF EXISTS hr_organizations_id_payroll_entity_key;
+ALTER TABLE public.hr_organizations
+  ADD CONSTRAINT hr_organizations_id_payroll_entity_key UNIQUE (id, is_payroll_entity);
 
 -- Updated: 2026-04-18 - Call Notes dialog enrichment
 -- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
@@ -6511,3 +6587,14 @@ ALTER TABLE public.billing_receipt_cancel_request_actions
   ADD COLUMN IF NOT EXISTS actor_name           text,
   ADD COLUMN IF NOT EXISTS actor_email          text,
   ADD COLUMN IF NOT EXISTS actor_is_super_admin boolean;
+
+-- ── session_feedback: case-insensitive faculty-email expression index (2026-07-31) ──
+-- Migration: supabase/migrations/20260731220000_add_session_feedback_faculty_email_lower_index.sql
+-- ALREADY APPLIED TO PROD 2026-07-31 ~07:55 IST via the Management API as a
+-- single-statement CREATE INDEX CONCURRENTLY (outside any transaction); verified
+-- indisvalid=true and the lower(faculty_email) filter plan flipped Seq Scan → Bitmap
+-- Index Scan. Sits beside sibling idx_session_feedback_faculty (exact-case), which —
+-- like the session_feedback table itself — is declared in
+-- 20260615233000_session_feedback_substrate.sql, not in this file.
+CREATE INDEX IF NOT EXISTS idx_session_feedback_faculty_email_lower
+  ON public.session_feedback (lower(faculty_email), attendance_date);

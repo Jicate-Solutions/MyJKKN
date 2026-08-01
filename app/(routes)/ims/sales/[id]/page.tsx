@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useImsSale, useCancelImsSale } from '@/hooks/ims/use-ims-sales';
+import { GatewayPaymentCard } from '@/components/ims/gateway-payment-card';
 import type { ImsSaleItem, ImsSaleStatus } from '@/types/ims';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -269,6 +270,9 @@ function SaleDetailPageInner() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Gateway payment details. Renders nothing for a cash or manual-UPI sale. */}
+        <GatewayPaymentCard saleId={id} />
 
         {/* Amount Breakdown */}
         <Card>

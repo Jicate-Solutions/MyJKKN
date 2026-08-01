@@ -27,51 +27,53 @@
     "writes_data is a TEXT HEURISTIC over the function body, not proof — it also",
     "matches things like updated_at. It is recorded so that a grandfathered write",
     "can be ESCALATED rather than warned: an unauthenticated write path should",
-    "never sit quietly on a warning list."
+    "never sit quietly on a warning list.",
+    "Correction 2026-07-30: an earlier version of this file listed fn_update_recruitment_step_comment among the writers that \"raise on a permission check before touching a row\". That claim is WRONG — its guard evaluates to NULL for an anonymous caller and falls through to the UPDATE. The earlier test that cleared it used a non-existent candidate id and stopped at a \"Candidate not found\" raise several lines BEFORE the authorization check, which was therefore never exercised. Separately, eight anon-readable functions (3 returning real people and the super-admin list, 5 exposing platform settings including 3 live Meta webhook credentials) were revoked on 2026-07-30 and their entries deleted from this file.",
+    "2026-07-31: removed get_billing_analytics_by_category and get_billing_collection_split — the live sweep reported both as no longer anon-executable, so their entries were describing a grant that no longer exists."
   ],
   "generated": "2026-07-30",
   "functions": [
     {
       "name": "_user_accessible_institutions",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "api_key_has_permission",
       "args": "permission_name text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30. LOAD-BEARING: a caller authenticating by API key connects as the anon role, so revoking would switch off API-key authentication entirely — 50 active, unexpired keys, last used 2026-07-30."
     },
     {
       "name": "auth_hr_organization_id",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "auth_institution_id",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "billing_category_duplicate_conflicts",
       "args": "p_category_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "can_user_manage_staff",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "fn_calendar_ics",
@@ -102,60 +104,11 @@
       "reason": "Public enquiry/routing form, fetched by slug before any login exists."
     },
     {
-      "name": "fn_get_policy",
-      "args": "p_key text, p_scope_id uuid",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "fn_get_policy_bool",
-      "args": "p_key text, p_default boolean, p_scope_id uuid",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "fn_get_policy_clinical_reasoning",
-      "args": "p_key text, p_default jsonb",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "fn_get_policy_int",
-      "args": "p_key text, p_default integer, p_scope_id uuid",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "fn_get_policy_text",
-      "args": "p_key text, p_default text, p_scope_id uuid",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
       "name": "fn_hr_orgs_for_institutions",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "fn_resource_slot_conflicts",
-      "args": "p_resource_id uuid, p_start timestamp with time zone, p_end timestamp with time zone, p_exclude_id uuid",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "fn_role_user_counts",
-      "args": "",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "fn_submit_routing_form_response",
@@ -179,18 +132,11 @@
       "reason": "Public scoreboard by event id — published deliberately."
     },
     {
-      "name": "fn_update_recruitment_step_comment",
-      "args": "p_candidate_id uuid, p_step_index integer, p_comment text",
-      "status": "grandfathered",
-      "writes_data": true,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
       "name": "fn_user_can_access_room",
       "args": "check_room_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "fn_verify_event_certificate",
@@ -209,275 +155,254 @@
     {
       "name": "generate_hr_leave_balances",
       "args": "p_hr_org_id uuid, p_academic_year_id uuid, p_dry_run boolean",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": true,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "get_billing_analytics_by_category",
-      "args": "p_institution_ids uuid[]",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "get_billing_collection_split",
-      "args": "p_institution_ids uuid[], p_date_from date, p_date_to date",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Writes, but its FIRST statement is a user_has_permission(\"hr.leave.balance.manage\") check that returns a proper false (not null) for anon, so the exception fires before any row is touched. Verified live as anon 2026-07-30: refused. Director-approved 2026-07-30."
     },
     {
       "name": "get_billing_report_collections",
       "args": "p_institution_ids uuid[], p_date_from date, p_date_to date, p_academic_year_id uuid, p_scheme text, p_group_by text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "get_billing_report_kpis",
       "args": "p_institution_ids uuid[], p_date_from date, p_date_to date, p_academic_year_id uuid, p_scheme text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "get_billing_report_outstanding_by_year",
       "args": "p_institution_ids uuid[], p_academic_year_id uuid, p_scheme text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "get_billing_report_schemes",
       "args": "p_institution_ids uuid[], p_academic_year_id uuid, p_date_from date, p_date_to date",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "get_current_user_institution_id",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_current_user_role",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_my_expo_event_ids",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_my_expo_team_event_ids",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_user_institution_id",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_user_module_scope",
       "args": "module_key text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "hr_can_approve_leave",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_comp_off_balance",
       "args": "p_employee_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_leave_approver_candidates",
       "args": "p_hr_organization_id uuid, p_search text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_leave_approver_role_options",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_leave_balance_analytics",
       "args": "p_academic_year_name text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_leave_my_approval_queue",
       "args": "p_hr_organization_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_leave_period_usage",
       "args": "p_staff_id uuid, p_leave_type_id uuid, p_academic_year_id uuid, p_on date",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_leave_type_coverage",
       "args": "p_leave_type_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "hr_staff_visible_org_ids",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "hr_sto_usage",
       "args": "p_staff_id uuid, p_leave_type_id uuid, p_academic_year_id uuid, p_on date",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "ims_indent_dept_scope",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "is_admin",
       "args": "user_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30. NOTE: takes user_id DEFAULT auth.uid(), so a caller may ask about someone else and receive a boolean. Kept because it backs 1,286 RLS policies across 453 tables; the reconnaissance chain that made this useful was broken at its source by revoking tms_users_with_permission on 2026-07-30."
     },
     {
       "name": "is_board_chairman_for_programme",
       "args": "p_institutions_id uuid, p_programme_code character varying",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "is_super_admin",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_block_access",
       "args": "check_block_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_contract_access",
       "args": "check_contract_id uuid, check_contract_type text",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_hostel_block_scope",
       "args": "check_block_id uuid, check_institution_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_institution_access",
       "args": "check_institution_id uuid",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_get_builder_id",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_builder",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_hod",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_jicate_staff",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_staff",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_user_department_id",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "staff_teaching_institution_ids",
       "args": "",
-      "status": "grandfathered",
+      "status": "approved",
       "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
-    },
-    {
-      "name": "tms_users_with_permission",
-      "args": "p_permission text",
-      "status": "grandfathered",
-      "writes_data": false,
-      "reason": "Anon-executable SECURITY DEFINER function present when the function sweep was built (2026-07-30). Never explicitly ruled on."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     }
   ]
 }

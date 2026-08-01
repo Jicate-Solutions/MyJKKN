@@ -24,6 +24,12 @@ export interface ImsStore {
   is_active: boolean;
   is_central_supply_store: boolean;
   requires_local_approval: boolean;
+  /**
+   * Does this store have a selling counter? A lab or supply store issues stock
+   * but never sells, and ims_pos_checkout refuses to book a sale against it.
+   * New stores default to false — being a shop is opt-in.
+   */
+  is_pos_store: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -35,7 +41,10 @@ export interface ImsStoreWithRelations extends ImsStore {
 }
 
 // New distribution flags default at DB level, so they're optional on create
-type ImsStoreDistributionFields = 'is_central_supply_store' | 'requires_local_approval';
+type ImsStoreDistributionFields =
+  | 'is_central_supply_store'
+  | 'requires_local_approval'
+  | 'is_pos_store';
 
 export type CreateImsStoreDto =
   Omit<ImsStore, 'id' | 'created_at' | 'updated_at' | ImsStoreDistributionFields>

@@ -9332,6 +9332,121 @@ END;
 $$;
 
 -- =====================================================
+-- validate_learner_semester_year_scope() — Added 2026-07-30
+--   Migration: 20260730160000_repair_cross_institution_learner_semester_academic_year.sql
+--   Extended 2026-07-30 by 20260808100000_repair_learner_degree_id_cross_institution.sql
+--   to also cover degree_id and department_id.
+--   Extended 2026-07-31 by 20260731100100_extend_learner_scope_guard_section_id.sql
+--   to also cover section_id — the column the first two waves never checked,
+--   which left 179 learners on another institution's same-named section.
+-- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
+--
+-- Rejects a learners_profiles row whose degree_id, department_id, semester_id,
+-- academic_year_id or section_id belongs to a DIFFERENT institution. These tables are all
+-- institution-scoped and carry duplicate NAMES across institutions (nine rows
+-- named 'Undergraduate', one per institution), so a mis-pointed FK renders
+-- identically in the UI and is invisible until a filter silently returns zero
+-- rows. Two separate bulk writes on 2026-07-30 did exactly that.
+--
+-- Validates only on INSERT or when the value (or institution_id) ACTUALLY
+-- CHANGES — unlike validate_learner_admission_year_scope, which validates
+-- unconditionally. That is safe there because no bad rows exist. Here 319
+-- known-unresolvable semester rows deliberately remain, and an unconditional
+-- guard would make those learners impossible to edit at all, including to fix
+-- them.
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.validate_learner_semester_year_scope()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_inst uuid;
+BEGIN
+  -- Cannot judge scope without an institution on the learner.
+  IF NEW.institution_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.degree_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.degree_id      IS DISTINCT FROM OLD.degree_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT g.institution_id INTO v_inst
+      FROM public.degrees g WHERE g.id = NEW.degree_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'degree_id % belongs to institution %, not the learner''s institution %',
+        NEW.degree_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.department_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.department_id  IS DISTINCT FROM OLD.department_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT dp.institution_id INTO v_inst
+      FROM public.departments dp WHERE dp.id = NEW.department_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'department_id % belongs to institution %, not the learner''s institution %',
+        NEW.department_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.semester_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.semester_id     IS DISTINCT FROM OLD.semester_id
+          OR NEW.institution_id  IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT s.institution_id INTO v_inst
+      FROM public.semesters s WHERE s.id = NEW.semester_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'semester_id % belongs to institution %, not the learner''s institution %',
+        NEW.semester_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.academic_year_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.academic_year_id IS DISTINCT FROM OLD.academic_year_id
+          OR NEW.institution_id   IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT a.institution_id INTO v_inst
+      FROM public.academic_years a WHERE a.id = NEW.academic_year_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'academic_year_id % belongs to institution %, not the learner''s institution %',
+        NEW.academic_year_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- Added 2026-07-31 — the gap that let the section_id corruption survive.
+  -- 457 section rows are named 'A' group-wide, so the list rendered the right
+  -- label off the wrong row and only the section FILTER exposed the mismatch.
+  IF NEW.section_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.section_id     IS DISTINCT FROM OLD.section_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT sc.institution_id INTO v_inst
+      FROM public.sections sc WHERE sc.id = NEW.section_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'section_id % belongs to institution %, not the learner''s institution %',
+        NEW.section_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+-- =====================================================
 -- admission_years_enforce_single_current() — Added 2026-07-25
 -- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
 -- Wired by trg_admission_years_single_current in 04_triggers.sql.
@@ -13319,9 +13434,19 @@ GRANT EXECUTE ON FUNCTION public.get_billing_today_collections(uuid[]) TO authen
 GRANT EXECUTE ON FUNCTION public.get_billing_collection_trend(uuid[], date, date, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_institution(uuid[], date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_billing_analytics_aging(uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
-REVOKE ALL ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon;
-GRANT EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
+-- Updated: 2026-07-30 — close anon EXECUTE on these two SECURITY DEFINER RPCs.
+-- `REVOKE ALL ... FROM anon` alone is NOT enough: Postgres grants EXECUTE to
+-- PUBLIC by default (the `=X/owner` ACL entry) and `anon` inherits through
+-- PUBLIC, so the old single-role revoke below was a no-op and both functions
+-- were anon-executable on production. Mirrors migration
+-- 20260807190000_revoke_anon_billing_analytics_rpcs.sql; fixes the defect
+-- introduced by 20260801012000_billing_collection_split_rpcs.sql.
+REVOKE EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_billing_analytics_by_category(uuid[]) TO service_role;
+REVOKE EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.get_billing_collection_split(uuid[], date, date) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_billing_user_activity(uuid[], date, date) TO authenticated;
 
 
@@ -21637,6 +21762,17 @@ GRANT  EXECUTE ON FUNCTION public.fn_social_cadence_close(UUID, TEXT) TO authent
 --   courses_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is
 --   evaluated ONCE (hashed subplan) instead of a per-row function call — the
 --   per-row form full-scanned courses and hit the 8s statement_timeout (57014).
+-- staff_ids_visiting_accessible_institutions() RETURNS uuid[]  (migration
+--   optimize_staff_select_rls_dashboard_perf, 2026-07-30)
+--   STABLE SECURITY DEFINER, parameterless SET form of
+--   staff_is_visiting_in_accessible_institution: the DISTINCT set of staff_ids that
+--   teach in an institution the CURRENT USER can access. Used by
+--   staff_select_visiting_teacher as `IN (SELECT unnest(...))` so the set is evaluated
+--   ONCE. The per-row form made every unbounded `staff` read cost 1245 ms / 33,766
+--   buffers for an own_institution user, which the analytics dashboard then paid 9x
+--   (its "Loading Dashboard..." hang). MUST stay SECURITY DEFINER: staff_plan_courses
+--   and staff_plans carry their own RLS, so inlining the join into the policy would
+--   evaluate it as the querying user and silently narrow the grant.
 -- fn_attendance_roster (UPDATED 20260706): institution gate is now
 --   (role_has_institution_access OR staff_teaches_in_institution) AND attendance
 --   permission — visiting staff can load the roster where they teach.
@@ -22325,11 +22461,14 @@ GRANT EXECUTE ON FUNCTION public.get_markable_resident_photos(uuid) TO authentic
 -- Strategy: delete-all-then-reinsert — safe because
 -- events_registrations.custom_fields keys answers by field_key, never the
 -- field row id, so churning ids on save orphans nothing.
--- Canonical body:
---   supabase/migrations/20260715090000_save_event_registration_form_rpc.sql
+-- 2026-07-31: now FORM-scoped, not event-scoped. An event holds many named
+-- registration forms (one per monthly run), so the first argument is p_form_id
+-- and the form must already exist — creating one is the service's createForm(),
+-- which chooses the name and slug. Canonical body:
+--   supabase/migrations/20260731150000_event_multi_registration_forms.sql
 -- ============================================================================
 CREATE OR REPLACE FUNCTION save_event_registration_form(
-  p_event_id uuid,
+  p_form_id uuid,
   p_is_enabled boolean,
   p_sections jsonb
 )
@@ -22339,19 +22478,24 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
 DECLARE
-  v_form_id    uuid;
+  v_event_id   uuid;
   v_section    jsonb;
   v_section_id uuid;
   v_field      jsonb;
 BEGIN
-  -- 1. Lazy-create / update the form row (RLS authorizes via WITH CHECK).
-  INSERT INTO event_registration_forms (event_id, is_enabled)
-  VALUES (p_event_id, COALESCE(p_is_enabled, true))
-  ON CONFLICT (event_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
-  RETURNING id INTO v_form_id;
+  -- 1. Resolve the form; sections/fields still carry event_id for their RLS gates.
+  SELECT event_id INTO v_event_id
+    FROM event_registration_forms WHERE id = p_form_id;
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Registration form % not found', p_form_id;
+  END IF;
 
-  -- 2. Clear existing structure; fields cascade off sections.
-  DELETE FROM event_registration_form_sections WHERE form_id = v_form_id;
+  UPDATE event_registration_forms
+     SET is_enabled = COALESCE(p_is_enabled, true), updated_at = now()
+   WHERE id = p_form_id;
+
+  -- 2. Clear THIS form's structure only; fields cascade off sections.
+  DELETE FROM event_registration_form_sections WHERE form_id = p_form_id;
 
   -- 3. Re-insert the desired structure, in payload order.
   FOR v_section IN
@@ -22359,8 +22503,8 @@ BEGIN
   LOOP
     INSERT INTO event_registration_form_sections (form_id, event_id, title, display_order)
     VALUES (
-      v_form_id,
-      p_event_id,
+      p_form_id,
+      v_event_id,
       COALESCE(NULLIF(btrim(v_section->>'title'), ''), 'Section'),
       COALESCE((v_section->>'display_order')::int, 0)
     )
@@ -22370,13 +22514,14 @@ BEGIN
       SELECT * FROM jsonb_array_elements(COALESCE(v_section->'fields', '[]'::jsonb))
     LOOP
       INSERT INTO event_registration_form_fields (
-        section_id, event_id, field_key, field_label, field_type, is_required,
+        form_id, section_id, event_id, field_key, field_label, field_type, is_required,
         display_order, placeholder, help_text, min_length, max_length,
         min_value, max_value, pattern, options, condition
       )
       VALUES (
+        p_form_id,
         v_section_id,
-        p_event_id,
+        v_event_id,
         v_field->>'field_key',
         v_field->>'field_label',
         v_field->>'field_type',
@@ -22398,11 +22543,28 @@ END;
 $$;
 
 COMMENT ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) IS
-  'Atomically replaces a tournament registration form (sections + fields) from a desired-state payload. SECURITY INVOKER: authorization comes from the event_registration_form_* _manage RLS policies.';
+  'Atomically replace one registration form''s sections + fields. Form-scoped: an event holds many forms. SECURITY INVOKER — the caller must pass the event_registration_form*_manage RLS gate.';
 
 REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) TO authenticated;
+
+-- ============================================================================
+-- 2026-07-31: clone_event_registration_form — copy a form (sections + fields)
+-- into a new CLOSED form on the same event. One transaction, so a half-copied
+-- form is impossible. De-duplicates the slug within the event so cloning twice
+-- cannot trip UNIQUE (event_id, slug). Returns the new form id.
+-- Canonical body:
+--   supabase/migrations/20260731150000_event_multi_registration_forms.sql
+-- ============================================================================
+-- (body omitted here — see the migration; this file is a reference index)
+
+COMMENT ON FUNCTION clone_event_registration_form(uuid, text, text) IS
+  'Copy a registration form (sections + fields) into a new CLOSED form on the same event; de-duplicates the slug. Returns the new form id. SECURITY INVOKER.';
+
+REVOKE ALL ON FUNCTION clone_event_registration_form(uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION clone_event_registration_form(uuid, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION clone_event_registration_form(uuid, text, text) TO authenticated;
 
 
 -- ============================================================================

@@ -1054,7 +1054,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             );
             return (
               <FormItem data-field='institution_id'>
-                <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
+                {/* This field is WHERE THE PERSON WORKS (2026-07-31). It drives
+                    every "own institution" scope in the app, so changing it
+                    changes what this person can see. Who pays their salary is a
+                    separate HR-only record — /hr/payroll/organisation — and is
+                    deliberately not editable here. */}
+                <FormLabel>Institution — works at <span className='text-destructive'>*</span></FormLabel>
                 <Select
                   onValueChange={field.onChange}
                   value={field.value}

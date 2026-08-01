@@ -45,6 +45,7 @@ import {
   useCarreItemEvidence,
   useCarreParticipantRollup,
   useCarreParticipantActivity,
+  useClassroomCompare,
 } from '@/hooks/audit';
 import {
   CareScoreSheet,
@@ -52,9 +53,14 @@ import {
   type SheetValue,
 } from '../_components/care-score-sheet';
 import { CareSummaryStrip } from '../_components/care-summary-strip';
+import {
+  ClassroomCompareCard,
+  ClassroomPillarStrip,
+  ClassroomSealedCommentsCard,
+} from '../_components/classroom-practice-panel';
 import { CareResultsPanel } from '../_components/care-results-panel';
 import { careIndex } from '@/lib/services/audit/care-scoring-service';
-import { carreIndex } from '@/lib/services/audit/carre-scoring-service';
+import { carreIndex, isClassroomCatalog } from '@/lib/services/audit/carre-scoring-service';
 import { SectionEyebrow, PhaseStepper } from '../../_components/redesign/kit';
 import type {
   CareAuditDetail,
@@ -141,17 +147,33 @@ export default function CultureAuditDetailPage({
     return values;
   }, [detail]);
 
+  // Classroom Practice (13 items) shares this page but not its scoring model:
+  // no /100 index, no doctrine caps, per-pillar medians instead. Detected from
+  // the frozen snapshot, so an in-flight cycle keeps the shape it was created
+  // with even if the catalogs change later.
+  const snapshot = isCarre ? (detail as CarreAuditDetail | null)?.snapshot : undefined;
+  const isClassroom = isCarre && isClassroomCatalog(snapshot);
+  const snapshotParameters = snapshot?.parameters ?? [];
+
   const { index } = isCarre ? carreIndex(ownerScores) : careIndex(ownerScores);
-  const complete = index !== null;
-  const itemCount = isCarre ? 25 : 20;
-  const settingCode = isCarre
-    ? (detail as CarreAuditDetail | null)?.snapshot?.setting_code
-    : undefined;
+  const complete = index !== null && !isClassroom;
+  const itemCount = isClassroom
+    ? snapshotParameters.length
+    : isCarre
+      ? 25
+      : 20;
+  const settingCode = isCarre ? snapshot?.setting_code : undefined;
+
+  // The owner-side reveal reads the SCF drip, not the sealed participant
+  // lane; every gate on it is server-side.
+  const compareQ = useClassroomCompare(isClassroom ? cycleId : undefined);
 
   // Live evidence + doctrine caps and the sealed k≥3 participant rollup —
   // CARRE only; both RPCs self-gate (lead auditor / leadership) and return
   // nothing for everyone else, so no page-level guard is needed.
-  const evidenceQ = useCarreItemEvidence(isCarre ? cycleId : undefined);
+  // Doctrine caps are a CARRE-initiative mechanism and their evidence probes key
+  // on CARRE-* codes; a Classroom Practice cycle neither needs nor matches them.
+  const evidenceQ = useCarreItemEvidence(isCarre && !isClassroom ? cycleId : undefined);
   const rollupQ = useCarreParticipantRollup(isCarre ? cycleId : undefined);
   // Cycle-level participation line — appears once >= 3 distinct learners have
   // scored ANYTHING in the sealed lane, even before any per-item group hits k.
@@ -294,9 +316,19 @@ export default function CultureAuditDetailPage({
                   {frameworkLabel} v{d.snapshot?.version ?? (isCarre ? '2.0' : '1.0')}
                   {isCarre && settingCode ? ` · ${settingCode}` : ''} · Culture audit
                 </SectionEyebrow>
-                <h1 className="truncate text-2xl font-semibold tracking-tight">
-                  {d.cycle.name}
-                </h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-2xl font-semibold tracking-tight">
+                    {d.cycle.name}
+                  </h1>
+                  {isClassroom && (
+                    <Badge
+                      variant="outline"
+                      className="border-violet-300 bg-violet-50 text-[10px] text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200"
+                    >
+                      {'Classroom Practice · one Senior Learner'}
+                    </Badge>
+                  )}
+                </div>
                 {d.cycle.audience && (
                   <p className="text-sm text-muted-foreground">{d.cycle.audience}</p>
                 )}
@@ -334,11 +366,21 @@ export default function CultureAuditDetailPage({
 
         {/* Live pillar / index strip */}
         <section className="space-y-3">
-          <SectionEyebrow>Live score</SectionEyebrow>
-          <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
+          <SectionEyebrow>{isClassroom ? 'Your own reading' : 'Live score'}</SectionEyebrow>
+          {isClassroom ? (
+            <ClassroomPillarStrip
+              parameters={snapshotParameters}
+              ownerScores={ownerScores}
+            />
+          ) : (
+            <CareSummaryStrip ownerScores={ownerScores} framework={framework} />
+          )}
         </section>
 
-        {/* Second scorer */}
+        {/* Second scorer — the blind token-invite lane. A Classroom Practice
+            cycle gets its second opinion from the sealed learner sheet instead,
+            so this card would offer a competing mechanism for the same job. */}
+        {!isClassroom && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -405,12 +447,13 @@ export default function CultureAuditDetailPage({
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Scoring sheet */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              Scoring sheet — {itemCount} items, 0–4
+              {isClassroom ? 'Score yourself' : 'Scoring sheet'} — {itemCount} items, 0–4
               {!d.is_owner && (
                 <Badge variant="outline" className="ml-2 text-[10px]">
                   Read-only (you are not the owner)
@@ -441,10 +484,32 @@ export default function CultureAuditDetailPage({
           </CardContent>
         </Card>
 
+        {/* Classroom Practice: self-score beside the sealed learner medians,
+            with the three gates named in plain words while they hold. */}
+        {isClassroom && (
+          <ClassroomCompareCard
+            parameters={snapshotParameters}
+            compare={compareQ.data}
+          />
+        )}
+
+        {/* Classroom Practice sealed comments — Principal & Director only.
+            NOT mounted for the cycle's owner: the server refuses them anyway
+            (owner_never_reads_comments, before any role check), but not even
+            issuing the request keeps the owner's network tab as quiet as
+            their screen. The card renders nothing for anyone else the server
+            turns away, so leadership visibility is decided server-side only. */}
+        {isClassroom && !d.is_owner && (
+          <ClassroomSealedCommentsCard
+            cycleId={cycleId}
+            parameters={snapshotParameters}
+          />
+        )}
+
         {/* Sealed participant voice — k≥3 aggregates only, never identities.
             Renders when the cycle-level participation line exists (>= 3
             distinct sealed scorers) OR any per-item group has hit k. */}
-        {isCarre && (sealedActivity !== null || sealedRollup.length > 0) && (
+        {isCarre && !isClassroom && (sealedActivity !== null || sealedRollup.length > 0) && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">

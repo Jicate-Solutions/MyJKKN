@@ -28,6 +28,15 @@
 // identical "not captured yet" cells: the reason belongs to the metric, not to
 // each institution, and repeating it fourteen times buries the rows that
 // do carry numbers.
+//
+// The same spanning row carries three further states, all of them saying that a
+// value is missing for a reason that is not about any institution: the request
+// failed, the request succeeded and returned nothing at all, or this one wired
+// metric stopped reporting while the rest kept going. They exist because the
+// per-institution cell has exactly one way to say "no value" — "none recorded" —
+// and this page's legend defines that as a fact about that institution. Every
+// cause that is NOT about the institution has to be caught before the cells are
+// reached, or a broken feed is published as a finding against every college.
 // ============================================================================
 
 'use client';
@@ -43,10 +52,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { BarChart3, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, Clock, Info } from 'lucide-react';
 import {
   CAC_METRIC_CATALOG,
   CAC_CATALOG_VERSION,
+  measuredMetricIds,
   substrateReason,
   summariseCatalog,
   type CacMetric,
@@ -57,8 +67,14 @@ import {
 } from '../_lib/cac-institution-groups';
 import {
   useCacMeasuredMetrics,
+  useCacAttendanceRollupFreshness,
+  classifyMeasuredRead,
+  classifyRollupFreshness,
   indexMeasuredRows,
   metricsWithData,
+  stoppedReportingMetrics,
+  type CacReadOutcome,
+  type CacRollupFreshness,
 } from '@/hooks/accreditation/use-cac-metrics';
 
 interface Props {
@@ -80,11 +96,34 @@ export function MeasuredMetricsSection({
   institutionsLoading,
 }: Props) {
   const { data: rows, isLoading, error } = useCacMeasuredMetrics();
+  const {
+    data: rollupComputedAt,
+    isLoading: rollupLoading,
+    error: rollupError,
+  } = useCacAttendanceRollupFreshness();
   const [showOther, setShowOther] = useState(false);
+
+  // Held back until the read resolves. Classifying an in-flight query would
+  // print "never computed" for as long as the request took, which is the one
+  // state a reader would act on.
+  const rollupFreshness: CacRollupFreshness | null = rollupLoading
+    ? null
+    : classifyRollupFreshness(rollupComputedAt, Boolean(rollupError));
 
   const groups = useMemo(() => groupInstitutions(institutions), [institutions]);
   const index = useMemo(() => indexMeasuredRows(rows ?? []), [rows]);
   const live = useMemo(() => metricsWithData(rows ?? []), [rows]);
+  const outcome = useMemo(
+    () => classifyMeasuredRead(rows, Boolean(error)),
+    [rows, error],
+  );
+  // Wired metrics that returned nothing anywhere. Derived here rather than in
+  // each row so the whole-read verdict is applied once and every row agrees
+  // with every other about what kind of failure this is.
+  const stopped = useMemo(
+    () => stoppedReportingMetrics(measuredMetricIds(), live, outcome),
+    [live, outcome],
+  );
   const catalog = summariseCatalog();
 
   // Column order follows the groups, with the non-teaching entities appended
@@ -127,10 +166,12 @@ export function MeasuredMetricsSection({
             </Badge>
             <Badge variant="outline">{catalog.metrics} metrics</Badge>
             <Badge variant="secondary">
-              {/* A failed read knows nothing about how many metrics carry
-                  numbers. Printing live.size here would render a confident
+              {/* A read that failed — or succeeded and returned nothing — knows
+                  nothing about how many metrics carry numbers. Printing
+                  live.size in either case would render a confident
                   "0 carrying numbers today" off an empty index. */}
-              {loading || error ? '—' : live.size} carrying numbers today
+              {loading || outcome !== 'values' ? '—' : live.size} carrying
+              numbers today
             </Badge>
             <Badge variant="outline" className="font-mono text-xs">
               framework {CAC_CATALOG_VERSION}
@@ -146,6 +187,20 @@ export function MeasuredMetricsSection({
             <p className="mt-1 text-xs text-muted-foreground">
               The metric structure below is still correct. Only the values are
               missing. {String((error as Error)?.message ?? '')}
+            </p>
+          </div>
+        )}
+
+        {!loading && outcome === 'nothing-returned' && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+            <p className="font-medium">
+              The read succeeded and returned no measurements at all.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Every wired metric came back empty at the same moment, which points
+              at the read rather than at the cluster. The structure below is
+              still correct, and no row beneath says anything about any
+              institution.
             </p>
           </div>
         )}
@@ -221,7 +276,9 @@ export function MeasuredMetricsSection({
                           metric={metric}
                           institutions={visible}
                           index={index}
-                          readFailed={Boolean(error)}
+                          outcome={outcome}
+                          stopped={stopped}
+                          rollupFreshness={rollupFreshness}
                         />
                       ))}
                     </tbody>
@@ -245,16 +302,32 @@ export function MeasuredMetricsSection({
             nothing at all.
           </p>
           <p>
-            &ldquo;Values could not be read&rdquo; is the one state that is not
-            about the data: the request for the numbers failed. It is kept
-            separate from every state above on purpose — a page that showed a
-            read failure as an empty result would be reporting a gap that may
+            &ldquo;This measurement has stopped reporting&rdquo; means the metric
+            is wired and normally carries numbers, but this time nothing came
+            back for any institution while other metrics did. Several of these
+            depend on an overnight job, and a job that has failed looks exactly
+            like this — which is why it is kept apart from &ldquo;none
+            recorded&rdquo;. One is a fact about an institution; this one is a
+            fact about the pipeline, and reading it as the first would put a
+            broken job on the record as a finding against every college.
+          </p>
+          <p>
+            &ldquo;Values could not be read&rdquo; and &ldquo;No measurements
+            came back&rdquo; are the two states that are not about the data at
+            all. The first is a request that failed. The second is a request that
+            succeeded and carried nothing — not one feed down but the whole read
+            empty, which is a single fault rather than a gap in every metric.
+            Both are kept separate from every state above on purpose: a page that
+            showed either as an empty result would be reporting a gap that may
             not exist.
           </p>
           <p>
             Attendance is the presence rate over the last 30 days, because the
             full-history figure needs a nightly snapshot before it can be read
-            inside a page request.
+            inside a page request. The note on that row says when the nightly
+            snapshot last ran, and turns amber when it has never run or has not
+            run in the last day. The 30-day rate itself is worked out on every
+            read and is never stale.
           </p>
         </div>
       </CardContent>
@@ -266,8 +339,98 @@ interface RowProps {
   metric: CacMetric;
   institutions: Array<GroupableInstitution & { group: string }>;
   index: ReturnType<typeof indexMeasuredRows>;
-  /** The RPC failed. No cell may claim anything about a value. */
-  readFailed: boolean;
+  /** How much of the read can be believed. Anything but `values` and no cell
+   *  may claim anything about a value. */
+  outcome: CacReadOutcome;
+  /** Wired metrics that returned nothing for any institution. */
+  stopped: Set<string>;
+  /** Age of the nightly attendance rollup, or null while it is being read. */
+  rollupFreshness: CacRollupFreshness | null;
+}
+
+/** Day, month, year and time — a bare date cannot show a job that ran twice. */
+function formatComputedAt(at: Date): string {
+  return at.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * When the all-history attendance figure was last worked out.
+ *
+ * The number in this row is the trailing-window rate, computed on every read,
+ * so it is never stale. The all-history figure behind it is not: it comes from
+ * cac_attendance_rollup, which a nightly job fills, and a nightly job that
+ * stops looks from here exactly like one that is running. This says which.
+ *
+ * "Never computed" carries no date at all. A page that fell back to today's
+ * date, or to a dash, would let a job that has never once run read as a job
+ * that ran this morning — and the amber is there so the difference is visible
+ * before anyone quotes the figure.
+ */
+function AttendanceFreshness({
+  freshness,
+}: {
+  freshness: CacRollupFreshness | null;
+}) {
+  if (!freshness) return null;
+
+  const amber =
+    'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400';
+  const quiet = 'border-border bg-muted/50 text-muted-foreground';
+
+  let text: string;
+  let tone: string;
+  let explanation: string;
+
+  switch (freshness.state) {
+    case 'never':
+      text = 'All-history figure: never computed';
+      tone = amber;
+      explanation =
+        'The nightly rollup has not produced an all-history attendance figure yet, so there is no date to show. The rate in this row is the trailing window and is computed fresh on every read — it is the all-history figure, not this one, that is missing.';
+      break;
+    case 'unknown':
+      text = 'All-history figure: age could not be read';
+      tone = quiet;
+      // Deliberately not amber. Amber here would claim the job is behind,
+      // when what actually happened is that we failed to find out.
+      explanation =
+        'The rollup could not be read, so how old the all-history figure is cannot be stated. This says nothing about whether the nightly job ran.';
+      break;
+    case 'stale':
+      text = `All-history figure: computed ${formatComputedAt(freshness.computedAt)}`;
+      tone = amber;
+      explanation =
+        'The nightly rollup last ran more than 24 hours ago. It is scheduled daily, so a gap this long means it has missed at least one run and the all-history figure is behind.';
+      break;
+    case 'fresh':
+      text = `All-history figure: computed ${formatComputedAt(freshness.computedAt)}`;
+      tone = quiet;
+      explanation =
+        'The nightly rollup ran within the last 24 hours, which is its schedule.';
+      break;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={`mt-1 inline-flex w-fit cursor-help items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${tone}`}
+        >
+          <Clock className="h-2.5 w-2.5 shrink-0" />
+          {text}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">
+        {explanation}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
@@ -307,16 +470,26 @@ function SpanningRow({
   );
 }
 
-function MetricRow({ metric, institutions, index, readFailed }: RowProps) {
+function MetricRow({
+  metric,
+  institutions,
+  index,
+  outcome,
+  stopped,
+  rollupFreshness,
+}: RowProps) {
   const label = (
     <div className="flex items-start gap-1">
-      <div>
+      <div className="flex flex-col">
         {metric.parent && (
-          <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {metric.parent}
           </span>
         )}
         <span>{metric.ceoLabel}</span>
+        {metric.id === 'attendance' && (
+          <AttendanceFreshness freshness={rollupFreshness} />
+        )}
       </div>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -342,21 +515,56 @@ function MetricRow({ metric, institutions, index, readFailed }: RowProps) {
     );
   }
 
-  // The read failed, so this row has no values to show — and MUST NOT fall
-  // through to the per-institution cells below. With an empty index every one
-  // of them takes the `!cell` branch and prints "none recorded", which this
-  // page's own legend defines as "wired, and this institution has nothing in it
-  // yet". That would manufacture a measured-empty claim for every institution
-  // on every measured metric out of a request that simply did not come back.
-  // "Could not read" and "read, and there is nothing" are the two states this
-  // whole page exists to keep apart.
-  if (readFailed) {
+  // Everything from here to the cells guards the same mistake in three
+  // different disguises. A measured row that has no values MUST NOT fall through
+  // to the per-institution cells below: with nothing in the index every one of
+  // them takes the `!cell` branch and prints "none recorded", which this page's
+  // own legend defines as "wired, and this institution has nothing in it yet".
+  // That turns a fault in the reading into a finding about fourteen colleges.
+  // "Could not read", "read and got nothing back", "this one feed died" and
+  // "read, and this institution really is empty" are four different facts, and
+  // keeping them apart is the whole job of this page.
+
+  // 1. The request errored. Nothing is known about anything.
+  if (outcome === 'read-failed') {
     return (
       <SpanningRow label={label} columns={institutions.length}>
         <span className="font-medium">Values could not be read</span>
         <span className="mx-1">·</span>
         This metric is wired — the figures are missing because the request
         failed, not because there is nothing to show.
+      </SpanningRow>
+    );
+  }
+
+  // 2. The request came back and carried no value for any metric anywhere. Said
+  //    plainly and identically on every wired row, because it is one fault and
+  //    not one per metric — the banner above the table names it once.
+  if (outcome === 'nothing-returned') {
+    return (
+      <SpanningRow label={label} columns={institutions.length}>
+        <span className="font-medium">No measurements came back</span>
+        <span className="mx-1">·</span>
+        The read returned nothing for any metric, so this row describes the read
+        and not this metric.
+      </SpanningRow>
+    );
+  }
+
+  // 3. Other metrics returned values and this one did not. It has real substrate
+  //    behind it, so an absence spanning every institution at once is a feed
+  //    that has stopped — several of these depend on an overnight job — rather
+  //    than a cluster that emptied.
+  if (stopped.has(metric.id)) {
+    return (
+      <SpanningRow label={label} columns={institutions.length}>
+        <span className="font-medium">
+          This measurement has stopped reporting
+        </span>
+        <span className="mx-1">·</span>
+        It is wired and normally carries numbers, so the figures here are missing
+        rather than absent. Nothing on this row is a finding about any
+        institution.
       </SpanningRow>
     );
   }

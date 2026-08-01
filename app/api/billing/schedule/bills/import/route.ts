@@ -8,9 +8,16 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getErrorMessage } from '@/lib/utils';
 import { BulkCreateBillsService } from '@/lib/services/billing/schedule/bulk-create-bills-service';
+import { logActivity } from '@/lib/utils/activity-logger';
+import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
 import type { ImportResult } from '@/lib/utils/mappings/student-bill-excel-mappings';
 
 export const maxDuration = 60;
+
+// Cap on how many per-bill entries are persisted inline in the audit metadata.
+// Matches AUDIT_CHANGES_CAP in bulk-edit/apply. The full set always goes back
+// in the HTTP response, which is what the client report renders from.
+const AUDIT_BILLS_CAP = 1000;
 
 /**
  * POST /api/billing/schedule/bills/import
@@ -129,6 +136,81 @@ export async function POST(request: NextRequest) {
     // Validation issues and insert failures are both "rows that didn't become
     // bills", so the report lists them together in sheet order.
     const errors = [...preview.errors, ...commitErrors].sort((a, b) => a.row - b.row);
+
+    // -- Audit -------------------------------------------------------------
+    // ONE summary row per upload, per-bill detail in metadata (capped) —
+    // the same shape bulk-edit/apply writes.
+    //
+    // This route is where essentially all bulk bill creation actually happens,
+    // and until now it wrote nothing: the only trace of an upload was
+    // `billing_student_bills.created_by` + `created_at`. Bulk delete and bulk
+    // edit both logged, so /billing/activities showed every bulk verb EXCEPT
+    // create — which reads as "no bulk create happened" rather than "bulk
+    // create isn't instrumented".
+    //
+    // `sub_type` deliberately matches the client-side template used by the
+    // form path (StudentBillService.bulkCreateStudentBills), so one filter in
+    // the activity feed covers both ways of bulk-creating a bill.
+    if (successes.length > 0) {
+      // institution_id lives on the insert payload, not on ImportSuccessRow.
+      // Worth carrying: a sheet is keyed by roll number, so a single upload
+      // can span several institutions without the operator ever naming one.
+      // Recording the spread is what makes that visible afterwards.
+      const institutionByRow = new Map<number, string>();
+      analysis.inserts.forEach((insert) => {
+        const id = insert.payload.institution_id;
+        if (typeof id === 'string') institutionByRow.set(insert.row, id);
+      });
+      const institutionIds = Array.from(
+        new Set(
+          successes
+            .map((s) => institutionByRow.get(s.row))
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+
+      const learnerCount = new Set(successes.map((s) => s.roll_number)).size;
+      const totalAmount = successes.reduce((sum, s) => sum + (s.billing_amount || 0), 0);
+
+      await logActivity({
+        userId: user.id,
+        actionType: ACTIVITY_TYPES.CREATE,
+        resourceType: RESOURCE_TYPES.BILL,
+        description:
+          `Bulk created ${successes.length} bill${successes.length !== 1 ? 's' : ''} ` +
+          `for ${learnerCount} learner${learnerCount !== 1 ? 's' : ''} ` +
+          `(₹${totalAmount.toLocaleString('en-IN')}) from ${file.name}`,
+        request,
+        // Stamped only when the upload really did touch exactly one
+        // institution — a single id on a multi-institution sheet would be
+        // worse than a blank, because it reads as a scope that was never true.
+        institutionId: institutionIds.length === 1 ? institutionIds[0] : undefined,
+        metadata: {
+          sub_type: 'student_bill_bulk',
+          file_name: file.name,
+          total_rows: preview.totalRows,
+          created: successes.length,
+          failed: errors.length,
+          // Whether the operator explicitly accepted skipping invalid rows.
+          // That's a control decision, not a UI detail, so it belongs here.
+          skip_invalid: skipInvalid,
+          learner_count: learnerCount,
+          total_amount: totalAmount,
+          institution_ids: institutionIds,
+          bills: successes.slice(0, AUDIT_BILLS_CAP).map((s) => ({
+            bill_id: s.bill_id,
+            row: s.row,
+            roll_number: s.roll_number,
+            student_name: s.student_name,
+            billing_category: s.billing_category,
+            due_date: s.due_date,
+            amount: s.billing_amount
+          })),
+          bills_truncated: successes.length > AUDIT_BILLS_CAP,
+          bills_overflow: Math.max(0, successes.length - AUDIT_BILLS_CAP)
+        }
+      });
+    }
 
     return NextResponse.json<ImportResult>({
       success: errors.length === 0,

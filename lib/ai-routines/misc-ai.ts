@@ -306,5 +306,62 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: writes priority_rank / priority_reason / gap_class / ranked_at onto mba_data_gaps rows, and enqueues 'improvement.rank_data_gaps' jobs on the Max lane. No notifications, no external messages.",
     "safeToManualTrigger": true,
     "notes": "Fires via the AI-routine dispatcher (ai_routine_schedules row 'rank-data-gaps' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later: a ?mode=collect tick drains the previous run's jobs. Idempotent: per-institution/day dedupe stops double-enqueue and collect claims each job once. Scheduled AFTER measure-gap-outcomes so the ranking reads today's fresh hit-rate."
+  },
+  {
+    "id": "learner-360-verdict",
+    "maxLane": true,
+    "name": "Learner 360 — Plain-Language Standing Verdict (Max lane)",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 06:37 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/learner-360-verdict",
+    "callsClaude": true,
+    "whatItDoes": "The platform already scores every learner twice a night and shows nobody the answer in words. This turns those numbers — risk assessment, contribution score and the 14-day attendance summary — into one plain-English standing note per learner: a band, 2-3 developmental sentences addressed to the learner, and 2-3 concrete next steps. A separate admin-only note (what the learner contributes, and where they sit relative to peers) is written to a DIFFERENT table so it reaches leadership only. Collect-first: it drains the previous run's jobs and records the verdicts, then enqueues the next cohorts on the ₹0 Max lane, highest-risk learners first.",
+    "configKnobs": "LEARNERS_PER_JOB=10 (a cohort, because the admin-only value_rank_note is comparative and a batch of one cannot answer it), MAX_JOBS_PER_RUN=20 (=200 learners/night), COLLECT_CAP=50, TIER_ORDER=critical>high>moderate>low>healthy, job_type='learner.360_verdict' (₹0 Max lane, model_id='sonnet' family alias). Per-cohort/day dedupe key. Cohorts never cross an institution.",
+    "sideEffects": "DB writes only: upserts learner_360_verdicts + learner_360_verdicts_admin via fn_learner_360_record_verdict (service-role), and enqueues 'learner.360_verdict' jobs on the Max lane. No notifications, no external messages, nothing sent to any learner.",
+    "safeToManualTrigger": true,
+    "notes": "🔒 HARD DATA BOUNDARY: reads ONLY learner_risk_assessments, learner_contribution_scores and mv_learner_attendance_summary. It must NEVER read or join session_feedback, event_session_feedback, carre_micro_impressions or scf_learner_notes — those hold feedback the learner GAVE under an explicit anonymity promise (aggregated-and-anonymous UI copy, a fully_anonymous mode stripping author_id, k>=3 suppression), so scoring the author would break it — nor any health_*/medical table. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-360-verdict'), NOT a raw vercel.json cron: vercel.json already carries exactly 100 crons, the plan ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Async enqueue-now / collect-later; a ?mode=collect tick drains the previous run. Idempotent: per-cohort/day dedupe, collect claims each job once, and the record RPC upserts on (learner_id, verdict_date). Recommendation-only — any verdict can be corrected by a human via fn_learner_360_set_override, and the override is what every surface must then display."
+  },
+  {
+    "id": "learner-risk-staff-notifications",
+    "name": "Learner Risk → Department Head Notifications",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 17:20 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/learner-risk-notifications",
+    "callsClaude": false,
+    "whatItDoes": "Tells the head of a learner's own department which of THEIR learners newly entered — or worsened within — high/critical risk, with the evidence attached: tier, composite score, 14-day attendance and its change, overdue bill count, and the engine's suggested actions. The risk engine has written assessments daily since its first successful run on 2026-07-30 (4,342 rows; 59 critical, 403 high) and notified nobody until this routine existed. Recipients are TEAM MEMBERS ONLY — no learner and no family is notified by any path here.",
+    "configKnobs": "platform_policies keys under learner_risk.notifications.* — enabled (default on), mode (digest | individual; digest is the default and groups one message per department), include_department_staff (default off; adds 203 recipients across the affected departments), expiry_hours (72), min_score_delta (5), max_learners_per_message (25). No model, no LLM.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to department heads, and one learner_risk_notification_log row per learner announced. Every notification row carries an explicit expires_at. Sends nothing when the ledger table is absent (fails closed with 503) or when enabled is false.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-risk-staff-notifications'), NOT a raw vercel.json cron — `crons` is at the 100-entry plan cap and a 101st would fail the build for every deploy. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent three ways: UNIQUE(learner_id, notified_on) on the ledger, a per-department-per-day idempotency_key on the notification, and a dedupe that only sends on a CHANGE in standing (new / escalated / worsening) so an unchanged learner is never re-announced. Use ?dryRun=1 to see exactly what would be sent without writing. Marked unsafe-to-manual because a run delivers messages naming real learners to real department heads."
+  },
+  {
+    "id": "cac-attendance-rollup",
+    "name": "Cluster Academic Council — All-History Attendance Rollup",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 02:40 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/cac-attendance-rollup",
+    "callsClaude": false,
+    "whatItDoes": "Recomputes attendance totals across ALL history into cac_attendance_rollup, one row per institution. The CAC dashboard currently shows a labelled trailing window rather than the real all-history rate, and that is a timeout dodge rather than a reporting choice: fn_cac_measured_metrics expands JSONB per row (jsonb_each -> jsonb_array_elements) so cost scales with MARKS, not rows — 1,121,890 marks across 10 institutions measured on 2026-07-31, ~4s warm as postgres, against an 8s statement_timeout on the authenticated role. Computing it nightly as postgres removes the ceiling and makes the page read a 10-row seq scan.",
+    "configKnobs": "?dryRun=1 reports what the rollup currently holds and writes nothing — useful for spotting staleness without paying for a recompute. No model, no LLM, no thresholds.",
+    "sideEffects": "WRITES cac_attendance_rollup only — one upserted row per institution. Sends no notification, touches no learner record, and writes nothing else. NOTHING READS THE ROLLUP YET: fn_cac_measured_metrics is deliberately not repointed at it until these numbers have been compared against a manual all-history computation, because pointing a live dashboard at a never-populated table is how a metric silently becomes zero.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cac-attendance-rollup'), NOT a raw vercel.json cron — `crons` is at the 100-entry plan cap and a 101st would fail the build for every deploy. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent: an upsert keyed on institution_id, so re-running only refreshes. Fails CLOSED with 503 if the refresh errors OR writes 0 institutions — a rollup that reports ok:true having written nothing would leave the dashboard serving a stale number with no signal that it stopped updating. Scheduled off-peak because the recompute is the heaviest read in the module."
+  },
+  {
+    "id": "health-sports-approval-nudge",
+    "name": "Tournament Squad Permission — Undecided College Reminder",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 09:33 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/health-sports-approval-nudge",
+    "callsClaude": false,
+    "whatItDoes": "A squad request names learners from several colleges, and nobody travels until every one of those colleges' Principals has decided. Filing already notifies each Principal; this reminds any college still undecided after 48 hours, naming the tournament, the host, the dates and how many of THAT college's learners are on the squad. It never decides on a Principal's behalf.",
+    "configKnobs": "p_stale_hours=48 (override per run with ?hours=), ?dry=1 reports what it would send without writing. Recipients = holders of health.sports.approve at that college, resolved via user_roles AND legacy profiles.role. Skips cancelled requests and any tournament whose end_date has passed.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to each undecided college's approver(s), and stamps last_nudged_at on that approval row. Writes NO approval status of any kind. No external messages (no email/WhatsApp/push).",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_health_tournament_nudge_stale_approvals (service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'health-sports-approval-nudge' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real notifications to real Principals; re-running is safe (idempotent per college per day). Reports no_approver rather than pretending a reminder landed when a college has nobody holding health.sports.approve."
   }
 ];

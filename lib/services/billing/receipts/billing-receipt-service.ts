@@ -878,6 +878,13 @@ export class BillingReceiptService {
   static async getOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /**
+       * Tenant boundary for callers that reach this method through the
+       * service-role client (the bulk-template API routes), where RLS is not
+       * in the path. Restricts the result to these institutions regardless of
+       * `institution_id`. Omit ONLY for super admins.
+       */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -939,6 +946,12 @@ export class BillingReceiptService {
       )
       .in('status', ['unpaid', 'partially_paid']);
 
+    // Applied BEFORE the caller's own institution filter and independently of
+    // it: institution_id narrows what the user asked for, institution_ids
+    // bounds what they are allowed to see. Both may be present.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -967,8 +980,18 @@ export class BillingReceiptService {
     if (filters.section_id) {
       query = query.eq('student.section_id', filters.section_id);
     }
-    if (filters.academic_year_id) {
-      query = query.eq('student.academic_year_id', filters.academic_year_id);
+    // Academic year lives ON the bill, not on the learner — bills are created
+    // per academic year, and a learner's current year runs ahead of the years
+    // their older unpaid bills belong to. Measured 2026-07-31: 1,774 of 6,598
+    // outstanding bills (26.9%) carry a bill-year that differs from their
+    // learner's current year, so binding this to student.academic_year_id
+    // silently returned the wrong set. Matches student-bill-service.ts, where
+    // the same-named schedule-page filter already targets the bill's column.
+    // 'unspecified' is the schedule page's magic value for "no year set".
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
     }
 
     // Cap result size — a single Excel sheet over 5000 rows becomes unwieldy
@@ -1019,6 +1042,8 @@ export class BillingReceiptService {
   static async countOutstandingBillsForBulk(
     filters: {
       institution_id?: string;
+      /** See getOutstandingBillsForBulk — same tenant boundary, kept in lock-step. */
+      institution_ids?: string[];
       item_category_id?: string;
       degree_id?: string;
       department_id?: string;
@@ -1038,13 +1063,15 @@ export class BillingReceiptService {
     // even for "give me the system-wide total" requests, which can blow
     // past the 15s client deadline on a large bills table for no reason —
     // every bill has a learner, so the join doesn't filter anything.
+    // academic_year_id is deliberately NOT in this list — it filters the
+    // bill's own column (see getOutstandingBillsForBulk), so it needs no
+    // learner join.
     const needsLearnerJoin = !!(
       filters.degree_id ||
       filters.department_id ||
       filters.program_id ||
       filters.semester_id ||
-      filters.section_id ||
-      filters.academic_year_id
+      filters.section_id
     );
 
     let query = needsLearnerJoin
@@ -1060,6 +1087,12 @@ export class BillingReceiptService {
 
     query = query.in('status', ['unpaid', 'partially_paid']);
 
+    // Mirrors getOutstandingBillsForBulk — the live preview count must reflect
+    // the same tenant boundary as the file the user will actually download,
+    // otherwise a scoped user sees "1,200 bills match" and receives 40.
+    if (filters.institution_ids && filters.institution_ids.length > 0) {
+      query = query.in('institution_id', filters.institution_ids);
+    }
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1071,6 +1104,12 @@ export class BillingReceiptService {
     }
     if (filters.due_date_to) {
       query = query.lte('due_date', filters.due_date_to);
+    }
+    // Bill-level column — applies with or without the learner join.
+    if (filters.academic_year_id === 'unspecified') {
+      query = query.is('academic_year_id', null);
+    } else if (filters.academic_year_id) {
+      query = query.eq('academic_year_id', filters.academic_year_id);
     }
     // Hierarchy filters only apply when the join is part of the SELECT.
     // The `needsLearnerJoin` flag above guarantees that branch.
@@ -1089,9 +1128,6 @@ export class BillingReceiptService {
       }
       if (filters.section_id) {
         query = query.eq('student.section_id', filters.section_id);
-      }
-      if (filters.academic_year_id) {
-        query = query.eq('student.academic_year_id', filters.academic_year_id);
       }
     }
 

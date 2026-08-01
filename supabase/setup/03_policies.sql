@@ -1473,6 +1473,26 @@ CREATE POLICY "bills_select_student" ON billing_student_bills
         )
     );
 
+-- Updated 2026-08-01 (migration 20260801120000): the billing.schedule.* family
+-- of policies. This INSERT policy previously gated on the permission key ALONE
+-- while its UPDATE/DELETE siblings ANDed in role_has_institution_access — so an
+-- institution-scoped role could create a bill against any institution and then
+-- be unable to edit it. Now symmetric.
+-- The (SELECT fn()) wrappers are deliberate: those calls reference no column,
+-- so the subquery forces once-per-statement evaluation. role_has_institution_access
+-- DOES reference a column and must stay unwrapped (per-row).
+DROP POLICY IF EXISTS billing_bills_insert_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_insert_permission
+  ON public.billing_student_bills FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.schedule.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
+
 -- BILLING_RECEIPTS TABLE (8 policies)
 ALTER TABLE billing_receipts ENABLE ROW LEVEL SECURITY;
 
@@ -1508,6 +1528,26 @@ CREATE POLICY "receipts_select_student" ON billing_receipts
             WHERE email = (SELECT email FROM profiles WHERE id = auth.uid())
         )
     );
+
+-- Updated 2026-08-01 (migration 20260801120000): same asymmetry fix as
+-- billing_bills_insert_permission above. Note this uses
+-- role_has_institution_access(institution_id) rather than the older
+-- `institution_id = get_current_user_institution_id()` form used by the
+-- receipts_*_admin policies — the function additionally honours
+-- custom_roles.institution_scope='all', CAS sibling institutions, and
+-- user_institution_access grants, so scope='all' finance roles keep working
+-- even when their profiles.institution_id is NULL.
+DROP POLICY IF EXISTS billing_receipts_insert_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_insert_permission
+  ON public.billing_receipts FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.receipts.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
 
 CREATE POLICY "receipts_select_accountant" ON billing_receipts
     FOR SELECT USING (accountant_id = auth.uid());
@@ -7810,16 +7850,44 @@ CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_pro
 -- policies untouched. Helpers are SECURITY DEFINER (see 02_functions.sql).
 -- ============================================================================
 
+-- `staff` (856 rows) is read unbounded by the analytics dashboard, list pages, pickers
+-- and exports. The per-row form below caused a multi-second "Loading Dashboard..." hang
+-- (1245 ms / 33,766 buffers for one scan as an own_institution user). Both staff SELECT
+-- policies now use the once-evaluated forms -- see
+-- supabase/migrations/optimize_staff_select_rls_dashboard_perf.sql for the measurements
+-- and the 11-user equivalence proof. Keep these two policies in sync with that migration;
+-- the pre-optimisation shapes live in 20260511_staff_module_scope_lockdown.sql and in the
+-- Cross-institution teaching migration and must NOT be restored.
+DROP POLICY IF EXISTS "staff_select_scope_aware" ON public.staff;
+CREATE POLICY "staff_select_scope_aware" ON public.staff
+FOR SELECT USING (
+  (SELECT is_super_admin())
+  OR (
+    (SELECT user_has_permission('staff.view'))
+    AND (
+      CASE (SELECT get_user_module_scope('staff'))
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN (
+          staff.institution_id IS NULL
+          OR staff.institution_id IN (SELECT unnest(public._user_accessible_institutions()))
+        )
+        WHEN 'own_records'      THEN staff.profile_id = (SELECT auth.uid())
+        ELSE FALSE
+      END
+    )
+  )
+);
+
 DROP POLICY IF EXISTS "staff_select_visiting_teacher" ON public.staff;
 CREATE POLICY "staff_select_visiting_teacher" ON public.staff
 FOR SELECT USING (
   (
-    user_has_permission('academic.staff.planning.view')
-    OR user_has_permission('academic.timetables.view')
-    OR user_has_permission('academic.attendance.mark')
-    OR user_has_permission('academic.attendance.view')
+    (SELECT user_has_permission('academic.staff.planning.view'))
+    OR (SELECT user_has_permission('academic.timetables.view'))
+    OR (SELECT user_has_permission('academic.attendance.mark'))
+    OR (SELECT user_has_permission('academic.attendance.view'))
   )
-  AND staff_is_visiting_in_accessible_institution(staff.id)
+  AND staff.id IN (SELECT unnest(public.staff_ids_visiting_accessible_institutions()))
 );
 
 -- Visiting teachers can read the academic structure of institutions they teach in.
@@ -8174,6 +8242,38 @@ CREATE POLICY hlt_write ON public.hr_leave_types
   FOR ALL TO authenticated
   USING      (public.user_has_permission('hr.leave.types.manage'))
   WITH CHECK (public.user_has_permission('hr.leave.types.manage'));
+
+-- Updated: 2026-07-31 - hr_staff_payroll: WHO PAYS each staff member.
+-- HR only. These policies are the ONLY thing keeping the paying organisation off
+-- everyone else's screen, which is why the fact lives in its own table rather
+-- than as a column on staff (row-level RLS cannot hide a column).
+-- Gated on permission KEYS, never on role names — the sibling hr_payslips
+-- policies still hardcode role_key IN ('hr_officer','hr_admin',...); that
+-- pattern is deliberately not copied here.
+-- Each check is wrapped in (SELECT ...) so Postgres evaluates it ONCE per query
+-- instead of once per row (the variable-free-check rule behind the 57014
+-- timeouts on this database).
+ALTER TABLE public.hr_staff_payroll ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_staff_payroll_select ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_select ON public.hr_staff_payroll
+  FOR SELECT TO authenticated
+  USING ((SELECT public.user_has_permission('hr.payroll.institution.view')));
+
+DROP POLICY IF EXISTS hr_staff_payroll_write ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_write ON public.hr_staff_payroll
+  FOR ALL TO authenticated
+  USING      ((SELECT public.user_has_permission('hr.payroll.institution.manage')))
+  WITH CHECK ((SELECT public.user_has_permission('hr.payroll.institution.manage')));
+
+DROP POLICY IF EXISTS hr_staff_payroll_service_role ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_service_role ON public.hr_staff_payroll
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Anon must never see payroll data. REVOKE FROM anon (not FROM public — that
+-- would also strip authenticated and service_role).
+REVOKE ALL ON public.hr_staff_payroll FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_payroll TO authenticated;
 
 -- Updated: 2026-07-24 - ID Card bridge heartbeat policies (migration
 -- 20260724045622_id_card_agent_status.sql). Reads mirror
