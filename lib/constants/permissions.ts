@@ -2667,6 +2667,24 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    // Attention Bar — 2026-08-02. The module had ZERO registered permission
+    // keys while six tables (quick_action_audit, quick_action_config,
+    // quick_action_rules, quick_action_state_queries,
+    // notification_generator_config and its audit table) already carried RLS
+    // policies calling user_has_permission() on these four. A key that is
+    // registered nowhere cannot be granted anywhere, so those policies could
+    // only ever pass for is_super_admin()/is_admin(). This registers them so
+    // the access is grantable; it grants nothing to anybody by itself.
+    name: 'Attention Bar',
+    key: 'attention_bar',
+    permissions: [
+      { key: 'attention_bar.rules.view', label: 'View Attention Bar Rules' },
+      { key: 'attention_bar.rules.manage', label: 'Manage Attention Bar Rules & Notification Generators' },
+      { key: 'attention_bar.config.manage', label: 'Manage Attention Bar Config' },
+      { key: 'attention_bar.audit.view', label: 'View Attention Bar Action Audit Trail' }
+    ]
+  },
+  {
     name: 'Calendar',
     key: 'calendar',
     permissions: [
