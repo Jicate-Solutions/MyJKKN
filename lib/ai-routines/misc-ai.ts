@@ -337,6 +337,20 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'learner-risk-staff-notifications'), NOT a raw vercel.json cron — `crons` is at the 100-entry plan cap and a 101st would fail the build for every deploy. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent three ways: UNIQUE(learner_id, notified_on) on the ledger, a per-department-per-day idempotency_key on the notification, and a dedupe that only sends on a CHANGE in standing (new / escalated / worsening) so an unchanged learner is never re-announced. Use ?dryRun=1 to see exactly what would be sent without writing. Marked unsafe-to-manual because a run delivers messages naming real learners to real department heads."
   },
   {
+    "id": "cac-attendance-rollup",
+    "name": "Cluster Academic Council — All-History Attendance Rollup",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 02:40 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/cac-attendance-rollup",
+    "callsClaude": false,
+    "whatItDoes": "Recomputes attendance totals across ALL history into cac_attendance_rollup, one row per institution. The CAC dashboard currently shows a labelled trailing window rather than the real all-history rate, and that is a timeout dodge rather than a reporting choice: fn_cac_measured_metrics expands JSONB per row (jsonb_each -> jsonb_array_elements) so cost scales with MARKS, not rows — 1,121,890 marks across 10 institutions measured on 2026-07-31, ~4s warm as postgres, against an 8s statement_timeout on the authenticated role. Computing it nightly as postgres removes the ceiling and makes the page read a 10-row seq scan.",
+    "configKnobs": "?dryRun=1 reports what the rollup currently holds and writes nothing — useful for spotting staleness without paying for a recompute. No model, no LLM, no thresholds.",
+    "sideEffects": "WRITES cac_attendance_rollup only — one upserted row per institution. Sends no notification, touches no learner record, and writes nothing else. NOTHING READS THE ROLLUP YET: fn_cac_measured_metrics is deliberately not repointed at it until these numbers have been compared against a manual all-history computation, because pointing a live dashboard at a never-populated table is how a metric silently becomes zero.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'cac-attendance-rollup'), NOT a raw vercel.json cron — `crons` is at the 100-entry plan cap and a 101st would fail the build for every deploy. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent: an upsert keyed on institution_id, so re-running only refreshes. Fails CLOSED with 503 if the refresh errors OR writes 0 institutions — a rollup that reports ok:true having written nothing would leave the dashboard serving a stale number with no signal that it stopped updating. Scheduled off-peak because the recompute is the heaviest read in the module."
+  },
+  {
     "id": "health-sports-approval-nudge",
     "name": "Tournament Squad Permission — Undecided College Reminder",
     "category": "misc-ai",

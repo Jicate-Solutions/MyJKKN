@@ -2,36 +2,24 @@ export const dynamic = 'force-dynamic';
 
 // app/api/billing/receipts/bulk-template/route.ts
 //
-// Super-admin only. Returns an Excel template pre-filled with outstanding
-// bills (unpaid + partially_paid) matching the schedule-page filters that
-// the dialog passes through as query params. The admin fills only the
-// "Paid Amount" column and uploads via /api/billing/receipts/bulk-import.
+// Requires super admin, or a role holding billing.receipts.bulk_create — in
+// which case the result is bounded to that user's accessible institutions.
+// Returns an Excel template pre-filled with outstanding bills (unpaid +
+// partially_paid) matching the schedule-page filters that the dialog passes
+// through as query params. The admin fills only the "Paid Amount" column and
+// uploads via /api/billing/receipts/bulk-import.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import ExcelJS from 'exceljs';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  resolveBulkReceiptAccess,
+  assertInstitutionInScope
+} from '@/lib/auth/bulk-receipt-access';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import { BULK_RECEIPT_TEMPLATE_HEADERS } from '@/lib/utils/mappings/bulk-receipt-excel-mappings';
 
 export const maxDuration = 60;
-
-/**
- * Confirms the calling user is a super admin. Mirrors the 3-step semantics
- * used elsewhere in app/api: profiles.is_super_admin OR profiles.role === 'super_admin'.
- * We keep this simpler than expos/bulk-capture because bulk-receipt is
- * super-admin-only by product decision (no permission grant fallback).
- */
-async function assertSuperAdmin(userId: string): Promise<boolean> {
-  const supabase = createServiceRoleClient();
-  const { data: profile } = await (supabase as any)
-    .from('profiles')
-    .select('role, is_super_admin')
-    .eq('id', userId)
-    .single();
-  return (
-    profile?.is_super_admin === true || profile?.role === 'super_admin'
-  );
-}
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -42,19 +30,27 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const isSuperAdmin = await assertSuperAdmin(user.id);
-  if (!isSuperAdmin) {
-    return NextResponse.json(
-      { error: 'Forbidden — super-admin only' },
-      { status: 403 }
-    );
+  const access = await resolveBulkReceiptAccess(user.id);
+  if (!access.allowed) {
+    return NextResponse.json({ error: access.reason }, { status: 403 });
   }
 
   try {
     // -- Parse filters from query string ----------------------------------
     const sp = request.nextUrl.searchParams;
+    const requestedInstitutionId = sp.get('institution_id') || undefined;
+
+    const scopeError = assertInstitutionInScope(access, requestedInstitutionId);
+    if (scopeError) {
+      return NextResponse.json({ error: scopeError }, { status: 403 });
+    }
+
     const filters = {
-      institution_id: sp.get('institution_id') || undefined,
+      institution_id: requestedInstitutionId,
+      // The tenant boundary for this route. Every bill_id written into the
+      // template is later accepted by /bulk-import, so narrowing here is what
+      // keeps a scoped user's uploadable set inside their own institutions.
+      institution_ids: access.isSuperAdmin ? undefined : access.institutionIds,
       item_category_id: sp.get('item_category_id') || undefined,
       degree_id: sp.get('degree_id') || undefined,
       department_id: sp.get('department_id') || undefined,
