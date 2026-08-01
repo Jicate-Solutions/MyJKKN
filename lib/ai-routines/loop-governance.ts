@@ -116,6 +116,8 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     schedule: 'Sundays 07:53 IST (dispatcher-managed)',
     triggerPath: '/api/cron/loops-regress',
     callsClaude: false,
+    featureKey: null,
+    featureKeyNote: 'Rules-based regression prover run entirely in SQL; the route resolves no model.',
     whatItDoes:
       "Re-proves each manifested loop's MEASURE function against production with known deltas (no-change must read exactly 0.00; a +2 change exactly 2.00). The sim seeds and un-seeds itself inside one database call; only the verdict row persists, and /admin/loops shows it as the chip's tested badge. This is the standing defense against a broken measurer silently turning a self-improving loop into a confident liar.",
     configKnobs:
@@ -134,6 +136,8 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     schedule: 'Daily 09:23 IST (dispatcher-managed, after the 08:15 measure)',
     triggerPath: '/api/cron/loop-watchdog',
     callsClaude: false,
+    featureKey: null,
+    featureKeyNote: 'Rules-based silence/error sweep; the route resolves no model.',
     whatItDoes:
       'Flags dispatcher-managed routines that went SILENT past their own cadence (derived from days_of_week: daily rows after ~25h, weekly rows after ~7d), routines whose last run ERRORED, managed routines that are DISABLED (a switched-off loop routine must be visible, not skipped), and any loop_audits FAILURE verdict (sim-failed / sim-error / walk-failed) from the last day. Honest states like unmeasurable-no-fuel do not alarm. Silence must not look like health: a dead dispatcher, a disabled schedule, or a deploy that broke a cron all age quietly otherwise.',
     configKnobs:
@@ -152,6 +156,9 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     schedule: 'Daily 03:51 IST (dispatcher-managed)',
     triggerPath: '/api/cron/capgap-scan',
     callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      "Rules-based SQL scan (fn_capgap_scan): it READS the ai_query.chat job log but enqueues nothing, so linking that key would misattribute the chat routine's spend.",
     whatItDoes:
       "The detection pass of the capability-gap loop. It reads the AI-query chat log (ai_jobs, job_type='ai_query.chat'), finds where the model REFUSED or said it lacked a tool/data to answer, clusters those refusals by topic, auto-proposes a gap-class, and records each cluster in capability_gaps for a human to triage. This is the loop's own sensor: it turns the questions the assistant could not answer into a reviewable list of missing capabilities, then a later cycle MEASURES whether a shipped fix actually made those refusals stop.",
     configKnobs:
@@ -170,6 +177,8 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     schedule: 'Daily 09:41 IST (dispatcher-managed)',
     triggerPath: '/api/cron/loop-adherence-alerts',
     callsClaude: false,
+    featureKey: null,
+    featureKeyNote: 'Rules-based adherence sweeps; the route resolves no model.',
     whatItDoes:
       'Two sweeps over induction loops that GENERATE work but had no escalation when the humans stopped doing it — the watchdog watches whether the crons fire, this watches whether the work gets worked. SWEEP A: active+trained induction mentors whose most recent monthly check-in beat is unmarked AND who have >= 2 consecutive most-recent missed beats (one miss = life, two = a pattern); correctly dark until the first beat comes due 2026-08-15. SWEEP B: any referral desk (admission_leads assigned_counselor_id lane owning source=referral leads) with >= 1 OPEN lead and zero activity for 7+ days — the desk lane the counselor-facing wire misses. One high-priority notification to super admins on any finding; silent when both sweeps are clean.',
     configKnobs:

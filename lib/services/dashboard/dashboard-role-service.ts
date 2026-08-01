@@ -25,6 +25,7 @@
  * Spec: specs/myjkkn-dashboard-v2-spec.md §5 (role-aware view)
  */
 
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 
 export type DashboardPersona =
@@ -92,7 +93,14 @@ export async function getDashboardPersona(): Promise<DashboardPersona> {
 /**
  * Rich variant: returns persona + metadata the page needs for headers/gating.
  */
-export async function resolvePersona(): Promise<PersonaResolution> {
+/**
+ * Perf (2026-08-01, dashboard TTFB): wrapped in React cache() for per-REQUEST
+ * dedupe only — the memo store lives inside a single server render, so nothing
+ * is ever shared across users/requests. /dashboard resolves the persona in the
+ * page body AND again inside <LimitedHero>; without this the 'limited' persona
+ * paid auth.getUser() + the profiles select twice per page view.
+ */
+export const resolvePersona = cache(async (): Promise<PersonaResolution> => {
   const FALLBACK: PersonaResolution = {
     persona: 'limited',
     role: null,
@@ -139,4 +147,4 @@ export async function resolvePersona(): Promise<PersonaResolution> {
     console.error('[dashboard/role] unexpected error:', err);
     return FALLBACK;
   }
-}
+});
