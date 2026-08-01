@@ -561,7 +561,16 @@ COMMENT ON FUNCTION public.fn_soi_record_inactivity_dry_run(uuid) IS
   'batch receipt on every run even when nothing is found. Takes NO action — no '
   'membership status is changed and nothing is sent. Service-role only.';
 
+-- `authenticated` is revoked EXPLICITLY, in addition to anon and PUBLIC.
+-- Supabase ships ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS
+-- TO authenticated, which is a DIRECT grant on every newly created function and is
+-- therefore untouched by "REVOKE ... FROM PUBLIC". Without this line the recorder
+-- stays callable by any signed-in user, and the apply-time assert below (which is
+-- what caught this) refuses the migration. The house template
+-- "REVOKE FROM anon, PUBLIC; GRANT TO authenticated" is right for a normal RPC and
+-- wrong here: this one is service-role only, invoked by the cron route alone.
 REVOKE EXECUTE ON FUNCTION public.fn_soi_record_inactivity_dry_run(uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_soi_record_inactivity_dry_run(uuid) FROM authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_soi_record_inactivity_dry_run(uuid) TO service_role;
 
 
