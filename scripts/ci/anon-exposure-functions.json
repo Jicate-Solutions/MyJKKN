@@ -5,13 +5,13 @@
     "",
     "SCOPE: SECURITY DEFINER functions in schema public that `anon` can EXECUTE,",
     "excluding trigger functions. SECDEF is the dangerous class because such a",
-    "function runs as its OWNER and therefore bypasses RLS entirely \u2014 the",
+    "function runs as its OWNER and therefore bypasses RLS entirely — the",
     "table-level protections mean nothing inside one. Non-SECDEF functions run as",
     "the caller, so RLS still applies; there are ~450 of those and gating them",
     "would be noise, not safety.",
     "",
     "WHY THIS EXISTS: on 2026-07-30 fn_hostel_unallocated_candidates was found",
-    "returning 49 learners \u2014 full names, emails, gender, programme, year \u2014 to an",
+    "returning 49 learners — full names, emails, gender, programme, year — to an",
     "unauthenticated caller. SECDEF, no internal guard, a caller-supplied",
     "institution_id. Three more were closed alongside it, two of which WROTE data",
     "(an approval action and a document-number allocator), plus a maintenance job",
@@ -24,11 +24,12 @@
     "nothing while reporting success. For functions, the PUBLIC half of",
     "`FROM anon, PUBLIC` is the load-bearing part.",
     "",
-    "writes_data is a TEXT HEURISTIC over the function body, not proof \u2014 it also",
+    "writes_data is a TEXT HEURISTIC over the function body, not proof — it also",
     "matches things like updated_at. It is recorded so that a grandfathered write",
     "can be ESCALATED rather than warned: an unauthenticated write path should",
     "never sit quietly on a warning list.",
-    "Correction 2026-07-30: an earlier version of this file listed fn_update_recruitment_step_comment among the writers that \"raise on a permission check before touching a row\". That claim is WRONG \u2014 its guard evaluates to NULL for an anonymous caller and falls through to the UPDATE. The earlier test that cleared it used a non-existent candidate id and stopped at a \"Candidate not found\" raise several lines BEFORE the authorization check, which was therefore never exercised. Separately, eight anon-readable functions (3 returning real people and the super-admin list, 5 exposing platform settings including 3 live Meta webhook credentials) were revoked on 2026-07-30 and their entries deleted from this file."
+    "Correction 2026-07-30: an earlier version of this file listed fn_update_recruitment_step_comment among the writers that \"raise on a permission check before touching a row\". That claim is WRONG — its guard evaluates to NULL for an anonymous caller and falls through to the UPDATE. The earlier test that cleared it used a non-existent candidate id and stopped at a \"Candidate not found\" raise several lines BEFORE the authorization check, which was therefore never exercised. Separately, eight anon-readable functions (3 returning real people and the super-admin list, 5 exposing platform settings including 3 live Meta webhook credentials) were revoked on 2026-07-30 and their entries deleted from this file.",
+    "2026-07-31: removed get_billing_analytics_by_category and get_billing_collection_split — the live sweep reported both as no longer anon-executable, so their entries were describing a grant that no longer exists."
   ],
   "generated": "2026-07-30",
   "functions": [
@@ -37,28 +38,28 @@
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "api_key_has_permission",
       "args": "permission_name text",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30. LOAD-BEARING: a caller authenticating by API key connects as the anon role, so revoking would switch off API-key authentication entirely \u2014 50 active, unexpired keys, last used 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30. LOAD-BEARING: a caller authenticating by API key connects as the anon role, so revoking would switch off API-key authentication entirely — 50 active, unexpired keys, last used 2026-07-30."
     },
     {
       "name": "auth_hr_organization_id",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "auth_institution_id",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "billing_category_duplicate_conflicts",
@@ -72,7 +73,7 @@
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "fn_calendar_ics",
@@ -86,7 +87,7 @@
       "args": "p_slug text, p_voter_name text, p_voter_email text, p_option_ids uuid[]",
       "status": "approved",
       "writes_data": true,
-      "reason": "Public poll voting by slug \u2014 the point is that people without accounts can vote. NOTE: it accepts caller-supplied voter_name/voter_email, so ballot-stuffing is possible. That is a fairness question, not a data leak; flagged, not changed."
+      "reason": "Public poll voting by slug — the point is that people without accounts can vote. NOTE: it accepts caller-supplied voter_name/voter_email, so ballot-stuffing is possible. That is a fairness question, not a data leak; flagged, not changed."
     },
     {
       "name": "fn_get_active_poll",
@@ -128,21 +129,21 @@
       "args": "p_event_id uuid",
       "status": "approved",
       "writes_data": false,
-      "reason": "Public scoreboard by event id \u2014 published deliberately."
+      "reason": "Public scoreboard by event id — published deliberately."
     },
     {
       "name": "fn_user_can_access_room",
       "args": "check_room_id uuid",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "fn_verify_event_certificate",
       "args": "p_cert_id text",
       "status": "approved",
       "writes_data": false,
-      "reason": "Public certificate check by certificate id \u2014 a recruiter verifying a credential has no account."
+      "reason": "Public certificate check by certificate id — a recruiter verifying a credential has no account."
     },
     {
       "name": "fn_vsr_shared_record",
@@ -157,20 +158,6 @@
       "status": "approved",
       "writes_data": true,
       "reason": "Writes, but its FIRST statement is a user_has_permission(\"hr.leave.balance.manage\") check that returns a proper false (not null) for anon, so the exception fires before any row is touched. Verified live as anon 2026-07-30: refused. Director-approved 2026-07-30."
-    },
-    {
-      "name": "get_billing_analytics_by_category",
-      "args": "p_institution_ids uuid[]",
-      "status": "approved",
-      "writes_data": false,
-      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
-    },
-    {
-      "name": "get_billing_collection_split",
-      "args": "p_institution_ids uuid[], p_date_from date, p_date_to date",
-      "status": "approved",
-      "writes_data": false,
-      "reason": "Raises an explicit authorization exception (or filters on the caller's own identity) before returning any data; called as the anon role on 2026-07-30 it refused. Anon reachability is therefore harmless. Director-approved 2026-07-30."
     },
     {
       "name": "get_billing_report_collections",
@@ -205,42 +192,42 @@
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_current_user_role",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_my_expo_event_ids",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_my_expo_team_event_ids",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_user_institution_id",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "get_user_module_scope",
       "args": "module_key text",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "hr_can_approve_leave",
@@ -303,7 +290,7 @@
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "hr_sto_usage",
@@ -324,98 +311,98 @@
       "args": "user_id uuid",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30. NOTE: takes user_id DEFAULT auth.uid(), so a caller may ask about someone else and receive a boolean. Kept because it backs 1,286 RLS policies across 453 tables; the reconnaissance chain that made this useful was broken at its source by revoking tms_users_with_permission on 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30. NOTE: takes user_id DEFAULT auth.uid(), so a caller may ask about someone else and receive a boolean. Kept because it backs 1,286 RLS policies across 453 tables; the reconnaissance chain that made this useful was broken at its source by revoking tms_users_with_permission on 2026-07-30."
     },
     {
       "name": "is_board_chairman_for_programme",
       "args": "p_institutions_id uuid, p_programme_code character varying",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "is_super_admin",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_block_access",
       "args": "check_block_id uuid",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_contract_access",
       "args": "check_contract_id uuid, check_contract_type text",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_hostel_block_scope",
       "args": "check_block_id uuid, check_institution_id uuid",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "role_has_institution_access",
       "args": "check_institution_id uuid",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_get_builder_id",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_builder",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_hod",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_jicate_staff",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_is_staff",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "sh_user_department_id",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     },
     {
       "name": "staff_teaching_institution_ids",
       "args": "",
       "status": "approved",
       "writes_data": false,
-      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list \u2014 verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
+      "reason": "Identity-derived predicate: works out who the CALLER is from auth.uid() and takes no caller-supplied identity. Called as anon it returns false, null or an empty list — verified live 2026-07-30. Used inside RLS policy expressions, which run as the querying role, so revoking anon EXECUTE would make anon reads of those tables ERROR rather than deny. Director-approved 2026-07-30."
     }
   ]
 }
