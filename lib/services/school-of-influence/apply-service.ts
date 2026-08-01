@@ -90,10 +90,42 @@ export type * from '@/lib/services/school-of-influence/apply-types';
 export const SOI_APPLICATION_SOURCE = 'soi_apply';
 
 /**
- * An application that a coordinator has cancelled/withdrawn no longer blocks a
- * fresh attempt. Every other status means "there is already a live application".
+ * A DECIDED application no longer blocks a fresh attempt. Every other status
+ * means "there is already a live application, awaiting or accepted".
+ *
+ * Director decision, 2026-08-01: being turned down once must not bar a person
+ * from the programme forever. Before that ruling this list held 'cancelled'
+ * alone, so a turned-down applicant was blocked permanently — nobody chose
+ * that; it fell out of the list being written before there was any way to turn
+ * an application down.
+ *
+ * ── READ THIS BEFORE EDITING THE LIST ────────────────────────────────────────
+ * There is NO 'rejected' status. events_registrations.status is a CHECK shared
+ * with the marathon and tournament surfaces, and it admits exactly:
+ *
+ *   pending · registered · confirmed · checked_in · cancelled · disqualified ·
+ *   no_show · waitlisted
+ *
+ * School of Influence stores its own outcomes inside that vocabulary rather
+ * than widening a constraint four modules depend on: accepted is 'confirmed',
+ * and a decided no is 'disqualified' (fn_soi_reject_application, S5). The word
+ * "rejected" exists only inside custom_data.soi.review.decision — never as a
+ * row status. Putting 'rejected' in this list would therefore match nothing and
+ * silently restore the permanent bar, with every test still green.
+ *
+ * The list stays a NEGATIVE one (statuses that do NOT block) on purpose. A typo
+ * in a negative list fails safe — the unknown token simply is not excluded, so
+ * the person stays blocked and complains. In a positive list ("these block") a
+ * typo would fail open, letting somebody with a live application submit a
+ * second one. Blocked-and-audible beats admitted-and-silent.
+ *
+ * Deliberately NOT re-appliable: 'confirmed' (they were accepted — and a
+ * membership normally trips the already_member refusal first), and
+ * 'registered' / 'checked_in' / 'no_show', which are the events module's own
+ * lifecycle values that this flow never writes. Whether somebody dropped from a
+ * batch may apply again is a separate question nobody has been asked.
  */
-const REAPPLIABLE_APPLICATION_STATUSES = ['cancelled'];
+const REAPPLIABLE_APPLICATION_STATUSES = ['cancelled', 'disqualified'];
 
 // ─── policy reads ────────────────────────────────────────────────────────────
 
@@ -656,6 +688,59 @@ async function findLiveApplication(
   return data ? { id: data.id, status: data.status } : null;
 }
 
+/**
+ * This person's earlier applications to this event — how many, and the most
+ * recent one. Used ONLY to label a re-application; it never refuses anybody.
+ *
+ * Allowing a turned-down person to apply again (see
+ * REAPPLIABLE_APPLICATION_STATUSES) means a coordinator can be handed what
+ * looks like a brand-new application from somebody they already decided on. If
+ * nothing recorded that, the repeat would be invisible: two identical-looking
+ * rows, with the fact connecting them buried in a status the queue does not
+ * group by. Stamping the link onto the new row is the explicit half of the
+ * Director's decision — the re-application is allowed AND it says what it is.
+ *
+ * A POINTER is recorded, never a copy of the coordinator's words. The reason
+ * text lives on the row it was written about and stays readable there under
+ * events_reg_self_read; duplicating it here would create a second copy that a
+ * later correction or redaction would not reach.
+ */
+async function findPriorApplications(
+  eventId: string,
+  profileId: string
+): Promise<{
+  count: number;
+  latest: { id: string; status: string; decision: string | null; decidedAt: string | null } | null;
+}> {
+  const svc = createServiceRoleClient();
+  const { data, count, error } = await (svc as any)
+    .from('events_registrations')
+    .select('id, status, custom_data', { count: 'exact' })
+    .eq('event_id', eventId)
+    .eq('profile_id', profileId)
+    .eq('source', SOI_APPLICATION_SOURCE)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+
+  const row = (data ?? [])[0];
+  if (!row) return { count: 0, latest: null };
+
+  const review = (row.custom_data?.soi?.review ?? {}) as {
+    decision?: string | null;
+    decided_at?: string | null;
+  };
+  return {
+    count: count ?? 0,
+    latest: {
+      id: row.id,
+      status: row.status,
+      decision: review.decision ?? null,
+      decidedAt: review.decided_at ?? null,
+    },
+  };
+}
+
 // ─── submit ──────────────────────────────────────────────────────────────────
 
 /**
@@ -769,6 +854,23 @@ export async function submitSoiApplication(
     };
   }
 
+  // Is this a repeat? Read AFTER every refusal has been cleared, so a person who
+  // cannot apply never costs a query. buildSoiApplyContext has already proved
+  // there is no live application, so anything found here is decided and closed.
+  const prior = await findPriorApplications(eventId, applicant.profileId);
+  const reapplication =
+    prior.count > 0 && prior.latest
+      ? {
+          reapplication: {
+            attempt: prior.count + 1,
+            previous_application_id: prior.latest.id,
+            previous_status: prior.latest.status,
+            previous_decision: prior.latest.decision,
+            previous_decided_at: prior.latest.decidedAt,
+          },
+        }
+      : {};
+
   const svc = createServiceRoleClient();
   const { data, error } = await (svc as any)
     .from('events_registrations')
@@ -795,6 +897,7 @@ export async function submitSoiApplication(
           requested_batch_name: requestedBatch?.name ?? null,
           require_approval: requireApproval,
           applied_at: now.toISOString(),
+          ...reapplication,
         },
       },
     })

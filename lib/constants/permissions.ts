@@ -2698,13 +2698,39 @@ export const PERMISSION_CATEGORIES = [
     // migration 20260731040000_cohort_core_spine.sql). SELECT→cohort.view,
     // INSERT→cohort.create, UPDATE→cohort.edit, DELETE→cohort.manage. Grant
     // 'cohort.manage' to cohort coordinators; super_admin/admin bypass every policy.
+    //
+    // ⚠ THE FOUR KEYS ABOVE ARE PROGRAMME-BLIND. The spine's RLS is not scoped per
+    // cohort kind, so any of them reaches EVERY programme sharing these tables —
+    // sf100, foundations, cdc, trainer, mba_associate and school_of_influence
+    // alike — within the holder's institution scope. Grant them only to someone
+    // meant to run cohorts across the board.
+    //
+    // For a coordinator of ONE programme, use the programme-scoped keys below
+    // instead. Added 2026-08-01, migration
+    // 20260808220000_cohort_programme_scoped_permission_keys.sql. They are backed
+    // by additional policies that sit BESIDE the four broad ones (the broad ones
+    // are untouched), each pinned to kind='school_of_influence', and they open the
+    // same doors for that programme and no other. Same action→key mapping:
+    // SELECT→.view, INSERT→.create, UPDATE→.edit, DELETE→.manage; .manage also
+    // opens fn_soi_can_manage_batch and fn_soi_can_review_applications, which gate
+    // every School of Influence RPC.
+    //
+    // Grant a School of Influence coordinator ALL FOUR narrow keys together. The
+    // .view key is load-bearing on the write paths, not merely a read convenience:
+    // CohortService.createMembership does .insert().select().single(), so without
+    // the read-back the accept lands the row, returns nothing, throws, and leaves
+    // an orphan membership with the application still showing 'pending'.
     name: 'Cohort Core',
     key: 'cohort',
     permissions: [
-      { key: 'cohort.view', label: 'View Cohorts' },
-      { key: 'cohort.create', label: 'Create Cohorts' },
-      { key: 'cohort.edit', label: 'Edit Cohorts' },
-      { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
+      { key: 'cohort.view', label: 'View Cohorts (ALL programmes)' },
+      { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
+      { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
+      { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
+      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {
