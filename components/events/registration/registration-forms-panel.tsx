@@ -64,11 +64,31 @@ import {
 } from '@/hooks/events/use-tournament-registration-form';
 import type { EventRegistrationFormSummary } from '@/types/tournament';
 import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
+import { RegistrationFeeCard } from './registration-fee-card';
 
-/** Public registration URL for one form. Absolute so it can be pasted anywhere. */
-function publicFormUrl(eventId: string, slug: string): string {
+/**
+ * Public registration URL for one form. Absolute so it can be pasted anywhere.
+ *
+ * Routed by variant. This used to hardcode /p/tournament/ for EVERY event, so a
+ * lecture's or convocation's "Copy link" handed out a dead URL — the tournament
+ * page filters on event_type = 'sports_tournament' and rejects anything else.
+ */
+function publicFormUrl(
+  eventId: string,
+  slug: string,
+  variant: 'tournament' | 'general'
+): string {
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  return `${origin}/p/tournament/${eventId}/register?form=${encodeURIComponent(slug)}`;
+  const base = variant === 'tournament' ? 'tournament' : 'event';
+  return `${origin}/p/${base}/${eventId}/register?form=${encodeURIComponent(slug)}`;
+}
+
+/** "₹200 · Delegate fee", or null when the form is free. */
+function feeLabelFor(form: EventRegistrationFormSummary): string | null {
+  const amount = Number(form.fee_amount ?? 0);
+  if (!(amount > 0)) return null;
+  const money = `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  return form.fee_label ? `${money} · ${form.fee_label}` : money;
 }
 
 type DialogState =
@@ -146,7 +166,7 @@ export function RegistrationFormsPanel({
 
   const copyLink = async (form: EventRegistrationFormSummary) => {
     try {
-      await navigator.clipboard.writeText(publicFormUrl(eventId, form.slug));
+      await navigator.clipboard.writeText(publicFormUrl(eventId, form.slug, variant));
       toast.success('Registration link copied');
     } catch {
       toast.error('Could not copy — copy it from the address bar instead');
@@ -222,6 +242,13 @@ export function RegistrationFormsPanel({
                           <Badge variant="secondary">Closed</Badge>
                         )}
                         {isSelected && <Badge variant="outline">Editing</Badge>}
+                        {/* Only meaningful for general events — a tournament's
+                            fee comes from its divisions, not from the form. */}
+                        {variant === 'general' && feeLabelFor(form) && (
+                          <Badge variant="outline" className="font-normal">
+                            {feeLabelFor(form)}
+                          </Badge>
+                        )}
                       </span>
                       <span className="mt-0.5 block text-xs text-muted-foreground">
                         {form.field_count} {form.field_count === 1 ? 'question' : 'questions'} ·{' '}
@@ -292,6 +319,14 @@ export function RegistrationFormsPanel({
           )}
         </CardContent>
       </Card>
+
+      {/* Fee for the selected form. General events only: a tournament charges
+          per division, so a second form-level fee would be a competing source of
+          truth for one payment. Keyed like the builder below so a half-typed
+          amount never carries across a form switch. */}
+      {selected && variant === 'general' && (
+        <RegistrationFeeCard key={`fee-${selected.id}`} eventId={eventId} form={selected} />
+      )}
 
       {/* The builder for the selected form. Remounted on switch (key) so its
           once-only seeding re-runs against the newly chosen form instead of

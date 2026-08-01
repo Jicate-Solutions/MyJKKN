@@ -52,6 +52,16 @@ export function slugifyFormName(name: string): string {
   return slug || 'form';
 }
 
+/**
+ * PostgREST serialises Postgres `numeric` as a STRING ("200.00"), so a raw row's
+ * fee_amount is not the `number` the type promises. Left unnormalised it reads
+ * as truthy for "0.00" and concatenates instead of adding — the classic way a
+ * free form starts demanding money. Normalise once, at every read boundary.
+ */
+function normalizeForm<T extends { fee_amount?: unknown }>(row: T): T {
+  return { ...row, fee_amount: Number(row.fee_amount ?? 0) || 0 };
+}
+
 /** One field in a bulk-save payload. Carries no row id — the RPC reinserts fresh. */
 export interface SaveFormFieldPayload {
   field_key: string;
@@ -118,7 +128,7 @@ export class EventRegistrationFormService {
     const responseCounts = tally(responseRows);
 
     return forms.map((f: EventRegistrationForm) => ({
-      ...f,
+      ...normalizeForm(f),
       field_count: fieldCounts[f.id] ?? 0,
       response_count: responseCounts[f.id] ?? 0,
     }));
@@ -142,7 +152,7 @@ export class EventRegistrationFormService {
       .limit(1)
       .maybeSingle();
     if (readError) throw readError;
-    if (existing) return existing as EventRegistrationForm;
+    if (existing) return normalizeForm(existing as EventRegistrationForm);
 
     const { data: created, error: createError } = await (supabase as any)
       .from('event_registration_forms')
@@ -156,7 +166,7 @@ export class EventRegistrationFormService {
       .select()
       .single();
     if (createError) throw createError;
-    return created as EventRegistrationForm;
+    return normalizeForm(created as EventRegistrationForm);
   }
 
   /** Create an additional named form on the event. */
@@ -196,7 +206,7 @@ export class EventRegistrationFormService {
         })
         .select()
         .single();
-      if (!error) return data as EventRegistrationForm;
+      if (!error) return normalizeForm(data as EventRegistrationForm);
       if (error.code !== '23505') throw error;
     }
     throw new Error('Could not find a free slug for this form name — rename it and retry.');
@@ -304,7 +314,7 @@ export class EventRegistrationFormService {
       fields: (fields ?? []).filter((f: EventRegistrationFormField) => f.section_id === section.id),
     }));
 
-    return { ...(form as EventRegistrationForm), sections: sectionsWithFields };
+    return { ...normalizeForm(form as EventRegistrationForm), sections: sectionsWithFields };
   }
 
   /** The event's first form, fully loaded. Back-compat entry point for callers that have only an event id. */
@@ -313,9 +323,23 @@ export class EventRegistrationFormService {
     return this.getFormWithFields(form.id);
   }
 
+  /**
+   * Form METADATA only (name / description / open-closed / fee). Deliberately a
+   * plain UPDATE and not part of `save_event_registration_form`: that RPC would
+   * have to be dropped and recreated to gain a parameter, and DROP FUNCTION
+   * discards the function's ACL — which is exactly how the multi-form migration
+   * silently handed EXECUTE back to PUBLIC. Sections and fields keep going
+   * through the RPC; the fee never touches it.
+   */
   static async updateForm(
     formId: string,
-    updates: { is_enabled?: boolean; name?: string; description?: string | null }
+    updates: {
+      is_enabled?: boolean;
+      name?: string;
+      description?: string | null;
+      fee_amount?: number;
+      fee_label?: string | null;
+    }
   ): Promise<EventRegistrationForm> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
@@ -325,7 +349,7 @@ export class EventRegistrationFormService {
       .select()
       .single();
     if (error) throw error;
-    return data as EventRegistrationForm;
+    return normalizeForm(data as EventRegistrationForm);
   }
 
   /**

@@ -3604,10 +3604,17 @@ CREATE TABLE IF NOT EXISTS event_registration_forms (
   description text,
   is_enabled boolean NOT NULL DEFAULT true,
   display_order int NOT NULL DEFAULT 0,
+  -- Registration fee for THIS form: an event holds many forms and each monthly
+  -- run can charge a different amount. 0 = free (no Razorpay order created).
+  -- No fee_head column on purpose — event fees resolve the HOST institution's
+  -- 'tuition' account, exactly as tournament entry fees do.
+  fee_amount numeric(10,2) NOT NULL DEFAULT 0,
+  fee_label text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (event_id, slug),
-  CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+  CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  CONSTRAINT event_registration_forms_fee_amount_check CHECK (fee_amount >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS event_registration_form_sections (
