@@ -168,6 +168,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA case studies — the write-up of an improvement that was actually made.
+  // Nominally improvement.ideas.view (the associates who write them), but the
+  // review lane belongs to improvement.board.manage holders who do NOT hold
+  // ideas.view, so this path is widened by name in BOTH filter sites below and
+  // in lib/navigation/permission-filter.ts. See CASE_STUDIES_NAV_PATH.
+  '/improvement-board/case-studies': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
   '/improvement-board/postings': 'improvement.board.manage',
   // MBA Data Gaps — manager-only triage of gaps Associates reported.
@@ -1510,6 +1516,48 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 };
 
 /**
+ * The case-study screen carries TWO populations, and no single permission key
+ * covers both. Read against live production values on 2026-08-02:
+ *
+ *   mba_associate           ideas.view TRUE   — writes the cases
+ *   mba_faculty             ideas.view ABSENT, board.manage TRUE — grades them
+ *   cao                     ideas.view FALSE  (explicitly), board.manage TRUE
+ *   executive_admin_officer ideas.view ABSENT, board.manage TRUE
+ *
+ * A single-key mapping therefore hides the link from every person the review
+ * lane exists for. This union is applied at BOTH nav filter sites below — the
+ * submenu filter AND the parent-menu filter — because the parent row is shown
+ * only when at least one child passes, and a role whose sole reachable child is
+ * this one would otherwise lose the whole Improvement Board row.
+ *
+ * Mirrors the identical treatment `/improvement-board/analytics` already gets
+ * in lib/navigation/permission-filter.ts.
+ */
+export const CASE_STUDIES_NAV_PATH = '/improvement-board/case-studies';
+export const CASE_STUDIES_NAV_KEYS = [
+  'improvement.ideas.view',
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
+ * Does this person reach `href` in the nav? Value semantics throughout — `cao`
+ * stores `improvement.ideas.view` as an explicit `false`, which a key-existence
+ * test misreads as "has it".
+ */
+export function navPathAllowed(
+  href: string,
+  permissions: Record<string, boolean>,
+  requiredPermission: string | undefined
+): boolean {
+  if (href === CASE_STUDIES_NAV_PATH) {
+    return CASE_STUDIES_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (!requiredPermission) return false;
+  return permissions[requiredPermission] === true;
+}
+
+/**
  * GetPages — sidebar tree builder.
  *
  * **Wave 2b PR-S2 (2026-04-24):** Structural rewrite per
@@ -1590,6 +1638,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA case studies — associates write them (improvement.ideas.view),
+            // board managers grade them (improvement.board.manage). Widened by
+            // name in both filter sites so neither population loses the link.
+            { href: '/improvement-board/case-studies', label: 'Case Studies', active: pathname === '/improvement-board/case-studies' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
             // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
@@ -3478,12 +3530,16 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
-            // Show parent if any submenu is accessible
+            // Show parent if any submenu is accessible. Routed through
+            // navPathAllowed so a path whose access is a UNION of keys (see
+            // CASE_STUDIES_NAV_PATH) can still be the child that keeps the
+            // parent row visible.
             return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              return (
-                requiredPermission &&
-                userRole.permissions[requiredPermission] === true
+              const route = normalizeRoute(submenu.href);
+              return navPathAllowed(
+                route,
+                userRole.permissions,
+                MENU_PERMISSIONS[route]
               );
             });
           }
@@ -3556,8 +3612,13 @@ export function GetRoleBasedPages(
               return false;
             }
 
-            const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-            if (!requiredPermission) return false; // Changed to false to be consistent
+            const submenuRoute = normalizeRoute(submenu.href);
+            const requiredPermission = MENU_PERMISSIONS[submenuRoute];
+            // A union path carries no single required key, so the unmapped-path
+            // bail-out must not fire on it.
+            if (!requiredPermission && submenuRoute !== CASE_STUDIES_NAV_PATH) {
+              return false; // Changed to false to be consistent
+            }
 
             // Hide "Student Search" submenu for students
             if (isStudent && submenu.href === '/billing/schedule/students') {
@@ -3569,7 +3630,11 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            return userRole.permissions[requiredPermission] === true;
+            return navPathAllowed(
+              submenuRoute,
+              userRole.permissions,
+              requiredPermission
+            );
           }).map((submenu) => {
             // Change submenu labels for students
             if (isStudent) {

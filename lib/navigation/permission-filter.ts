@@ -64,6 +64,17 @@ export function filterByPermissions(
                 permissions['improvement.board.manage']);
     }
 
+    // MBA case studies — associates WRITE them (improvement.ideas.view) and
+    // board managers / officers GRADE them. mba_faculty holds only
+    // improvement.board.manage and cao stores improvement.ideas.view as an
+    // explicit false, so a single-key gate hides the link from everyone the
+    // review lane is built for. Page-level gate enforces the real capability.
+    if (page.path === '/improvement-board/case-studies') {
+      return !!(permissions['improvement.ideas.view'] ||
+                permissions['improvement.board.manage'] ||
+                permissions['improvement.area_role.assign']);
+    }
+
     // Check specific permission from merged role permissions
     if (permissions[page.permission]) return true;
 
@@ -93,6 +104,15 @@ export function isPageAccessible(
   if (pagePath === '/improvement-board/analytics') {
     return !!(permissions['improvement.ideas.view'] ||
               permissions['improvement.board.manage']);
+  }
+  // MBA case studies — same union as filterByPermissions above. Kept in both
+  // functions because they are called from different surfaces (sidebar vs
+  // Command Palette) and a divergence would show the link in one and not
+  // the other.
+  if (pagePath === '/improvement-board/case-studies') {
+    return !!(permissions['improvement.ideas.view'] ||
+              permissions['improvement.board.manage'] ||
+              permissions['improvement.area_role.assign']);
   }
   return !!permissions[permission];
 }
