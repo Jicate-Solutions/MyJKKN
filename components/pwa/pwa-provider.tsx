@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { UpdatePrompt } from './update-prompt';
+import { armReloadOnControllerChange } from './sw-reload';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -86,10 +87,19 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
-    // Handle service worker updates
+    // Handle service worker updates.
+    // A page that loads with NO controlling SW receives its first
+    // `controllerchange` when the freshly-installed SW calls clients.claim()
+    // — that's the initial claim, not an update. Only a controller SWAP
+    // counts; without this gate every first visit flagged a phantom update.
+    let initialClaimPending = false;
     const handleSWUpdate = () => {
       // Don't set update available on auth pages to prevent refresh loops
       if (typeof window !== 'undefined' && window.location.pathname.startsWith('/auth/')) {
+        return;
+      }
+      if (initialClaimPending) {
+        initialClaimPending = false;
         return;
       }
       setUpdateAvailable(true);
@@ -180,6 +190,7 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       }).catch((error) => {
       });
 
+      initialClaimPending = !navigator.serviceWorker.controller;
       navigator.serviceWorker.addEventListener(
         'controllerchange',
         handleSWUpdate
@@ -235,12 +246,15 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     try {
       const registration = await navigator.serviceWorker.ready;
       if (registration.waiting) {
-        // Listen for controller change BEFORE sending skip waiting
-        // to avoid race condition (reload before new SW activates)
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          window.location.reload();
-        });
+        // Arm the shared ONE-SHOT reload BEFORE sending skip waiting — the
+        // old inline listener here stacked a fresh anonymous listener on
+        // every call and never removed it.
+        armReloadOnControllerChange();
         registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        // Another tab already activated the new SW — a plain (still
+        // user-initiated) reload picks it up.
+        window.location.reload();
       }
     } catch (error) {
       window.location.reload();
