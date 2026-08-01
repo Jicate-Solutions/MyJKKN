@@ -341,7 +341,16 @@ export class CaseStudyService {
     return this.enrich(data || []);
   }
 
-  /** The library — published cases, readable by anyone who can open the board. */
+  /**
+   * The library — every published case.
+   *
+   * "Readable by anyone who can open the board" would overstate the boundary.
+   * Today the live `USING (true)` policy lets any signed-in account read every
+   * row, published or not; and once `20260809010000` (PR #2759) is applied,
+   * `status = 'published'` is itself one of that policy's OR branches. Either
+   * way a published case is visible to everyone signed in — the board gate on
+   * the screen decides who is shown this lane, not who may read the rows.
+   */
   static async listPublished(): Promise<CaseStudyEnriched[]> {
     const supabase = this.getSupabase();
     const { data, error } = (await (supabase as any)
@@ -412,8 +421,19 @@ export class CaseStudyService {
     const verified = ideas.filter((i) => i.status === 'verified');
     const valueHolds = verified.filter((i) => i.value_holds === true);
 
-    // Which of those already have a case? RLS lets the author read their own,
-    // so a case they started is always visible to them here.
+    // Which of those already have a case? This probe carries no author filter,
+    // and today the database adds none either: the live policy is still
+    // `ss_case_studies_select FOR SELECT TO authenticated USING (true)`, so
+    // every signed-in account reads every row. Nothing here is narrowed
+    // per-author — not by RLS, not by this query.
+    //
+    // The author / graders / published narrowing arrives with migration
+    // `20260809010000` (sibling PR #2759, open and NOT yet applied). Merging
+    // #2759 does not apply it — the apply is a separate manual act. Once it
+    // happens, a case that a posted associate started on someone ELSE's idea
+    // stops being readable by the idea's author, so `alreadyWritten` will
+    // under-count for them and the idea keeps being offered below until the
+    // RPC refuses it. That belongs to #2759, not to this file.
     const writtenFor = new Set<string>();
     if (valueHolds.length > 0) {
       const { data: existing, error: existingError } = (await (supabase as any)
