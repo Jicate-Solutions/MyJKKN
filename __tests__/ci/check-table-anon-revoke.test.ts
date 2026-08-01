@@ -134,6 +134,97 @@ describe('check-table-anon-revoke gate', () => {
     expect(out).toContain('0 new table(s) checked');
   });
 
+  // --- phantom relations: text that creates nothing ---------------------------
+  // Each of these EXITED 1 before the parser fix, demanding an anon REVOKE for a
+  // relation the migration never creates. An unsatisfiable failure is worse than a
+  // missing check, because the only way past it is the escape hatch — and a hatch
+  // reached for by habit is a gate that has stopped gating. Measured receipt:
+  // 20260808220000_autolock_new_public_relations.sql, the migration installing the
+  // ddl_command_end event trigger that is the DATABASE half of this defence, had
+  // to burn BOTH hatches on itself over a phantom table named `AS`.
+
+  it('does NOT invent a table from a CREATE TABLE inside a string literal', () => {
+    const { code, out } = runGate(`
+      INSERT INTO public.doc_snippets (body)
+      VALUES ('CREATE TABLE public.phantom_from_string (id uuid);');
+    `, 'phantom-string.sql');
+    expect(code).toBe(0);
+    expect(out).toContain('0 new table(s)/view(s) checked');
+  });
+
+  it('does NOT invent a relation from a DDL command tag (`CREATE TABLE AS` -> table `AS`)', () => {
+    // CREATE EVENT TRIGGER syntax forces these tags to be written as literals;
+    // there is no other spelling. `AS` is a fully reserved word and can never be an
+    // unquoted relation name, so a match landing there is not a relation at all.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_probe_autolock() RETURNS event_trigger
+      LANGUAGE plpgsql SECURITY DEFINER AS $$
+      BEGIN
+        FOR r IN SELECT objid FROM pg_event_trigger_ddl_commands()
+          WHERE schema_name = 'public'
+            AND command_tag IN ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO',
+                                'CREATE VIEW', 'CREATE MATERIALIZED VIEW')
+        LOOP
+          EXECUTE format('REVOKE ALL ON %s FROM anon, PUBLIC', r.object_identity);
+        END LOOP;
+      END $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_probe_autolock() FROM anon, PUBLIC;
+    `, 'phantom-command-tag.sql');
+    expect(code).toBe(0);
+    expect(out).toContain('0 new table(s)/view(s) checked');
+  });
+
+  it('reports a CREATE TABLE in a FUNCTION body as advisory, and does NOT fail the build', () => {
+    // The migration defines a function; it creates nothing. A same-migration REVOKE
+    // would name a relation that does not exist yet. Reported, because the relation
+    // is real once the function runs — but not blocking, because the evidence does
+    // not support blocking.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_probe_scratch() RETURNS void
+      LANGUAGE plpgsql AS $fn$
+      BEGIN
+        CREATE TABLE public.probe_made_by_function (id uuid PRIMARY KEY);
+      END;
+      $fn$;
+      REVOKE EXECUTE ON FUNCTION public.fn_probe_scratch() FROM anon, PUBLIC;
+    `, 'deferred-advisory.sql');
+    expect(code).toBe(0);
+    expect(out).toContain('probe_made_by_function');
+    expect(out).toContain('advisory, not blocking');
+    // It must NOT be counted as created by this migration.
+    expect(out).toContain('0 new table(s)/view(s) checked');
+  });
+
+  it('STILL FAILS a _bak_ relation created in a function body (no advisory downgrade)', () => {
+    // Deferred is advisory for ordinary relations only. A function that copies
+    // learner rows into a `_bak_` is the 2026-07-31 shape with one call in front of
+    // it, and backup relations have no hatch anywhere in this guard.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_probe_backup() RETURNS void
+      LANGUAGE plpgsql AS $fn$
+      BEGIN
+        CREATE TABLE public._bak_probe_deferred_20260802 AS
+          SELECT id, full_name FROM public.learners_profiles;
+      END;
+      $fn$;
+    `, 'deferred-backup.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('_bak_probe_deferred_20260802');
+    expect(out).toContain('BACKUP RELATION NOT LOCKED');
+    expect(out).toContain('created inside a function body');
+  });
+
+  it('reads a quoted identifier as ONE whole name, not truncated at the first space', () => {
+    // Old behaviour reported this as a relation called `Bak`, so a REVOKE naming a
+    // DIFFERENT "Bak ..." relation satisfied it. The name in the failure message is
+    // the thing a human acts on; a wrong name is worse than a missing check.
+    const { code, out } = runGate(`
+      CREATE TABLE public."Probe Quoted 20260802" (id uuid PRIMARY KEY);
+    `, 'quoted-ident.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('Probe Quoted 20260802');
+  });
+
   it('honours the -- ci:allow-anon-table escape hatch', () => {
     // Both hatches, because they exempt different properties. A scratch table
     // dropped at the end of the migration wants neither an anon revoke nor a
@@ -386,6 +477,37 @@ describe('check-table-anon-revoke gate — backup relations have no exemption', 
     expect(code).toBe(1);
     expect(out).toContain('hr_leave_applications_backup_20260801');
     expect(out).toContain('BACKUP RELATION NOT LOCKED');
+  });
+
+  it('FAILS a _bak_ CTAS created inside a DO block (dollar-quoted, but it RUNS)', () => {
+    // The regression that guards the phantom fix from overshooting. A DO body is
+    // dollar-quoted, so a parser that killed the phantoms by skipping dollar-quotes
+    // wholesale would go silent here — on a CTAS copy of learner rows, which is the
+    // 2026-07-31 shape exactly. Quoting is not the question; execution is.
+    const { code, out } = runGate(`
+      DO $$
+      BEGIN
+        CREATE TABLE public._bak_do_block_20260802 AS
+          SELECT id, full_name FROM public.learners_profiles;
+      END $$;
+    `, 'bak-do-block.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('_bak_do_block_20260802');
+    expect(out).toContain('BACKUP RELATION NOT LOCKED');
+  });
+
+  it('PASSES a _bak_ CTAS in a DO block that revokes anon INSIDE the same block', () => {
+    // Backup relations have no escape hatch, so if an in-block REVOKE could not be
+    // seen the gate would be a wall with no way through rather than a gate.
+    const { code } = runGate(`
+      DO $$
+      BEGIN
+        CREATE TABLE public._bak_do_locked_20260802 AS SELECT 1 AS id;
+        REVOKE ALL ON TABLE public._bak_do_locked_20260802 FROM anon, PUBLIC;
+        ALTER TABLE public._bak_do_locked_20260802 ENABLE ROW LEVEL SECURITY;
+      END $$;
+    `, 'bak-do-locked.sql');
+    expect(code).toBe(0);
   });
 
   it('does NOT fire on legitimate feature tables that merely sound like backups', () => {
