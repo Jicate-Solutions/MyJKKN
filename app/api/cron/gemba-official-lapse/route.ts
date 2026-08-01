@@ -12,8 +12,17 @@
 // associates actively posted to that department. Targeted, never broadcast.
 //
 // All the work is in the database (fn_gemba_official_lapse_notify, migration
-// 20260802030000). This route is only the trigger + the report, so the sweep can
-// also be run by hand from a browser with ?secret= when someone needs it now.
+// 20260802030000), reached through the one shared entry point
+// lib/services/gemba/official-lapse-sweep. This route is only the trigger + the
+// report, so the sweep can be run by hand from a browser with ?secret= when
+// someone needs it now.
+//
+// SCHEDULING lives elsewhere: vercel.json already holds exactly 100 cron
+// entries — Vercel's hard cap — so this route has no cron entry of its own and
+// a 101st would fail the whole deploy rather than schedule anything. The sweep
+// runs once daily at 04:43 inside /api/cron/improvement-rank-ideas, which calls
+// the SAME runOfficialLapseSweep(). This route stays for the manual run and for
+// the day a cron slot frees up.
 //
 // Idempotent twice over, in the function: a (artifact, exact lapse) ledger row
 // AND notifications.idempotency_key's unique index. Running this route twice in
@@ -30,20 +39,13 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  runOfficialLapseSweep,
+  OFFICIAL_LAPSE_DEFAULT_LIMIT,
+} from '@/lib/services/gemba/official-lapse-sweep';
 
-// The function clamps to 1..200 itself; this is the per-run default.
-const DEFAULT_LIMIT = 50;
-
-/** One announced lapse, as fn_gemba_official_lapse_notify returns it. */
-interface AnnouncedLapse {
-  artifact_id: string;
-  area_id: string;
-  area_label: string | null;
-  artifact_type: string;
-  lapsed_at: string;
-  recipients: number;
-  notification_id: string | null;
-}
+const LOG_MODULE = 'cron/gemba-official-lapse';
 
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -60,33 +62,26 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
 
   const rawLimit = Number(request.nextUrl.searchParams.get('limit'));
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.floor(rawLimit) : DEFAULT_LIMIT;
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.floor(rawLimit)
+      : OFFICIAL_LAPSE_DEFAULT_LIMIT;
 
-  const { data, error } = await admin.rpc('fn_gemba_official_lapse_notify', { p_limit: limit });
-
-  if (error) {
+  try {
+    const result = await runOfficialLapseSweep(admin, limit);
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (e) {
     // Surfaced, never swallowed: a sweep that fails quietly is the exact failure
     // this whole change exists to end.
-    console.error('[cron/gemba-official-lapse] sweep failed:', error.message);
+    const message = e instanceof Error ? e.message : 'lapse sweep threw';
+    logger.error(LOG_MODULE, 'sweep failed', e);
     return NextResponse.json(
-      { ok: false, error: error.message, elapsed_ms: Date.now() - started },
+      { ok: false, error: message, elapsed_ms: Date.now() - started },
       { status: 500 }
     );
   }
-
-  const announced = (data ?? []) as AnnouncedLapse[];
-
-  return NextResponse.json({
-    ok: true,
-    limit,
-    announced: announced.length,
-    notified: announced.reduce((sum, row) => sum + (row.recipients ?? 0), 0),
-    lapses: announced.map((row) => ({
-      area: row.area_label,
-      artifact_type: row.artifact_type,
-      lapsed_at: row.lapsed_at,
-      recipients: row.recipients,
-    })),
-    elapsed_ms: Date.now() - started,
-  });
 }
