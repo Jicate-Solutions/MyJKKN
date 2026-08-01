@@ -778,6 +778,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
+      // 2026-08-02 — hr_recruitment_scorecards' SELECT policy demanded this key
+      // and it existed nowhere, so interview scorecards were super-admin-only.
+      // Kept as its OWN key rather than folded into hr.recruitment.view: a
+      // scorecard is an interviewer's private assessment of a person, and every
+      // recruiter who may list candidates should not automatically read it.
+      { key: 'hr.recruitment.scorecards.view', label: 'View Interview Scorecards' },
       // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
       // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
       // this comment was aspirational: the policies gated on user_hr_access +
