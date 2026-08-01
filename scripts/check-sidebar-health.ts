@@ -175,6 +175,14 @@ function extractSidebarHrefs(): Set<string> {
 const sidebarHrefs = extractSidebarHrefs();
 
 // Walk app/(routes) recursively.
+// Only a route handler that actually exports GET serves a document at the
+// URL; a POST-only handler would 405 — exactly the 404-class this gate blocks.
+function hasGetRouteHandler(p: string): boolean {
+  if (!existsSync(p)) return false;
+  try { return /export (async )?(function|const) GET/.test(readFileSync(p, 'utf8')); }
+  catch { return false; }
+}
+
 function walk(dirAbs: string, relPath: string): void {
   let entries: string[];
   try {
@@ -204,8 +212,8 @@ function walk(dirAbs: string, relPath: string): void {
                      // inside app/(routes)/loading.tsx's Suspense boundary —
                      // a Route Handler responds with a real 307 before any
                      // rendering. First user: /staff (perf(staff) PR).
-                     existsSync(join(dirAbs, 'route.ts')) ||
-                     existsSync(join(dirAbs, 'route.js'));
+                     hasGetRouteHandler(join(dirAbs, 'route.ts')) ||
+                     hasGetRouteHandler(join(dirAbs, 'route.js'));
 
   // Only evaluate folders that have route children AND are not the top
   // app/(routes) root itself (that root is handled by app/(routes)/layout.tsx
