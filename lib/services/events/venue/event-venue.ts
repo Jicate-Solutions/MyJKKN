@@ -38,13 +38,24 @@ export interface HoldEventVenueArgs {
   endIso: string;
 }
 
-export type HoldEventVenueResult =
-  | { held: true; reservationId: string; requiresApproval: boolean; crossCollege: boolean }
-  | {
-      held: false;
-      reason: 'not_reservable' | 'walk_in' | 'taken' | 'no_approver' | 'error';
-      message?: string;
-    };
+/**
+ * Deliberately ONE flat shape, not a `{held:true} | {held:false}` union.
+ * `tsconfig.json` has `strictNullChecks: false` for the Next.js 16 migration,
+ * and with it off TypeScript will not narrow a union by a boolean-literal
+ * discriminant — `if (hold.held) … else …` leaves `hold` as the full union, so
+ * reading `.reason` in the else branch is TS2339. Callers check `held` and read
+ * the field they need; every failure path sets `reason`.
+ */
+export interface HoldEventVenueResult {
+  held: boolean;
+  /** Set when held. */
+  reservationId?: string;
+  requiresApproval?: boolean;
+  crossCollege?: boolean;
+  /** Set when NOT held. */
+  reason?: 'not_reservable' | 'walk_in' | 'taken' | 'no_approver' | 'error';
+  message?: string;
+}
 
 /** Caretaker user-ids (single + array columns), de-duped, as approver records. */
 function caretakerApprovers(room: RoomRow): { user_id: string; level?: number }[] {

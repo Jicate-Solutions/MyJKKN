@@ -130,7 +130,14 @@ export function useCreateLearnerProfile() {
   const queryClient = useQueryClient();
 
   return useMutation<LearnerProfile, Error, CreateLearnerProfileDto>({
-    mutationFn: (dto) => LearnerProfileService.createLearnerProfile(dto),
+    // This hook is only used by the /learners/profiles/create page — a
+    // manually-verified, single-shot admit flow — so it force-activates the
+    // record instead of leaving it at createLearnerProfile's 'enquiry'
+    // default, which the Learners Management Active/Inactive/Exited tabs
+    // never surface. Other callers of createLearnerProfile (general Enquiry
+    // form, bulk upload) go through their own hooks and keep the default.
+    mutationFn: (dto) =>
+      LearnerProfileService.createLearnerProfile({ ...dto, lifecycle_status: 'active' }),
     onSuccess: () => {
       // Invalidate all lists and analytics
       queryClient.invalidateQueries({ queryKey: learnerProfileKeys.lists() });
