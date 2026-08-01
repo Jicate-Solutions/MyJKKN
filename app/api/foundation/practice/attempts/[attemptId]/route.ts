@@ -31,6 +31,13 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Upper bound on the `skipped` list, so the query string cannot be used to
+ *  dump the bank one id at a time. A practice run is ~10 questions. */
+const MAX_SKIPPED = 50;
+
+/** Fallback run size, mirroring the questions route. */
+const DEFAULT_QUESTION_COUNT = 10;
+
 /** Unwrap {"correct": X} to X; leave a bare value alone. Mirrors the RPC. */
 function normaliseAnswer(answer: any): any {
   if (
@@ -45,7 +52,7 @@ function normaliseAnswer(answer: any): any {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ attemptId: string }> },
 ) {
   await connection();
@@ -94,31 +101,77 @@ export async function GET(
     }
 
     const rows = responses ?? [];
-    const itemIds = rows.map((r: any) => r.item_id);
+    const answeredIds = rows.map((r: any) => r.item_id);
+
+    // Questions the learner was shown but left blank. They are NOT recorded as
+    // responses — a blank must not drag the score or the mastery average down,
+    // and the only reliable way to guarantee that in both places at once is for
+    // the row never to exist. But the moment a learner sees what they skipped
+    // and why is the most useful moment on this screen, so the client hands the
+    // ids back here and they are rendered alongside, clearly ungraded.
+    // This parameter is caller-supplied, and it makes the route reveal an
+    // answer key for an item the caller merely NAMES. Left uncapped that is a
+    // way to dump the bank: collect ids from a few runs, then ask for all of
+    // them at once. The cap below is what makes it safe — answered + skipped can
+    // never exceed ONE run's worth of questions, so this returns nothing the
+    // caller could not have obtained by answering that run and reading the
+    // review. The leak is not "reduced"; the delta is zero.
+    const admin = createServiceRoleClient();
+
+    let runSize = DEFAULT_QUESTION_COUNT;
+    const { data: configuredCount } = await (admin as any).rpc(
+      'fn_get_policy_int',
+      {
+        p_key: 'foundation.practice.question_count',
+        p_default: DEFAULT_QUESTION_COUNT,
+      },
+    );
+    if (typeof configuredCount === 'number' && configuredCount > 0) {
+      runSize = configuredCount;
+    }
+
+    const skippedBudget = Math.max(0, Math.min(MAX_SKIPPED, runSize - rows.length));
+
+    // `new URL(request.url)` rather than `request.nextUrl`: the query string is
+    // all this needs, and depending on the plain Request contract keeps the
+    // handler drivable by anything that can build a Request.
+    const skipped = new URL(request.url).searchParams.get('skipped') ?? '';
+
+    const skippedIds = skipped
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => UUID_RE.test(s) && !answeredIds.includes(s))
+      .slice(0, skippedBudget);
+
+    const allIds = [...answeredIds, ...skippedIds];
 
     // Now — and only now — the answer key and the explanation are the payload.
-    const admin = createServiceRoleClient();
-    const { data: items } = itemIds.length
+    const { data: items } = allIds.length
       ? await (admin as any)
           .from('fp_items')
           .select('id, stem, options, answer, explanation')
-          .in('id', itemIds)
+          .in('id', allIds)
       : { data: [] };
 
     const byId = new Map((items ?? []).map((it: any) => [it.id, it]));
 
-    const questions = rows.map((r: any) => {
-      const item: any = byId.get(r.item_id);
+    const shape = (itemId: string, chosen: any, isCorrect: boolean | null) => {
+      const item: any = byId.get(itemId);
       return {
-        itemId: r.item_id,
+        itemId,
         stem: item?.stem ?? 'This question is no longer in the bank.',
         options: item?.options ?? [],
-        chosen: r.chosen,
+        chosen,
         correctAnswer: normaliseAnswer(item?.answer),
-        isCorrect: r.is_correct,
+        isCorrect,
         explanation: item?.explanation ?? null,
       };
-    });
+    };
+
+    const questions = [
+      ...rows.map((r: any) => shape(r.item_id, r.chosen, r.is_correct)),
+      ...skippedIds.map((id) => shape(id, null, null)),
+    ];
 
     const correct = rows.filter((r: any) => r.is_correct === true).length;
 
@@ -126,8 +179,12 @@ export async function GET(
       attemptId: attempt.id,
       score: attempt.score,
       submittedAt: attempt.submitted_at,
+      // `total` is what was ANSWERED, which is what the score divides by.
+      // Skipped questions are reported separately rather than folded in, so
+      // "3 of 7" can never be mistaken for "3 of 10".
       total: rows.length,
       correct,
+      skipped: skippedIds.length,
       questions,
     });
   } catch (err: any) {
