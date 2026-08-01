@@ -2659,7 +2659,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'rcltp.report.view_all', label: 'View All RCLTP Reports' },
       { key: 'rcltp.report.view_class', label: 'View RCLTP Reports for a Section' },
       { key: 'rcltp.report.view_child', label: 'View RCLTP Reports for Own Ward' },
-      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' }
+      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' },
+      // 2026-08-02 — rcltp_badges, rcltp_learner_badges and rcltp_streaks all
+      // gate on these two keys, neither of which existed here.
+      { key: 'rcltp.reward.view', label: 'View RCLTP Badges & Streaks' },
+      { key: 'rcltp.reward.config', label: 'Configure RCLTP Badges & Streak Rules' }
     ]
   },
   {
