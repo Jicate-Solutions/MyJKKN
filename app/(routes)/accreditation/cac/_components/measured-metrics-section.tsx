@@ -52,7 +52,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { BarChart3, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { BarChart3, ChevronDown, ChevronRight, Clock, Info } from 'lucide-react';
 import {
   CAC_METRIC_CATALOG,
   CAC_CATALOG_VERSION,
@@ -67,11 +67,14 @@ import {
 } from '../_lib/cac-institution-groups';
 import {
   useCacMeasuredMetrics,
+  useCacAttendanceRollupFreshness,
   classifyMeasuredRead,
+  classifyRollupFreshness,
   indexMeasuredRows,
   metricsWithData,
   stoppedReportingMetrics,
   type CacReadOutcome,
+  type CacRollupFreshness,
 } from '@/hooks/accreditation/use-cac-metrics';
 
 interface Props {
@@ -93,7 +96,19 @@ export function MeasuredMetricsSection({
   institutionsLoading,
 }: Props) {
   const { data: rows, isLoading, error } = useCacMeasuredMetrics();
+  const {
+    data: rollupComputedAt,
+    isLoading: rollupLoading,
+    error: rollupError,
+  } = useCacAttendanceRollupFreshness();
   const [showOther, setShowOther] = useState(false);
+
+  // Held back until the read resolves. Classifying an in-flight query would
+  // print "never computed" for as long as the request took, which is the one
+  // state a reader would act on.
+  const rollupFreshness: CacRollupFreshness | null = rollupLoading
+    ? null
+    : classifyRollupFreshness(rollupComputedAt, Boolean(rollupError));
 
   const groups = useMemo(() => groupInstitutions(institutions), [institutions]);
   const index = useMemo(() => indexMeasuredRows(rows ?? []), [rows]);
@@ -263,6 +278,7 @@ export function MeasuredMetricsSection({
                           index={index}
                           outcome={outcome}
                           stopped={stopped}
+                          rollupFreshness={rollupFreshness}
                         />
                       ))}
                     </tbody>
@@ -308,7 +324,10 @@ export function MeasuredMetricsSection({
           <p>
             Attendance is the presence rate over the last 30 days, because the
             full-history figure needs a nightly snapshot before it can be read
-            inside a page request.
+            inside a page request. The note on that row says when the nightly
+            snapshot last ran, and turns amber when it has never run or has not
+            run in the last day. The 30-day rate itself is worked out on every
+            read and is never stale.
           </p>
         </div>
       </CardContent>
@@ -325,6 +344,93 @@ interface RowProps {
   outcome: CacReadOutcome;
   /** Wired metrics that returned nothing for any institution. */
   stopped: Set<string>;
+  /** Age of the nightly attendance rollup, or null while it is being read. */
+  rollupFreshness: CacRollupFreshness | null;
+}
+
+/** Day, month, year and time — a bare date cannot show a job that ran twice. */
+function formatComputedAt(at: Date): string {
+  return at.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
+ * When the all-history attendance figure was last worked out.
+ *
+ * The number in this row is the trailing-window rate, computed on every read,
+ * so it is never stale. The all-history figure behind it is not: it comes from
+ * cac_attendance_rollup, which a nightly job fills, and a nightly job that
+ * stops looks from here exactly like one that is running. This says which.
+ *
+ * "Never computed" carries no date at all. A page that fell back to today's
+ * date, or to a dash, would let a job that has never once run read as a job
+ * that ran this morning — and the amber is there so the difference is visible
+ * before anyone quotes the figure.
+ */
+function AttendanceFreshness({
+  freshness,
+}: {
+  freshness: CacRollupFreshness | null;
+}) {
+  if (!freshness) return null;
+
+  const amber =
+    'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400';
+  const quiet = 'border-border bg-muted/50 text-muted-foreground';
+
+  let text: string;
+  let tone: string;
+  let explanation: string;
+
+  switch (freshness.state) {
+    case 'never':
+      text = 'All-history figure: never computed';
+      tone = amber;
+      explanation =
+        'The nightly rollup has not produced an all-history attendance figure yet, so there is no date to show. The rate in this row is the trailing window and is computed fresh on every read — it is the all-history figure, not this one, that is missing.';
+      break;
+    case 'unknown':
+      text = 'All-history figure: age could not be read';
+      tone = quiet;
+      // Deliberately not amber. Amber here would claim the job is behind,
+      // when what actually happened is that we failed to find out.
+      explanation =
+        'The rollup could not be read, so how old the all-history figure is cannot be stated. This says nothing about whether the nightly job ran.';
+      break;
+    case 'stale':
+      text = `All-history figure: computed ${formatComputedAt(freshness.computedAt)}`;
+      tone = amber;
+      explanation =
+        'The nightly rollup last ran more than 24 hours ago. It is scheduled daily, so a gap this long means it has missed at least one run and the all-history figure is behind.';
+      break;
+    case 'fresh':
+      text = `All-history figure: computed ${formatComputedAt(freshness.computedAt)}`;
+      tone = quiet;
+      explanation =
+        'The nightly rollup ran within the last 24 hours, which is its schedule.';
+      break;
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={`mt-1 inline-flex w-fit cursor-help items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${tone}`}
+        >
+          <Clock className="h-2.5 w-2.5 shrink-0" />
+          {text}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">
+        {explanation}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 /**
@@ -370,16 +476,20 @@ function MetricRow({
   index,
   outcome,
   stopped,
+  rollupFreshness,
 }: RowProps) {
   const label = (
     <div className="flex items-start gap-1">
-      <div>
+      <div className="flex flex-col">
         {metric.parent && (
-          <span className="block text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {metric.parent}
           </span>
         )}
         <span>{metric.ceoLabel}</span>
+        {metric.id === 'attendance' && (
+          <AttendanceFreshness freshness={rollupFreshness} />
+        )}
       </div>
       <Tooltip>
         <TooltipTrigger asChild>
