@@ -1567,6 +1567,16 @@ export const PERMISSION_CATEGORIES = [
       // Compliance
       { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' },
 
+      // Department capability register (2026-08-01). /solutions/departments was
+      // retired 2026-04-02 with its obsolete nomination workflow; the capability
+      // editor went with it, which is why all 44 activated departments still
+      // declare nothing. These keys gate the register that brings it back.
+      { key: 'solutions.departments.view', label: 'View Department Capabilities' },
+      {
+        key: 'solutions.departments.capabilities.edit',
+        label: 'Declare Department Capabilities',
+      },
+
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
