@@ -38,7 +38,16 @@
  *       `...000008` / `...100007` files. Truncating to 14 digits invents a
  *       collision that does not exist — that mistake is what produced the "194
  *       duplicate groups" figure this guard was first specified against; the
- *       real, strict figure is 283.
+ *       real, strict figure for 14-digit versions is 192.
+ *
+ *       CAREFUL WITH THE HEADLINE NUMBER. `--all` reports 283 groups, but only
+ *       192 of those are genuine 14-digit version collisions. The other 91 are
+ *       legacy files that carry NO 14-digit version at all — `fix_*.sql`,
+ *       `rls_*.sql`, `scf_*.sql`, `induction_*.sql`, and 8-digit date prefixes
+ *       like `20260725_*` — where the leading token is grouped as if it were a
+ *       version. They are not collisions and 283 must not be quoted as if they
+ *       were. Verified on jicate/main 2026-08-01: 2,201 migration files, 192
+ *       true duplicate version groups, 91 spurious, 283 reported total.
  *
  * ┌──────────────────────────────────────────────────────────────────────────┐
  * │ 🛑 THE BASELINE — READ THIS BEFORE "FIXING" THIS GUARD INTO A FULL SCAN. │
@@ -47,7 +56,7 @@
  *   at commit 134d1caf (2026-08-01), top-level supabase/migrations/*.sql:
  *
  *       2,177 migration files
- *         283 versions carried by 2 or more files
+ *         283 leading tokens carried by 2 or more files (192 are real versions)
  *         830 files (38%) sitting inside one of those groups
  *          16 files on the worst single version, `20260725`
  *
@@ -86,7 +95,7 @@
  *
  *   A finding is raised only when an ADDED file shares its version with some
  *   other file in the post-merge set. Versions the PR did not touch are never
- *   enumerated, so all 283 pre-existing groups pass in silence.
+ *   enumerated, so all 283 pre-existing groups pass in silence (192 real + 91 spurious).
  *
  * LIMITATION, stated plainly because it is the same shape as the original bug:
  *   Two PRs open at the same time, each adding the same brand-new version, both
@@ -115,7 +124,7 @@
  * Usage:
  *   node scripts/ci/check-migration-version-collision.mjs                  # PR-scoped (auto-base)
  *   node scripts/ci/check-migration-version-collision.mjs --base jicate/main
- *   node scripts/ci/check-migration-version-collision.mjs --all            # audit the backlog (expect 283)
+ *   node scripts/ci/check-migration-version-collision.mjs --all            # audit the backlog (283 tokens; 192 real versions)
  *   node scripts/ci/check-migration-version-collision.mjs --verbose
  *
  * Auto-base (no --base, no BASE_REF env): prefer `jicate/main` when the `jicate`
@@ -207,7 +216,7 @@ const headFiles = filesAtHead();
 const headGroups = groupByVersion(headFiles);
 
 // The historical backlog, measured live every run so a future reader sees drift
-// from the 283 recorded in the header rather than trusting a stale number.
+// from the counts recorded in the header rather than trusting a stale number.
 const preExisting = [...headGroups.values()].filter(l => l.length > 1);
 
 // ---------------------------------------------------------------------------
