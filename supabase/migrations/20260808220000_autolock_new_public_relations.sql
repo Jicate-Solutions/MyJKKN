@@ -36,6 +36,22 @@
 -- deliberate act, is visible in the migration diff, and is what the anon-exposure
 -- allow-list plus scripts/ci/check-anon-exposure-live.mjs exist to review.
 -- ---------------------------------------------------------------------------
+-- ci:allow-anon-table  see reason below
+-- ci:allow-no-rls      see reason below
+--
+-- BOTH markers, because this guard runs TWO independent checks (anon lock
+-- and RLS-enabled) and each has its own hatch. Reason for both:
+-- this migration creates NO relations at all — one function
+--   and one event trigger. The anon-lock guard reports a phantom table named
+--   "AS" because its parser matches the literal string 'CREATE TABLE AS' inside
+--   the WHEN TAG IN (...) list below and reads the following token as a table
+--   name. Those tag strings are required by CREATE EVENT TRIGGER syntax and
+--   cannot be spelled any other way. Verified: `git diff` adds zero CREATE TABLE
+--   / CREATE VIEW / CREATE MATERIALIZED VIEW statements. Follow-up worth doing
+--   separately: teach scripts/ci/check-table-anon-revoke.mjs to ignore quoted
+--   string literals, so a migration that merely NAMES a DDL tag stops tripping
+--   a security gate and nobody learns to reach for this hatch by habit.
+-- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.fn_autolock_new_public_relation()
 RETURNS event_trigger
