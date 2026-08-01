@@ -9336,10 +9336,13 @@ $$;
 --   Migration: 20260730160000_repair_cross_institution_learner_semester_academic_year.sql
 --   Extended 2026-07-30 by 20260808100000_repair_learner_degree_id_cross_institution.sql
 --   to also cover degree_id and department_id.
+--   Extended 2026-07-31 by 20260731100100_extend_learner_scope_guard_section_id.sql
+--   to also cover section_id — the column the first two waves never checked,
+--   which left 179 learners on another institution's same-named section.
 -- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
 --
--- Rejects a learners_profiles row whose degree_id, department_id, semester_id
--- or academic_year_id belongs to a DIFFERENT institution. These tables are all
+-- Rejects a learners_profiles row whose degree_id, department_id, semester_id,
+-- academic_year_id or section_id belongs to a DIFFERENT institution. These tables are all
 -- institution-scoped and carry duplicate NAMES across institutions (nine rows
 -- named 'Undergraduate', one per institution), so a mis-pointed FK renders
 -- identically in the UI and is invisible until a filter silently returns zero
@@ -9418,6 +9421,23 @@ BEGIN
       RAISE EXCEPTION
         'academic_year_id % belongs to institution %, not the learner''s institution %',
         NEW.academic_year_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- Added 2026-07-31 — the gap that let the section_id corruption survive.
+  -- 457 section rows are named 'A' group-wide, so the list rendered the right
+  -- label off the wrong row and only the section FILTER exposed the mismatch.
+  IF NEW.section_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.section_id     IS DISTINCT FROM OLD.section_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT sc.institution_id INTO v_inst
+      FROM public.sections sc WHERE sc.id = NEW.section_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'section_id % belongs to institution %, not the learner''s institution %',
+        NEW.section_id, v_inst, NEW.institution_id
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -22441,11 +22461,14 @@ GRANT EXECUTE ON FUNCTION public.get_markable_resident_photos(uuid) TO authentic
 -- Strategy: delete-all-then-reinsert — safe because
 -- events_registrations.custom_fields keys answers by field_key, never the
 -- field row id, so churning ids on save orphans nothing.
--- Canonical body:
---   supabase/migrations/20260715090000_save_event_registration_form_rpc.sql
+-- 2026-07-31: now FORM-scoped, not event-scoped. An event holds many named
+-- registration forms (one per monthly run), so the first argument is p_form_id
+-- and the form must already exist — creating one is the service's createForm(),
+-- which chooses the name and slug. Canonical body:
+--   supabase/migrations/20260731150000_event_multi_registration_forms.sql
 -- ============================================================================
 CREATE OR REPLACE FUNCTION save_event_registration_form(
-  p_event_id uuid,
+  p_form_id uuid,
   p_is_enabled boolean,
   p_sections jsonb
 )
@@ -22455,19 +22478,24 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
 DECLARE
-  v_form_id    uuid;
+  v_event_id   uuid;
   v_section    jsonb;
   v_section_id uuid;
   v_field      jsonb;
 BEGIN
-  -- 1. Lazy-create / update the form row (RLS authorizes via WITH CHECK).
-  INSERT INTO event_registration_forms (event_id, is_enabled)
-  VALUES (p_event_id, COALESCE(p_is_enabled, true))
-  ON CONFLICT (event_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
-  RETURNING id INTO v_form_id;
+  -- 1. Resolve the form; sections/fields still carry event_id for their RLS gates.
+  SELECT event_id INTO v_event_id
+    FROM event_registration_forms WHERE id = p_form_id;
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Registration form % not found', p_form_id;
+  END IF;
 
-  -- 2. Clear existing structure; fields cascade off sections.
-  DELETE FROM event_registration_form_sections WHERE form_id = v_form_id;
+  UPDATE event_registration_forms
+     SET is_enabled = COALESCE(p_is_enabled, true), updated_at = now()
+   WHERE id = p_form_id;
+
+  -- 2. Clear THIS form's structure only; fields cascade off sections.
+  DELETE FROM event_registration_form_sections WHERE form_id = p_form_id;
 
   -- 3. Re-insert the desired structure, in payload order.
   FOR v_section IN
@@ -22475,8 +22503,8 @@ BEGIN
   LOOP
     INSERT INTO event_registration_form_sections (form_id, event_id, title, display_order)
     VALUES (
-      v_form_id,
-      p_event_id,
+      p_form_id,
+      v_event_id,
       COALESCE(NULLIF(btrim(v_section->>'title'), ''), 'Section'),
       COALESCE((v_section->>'display_order')::int, 0)
     )
@@ -22486,13 +22514,14 @@ BEGIN
       SELECT * FROM jsonb_array_elements(COALESCE(v_section->'fields', '[]'::jsonb))
     LOOP
       INSERT INTO event_registration_form_fields (
-        section_id, event_id, field_key, field_label, field_type, is_required,
+        form_id, section_id, event_id, field_key, field_label, field_type, is_required,
         display_order, placeholder, help_text, min_length, max_length,
         min_value, max_value, pattern, options, condition
       )
       VALUES (
+        p_form_id,
         v_section_id,
-        p_event_id,
+        v_event_id,
         v_field->>'field_key',
         v_field->>'field_label',
         v_field->>'field_type',
@@ -22514,11 +22543,28 @@ END;
 $$;
 
 COMMENT ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) IS
-  'Atomically replaces a tournament registration form (sections + fields) from a desired-state payload. SECURITY INVOKER: authorization comes from the event_registration_form_* _manage RLS policies.';
+  'Atomically replace one registration form''s sections + fields. Form-scoped: an event holds many forms. SECURITY INVOKER — the caller must pass the event_registration_form*_manage RLS gate.';
 
 REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) TO authenticated;
+
+-- ============================================================================
+-- 2026-07-31: clone_event_registration_form — copy a form (sections + fields)
+-- into a new CLOSED form on the same event. One transaction, so a half-copied
+-- form is impossible. De-duplicates the slug within the event so cloning twice
+-- cannot trip UNIQUE (event_id, slug). Returns the new form id.
+-- Canonical body:
+--   supabase/migrations/20260731150000_event_multi_registration_forms.sql
+-- ============================================================================
+-- (body omitted here — see the migration; this file is a reference index)
+
+COMMENT ON FUNCTION clone_event_registration_form(uuid, text, text) IS
+  'Copy a registration form (sections + fields) into a new CLOSED form on the same event; de-duplicates the slug. Returns the new form id. SECURITY INVOKER.';
+
+REVOKE ALL ON FUNCTION clone_event_registration_form(uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION clone_event_registration_form(uuid, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION clone_event_registration_form(uuid, text, text) TO authenticated;
 
 
 -- ============================================================================
