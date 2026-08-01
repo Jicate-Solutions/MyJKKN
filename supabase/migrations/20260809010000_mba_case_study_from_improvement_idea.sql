@@ -15,6 +15,15 @@
 --   D3  AI drafts first and the learner rewrites it
 --         -> fn_case_study_start assembles a real prompt from the recorded facts and
 --            enqueues it THROUGH fn_ai_enqueue; the learner then owns fn_case_study_save
+--         -> and the job type is allow_rule 'permission:improvement.ideas.view', NOT the
+--            sibling's 'seat_owner', which resolves to a one-member allowlist and would
+--            have refused all 44 associates. A deliberate widening - see section 8.
+--
+-- WHOSE CASE IT IS
+-- A case study is graded coursework attributed to ONE learner, so only the author of
+-- the improvement idea may start the case about it. Anything wider produces a case
+-- bylined to somebody other than the person whose improvement it was - and, under the
+-- narrowing SELECT policy below, invisible to that person. See section 4.
 --
 -- THE RULE THAT MAKES THIS SAFE
 -- A case may only be written about an improvement that was ACTUALLY MADE and whose
@@ -131,7 +140,6 @@ AS $function$
 DECLARE
   v_uid        uuid := auth.uid();
   v_idea       public.improvement_ideas%ROWTYPE;
-  v_is_posted  boolean;
   v_existing   uuid;
   v_id         uuid;
   v_area       text;
@@ -147,22 +155,36 @@ BEGIN
     RAISE EXCEPTION 'fn_case_study_start: no such improvement idea %', p_idea_id;
   END IF;
 
-  -- Authorisation BEFORE eligibility, so an unrelated caller cannot use the error
-  -- message to learn whether somebody else's idea was verified.
-  -- The author of the idea, or anyone actively posted to the department it is about.
-  SELECT EXISTS (
-    SELECT 1 FROM public.mba_associate_postings p
-     WHERE p.area_id = v_idea.area_id
-       AND p.associate_user_id = v_uid
-       AND p.is_active
-  ) INTO v_is_posted;
-
-  IF NOT (
-    v_idea.author_id = v_uid
-    OR v_is_posted
-    OR COALESCE(public.is_super_admin(), false)
-  ) THEN
-    RAISE EXCEPTION 'fn_case_study_start: you may only write up an improvement you raised, or one in a department you are posted to'
+  -- AUTHORISATION: the idea's own author, and nobody else.
+  --
+  -- Authorisation is checked BEFORE eligibility, so an unrelated caller cannot use the
+  -- error message to learn whether somebody else's idea was verified.
+  --
+  -- An earlier draft of this function also admitted anyone actively posted to the
+  -- department the idea is about. That was wrong in a way that only showed up once the
+  -- narrowing SELECT policy above exists. The row this function INSERTs carries
+  -- author_id = the WRITER, not the idea's author, so a posted associate writing up
+  -- somebody else's improvement produced a case the idea's own author could not see:
+  -- not their case, not published, and they hold no grader permission. Their idea then
+  -- read as un-written-up while another learner held the only case for it - and the
+  -- UNIQUE index below means they could never write their own. The screen's "ideas
+  -- ready to write up" lane counts exactly that way (it reads ss_case_studies for its
+  -- own ideas), so it under-counted for the same reason.
+  --
+  -- Restricting to the author is the fix rather than widening the read, because a case
+  -- study is GRADED COURSEWORK ATTRIBUTED TO ONE LEARNER. The Director's ruling of
+  -- 2026-08-02 is that the byline is the learner's, and the screen already agrees: it
+  -- only ever offers ideas from CaseStudyService.myWritingLane(currentUserId), which
+  -- filters improvement_ideas on author_id = the viewer. The posted-associate lane was
+  -- therefore not reachable from any screen either - it existed only in this function.
+  --
+  -- No super-admin bypass on purpose, matching fn_case_study_save and
+  -- fn_case_study_submit, which are already author-only with no bypass: a super admin
+  -- starting a case would be bylined as its author on another learner's work AND would
+  -- consume the one slot the UNIQUE index allows. The break-glass path is service_role,
+  -- which the ss_case_studies_service_all policy still grants in full.
+  IF v_idea.author_id IS DISTINCT FROM v_uid THEN
+    RAISE EXCEPTION 'fn_case_study_start: you may only write up an improvement you raised yourself - this one was raised by somebody else'
       USING ERRCODE = '42501';
   END IF;
 
@@ -170,12 +192,28 @@ BEGIN
   -- actually made and whose value was actually confirmed. Note IS TRUE rather than a
   -- bare boolean test: value_holds is nullable, and "not yet checked" must refuse
   -- exactly as firmly as "checked and it did not hold".
+  --
+  -- The refusal names WHICH half failed. The two halves are independent -
+  -- improvement_idea_status carries 'applied' as a state of its own, so an idea can
+  -- sit at status='applied' with value_holds already true. A message that only
+  -- distinguished value_holds NULL from non-NULL told that learner their "verified
+  -- value did not hold", which is false: the value did hold, the STATUS disqualified
+  -- it. Being told the wrong rule sends them to fix the wrong thing.
   IF NOT (v_idea.status = 'verified' AND v_idea.value_holds IS TRUE) THEN
     RAISE EXCEPTION
-      'fn_case_study_start: a case study can only be written about an improvement that was made and whose value was verified. This idea is "%" and its verified value % - close the loop first.',
-      v_idea.status,
-      CASE WHEN v_idea.value_holds IS NULL THEN 'has not been checked'
-           ELSE 'did not hold' END;
+      'fn_case_study_start: a case study can only be written about an improvement that was made and whose value was verified. %. Close the loop first.',
+      CASE
+        WHEN v_idea.status = 'verified' AND v_idea.value_holds IS NULL
+          THEN 'This idea is "verified", but its value has not been checked yet'
+        WHEN v_idea.status = 'verified'
+          THEN 'This idea is "verified", but its verified value did not hold'
+        WHEN v_idea.value_holds IS TRUE
+          THEN format('Its value was checked and it did hold, but the idea itself is "%s", not "verified"', v_idea.status)
+        WHEN v_idea.value_holds IS NULL
+          THEN format('This idea is "%s", not "verified", and its value has not been checked', v_idea.status)
+        ELSE
+          format('This idea is "%s", not "verified", and its verified value did not hold', v_idea.status)
+      END;
   END IF;
 
   -- Clear message ahead of the unique index, which is still the real guarantee.
@@ -246,13 +284,22 @@ BEGIN
   -- the job-type row: enabled (the kill switch in the config UI), allow_rule,
   -- max_inflight and daily_cap_per_user would all be inert on this path.
   --
-  -- fn_ai_enqueue never raises - it returns {ok:false, error} - and a refusal must NOT
-  -- cost the learner their case. The case is already committed above; being refused an
-  -- AI draft simply means they write it themselves, which is the normal outcome today:
-  -- allow_rule is 'seat_owner' and that allowlist has exactly ONE member, so until the
-  -- Director widens it from the config UI (a config row, no deploy) every learner takes
-  -- the hand-written path. That is the knob working, and it is now visible rather than
-  -- bypassed. The learner sees the truth because generated_by stays 'manual'.
+  -- fn_ai_enqueue answers a refusal by RETURNING {ok:false, error} rather than raising,
+  -- which is why the case survives one. It is not literally incapable of raising, and
+  -- claiming so would be the kind of absolute that stops being checked: it does not trap
+  -- unique_violation from ai_jobs_inflight_dedupe_idx (UNIQUE on
+  -- (job_type, payload->>'_dedupe') for pending/claimed/running rows), and it runs under
+  -- SET statement_timeout='10s' across a pg_advisory_xact_lock, so a contended lock could
+  -- in principle time out. Neither is reachable ON THIS PATH: the dedupe key is
+  -- 'mba-case-study:' || the id of the row inserted moments ago, so it is unique by
+  -- construction, and the UNIQUE partial index on improvement_idea_id forbids a second
+  -- case for the same idea in the first place. The advisory lock is keyed on
+  -- (uid, job_type) and this is a single interactive call per learner. If either ever did
+  -- raise, the whole statement rolls back - the case would not be half-created.
+  --
+  -- A refusal must NOT cost the learner their case. The case is already inserted above;
+  -- being refused an AI draft simply means they write it themselves, and the learner sees
+  -- the truth because generated_by stays 'manual'.
   v_enq := public.fn_ai_enqueue(
     'mba.draft_case_study',
     jsonb_build_object(
@@ -496,9 +543,37 @@ GRANT  EXECUTE ON FUNCTION public.fn_case_study_grade(uuid, numeric, text, boole
 --    or write somewhere it was not asked to. Copying the flag across was a
 --    copy-paste, not a decision.
 --
---    allow_rule stays 'seat_owner' - it is a live cost control on the Max seat and
---    widening it is the Director's call, not this migration's. It is now actually
---    ENFORCED, because fn_case_study_start goes through fn_ai_enqueue.
+--    THE OTHER FIELD THAT IS DELIBERATELY DIFFERENT: allow_rule.
+--
+--    The sibling carries 'seat_owner'. Copied across, that made D3 ("AI drafts first")
+--    false for every learner on day one. fn_ai_enqueue resolves 'seat_owner' by testing
+--    whether the caller is listed in public.ai_model_config.config_json ->
+--    'max_lane_user_ids' for feature_key = 'ai_query.natural_language'. Read live on
+--    2026-08-02, that allowlist has EXACTLY ONE member, against 44 holders of the
+--    mba_associate role. So every learner would have been refused, silently, on a
+--    Director decision that says the AI drafts first.
+--
+--    'permission:improvement.ideas.view' instead. fn_ai_enqueue already supports the
+--    'permission:%' form - it calls user_has_permission on the suffix - and 9 production
+--    job types already use it (admission.agentic_query, admission.ai_response,
+--    admission.ai_service, ai_query.chat, bug.cluster_fix, bug.fixability,
+--    cdc.career_guidance, session_feedback.suggest_improvement, work_pulse.analyze).
+--    This is the established mechanism, not a new one.
+--
+--    THIS IS A DELIBERATE ACCESS WIDENING, and it is scoped to THIS ONE job type. The
+--    seat allowlist itself is untouched: it is a live cost control on a different
+--    feature and widening it would have loosened all 48 seat_owner job types at once.
+--    improvement.ideas.view is held by exactly four roles read live 2026-08-02 - ceo,
+--    mba_associate, cse_resident, cse_facilitator - so the population that can enqueue is
+--    the 44 associates plus the ceo and cse holders, and each of them can enqueue at most
+--    ONE draft per verified idea (the UNIQUE partial index on improvement_idea_id, plus
+--    max_inflight = 3). Volume today is bounded by zero: improvement_ideas holds 0 rows,
+--    and eligibility additionally requires status = 'verified' AND value_holds IS TRUE.
+--    Reverting is a one-word change back to 'seat_owner' if the Director's cost view
+--    differs, or a config-UI edit on the row once it exists.
+--
+--    ON CONFLICT DO NOTHING is kept rather than DO UPDATE: allow_rule is a config row the
+--    Director edits from the config UI, and a re-run must not stamp that edit back.
 -- ---------------------------------------------------------------------------
 INSERT INTO public.ai_job_types
   (job_type, title, description, prompt_template, tool_set, output_target,
@@ -513,7 +588,7 @@ VALUES
    'job.result',
    false,
    'max',
-   'seat_owner',
+   'permission:improvement.ideas.view',  -- NOT 'seat_owner': see the block above
    3,
    false,  -- schedulable: on-demand per learner, never fired by a cron
    true,
