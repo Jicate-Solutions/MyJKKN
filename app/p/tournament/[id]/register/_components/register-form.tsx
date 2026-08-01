@@ -533,6 +533,13 @@ export function RegisterForm({
                 key={f.id}
                 field={f}
                 value={customFields[f.field_key]}
+                // Tournaments share this control, so they get working uploads
+                // too. Without the context the file input renders disabled —
+                // correct for the builder preview, wrong for a live form.
+                // formId can be null on a tournament with no form row yet; the
+                // control degrades to the disabled state rather than posting an
+                // upload with no form to attach it to.
+                uploadContext={formId ? { eventId, formId } : undefined}
                 onChange={(v) => setCustomFields((prev) => ({ ...prev, [f.field_key]: v }))}
               />
             ))}

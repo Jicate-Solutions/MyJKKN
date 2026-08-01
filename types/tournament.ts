@@ -323,6 +323,7 @@ export type FormFieldType =
   | 'date'
   | 'textarea'
   | 'file'
+  | 'image'
   | 'checkbox'
   | 'radio';
 
@@ -335,10 +336,54 @@ export const FORM_FIELD_TYPES: { value: FormFieldType; label: string }[] = [
   { value: 'multi_select', label: 'Dropdown (multiple choice)' },
   { value: 'date', label: 'Date' },
   { value: 'textarea', label: 'Long text' },
-  { value: 'file', label: 'File upload' },
+  { value: 'file', label: 'File upload (PDF / Word / image)' },
+  { value: 'image', label: 'Image upload (with preview)' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'radio', label: 'Radio (single choice)' },
 ];
+
+/** Field types whose answer is an EventFormUpload object, not a scalar. */
+export const UPLOAD_FIELD_TYPES = new Set<FormFieldType>(['file', 'image']);
+
+/**
+ * What a 'file' / 'image' answer actually stores in
+ * events_registrations.custom_fields.
+ *
+ * An OBJECT, not a URL string, and deliberately not a public URL: the bucket is
+ * private, so a stored URL would be dead on arrival. `path` is the storage key —
+ * organizers exchange it for a short-lived signed URL when they want to look at
+ * the file. name/size/mime are denormalised so a responses list can be rendered
+ * without touching storage at all.
+ */
+export interface EventFormUpload {
+  /** Storage key inside the `event-registration-uploads` bucket. */
+  path: string;
+  /** Original filename, for display and download. */
+  name: string;
+  /** Bytes. */
+  size: number;
+  /** Content type as validated server-side, not as claimed by the browser. */
+  mime: string;
+}
+
+/**
+ * Narrow an unknown custom_fields answer to an upload. Returns null for
+ * anything that isn't one — including `{}`, which is what a half-finished
+ * upload leaves behind and which a naive truthiness check would accept as a
+ * completed answer.
+ */
+export function asFormUpload(value: unknown): EventFormUpload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  return typeof v.path === 'string' && v.path.trim() !== ''
+    ? {
+        path: v.path,
+        name: typeof v.name === 'string' ? v.name : 'attachment',
+        size: typeof v.size === 'number' ? v.size : 0,
+        mime: typeof v.mime === 'string' ? v.mime : 'application/octet-stream',
+      }
+    : null;
+}
 
 export interface FormFieldOption {
   label: string;

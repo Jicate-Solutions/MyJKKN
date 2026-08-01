@@ -3639,8 +3639,13 @@ CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   field_key text NOT NULL,
   field_label text NOT NULL,
+  -- 'file' and 'image' answers are stored in events_registrations.custom_fields
+  -- as an EventFormUpload OBJECT ({path,name,size,mime}), not a scalar — the
+  -- object lives in the PRIVATE `event-registration-uploads` bucket and is read
+  -- through short-lived signed URLs. 'image' differs from 'file' only in that
+  -- the UI previews it and the upload route refuses non-image MIME types.
   field_type text NOT NULL CHECK (field_type IN (
-    'text','number','phone','email','select','multi_select','date','textarea','file','checkbox','radio'
+    'text','number','phone','email','select','multi_select','date','textarea','file','image','checkbox','radio'
   )),
   is_required boolean NOT NULL DEFAULT false,
   display_order int NOT NULL DEFAULT 0,

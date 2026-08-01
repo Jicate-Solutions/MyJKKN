@@ -17,7 +17,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-hosted-redirect';
 import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
-import type { EventRegistrationFormField } from '@/types/tournament';
+import {
+  asFormUpload,
+  UPLOAD_FIELD_TYPES,
+  type EventRegistrationFormField,
+} from '@/types/tournament';
 
 interface SectionWithFields {
   id: string;
@@ -79,6 +83,9 @@ export function EventRegisterForm({
   const missingRequired = visibleFields.some((f) => {
     if (!f.is_required) return false;
     const v = customFields[f.field_key];
+    // An upload answer is an object, so the scalar checks below would accept
+    // `{}` (a half-finished upload) as answered. Require a real storage path.
+    if (UPLOAD_FIELD_TYPES.has(f.field_type)) return !asFormUpload(v);
     if (Array.isArray(v)) return v.length === 0;
     return v === undefined || v === null || v === '';
   });
@@ -221,6 +228,10 @@ export function EventRegisterForm({
                 key={field.id}
                 field={field}
                 value={customFields[field.field_key]}
+                // Enables real uploading. Without it the control renders
+                // disabled — which is what the builder's preview wants, but
+                // would silently break the live form.
+                uploadContext={{ eventId, formId }}
                 onChange={(value) =>
                   setCustomFields((prev) => ({ ...prev, [field.field_key]: value }))
                 }

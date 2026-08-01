@@ -17,6 +17,7 @@ import type {
   FormFieldOption,
   FormFieldCondition,
 } from '@/types/tournament';
+import { asFormUpload, UPLOAD_FIELD_TYPES } from '@/types/tournament';
 
 /** One submitted response, answers already paired with their field labels. */
 export interface FormResponseRow {
@@ -34,6 +35,11 @@ function formatAnswer(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (Array.isArray(value)) return value.length ? value.map(String).join(', ') : '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  // An upload answer is an object; JSON.stringify would print a storage path and
+  // a MIME type at the reader. Show the filename — the path is not useful to a
+  // human anyway, since the bucket is private and needs a signed URL.
+  const upload = asFormUpload(value);
+  if (upload) return upload.name;
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }
@@ -501,6 +507,17 @@ export function validateCustomFields(
   for (const field of fields) {
     if (!field.is_required) continue;
     const value = answers[field.field_key];
+
+    // Upload answers are OBJECTS, so the scalar emptiness test below would
+    // accept `{}` — the shape a half-finished upload leaves behind — as a
+    // completed answer. Require a real storage path instead.
+    if (UPLOAD_FIELD_TYPES.has(field.field_type)) {
+      if (!asFormUpload(value)) {
+        return `"${field.field_label}" needs a file`;
+      }
+      continue;
+    }
+
     const isEmpty =
       value === undefined ||
       value === null ||
