@@ -111,11 +111,34 @@ function resolveContentModes(
 ): { includeTheory: boolean; includePractical: boolean } {
   const cat = (courseCategory || '').toLowerCase();
   const namesAMode = cat.includes('theory') || cat.includes('practical') || cat.includes('project');
+
+  let includeTheory: boolean;
+  let includePractical: boolean;
   if (cat && namesAMode) {
-    return { includeTheory: cat.includes('theory'), includePractical: cat.includes('practical') };
+    includeTheory = cat.includes('theory');
+    includePractical = cat.includes('practical');
+  } else {
+    const isPractical = !!content?.is_practical;
+    includeTheory = !isPractical;
+    includePractical = isPractical;
   }
-  const isPractical = !!content?.is_practical;
-  return { includeTheory: !isPractical, includePractical: isPractical };
+
+  // Safety net: the COE category must never silence the ONLY authored body.
+  // Plenty of lab courses are typed on the Content tab as UNIT I / UNIT II
+  // (units[]) rather than the numbered experiment list (topics[]) — a shape
+  // mismatch the form permits. With a "Practical" category that combination
+  // resolved to includeTheory:false + an empty topics[], so the export rendered
+  // a syllabus with no course content at all. When the category-selected shapes
+  // carry nothing but the other shape has data, print what was actually
+  // authored; the author's own headings then decide how it reads.
+  const hasUnits = (content?.units?.length ?? 0) > 0;
+  const hasTopics = (content?.topics?.length ?? 0) > 0;
+  const rendersNothing = !(includeTheory && hasUnits) && !(includePractical && hasTopics);
+  if (rendersNothing && (hasUnits || hasTopics)) {
+    return { includeTheory: hasUnits, includePractical: hasTopics };
+  }
+
+  return { includeTheory, includePractical };
 }
 
 /**
@@ -296,6 +319,10 @@ export async function buildSyllabusPdfData(
     unitLayout: isCas && variant !== 'engineering' ? 'paragraph' : 'stacked',
     ltpc,
     total_periods,
+    // The author's own "Total Hours" box, verbatim — printed as the CET
+    // "TOTAL: … PERIODS" line. Kept separate from `total_periods` (which only
+    // parses a "30+30" split) so a plain "45" still reaches the document.
+    content_total_hours: totalHoursRaw.trim() || undefined,
     institution_name: header.institution_name,
     institution_address: header.institution_address,
     institution_accreditation: header.institution_accreditation,

@@ -138,8 +138,13 @@ export default function BulkCreateBillsPage() {
     isLoading: permissionsLoading
   } = usePermissions();
   const adapt = useAdaptiveLabels();
+  // Both keys: bulk_create opens this flow, create is what the RLS INSERT
+  // policy on billing_student_bills checks. Granting bulk_create alone would
+  // let the page render and then fail every insert with an RLS denial.
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
 
   const form = useForm<BulkBillFormData>({
     resolver: zodResolver(bulkBillSchema),
