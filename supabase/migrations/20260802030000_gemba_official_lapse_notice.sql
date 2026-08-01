@@ -39,6 +39,13 @@
 --   the bell instead of accumulating forever (lib/attention-bar/layers/layer-0.ts
 --   drops a notification whose expires_at has passed).
 --
+--   Neither guard names an object this file does not itself create. The ledger's
+--   UNIQUE is declared below; idx_notifications_idempotency is verified live. The
+--   per-person fan-out into user_notifications deliberately does NOT name the
+--   out-of-band constraint that happens to exist on that table — see the comment
+--   at that INSERT for why a name no migration in this repository creates is not
+--   a guarantee this function is allowed to depend on.
+--
 -- WHO IS TOLD — the posted associates, and nobody else
 --   mba_associate_postings WHERE is_active AND area_id = the artifact's area_id.
 --   29 active postings across all 14 departments today. This is deliberately NOT
@@ -242,8 +249,23 @@ BEGIN
        created_by, expires_at, idempotency_key, metadata)
     VALUES (
       'Official status has lapsed — ' || COALESCE(r.label, 'department') || ' · ' || v_type_label,
+      -- notifications.body is NOT NULL, and NULL anywhere in a || chain makes the
+      -- WHOLE string NULL — so one nullable input does not spoil one message, it
+      -- raises 23502 and, with no EXCEPTION block, ends the sweep for everyone.
+      -- Every input to this chain audited against the live schema 2026-08-01:
+      --   v_type_label  <- mba_dept_artifacts.artifact_type   NOT NULL (CASE ELSE passes it through)
+      --   r.label       <- improvement_areas.label            NOT NULL (COALESCE anyway)
+      --   r.until       <- official_until                     nullable in schema, but
+      --                    the loop's WHERE requires IS NOT NULL, so not null here
+      --   r.since       <- official_at                        NULLABLE, and nothing guards it
+      -- official_at is therefore the one real hole. Both of today's writers set
+      -- official_at and official_until together and a repo sweep found no third
+      -- writer — but "unreachable given every current writer" is not a promise the
+      -- next writer is bound by, and the blast radius is the entire nightly run.
+      -- COALESCE degrades one sentence instead.
       'The ' || v_type_label || ' for ' || COALESCE(r.label, 'this department')
-        || ' was made official on ' || to_char(r.since, 'DD Mon YYYY')
+        || ' was made official on '
+        || COALESCE(to_char(r.since, 'DD Mon YYYY'), 'a date that was never recorded')
         || ' and that ran out on ' || to_char(r.until, 'DD Mon YYYY')
         || '. Until someone visits the department again and records that the document still '
         || 'describes what actually happens, it is a proposal — not an official document.',
@@ -282,12 +304,35 @@ BEGIN
       CONTINUE;  -- the insert genuinely produced nothing; leave the lapse eligible
     END IF;
 
-    -- ON CONFLICT names the CONSTRAINT rather than the columns: this function's
-    -- OUT parameters include notification_id, and a bare ON CONFLICT (notification_id,
-    -- user_id) is ambiguous between the plpgsql variable and the column (42702).
+    -- Dedupe the per-person fan-out WITHOUT resting on a constraint NAME.
+    --
+    -- The live database does carry UNIQUE (notification_id, user_id) here —
+    -- verified against production 2026-08-01: pg_constraint conname
+    -- 'user_notifications_notification_id_user_id_key', contype 'u'. But NO
+    -- migration in this repository creates it. It exists out-of-band, so the name
+    -- is not something this file can promise: a rename, or a database rebuilt
+    -- from migrations alone, turns `ON CONFLICT ON CONSTRAINT <name>` into a
+    -- 42704 at run time — and with no EXCEPTION block that error does not skip a
+    -- row, it kills the whole sweep for everyone. Two name-free guards instead:
+    --   * NOT EXISTS — self-owned. Holds even if no unique index existed at all.
+    --   * bare ON CONFLICT DO NOTHING — with no conflict target, DO NOTHING
+    --     arbitrates against EVERY unique index on the table, so it still
+    --     dedupes; it closes the window between the NOT EXISTS and the insert
+    --     when two sweeps race. This is also what every other writer to
+    --     user_notifications in this repository uses.
+    -- A bare COLUMN target — ON CONFLICT (notification_id, user_id) — is the one
+    -- form that cannot be used: notification_id is an OUT parameter of this
+    -- function, so plpgsql reads the reference as ambiguous (42702). That is why
+    -- the constraint name was reached for in the first place.
     INSERT INTO public.user_notifications (notification_id, user_id)
-    SELECT v_notif, u FROM unnest(v_recipients) AS u
-    ON CONFLICT ON CONSTRAINT user_notifications_notification_id_user_id_key DO NOTHING;
+    SELECT v_notif, s.u
+      FROM unnest(v_recipients) AS s(u)
+     WHERE NOT EXISTS (
+             SELECT 1 FROM public.user_notifications un
+              WHERE un.notification_id = v_notif
+                AND un.user_id         = s.u
+           )
+    ON CONFLICT DO NOTHING;
 
     INSERT INTO public.gemba_official_lapse_notices
       (artifact_id, area_id, lapsed_at, notification_id, recipient_count)
