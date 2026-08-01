@@ -26,6 +26,17 @@ const config: ModuleNavConfig = {
       href: '/accreditation',
       matchPaths: ['/accreditation'],
     },
+    // IQAC — the cell that owns the framework, placed before the report that
+    // reads it. The ten body chips below each show one body's slice of
+    // sh_accreditation_metrics; this tab shows all 107 rows as one governing
+    // list. Like CAC it is JKKN's own body rather than an outside regulator,
+    // and like CAC its page carries no grade.
+    {
+      label: 'IQAC',
+      icon: 'ShieldCheck',
+      href: '/accreditation/iqac',
+      matchPaths: ['/accreditation/iqac'],
+    },
     {
       label: 'Coverage',
       icon: 'BarChart3',
