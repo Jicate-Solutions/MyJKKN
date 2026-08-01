@@ -1,9 +1,20 @@
 -- ============================================================================
 -- Migration: 20260731180200_seed_school_of_influence_policies
--- School of Influence — S1 · config substrate, the 15 seed rows
+-- School of Influence — S1 · config substrate, the 14 seed rows
 -- Spec: specs/school-of-influence-batches-2026-07-30.md §4, §5, §7 (S1)
 -- ============================================================================
--- Seeds the 15 School of Influence tunables from spec §4 into platform_policies
+-- CORRECTED 2026-07-31 by 20260808190000 — TWO ROWS DESCRIBED THEMSELVES WRONGLY
+--   (1) soi.block_multiple_batches REMOVED (was the 15th row). It rendered an
+--       on/off switch for a rule that is an unconditional unique index, so
+--       turning it off changed nothing. See the marker comment where it stood.
+--   (2) soi.eligible_audiences now stores ui_widget = 'multi_select' (underscore),
+--       the token the shared widget dispatcher actually switches on. It was
+--       seeded 'multi-select' (hyphen), which only rendered because a UI-side
+--       normaliser rewrote it on read.
+-- Applying THIS file to a fresh database now needs no follow-up; 20260808190000
+-- exists to correct a database that already took the original version.
+-- ============================================================================
+-- Seeds the 14 School of Influence tunables from spec §4 into platform_policies
 -- at scope_type='cohort', with the Director's-view metadata every row needs:
 -- ui_widget, ui_category='School of Influence', a plain-English ui_consequence,
 -- ui_cascade where a change is visible on another screen, enum_options +
@@ -12,7 +23,7 @@
 -- scope_id IS NULL — READ THIS BEFORE COMPARING AGAINST THE SPEC
 --   Spec §4's heading reads "scope_id=<cohort_id>", but §7 puts a hard serial
 --   edge S1 → S3: the `cohorts` rows for Batch A/B/C are created by S3 and do
---   not exist yet. These 15 rows are therefore seeded as the PROGRAMME-WIDE
+--   not exist yet. These 14 rows are therefore seeded as the PROGRAMME-WIDE
 --   cohort defaults (scope_type='cohort', scope_id IS NULL). A per-batch row
 --   written later at scope_id = that cohorts.id shadows the default — that is
 --   exactly the precedence 20260731180000 taught fn_get_policy
@@ -38,7 +49,7 @@
 --   an applicant audience against a membership type directly, with no mapping
 --   table and no silent mismatch.
 --
--- classification = 'operational' on all 15, per spec §4 ("operational unless
+-- classification = 'operational' on all 14, per spec §4 ("operational unless
 -- noted"). If the Director wants soi.inactivity.enabled routed through the
 -- draft/publish gate instead, that is a one-line follow-up flip to 'major' —
 -- deliberately not invented here.
@@ -132,7 +143,7 @@ FROM (VALUES
     '["learner","staff"]'::jsonb,
     '[{"value":"learner","label":"Learners"},{"value":"staff","label":"Staff"}]'::jsonb,
     '{"type":"array","items":{"type":"string","enum":["learner","staff"]},"minItems":1}'::jsonb,
-    'multi-select',
+    'multi_select',
     'Who may apply. Removing ''staff'' hides the programme from staff logins.',
     '[{"effect":"Removing an audience hides the apply button from those logins; people already in a batch keep the access they have","severity":"high"},{"effect":"An empty list would leave nobody able to apply, so at least one audience has to stay selected","severity":"high"}]'::jsonb
   ),
@@ -161,18 +172,12 @@ FROM (VALUES
     'When on, only a coordinator can move someone between batches; the record keeps the full history either way.',
     NULL
   ),
-  (
-    'soi.block_multiple_batches',
-    'true'::jsonb,
-    'Whether one person may hold an active membership in only one batch of this programme at a time (decision 10).',
-    'boolean',
-    NULL,
-    NULL,
-    '{"type":"boolean"}'::jsonb,
-    'toggle',
-    'When on, a person cannot be in two batches of this programme at once. Also enforced by the database, so reports never double-count.',
-    '[{"effect":"Turning this off lets one person sit in two batches at once, so headcounts and attendance shares stop adding up","severity":"high"}]'::jsonb
-  ),
+  -- soi.block_multiple_batches WAS SEEDED HERE AND HAS BEEN REMOVED — do not
+  -- restore it. Decision 10 is enforced by uniq_soi_one_active_batch_per_person
+  -- (20260808130000), an UNCONDITIONAL partial unique index that consults no
+  -- policy value, so the row could only ever render a switch that did nothing.
+  -- Removed by 20260808190000; see that file for the full reasoning and for the
+  -- sweep proving no code reads the key.
   (
     'soi.roster.visible_to_batchmates',
     'true'::jsonb,
