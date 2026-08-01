@@ -1060,6 +1060,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
+  // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
+  // is not in lib/constants/permissions.ts is ungrantable and never appears as
+  // a toggle in the role dialog.
+  '/accreditation/iqac': 'accreditation.metrics.view',          // IQAC master framework dashboard
   '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 c1 NAAC IQAC dashboard
   '/accreditation/naac/committees': 'accreditation.naac.committees.view',         // PR-A8 c2
   '/accreditation/naac/committees/[id]': 'accreditation.naac.committees.view',    // PR-A8 c2
