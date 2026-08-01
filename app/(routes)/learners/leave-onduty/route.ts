@@ -25,7 +25,7 @@ import type { NextRequest } from 'next/server';
  *   Learners Leave/On-Duty landing — redirects to the default sub-page.
  *
  *   /learners/leave-onduty previously 404'd because no page.tsx existed here.
- *   Redirects to /learners/leave-onduty/my-applications as the student default view.
+ *   Redirects to /learners/leave-onduty/my-applications as the learner default view.
  *
  *   Part of the nav-landing sweep (follow-up to #348).
  */

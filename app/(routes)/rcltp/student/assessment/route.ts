@@ -23,7 +23,7 @@ import type { NextRequest } from 'next/server';
  *
  * Original page.tsx rationale (preserved):
  *   /rcltp/student/assessment has no index — a sitting is always opened by id at
- *   /rcltp/student/assessment/[id]. Redirect the bare URL back to the student
+ *   /rcltp/student/assessment/[id]. Redirect the bare URL back to the learner
  *   portal, where assessments are listed and started.
  *
  *   Hub-page guard: every App Router directory with child routes needs a page.tsx
