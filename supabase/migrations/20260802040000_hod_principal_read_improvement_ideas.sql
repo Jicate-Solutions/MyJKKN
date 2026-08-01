@@ -92,7 +92,16 @@ USING (
 --
 -- `||` merges, so every other permission on these roles is preserved. For hod
 -- this flips an existing false; for principal it adds an absent key.
+--
+-- COALESCE for the same reason the admin guards above carry one: custom_roles
+-- .permissions is NULLABLE (is_nullable = YES, default '{}'::jsonb), and
+-- NULL || jsonb is NULL, so on a NULL-permissions row this UPDATE would write
+-- NULL back and the grant would silently no-op — the exact failure this
+-- migration exists to fix. Behaviour-neutral today: verified 2026-08-01 that
+-- zero custom_roles rows have NULL permissions and both target rows are
+-- non-NULL. Written this way so the non-NULL-safe pattern is not copied forward.
 UPDATE public.custom_roles
-SET permissions = permissions || jsonb_build_object('improvement.ideas.view_scoped', true),
+SET permissions = COALESCE(permissions, '{}'::jsonb)
+                  || jsonb_build_object('improvement.ideas.view_scoped', true),
     updated_at  = now()
 WHERE role_key IN ('hod', 'principal');
