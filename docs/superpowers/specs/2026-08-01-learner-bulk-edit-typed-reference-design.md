@@ -36,6 +36,13 @@ Population, 7,165 profiles / 4,343 active:
 - `referral_type` — 891 rows: `consultant` 561 (522 with an id), `faculty` 215 (177),
   `student` 115 (50).
 
+**Not one of the 4,343 ACTIVE learners has any typed referral** — `referral_type`,
+`referred_by_id` and `referred_by_name` are empty across all of them, while 1,290
+hold legacy free text. All 891 typed rows sit on non-active lifecycle stages. So on
+this scope the template is doing greenfield population, not correction: nothing to
+overwrite, no name drift to reconcile, and the read-only legacy column is the only
+reference data an editor will see for those 1,290 rows.
+
 ### 2.2 The admission picker
 
 `app/(routes)/admission/leads/new/page.tsx:79` — `REFERRAL_TYPES = consultant | student | faculty`.
@@ -227,6 +234,12 @@ Resolution order per row:
      0 hits  → TIER 3 name-only
 
 4. Type filled, Person blank  → write referral_type + reference_type only
+4b. Contact ONLY, no type stored or supplied
+     → write reference_contact alone, silently. It is a legacy free-text column
+       and editing it by itself is legitimate. Found during implementation: 123
+       active learners hold a legacy contact with no typed reference, so warning
+       here fired on every one of them during an UNEDITED round-trip and buried
+       the warnings that matter.
 5. Type blank, ID or Person filled
      → fall back to the learner's STORED referral_type, exactly as
        resolveLearnerFkFields() falls back to ctx.existing.community_category_id
@@ -310,7 +323,9 @@ Ambiguous and wrong-table rows join the existing `format` / `record` issue bucke
 | File | Change |
 |---|---|
 | `lib/services/bulk-learner-reference-fields.ts` | **new** — resolvers, label builder, 3-tier matching, typo hint |
-| `app/api/learners/export-exited-for-edit/route.ts` | SheetJS → ExcelJS; 5 reference columns; hidden `Lists` sheet; instructions; `student_mobile` fix |
+| `lib/services/bulk-learner-edit-workbook.ts` | **new** — the workbook itself (columns, Lists sheet, validation, instructions). Split out of the route during implementation: a route file may only export HTTP handlers, which left the column list and the validation formulas impossible to assert without an authenticated request |
+| `app/api/learners/export-exited-for-edit/route.ts` | now just auth + filters + delivery; calls `buildBulkEditWorkbook`; `student_mobile` fix |
+| `lib/services/learner-validation-service.ts` | `validateActiveLearner` also selects the six reference columns — needed for the stored-type fallback and for telling a real edit from a re-uploaded template. Must stay ONE string literal or Supabase's type-level select parser degrades the row to `GenericStringError` |
 | `app/api/learners/bulk-edit-preview/route.ts` | `COLUMN_MAPPING` entries; reference resolution; warnings; attribution count |
 | `app/api/learners/bulk-edit-exited/route.ts` | same mapping; write 6 columns; lead guard |
 | `lib/services/bulk-learner-edit-service.ts` | reference pass in `previewChanges` + `processBulkEdit`; `FIELD_LABELS`; `REFERENCE_CONSUMED_KEYS` in both skip-loops |
@@ -330,22 +345,34 @@ the service-role client.
 4. **Tier 3 orphans.** A name-only reference links to nothing by design; the preview
    bucket is the only thing standing between "departed staff" and "typo".
 
-## 7. Verification
+## 7. Verification — results
 
-There is no test suite in this repo. "Done" means:
+No IDE server was attached this session, so `mcp__ide__getDiagnostics` was
+unavailable; a narrowed `tsc -p` over the touched files and their import graph
+was used instead. All automated checks below were run against the live database
+and **passed**; the temporary scripts were deleted afterwards.
 
-1. `mcp__ide__getDiagnostics` clean on every touched file.
-2. **Round-trip:** download the template, re-upload it unedited → preview reports
-   **0 changes**. This is the exact regression `bulk-learner-fk-fields.ts` exists to
-   catch and the strongest signal the ExcelJS port is faithful.
-3. **Smoke sheet**, one row each: consultant via dropdown; `(Former)` staff via
-   dropdown; graduated student by roll number; name-only with a near-typo; bare
-   `SURESH` (ambiguous, 4 candidates); a consultant UUID pasted under Type=Staff
-   (wrong table); Type with no Person; Person with no Type.
-4. `select count(*) from consultant_lead_attributions` before/after matches the
-   banner's number exactly.
-5. Browser: `/learners/profiles/[id]` shows the new reference via the mirrored legacy
-   columns, for a **non-super-admin** role.
+| Check | Result |
+|---|---|
+| `tsc --noEmit` over all 8 touched files + import graph | clean (one real bug caught: concatenated `.select()` → `GenericStringError`) |
+| Resolver suite, 20 assertions on live data | pass — list sizes 151 / 857 / **5,657** (not truncated), `(Former)` + `(Graduated)` suffixes, `Staff`→`faculty`, ambiguity refused (`SURESH` → 4 candidates), wrong-table uuid refused, tier-3 name-only, typo hint, stored-type fallback |
+| **Round-trip:** build the real 4,343-row workbook, re-read with the importer's parser, resolve every row | **0 reference writes, 0 warnings** — caught the 123-row contact-only defect (rule 4b) on the first run |
+| Data validation survives serialisation | pass — `Reference Type` = `Lists!$E$2:$E$4`; `Reference Person` = `OFFSET(…MATCH(BG2,Lists!$A$1:$C$1,0)-1…8000,1)`, `allowBlank`, `errorStyle: 'warning'`, applied through the last data row |
+| Write path on one live learner, then reverted | pass — all six columns written, `referral_type='consultant'`, contact auto-filled, **one** `consultant_lead_attributions` row at `primary`/100/`auto_sync_learner`, `leads_updated: 0`; re-applying the same reference was a no-op (`skipped: 1`); revert restored the exact prior state and the trigger removed the attribution |
+| Performance, 4,343 learners | fetch 3.1 s · workbook build 0.30 s · xlsx write 2.4 s · **1.80 MB** file |
+
+**Still outstanding — browser verification.** Nothing above exercises the dialog
+UI or Excel itself:
+
+1. Download the template and confirm in **Excel** that picking a Reference Type
+   filters the Reference Person dropdown. `OFFSET`/`MATCH` is asserted in the
+   file but only Excel proves it renders.
+2. Upload a smoke sheet — consultant via dropdown, `(Former)` staff, graduated
+   student by roll number, a name-only near-typo, bare `SURESH`, a consultant
+   uuid under Type=Staff, Type with no Person, Person with no Type — and confirm
+   the validate step's name-only bucket and commission banner read correctly.
+3. Confirm `/learners/profiles/[id]` shows the new reference through the mirrored
+   legacy columns, for a **non-super-admin** role.
 
 ## 8. Out of scope
 
