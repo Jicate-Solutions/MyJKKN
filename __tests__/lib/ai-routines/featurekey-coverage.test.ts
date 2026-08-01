@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { AI_ROUTINES } from '@/lib/ai-routines/registry';
+import knownJobTypes from './known-job-types.json';
+
+// ---------------------------------------------------------------------------
+// Job types a routine legitimately references but which are NOT registered in
+// production. Each entry is a KNOWN GAP with a reason — not permission to
+// invent keys. Remove an entry the moment its migration is applied; the
+// resolution test below then enforces it for good.
+// ---------------------------------------------------------------------------
+const KNOWN_UNREGISTERED: Record<string, string> = {
+  'learner.360_verdict':
+    'app/api/cron/learner-360-verdict/route.ts is DEPLOYED and enqueues this ' +
+    'job type, but supabase/migrations/20260808110003_learner_360_verdict.sql ' +
+    '(which carries the INSERT INTO ai_job_types that registers it) has never ' +
+    'been applied to production. Verified 2026-08-02: zero learner_360* tables, ' +
+    'zero learner% rows in ai_job_types, zero ai_jobs rows. Until that migration ' +
+    'is applied, fn_ai_enqueue answers every enqueue with a silent ' +
+    "{ok:false,'unknown or disabled job_type'}. Delete this entry once applied.",
+};
 
 // ---------------------------------------------------------------------------
 // featureKey coverage invariant.
@@ -56,5 +74,59 @@ describe('AI routine registry — featureKey coverage', () => {
     ).map((r) => `${r.id} (featureKey='${r.featureKey}' AND a featureKeyNote)`);
 
     expect(contradictory).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // The assertion that crosses the boundary.
+  //
+  // The three tests above check the SHAPE of featureKey — present, non-blank,
+  // not contradicted by a note. None of them checks that the string names a
+  // job type that actually EXISTS. That gap is not hypothetical: the first
+  // version of this suite shipped green while `learner.360_verdict` pointed at
+  // a job type absent from production, because a fabricated key is still a
+  // non-empty string.
+  //
+  // An in-file test can only prove the file agrees with itself. This one
+  // resolves every key against a checked-in snapshot of production's
+  // ai_job_types, so a typo or an unregistered link fails the build instead of
+  // rendering as a silently-missing chip.
+  // -------------------------------------------------------------------------
+  it('resolves every featureKey to a registered job type (or a declared known gap)', () => {
+    const registered = new Set<string>(knownJobTypes.jobTypes);
+
+    const unresolvable = AI_ROUTINES.filter((r) => {
+      const key = typeof r.featureKey === 'string' ? r.featureKey.trim() : '';
+      if (!key) return false; // unlinked is covered by the first test
+      return !registered.has(key) && !(key in KNOWN_UNREGISTERED);
+    }).map(
+      (r) =>
+        `${r.id} -> featureKey '${r.featureKey}' is in neither ai_job_types ` +
+        `(see known-job-types.json) nor KNOWN_UNREGISTERED. Either it is a typo, ` +
+        `or its migration was never applied — add it to KNOWN_UNREGISTERED with ` +
+        `the reason, or fix the key.`,
+    );
+
+    expect(unresolvable).toEqual([]);
+  });
+
+  it('keeps KNOWN_UNREGISTERED honest — every entry is still referenced and still unregistered', () => {
+    const registered = new Set<string>(knownJobTypes.jobTypes);
+    const referenced = new Set(
+      AI_ROUTINES.map((r) => (typeof r.featureKey === 'string' ? r.featureKey.trim() : '')).filter(
+        Boolean,
+      ),
+    );
+
+    // A gap that is now registered, or no longer referenced by any routine, is
+    // stale — deleting it is the whole point of tracking it here.
+    const stale = Object.keys(KNOWN_UNREGISTERED).flatMap((k) => {
+      if (registered.has(k))
+        return [`'${k}' IS now registered — delete it from KNOWN_UNREGISTERED.`];
+      if (!referenced.has(k))
+        return [`'${k}' is no longer referenced by any routine — delete it from KNOWN_UNREGISTERED.`];
+      return [];
+    });
+
+    expect(stale).toEqual([]);
   });
 });
