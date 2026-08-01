@@ -28,7 +28,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
-import { UPLOAD_FIELD_TYPES } from '@/types/tournament';
+import { isFormOpen, UPLOAD_FIELD_TYPES } from '@/types/tournament';
 import type { FormFieldType } from '@/types/tournament';
 
 const BUCKET = 'event-registration-uploads';
@@ -106,7 +106,7 @@ export async function POST(
     // ---- 2. form belongs to this event AND is open ----
     const { data: form } = await (svc as any)
       .from('event_registration_forms')
-      .select('id, is_enabled')
+      .select('id, is_enabled, starts_at, ends_at')
       .eq('id', formId)
       .eq('event_id', eventId)
       .maybeSingle();
@@ -116,7 +116,10 @@ export async function POST(
         { status: 422 }
       );
     }
-    if (form.is_enabled === false) {
+    // Same window rule as the submit route. Without it an expired form would
+    // still accept uploads — filling the bucket for a registration that can
+    // never be completed.
+    if (!isFormOpen(form)) {
       return NextResponse.json({ error: 'This registration form is closed.' }, { status: 422 });
     }
 

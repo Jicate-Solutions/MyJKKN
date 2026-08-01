@@ -19,6 +19,7 @@ import { EventRazorpayHostedRedirect } from '@/components/events/event-razorpay-
 import { DynamicFieldInput, isFieldVisible } from '@/components/events/dynamic-field-input';
 import {
   asFormUpload,
+  isAnswerableField,
   UPLOAD_FIELD_TYPES,
   type EventRegistrationFormField,
 } from '@/types/tournament';
@@ -81,6 +82,9 @@ export function EventRegisterForm({
   );
 
   const missingRequired = visibleFields.some((f) => {
+    // A display-only image has no input; treating it as unanswered would make
+    // the form permanently unsubmittable.
+    if (!isAnswerableField(f.field_type)) return false;
     if (!f.is_required) return false;
     const v = customFields[f.field_key];
     // An upload answer is an object, so the scalar checks below would accept

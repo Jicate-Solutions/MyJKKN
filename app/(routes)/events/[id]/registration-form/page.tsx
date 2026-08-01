@@ -86,6 +86,7 @@ export default function GeneralEventRegistrationFormPage() {
           eventId={id}
           variant="general"
           backHref={`/events/${id}`}
+          eventName={event.name}
         />
       </div>
     </ContentLayout>

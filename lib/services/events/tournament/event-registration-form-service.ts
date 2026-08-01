@@ -17,7 +17,7 @@ import type {
   FormFieldOption,
   FormFieldCondition,
 } from '@/types/tournament';
-import { asFormUpload, UPLOAD_FIELD_TYPES } from '@/types/tournament';
+import { asFormUpload, isAnswerableField, UPLOAD_FIELD_TYPES } from '@/types/tournament';
 
 /** One submitted response, answers already paired with their field labels. */
 export interface FormResponseRow {
@@ -84,6 +84,13 @@ export interface SaveFormFieldPayload {
   pattern: string | null;
   options: FormFieldOption[] | null;
   condition: FormFieldCondition | null;
+  /**
+   * Public image URL for an 'image_display' field. MUST be carried here: the
+   * save RPC deletes and reinserts every field, so a column missing from this
+   * payload is wiped the next time anyone edits the form — the organizer's
+   * image would vanish on an unrelated label change.
+   */
+  media_url: string | null;
 }
 
 /** One section in a bulk-save payload. */
@@ -246,7 +253,7 @@ export class EventRegistrationFormService {
     const [{ data: fields }, { data: regs, error }] = await Promise.all([
       (supabase as any)
         .from('event_registration_form_fields')
-        .select('field_key, field_label, display_order')
+        .select('field_key, field_label, display_order, field_type')
         .eq('form_id', formId)
         .order('display_order', { ascending: true }),
       (supabase as any)
@@ -260,7 +267,13 @@ export class EventRegistrationFormService {
     ]);
     if (error) throw error;
 
-    const defs = (fields ?? []) as { field_key: string; field_label: string }[];
+    // Display-only fields collect no answer, so including them would add a
+    // column to the responses table that is empty for every single row.
+    const defs = ((fields ?? []) as {
+      field_key: string;
+      field_label: string;
+      field_type: FormFieldType;
+    }[]).filter((d) => isAnswerableField(d.field_type));
 
     return (regs ?? []).map((r: Record<string, any>) => ({
       id: r.id,
@@ -346,6 +359,8 @@ export class EventRegistrationFormService {
       fee_enabled?: boolean;
       fee_amount?: number;
       fee_label?: string | null;
+      starts_at?: string | null;
+      ends_at?: string | null;
     }
   ): Promise<EventRegistrationForm> {
     const supabase = createClientSupabaseClient();
@@ -505,6 +520,10 @@ export function validateCustomFields(
 ): string | null {
   const answers = submitted ?? {};
   for (const field of fields) {
+    // Display-only fields ask nothing. The DB forces is_required false for them
+    // too, but a stale row from before that rule would otherwise make the form
+    // permanently unsubmittable — there is no input that could satisfy it.
+    if (!isAnswerableField(field.field_type)) continue;
     if (!field.is_required) continue;
     const value = answers[field.field_key];
 

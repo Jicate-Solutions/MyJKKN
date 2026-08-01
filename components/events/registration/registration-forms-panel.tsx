@@ -18,6 +18,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   Copy,
   Link2,
+  QrCode,
   Loader2,
   MoreVertical,
   Pencil,
@@ -65,6 +66,8 @@ import {
 import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
 import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/registration-form/_components/registration-form-editor';
 import { RegistrationFeeCard } from './registration-fee-card';
+import { FormStateBadge, RegistrationScheduleCard } from './registration-schedule-card';
+import { RegistrationFormShareDialog } from './registration-form-share-dialog';
 
 /**
  * Public registration URL for one form. Absolute so it can be pasted anywhere.
@@ -101,10 +104,14 @@ export function RegistrationFormsPanel({
   eventId,
   variant = 'tournament',
   backHref,
+  eventName,
 }: {
   eventId: string;
   variant?: 'tournament' | 'general';
   backHref?: string;
+  /** Used in the share dialog's WhatsApp / email text. Optional: the dialog
+   *  falls back to "our event" rather than requiring every caller to thread it. */
+  eventName?: string;
 }) {
   const { data: forms, isLoading } = useEventRegistrationForms(eventId);
   const createForm = useCreateRegistrationForm(eventId);
@@ -116,6 +123,7 @@ export function RegistrationFormsPanel({
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
   const [nameDraft, setNameDraft] = useState('');
   const [pendingDelete, setPendingDelete] = useState<EventRegistrationFormSummary | null>(null);
+  const [sharing, setSharing] = useState<EventRegistrationFormSummary | null>(null);
 
   // ?form=<id> lets the event console's "Edit" deep-link straight to one form.
   const requestedFormId = useSearchParams()?.get('form') ?? null;
@@ -236,11 +244,7 @@ export function RegistrationFormsPanel({
                     >
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="truncate font-medium">{form.name}</span>
-                        {form.is_enabled ? (
-                          <Badge variant="success">Open</Badge>
-                        ) : (
-                          <Badge variant="secondary">Closed</Badge>
-                        )}
+                        <FormStateBadge form={form} />
                         {isSelected && <Badge variant="outline">Editing</Badge>}
                         {/* Only meaningful for general events — a tournament's
                             fee comes from its divisions, not from the form. */}
@@ -267,6 +271,17 @@ export function RegistrationFormsPanel({
                       >
                         <Link2 className="h-4 w-4" />
                         <span className="hidden sm:inline">Link</span>
+                      </Button>
+
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1"
+                        onClick={() => setSharing(form)}
+                        title="QR code and sharing options for this form"
+                      >
+                        <QrCode className="h-4 w-4" />
+                        <span className="hidden sm:inline">Share</span>
                       </Button>
 
                       <DropdownMenu>
@@ -300,7 +315,7 @@ export function RegistrationFormsPanel({
                               })
                             }
                           >
-                            {form.is_enabled ? 'Close this form' : 'Open this form'}
+                            {form.is_enabled ? 'Set inactive' : 'Set active'}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -324,6 +339,12 @@ export function RegistrationFormsPanel({
           per division, so a second form-level fee would be a competing source of
           truth for one payment. Keyed like the builder below so a half-typed
           amount never carries across a form switch. */}
+      {/* Status + window for the selected form. Both variants: a tournament's
+          monthly form needs a schedule as much as a lecture's. */}
+      {selected && (
+        <RegistrationScheduleCard key={`sched-${selected.id}`} eventId={eventId} form={selected} />
+      )}
+
       {selected && variant === 'general' && (
         <RegistrationFeeCard key={`fee-${selected.id}`} eventId={eventId} form={selected} />
       )}
@@ -383,6 +404,14 @@ export function RegistrationFormsPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RegistrationFormShareDialog
+        open={!!sharing}
+        onOpenChange={(o) => !o && setSharing(null)}
+        form={sharing}
+        url={sharing ? publicFormUrl(eventId, sharing.slug, variant) : ''}
+        eventName={eventName}
+      />
 
       <AlertDialog
         open={!!pendingDelete}

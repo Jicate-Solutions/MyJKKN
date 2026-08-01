@@ -123,6 +123,8 @@ export function useUpdateRegistrationForm(eventId: string) {
         fee_enabled?: boolean;
         fee_amount?: number;
         fee_label?: string | null;
+        starts_at?: string | null;
+        ends_at?: string | null;
       };
     }) => EventRegistrationFormService.updateForm(formId, updates),
     onSuccess: () => invalidateForms(qc, eventId),

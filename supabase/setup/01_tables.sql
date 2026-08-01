@@ -3613,11 +3613,21 @@ CREATE TABLE IF NOT EXISTS event_registration_forms (
   fee_enabled boolean NOT NULL DEFAULT false,
   fee_amount numeric(10,2) NOT NULL DEFAULT 0,
   fee_label text,
+  -- Active window. Openness is DERIVED at read time
+  -- (is_enabled AND now within [starts_at, ends_at]) rather than a job flipping
+  -- is_enabled when ends_at passes: a stored flag would leave an expired form
+  -- collecting registrations whenever the job failed, would not reopen when the
+  -- end date is extended, and would make "closed by hand" and "closed by time"
+  -- indistinguishable. See formRegistrationState() in types/tournament.ts.
+  starts_at timestamptz,
+  ends_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (event_id, slug),
   CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
-  CONSTRAINT event_registration_forms_fee_amount_check CHECK (fee_amount >= 0)
+  CONSTRAINT event_registration_forms_fee_amount_check CHECK (fee_amount >= 0),
+  CONSTRAINT event_registration_forms_window_check
+    CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at >= starts_at)
 );
 
 CREATE TABLE IF NOT EXISTS event_registration_form_sections (

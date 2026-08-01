@@ -23,7 +23,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { EventPaymentService } from '@/lib/services/events/core/event-payment-service';
 import { validateCustomFields } from '@/lib/services/events/tournament/event-registration-form-service';
-import { effectiveFee } from '@/types/tournament';
+import {
+  effectiveFee,
+  formRegistrationState,
+  isFormOpen,
+  type FormWindowLike,
+} from '@/types/tournament';
 
 /**
  * Event fees resolve the host institution's 'tuition' account, the same slot
@@ -98,6 +103,8 @@ export async function POST(
     let formRow: {
       id: string;
       is_enabled: boolean;
+      starts_at: string | null;
+      ends_at: string | null;
       fee_enabled: boolean;
       fee_amount: unknown;
       fee_label: string | null;
@@ -106,7 +113,7 @@ export async function POST(
     if (dto.form_id) {
       const { data } = await (svc as any)
         .from('event_registration_forms')
-        .select('id, is_enabled, fee_enabled, fee_amount, fee_label')
+        .select('id, is_enabled, starts_at, ends_at, fee_enabled, fee_amount, fee_label')
         .eq('id', dto.form_id)
         .eq('event_id', eventId)
         .maybeSingle();
@@ -118,15 +125,17 @@ export async function POST(
       }
       formRow = data;
     } else {
+      // Candidates first, window applied in JS: an enabled form can still be
+      // Scheduled or Expired, and PostgREST cannot express "now is between two
+      // nullable columns" without a view. A handful of forms per event.
       const { data } = await (svc as any)
         .from('event_registration_forms')
-        .select('id, is_enabled, fee_enabled, fee_amount, fee_label')
+        .select('id, is_enabled, starts_at, ends_at, fee_enabled, fee_amount, fee_label')
         .eq('event_id', eventId)
         .eq('is_enabled', true)
         .order('display_order', { ascending: true })
-        .order('created_at', { ascending: true })
-        .limit(1);
-      formRow = data?.[0] ?? null;
+        .order('created_at', { ascending: true });
+      formRow = (data ?? []).find((f: FormWindowLike) => isFormOpen(f)) ?? null;
     }
 
     if (!formRow) {
@@ -136,9 +145,18 @@ export async function POST(
       );
     }
     // A closed form must not accept entries — last month's link stays dead
-    // rather than quietly collecting this month's registrations.
-    if (formRow.is_enabled === false) {
-      return NextResponse.json({ error: 'This registration form is closed.' }, { status: 422 });
+    // rather than quietly collecting this month's registrations. "Closed" now
+    // covers three cases, and the message says which so a registrant who is
+    // simply early is not told the same thing as one who is too late.
+    const state = formRegistrationState(formRow);
+    if (state !== 'active') {
+      const message =
+        state === 'scheduled'
+          ? 'Registration for this form has not opened yet.'
+          : state === 'expired'
+            ? 'Registration for this form has closed.'
+            : 'This registration form is closed.';
+      return NextResponse.json({ error: message }, { status: 422 });
     }
 
     // ---- custom fields, validated BY form_id ----

@@ -6,7 +6,7 @@
 // drift between "what the organizer designed" and "what a registrant sees."
 
 import { useRef, useState } from 'react';
-import { FileText, Loader2, Upload, X } from 'lucide-react';
+import { FileText, ImageIcon, Loader2, Upload, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -202,6 +202,36 @@ export function DynamicFieldInput({ field, value, onChange, uploadContext }: Pro
   );
 
   switch (field.field_type) {
+    // Display only — content the organizer published, not a question. Renders
+    // no input and never writes to `value`, so it contributes nothing to the
+    // answer set. The label doubles as the caption; help_text is the sub-line.
+    case 'image_display':
+      return (
+        <div className="space-y-1.5">
+          {field.media_url ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={field.media_url}
+                alt={field.field_label || 'Form image'}
+                className="w-full rounded-md border object-contain"
+              />
+              {field.field_label && (
+                <p className="text-sm font-medium">{field.field_label}</p>
+              )}
+            </>
+          ) : (
+            // A field the organizer added but never gave an image to. Say so in
+            // the builder rather than rendering a broken <img> at registrants.
+            <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+              <ImageIcon className="h-4 w-4" />
+              No image chosen yet.
+            </div>
+          )}
+          {field.help_text && <p className="text-xs text-muted-foreground">{field.help_text}</p>}
+        </div>
+      );
+
     case 'textarea':
       return (
         <div className="space-y-1.5">

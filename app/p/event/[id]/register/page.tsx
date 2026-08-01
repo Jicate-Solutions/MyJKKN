@@ -17,7 +17,7 @@ import type { Metadata } from 'next';
 import { createClient as createAnonOrService } from '@supabase/supabase-js';
 import { createClient as createSessionClient } from '@/lib/supabase/server';
 import { CalendarClock, CalendarDays, MapPin, Ticket } from 'lucide-react';
-import { effectiveFee } from '@/types/tournament';
+import { effectiveFee, formRegistrationState, isFormOpen } from '@/types/tournament';
 import { EventRegisterForm } from './_components/event-register-form';
 
 export const dynamic = 'force-dynamic';
@@ -109,7 +109,7 @@ export default async function PublicEventRegisterPage({
 
   const formQuery = svc
     .from('event_registration_forms')
-    .select('id, slug, name, description, is_enabled, fee_enabled, fee_amount, fee_label')
+    .select('id, slug, name, description, is_enabled, starts_at, ends_at, fee_enabled, fee_amount, fee_label')
     .eq('event_id', id);
 
   const { data: formRows } = requestedSlug
@@ -117,14 +117,32 @@ export default async function PublicEventRegisterPage({
     : await formQuery
         .eq('is_enabled', true)
         .order('display_order', { ascending: true })
-        .order('created_at', { ascending: true })
-        .limit(1);
+        .order('created_at', { ascending: true });
 
-  const formRow = formRows?.[0] ?? null;
+  // With no slug, pick the first form that is actually OPEN right now — an
+  // enabled form can still be Scheduled or Expired, and PostgREST cannot express
+  // "now between two nullable columns" without a view.
+  const formRow = requestedSlug
+    ? (formRows?.[0] ?? null)
+    : ((formRows ?? []).find((f) => isFormOpen(f)) ?? null);
 
   // A slug naming a real but CLOSED form is a "closed" answer, not an empty
   // form — otherwise last month's link silently collects this month's entries.
-  if (requestedSlug && formRow && formRow.is_enabled === false) {
+  if (requestedSlug && formRow && !isFormOpen(formRow)) {
+    const state = formRegistrationState(formRow);
+    if (state === 'scheduled') {
+      const opensAt = formRow.starts_at ? new Date(formRow.starts_at) : null;
+      return (
+        <Empty
+          title="Registration opens soon"
+          msg={
+            opensAt
+              ? `"${formRow.name}" opens on ${opensAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}.`
+              : `"${formRow.name}" is not open yet.`
+          }
+        />
+      );
+    }
     return (
       <Empty
         title="Registration closed"

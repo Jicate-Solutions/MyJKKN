@@ -324,6 +324,8 @@ export type FormFieldType =
   | 'textarea'
   | 'file'
   | 'image'
+  /** Display-only: the organizer attaches an image, registrants just see it. */
+  | 'image_display'
   | 'checkbox'
   | 'radio';
 
@@ -338,12 +340,28 @@ export const FORM_FIELD_TYPES: { value: FormFieldType; label: string }[] = [
   { value: 'textarea', label: 'Long text' },
   { value: 'file', label: 'File upload (PDF / Word / image)' },
   { value: 'image', label: 'Image upload (with preview)' },
+  { value: 'image_display', label: 'Image (display only — no answer)' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'radio', label: 'Radio (single choice)' },
 ];
 
 /** Field types whose answer is an EventFormUpload object, not a scalar. */
 export const UPLOAD_FIELD_TYPES = new Set<FormFieldType>(['file', 'image']);
+
+/**
+ * Field types that COLLECT NOTHING — they render content and store no answer.
+ *
+ * Everything that walks the answer set has to skip these, or a display image
+ * gets treated as an unanswered question: required-checks would block submit on
+ * a field with no input, and the responses table would grow an always-empty
+ * column.
+ */
+export const DISPLAY_ONLY_FIELD_TYPES = new Set<FormFieldType>(['image_display']);
+
+/** True when the field asks the registrant for something. */
+export function isAnswerableField(type: FormFieldType): boolean {
+  return !DISPLAY_ONLY_FIELD_TYPES.has(type);
+}
 
 /**
  * What a 'file' / 'image' answer actually stores in
@@ -418,6 +436,13 @@ export interface EventRegistrationFormField {
   pattern: string | null;
   options: FormFieldOption[] | null;
   condition: FormFieldCondition | null;
+  /**
+   * Public URL of the image an 'image_display' field shows. NULL for every
+   * other field type. Public, unlike registrant uploads, because an anonymous
+   * visitor renders it with a plain <img src> and a signed URL would expire
+   * while the form is still live.
+   */
+  media_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -441,8 +466,16 @@ export interface EventRegistrationForm {
   /** URL segment for the public link: /…/register?form=<slug>. Unique per event. */
   slug: string;
   description: string | null;
-  /** Open/closed switch for this form's own intake. */
+  /**
+   * The organizer's manual Active/Inactive switch. NOT the whole answer to
+   * "can someone register?" — the window below can override it. Use
+   * `isFormOpen()`, never this field alone.
+   */
   is_enabled: boolean;
+  /** Registration opens at this moment. NULL = as soon as is_enabled is true. */
+  starts_at: string | null;
+  /** Registration closes at this moment. NULL = no end. */
+  ends_at: string | null;
   display_order: number;
   /**
    * Whether this form charges at all. Separate from the amount so a fee can be
@@ -466,6 +499,69 @@ export interface EventRegistrationForm {
   updated_at: string;
   sections?: EventRegistrationFormSection[];
 }
+
+/**
+ * Why a form is or isn't accepting registrations right now.
+ *
+ *   active     open — switched on and inside its window
+ *   inactive   the organizer switched it off by hand
+ *   scheduled  switched on, but its start date hasn't arrived
+ *   expired    its end date has passed
+ *
+ * The last two are the "auto-inactive" behaviour, and they are DERIVED, never
+ * stored. A cron flipping is_enabled would leave an expired form collecting
+ * registrations whenever the job failed, would not reopen when someone extended
+ * the end date, and would collapse "closed by hand" and "closed by time" into
+ * one flag so the UI could no longer say WHY a form is shut.
+ */
+export type FormRegistrationState = 'active' | 'inactive' | 'scheduled' | 'expired';
+
+/** Shape needed to decide openness — loose so a raw PostgREST row fits. */
+export interface FormWindowLike {
+  is_enabled?: boolean | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+}
+
+/**
+ * The ONE place openness is decided. Four gates depend on it — the public page,
+ * the submit API, the upload API and the builder's badge — and a rule copied
+ * four times is a rule that drifts. Drift here means a closed form still taking
+ * money, or an open one turning people away.
+ *
+ * `now` is injectable so a server gate and a UI badge can agree on a moment
+ * rather than each calling Date.now() a few milliseconds apart.
+ */
+export function formRegistrationState(
+  form: FormWindowLike,
+  now: Date = new Date()
+): FormRegistrationState {
+  if (!form.is_enabled) return 'inactive';
+  if (form.starts_at) {
+    const starts = new Date(form.starts_at);
+    // An unparseable date must not silently gate registration open or shut;
+    // ignore it rather than guess.
+    if (!Number.isNaN(starts.getTime()) && now < starts) return 'scheduled';
+  }
+  if (form.ends_at) {
+    const ends = new Date(form.ends_at);
+    if (!Number.isNaN(ends.getTime()) && now > ends) return 'expired';
+  }
+  return 'active';
+}
+
+/** True only when a registration may actually be submitted right now. */
+export function isFormOpen(form: FormWindowLike, now?: Date): boolean {
+  return formRegistrationState(form, now) === 'active';
+}
+
+/** Human label for each state, for badges and error messages. */
+export const FORM_STATE_LABELS: Record<FormRegistrationState, string> = {
+  active: 'Active',
+  inactive: 'Inactive',
+  scheduled: 'Scheduled',
+  expired: 'Expired',
+};
 
 /**
  * What a registrant is actually charged for this form: the amount when the fee
