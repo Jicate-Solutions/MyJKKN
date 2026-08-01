@@ -29,6 +29,8 @@ import {
   ShieldAlert,
   UserX,
   Ban,
+  FilePlus2,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SPORT_LEVELS } from '@/types/health-sports';
@@ -86,6 +88,113 @@ export function isSchemaNotApplied(code: string | null, message: string): boolea
   return (
     (code === '23514' || /check constraint/i.test(message)) &&
     /step[124]_|sports_coordinator_sta|hod_status|pe_director_status|overall_status/i.test(message)
+  );
+}
+
+/**
+ * The database refused the write because of a policy, not because of anything
+ * the reader typed.
+ *
+ * 42501 is Postgres' insufficient_privilege. On this table it means one of two
+ * things and never anything else: the caller is not the learner the request is
+ * for (the self-service door), or the caller does not hold
+ * `health.sports.file_request` (the squad-filing door).
+ */
+export function isPermissionDenied(code: string | null, message: string): boolean {
+  if (code === '42501') return true;
+  return /row[- ]level security|permission denied|insufficient privilege/i.test(message);
+}
+
+/**
+ * Does this text read like Postgres talking, rather than a sentence we wrote?
+ *
+ * Used as a belt-and-braces filter so a database sentence can never be printed
+ * on screen even when the driver hands it over with no `code` attached.
+ */
+function looksLikeDatabaseProse(message: string): boolean {
+  return /violates|row[- ]level security|permission denied|does not exist|duplicate key|null value in column|check constraint|schema cache|relation "|column "|constraint "/i.test(
+    message
+  );
+}
+
+export type FailureKind = 'schema_not_applied' | 'not_permitted' | 'database' | 'app';
+
+/**
+ * What kind of failure this is, so the screen can say something a reader can
+ * act on instead of quoting the driver.
+ *
+ * `app` is the only kind whose message is safe to print: it is a sentence this
+ * codebase wrote (for example "Select at least one participating learner before
+ * filing."). Everything else is the database talking and is summarised instead.
+ */
+export function classifyFailure(code: string | null, message: string): FailureKind {
+  if (isSchemaNotApplied(code, message)) return 'schema_not_applied';
+  if (isPermissionDenied(code, message)) return 'not_permitted';
+  if (code || looksLikeDatabaseProse(message)) return 'database';
+  return 'app';
+}
+
+/**
+ * A write failed. Say what happened in plain English.
+ *
+ * A raw driver sentence — `42501: new row violates row-level security policy
+ * for table "health_tournament_permissions"` — is not a message, it is a leak:
+ * it names an internal table, tells the reader nothing they can do, and invites
+ * a retry that can only fail again. The real reason goes to the console for
+ * support (CLAUDE.md #27 — explicit, never silent, and never raw).
+ *
+ * `notPermitted` is the caller's own wording for who this surface is for, since
+ * only the caller knows which of the two doors the reader is standing at.
+ */
+export function SubmitFailureAlert({
+  err,
+  whatHappened = 'Nothing was submitted.',
+  notPermitted,
+}: {
+  err: unknown;
+  /** What did NOT happen, in the caller's own words. */
+  whatHappened?: string;
+  /** Shown when the database refused on permission grounds. */
+  notPermitted?: React.ReactNode;
+}) {
+  const { message, code } = readFailure(err);
+  const kind = classifyFailure(code, message);
+
+  return (
+    <Alert className="border-red-200 bg-red-50">
+      <AlertCircle className="h-4 w-4 text-red-600" />
+      <AlertDescription className="space-y-1 text-xs text-red-900">
+        <p className="font-medium">{whatHappened}</p>
+        {kind === 'schema_not_applied' ? (
+          <p>
+            This feature is not switched on in this environment yet — the database
+            change behind it has not been applied. Nobody has done anything wrong.
+            Ask an administrator to apply the pending change.
+          </p>
+        ) : kind === 'not_permitted' ? (
+          <>
+            <p>
+              Your account is not allowed to file this kind of request, so the save was
+              refused before anything was written.
+            </p>
+            {notPermitted ?? (
+              <p>
+                Ask an administrator which door applies to you, or contact the Physical
+                Director if this is a squad travelling to a tournament.
+              </p>
+            )}
+          </>
+        ) : kind === 'app' ? (
+          <p>{message}</p>
+        ) : (
+          <p>
+            The database refused this and gave a reason we cannot translate. Nothing
+            was saved. Tell an administrator when this happened — the full reason is in
+            the browser console and in the server log.
+          </p>
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -584,6 +693,79 @@ export function NoAccessNotice({
         <p className="text-sm">
           Ask an administrator to grant it in Role Management. Nothing is wrong with
           your account — this page is simply not part of your role yet.
+        </p>
+        <Button asChild size="sm" variant="outline" className="mt-1">
+          <Link href="/health/dashboard">Back to Health &amp; Wellness</Link>
+        </Button>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * Sports Profile is a LEARNER's page, and its request form files a request for
+ * the signed-in learner alone. Someone who files for other people — the
+ * Physical Director — has no learner record of their own, so that form can only
+ * ever be refused for them. Send them to the desk that is actually theirs
+ * rather than letting them fill in a form that cannot succeed.
+ */
+export function SquadFilingDoorNotice({ heading }: { heading?: string }) {
+  return (
+    <Card className="border-emerald-200 bg-emerald-50/60">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start gap-2.5">
+          <FilePlus2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+          <div>
+            <p className="text-sm font-semibold text-emerald-900">
+              {heading ?? 'File tournament permission at the squad desk'}
+            </p>
+            <p className="mt-1 text-xs text-emerald-900/80">
+              Sports Profile holds one learner&apos;s own sports record, and its request
+              form files for that learner only. You file for other people, so your desk
+              is Squad Tournament Requests: enter the tournament once, list every
+              learner going, and it becomes ONE request. The Principal of each
+              participating college then approves their own learners.
+            </p>
+          </div>
+        </div>
+        <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+          <Link href="/health/sports/squad-requests">
+            Go to Squad Tournament Requests
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Neither a learner nor a filer. Say who this page is for and who to ask, so
+ * the reader is not left guessing at a page that will never do anything for
+ * them (CLAUDE.md #27 — explicit, never a silent bounce).
+ */
+export function NotALearnerNotice() {
+  return (
+    <Alert className="border-slate-200 bg-slate-50">
+      <Info className="h-4 w-4 text-slate-500" />
+      <AlertTitle className="text-slate-800">
+        Sports Profile belongs to a learner
+      </AlertTitle>
+      <AlertDescription className="space-y-2 text-slate-600">
+        <p className="text-sm">
+          This page shows one learner&apos;s own sports record — their sports, coach,
+          scholarship and credits — and your account is not linked to a learner record,
+          so there is nothing here to show. Nothing is wrong with your account.
+        </p>
+        <p className="text-sm">
+          Filing permission for a tournament works two ways and only two ways: a learner
+          requests for themselves from this page, or the Physical Director files one
+          request covering a whole squad. If a squad needs permission, ask the Physical
+          Director to file it. If you should be able to file for a squad yourself, ask an
+          administrator to grant{' '}
+          <code className="rounded bg-slate-200 px-1 py-0.5 text-xs">
+            health.sports.file_request
+          </code>{' '}
+          in Role Management.
         </p>
         <Button asChild size="sm" variant="outline" className="mt-1">
           <Link href="/health/dashboard">Back to Health &amp; Wellness</Link>

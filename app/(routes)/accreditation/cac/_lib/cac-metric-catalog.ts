@@ -601,6 +601,25 @@ export function allMetrics(): CacMetric[] {
   return CAC_METRIC_CATALOG.flatMap((c) => c.metrics);
 }
 
+/**
+ * The ids of every metric this catalog claims real substrate for.
+ *
+ * The page compares this against what the read actually returned, so that a
+ * wired metric which comes back with nothing for every institution can be shown
+ * as having stopped reporting rather than as fourteen empty institutions.
+ *
+ * Derived, like every other fact in this section, and for the sharper of the two
+ * reasons: a hand-kept list would go stale exactly when a metric is wired or
+ * unwired, which is the moment the comparison has to be right. A stale list
+ * would either accuse a healthy new metric of having stopped or stay silent
+ * about the one that did.
+ */
+export function measuredMetricIds(): string[] {
+  return allMetrics()
+    .filter((m) => m.substrate === 'measured')
+    .map((m) => m.id);
+}
+
 export interface CatalogSummary {
   categories: number;
   metrics: number;

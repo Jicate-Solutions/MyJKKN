@@ -6562,3 +6562,14 @@ ALTER TABLE public.billing_receipt_cancel_request_actions
   ADD COLUMN IF NOT EXISTS actor_name           text,
   ADD COLUMN IF NOT EXISTS actor_email          text,
   ADD COLUMN IF NOT EXISTS actor_is_super_admin boolean;
+
+-- ── session_feedback: case-insensitive faculty-email expression index (2026-07-31) ──
+-- Migration: supabase/migrations/20260731220000_add_session_feedback_faculty_email_lower_index.sql
+-- ALREADY APPLIED TO PROD 2026-07-31 ~07:55 IST via the Management API as a
+-- single-statement CREATE INDEX CONCURRENTLY (outside any transaction); verified
+-- indisvalid=true and the lower(faculty_email) filter plan flipped Seq Scan → Bitmap
+-- Index Scan. Sits beside sibling idx_session_feedback_faculty (exact-case), which —
+-- like the session_feedback table itself — is declared in
+-- 20260615233000_session_feedback_substrate.sql, not in this file.
+CREATE INDEX IF NOT EXISTS idx_session_feedback_faculty_email_lower
+  ON public.session_feedback (lower(faculty_email), attendance_date);
