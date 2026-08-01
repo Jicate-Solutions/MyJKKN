@@ -5,6 +5,14 @@
  * issued by ceo@jkkn.ac.in. Six categories, each with a stated objective, and
  * 48 leaf metrics beneath them.
  *
+ * ONE ROW BELOW IS NOT THE CEO'S, and it is marked `addedBy: 'jkkn'` so that it
+ * can never be mistaken for one. The charter names multi- and inter-disciplinary
+ * work; the CEO's 48 measure it only as a teaching practice, under Best
+ * Practices. Nothing measured it as research, which made the gap invisible
+ * rather than merely unfilled. Adding it was justified by one thing — it is
+ * derivable from data the platform already holds. That test is the bar for the
+ * next such addition, and the file has 48 CEO rows plus 1 today.
+ *
  * WHICH STRINGS ARE QUOTATIONS AND WHICH ARE TRANSLATIONS — read this before
  * editing any string below, because the two are deliberately treated differently
  * and the difference is not visible from the values alone:
@@ -95,13 +103,30 @@ export type MetricScope = 'college' | 'school' | 'both';
 export interface CacMetric {
   /** Stable slug. Also the key the aggregation function returns. */
   id: string;
-  /** Verbatim from the CEO document. Never reworded. */
+  /**
+   * Verbatim from the CEO document. Never reworded — unless `addedBy` is set,
+   * in which case there is no source line to quote and the label is JKKN's own.
+   */
   ceoLabel: string;
   /**
    * The CEO's own grouping bullet, where the document nests one. Kept so the
    * screen can reproduce the document's shape rather than flattening it.
+   *
+   * On an `addedBy` row there is no such bullet, so the slot carries the fact
+   * that the row is not the CEO's instead — it is the one field beside the
+   * label that the table actually prints, which is what makes the distinction
+   * visible to a reader rather than only to a test.
    */
   parent?: string;
+  /**
+   * Set ONLY on a dimension JKKN added beyond the CEO's 48.
+   *
+   * It exists so "the document has 48 leaf metrics" stays an assertable fact
+   * after this file grows. Without it the only guard against inventing a CEO
+   * line is a total that anyone can bump; with it, the count of rows carrying
+   * no `addedBy` is pinned at 48 and an invented quotation fails CI.
+   */
+  addedBy?: 'jkkn';
   substrate: MetricSubstrate;
   scope: MetricScope;
   /**
@@ -148,7 +173,7 @@ export interface CacCategory {
 }
 
 // ---------------------------------------------------------------------------
-// The catalog. 6 categories, 48 leaf metrics.
+// The catalog. 6 categories, 48 CEO leaf metrics + 1 marked `addedBy: 'jkkn'`.
 // ---------------------------------------------------------------------------
 
 export const CAC_METRIC_CATALOG: readonly CacCategory[] = [
@@ -356,7 +381,8 @@ export const CAC_METRIC_CATALOG: readonly CacCategory[] = [
         parent: 'Best Practices',
         substrate: 'no-substrate',
         scope: 'both',
-        evidence: 'No declared best practice is recorded.',
+        evidence:
+          'No declared best practice is recorded. Read this as a way of TEACHING a programme, not as research output — it says nothing about whether our published work crosses departments. That is a separate question with a separate cause, reported under Research & Collaboration as Interdisciplinary Research.',
       },
       {
         id: 'bp-experiential',
@@ -463,6 +489,23 @@ export const CAC_METRIC_CATALOG: readonly CacCategory[] = [
         scope: 'college',
         evidence:
           'sh_publications exists, with an institution column, and holds 0 rows as of 2026-07-30. The platform can hold this the moment anyone records one.',
+      },
+      {
+        // Not one of the CEO's 48. The charter names multi- and
+        // inter-disciplinary work, and until this row existed the catalog
+        // answered that only under Best Practices — as a way of teaching. That
+        // left the research half of the charter measured nowhere, and read as
+        // though it were covered. It is added here rather than left to the
+        // narrative because, unlike a declared best practice, this one is
+        // already derivable from data the platform is built to hold.
+        id: 'research-interdisciplinary',
+        ceoLabel: 'Interdisciplinary Research',
+        parent: 'Added by JKKN · not in the CEO list',
+        addedBy: 'jkkn',
+        substrate: 'awaiting-entry',
+        scope: 'college',
+        evidence:
+          'Derived, never declared: sh_publications carries institution_id and department_id, and sh_publication_contributors resolves every contributor through staff_id or learner_id to a person holding their own department and institution — so a paper whose contributors span two departments, or two institutions, is countable without anyone tagging it as interdisciplinary. Both tables held 0 rows on 2026-08-01, so what is missing is the first recorded publication, not the engineering. Two cases stay outside any such count: an external co-author carries only a free-text affiliation, and a non-teaching contributor may have no department at all.',
       },
       {
         id: 'research-grants',
