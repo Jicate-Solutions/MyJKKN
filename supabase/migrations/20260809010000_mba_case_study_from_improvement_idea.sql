@@ -13,7 +13,8 @@
 --   D2  cases live INSIDE MyJKKN only for now, not public
 --         -> no anon grant; RLS 'published' means published to signed-in readers
 --   D3  AI drafts first and the learner rewrites it
---         -> fn_case_study_start enqueues ai_jobs, the learner then owns fn_case_study_save
+--         -> fn_case_study_start assembles a real prompt from the recorded facts and
+--            enqueues it THROUGH fn_ai_enqueue; the learner then owns fn_case_study_save
 --
 -- THE RULE THAT MAKES THIS SAFE
 -- A case may only be written about an improvement that was ACTUALLY MADE and whose
@@ -133,6 +134,9 @@ DECLARE
   v_is_posted  boolean;
   v_existing   uuid;
   v_id         uuid;
+  v_area       text;
+  v_prompt     text;
+  v_enq        jsonb;
 BEGIN
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'fn_case_study_start: not authenticated' USING ERRCODE = '42501';
@@ -183,21 +187,89 @@ BEGIN
 
   -- title is NOT NULL on the table, so it is seeded from the idea. The learner
   -- replaces it - D3 says the AI drafts and the learner rewrites.
+  --
+  -- generated_by is deliberately LEFT AT ITS TABLE DEFAULT ('manual') here and is
+  -- promoted to the AI marker further down only if the enqueue is actually accepted.
+  -- The screen shows an "an AI wrote this first draft" banner off that exact marker,
+  -- so writing it up front would print that banner over a blank page no AI is coming
+  -- to fill. 'manual' is the truthful value for a case the learner writes by hand.
   INSERT INTO public.ss_case_studies
-    (improvement_idea_id, author_id, title, status, generated_by, theme)
+    (improvement_idea_id, author_id, title, status, theme)
   VALUES
-    (p_idea_id, v_uid, v_idea.title, 'draft', 'mba.draft_case_study', 'improvement')
+    (p_idea_id, v_uid, v_idea.title, 'draft', 'improvement')
   RETURNING id INTO v_id;
 
-  -- D3: the AI writes the first draft. Enqueued on the Max lane, same as the
-  -- department-playbook drafter it is modelled on.
-  INSERT INTO public.ai_jobs (job_type, payload, requested_by, lane)
-  VALUES (
+  -- D3: the AI writes the first draft. It can only do that if it is actually TOLD
+  -- something - the job type's prompt_template is the glue '{{prompt}}' and its
+  -- input_schema requires the key 'prompt', which every one of the 30 job types on
+  -- that template carries on 100% of their rows. Assemble it from what is already
+  -- recorded about this improvement: that is the whole point of drafting from a
+  -- verified idea rather than from a blank page.
+  SELECT a.label INTO v_area
+    FROM public.improvement_areas a WHERE a.id = v_idea.area_id;
+
+  v_prompt :=
+    'You are helping an MBA associate at JKKN, an Indian higher-education group, START '
+    || 'the write-up of an improvement they actually made in a real department. You produce '
+    || 'a PROPOSED FIRST DRAFT that the learner will then rewrite in their own words before '
+    || 'handing it in for a grade. It is a starting point so nobody faces a blank page - it '
+    || 'is never the finished submission.' || E'\n\n'
+    || 'WHAT ACTUALLY HAPPENED (the only facts you may use):' || E'\n'
+    || 'Department / area: ' || COALESCE(v_area, 'not recorded') || E'\n'
+    || 'Working title: ' || v_idea.title || E'\n'
+    || 'What the associate found: ' || v_idea.problem || E'\n'
+    || 'What was changed: ' || v_idea.proposed_fix || E'\n'
+    || 'Expected impact at the time: ' || COALESCE(NULLIF(btrim(v_idea.expected_impact), ''), 'not recorded') || E'\n'
+    || 'Evidence recorded at the time: ' || COALESCE(NULLIF(btrim(v_idea.evidence), ''), 'not recorded') || E'\n'
+    || 'Outcome: the improvement was applied and its value was checked afterwards and CONFIRMED to hold'
+    || CASE WHEN v_idea.verified_value_inr IS NULL
+            THEN ', though no rupee figure was recorded.'
+            ELSE ', worth a verified INR ' || trim(to_char(v_idea.verified_value_inr, 'FM999999999990.00')) || '.' END
+    || E'\n\n'
+    || 'HARD RULES' || E'\n'
+    || '1. Use ONLY the facts above. Never invent or estimate a number, a date, a name or a quotation.' || E'\n'
+    || '2. Where a fact is not recorded, say so plainly in one short clause. Do not pad around it.' || E'\n'
+    -- House terminology, spelled out because the model has to be told the actual
+    -- words. (scripts/ci/check-terminology-delta.py scans .tsx/.jsx/.ts/.md/.mdx
+    -- only - EXfP at line 36 - so naming them in a .sql prompt is not a gate hit.)
+    || '3. Plain India-context English. Write "learner", never "student"; write "team members", '
+    || 'never "staff". No emojis, no markdown headings.' || E'\n'
+    || '4. Write about the improvement and the process, never about a named individual being at fault.' || E'\n\n'
+    || 'RETURN ONLY one JSON object and nothing around it:' || E'\n'
+    || '{"title": "<= 90 characters", "summary": "2-3 sentences", '
+    || '"full_content": "350-600 words in four parts: what was found on the gemba visit, what was '
+    || 'changed, what happened afterwards, and what the learner would do differently next time", '
+    || '"key_takeaways": ["3-5 short items"], "learning_objectives": ["2-4 short items"]}';
+
+  -- Enqueued THROUGH fn_ai_enqueue, not by INSERTing into ai_jobs. There are no
+  -- triggers on public.ai_jobs, so a raw INSERT would silently bypass every knob on
+  -- the job-type row: enabled (the kill switch in the config UI), allow_rule,
+  -- max_inflight and daily_cap_per_user would all be inert on this path.
+  --
+  -- fn_ai_enqueue never raises - it returns {ok:false, error} - and a refusal must NOT
+  -- cost the learner their case. The case is already committed above; being refused an
+  -- AI draft simply means they write it themselves, which is the normal outcome today:
+  -- allow_rule is 'seat_owner' and that allowlist has exactly ONE member, so until the
+  -- Director widens it from the config UI (a config row, no deploy) every learner takes
+  -- the hand-written path. That is the knob working, and it is now visible rather than
+  -- bypassed. The learner sees the truth because generated_by stays 'manual'.
+  v_enq := public.fn_ai_enqueue(
     'mba.draft_case_study',
-    jsonb_build_object('case_study_id', v_id, 'improvement_idea_id', p_idea_id),
-    v_uid,
-    'max'
+    jsonb_build_object(
+      'prompt',  v_prompt,
+      '_ctx',    jsonb_build_object(
+                   'case_study_id',       v_id,
+                   'improvement_idea_id', p_idea_id,
+                   'area_id',             v_idea.area_id,
+                   'model',               'sonnet'),
+      '_dedupe', 'mba-case-study:' || v_id::text)
   );
+
+  IF COALESCE(v_enq->>'ok', 'false') = 'true' THEN
+    UPDATE public.ss_case_studies
+       SET generated_by = 'mba.draft_case_study', updated_at = now()
+     WHERE id = v_id;
+  END IF;
 
   RETURN v_id;
 END;
@@ -313,6 +385,29 @@ GRANT  EXECUTE ON FUNCTION public.fn_case_study_submit(uuid) TO authenticated;
 -- 7. Grading it (D1).
 --    improvement.board.manage is true on exactly four roles - ceo, cao,
 --    executive_admin_officer, mba_faculty - read live 2026-08-02.
+--
+--    Three separate things have to be true before a grade may be recorded, and
+--    holding the permission is only the first of them.
+--
+--    (a) THE CASE MUST HAVE BEEN HANDED IN. Only 'under_review' may be graded.
+--        Without this a case still sitting in 'draft' - never submitted, still
+--        being edited - could be graded and pushed straight to 'published',
+--        skipping the learner's hand-in entirely.
+--
+--    (b) THE AUTHOR MAY NEVER GRADE THEIR OWN CASE, whatever permissions they
+--        hold. mba_faculty holds board.manage and can also be posted as an
+--        associate, so this is a real population, not a theoretical one. Checked
+--        against the row itself and NOT short-circuited by is_super_admin.
+--
+--    (c) A GRADE IS FINAL - RE-GRADING IS FORBIDDEN rather than history-erasing.
+--        (a) delivers this by construction: grading moves the case to 'approved'
+--        or 'published', neither of which is 'under_review', so a second grade
+--        can never overwrite the first. Nothing is silently demoted from
+--        'published' back to 'approved' any more. Reopening is deliberately NOT
+--        provided here - if the programme later needs a correction path it must
+--        be an explicit, audited reopen, not a silent second UPDATE. This also
+--        matches the screen, whose review lane queries status='under_review'
+--        only, so no reachable action is lost.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_case_study_grade(
   p_case_id uuid,
@@ -328,6 +423,7 @@ AS $function$
 DECLARE
   v_uid    uuid := auth.uid();
   v_status public.ss_case_study_status;
+  v_author uuid;
   v_pub    boolean := COALESCE(p_publish, false);
 BEGIN
   IF v_uid IS NULL THEN
@@ -342,9 +438,30 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  SELECT c.status INTO v_status FROM public.ss_case_studies c WHERE c.id = p_case_id;
-  IF v_status IS NULL THEN
+  SELECT c.status, c.author_id INTO v_status, v_author
+    FROM public.ss_case_studies c WHERE c.id = p_case_id;
+  IF v_status IS NULL AND v_author IS NULL THEN
     RAISE EXCEPTION 'fn_case_study_grade: no such case study %', p_case_id;
+  END IF;
+
+  -- (b) Nobody grades their own work. Deliberately NOT wrapped in the super-admin
+  -- bypass above: a super admin who wrote the case is still its author.
+  IF v_author IS NOT NULL AND v_author = v_uid THEN
+    RAISE EXCEPTION 'fn_case_study_grade: you wrote this case study, so you cannot grade it - it needs another member of the improvement board'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- (a) + (c) It must have been handed in, and a grade is recorded exactly once.
+  IF v_status IS DISTINCT FROM 'under_review' THEN
+    RAISE EXCEPTION
+      'fn_case_study_grade: only a case study that has been handed in can be graded. This one is "%" - %',
+      v_status,
+      CASE WHEN v_status = 'draft'
+             THEN 'the learner has not submitted it yet'
+           WHEN v_status IN ('approved', 'published')
+             THEN 'it has already been graded, and a grade is not overwritten'
+           ELSE 'it is not open for grading' END
+      USING ERRCODE = '42501';
   END IF;
 
   UPDATE public.ss_case_studies
@@ -366,9 +483,22 @@ REVOKE EXECUTE ON FUNCTION public.fn_case_study_grade(uuid, numeric, text, boole
 GRANT  EXECUTE ON FUNCTION public.fn_case_study_grade(uuid, numeric, text, boolean) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 8. The AI job type (D3). Shape copied from the sibling row
+-- 8. The AI job type (D3). Shape taken from the sibling row
 --    'mba.draft_dept_artifact' rather than guessed - same lane, provider, model,
 --    tool_set, allow_rule, output_target, prompt_template and input_schema.
+--
+--    ONE FIELD IS DELIBERATELY DIFFERENT: schedulable is false here, where the
+--    sibling has true. schedulable=true advertises a job type as something a cron
+--    may fire on its own. This one is on-demand per learner - it exists only to
+--    draft into a case row that a specific person just created, and every fact in
+--    its prompt comes from that one improvement idea. A scheduled fire would have
+--    no case to write into and no idea to read from, so it would either do nothing
+--    or write somewhere it was not asked to. Copying the flag across was a
+--    copy-paste, not a decision.
+--
+--    allow_rule stays 'seat_owner' - it is a live cost control on the Max seat and
+--    widening it is the Director's call, not this migration's. It is now actually
+--    ENFORCED, because fn_case_study_start goes through fn_ai_enqueue.
 -- ---------------------------------------------------------------------------
 INSERT INTO public.ai_job_types
   (job_type, title, description, prompt_template, tool_set, output_target,
@@ -385,7 +515,7 @@ VALUES
    'max',
    'seat_owner',
    3,
-   true,
+   false,  -- schedulable: on-demand per learner, never fired by a cron
    true,
    '[{"key": "prompt", "type": "textarea", "label": "Assembled prompt", "required": true}]'::jsonb,
    'anthropic',
