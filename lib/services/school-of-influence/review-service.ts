@@ -112,6 +112,38 @@ export interface SoiApplicationRow {
   answers: SoiApplicationAnswer[];
 }
 
+/**
+ * One person waiting for a place (D5, waiting list).
+ *
+ * `waiting_position` is derived by the database at read time from the
+ * applications that are waitlisted RIGHT NOW, oldest first — it is never stored,
+ * so a withdrawal or an acceptance closes the gap on its own with nothing to
+ * backfill. It is the order the queue is READ in, not a promise about who is
+ * offered the next place: a coordinator may accept out of order, and both this
+ * screen and the applicant's own view say so.
+ */
+export interface SoiWaitingListEntry {
+  application_id: string;
+  applicant_name: string | null;
+  applicant_email: string | null;
+  profile_id: string | null;
+  institution_name: string | null;
+  audiences: string[];
+  /** Null under 'staff_assign' — nobody names a batch, so there is one queue. */
+  requested_batch_id: string | null;
+  requested_batch_name: string | null;
+  waiting_position: number;
+  waiting_group_size: number;
+  joined_waiting_list_at: string;
+  /**
+   * Set when this person ALREADY holds a live place in this programme (D10, one
+   * batch per person). They cannot be promoted into a second batch — the accept
+   * path reports it rather than letting the unique index raise, but a coordinator
+   * should see it before clicking.
+   */
+  already_placed_batch_name: string | null;
+}
+
 /** One batch, with the numbers the accept decision is actually made on. */
 export interface SoiReviewBatch {
   cohort_id: string;
@@ -254,6 +286,25 @@ export class SoiReviewService {
     });
     if (error) throw explain(error, 'The waiting list could not be counted.');
     return (data ?? []) as SoiWaitingCount[];
+  }
+
+  /**
+   * The waiting list for one programme (D5): everyone whose application is held
+   * because the batch they would land in was full, grouped by the batch they
+   * named and ordered oldest-first inside that group.
+   *
+   * There is no `promote` method here, and that is the design. Promotion is the
+   * EXISTING accept() below — the same authorise → enrol → confirm path, with a
+   * coordinator choosing who. Nothing is enrolled automatically: an application
+   * on this list has never been read by anybody, and this programme admits people
+   * by decision (D3, soi.require_approval), not by queue order.
+   */
+  static async listWaitingList(eventId: string): Promise<SoiWaitingListEntry[]> {
+    const { data, error } = await (this.supabase as any).rpc('fn_soi_waiting_list', {
+      p_event_id: eventId,
+    });
+    if (error) throw explain(error, 'The waiting list could not be loaded.');
+    return (data ?? []) as SoiWaitingListEntry[];
   }
 
   // ── Decisions ─────────────────────────────────────────────────────────────
