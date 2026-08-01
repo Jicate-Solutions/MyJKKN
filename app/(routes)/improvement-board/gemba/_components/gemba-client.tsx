@@ -17,9 +17,10 @@
  * the viewer may already see and never widens it. Writes go through the two
  * SECURITY DEFINER RPCs only.
  *
- * The gate on improvement.ideas.view is enforced here with an explicit
- * no-access panel naming who to contact — never a silent redirect (CLAUDE.md
- * rule 27).
+ * Access is two separate capabilities, never one flag: who may BROWSE every
+ * department, and who may RECORD a visit to one they are not posted to. A
+ * refusal is always an explicit panel or sentence naming who to contact — never
+ * a silent redirect (CLAUDE.md rule 27).
  *
  * `v_gemba_area_summary` — the notes-free leadership lens — is deliberately not
  * rendered on this screen. This is the department lens, and it reads notes.
@@ -56,15 +57,24 @@ import {
 } from '@/lib/services/improvement/gemba-service';
 import { RecordVisitDialog } from './record-visit-dialog';
 
-/** Officers may record a visit anywhere — the RPC's second lane. */
-const OFFICER_PERMISSION = 'improvement.area_role.assign';
+/**
+ * The RECORD lane. `fn_gemba_observation_record` accepts a visit to a department
+ * you are not posted to on this key ALONE. Widening it here would not widen the
+ * RPC — the person would simply be shown a form the server then refuses.
+ */
+const RECORD_ANYWHERE_PERMISSION = 'improvement.area_role.assign';
 
 /**
- * Officers who may READ the screen but not necessarily record anywhere.
- * `gemba_observations_read` grants SELECT on this key too; the record RPC does
- * not, so it is deliberately absent from OFFICER_PERMISSION above.
+ * The BROWSE lane. `gemba_observations_read`, `improvement_areas_select` and
+ * `mba_dept_artifacts_select` all grant SELECT on this key, so a holder may read
+ * every department — but the record RPC does not accept it, which is why it is
+ * deliberately absent from RECORD_ANYWHERE_PERMISSION above.
+ *
+ * These two are kept as separate constants, feeding two separately-named flags,
+ * because conflating them is exactly the defect this screen shipped with twice:
+ * first as a no-access panel, then as an empty screen.
  */
-const BOARD_MANAGE_PERMISSION = 'improvement.board.manage';
+const BROWSE_ALL_PERMISSION = 'improvement.board.manage';
 
 function formatWhen(value: string | null): string {
   if (!value) return '—';
@@ -97,9 +107,22 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
   const canView =
     isSuperAdmin ||
     can('improvement.ideas.view') ||
-    can(OFFICER_PERMISSION) ||
-    can(BOARD_MANAGE_PERMISSION);
-  const isOfficer = isSuperAdmin || can(OFFICER_PERMISSION);
+    can(RECORD_ANYWHERE_PERMISSION) ||
+    can(BROWSE_ALL_PERMISSION);
+
+  // TWO capabilities, never one flag. Conflating them is what emptied this
+  // screen for the six mba_faculty holders: they hold board.manage, no
+  // area_role.assign and zero postings, so a single officer flag made
+  // listAllAreas() unreachable and left them with nothing on screen.
+  //
+  //   BROWSE every department  = board.manage OR area_role.assign (OR super admin)
+  //   RECORD anywhere          = area_role.assign ONLY            (OR super admin)
+  //
+  // Written out separately rather than derived from one another so that
+  // widening one can never silently widen the other.
+  const canBrowseAllDepartments =
+    isSuperAdmin || can(RECORD_ANYWHERE_PERMISSION) || can(BROWSE_ALL_PERMISSION);
+  const canRecordAnywhere = isSuperAdmin || can(RECORD_ANYWHERE_PERMISSION);
 
   const [postedAreas, setPostedAreas] = useState<GembaArea[] | null>(null);
   const [allAreas, setAllAreas] = useState<GembaArea[] | null>(null);
@@ -110,12 +133,21 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
-  // Departments this person may record against. A posted associate gets their
-  // postings; an officer gets every active department.
-  const recordableAreas = useMemo(() => {
-    if (isOfficer) return allAreas ?? postedAreas ?? [];
+  // What the screen SHOWS: the picker, the artifacts panel and the visits panel
+  // all read from here. A browse-all holder gets every active department even
+  // with no posting of their own.
+  const visibleAreas = useMemo(() => {
+    if (canBrowseAllDepartments) return allAreas ?? postedAreas ?? [];
     return postedAreas ?? [];
-  }, [isOfficer, allAreas, postedAreas]);
+  }, [canBrowseAllDepartments, allAreas, postedAreas]);
+
+  // What the dialog OFFERS: strictly the departments the RPC will accept a
+  // visit to from this person. Never widened to the browse set — the RPC would
+  // refuse and the person would read a raw error instead of a sentence.
+  const recordableAreas = useMemo(() => {
+    if (canRecordAnywhere) return allAreas ?? postedAreas ?? [];
+    return postedAreas ?? [];
+  }, [canRecordAnywhere, allAreas, postedAreas]);
 
   const postedAreaIds = useMemo(
     () => (postedAreas ?? []).map((a) => a.id),
@@ -127,18 +159,20 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
     let cancelled = false;
     Promise.all([
       GembaService.myPostedAreas(),
-      isOfficer ? GembaService.listAllAreas() : Promise.resolve<GembaArea[]>([]),
+      canBrowseAllDepartments
+        ? GembaService.listAllAreas()
+        : Promise.resolve<GembaArea[]>([]),
     ]).then(([posted, all]) => {
       if (cancelled) return;
       setPostedAreas(posted);
       setAllAreas(all);
-      const first = (isOfficer && all.length > 0 ? all : posted)[0];
+      const first = (canBrowseAllDepartments && all.length > 0 ? all : posted)[0];
       if (first) setAreaId((current) => current || first.id);
     });
     return () => {
       cancelled = true;
     };
-  }, [canView, isOfficer]);
+  }, [canView, canBrowseAllDepartments]);
 
   const loadArea = useCallback(async (id: string) => {
     const [a, o] = await Promise.all([
@@ -225,8 +259,8 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
   }
 
   const areasLoading = postedAreas === null;
-  const selectedArea = recordableAreas.find((a) => a.id === areaId) ?? null;
-  const canRecordHere = isOfficer || postedAreaIds.includes(areaId);
+  const selectedArea = visibleAreas.find((a) => a.id === areaId) ?? null;
+  const canRecordHere = canRecordAnywhere || postedAreaIds.includes(areaId);
 
   return (
     <div className="space-y-6">
@@ -252,8 +286,11 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
         </Button>
       </div>
 
-      {/* No postings ------------------------------------------------------- */}
-      {!areasLoading && recordableAreas.length === 0 && (
+      {/* Nothing to show ---------------------------------------------------- */}
+      {/* Keyed to what the person can SEE, not what they can record. Someone
+          who may browse every department has a full screen even with no
+          posting; telling them "this page will fill in" would be false. */}
+      {!areasLoading && visibleAreas.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-start gap-2 p-6">
             <p className="font-medium">You are not posted to a department yet</p>
@@ -267,9 +304,9 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
       )}
 
       {/* Department picker -------------------------------------------------- */}
-      {recordableAreas.length > 0 && (
+      {visibleAreas.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {recordableAreas.map((a) => (
+          {visibleAreas.map((a) => (
             <button
               key={a.id}
               type="button"
@@ -471,8 +508,13 @@ export function GembaClient({ currentUserId, currentUserName }: GembaClientProps
         onOpenChange={setDialogOpen}
         areas={recordableAreas}
         postedAreaIds={postedAreaIds}
-        isOfficer={isOfficer}
-        defaultAreaId={areaId}
+        // The dialog, the service mirror and the RPC all call this lane
+        // "officer"; it is the record lane and only the record lane.
+        isOfficer={canRecordAnywhere}
+        // Only pre-select the department on screen if it is one this person may
+        // actually record to — browsing all 14 must not pre-fill a form the RPC
+        // would refuse.
+        defaultAreaId={recordableAreas.some((a) => a.id === areaId) ? areaId : null}
         onRecorded={refresh}
       />
     </div>
