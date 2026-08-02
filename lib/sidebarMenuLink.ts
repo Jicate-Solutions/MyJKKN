@@ -1088,7 +1088,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Assigning accountability writes accreditation_metric_owners, whose live RLS
   // gates writes on accreditation.naac.narrative.manage — so the page gate uses
   // the same key rather than a second one that could drift away from the table.
-  '/accreditation/manage/owners': 'accreditation.naac.narrative.manage',
+  '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',

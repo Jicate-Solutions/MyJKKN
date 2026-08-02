@@ -34,7 +34,18 @@
 // blocked write comes back EMPTY rather than as an error, so every write here
 // asserts on the rows actually returned.
 //
-// Gated by accreditation.naac.narrative.manage (MENU_PERMISSIONS).
+// Gated by accreditation.naac.narrative.VIEW (MENU_PERMISSIONS). Opening the
+// page and answering an assignment addressed to you needs only view; assigning
+// or reassigning anyone else additionally needs .manage. Gating the whole page
+// on .manage shipped the accept/decline buttons to an audience of nobody —
+// that key is true on one role held by one person, while the 102 HODs and 10
+// principals who are the intended owners hit the access-denied panel.
+//
+// The acknowledgement write goes through fn_accreditation_acknowledge_ownership
+// rather than a direct update, because the FOR ALL policy below demands .manage
+// for every write. A permissive row policy would have been the wrong fix: RLS
+// restricts rows and cannot restrict columns, so it would also have let an owner
+// rewrite owner_user_id and hand their accountability to somebody else.
 // ============================================================================
 
 'use client';
@@ -303,8 +314,11 @@ function AccessDenied() {
           </p>
           <p>
             To get access, contact your IQAC coordinator and ask for the
-            <span className="font-medium text-foreground"> Assign Owners </span>
-            permission (<code>accreditation.naac.narrative.manage</code>).
+            <span className="font-medium text-foreground"> View Owners </span>
+            permission (<code>accreditation.naac.narrative.view</code>). That is
+            enough to see who is accountable and to answer an assignment made to
+            you; assigning others additionally needs
+            <code> accreditation.naac.narrative.manage</code>.
           </p>
         </CardContent>
       </Card>
@@ -347,7 +361,20 @@ export default function AccreditationOwnersPage() {
     userProfile,
   } = usePermissions();
 
+  // Two powers, deliberately separate (Director decision 8).
+  //
+  //   canManage — ASSIGN and reassign. One role holds it, held by one person.
+  //   canView   — open the page and answer an assignment addressed to you.
+  //
+  // Gating the whole page on canManage shipped the accept/decline buttons to an
+  // audience of nobody: the 102 HODs and 10 principals who are the intended
+  // owners never got past the access-denied panel. Widening manage to reach them
+  // would have been the wrong fix — manage is the power to assign, and giving it
+  // to every prospective owner lets anyone reassign anyone, which is exactly the
+  // imposition decision 8 exists to prevent. So the page opens on view, and the
+  // assign controls stay behind manage.
   const canManage = isSuperAdmin || can('accreditation.naac.narrative.manage');
+  const canView = canManage || can('accreditation.naac.narrative.view');
 
   const [institutionId, setInstitutionId] = useState<string | null>(null);
   const [bodyFilter, setBodyFilter] = useState<string>('all');
@@ -551,15 +578,17 @@ export default function AccreditationOwnersPage() {
     setSavingKey(key);
     try {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('accreditation_metric_owners')
-        .update({
-          assignment_status: decision,
-          acknowledged_at: new Date().toISOString(),
-          acknowledged_by: userProfile?.id ?? null,
-        })
-        .eq('id', row.id)
-        .select('id');
+      // Routed through an RPC rather than a direct update. The only write policy
+      // on this table demands accreditation.naac.narrative.manage — the ASSIGN
+      // power — so a direct update by the named owner came back as a silent
+      // zero-row refusal. Adding a permissive row policy instead would have let
+      // the owner edit every other column too, owner_user_id included, because
+      // RLS restricts rows and cannot restrict columns. The function writes
+      // exactly three and takes the caller from the session, never as an argument.
+      const { data, error } = await sb.rpc('fn_accreditation_acknowledge_ownership', {
+        p_owner_id: row.id,
+        p_decision: decision,
+      });
       if (error) throw error;
       if (!data || data.length === 0) {
         throw new Error('That response was not saved.');
@@ -667,7 +696,7 @@ export default function AccreditationOwnersPage() {
       </ContentLayout>
     );
   }
-  if (!canManage) return <AccessDenied />;
+  if (!canView) return <AccessDenied />;
 
   const loading = frameworkLoading || ownersLoading;
 
@@ -813,6 +842,17 @@ export default function AccreditationOwnersPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
+                              {/* Assigning is the manage power. A viewer sees
+                                  who owns this body and can answer their own
+                                  assignment, but cannot hand it to anyone. */}
+                              {!canManage && (
+                                <span className="text-sm text-muted-foreground">
+                                  {bodyRow?.owner_user_id
+                                    ? personLabel(bodyRow.owner_user_id)
+                                    : 'Nobody yet'}
+                                </span>
+                              )}
+                              {canManage && (
                               <SearchableSelect
                                 className="w-[240px]"
                                 value={bodyRow?.owner_user_id ?? UNASSIGNED_VALUE}
@@ -827,6 +867,7 @@ export default function AccreditationOwnersPage() {
                                 emptyMessage="No candidate matches."
                                 disabled={busy}
                               />
+                              )}
                               {busy && (
                                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                               )}
@@ -973,7 +1014,7 @@ export default function AccreditationOwnersPage() {
 
             {/* Bulk assign — only once a single body is chosen, because a
                 category name is only unambiguous within its body. */}
-            {bulkCategories.length > 0 && (
+            {canManage && bulkCategories.length > 0 && (
               <div className="rounded-md border bg-muted/30 p-3">
                 <div className="mb-1 text-sm font-medium">
                   Assign a whole category
@@ -1049,6 +1090,7 @@ export default function AccreditationOwnersPage() {
                         owner={owner}
                         ownerOptions={ownerOptions}
                         personLabel={personLabel}
+                        canManage={canManage}
                         busy={
                           savingKey === `${metric.metric_type}::${metric.metric_code}`
                         }
@@ -1091,6 +1133,7 @@ function MetricRow({
   ownerOptions,
   personLabel,
   busy,
+  canManage,
   onAssign,
 }: {
   metric: FrameworkMetric;
@@ -1098,6 +1141,7 @@ function MetricRow({
   ownerOptions: Array<{ value: string; label: string }>;
   personLabel: (id: string | null) => string;
   busy: boolean;
+  canManage: boolean;
   onAssign: (value: string) => void;
 }) {
   const inherited = owner.source === 'inherited';
@@ -1133,6 +1177,12 @@ function MetricRow({
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
+          {!canManage && (
+            <span className="text-xs text-muted-foreground">
+              {owner.source === 'none' ? '—' : 'Set by IQAC'}
+            </span>
+          )}
+          {canManage && (
           <SearchableSelect
             className="w-[220px]"
             value={
@@ -1147,6 +1197,7 @@ function MetricRow({
             emptyMessage="No candidate matches."
             disabled={busy}
           />
+          )}
           {busy && (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           )}
