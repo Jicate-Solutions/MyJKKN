@@ -46,18 +46,46 @@ const STUCK_HINT_MINUTES = 10;
 // The age itself is NOT computed here: fn_ai_queue_health returns lanes[].
 // oldest_mins from the same snapshot as read_at, so the threshold is the only
 // thing this file owns.
-const LANE_STALLED_MINUTES = 15;
+//
+// THE THRESHOLD IS PER-LANE, because the lanes are drained by different KINDS
+// of thing and one number cannot honestly describe both. Wait-to-claim measured
+// over the last 7,051 jobs (2026-08-02), in minutes:
+//
+//   lane             n     p50   p90   p95   p99    over 15min
+//   max          6,510       6   368   809  1188        22.9%
+//   max-sentiment  416       0     1     2     2         0.0%
+//   max-pde        105       0     0     0     1         0.0%
+//   mac              3       0     1     1     1         0.0%
+//   mac-test         3       0     1     1     1         0.0%
+//
+// Every lane except `max` is drained by an always-on poller and settles inside
+// two minutes even at p99, so 15 minutes is already ~7x headroom and stays.
+//
+// `max` differs in kind: it is drained by an ATTENDED Claude session, which
+// legitimately sleeps. Its distribution is bimodal — half of all jobs are
+// claimed within 6 minutes, and the tail runs to 21 hours purely because a job
+// queued at night waits for morning. A flat 15-minute rule labelled that
+// "stalled" 22.9% of the time, so the banner cried wolf on nearly one job in
+// four — which is how a warning stops being read at all, including on the day
+// it is right. 720 minutes is the smallest round threshold that clears a full
+// overnight gap: it flags 5.9%, a 4x cut in false alarms, while still catching
+// a max lane that has genuinely been dead for over half a day.
+const LANE_STALLED_MINUTES_BY_LANE: Record<string, number> = { max: 720 };
+const LANE_STALLED_MINUTES_DEFAULT = 15;
+const laneStallMinutes = (lane: string) =>
+  LANE_STALLED_MINUTES_BY_LANE[lane] ?? LANE_STALLED_MINUTES_DEFAULT;
 
 // A Mac runner that has not claimed within this window is treated as asleep and
 // the button is disabled. Mirrors the same 15-minute test inside
 // fn_ai_job_set_lane — the DB is the real gate; this only avoids offering a
 // control that would be refused.
 //
-// Same 15 minutes as LANE_STALLED_MINUTES above, but a DIFFERENT question, so
-// they are deliberately separate constants rather than one shared value:
-// LANE_STALLED asks "has this lane's oldest job waited too long for anyone?",
-// MAC_ALIVE asks "has this specific runner claimed anything recently?". Either
-// threshold can move without the other.
+// Same 15 minutes as the DEFAULT lane-stall threshold above, but a DIFFERENT
+// question, so they are deliberately separate constants rather than one shared
+// value: lane-stall asks "has this lane's oldest job waited too long for
+// anyone?", MAC_ALIVE asks "has this specific runner claimed anything
+// recently?". Either threshold can move without the other — and the lane-stall
+// side already has, for `max` only.
 const MAC_ALIVE_MINUTES = 15;
 
 type Queue = {
@@ -77,13 +105,15 @@ type Queue = {
   error_shapes: { sample: string; n: number; latest: string }[];
 };
 
-// fn_ai_queue_health emits the literal string '(none)' for jobs with a NULL
-// lane, and that is not a cosmetic case worth hiding: fn_ai_claim filters
-// `p_lane IS NULL OR j2.lane = p_lane`, so a NULL-lane job is invisible to
-// every lane-specific worker and only a catch-all drain can ever take it.
-// Name it plainly rather than rendering "(none) lane".
+// fn_ai_queue_health does write `coalesce(lane, '(none)')`, but that fallback
+// is unreachable: ai_jobs.lane is `text NOT NULL DEFAULT 'max'`, and 0 of the
+// 7,051 jobs in production carry a NULL lane. An earlier revision of this file
+// described the '(none)' case as a real operational hazard — a job invisible to
+// every lane-specific worker — and that state is one the schema forbids. Do not
+// re-add a branch for it here on the strength of the SQL's coalesce alone; if
+// the column is ever made nullable, this is the place to revisit.
 function laneLabel(lane: string) {
-  return lane === '(none)' ? 'no lane set' : `${lane} lane`;
+  return `${lane} lane`;
 }
 
 function Tile({ label, value, tone, sub }: {
@@ -214,12 +244,17 @@ export function QueueHealthCard() {
   // unit that can stop draining. Reporting per type turned one dead worker into
   // one bullet per type on that lane — up to 12 lines for a single root cause —
   // and could still MISS a stalled type, because by_type is capped at the 12
-  // deepest types while lanes[] is ungrouped (5 distinct lanes in the last 30
-  // days) and therefore cannot miss one. oldest_mins is computed by
+  // deepest types while lanes[] is UNCAPPED: fn_ai_queue_health groups it by
+  // lane with no LIMIT, so every lane holding a pending job is present (5
+  // distinct lanes exist in production today). oldest_mins is computed by
   // fn_ai_queue_health in the same snapshot as read_at, so there is no client
   // clock arithmetic here at all.
+  //
+  // The threshold is looked up PER LANE — see laneStallMinutes above. A flat
+  // rule fired on 22.9% of `max` jobs that were merely waiting for an attended
+  // runner to wake up.
   const stalledLanes = (q.lanes ?? [])
-    .filter((l) => Number.isFinite(l.oldest_mins) && l.oldest_mins >= LANE_STALLED_MINUTES)
+    .filter((l) => Number.isFinite(l.oldest_mins) && l.oldest_mins >= laneStallMinutes(l.lane))
     .sort((a, b) => b.oldest_mins - a.oldest_mins);
 
   // Which job types are sitting on a stalled lane — the detail per-lane would
