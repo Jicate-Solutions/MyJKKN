@@ -16,7 +16,7 @@
 // PR-A8 c2 (#255) — this PR only adds the page + hook.
 //
 // ----------------------------------------------------------------------------
-// 2026-08-09: NO METRIC ON THIS PAGE MAY RENDER A BARE 0
+// 2026-08-09: NO PER-METRIC CELL ON THIS PAGE MAY RENDER A BARE 0
 // ----------------------------------------------------------------------------
 // Every sub-metric used to read `evidenceCounts?.[code] ?? 0`. To an assessor a
 // 0 is a MEASUREMENT — we looked, and there is none — which is a finding against
@@ -28,6 +28,12 @@
 //
 // The decision now lives in _lib/metric-gap-state.ts, which is pure and tested.
 // Do not reintroduce a coalesce anywhere between the hook and the badge.
+//
+// SCOPE OF THAT RULE, stated precisely because the first draft of this comment
+// overstated it: it binds every PER-METRIC cell. The headline "Evidence rows"
+// tile is a row COUNT across the page, not a claim about any one metric, so a
+// 0 there means "no evidence rows are loaded" and is honest. If that tile ever
+// starts making a per-metric claim, it comes under this rule too.
 // ============================================================================
 
 'use client';
@@ -215,12 +221,16 @@ export default function NIRFDashboardPage() {
   const { data: evidenceCounts, isLoading: evidenceLoading } = useNIRFEvidenceCounts(
     selectedInstitution as any,
   );
-  const { data: sourceRoutes } = useEvidenceSourceRoutes();
+  const { data: sourceRoutes, isSuccess: routesRead } = useEvidenceSourceRoutes();
   const { data: ownerNames, isSuccess: ownersRead } = useMetricOwnerNames(
     'NIRF',
     selectedInstitution,
   );
 
+  // `sourceRoutes ?? {}` would have made a FAILED read look like an empty
+  // registry, and every metric would then claim "nothing feeds this" on the
+  // strength of a request that never answered. Same treatment as the owner
+  // read below: only assert once the register has actually been read.
   const registry: Record<string, EvidenceSourceRoute> = sourceRoutes ?? {};
 
   /**
@@ -233,6 +243,9 @@ export default function NIRFDashboardPage() {
    * otherwise `undefined`, so the page never claims "nobody is assigned" on the
    * strength of a request that has not answered.
    *
+   * Source: the same rule, for the same reason (`routesRead`). A failed registry
+   * read must read as "could not load", never as "nothing feeds this metric".
+   *
    * TODO(#2784): once `_lib/body-applicability.ts` merges, pass its verdict as
    * `applicability` so a body that does not inspect this college reads "Does not
    * apply" instead of a gap. Not derived here — one answer, one owner.
@@ -241,7 +254,7 @@ export default function NIRFDashboardPage() {
     resolveMetricGap({
       metricCode: m.metric_code,
       count: evidenceCounts?.[m.metric_code],
-      source: nirfSourceFor(m.metric_code, registry),
+      source: routesRead ? nirfSourceFor(m.metric_code, registry) : undefined,
       owner: ownersRead ? (ownerNames?.[m.metric_code] ?? null) : undefined,
     });
 

@@ -175,8 +175,23 @@ export function resolveMetricGap(input: MetricGapInput): MetricGapDisplay {
   };
 }
 
-/** The sentence beneath "Not captured yet". */
+/**
+ * The sentence beneath "Not captured yet".
+ *
+ * `undefined` and `null` are NOT the same answer, for the same reason the owner
+ * field distinguishes them:
+ *   undefined → the registry has not been read. We know nothing.
+ *   null      → the registry WAS read and holds no source for this metric.
+ *
+ * Collapsing them let a failed network read print "Nothing in the platform
+ * feeds this metric yet" — a confident claim about production derived from a
+ * request that never answered. That is the same shape as the bug this whole
+ * module exists to fix, so it cannot live inside it.
+ */
 function gapDetail(source?: EvidenceSourceRoute | null): string {
+  if (source === undefined) {
+    return 'Where to fix this could not be loaded. Reload the page — this is a loading problem, not a sign that nothing feeds this metric.';
+  }
   if (source?.fix_hint) return source.fix_hint;
   if (source) {
     // The source is known, but no destination was verified for it — usually a
@@ -209,7 +224,25 @@ function ownerLine(owner: MetricOwner, source?: EvidenceSourceRoute | null): str
  * have to open it to learn there is something inside.
  */
 export function countGaps(displays: MetricGapDisplay[]): number {
-  return displays.filter((d) => d.state !== 'measured').length;
+  // `!== 'measured'` would count a not-applicable metric as a gap — the exact
+  // collapse this module exists to prevent, one level up from where it prevents
+  // it. A body that does not inspect this institution is not an outstanding
+  // task for anyone, and counting it as one puts a number on a screen that no
+  // amount of work can ever reduce.
+  //
+  // Dormant until PR #2784's applicability helper lands and a caller starts
+  // passing the third state. Fixed now rather than then, because by then the
+  // wrong number would already be on the page.
+  return displays.filter((d) => d.state === 'not-captured').length;
+}
+
+/**
+ * Metrics excluded because no body inspects this institution. Reported
+ * separately so a reader can tell "nobody has collected this" from "this was
+ * never ours to collect" — two facts that must never share a number.
+ */
+export function countNotApplicable(displays: MetricGapDisplay[]): number {
+  return displays.filter((d) => d.state === 'not-applicable').length;
 }
 
 /**

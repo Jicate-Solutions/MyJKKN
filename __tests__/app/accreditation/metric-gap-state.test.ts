@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveMetricGap,
   countGaps,
+  countNotApplicable,
   measuredTotal,
   nirfSourceFor,
   NIRF_METRIC_SOURCE_KIND,
@@ -283,5 +284,60 @@ describe('nirfSourceFor — only mapped metrics resolve to a source', () => {
 
   it('never maps PR_PEER, which JKKN cannot hold at all', () => {
     expect(NIRF_METRIC_SOURCE_KIND.PR_PEER).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Added after an adversarial review found the module's own thesis — never
+// collapse three distinguishable states into two — violated one level up, in
+// the summary counters and in the registry-read fallback.
+// ---------------------------------------------------------------------------
+
+describe('the summary counters keep the three states apart', () => {
+  const measured = resolveMetricGap({ metricCode: 'TLR_SS', count: 3559 });
+  const gap = resolveMetricGap({ metricCode: 'PR_PEER', count: undefined });
+  const notOurs = resolveMetricGap({
+    metricCode: 'RPC_PU',
+    count: undefined,
+    applicability: 'not-applicable',
+  });
+
+  it('does not count a not-applicable metric as an outstanding gap', () => {
+    // A body that does not inspect this institution is not somebody's task.
+    // Counting it puts a number on screen that no amount of work can reduce.
+    expect(countGaps([measured, gap, notOurs])).toBe(1);
+  });
+
+  it('reports not-applicable separately rather than silently', () => {
+    expect(countNotApplicable([measured, gap, notOurs])).toBe(1);
+  });
+
+  it('never lets the two totals double-count a metric', () => {
+    const group = [measured, gap, notOurs];
+    expect(countGaps(group) + countNotApplicable(group)).toBeLessThanOrEqual(group.length);
+  });
+
+  it('a group of only not-applicable metrics has zero gaps', () => {
+    expect(countGaps([notOurs, notOurs])).toBe(0);
+  });
+});
+
+describe('an unread registry is not an empty registry', () => {
+  it('says it could not load, rather than claiming nothing feeds the metric', () => {
+    // undefined = the registry read has not answered.
+    const unread = resolveMetricGap({ metricCode: 'RPC_PU', count: undefined, source: undefined });
+    expect(unread.detail).toMatch(/could not be loaded/i);
+    expect(unread.detail).not.toMatch(/Nothing in the platform feeds/i);
+  });
+
+  it('only claims nothing feeds it once the registry HAS been read', () => {
+    // null = read, and genuinely no source registered for this metric.
+    const read = resolveMetricGap({ metricCode: 'RPC_PU', count: undefined, source: null });
+    expect(read.detail).toMatch(/Nothing in the platform feeds/i);
+  });
+
+  it('offers no Fix link in either case', () => {
+    expect(resolveMetricGap({ metricCode: 'X', count: undefined, source: undefined }).fixRoute).toBeNull();
+    expect(resolveMetricGap({ metricCode: 'X', count: undefined, source: null }).fixRoute).toBeNull();
   });
 });
