@@ -73,16 +73,68 @@ export interface EvidenceMappingRow {
  * `source_id` is selected so a source claimed by two bodies can be counted ONCE:
  * counting mapping rows would report 92 course-attainment records where 46 exist.
  */
+export const EVIDENCE_PAGE_SIZE = 1000;
+/** 100 pages = 100k rows. A stop, not a limit — so a server that ignores
+ *  `.range()` cannot spin the loop forever. */
+export const EVIDENCE_MAX_PAGES = 100;
+
+/** Fetches one page of mappings for `[from, to]` inclusive. */
+export type EvidencePageFetcher = (
+  from: number,
+  to: number,
+) => Promise<EvidenceMappingRow[]>;
+
+/**
+ * Reads every mapping, paging until the set is exhausted.
+ *
+ * PostgREST enforces `max-rows` (10,000 on this project) and reports the real
+ * total ONLY in the `content-range` header, which the JS client does not
+ * surface — so an unpaged `.select()` over a bigger table returns a short array
+ * with `error === null`. A successful-looking read and a wrong number, the same
+ * silent shape as an RLS denial.
+ *
+ * This crossed the line the day NIRF evidence was seeded: the table went from
+ * 258 rows to 11,608, and this hook reads ALL bodies at once, so it was the
+ * first caller to breach the cap. Measured 2026-08-02.
+ *
+ * Pure and exported so the pagination can be tested against a fake server that
+ * enforces the cap — counting a fixture array in memory would pass against the
+ * broken version too.
+ */
+export async function fetchEvidencePaged(
+  fetchPage: EvidencePageFetcher,
+): Promise<EvidenceMappingRow[]> {
+  const rows: EvidenceMappingRow[] = [];
+  for (let page = 0; page < EVIDENCE_MAX_PAGES; page += 1) {
+    const batch = await fetchPage(
+      page * EVIDENCE_PAGE_SIZE,
+      page * EVIDENCE_PAGE_SIZE + EVIDENCE_PAGE_SIZE - 1,
+    );
+    rows.push(...batch);
+    // Short page = set exhausted. Checked AFTER pushing, so the final partial
+    // page is never dropped.
+    if (batch.length < EVIDENCE_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
 export function useEvidenceMappings() {
   return useQuery({
     queryKey: ['accreditation', 'iqac', 'evidence-mappings'],
     queryFn: async (): Promise<EvidenceMappingRow[]> => {
       const supabase = createClientSupabaseClient() as any;
-      const { data, error } = await supabase
-        .from('quality_evidence_mappings')
-        .select('body_code, metric_code, source_table, source_id, period_label');
-      if (error) throw error;
-      return (data ?? []) as EvidenceMappingRow[];
+      return fetchEvidencePaged(async (from, to) => {
+        // Ordered by id so the ranges partition the set. Without a stable sort
+        // PostgREST may return overlapping or skipped rows across ranges, and
+        // the counts drift — a subtler wrong number than the truncation.
+        const { data, error } = await supabase
+          .from('quality_evidence_mappings')
+          .select('body_code, metric_code, source_table, source_id, period_label')
+          .order('id', { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as EvidenceMappingRow[];
+      });
     },
     staleTime: FIVE_MINUTES,
     refetchOnWindowFocus: false,
