@@ -7,12 +7,17 @@ export const dynamic = 'force-dynamic';
 // can render a live preview as the user adjusts the hierarchy filters,
 // without forcing a full Excel build per keystroke.
 //
-// Auth mirrors the parent endpoint: super-admin only. The count itself
-// is not sensitive but the filter combinations leak the hierarchy and
-// we keep them gated identically.
+// Auth mirrors the parent endpoint: super admin, or a role holding
+// billing.receipts.bulk_create scoped to its accessible institutions. The
+// count itself is not sensitive but the filter combinations leak the
+// hierarchy and we keep them gated identically.
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  resolveBulkReceiptAccess,
+  assertInstitutionInScope
+} from '@/lib/auth/bulk-receipt-access';
 import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 
 // Matches the parent template endpoint's maxDuration so a slow count
@@ -20,18 +25,6 @@ import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-r
 // a properly-indexed COUNT(*) on billing_student_bills should be sub-second,
 // but the ceiling protects against a missing index in older environments.
 export const maxDuration = 60;
-
-async function assertSuperAdmin(userId: string): Promise<boolean> {
-  const supabase = createServiceRoleClient();
-  const { data: profile } = await (supabase as any)
-    .from('profiles')
-    .select('role, is_super_admin')
-    .eq('id', userId)
-    .single();
-  return (
-    profile?.is_super_admin === true || profile?.role === 'super_admin'
-  );
-}
 
 export async function GET(request: NextRequest) {
   await connection();
@@ -41,18 +34,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const isSuperAdmin = await assertSuperAdmin(user.id);
-  if (!isSuperAdmin) {
-    return NextResponse.json(
-      { error: 'Forbidden — super-admin only' },
-      { status: 403 }
-    );
+  const access = await resolveBulkReceiptAccess(user.id);
+  if (!access.allowed) {
+    return NextResponse.json({ error: access.reason }, { status: 403 });
   }
 
   try {
     const sp = request.nextUrl.searchParams;
+    const requestedInstitutionId = sp.get('institution_id') || undefined;
+
+    // 403 rather than an empty count: silently returning 0 would read as
+    // "no outstanding bills for this institution", which is both wrong and
+    // unactionable.
+    const scopeError = assertInstitutionInScope(access, requestedInstitutionId);
+    if (scopeError) {
+      return NextResponse.json({ error: scopeError }, { status: 403 });
+    }
+
     const filters = {
-      institution_id: sp.get('institution_id') || undefined,
+      institution_id: requestedInstitutionId,
+      // Super admins pass undefined (unrestricted); everyone else is bounded
+      // to their accessible institutions because this route runs on the
+      // service-role client and RLS is not in the path.
+      institution_ids: access.isSuperAdmin ? undefined : access.institutionIds,
       item_category_id: sp.get('item_category_id') || undefined,
       degree_id: sp.get('degree_id') || undefined,
       department_id: sp.get('department_id') || undefined,

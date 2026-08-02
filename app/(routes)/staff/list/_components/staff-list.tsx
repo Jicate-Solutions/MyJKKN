@@ -380,7 +380,9 @@ const StaffListComponent = ({
       },
       {
         id: 'institution',
-        header: 'Institution',
+        // institution_id means WHERE SOMEONE WORKS (2026-07-31). The paying
+        // organisation is a separate HR-only record and is not shown here.
+        header: 'Works at',
         cell: ({ row }) => {
           const staff = row.original;
           return staff.institution?.name || '-';

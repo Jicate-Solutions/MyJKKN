@@ -35,6 +35,7 @@ import {
 import type { FoundationCohort } from '@/lib/services/foundation/foundation-service';
 import { ItemAuthorDialog } from './item-author-dialog';
 import { AssessmentBuilderDialog } from './assessment-builder-dialog';
+import { ItemReviewPanel } from './item-review-panel';
 
 const KIND_STYLES: Record<string, string> = {
   diagnostic: 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300',
@@ -201,6 +202,7 @@ function CohortDetail({ cohort }: { cohort: FoundationCohort }) {
       </div>
 
       <AssessmentStrip cohortId={cohort.id} />
+      <ItemReviewPanel examDefinitionId={examId} />
       <RosterTable cohortId={cohort.id} />
     </div>
   );

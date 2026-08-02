@@ -341,7 +341,12 @@ export class FacultyAttendanceService {
             'get_cycle_for_date',
             { p_timetable_id: timetable.id, p_date: targetDate }
           );
-          if (cycleErr || !cycleNum) continue; // null = Sunday/holiday → no classes
+          // 2026-07-31: a real RPC failure (e.g. statement timeout 57014) must
+          // surface as an error — same contract as timetableError above — NOT
+          // be swallowed as "no classes". Swallowing it rendered a false
+          // "No classes scheduled for today" whenever the DB was overloaded.
+          if (cycleErr) throw cycleErr;
+          if (!cycleNum) continue; // null = Sunday/holiday → no classes
           const cycleKey = `cycle-${cycleNum}`;
           if (!timetableData[cycleKey]) continue;
           dayData = timetableData[cycleKey];

@@ -343,18 +343,38 @@ export const DEFAULT_ELIGIBILITY_THRESHOLDS: EligibilityThresholds = {
   condonation: CONDONATION_FLOOR,
 };
 
-/** Sum per-course attendance rows into one {present,total} per student. */
+/** Sum per-course attendance rows into one {present,protected,total} per learner.
+ *
+ * `protected` is the count of days the learner was marked absent but which an
+ * approved tournament permission or full-day on-duty application excuses —
+ * fn_attendance_protected_days is the single source of that, and the "With
+ * Attendance" line on the Principal's permission letter is why it exists. It is
+ * carried SEPARATELY from `present` rather than folded into it, so the raw
+ * marked record and the excused credit stay tellable apart at every layer.
+ *
+ * Rows from before this column existed simply have no `protected` and score
+ * exactly as they did.
+ */
 export function aggregateAttendanceByStudent(
-  rows: Array<{ student_id: string; present: number; total: number }>,
-): Map<string, { present: number; total: number }> {
-  const byStudent = new Map<string, { present: number; total: number }>();
+  rows: Array<{ student_id: string; present: number; total: number; protected?: number | null }>,
+): Map<string, { present: number; protected: number; total: number }> {
+  const byStudent = new Map<string, { present: number; protected: number; total: number }>();
   for (const a of rows) {
-    const cur = byStudent.get(a.student_id) ?? { present: 0, total: 0 };
+    const cur = byStudent.get(a.student_id) ?? { present: 0, protected: 0, total: 0 };
     cur.present += a.present;
+    cur.protected += a.protected ?? 0;
     cur.total += a.total;
     byStudent.set(a.student_id, cur);
   }
   return byStudent;
+}
+
+/** The percentage eligibility is judged on: marked-present days PLUS excused
+ *  days, over every session held. Only a day marked absent can be excused, so
+ *  this can never exceed 100. */
+export function eligiblePct(att: { present: number; protected?: number; total: number }): number {
+  if (att.total <= 0) return 0; // no sessions held is not 0% attendance, but it is never a band
+  return (100 * (att.present + (att.protected ?? 0))) / att.total;
 }
 
 // The 'below_65' / 'below_75' bucket NAMES are a stable API (types, response
@@ -363,11 +383,11 @@ export function aggregateAttendanceByStudent(
 // condonation", not literally 65 and 75. Render the numbers from the resolved
 // thresholds, never from the bucket name.
 export function eligibilityBucket(
-  att: { present: number; total: number } | undefined,
+  att: { present: number; protected?: number; total: number } | undefined,
   thresholds: EligibilityThresholds = DEFAULT_ELIGIBILITY_THRESHOLDS,
 ): ExamAuditAttendanceBucket {
   if (!att || att.total === 0) return 'no_record';
-  const pct = (100 * att.present) / att.total;
+  const pct = eligiblePct(att);
   if (pct < thresholds.condonation) return 'below_65';
   if (pct < thresholds.eligibility) return 'below_75';
   return 'ok';
@@ -390,7 +410,7 @@ export function computeExamAuditStudentDetail(input: {
   registrations: CoeExamRegistrationRow[];
   provenance: CoeCiaProvenanceRow[];
   programs: CoeProgramRef[];
-  attendanceByStudent: Map<string, { present: number; total: number }>;
+  attendanceByStudent: Map<string, { present: number; protected?: number; total: number }>;
   /** Resolved from platform_policies by the caller; falls back to 75/65. */
   thresholds?: EligibilityThresholds;
 }): ExamAuditStudentDetailRow[] {
@@ -484,8 +504,9 @@ export function computeExamAuditStudentDetail(input: {
       verified_pct: s.ciaRows > 0 ? Math.round((100 * s.verified) / s.ciaRows) : null,
       avg_internal_pct: s.pctCount > 0 ? Math.round(s.pctSum / s.pctCount) : null,
       att_present: att && att.total > 0 ? att.present : null,
+      att_protected: att && att.total > 0 ? (att.protected ?? 0) : null,
       att_total: att && att.total > 0 ? att.total : null,
-      att_pct: att && att.total > 0 ? Math.round((1000 * att.present) / att.total) / 10 : null,
+      att_pct: att && att.total > 0 ? Math.round(10 * eligiblePct(att)) / 10 : null,
       att_bucket: bucket,
     });
   }

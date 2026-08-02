@@ -51,6 +51,13 @@ export interface ResolvedModel {
   over_cap?: boolean;
   /** The configured model that was swapped away from (over_cap only). */
   capped_from_model_id?: string;
+  /** True when provider-health fallback swapped provider+model to the row's
+   *  configured fallback pair because the primary is rate-limited. */
+  using_fallback?: boolean;
+  /** The primary provider that was swapped away from (using_fallback only). */
+  fellback_from_provider?: string;
+  /** The primary model that was swapped away from (using_fallback only). */
+  fellback_from_model_id?: string;
 }
 
 export interface RecordUsageInput {
@@ -72,6 +79,62 @@ const CACHE_TTL_MS = 60_000;
 // Cheapest anthropic chat model — what an over-cap anthropic feature degrades
 // to. Must exist in the ai-providers pricing registry.
 const CAP_DEGRADE_MODEL_ID = 'claude-haiku-4-5';
+
+// ---------------------------------------------------------------------------
+// Provider-health fallback (2026-07-30)
+// ---------------------------------------------------------------------------
+// fallback_provider / fallback_model_id have existed on both config tables
+// since the 20260512 substrate and are editable in /admin/ai-models, but until
+// now NO runtime consumer honored them for provider health — the pair was
+// decorative. This turns it into a real primary→fallback swap on ONE narrow
+// condition: the primary provider+model's most recent call for this feature,
+// inside the health window, was a rate-limit-class failure.
+//
+// Receipt (voice_memo.transcribe, measured 2026-07-30): the GROQ org key is
+// shared with traffic outside MyJKKN, so its daily audio budget is exhausted by
+// others. Over the 14 days to 2026-07-30 the pipeline logged 2,117 transcription
+// calls for 157 successes — 205 of the failures in the last 3 days alone were
+// literal `429 Rate limit reached for model whisper-large-v3`.
+//
+// WHY RESOLUTION-TIME, NOT INSIDE THE TRANSCRIPTION CLIENT: consumers record
+// usage against the provider/model this function RETURNS. Retrying inside the
+// client would bill an OpenAI call to Groq's ₹/min in ai_model_usage and would
+// leave the consumer's own rate-limit cooldown gate armed against a provider it
+// is no longer calling. Swapping here keeps the ledger, the cost estimate and
+// every downstream gate consistent with the provider that actually ran.
+//
+// SHAPE: window-based with no sticky state. Once the primary's last in-window
+// call ages out (or succeeds), resolution returns to the primary and re-probes
+// it — so the cheap provider is retried at most once per window and reclaims
+// traffic the moment its quota frees, instead of parking on the pricier
+// fallback forever. Rate-limited probes are not billed by the provider.
+//
+// SCOPE: rate-limit class ONLY. Timeouts and 5xx keep the primary — flapping to
+// a pricier provider on a transient network blip is worse than waiting.
+//
+// Mirrors RATELIMIT_COOLDOWN_MS in app/api/cron/analyze-voice-memos/route.ts.
+// Keep the two in step: a shorter window here would flip back to the primary
+// while that route is still in cooldown, which stalls the sweep for a cycle.
+const FALLBACK_HEALTH_WINDOW_MS = 30 * 60 * 1000;
+
+/**
+ * Rate-limit-class detector for a recorded ai_model_usage.error_message.
+ *
+ * Deliberately mirrors classifyFailure() in the voice-memo cron: a bare
+ * three-digit match would fire on incidental numbers ("took 429ms"), so a 429
+ * only counts inside an explicit provider-error shape. The word test carries
+ * most real messages — every one of the 205 rate-limit rows measured on
+ * 2026-07-30 reads `Transcription API 429: {"error":{"message":"Rate limit
+ * reached for model ...`, while the 184 client timeouts and 32 `400 file is
+ * empty` rows in the same window match neither branch.
+ */
+export function isRateLimitMessage(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return (
+    /quota|rate.?limit/i.test(message) ||
+    /(?:API|HTTP|status(?:\s+code)?)[ :]+429\b/i.test(message)
+  );
+}
 
 interface CacheEntry {
   value: ResolvedModel;
@@ -235,6 +298,61 @@ export async function getModelForFeature(featureKey: string): Promise<ResolvedMo
         if (resolved.fallback_provider === 'anthropic') {
           resolved.fallback_model_id = CAP_DEGRADE_MODEL_ID;
         }
+      }
+    }
+
+    // Provider-health fallback (see FALLBACK_HEALTH_WINDOW_MS above). Runs LAST
+    // so it observes the post-cap provider/model, and is skipped entirely when
+    // the row is over-cap — re-escalating a capped feature to a different paid
+    // provider is exactly what the cap exists to prevent.
+    if (
+      !resolved.over_cap &&
+      resolved.fallback_provider &&
+      resolved.fallback_model_id &&
+      // A fallback pointing at the primary is a no-op; skip the query.
+      !(
+        resolved.fallback_provider === resolved.provider &&
+        resolved.fallback_model_id === resolved.model_id
+      )
+    ) {
+      try {
+        const since = new Date(Date.now() - FALLBACK_HEALTH_WINDOW_MS).toISOString();
+        // Most recent call for THIS feature on the PRIMARY pair inside the
+        // window. Scoped to provider+model so a fallback call's own failure can
+        // never re-trigger the swap decision it caused.
+        const { data: last, error: lastError } = await supabase
+          .from('ai_model_usage')
+          .select('success, error_message')
+          .eq('feature_key', featureKey)
+          .eq('provider', resolved.provider)
+          .eq('model_id', resolved.model_id)
+          .gte('invoked_at', since)
+          .order('invoked_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastError) {
+          // Fail-open, but never silently — an always-erroring probe would mean
+          // the fallback quietly never engages (mirrors the spend-cap policy).
+          console.error(
+            `[ai-model-config] ${featureKey}: fallback health probe errored (primary kept):`,
+            lastError.message,
+          );
+        } else if (last && last.success === false && isRateLimitMessage(last.error_message)) {
+          console.warn(
+            `[ai-model-config] ${featureKey}: primary ${resolved.provider}/${resolved.model_id} ` +
+              `rate-limited within ${FALLBACK_HEALTH_WINDOW_MS / 60000}m — using fallback ` +
+              `${resolved.fallback_provider}/${resolved.fallback_model_id}`,
+          );
+          resolved.using_fallback = true;
+          resolved.fellback_from_provider = resolved.provider;
+          resolved.fellback_from_model_id = resolved.model_id;
+          resolved.provider = resolved.fallback_provider;
+          resolved.model_id = resolved.fallback_model_id;
+        }
+      } catch (e) {
+        // Fail-open: a health-probe crash must never block AI resolution.
+        console.error(`[ai-model-config] ${featureKey}: fallback probe threw (primary kept):`, e);
       }
     }
 

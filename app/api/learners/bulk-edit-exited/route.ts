@@ -14,7 +14,7 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { BulkLearnerEditService, type BulkEditRow } from '@/lib/services/bulk-learner-edit-service';
 import { LearnerValidationService } from '@/lib/services/learner-validation-service';
-import { parseExcelFile, mapColumns, sanitizeValue } from '@/lib/utils/excel-parser';
+import { parseExcelFile, mapColumns, sanitizeValue, hasColumn, listColumns } from '@/lib/utils/excel-parser';
 import { NameToIdResolver } from '@/lib/services/name-to-id-resolver';
 import { normalizeDropdownValue, BLOOD_GROUP_VALUES } from '@/lib/constants/learner-dropdown-values';
 
@@ -113,8 +113,13 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
+  // The typed reference: Type + ID + Person resolve together into
+  // referral_type / referred_by_id / referred_by_name plus the legacy mirror.
+  // 'Reference Name' stays as an alias so templates downloaded before
+  // 2026-08-01 keep mapping to the same resolver.
   'reference_type': ['Reference Type', 'reference_type'],
-  'reference_name': ['Reference Name', 'reference_name'],
+  'referred_by_id': ['Reference ID', 'referred_by_id'],
+  'referred_by_name': ['Reference Person', 'Reference Name', 'referred_by_name', 'reference_name'],
   'reference_contact': ['Reference Contact', 'reference_contact'],
 
   // SECTION 11: Student Specific
@@ -229,7 +234,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Parse Excel file
-    const parseResult = await parseExcelFile(file, 'Active Learners');
+    const parseResult = await parseExcelFile(file, 'Active Learners', COLUMN_MAPPING.id);
 
     if (parseResult.errors.length > 0) {
       return NextResponse.json(
@@ -246,6 +251,23 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: 'No data found in file'
+        },
+        { status: 400 }
+      );
+    }
+
+    // Same guard as bulk-edit-preview: identify the file by its ID column, not
+    // by the sheet name. Preview and apply must reject identically or a file can
+    // pass review and then fail the write.
+    if (!hasColumn(parseResult.rows, COLUMN_MAPPING.id)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `No ID column found in the uploaded sheet (expected "ID*"). ` +
+            `Columns found: ${listColumns(parseResult.rows)}. ` +
+            `Use "Download Current Data" in this dialog and edit that file - the ` +
+            `Learners "Export" file has no ID column and cannot be used for bulk edit.`
         },
         { status: 400 }
       );
@@ -594,12 +616,18 @@ export async function POST(request: NextRequest) {
         if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;
         else if (['no', 'n', 'false', '0'].includes(b)) sanitizedData.bus_required = false;
       }
-      // SECTION 10: Reference Information
+      // SECTION 10: Reference Information — must stay byte-identical to the
+      // preview route's block, or a file can pass review and then write
+      // something else. Reference ID passes through untouched: sanitizeValue
+      // upper-cases, which mangles a uuid.
       if (mappedData.reference_type) {
-        sanitizedData.reference_type = sanitizeValue(mappedData.reference_type, 'text');
+        sanitizedData.reference_type = String(mappedData.reference_type).trim();
       }
-      if (mappedData.reference_name) {
-        sanitizedData.reference_name = sanitizeValue(mappedData.reference_name, 'text');
+      if (mappedData.referred_by_id) {
+        sanitizedData.referred_by_id = String(mappedData.referred_by_id).trim();
+      }
+      if (mappedData.referred_by_name) {
+        sanitizedData.referred_by_name = sanitizeValue(mappedData.referred_by_name, 'text');
       }
       if (mappedData.reference_contact) {
         sanitizedData.reference_contact = sanitizeValue(mappedData.reference_contact, 'mobile');
@@ -629,7 +657,39 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 6. Process bulk edit
+    // 6. Gate: refuse to write anything while the sheet still has invalid rows,
+    // unless the user explicitly opted to skip them. processBulkEdit is
+    // partial-success by design (it `continue`s past a bad row), which is why a
+    // single bad email used to return success:false AFTER writing every other
+    // row. Enforced here, not just disabled in the UI.
+    const skipInvalid = formData.get('skipInvalid') === 'true';
+    const invalidRows = bulkEditRows.filter(row => !row.validation.isValid);
+
+    if (invalidRows.length > 0 && !skipInvalid) {
+      return NextResponse.json(
+        {
+          // Same shape as a successful run so the client can render this report
+          // instead of crashing on a bare { error } payload.
+          success: false,
+          total_rows: bulkEditRows.length,
+          updated: 0,
+          skipped: bulkEditRows.length - invalidRows.length,
+          failed: invalidRows.length,
+          updated_learners: [],
+          errors: invalidRows.map(row => ({
+            row: row.rowNumber,
+            id: row.data.id,
+            error: row.validation.errors.map(e => e.message).join(', ')
+          })),
+          error:
+            `${invalidRows.length} row(s) failed validation - nothing was updated. ` +
+            `Fix them in the sheet and re-upload, or choose to skip invalid rows.`
+        },
+        { status: 400 }
+      );
+    }
+
+    // 7. Process bulk edit
     const result = await BulkLearnerEditService.processBulkEdit(
       bulkEditRows,
       profile.institution_id || undefined,
@@ -637,7 +697,7 @@ export async function POST(request: NextRequest) {
       user.id
     );
 
-    // 7. Return result
+    // 8. Return result
     return NextResponse.json(result);
 
   } catch (error) {

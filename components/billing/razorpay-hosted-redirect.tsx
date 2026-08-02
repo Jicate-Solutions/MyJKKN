@@ -32,6 +32,26 @@ interface Props {
   // Retained for API parity with the old launcher. The hosted flow navigates the
   // whole browser away, so there is nothing to "close" — callers may still pass it.
   onClose?: () => void;
+
+  // ── Reuse hooks ───────────────────────────────────────────────────────────
+  // This component is generic apart from the two URLs it used to hardcode, so
+  // other modules collecting through hosted checkout (IMS counter sales) point
+  // them at their own callback rather than forking the file. Both default to the
+  // billing paths, so billing's behaviour is byte-identical to before.
+  /** Path Razorpay POSTs the signed result to. Must verify server-side. */
+  callbackPath?: string;
+  /** Where Razorpay sends the browser if the customer abandons the payment. */
+  cancelUrl?: string;
+  /** Merchant name shown on Razorpay's page. */
+  merchantName?: string;
+  /**
+   * Payment method the hosted page opens on ('upi', 'card', …).
+   *
+   * A bias, not a restriction — Razorpay still offers the others. The counter uses
+   * 'upi' so the customer lands straight on the QR, which is the flow the till
+   * records the sale as.
+   */
+  prefillMethod?: string;
 }
 
 export function RazorpayHostedRedirect(props: Props) {
@@ -45,10 +65,11 @@ export function RazorpayHostedRedirect(props: Props) {
     process.env.NEXT_PUBLIC_APP_URL ||
     (typeof window !== 'undefined' ? window.location.origin : '');
 
-  const callbackUrl = `${appOrigin}/api/billing/payment/callback`;
+  const callbackUrl = `${appOrigin}${props.callbackPath ?? '/api/billing/payment/callback'}`;
   const cancelUrl =
+    props.cancelUrl ??
     `${appOrigin}/billing/payment/failed` +
-    `?transaction_id=${encodeURIComponent(props.transactionId)}&reason=user_cancelled`;
+      `?transaction_id=${encodeURIComponent(props.transactionId)}&reason=user_cancelled`;
 
   useEffect(() => {
     if (submitted.current) return;
@@ -65,7 +86,7 @@ export function RazorpayHostedRedirect(props: Props) {
     order_id: props.razorpayOrderId,
     amount: String(props.amountPaise),
     currency: props.currency,
-    name: 'JKKN',
+    name: props.merchantName ?? 'JKKN',
     description: props.description ?? 'Bill payment',
     'prefill[name]': props.customer.name ?? '',
     'prefill[email]': props.customer.email ?? '',
@@ -73,6 +94,7 @@ export function RazorpayHostedRedirect(props: Props) {
     'notes[transaction_id]': props.transactionId,
     callback_url: callbackUrl,
     cancel_url: cancelUrl,
+    ...(props.prefillMethod ? { 'prefill[method]': props.prefillMethod } : {}),
   };
 
   return (

@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
+import { resolveInstitutionScope } from '@/lib/auth/institution-scope';
 import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
 
 /**
@@ -59,7 +60,7 @@ export async function GET(request: NextRequest) {
     // Check permissions
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, institution_id')
+      .select('role, is_super_admin, institution_id')
       .eq('id', user.id)
       .single();
 
@@ -76,12 +77,16 @@ export async function GET(request: NextRequest) {
     const filters: LearnerDashboardFilters = {};
 
     // Institution IDs
+    // Omitting the param means "all institutions" from the client, so it must
+    // not collapse to the caller's own institution for a super admin — theirs
+    // points at their employer, not a college. See resolveInstitutionScope.
     const institutionIdsParam = searchParams.get('institutionIds');
-    if (institutionIdsParam) {
-      filters.institutionIds = institutionIdsParam.split(',').filter(Boolean);
-    } else if (profile.institution_id) {
-      // If user has institution_id, restrict to that institution
-      filters.institutionIds = [profile.institution_id];
+    const institutionScope = resolveInstitutionScope(
+      profile,
+      institutionIdsParam ? institutionIdsParam.split(',').filter(Boolean) : null
+    );
+    if (institutionScope) {
+      filters.institutionIds = institutionScope;
     }
 
     // Academic Year
