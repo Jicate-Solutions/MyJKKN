@@ -161,6 +161,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // foundation.dashboard.view.
   '/foundation/practice': 'foundation.practice.take',
 
+  // Cohorts — the top-level section for the shared cohort spine. Its first
+  // screen appoints coordinators for every programme on that spine. Mapped to
+  // its own key so it does not inherit a permission from an ancestor route; the
+  // page itself is super-administrator-only whatever this key says.
+  '/cohorts/coordinators': 'cohort.coordinators.manage',
+
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
@@ -3019,6 +3025,21 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/work-pulse/all', label: 'All Submissions', active: pathname.startsWith('/work-pulse/all') },
             { href: '/work-pulse/impact', label: 'Impact', active: pathname.startsWith('/work-pulse/impact') },
           ]
+        }
+      ]
+    },
+    {
+      // Cohorts — every programme on the shared cohort spine (School of
+      // Influence, Solve for 100, MBA Associates, Foundations, CDC Training,
+      // Trainer Development). Coordinators is its first screen.
+      groupLabel: 'Cohorts',
+      menus: [
+        {
+          href: '/cohorts/coordinators',
+          label: 'Coordinators',
+          active: pathname.startsWith('/cohorts/coordinators'),
+          icon: UserCog,
+          submenus: []
         }
       ]
     },

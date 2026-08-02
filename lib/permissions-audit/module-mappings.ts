@@ -102,6 +102,10 @@ export const CATEGORY_ONLY_MODULES: ReadonlyArray<readonly [string, string]> = [
   // entry + sidebar routes; procurement_* tables aren't in table-module-map, so
   // it's category-only like the entries above.
   ['Procurement', 'procurement'],
+  // Cohort Core (2026-08-02): has the 'cohort' PERMISSION_CATEGORIES entry +
+  // the /cohorts sidebar route; the cohort_* tables aren't in table-module-map,
+  // so it's category-only like the entries above.
+  ['Cohort Core', 'cohort'],
 ];
 
 /**
@@ -217,6 +221,7 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/my-proof', 'Learners'], // Verified Skills Record — learner self view (learners.proof.view)
   ['/academic', 'Academic'],
   ['/foundation', 'Foundation Programme'], // Foundation & Competitive-Exam Programme (foundation.* perms)
+  ['/cohorts', 'Cohort Core'], // Shared cohort spine — coordinator appointments (cohort.* perms)
   ['/improvement-board', 'Improvement Board'], // MBA teaching-enterprise (improvement.* + ceo_rounds.* perms)
   ['/ceo-rounds', 'Improvement Board'], // MBA teaching-enterprise — CEO Rounds log (ceo_rounds.* perms)
   ['/rcltp', 'Academic'], // MyJKKN RCLTP reading-assessment module (rcltp.* perms)
