@@ -41,7 +41,8 @@
     "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list",
     "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
     "gen:guide-load": "tsx scripts/load-profile.ts",
-    "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs"
+    "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs",
+    "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
