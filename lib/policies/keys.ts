@@ -352,6 +352,26 @@ export const POLICY_KEYS = {
   // internship.policy.attendance_fail_below_pct, or vac.completion_attendance_threshold.
   EXAM_ELIGIBILITY_ATTENDANCE_PCT: 'academic.exam_eligibility.attendance_pct',
   EXAM_ELIGIBILITY_CONDONATION_FLOOR_PCT: 'academic.exam_eligibility.condonation_floor_pct',
+
+  // Which of the ten outside bodies inspects which college (2026-08-09).
+  // Director decision 3: a body that does not apply to a college must say "does
+  // not apply" — never a blank, never a zero. Nothing recorded which body
+  // inspects which institution, so every institution read as subject to all ten
+  // and a college holding no PCI evidence rendered as 0, indistinguishable from
+  // failing an inspection it was never subject to.
+  //
+  // A mapping, so config-table-pattern.md puts it on a row rather than in code:
+  // it changes when a college opens a programme, seeks an accreditation, or
+  // enters a ranking exercise, none of which should cost a deploy.
+  //
+  // Value is an object — { version, bodies: [{ bodyCode, remit, appliesTo,
+  // remitNote }] } — read with getPolicy() and parsed by
+  // parseBodyApplicabilityConfig() in
+  // app/(routes)/accreditation/_lib/body-applicability.ts, which also holds the
+  // reviewed fallback used before the row is applied. Scope-aware: seeded
+  // global, so one college can be given its own map with no code change.
+  // Seeded by 20260809100500_accreditation_body_applicability_policy.sql.
+  ACCREDITATION_BODY_APPLICABILITY_MAP: 'accreditation.body_applicability.map',
 } as const;
 
 export type PolicyKey = typeof POLICY_KEYS[keyof typeof POLICY_KEYS];
