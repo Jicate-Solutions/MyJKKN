@@ -92,3 +92,9 @@ BEGIN
 
   RETURN v_summary;
 END $function$;
+
+-- Re-assert the anon lock. CREATE OR REPLACE preserves the existing ACL (this function
+-- was already locked by 20260722120000), so this is idempotent — but MyJKKN policy
+-- requires every SECDEF-function migration to carry an explicit anon REVOKE.
+REVOKE EXECUTE ON FUNCTION public.fn_generate_referral_commissions(integer, boolean, uuid[], uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_referral_commissions(integer, boolean, uuid[], uuid) TO authenticated;
