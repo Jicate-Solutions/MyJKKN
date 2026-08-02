@@ -205,20 +205,40 @@ function useInstitutionNames() {
   });
 }
 
-/** Names for programme-scoped assignments. A raw UUID is never rendered. */
+/**
+ * Names for programme-scoped assignments. A raw UUID is never rendered.
+ *
+ * The table is `programs` with `program_name` — NOT `programmes`/`programme_name`.
+ * The column on this side reads `programme_id` (British spelling, matching the
+ * Director's wording in decision 6) while the table it points at is American,
+ * and prod confirms the direction: `accreditation_metric_owners.programme_id`
+ * carries the FK annotation "Foreign Key to `programs.id`". Reading the local
+ * column name as the remote table name returns 42P01 relation does not exist.
+ *
+ * The error is RE-THROWN. Swallowing it returned `{}` forever, so every
+ * programme label silently vanished and the comment above stayed technically
+ * true — a raw UUID was never rendered because nothing was. A page built on the
+ * premise that a failure must never look like an answer cannot itself have a
+ * read that fails quietly.
+ *
+ * This never fired in testing because `accreditation_metric_owners` holds 0 rows
+ * and this query is gated on `enabled: key.length > 0`. It would have gone live
+ * latent and surfaced on the first programme-scoped NBA assignment.
+ */
 function useProgrammeNames(programmeIds: string[]) {
   const key = useMemo(() => [...new Set(programmeIds)].sort().join(','), [programmeIds]);
   return useQuery({
-    queryKey: ['programmes', 'my-gaps-names', key],
+    queryKey: ['programs', 'my-gaps-names', key],
     enabled: key.length > 0,
     queryFn: async (): Promise<Record<string, string>> => {
       const sb = createClientSupabaseClient() as any;
-      const { data } = await sb
-        .from('programmes')
-        .select('id, programme_name')
+      const { data, error } = await sb
+        .from('programs')
+        .select('id, program_name')
         .in('id', key.split(','));
+      if (error) throw error;
       return (data ?? []).reduce((acc: Record<string, string>, r: any) => {
-        acc[r.id] = r.programme_name;
+        acc[r.id] = r.program_name;
         return acc;
       }, {});
     },
