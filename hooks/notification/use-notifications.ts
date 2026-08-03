@@ -156,8 +156,14 @@ export function useUnreadNotifications(userId: string | undefined) {
       };
     },
     enabled: !!userId,
-    staleTime: 5 * 1000, // 5 seconds for unread count
-    refetchInterval: 30 * 1000 // Fallback poll if realtime misses
+    // 30s poll retained (2026-08-02 verify pass): user_notifications is NOT
+    // in the supabase_realtime publication on prod, so the postgres_changes
+    // subscription above never fires there — this poll IS the delivery path,
+    // not a fallback. The dedupe win stands regardless: one QueryClient means
+    // ONE 30s poller instead of two. staleTime 15s keeps remounts cheap
+    // without letting a navigation show a >15s-stale badge.
+    staleTime: 15 * 1000,
+    refetchInterval: 30 * 1000 // primary delivery path in prod (see above)
   });
 }
 
