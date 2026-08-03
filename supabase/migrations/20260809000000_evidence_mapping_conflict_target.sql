@@ -3068,6 +3068,41 @@ BEGIN
     WHERE public.quality_evidence_mappings.is_auto;
 END;
 $function$;
+
+-- ----------------------------------------------------------------------------
+-- Explicit anon lock (CI: check-secdef-anon-revoke).
+--
+-- These 14 are pre-existing SECURITY DEFINER functions being REPLACED, not
+-- created. CREATE OR REPLACE preserves privileges, so this migration does not
+-- change who may call them. Verified on production 2026-08-03: anon holds
+-- EXECUTE on NONE of the 22, and none relies on the PUBLIC default (no function
+-- here has a null proacl). So every REVOKE below is a no-op that makes an
+-- already-correct lock explicit, which is exactly what the guard asks for.
+--
+-- Deliberately NO accompanying "GRANT EXECUTE ... TO authenticated". The guard's
+-- suggested fix includes one, but adding it here would WIDEN access: 13 of these
+-- 14 grant EXECUTE to nobody but postgres/service_role today. The one that does
+-- hold an authenticated grant (fn_induction_emit_naac_evidence) keeps it, since
+-- only anon and PUBLIC are revoked.
+--
+-- The 8 trigger functions in this migration are exempt (RETURNS trigger) and are
+-- intentionally absent from this list.
+-- ----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_accreditation_rollup_loop_evidence() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_cdc_placement_outcome_measure() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_copo_emit_attainment_evidence() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_event_feedback_refresh_naac_evidence() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_facility_teaching_naac_snapshot_refresh() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_hr_refresh_naac_evidence() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_induction_emit_naac_evidence(p_event_id uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sustainability_refresh_naac_evidence() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sync_audit_cycle_evidence(p_cycle_id uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sync_bos_meeting_evidence(p_meeting_id uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sync_cdc_drive_evidence(p_drive_id uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sync_cdc_training_evidence(p_programme_id uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sync_procurement_po_evidence(p_po_id uuid) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_sync_stakeholder_survey_evidence(p_survey_id uuid) FROM anon, PUBLIC;
+
 -- ----------------------------------------------------------------------------
 -- Apply-time assert: no stale four-column target may survive this migration.
 -- ----------------------------------------------------------------------------
