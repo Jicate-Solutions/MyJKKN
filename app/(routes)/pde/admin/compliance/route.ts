@@ -30,6 +30,18 @@ import type { NextRequest } from 'next/server';
  *   an empty index.
  *   =====================================================================
  */
+/**
+ * navMeta — restored verbatim from the pre-#2777 page.tsx. The manifest
+ * generator (scripts/generate-route-manifest.ts) reads this from route.ts
+ * landings that have no page.tsx; without it the hub degraded to the
+ * title-case fallback "Compliance"/FileText. Extra named exports from a
+ * Route Handler are legal and ignored by the Next.js runtime.
+ */
+export const navMeta = {
+  label: 'PDE Compliance',
+  icon: 'ShieldCheck',
+} as const;
+
 export function GET(request: NextRequest) {
   return NextResponse.redirect(new URL('/pde/admin/compliance/per-college', request.url), 307);
 }

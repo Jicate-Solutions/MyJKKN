@@ -36,6 +36,18 @@ import type { NextRequest } from 'next/server';
  *   coverage detector (`scripts/assert-nav-coverage.mjs`) reads this to pass
  *   discoverability without requiring a visible chip for the redirect landing.
  */
+/**
+ * navMeta — restored verbatim from the pre-#2777 page.tsx (invokedFrom only;
+ * no label/icon override). Kept so the declared "redirect target reached from
+ * the NAAC dashboard" relationship survives the route.ts conversion and so
+ * the manifest generator's route.ts scan (scripts/generate-route-manifest.ts)
+ * has the same source of truth a page.tsx landing would carry. Extra named
+ * exports from a Route Handler are legal and ignored by the Next.js runtime.
+ */
+export const navMeta = {
+  invokedFrom: '/accreditation/naac',
+} as const;
+
 export function GET(request: NextRequest) {
   return NextResponse.redirect(new URL('/accreditation/naac/surveys/consent', request.url), 307);
 }
