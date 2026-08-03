@@ -611,70 +611,36 @@ export class LifecycleDashboardService {
     dateFrom: string,
     dateTo: string
   ): Promise<UserStatsSummary> {
-    // Count total registered users
-    let profilesQuery = supabase.from('profiles').select('id, role, created_at', { count: 'exact', head: false });
-    if (institutionId) profilesQuery = profilesQuery.eq('institution_id', institutionId);
-    if (departmentId) profilesQuery = profilesQuery.eq('department_id', departmentId);
-    const { data: profiles, count: totalUsers } = await profilesQuery.limit(50000);
+    // ONE set-based SQL aggregate over profiles + the session window — the
+    // previous row-fetches (.limit(50000)) were silently capped at 10,000 rows
+    // by PostgREST, so new-user counts, active users, avg logins/duration and
+    // most-active role were all computed over a truncated sample.
+    const { data, error } = await supabase.rpc('get_lifecycle_user_stats_summary', {
+      p_institution_id: institutionId,
+      p_department_id: departmentId ?? null,
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+    });
 
-    // Count new users in period
-    const newUsers = (profiles || []).filter(
-      (p: any) => p.created_at && p.created_at.split('T')[0] >= dateFrom && p.created_at.split('T')[0] <= dateTo
-    ).length;
-
-    // Query sessions in date range
-    let sessionsQuery = supabase
-      .from('user_sessions')
-      .select('user_id, role, duration_seconds')
-      .gte('login_at', dateFrom)
-      .lte('login_at', dateTo + 'T23:59:59');
-    if (institutionId) sessionsQuery = sessionsQuery.eq('institution_id', institutionId);
-    if (departmentId) sessionsQuery = sessionsQuery.eq('department_id', departmentId);
-    const { data: sessions } = await sessionsQuery.limit(50000);
-    const sessionRows = sessions || [];
-
-    // Unique active users in period
-    const activeUserIds = new Set(sessionRows.map((s: any) => s.user_id));
-    const activeUsersInPeriod = activeUserIds.size;
-
-    // Avg logins per user
-    const avgLoginsPerUser = activeUsersInPeriod > 0
-      ? Math.round((sessionRows.length / activeUsersInPeriod) * 10) / 10
-      : 0;
-
-    // Avg session duration
-    const totalDuration = sessionRows.reduce((sum: number, s: any) => sum + (s.duration_seconds || 0), 0);
-    const avgSessionDuration = sessionRows.length > 0
-      ? Math.round((totalDuration / sessionRows.length / 60) * 10) / 10
-      : 0;
-
-    // Most active role
-    const roleCounts = new Map<string, number>();
-    for (const s of sessionRows) {
-      const role = s.role || 'unknown';
-      roleCounts.set(role, (roleCounts.get(role) || 0) + 1);
-    }
-    let mostActiveRole = 'N/A';
-    let maxCount = 0;
-    for (const [role, count] of roleCounts) {
-      if (count > maxCount) {
-        maxCount = count;
-        mostActiveRole = role;
+    if (error || !data) {
+      // The old row-fetch version never surfaced query errors (null data was
+      // treated as empty) — keep that contract for consumers, but log loudly
+      // instead of failing silently.
+      if (error) {
+        console.error('[lifecycle-dashboard] get_lifecycle_user_stats_summary failed:', error);
       }
+      return {
+        total_registered_users: 0,
+        active_users_in_period: 0,
+        new_users_in_period: 0,
+        avg_logins_per_user: 0,
+        avg_session_duration_minutes: 0,
+        most_active_role: 'N/A',
+        inactive_users_count: 0,
+      };
     }
 
-    // Inactive users
-    const inactiveUsers = (totalUsers || 0) - activeUsersInPeriod;
-
-    return {
-      total_registered_users: totalUsers || 0,
-      active_users_in_period: activeUsersInPeriod,
-      new_users_in_period: newUsers,
-      avg_logins_per_user: avgLoginsPerUser,
-      avg_session_duration_minutes: avgSessionDuration,
-      most_active_role: mostActiveRole,
-      inactive_users_count: Math.max(0, inactiveUsers),
-    };
+    return data as UserStatsSummary;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -685,50 +651,25 @@ export class LifecycleDashboardService {
     dateFrom: string,
     dateTo: string
   ): Promise<RoleDistribution[]> {
-    // Total users per role from profiles
-    let profilesQuery = supabase.from('profiles').select('id, role');
-    if (institutionId) profilesQuery = profilesQuery.eq('institution_id', institutionId);
-    if (departmentId) profilesQuery = profilesQuery.eq('department_id', departmentId);
-    const { data: profiles } = await profilesQuery.limit(50000);
-    const profileRows = profiles || [];
+    // ONE set-based SQL aggregate — the previous profiles + user_sessions
+    // row-fetches (.limit(50000)) were silently capped at 10,000 rows by
+    // PostgREST, truncating both the per-role totals and the percentage
+    // denominator. The RPC returns rows already in RoleDistribution shape,
+    // sorted by total_count desc.
+    const { data, error } = await supabase.rpc('get_lifecycle_role_distribution', {
+      p_institution_id: institutionId,
+      p_department_id: departmentId ?? null,
+      p_date_from: dateFrom,
+      p_date_to: dateTo,
+    });
 
-    const roleTotal = new Map<string, number>();
-    for (const p of profileRows) {
-      const role = p.role || 'unknown';
-      roleTotal.set(role, (roleTotal.get(role) || 0) + 1);
+    if (error) {
+      // The old row-fetch version returned [] on query errors — keep that
+      // contract for consumers, but log loudly instead of failing silently.
+      console.error('[lifecycle-dashboard] get_lifecycle_role_distribution failed:', error);
     }
 
-    // Active users per role from sessions
-    let sessionsQuery = supabase
-      .from('user_sessions')
-      .select('user_id, role')
-      .gte('login_at', dateFrom)
-      .lte('login_at', dateTo + 'T23:59:59');
-    if (institutionId) sessionsQuery = sessionsQuery.eq('institution_id', institutionId);
-    if (departmentId) sessionsQuery = sessionsQuery.eq('department_id', departmentId);
-    const { data: sessions } = await sessionsQuery.limit(50000);
-
-    const roleActive = new Map<string, Set<string>>();
-    for (const s of (sessions || [])) {
-      const role = s.role || 'unknown';
-      if (!roleActive.has(role)) roleActive.set(role, new Set());
-      roleActive.get(role)!.add(s.user_id);
-    }
-
-    const grandTotal = profileRows.length || 1;
-    const result: RoleDistribution[] = [];
-
-    for (const [role, total] of roleTotal) {
-      result.push({
-        role,
-        total_count: total,
-        active_count: roleActive.get(role)?.size || 0,
-        percentage: Math.round((total / grandTotal) * 1000) / 10,
-      });
-    }
-
-    result.sort((a, b) => b.total_count - a.total_count);
-    return result;
+    return Array.isArray(data) ? (data as RoleDistribution[]) : [];
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
