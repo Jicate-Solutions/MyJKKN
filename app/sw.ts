@@ -20,7 +20,18 @@ declare const self: ServiceWorkerGlobalScope & WorkerGlobalScope;
 // and handler instances (not string names).
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
-  skipWaiting: true,
+  // PERF (2026-08-02): skipWaiting must stay FALSE. With `true`, every deploy
+  // activated the new SW instantly; clients.claim() then fired
+  // `controllerchange` in every open tab, which an unconditional reload
+  // listener in update-prompt.tsx turned into a forced full reload — every
+  // tab, on every deploy, with no user action — and a guaranteed double
+  // bootstrap on every fresh visit (the first activation's claim). It also
+  // meant `registration.waiting` was never truthy, so the "Update Available"
+  // prompt was dead code. With `false`, a new SW WAITS until the user clicks
+  // "Update Now" (the prompt posts {type:'SKIP_WAITING'}, which Serwist
+  // handles natively) — one visit = one bootstrap; the update reload happens
+  // once, only on explicit user action.
+  skipWaiting: false,
   clientsClaim: true,
   navigationPreload: true,
   runtimeCaching: [
