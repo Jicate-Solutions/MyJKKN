@@ -121,6 +121,29 @@ export function useAllocationBatchActions() {
     },
     [invalidate]
   );
+  // Bulk reset for the Batches list. Runs sequentially and COLLECTS failures
+  // instead of aborting on the first one — fn_reset_allocation_batch refuses
+  // (P0001) any batch whose allocations carry a deposit record, so one bad
+  // batch must not strand the rest. Invalidates once at the end so the table
+  // doesn't refetch (and rows don't vanish) mid-loop.
+  const resetMany = useCallback(
+    async (batchIds: string[]): Promise<{ id: string; message: string }[]> => {
+      const failed: { id: string; message: string }[] = [];
+      for (const batchId of batchIds) {
+        try {
+          await AllocationBatchService.reset(batchId);
+        } catch (e) {
+          failed.push({
+            id: batchId,
+            message: e instanceof Error ? e.message : 'Failed to reset batch',
+          });
+        }
+      }
+      await invalidate();
+      return failed;
+    },
+    [invalidate]
+  );
   const removeAllocations = useCallback(
     async (batchId: string, allocationIds: string[]) => {
       await AllocationBatchService.removeAllocations(batchId, allocationIds);
@@ -129,5 +152,5 @@ export function useAllocationBatchActions() {
     [invalidate]
   );
 
-  return { generate, approve, reject, reset, removeAllocations };
+  return { generate, approve, reject, reset, resetMany, removeAllocations };
 }

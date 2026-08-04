@@ -307,6 +307,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // it this page would fall through to '/hr' → 'hr.view' — a key almost every
   // role holds — and the paying organisation is HR-only by design.
   '/hr/payroll/organisation': 'hr.payroll.institution.view',
+  // The hub at /hr/payroll only redirects to the page above, but it needs its
+  // own entry: without one the longest-prefix match falls through to '/hr' →
+  // 'hr.view', so anyone in HR could open it and be denied one redirect later.
+  // Gating it here denies at the hub and keeps the AutoTabNav chip's gate
+  // (MENU_PERMISSIONS[href]) in step with the route guard.
+  '/hr/payroll': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar.
