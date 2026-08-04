@@ -160,11 +160,20 @@ function useEvidence(metricCodes: string[]) {
     enabled: key.length > 0,
     queryFn: async (): Promise<{ rows: EvidenceRow[]; truncated: boolean }> => {
       const sb = createClientSupabaseClient() as any;
-      const { data } = await sb
+      const { data, error } = await sb
         .from('quality_evidence_mappings')
         .select('institution_id, body_code, metric_code, source_table')
         .in('metric_code', key.split(','))
         .limit(EVIDENCE_SCAN_LIMIT);
+      // Swallowing this turned a failed read into the sentence "Nothing captured
+      // yet — this is the gap", which is a factual claim about the college. A
+      // read that did not happen must not render as an answer.
+      //
+      // Honest limit: this catches a thrown failure (42P01, a too-long URL, the
+      // network). It CANNOT catch an RLS denial — PostgREST answers those with
+      // 0 rows and error === null, which is indistinguishable from a real empty
+      // result at this layer. Readability is enforced by the policy instead.
+      if (error) throw error;
       const rows = (data ?? []) as EvidenceRow[];
       return { rows, truncated: rows.length >= EVIDENCE_SCAN_LIMIT };
     },
