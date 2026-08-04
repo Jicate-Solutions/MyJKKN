@@ -1,7 +1,13 @@
 -- ============================================================================
 -- 20260809101100 — sort job titles into the four groups JKKN already has
 --
--- 🛑 FILE ONLY — NOT APPLIED TO ANY DATABASE. Director-gated apply.
+-- ✅ APPLIED TO PRODUCTION 2026-08-04 under Director authorisation.
+--    Rehearsed in BEGIN..ROLLBACK first; residue verified 0 in a separate call.
+--    Result matched the rehearsal exactly: hr_staff_details 543 → 583 rows
+--    (40 INSERT + 274 UPDATE), designation_id and cadre_id set on 314.
+--    Cadres populated: Teaching 284 · Supporting (Technical) 20 ·
+--    Non-Technical 9 · Administrative 1. 543 people remain for a human to
+--    sort on /hr/admin/designation-mapping, which is the point of this PR.
 --
 -- WHY THIS ADDS NO COLUMN
 -- -----------------------
