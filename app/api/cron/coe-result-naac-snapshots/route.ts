@@ -8,11 +8,16 @@
 // coe_naac_evidence snapshot rows, and fans each row out to
 // quality_evidence_mappings → NAAC 8.2.2 ("Pass percentage in university
 // examinations") on the junction's natural key (source_table, source_id,
-// body_code, metric_code, programme_id, institution_id), is_auto=true. That
-// key is the arbiter of the upsert below and must be named in FULL — see
-// migrations 20260809000000 and 20260809101400. Manually-curated (is_auto=false)
-// mappings are NEVER clobbered (pre-excluded before the upsert — PostgREST
-// upserts cannot carry a conditional ON CONFLICT, so the guard runs here).
+// body_code, metric_code, programme_id, institution_id), is_auto=true. That key
+// is the arbiter of the upsert below and must be named in FULL or Postgres
+// raises 42P10 — see migrations 20260809000000 and 20260809101400; until the
+// latter is applied everywhere the upsert falls back to the five-column form.
+// Manually-curated (is_auto=false) mappings are NEVER clobbered (pre-excluded
+// before the upsert — PostgREST upserts cannot carry a conditional ON CONFLICT,
+// so the guard runs here). The guard does not need an institution_id predicate:
+// each coe_naac_evidence snapshot is already per institution (upserted on
+// institution_id, metric_code, session_code), so a source_id belongs to exactly
+// one college and can never be shared between two.
 //
 // CROSS-DB NOTE: the computation lives HERE (TypeScript) because no Postgres
 // fn in the MyJKKN project can reach into the COE project — the DB migration
@@ -46,6 +51,10 @@ export const maxDuration = 120;
 import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import {
+  EVIDENCE_CONFLICT_TARGET,
+  EVIDENCE_CONFLICT_TARGET_LEGACY,
+} from '@/lib/types/accreditation';
 import {
   isCoeDbConfigured,
   getAllCoeInstitutions,
@@ -282,19 +291,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       skippedManual = upserted.length - mappingRows.length;
 
       if (mappingRows.length > 0) {
-        const { error: mapErr } = await supabase
+        // Postgres matches an inferred ON CONFLICT target to a unique constraint
+        // EXACTLY, so naming one column too few or too many raises 42P10 — that
+        // is precisely how this upsert failed every night for weeks before
+        // migration 20260809000000. Migration 20260809101400 adds institution_id
+        // to that key so one shared source row can be claimed by every college it
+        // serves. Deploys ship code, not migrations, so at any moment production
+        // may be on EITHER key and a hard-coded target would break in one of the
+        // two orders. Hence: try six, fall back to five on 42P10. Drop the
+        // fallback once 20260809101400 is applied everywhere.
+        let { error: mapErr } = await supabase
           .from('quality_evidence_mappings')
-          // Must name all SIX columns of quality_evidence_mappings_source_scope_key
-          // (…,programme_id,institution_id). Postgres matches the conflict target
-          // to a unique constraint exactly, so naming one column too few raises
-          // 42P10 — that is exactly how this upsert failed every night before
-          // migration 20260809000000. institution_id joined the key in
-          // 20260809101400 so a shared source row can be claimed by every college
-          // it serves; every row written here already carries institution_id.
-          .upsert(mappingRows, {
-            onConflict:
-              'source_table,source_id,body_code,metric_code,programme_id,institution_id',
-          });
+          .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET });
+        if (mapErr?.code === '42P10') {
+          ({ error: mapErr } = await supabase
+            .from('quality_evidence_mappings')
+            .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET_LEGACY }));
+        }
         if (mapErr) {
           return NextResponse.json(
             { ok: false, error: `quality_evidence_mappings upsert failed: ${mapErr.message}` },

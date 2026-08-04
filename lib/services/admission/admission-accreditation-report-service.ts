@@ -21,6 +21,10 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  EVIDENCE_CONFLICT_TARGET,
+  EVIDENCE_CONFLICT_TARGET_LEGACY,
+} from '@/lib/types/accreditation';
 
 export interface NAACEnrollmentRow {
   institution_name: string;
@@ -200,18 +204,22 @@ export class AdmissionAccreditationReportService {
       },
     ];
 
-    const { data, error } = await (this.supabase as any)
-      .from('quality_evidence_mappings')
-      .upsert(evidenceRows, {
-        // All SIX columns of quality_evidence_mappings_source_scope_key — the
-        // conflict target must match the constraint exactly or Postgres raises
-        // 42P10. institution_id joined the key in migration 20260809101400 so
-        // one shared source row can be claimed by every college it serves.
-        onConflict:
-          'source_table,source_id,body_code,metric_code,programme_id,institution_id',
-        ignoreDuplicates: true,
-      })
-      .select();
+    // The conflict target must match quality_evidence_mappings_source_scope_key
+    // EXACTLY or Postgres raises 42P10. institution_id joins that key in
+    // migration 20260809101400, but deploys ship code and not migrations, so
+    // production may be on either key when this runs. Try six, fall back to
+    // five — correct under both, no deploy window. Drop the fallback once
+    // 20260809101400 is applied everywhere.
+    const upsert = (onConflict: string) =>
+      (this.supabase as any)
+        .from('quality_evidence_mappings')
+        .upsert(evidenceRows, { onConflict, ignoreDuplicates: true })
+        .select();
+
+    let { data, error } = await upsert(EVIDENCE_CONFLICT_TARGET);
+    if (error?.code === '42P10') {
+      ({ data, error } = await upsert(EVIDENCE_CONFLICT_TARGET_LEGACY));
+    }
 
     if (error) {
       console.error('[admission/accreditation] emitEnrollmentEvidence failed:', error);

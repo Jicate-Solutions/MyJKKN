@@ -10,6 +10,39 @@ import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
 export type { AccreditationBodyCode };
 
 /**
+ * The `ON CONFLICT` arbiter for `quality_evidence_mappings`, as one constant
+ * rather than a string repeated per call site.
+ *
+ * PostgreSQL matches an inferred conflict target to a unique constraint
+ * EXACTLY: name one column too few or too many and the statement raises 42P10,
+ * "there is no unique or exclusion constraint matching the ON CONFLICT
+ * specification". Every writer therefore has to move in lockstep with
+ * `quality_evidence_mappings_source_scope_key` — and the last time they did
+ * not, 22 functions raised 42P10 and five nightly routines failed for weeks
+ * before anyone read the error (migration 20260809000000).
+ *
+ * Two copies of this string in two files is that same bug waiting to happen,
+ * so there is one copy and both writers import it.
+ */
+export const EVIDENCE_CONFLICT_TARGET =
+  'source_table,source_id,body_code,metric_code,programme_id,institution_id';
+
+/**
+ * The five-column arbiter that was live before migration 20260809101400 added
+ * `institution_id`.
+ *
+ * TRANSITIONAL. Deploys ship code, not migrations, so production may be on
+ * either key at any moment and a hard-coded target would break in one of the
+ * two orders. Writers try {@link EVIDENCE_CONFLICT_TARGET} first and fall back
+ * to this one on SQLSTATE 42P10, which makes them correct under both schemas
+ * and removes the deploy window entirely.
+ *
+ * Delete this, and the fallbacks, once 20260809101400 is applied everywhere.
+ */
+export const EVIDENCE_CONFLICT_TARGET_LEGACY =
+  'source_table,source_id,body_code,metric_code,programme_id';
+
+/**
  * Static metadata for the 10 compliance bodies. Rendered on the landing page
  * and drives routing + display. Sequence is intentional:
  * 1. Cross-cutting (NAAC, UGC) first

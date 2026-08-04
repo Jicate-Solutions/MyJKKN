@@ -106,18 +106,62 @@
 -- 22 functions - 35 conflict clauses.
 --
 -- ----------------------------------------------------------------------------
--- CODE HALF (shipped in the same PR, safe to deploy before OR after this file)
+-- CODE HALF — deployable in EITHER order, no window
 --
--- Two PostgREST writers name the arbiter as a string and move with it:
+-- Two PostgREST writers name the arbiter as a string:
 --   app/api/cron/coe-result-naac-snapshots/route.ts
 --   lib/services/admission/admission-accreditation-report-service.ts
 -- Both already set institution_id on every row they write.
 --
--- ORDERING: those two upserts break if the code half is deployed while the DB
--- half is unapplied (they would name six columns against a five-column key ->
--- 42P10), and equally if the DB half lands while the old code is live. There is
--- no ordering that avoids a window; the window must be kept short and the two
--- halves coordinated. Everything else in the PR is inert either way.
+-- A hard-coded six-column string would raise 42P10 for as long as this file is
+-- unapplied, and a hard-coded five-column string raises it the moment the file
+-- IS applied — there is no ordering that avoids a window. So neither is
+-- hard-coded: both writers try six columns and fall back to five on 42P10, and
+-- are therefore correct under BOTH schemas. Delete the fallback once this file
+-- has been applied everywhere.
+--
+-- ============================================================================
+-- 🛑 BLOCKING PREREQUISITE — DO NOT APPLY THIS FILE ON ITS OWN
+-- ============================================================================
+--
+-- Widening the key lets two colleges hold a claim on one source row. The 22
+-- writers are NOT ready for that state. Measured on production 2026-08-04
+-- against the live definitions:
+--
+--   · 18 of 18 withdrawal DELETEs against quality_evidence_mappings match on
+--     (source_table, source_id[, metric_code]) with NO institution_id predicate.
+--     Once two colleges legitimately claim one source, college A's trigger
+--     firing a withdrawal DELETES COLLEGE B's CLAIM. Cross-tenant row deletion,
+--     introduced by this change, silent.
+--
+--   ·  7 of 11 catch-up anti-joins (NOT EXISTS ... quality_evidence_mappings)
+--     likewise omit institution_id, so a stale row for the wrong institution
+--     satisfies the anti-join and the corrected claim is never emitted.
+--
+--   · the 12 "institution_id = EXCLUDED.institution_id" assignments were the
+--     institution CORRECTION path. With institution_id in the arbiter, a
+--     re-stamp (a learner transferring college, an audit_cycle's institution
+--     edited, a CO/PO row moved between the CAS Aided/Self twins) no longer
+--     UPDATEs the row in place — it INSERTs a second one and orphans the first.
+--     count(DISTINCT institution_id) then reads 2, and shared_count reports
+--     drift as sharing. That is a FABRICATED value for the exact metric this
+--     migration exists to produce.
+--
+-- Note also that no writer shipped today ever emits a legitimate second claim
+-- (each resolves exactly one institution per source), so until a writer or a
+-- curation path deliberately creates one, any non-zero shared_count in
+-- production is more likely drift than genuine sharing.
+--
+-- Those three are semantic changes to 22 live function bodies. They are
+-- deliberately NOT in this file, because every body here is a byte-identical
+-- copy of its live definition plus one mechanical insertion, and that property
+-- is what makes this file reviewable. They belong in a companion PR.
+--
+-- REQUIRED ORDER:
+--   1. companion PR institution-scopes the 18 DELETEs and 7 anti-joins, and
+--      replaces the 12 re-stamp assignments with an explicit "delete the auto
+--      claim for the OLD institution, then insert the new one" step
+--   2. THEN apply this file
 --
 -- ----------------------------------------------------------------------------
 -- HOW TO APPLY — NOT DONE BY THIS PR
@@ -125,11 +169,28 @@
 -- This file is NOT applied. Merging it does NOT apply it (nothing in this repo
 -- applies migrations automatically). It changes a constraint that 22 live
 -- SECURITY DEFINER functions depend on, eight of them user-facing triggers, so
--- it needs a named human decision and a chosen window. Apply as ONE statement
--- batch so the whole thing is one transaction, then re-run the assertions.
+-- it needs a named human decision, the prerequisite above, and a chosen window.
+-- Apply as ONE statement batch so the whole thing is one transaction, then
+-- re-run the assertions.
 -- ============================================================================
 
 BEGIN;
+
+-- ----------------------------------------------------------------------------
+-- 0. Capture the privilege census BEFORE anything is replaced, so ASSERT 6 can
+--    prove this migration widened nothing. oid survives CREATE OR REPLACE, so
+--    the join below is stable. Captured by MATCHING THE STALE TARGET, not by a
+--    hand-written name list — if a 23rd writer exists it is captured too.
+-- ----------------------------------------------------------------------------
+CREATE TEMP TABLE _evidence_acl_before ON COMMIT DROP AS
+SELECT p.oid,
+       p.oid::regprocedure::text                                 AS sig,
+       has_function_privilege('anon',          p.oid, 'EXECUTE') AS anon_x,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth_x,
+       has_function_privilege('service_role',  p.oid, 'EXECUTE') AS svc_x
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE n.nspname = 'public'
+   AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*\)';
 
 -- ----------------------------------------------------------------------------
 -- 1. Swap the arbiter. Old name is RESOLVED, never guessed.
@@ -137,6 +198,7 @@ BEGIN;
 DO $swap$
 DECLARE
   v_old text;
+  v_new text;
   v_new_exists int;
   v_old_count  int;
 BEGIN
@@ -152,12 +214,40 @@ BEGIN
          = ARRAY['source_table','source_id','body_code','metric_code','programme_id','institution_id'];
 
   IF v_new_exists > 0 THEN
+    -- Already applied. Fall through to the COMMENT so the re-run is a true
+    -- no-op rather than an error.
     RAISE NOTICE 'six-column evidence key already present - skipping the swap';
-    RETURN;
+  ELSE
+    -- Resolve the FIVE-column constraint by its columns, not by its name.
+    SELECT count(*), min(c.conname) INTO v_old_count, v_old
+      FROM pg_constraint c
+     WHERE c.conrelid = 'public.quality_evidence_mappings'::regclass
+       AND c.contype  = 'u'
+       AND (SELECT array_agg(a.attname::text ORDER BY k.ord)
+              FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+              JOIN pg_attribute a
+                ON a.attrelid = c.conrelid AND a.attnum = k.attnum)
+           = ARRAY['source_table','source_id','body_code','metric_code','programme_id'];
+
+    IF v_old_count <> 1 THEN
+      RAISE EXCEPTION
+        'expected exactly ONE unique constraint on (source_table, source_id, body_code, metric_code, programme_id), found %. Refusing to guess. Another session may be mid-flight in this territory.',
+        v_old_count;
+    END IF;
+
+    EXECUTE format('ALTER TABLE public.quality_evidence_mappings DROP CONSTRAINT %I', v_old);
+    RAISE NOTICE 'dropped %', v_old;
+
+    ALTER TABLE public.quality_evidence_mappings
+      ADD CONSTRAINT quality_evidence_mappings_source_scope_key
+      UNIQUE NULLS NOT DISTINCT
+        (source_table, source_id, body_code, metric_code, programme_id, institution_id);
   END IF;
 
-  -- Resolve the FIVE-column constraint by its columns, not by its name.
-  SELECT count(*), min(c.conname) INTO v_old_count, v_old
+  -- Comment the six-column key by its RESOLVED name. Hard-coding the name here
+  -- would abort the whole transaction with 42704 on the re-run path if the key
+  -- that already exists happens to carry a different one.
+  SELECT c.conname INTO v_new
     FROM pg_constraint c
    WHERE c.conrelid = 'public.quality_evidence_mappings'::regclass
      AND c.contype  = 'u'
@@ -165,27 +255,14 @@ BEGIN
             FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
             JOIN pg_attribute a
               ON a.attrelid = c.conrelid AND a.attnum = k.attnum)
-         = ARRAY['source_table','source_id','body_code','metric_code','programme_id'];
+         = ARRAY['source_table','source_id','body_code','metric_code','programme_id','institution_id'];
 
-  IF v_old_count <> 1 THEN
-    RAISE EXCEPTION
-      'expected exactly ONE unique constraint on (source_table, source_id, body_code, metric_code, programme_id), found %. Refusing to guess. Another session may be mid-flight in this territory.',
-      v_old_count;
-  END IF;
-
-  EXECUTE format('ALTER TABLE public.quality_evidence_mappings DROP CONSTRAINT %I', v_old);
-  RAISE NOTICE 'dropped %', v_old;
-
-  ALTER TABLE public.quality_evidence_mappings
-    ADD CONSTRAINT quality_evidence_mappings_source_scope_key
-    UNIQUE NULLS NOT DISTINCT
-      (source_table, source_id, body_code, metric_code, programme_id, institution_id);
+  EXECUTE format(
+    'COMMENT ON CONSTRAINT %I ON public.quality_evidence_mappings IS %L',
+    v_new,
+    'Natural key of an evidence claim. institution_id is part of it on purpose: one shared source row (a guest lecture, an MoU, a committee) may be claimed by every college it genuinely serves, which is what makes fn_accreditation_evidence_scope.shared_count able to exceed 0. Every ON CONFLICT naming this table must list all SIX columns in this order or PostgreSQL raises 42P10. Withdrawal DELETEs against this table MUST also filter on institution_id, or one college''s withdrawal removes another college''s claim.');
 END
 $swap$;
-
-COMMENT ON CONSTRAINT quality_evidence_mappings_source_scope_key
-  ON public.quality_evidence_mappings IS
-  'Natural key of an evidence claim. institution_id is part of it on purpose: one shared source row (a guest lecture, an MoU, a committee) may be claimed by every college it genuinely serves, which is what makes fn_accreditation_evidence_scope.shared_count able to exceed 0. Every ON CONFLICT naming this table must list all SIX columns in this order or PostgreSQL raises 42P10.';
 
 -- ----------------------------------------------------------------------------
 -- 2. Rebuild all 22 writers onto the six-column target.
@@ -3263,6 +3340,8 @@ DECLARE
   v_stale     int;
   v_fixed     int;
   v_anon      int;
+  v_captured  int;
+  v_drift     int;
   c_names text[] := ARRAY[
     'auto_populate_anti_ragging_evidence','emit_audit_finding_evidence',
     'emit_event_naac_evidence','emit_grievance_evidence',
@@ -3306,20 +3385,32 @@ BEGIN
     RAISE EXCEPTION 'the five-column evidence key still exists (% found) - the DROP did not take', v_old_key;
   END IF;
 
-  -- ASSERT 3 — no function this migration owns may still name only five columns.
+  -- ASSERT 3 — NOT scoped to the name list on purpose. A hand-written census
+  -- can only prove itself right if it already was; scoping the staleness check
+  -- to the 22 names would let a 23rd writer added after the 2026-08-04 capture
+  -- keep the five-column target, pass every assertion, and raise 42P10 on its
+  -- next write. That is exactly the miscount behind the five-week outage this
+  -- migration cites. So: ZERO functions anywhere in public may name five.
   SELECT count(*) INTO v_stale FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = ANY (c_names)
+   WHERE n.nspname = 'public'
      AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*\)';
   IF v_stale <> 0 THEN
-    RAISE EXCEPTION 'evidence key widening incomplete: % of the 22 rewritten function(s) still name only five columns - they would raise 42P10 on the next write', v_stale;
+    RAISE EXCEPTION 'evidence key widening incomplete: % function(s) in schema public still name only five columns and would raise 42P10 on their next write. A writer was added after this migration was generated - regenerate it from live pg_get_functiondef rather than hand-patching.', v_stale;
   END IF;
 
-  -- ASSERT 4 — and all 22 must carry the six-column target.
+  -- ASSERT 4 — every function that HELD the five-column target now carries the
+  -- six-column one. Compared against the pre-swap census (which was itself
+  -- matched by target, not by name), so the count is self-validating.
+  SELECT count(*) INTO v_captured FROM _evidence_acl_before;
+  IF v_captured <> 22 THEN
+    RAISE EXCEPTION 'expected 22 pre-existing five-column writers, captured % - the census this file was generated from is stale. Regenerate.', v_captured;
+  END IF;
+
   SELECT count(*) INTO v_fixed FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = ANY (c_names)
+   WHERE n.nspname = 'public'
      AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*,\s*institution_id\s*\)';
-  IF v_fixed < 22 THEN
-    RAISE EXCEPTION 'expected 22 functions on the six-column target, found %', v_fixed;
+  IF v_fixed < v_captured THEN
+    RAISE EXCEPTION 'expected at least % functions on the six-column target, found %', v_captured, v_fixed;
   END IF;
 
   -- ASSERT 5 — anon may not execute any of them.
@@ -3328,6 +3419,21 @@ BEGIN
      AND has_function_privilege('anon', p.oid, 'EXECUTE');
   IF v_anon <> 0 THEN
     RAISE EXCEPTION 'anon holds EXECUTE on % of the 22 evidence writers', v_anon;
+  END IF;
+
+  -- ASSERT 6 — the REVOKEs above must not have taken anything away. On prod
+  -- 2026-08-04 none of the 22 held EXECUTE via a bare PUBLIC ("=X/owner") ACL
+  -- entry and none had a null proacl, so revoking PUBLIC is a no-op — but that
+  -- is a measurement, and this turns it into an enforced invariant. If a
+  -- function DID depend on the PUBLIC grant, ASSERT 5 would still pass (it only
+  -- looks at anon) and the migration would commit green while the caller starts
+  -- failing 42501.
+  SELECT count(*) INTO v_drift
+    FROM _evidence_acl_before b
+   WHERE b.auth_x IS DISTINCT FROM has_function_privilege('authenticated', b.oid, 'EXECUTE')
+      OR b.svc_x  IS DISTINCT FROM has_function_privilege('service_role',  b.oid, 'EXECUTE');
+  IF v_drift <> 0 THEN
+    RAISE EXCEPTION 'this migration changed EXECUTE for authenticated/service_role on % function(s) - it must only revoke anon and PUBLIC', v_drift;
   END IF;
 END
 $assert$;
