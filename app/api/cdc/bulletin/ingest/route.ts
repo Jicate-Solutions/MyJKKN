@@ -71,17 +71,32 @@ const MAX_PROBLEM_ITEMS = 10;
  * (CREATE TYPE ss_problem_theme in migration 20260227185501). The original
  * sector word is preserved in sub_theme, so no fidelity is lost by mapping.
  */
-const SECTOR_TO_THEME: Record<string, string> = {
-  waste: 'environment',
-  water: 'environment',
-  energy: 'environment',
-  agriculture: 'agriculture',
-  health: 'healthcare',
-  education: 'education',
-  transport: 'community',
-  civic: 'community',
-  other: 'other',
-};
+// Null-prototype Map, NOT an object literal: a plain literal inherits from
+// Object.prototype, so a payload with sector "constructor" / "toString" would
+// resolve to a FUNCTION — truthy, so a `?? 'other'` fallback never fires — and
+// JSON.stringify would then drop `theme` from the row entirely.
+const SECTOR_TO_THEME = new Map<string, ProblemTheme>([
+  ['waste', 'environment'],
+  ['water', 'environment'],
+  ['energy', 'environment'],
+  ['agriculture', 'agriculture'],
+  ['health', 'healthcare'],
+  ['education', 'education'],
+  ['transport', 'community'],
+  ['civic', 'community'],
+  ['other', 'other'],
+]);
+
+/** Values of the ss_problem_theme enum (migration 20260227185501). */
+type ProblemTheme =
+  | 'healthcare'
+  | 'education'
+  | 'agriculture'
+  | 'environment'
+  | 'community'
+  | 'operations'
+  | 'productivity'
+  | 'other';
 
 /**
  * Leadership recipients for the daily brief.
@@ -401,6 +416,12 @@ async function handleBrief(
     .filter(Boolean);
 
   if (userIds.length === 0) {
+    // Loud, not silent: with the pilot audience narrowed to super_admin, an
+    // environment with no active super_admin would otherwise swallow every
+    // brief behind a cheerful 200.
+    console.error(
+      `[cdc/bulletin/ingest/brief] no active recipients for roles ${LEADERSHIP_ROLES.join(', ')} — brief for ${date} reached nobody`
+    );
     return NextResponse.json({ type: 'brief', notified: 0, skipped: 'no_recipients' });
   }
 
@@ -504,7 +525,7 @@ async function handleProblems(
         problem_statement: statement,
         who_affected: str(raw?.who_affected) || null,
         where_occurs: str(raw?.where) || null,
-        theme: SECTOR_TO_THEME[sector] ?? 'other',
+        theme: SECTOR_TO_THEME.get(sector) ?? 'other',
         sub_theme: sector || null,
         severity_rating: severity,
         current_workaround: str(raw?.current_workaround) || null,
