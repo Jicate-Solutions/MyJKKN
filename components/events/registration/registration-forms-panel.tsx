@@ -68,23 +68,7 @@ import { RegistrationFormEditor } from '@/app/(routes)/events/tournament/[id]/re
 import { RegistrationFeeCard } from './registration-fee-card';
 import { FormStateBadge, RegistrationScheduleCard } from './registration-schedule-card';
 import { RegistrationFormShareDialog } from './registration-form-share-dialog';
-
-/**
- * Public registration URL for one form. Absolute so it can be pasted anywhere.
- *
- * Routed by variant. This used to hardcode /p/tournament/ for EVERY event, so a
- * lecture's or convocation's "Copy link" handed out a dead URL — the tournament
- * page filters on event_type = 'sports_tournament' and rejects anything else.
- */
-function publicFormUrl(
-  eventId: string,
-  slug: string,
-  variant: 'tournament' | 'general'
-): string {
-  const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  const base = variant === 'tournament' ? 'tournament' : 'event';
-  return `${origin}/p/${base}/${eventId}/register?form=${encodeURIComponent(slug)}`;
-}
+import { publicFormUrl } from './public-form-url';
 
 /** "₹200 · Delegate fee", or null when the form is free (fee off, or unpriced). */
 function feeLabelFor(form: EventRegistrationFormSummary): string | null {

@@ -22,6 +22,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  QrCode,
   Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -32,6 +33,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -60,7 +67,10 @@ import {
   useDeleteRegistrationForm,
   useUpdateRegistrationForm,
 } from '@/hooks/events/use-tournament-registration-form';
-import type { EventRegistrationFormSummary } from '@/types/tournament';
+import { effectiveFee, type EventRegistrationFormSummary } from '@/types/tournament';
+import { FormStateBadge } from './registration-schedule-card';
+import { RegistrationFormShareDialog } from './registration-form-share-dialog';
+import { publicFormUrl, type EventFormVariant } from './public-form-url';
 
 const dateTime = (iso: string) =>
   new Date(iso).toLocaleString('en-IN', {
@@ -70,11 +80,6 @@ const dateTime = (iso: string) =>
     hour: 'numeric',
     minute: '2-digit',
   });
-
-function publicFormUrl(eventId: string, slug: string): string {
-  const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  return `${origin}/p/tournament/${eventId}/register?form=${encodeURIComponent(slug)}`;
-}
 
 /* ─── Preview ─────────────────────────────────────────────────────
    Renders the form with the SAME component the public page uses, so what an
@@ -221,53 +226,108 @@ function ResponsesDialog({
   );
 }
 
-/* ─── One form card ───────────────────────────────────────────── */
+/* ─── One form card ─────────────────────────────────────────────
+   Actions are ICONS with tooltips rather than labelled buttons: there are seven
+   of them now, and a 2-column grid of text buttons made the card taller than the
+   information it was presenting. */
+
+/** Icon action with an accessible name — the tooltip is not the only label. */
+function CardAction({
+  label,
+  onClick,
+  href,
+  destructive,
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  href?: string;
+  destructive?: boolean;
+  children: React.ReactNode;
+}) {
+  const className = `h-8 w-8 ${destructive ? 'text-destructive hover:text-destructive' : ''}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {href ? (
+          <Button asChild variant="ghost" size="icon" className={className}>
+            <Link href={href} aria-label={label}>
+              {children}
+            </Link>
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            className={className}
+            onClick={onClick}
+            aria-label={label}
+          >
+            {children}
+          </Button>
+        )}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function FormCard({
   eventId,
   form,
+  variant,
   editHref,
   onPreview,
   onResponses,
   onDuplicate,
   onDelete,
+  onShare,
   onToggle,
   toggling,
 }: {
   eventId: string;
   form: EventRegistrationFormSummary;
+  variant: EventFormVariant;
   editHref: string;
   onPreview: () => void;
   onResponses: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onShare: () => void;
   onToggle: () => void;
   toggling: boolean;
 }) {
   const copyLink = async () => {
     try {
-      await navigator.clipboard.writeText(publicFormUrl(eventId, form.slug));
+      await navigator.clipboard.writeText(publicFormUrl(eventId, form.slug, variant));
       toast.success('Registration link copied');
     } catch {
       toast.error('Could not copy the link');
     }
   };
 
+  const fee = effectiveFee(form);
+
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-base leading-tight">{form.name}</CardTitle>
-          {form.is_enabled ? (
-            <Badge variant="success" className="shrink-0">
-              Open
-            </Badge>
-          ) : (
-            <Badge variant="secondary" className="shrink-0">
-              Closed
+          {/* Four states, not two: a form can be enabled yet Scheduled or
+              Expired, and "Open" would be a lie in both cases. */}
+          <span className="shrink-0">
+            <FormStateBadge form={form} />
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-mono text-xs text-muted-foreground">/{form.slug}</p>
+          {fee > 0 && (
+            <Badge variant="outline" className="font-normal">
+              ₹{fee.toLocaleString('en-IN')}
+              {form.fee_label ? ` · ${form.fee_label}` : ''}
             </Badge>
           )}
         </div>
-        <p className="font-mono text-xs text-muted-foreground">/{form.slug}</p>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-3">
@@ -290,47 +350,46 @@ function FormCard({
 
         <Separator />
 
-        {/* The four asked-for actions, then the secondary row. */}
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={onPreview}>
-            <Eye className="h-3.5 w-3.5" /> Preview
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={onResponses}>
-            <Inbox className="h-3.5 w-3.5" /> Responses
-          </Button>
-          <Button asChild variant="outline" size="sm" className="gap-1.5">
-            <Link href={editHref}>
-              <Pencil className="h-3.5 w-3.5" /> Edit
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 text-destructive hover:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 className="h-3.5 w-3.5" /> Delete
-          </Button>
-        </div>
+        {/* Every action as an icon. Share is the new one — it opens the QR +
+            link dialog, which is the thing an organizer actually hands out. */}
+        <TooltipProvider delayDuration={200}>
+          <div className="mt-auto flex flex-wrap items-center gap-0.5 pt-1">
+            <CardAction label="Preview form" onClick={onPreview}>
+              <Eye className="h-4 w-4" />
+            </CardAction>
+            <CardAction label="View responses" onClick={onResponses}>
+              <Inbox className="h-4 w-4" />
+            </CardAction>
+            <CardAction label="Edit questions" href={editHref}>
+              <Pencil className="h-4 w-4" />
+            </CardAction>
+            <CardAction label="Copy registration link" onClick={copyLink}>
+              <Link2 className="h-4 w-4" />
+            </CardAction>
+            <CardAction label="QR code & sharing" onClick={onShare}>
+              <QrCode className="h-4 w-4" />
+            </CardAction>
+            <CardAction label="Duplicate form" onClick={onDuplicate}>
+              <Copy className="h-4 w-4" />
+            </CardAction>
+            <CardAction label="Delete form" onClick={onDelete} destructive>
+              <Trash2 className="h-4 w-4" />
+            </CardAction>
 
-        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-          <Button variant="ghost" size="sm" className="gap-1.5" onClick={copyLink}>
-            <Link2 className="h-3.5 w-3.5" /> Copy link
-          </Button>
-          <Button variant="ghost" size="sm" className="gap-1.5" onClick={onDuplicate}>
-            <Copy className="h-3.5 w-3.5" /> Duplicate
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto"
-            disabled={toggling}
-            onClick={onToggle}
-          >
-            {toggling && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-            {form.is_enabled ? 'Close' : 'Open'}
-          </Button>
-        </div>
+            {/* Stays a labelled button: it changes state rather than opening
+                something, and an icon alone would not say which way it flips. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto"
+              disabled={toggling}
+              onClick={onToggle}
+            >
+              {toggling && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              {form.is_enabled ? 'Set inactive' : 'Set active'}
+            </Button>
+          </div>
+        </TooltipProvider>
       </CardContent>
     </Card>
   );
@@ -340,10 +399,20 @@ function FormCard({
 export function EventFormCards({
   eventId,
   editHrefFor,
+  variant = 'general',
+  eventName,
 }: {
   eventId: string;
   /** Where Edit goes. The builder route differs for tournaments vs general events. */
   editHrefFor: (formId: string) => string;
+  /**
+   * Which public registration page the links point at. Defaults to 'general'
+   * because this grid's only caller is the general event console — the previous
+   * hardcoded /p/tournament/ meant every link it produced was dead.
+   */
+  variant?: EventFormVariant;
+  /** Used in the share dialog's WhatsApp / email text. */
+  eventName?: string;
 }) {
   const { data: forms, isLoading } = useEventRegistrationForms(eventId);
   const createForm = useCreateRegistrationForm(eventId);
@@ -356,6 +425,7 @@ export function EventFormCards({
     null
   );
   const [deleting, setDeleting] = useState<EventRegistrationFormSummary | null>(null);
+  const [sharing, setSharing] = useState<EventRegistrationFormSummary | null>(null);
   const [creating, setCreating] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
 
@@ -435,6 +505,7 @@ export function EventFormCards({
                 key={form.id}
                 eventId={eventId}
                 form={form}
+                variant={variant}
                 editHref={editHrefFor(form.id)}
                 onPreview={() => setPreviewing(form)}
                 onResponses={() => setViewingResponses(form)}
@@ -442,6 +513,7 @@ export function EventFormCards({
                   cloneForm.mutate({ formId: form.id, newName: `${form.name} (copy)` })
                 }
                 onDelete={() => setDeleting(form)}
+                onShare={() => setSharing(form)}
                 onToggle={() =>
                   updateForm.mutate({
                     formId: form.id,
@@ -454,6 +526,14 @@ export function EventFormCards({
           </div>
         )}
       </CardContent>
+
+      <RegistrationFormShareDialog
+        open={!!sharing}
+        onOpenChange={(o) => !o && setSharing(null)}
+        form={sharing}
+        url={sharing ? publicFormUrl(eventId, sharing.slug, variant) : ''}
+        eventName={eventName}
+      />
 
       {previewing && (
         <PreviewDialog form={previewing} open onClose={() => setPreviewing(null)} />

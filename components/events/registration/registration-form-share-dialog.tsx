@@ -11,7 +11,7 @@
 // The QR encodes the same URL the Copy Link action gives out, built by the
 // caller so the tournament/general routing lives in exactly one place.
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import QRCode from 'qrcode';
 import {
   Dialog,
@@ -51,7 +51,6 @@ export function RegistrationFormShareDialog({
   url: string;
   eventName?: string;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   // Read once per render rather than held in state: a `navigator.share` probe in
   // an effect means setState-in-effect (cascading render), and probing during
   // render would disagree between SSR and hydration. WhatsApp + Email are
@@ -59,15 +58,27 @@ export function RegistrationFormShareDialog({
   // native share is offered only as an extra where it exists.
   const formName = form?.name ?? 'form';
 
-  // Draw straight to the canvas rather than generating a data URL into state:
-  // rendering is a side effect on a DOM node, which is what effects are for, and
-  // it keeps a setState out of the effect body.
-  useEffect(() => {
-    if (!open || !url || !canvasRef.current) return;
-    QRCode.toCanvas(canvasRef.current, url, { width: 240, margin: 1 }).catch(() => {
-      toast.error('Could not render the QR code');
-    });
-  }, [open, url]);
+  /**
+   * CALLBACK REF, not useRef + useEffect. DialogContent renders inside
+   * DialogPrimitive.Portal with no forceMount, so Radix's Presence mounts this
+   * subtree on a LATER commit than the one where `open` flips to true. An effect
+   * keyed on [open, url] therefore fired while the <canvas> was still unmounted,
+   * read a null ref, bailed — and never re-ran, because neither dep changed
+   * again. The QR silently never drew, with no error to show for it.
+   *
+   * A callback ref fires exactly when the node attaches, whenever that is. When
+   * `url` changes its identity changes too, so React detaches and reattaches and
+   * the code redraws for the new URL.
+   */
+  const drawQrTo = useCallback(
+    (canvas: HTMLCanvasElement | null) => {
+      if (!canvas || !url) return;
+      QRCode.toCanvas(canvas, url, { width: 240, margin: 1 }).catch(() => {
+        toast.error('Could not render the QR code');
+      });
+    },
+    [url]
+  );
 
   const copyLink = useCallback(async () => {
     try {
@@ -149,8 +160,11 @@ export function RegistrationFormShareDialog({
         )}
 
         <div className="flex flex-col items-center gap-3 py-2">
+          {/* bg-white is deliberate and not theme-aware: a QR needs a light
+              quiet zone to scan, and a dark-mode card behind a transparent
+              canvas makes it unreadable. */}
           <div className="rounded-lg border bg-white p-3">
-            <canvas ref={canvasRef} />
+            <canvas ref={drawQrTo} width={240} height={240} />
           </div>
           <p className="text-center text-xs text-muted-foreground">
             Scan with a phone camera to open the registration form.

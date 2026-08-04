@@ -3,25 +3,35 @@
 // The four cluster-collaboration reads behind the CAC page's collaboration
 // section.
 //
-// Each one is a plain SELECT from a view that has already done its aggregation
-// in the database. Nothing here computes a cluster figure client-side that the
-// database could have computed once, because the `authenticated` role carries an
-// 8s statement_timeout and this page fires several reads at the same moment.
+// ALL OF THEM COME FROM ONE CALL: `fn_cac_cluster_totals()`, a SECURITY DEFINER
+// function gated on `accreditation.cac.view`. The five hooks below are five
+// views of one cached payload, sharing a query key so React Query issues exactly
+// one request no matter how many panels mount.
 //
-// All five views are `security_invoker`, which is the important thing to hold in
-// mind when reading anything these hooks return. The rows that come back are the
-// rows THIS viewer is allowed to see, not the cluster's true totals. A figure
-// can therefore be lower than reality for a reason that is about the viewer and
-// not about the colleges — so nothing in this file, and nothing in the section
-// that consumes it, may present an absence as a finding without saying which of
-// the two it is. That is the same distinction the measured-metrics section draws
-// between "not captured yet" and "none recorded".
+// WHY THIS STOPPED READING THE VIEWS DIRECTLY.
+// It used to run five `.from('v_cac_...')` selects. Those views are
+// `security_invoker`, so each returned the rows the CALLER may see — and the
+// caller here is a Cluster Academic Council member, whose access rules are
+// usually scoped to one institution. The council was being shown a slice of the
+// cluster it exists to look across, and from the client a hidden row and an
+// absent row are the same empty array. Measured on production 2026-08-01 for a
+// real own-scope council member: the exchange map read 0 hub and 0 peer
+// bookings and the overlap panel read 0 shared course titles, where the cluster
+// truly holds 63, 15 and 1,067. The page's honest "this may be narrower than the
+// cluster" footnote was doing the only thing a page can do about that, and it
+// was not enough for a body whose entire output is the cluster-wide reading.
+//
+// The function reads the same five views as its definer, so the figures below
+// are now the cluster's, identically for every council member. The views
+// themselves no longer grant `authenticated` anything — the permission is
+// enforced on the data and not only on the screen.
 //
 // Read-only throughout. There is no mutation to add later: every number here is
 // derived from another module's records, and the way to change one is to use
 // that module.
 // ============================================================================
 
+import { useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -92,13 +102,16 @@ export interface CacIsolationRow {
   teaching_received: number;
 }
 
+/**
+ * One key, deliberately.
+ *
+ * There were five — one per view — when there were five requests. Now there is
+ * one request, and five keys would be five cache entries fetching the same
+ * payload. Every hook below reads this key and narrows the result with `select`,
+ * which is what makes four panels cost one round trip.
+ */
 export const cacClusterKeys = {
   all: ['accreditation', 'cac-cluster'] as const,
-  funnel: () => [...cacClusterKeys.all, 'funnel'] as const,
-  edges: () => [...cacClusterKeys.all, 'edges'] as const,
-  overlap: () => [...cacClusterKeys.all, 'overlap'] as const,
-  overlapSummary: () => [...cacClusterKeys.all, 'overlap-summary'] as const,
-  isolation: () => [...cacClusterKeys.all, 'isolation'] as const,
 };
 
 // These records move on other modules' timelines, not this page's. Five minutes
@@ -205,7 +218,9 @@ export function concentration(
 
   const byReceiver = new Map<string, { units: number; sources: number }>();
   ofKind.forEach((e) => {
-    const name = e.receiver_name ?? 'An institution outside your access';
+    // Null only when the LEFT JOIN to `institutions` found no row, now that the
+    // read is cluster-wide. It is no longer a viewer-scope effect.
+    const name = e.receiver_name ?? 'An institution with no row on record';
     const prev = byReceiver.get(name) ?? { units: 0, sources: 0 };
     byReceiver.set(name, { units: prev.units + (e.units ?? 0), sources: prev.sources + 1 });
   });
@@ -244,95 +259,91 @@ export function neverLentToAnyone(rows: CacIsolationRow[]): CacIsolationRow[] {
 }
 
 // ----------------------------------------------------------------------------
-// The reads.
+// The read.
 // ----------------------------------------------------------------------------
 
-export function useCacSolutionFunnel() {
-  return useQuery({
-    queryKey: cacClusterKeys.funnel(),
-    queryFn: async (): Promise<CacFunnelRow[]> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('v_cac_solution_funnel')
-        .select('*')
-        .order('departments_activated', { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as CacFunnelRow[];
-    },
-    ...SHARED_QUERY_OPTIONS,
-  });
-}
-
-export function useCacExchangeEdges() {
-  return useQuery({
-    queryKey: cacClusterKeys.edges(),
-    queryFn: async (): Promise<CacExchangeEdge[]> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('v_cac_exchange_edges')
-        .select('*')
-        .order('units', { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as CacExchangeEdge[];
-    },
-    ...SHARED_QUERY_OPTIONS,
-  });
+/** Everything `fn_cac_cluster_totals()` returns, in one payload. */
+export interface CacClusterTotals {
+  funnel: CacFunnelRow[];
+  edges: CacExchangeEdge[];
+  /** The widest-spanning shared titles only — see OVERLAP_CAP. */
+  overlap: CacOverlapRow[];
+  overlap_summary: CacOverlapSummary | null;
+  isolation: CacIsolationRow[];
 }
 
 /**
- * The widest-spanning shared titles only.
- *
- * The view holds one row per shared title and there are over a thousand of them.
- * Pulling all of them to show a dozen would put a payload on the wire that the
- * panel has no use for, so the limit lives here and the denominators come from
- * the summary view instead of from `data.length`.
+ * How many shared course titles the function returns, which is NOT how many
+ * exist. There were 1,067 on production on 2026-08-01 and the panel shows a
+ * dozen. The true count is never taken from `overlap.length` — it comes from
+ * `overlap_summary.shared_titles`, which is computed over all of them — so the
+ * denominator on screen stays honest while the payload stays small.
  */
-export function useCacCurriculumOverlap(limit = 15) {
+export const OVERLAP_CAP = 50;
+
+async function fetchClusterTotals(): Promise<CacClusterTotals> {
+  const sb = createClientSupabaseClient() as any;
+  const { data, error } = await sb.rpc('fn_cac_cluster_totals');
+  if (error) throw error;
+
+  // The function always returns all five keys, but defaulting here means a
+  // future key rename surfaces as an empty panel rather than a crash inside a
+  // `.filter` on undefined.
+  const payload = (data ?? {}) as Partial<CacClusterTotals>;
+  return {
+    funnel: payload.funnel ?? [],
+    edges: payload.edges ?? [],
+    overlap: payload.overlap ?? [],
+    overlap_summary: payload.overlap_summary ?? null,
+    isolation: payload.isolation ?? [],
+  };
+}
+
+/**
+ * The shared read. Every hook below goes through here with the same query key,
+ * so the four panels share one request and one cache entry, each narrowing the
+ * payload with its own `select`.
+ */
+function useClusterTotals<TSelected>(select: (totals: CacClusterTotals) => TSelected) {
   return useQuery({
-    queryKey: [...cacClusterKeys.overlap(), limit],
-    queryFn: async (): Promise<CacOverlapRow[]> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('v_cac_curriculum_overlap')
-        .select('*')
-        .order('institution_count', { ascending: false })
-        .order('course_title', { ascending: true })
-        .limit(limit);
-      if (error) throw error;
-      return (data ?? []) as CacOverlapRow[];
-    },
+    queryKey: cacClusterKeys.all,
+    queryFn: fetchClusterTotals,
+    select,
     ...SHARED_QUERY_OPTIONS,
   });
+}
+
+const pickFunnel = (t: CacClusterTotals) => t.funnel;
+const pickEdges = (t: CacClusterTotals) => t.edges;
+const pickOverlapSummary = (t: CacClusterTotals) => t.overlap_summary;
+const pickIsolation = (t: CacClusterTotals) => t.isolation;
+
+export function useCacSolutionFunnel() {
+  return useClusterTotals(pickFunnel);
+}
+
+export function useCacExchangeEdges() {
+  return useClusterTotals(pickEdges);
+}
+
+/**
+ * The widest-spanning shared titles, longest span first.
+ *
+ * `limit` can only narrow what the function already returned; asking for more
+ * than OVERLAP_CAP yields OVERLAP_CAP.
+ */
+export function useCacCurriculumOverlap(limit = 15) {
+  const select = useCallback(
+    (t: CacClusterTotals) => t.overlap.slice(0, limit),
+    [limit],
+  );
+  return useClusterTotals(select);
 }
 
 export function useCacCurriculumOverlapSummary() {
-  return useQuery({
-    queryKey: cacClusterKeys.overlapSummary(),
-    queryFn: async (): Promise<CacOverlapSummary | null> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('v_cac_curriculum_overlap_summary')
-        .select('*')
-        .maybeSingle();
-      if (error) throw error;
-      return (data ?? null) as CacOverlapSummary | null;
-    },
-    ...SHARED_QUERY_OPTIONS,
-  });
+  return useClusterTotals(pickOverlapSummary);
 }
 
 export function useCacCollaborationIsolation() {
-  return useQuery({
-    queryKey: cacClusterKeys.isolation(),
-    queryFn: async (): Promise<CacIsolationRow[]> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('v_cac_collaboration_isolation')
-        .select('*')
-        .order('institution_name', { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as CacIsolationRow[];
-    },
-    ...SHARED_QUERY_OPTIONS,
-  });
+  return useClusterTotals(pickIsolation);
 }

@@ -424,6 +424,11 @@ export default function GeneralEventDetailPage() {
         <EventFormCards
           eventId={event.id}
           editHrefFor={(formId) => `/events/${event.id}/registration-form?form=${formId}`}
+          // General events register at /p/event/…, not /p/tournament/… — this
+          // grid used to hardcode the tournament path, so every link and QR it
+          // produced was dead.
+          variant="general"
+          eventName={event.name}
         />
 
         {isSchoolOfInfluence && (
