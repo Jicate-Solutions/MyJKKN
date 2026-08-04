@@ -171,8 +171,9 @@ export class AdmissionAccreditationReportService {
    * Same source_id semantics as PR-A5 (polymorphic — source_table is the
    * academic_years row or snapshot identifier).
    *
-   * Idempotent via UNIQUE constraint on
-   * (source_table, source_id, body_code, metric_code).
+   * Idempotent via UNIQUE constraint quality_evidence_mappings_source_scope_key
+   * on (source_table, source_id, body_code, metric_code, programme_id,
+   * institution_id).
    */
   static async emitEnrollmentEvidence(
     institutionId: string,
@@ -202,9 +203,12 @@ export class AdmissionAccreditationReportService {
     const { data, error } = await (this.supabase as any)
       .from('quality_evidence_mappings')
       .upsert(evidenceRows, {
-        // All FIVE columns of quality_evidence_mappings_source_scope_key — a
-        // four-column target does not match the constraint and raises 42P10.
-        onConflict: 'source_table,source_id,body_code,metric_code,programme_id',
+        // All SIX columns of quality_evidence_mappings_source_scope_key — the
+        // conflict target must match the constraint exactly or Postgres raises
+        // 42P10. institution_id joined the key in migration 20260809101400 so
+        // one shared source row can be claimed by every college it serves.
+        onConflict:
+          'source_table,source_id,body_code,metric_code,programme_id,institution_id',
         ignoreDuplicates: true,
       })
       .select();

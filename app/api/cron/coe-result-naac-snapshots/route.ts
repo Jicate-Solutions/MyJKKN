@@ -8,7 +8,9 @@
 // coe_naac_evidence snapshot rows, and fans each row out to
 // quality_evidence_mappings → NAAC 8.2.2 ("Pass percentage in university
 // examinations") on the junction's natural key (source_table, source_id,
-// body_code, metric_code), is_auto=true. Manually-curated (is_auto=false)
+// body_code, metric_code, programme_id, institution_id), is_auto=true. That
+// key is the arbiter of the upsert below and must be named in FULL — see
+// migrations 20260809000000 and 20260809101400. Manually-curated (is_auto=false)
 // mappings are NEVER clobbered (pre-excluded before the upsert — PostgREST
 // upserts cannot carry a conditional ON CONFLICT, so the guard runs here).
 //
@@ -282,14 +284,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (mappingRows.length > 0) {
         const { error: mapErr } = await supabase
           .from('quality_evidence_mappings')
-          // Must name all FIVE columns of quality_evidence_mappings_source_scope_key
-          // (…,programme_id). Postgres matches the conflict target to a unique
-          // constraint exactly, so a four-column target raises 42P10 and this
-          // upsert has been failing every night. The constraint is NULLS NOT
-          // DISTINCT and programme_id is NULL on every existing row, so adding it
-          // changes no dedupe behaviour today.
+          // Must name all SIX columns of quality_evidence_mappings_source_scope_key
+          // (…,programme_id,institution_id). Postgres matches the conflict target
+          // to a unique constraint exactly, so naming one column too few raises
+          // 42P10 — that is exactly how this upsert failed every night before
+          // migration 20260809000000. institution_id joined the key in
+          // 20260809101400 so a shared source row can be claimed by every college
+          // it serves; every row written here already carries institution_id.
           .upsert(mappingRows, {
-            onConflict: 'source_table,source_id,body_code,metric_code,programme_id',
+            onConflict:
+              'source_table,source_id,body_code,metric_code,programme_id,institution_id',
           });
         if (mapErr) {
           return NextResponse.json(
