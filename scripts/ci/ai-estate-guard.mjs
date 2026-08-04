@@ -237,8 +237,14 @@ async function checkScheduledWorkflows() {
   const failing = [];
   for (const wf of workflows) {
     if (wf.state !== 'active') continue;
+    // MUST be the per-workflow runs endpoint. The collection endpoint
+    // /actions/runs?workflow_id=… silently IGNORES workflow_id and returns the
+    // repo's most recent run instead — which made every workflow look like it
+    // shared one failing run. Caught in testing on 2026-08-04; had it shipped,
+    // the digest would have cried wolf 25 times a day and been ignored within a
+    // week, which is the exact failure this guard exists to prevent.
     const runRes = await fetch(
-      `https://api.github.com/repos/${GH_REPO}/actions/runs?workflow_id=${wf.id}&event=schedule&per_page=1`,
+      `https://api.github.com/repos/${GH_REPO}/actions/workflows/${wf.id}/runs?event=schedule&per_page=1`,
       { headers }
     );
     if (!runRes.ok) continue;
