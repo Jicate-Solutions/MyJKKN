@@ -271,11 +271,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     //                   false signal this field exists to prevent.
     let conflictTargetUsed: 'scoped' | 'legacy' | 'not_attempted' = 'not_attempted';
     if (upserted.length > 0) {
-      // institution_id is selected and matched, not just source_id. Once the
-      // six-column key is live a MANUAL claim on the same source_id can belong
-      // to a DIFFERENT college — and matching on source_id alone would let that
-      // college's curated row suppress this college's legitimate auto row, which
-      // is precisely the cross-tenant mapping the widened key exists to permit.
+      // THE EXCLUSION SET MUST MATCH THE KEY THAT IS ACTUALLY LIVE.
+      //
+      // Under the FIVE-column key (live everywhere today) institution_id is not
+      // part of the arbiter, so a manual row owned by ANOTHER college collides
+      // with this upsert. Excluding on (source_id, institution_id) would leave it
+      // out of the set, and DO UPDATE would silently overwrite a curated row —
+      // flipping is_auto to true and re-stamping its tenant. Under the SIX-column
+      // key the opposite holds: excluding on source_id alone lets one college's
+      // manual claim suppress another college's legitimate auto row.
+      //
+      // So both sets are built, and the one matching the target actually used is
+      // applied. source_id-only for the legacy path — over-excluding merely skips
+      // a row, while under-excluding destroys curated data.
       const { data: manual, error: manualErr } = await supabase
         .from('quality_evidence_mappings')
         .select('source_id, institution_id')
@@ -287,25 +295,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           { status: 500 },
         );
       }
-      const manualKeys = new Set(
+      const manualSourceIds = new Set((manual ?? []).map((m) => m.source_id as string));
+      const manualComposite = new Set(
         (manual ?? []).map((m) => `${m.source_id as string}::${m.institution_id as string}`),
       );
 
-      const mappingRows = upserted
-        .filter((s) => !manualKeys.has(`${s.id}::${s.institution_id}`))
-        .map((s) => ({
-          source_table: 'coe_naac_evidence',
-          source_id: s.id,
-          institution_id: s.institution_id,
-          body_code: 'NAAC',
-          metric_code: s.metric_code,
-          period_label: s.ay_label ?? s.session_code,
-          mapped_by: null,
-          is_auto: true,
-          metadata: { ...s.computed, snapshot: true, computed_at: s.computed_at },
-          mapped_at: nowIso,
-        }));
-      skippedManual = upserted.length - mappingRows.length;
+      const toMappingRow = (s: (typeof upserted)[number]) => ({
+        source_table: 'coe_naac_evidence',
+        source_id: s.id,
+        institution_id: s.institution_id,
+        body_code: 'NAAC',
+        metric_code: s.metric_code,
+        period_label: s.ay_label ?? s.session_code,
+        mapped_by: null,
+        is_auto: true,
+        metadata: { ...s.computed, snapshot: true, computed_at: s.computed_at },
+        mapped_at: nowIso,
+      });
+
+      const legacyRows = upserted.filter((s) => !manualSourceIds.has(s.id)).map(toMappingRow);
+      const scopedRows = upserted
+        .filter((s) => !manualComposite.has(`${s.id}::${s.institution_id}`))
+        .map(toMappingRow);
+
+      const mappingRows = legacyRows;
+      skippedManual = upserted.length - legacyRows.length;
 
       if (mappingRows.length > 0) {
         // Postgres matches an inferred ON CONFLICT target to a unique constraint
@@ -332,7 +346,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           .from('quality_evidence_mappings')
           .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET_LEGACY });
         if (mapErr?.code === '42P10') {
+          // Six-column key is live. Re-filter with the composite exclusion set —
+          // under that key a manual claim only shadows the SAME college's auto
+          // row, so the source_id-only set used above would over-exclude.
           conflictTargetUsed = 'scoped';
+          skippedManual = upserted.length - scopedRows.length;
           console.warn(
             '[cron/coe-result-naac-snapshots] five-column evidence conflict target ' +
               'raised 42P10 — migration 20260809101400 IS applied on this database. ' +
@@ -341,7 +359,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           );
           ({ error: mapErr } = await supabase
             .from('quality_evidence_mappings')
-            .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET }));
+            .upsert(scopedRows, { onConflict: EVIDENCE_CONFLICT_TARGET }));
         }
         if (mapErr) {
           return NextResponse.json(
@@ -349,7 +367,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             { status: 500 },
           );
         }
-        mappings = mappingRows.length;
+        mappings =
+          conflictTargetUsed === 'scoped' ? scopedRows.length : mappingRows.length;
       }
     }
 

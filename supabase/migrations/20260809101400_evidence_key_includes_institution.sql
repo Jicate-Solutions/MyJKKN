@@ -116,9 +116,21 @@
 -- A hard-coded six-column string would raise 42P10 for as long as this file is
 -- unapplied, and a hard-coded five-column string raises it the moment the file
 -- IS applied — there is no ordering that avoids a window. So neither is
--- hard-coded: both writers try six columns and fall back to five on 42P10, and
--- are therefore correct under BOTH schemas. Delete the fallback once this file
--- has been applied everywhere.
+-- hard-coded: both writers try one target and fall back on 42P10, and are
+-- therefore correct under BOTH schemas.
+--
+-- ORDER: the LIVE five-column key is tried FIRST, six-column is the fallback.
+-- This file is unapplied everywhere, so leading with six columns would put a
+-- guaranteed 42P10 plus a retry on every single write — a Postgres error logged
+-- nightly, and in the admission path a 400 in the user's browser on every report
+-- generation. Flip the order, or delete the fallback, once this file is applied.
+--
+-- The coe cron route's manual-row exclusion set is key-dependent for the same
+-- reason: under the FIVE-column key institution_id is not in the arbiter, so a
+-- manual claim owned by another college COLLIDES with the nightly upsert and
+-- DO UPDATE would overwrite curated data; under the SIX-column key it does not,
+-- and excluding on source_id alone would instead suppress a legitimate auto row.
+-- It builds both sets and applies the one matching the target it actually used.
 --
 -- ============================================================================
 -- 🛑 BLOCKING PREREQUISITE — ENFORCED BY ASSERT 0, NOT BY THIS COMMENT
