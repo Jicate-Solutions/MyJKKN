@@ -6,6 +6,7 @@ import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
 import { useAuth } from './use-auth';
 import { getRolePermissions, applyBOSFallback } from '@/lib/services/bos/bos-role-permissions';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface UsePermissionsOptions {
   /**
@@ -37,6 +38,57 @@ interface PermissionData {
   isSuperAdmin: boolean;
   userRoles: UserRoleAssignment[];
   primaryRole: UserRoleAssignment | null;
+}
+
+/**
+ * Director's Desk — OR the viewer's live handover keys into the role-derived map.
+ *
+ * WHY THIS EXISTS. `user_has_permission()` in the database was taught to read
+ * handovers, which unlocks the DATA behind every RLS policy. But this hook never
+ * calls that function — it merges `custom_roles.permissions` client-side. Without
+ * the same merge here, a receiver would be able to read the rows and still land on
+ * an access-denied panel guarding them: the exact "fixed one layer, broke one
+ * along" defect this repo has hit three times (see the four-layers rule —
+ * page gate · RLS · RPC · API route).
+ *
+ * FAILS SOFT, DELIBERATELY. This code can reach production before the migration
+ * that creates `fn_my_handover_permissions` is applied — in this repo merging does
+ * not apply migrations, and the two halves ship independently. If the RPC is
+ * missing or RLS refuses it, we log and return the role-derived permissions
+ * untouched. A hard failure here would break permissions for every user on the
+ * platform to deliver a feature only the Director is using yet.
+ *
+ * Handovers can only ever ADD. Nothing here sets a key to false, so no handover
+ * can take away access someone already holds by role.
+ */
+async function applyHandoverGrants(
+  permissions: Record<string, boolean>
+): Promise<Record<string, boolean>> {
+  try {
+    const supabase = createClientSupabaseClient();
+    // `as any`: the generated database types are regenerated from the applied
+    // schema, and this RPC ships in the same PR as the migration that creates
+    // it — so the types cannot know about it yet. Matches the existing house
+    // pattern for new RPCs (195 call sites).
+    const { data, error } = await (supabase as any).rpc(
+      'fn_my_handover_permissions'
+    );
+
+    if (error) {
+      console.warn('[permissions] handover keys unavailable:', error.message);
+      return permissions;
+    }
+
+    if (Array.isArray(data)) {
+      for (const key of data) {
+        if (typeof key === 'string' && key) permissions[key] = true;
+      }
+    }
+  } catch (handoverError) {
+    console.warn('[permissions] handover merge skipped:', handoverError);
+  }
+
+  return permissions;
 }
 
 // Stable fallback references to prevent infinite re-render loops.
@@ -159,7 +211,7 @@ export function usePermissions(
           );
 
           return {
-            permissions: mergedPermissions,
+            permissions: await applyHandoverGrants(mergedPermissions),
             isSuperAdmin: false,
             userRoles: roles,
             primaryRole: roles.find((r) => r.is_primary) || roles[0]
@@ -192,7 +244,13 @@ export function usePermissions(
       );
 
       return {
-        permissions: rolePermissions,
+        // Same merge on the legacy path. Missing it here would make handovers
+        // work for users whose roles resolve via user_roles and silently fail
+        // for those falling back to profiles.role — an intermittent bug that
+        // looks like "it works for some people".
+        permissions: await applyHandoverGrants(
+          rolePermissions as Record<string, boolean>
+        ),
         isSuperAdmin: false,
         userRoles: [],
         primaryRole: null
