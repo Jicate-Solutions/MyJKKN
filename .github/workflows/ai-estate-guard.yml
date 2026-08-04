@@ -62,11 +62,22 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install the one dependency the guard needs
-        run: npm install pg@^8.13.1 --no-save --no-audit --no-fund
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
 
+      # The guard's own tests run on every invocation, and are what a PR proves.
+      # A guard that is not itself tested is a guard that quietly stops guarding
+      # — and the classifier is where the judgement lives, so it is where a
+      # regression would hide.
+      - name: Test the guard
+        run: npx vitest run __tests__/ci/ai-estate-guard.test.ts
+
+      # Skipped on pull_request: PR contexts do not get the secret, and a
+      # credential-less run must never be mistaken for a clean estate. Same
+      # reasoning, and same secret, as anon-exposure-live.yml.
       - name: Read the estate
         id: guard
+        if: github.event_name != 'pull_request'
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,7 +93,7 @@ jobs:
           cat digest.md
 
       - name: Put the digest on the run summary
-        if: always()
+        if: always() && github.event_name != 'pull_request'
         run: cat digest.md >> "$GITHUB_STEP_SUMMARY" || true
 
       # One rolling issue, commented daily. A new issue per day would be 365

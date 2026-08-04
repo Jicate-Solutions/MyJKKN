@@ -64,14 +64,9 @@ const TRANSPORT = DB_URL ? 'postgres' : (MGMT_TOKEN && MGMT_REF ? 'mgmt-api' : n
 const GH_TOKEN = process.env.GITHUB_TOKEN;
 const GH_REPO = process.env.GITHUB_REPOSITORY || 'Jicate-Solutions/MyJKKN';
 
-if (!TRANSPORT) {
-  console.error(
-    'FATAL: no way to reach the database.\n' +
-    '  Set SUPABASE_DB_URL (direct Postgres), or both SUPABASE_ACCESS_TOKEN and\n' +
-    '  SUPABASE_PROJECT_REF (management API).'
-  );
-  process.exit(1);
-}
+// NOTE: the transport check lives inside main(), not here. This module is
+// imported by its own test suite to exercise classify() without a database, and
+// a top-level process.exit(1) would kill the test runner on import.
 
 /* ------------------------------------------------------------------ *
  * Query transport
@@ -133,7 +128,7 @@ const INTAKE_KEYS = ['candidates'];
 // Counters for work they actually COMPLETED.
 const OUTPUT_KEYS = ['generated', 'created', 'recorded', 'measured', 'sent', 'processed'];
 
-function readCounters(status) {
+export function readCounters(status) {
   // Matches "candidates 623", "generated 0", "skipped 19" anywhere in the string.
   const counters = {};
   const re = /\b([a-z_]+)\s+(\d+)\b/gi;
@@ -144,7 +139,7 @@ function readCounters(status) {
   return counters;
 }
 
-function classify(row, now) {
+export function classify(row, now) {
   const status = row.last_status;
   const enabled = row.enabled === true;
 
@@ -371,6 +366,15 @@ function buildReport({ routines, queue, workflows, now }) {
  * ------------------------------------------------------------------ */
 
 async function main() {
+  if (!TRANSPORT) {
+    console.error(
+      'FATAL: no way to reach the database.\n' +
+      '  Set SUPABASE_DB_URL (direct Postgres), or both SUPABASE_ACCESS_TOKEN and\n' +
+      '  SUPABASE_PROJECT_REF (management API).'
+    );
+    process.exit(1);
+  }
+
   const now = Date.now();
 
   let routines, queueRows, workflows;
@@ -408,7 +412,14 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(`FATAL: ${err.stack || err.message}`);
-  process.exit(1);
-});
+// Only sweep when executed directly. Importing this module (the test suite does)
+// must not hit the network.
+const RUN_DIRECTLY =
+  process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+
+if (RUN_DIRECTLY) {
+  main().catch((err) => {
+    console.error(`FATAL: ${err.stack || err.message}`);
+    process.exit(1);
+  });
+}
