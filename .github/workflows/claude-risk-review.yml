@@ -324,7 +324,12 @@ jobs:
           }
 
           if [ ! -s /tmp/claude-review.md ]; then
-            OUTCOME="${SKEPTIC_OUTCOME:-}${PANEL_OUTCOME:-}"
+            # Both are reported by name: only one of the two tiers runs, and
+            # concatenating them produced the unreadable "successskipped".
+            # `success` here with no review file is its own failure mode — the
+            # reviewer claimed to finish but wrote nothing — and is distinct
+            # from the `failure` case where the action itself crashed.
+            OUTCOME="skeptic=${SKEPTIC_OUTCOME:-not-run}, panel=${PANEL_OUTCOME:-not-run}"
             echo "::warning::Claude produced no review file. Advisory job stays green by design, but the PR is now marked NOT REVIEWED."
             # \n escapes + printf %b: a bare newline inside this string would sit
             # at column 0 and terminate the enclosing YAML block scalar.
