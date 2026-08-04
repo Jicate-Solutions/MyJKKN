@@ -1,0 +1,71 @@
+/**
+ * Foundation guide — the session-leader steps must stay on their OWN gate.
+ *
+ * The whole Foundation facilitator lane is gated on `foundation.students.view`.
+ * The one role that actually runs practice sessions — school_faculty — does NOT
+ * hold that key; it holds `foundation.practice.take`, which is what opens
+ * /foundation/practice/facilitate. So the steps for running a session are
+ * composed into that lane under their own key.
+ *
+ * This is fragile in a specific, silent way. `withRequires()` stamps ONE key
+ * across every section handed to it, so anyone who later "tidies" the registry
+ * back into a single call will re-gate these steps on `foundation.students.view`
+ * — and the guide will vanish for precisely the person it was written for, with
+ * no error anywhere. The lane still renders; the section is just gone.
+ *
+ * These assertions run against the COMPOSED registry, not the authored content,
+ * because composition is where the gate is actually decided.
+ */
+import { describe, it, expect } from 'vitest';
+import { foundationGuide } from '@/lib/guide/registry';
+import { REQUIRES } from '@/lib/foundation/guide/content';
+
+const lane = (foundationGuide.lanes as any).facilitator;
+const sections = lane.sections as Array<any>;
+const sessionSection = sections.find((s) => s.id === 'run-a-session');
+
+describe('Foundation Senior Learner lane composition', () => {
+  it('contributes the run-a-session steps into the Senior Learner lane', () => {
+    expect(sessionSection).toBeDefined();
+    expect(sessionSection.steps.length).toBeGreaterThan(0);
+  });
+
+  it('gates them on the key that actually opens the screen, not the lane key', () => {
+    expect(sessionSection.requires).toBe('foundation.practice.take');
+    expect(sessionSection.requires).toBe(REQUIRES.session_leader);
+    // The failure this guards: re-stamped with the lane's own key.
+    expect(sessionSection.requires).not.toBe(REQUIRES.facilitator);
+  });
+
+  it('leaves the pre-existing review sections on their original gate', () => {
+    const others = sections.filter((s) => s.id !== 'run-a-session');
+    expect(others.length).toBeGreaterThan(0);
+    for (const s of others) {
+      expect(s.requires).toBe(REQUIRES.facilitator);
+    }
+  });
+
+  it('points at the session screen, not the operator console', () => {
+    const hrefs = sessionSection.steps
+      .map((s: any) => s.link?.href)
+      .filter(Boolean);
+    expect(hrefs).toContain('/foundation/practice/facilitate');
+    expect(hrefs).not.toContain('/foundation/console');
+  });
+
+  it('keeps session_leader and the review gate as genuinely different keys', () => {
+    // Same VALUE as `learner` today (one permission opens the screen), but it
+    // must never silently become the review gate.
+    expect(REQUIRES.session_leader).not.toBe(REQUIRES.facilitator);
+  });
+
+  it('warns the reader when no group is assigned — the likeliest real state', () => {
+    const text = JSON.stringify(sessionSection).toLowerCase();
+    expect(text).toContain('not running any groups');
+  });
+
+  it('tells the reader to check whose name the answers are filed under', () => {
+    const text = JSON.stringify(sessionSection).toLowerCase();
+    expect(text).toContain('name on screen');
+  });
+});
