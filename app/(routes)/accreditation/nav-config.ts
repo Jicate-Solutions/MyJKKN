@@ -26,6 +26,15 @@ const config: ModuleNavConfig = {
       href: '/accreditation',
       matchPaths: ['/accreditation'],
     },
+    // My Gaps — the per-owner worklist. Sits second because it is the only tab
+    // scoped to the person reading it: every other tab answers "what does this
+    // body want", this one answers "what do I owe". It carries no grade.
+    {
+      label: 'My Gaps',
+      icon: 'ClipboardList',
+      href: '/accreditation/my-gaps',
+      matchPaths: ['/accreditation/my-gaps'],
+    },
     // IQAC — the cell that owns the framework, placed before the report that
     // reads it. The ten body chips below each show one body's slice of
     // sh_accreditation_metrics; this tab shows all 107 rows as one governing

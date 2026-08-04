@@ -1063,6 +1063,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  // Per-owner worklist. Gated on the landing key rather than a new one so the
+  // people already trusted with accreditation can reach it — a key not present
+  // in lib/constants/permissions.ts would be ungrantable and the page would be
+  // reachable by nobody but super-admins.
+  '/accreditation/my-gaps': 'accreditation.view',               // per-owner worklist
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
   // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
   // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
