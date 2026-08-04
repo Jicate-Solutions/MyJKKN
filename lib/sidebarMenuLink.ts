@@ -1480,6 +1480,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/reports/sales': 'ims.reports.view',
   '/ims/reports/stock': 'ims.reports.view',
   '/ims/reports/upi': 'ims.reports.view',
+  '/ims/reports/gateway-payments': 'ims.reports.view',
   // Sales (POS, history, receipt)
   '/ims/sales': 'ims.sales.view',
   '/ims/sales/history': 'ims.sales.view',
