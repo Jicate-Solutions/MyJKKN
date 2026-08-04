@@ -9,15 +9,17 @@
 // quality_evidence_mappings → NAAC 8.2.2 ("Pass percentage in university
 // examinations") on the junction's natural key (source_table, source_id,
 // body_code, metric_code, programme_id, institution_id), is_auto=true. That key
-// is the arbiter of the upsert below and must be named in FULL or Postgres
-// raises 42P10 — see migrations 20260809000000 and 20260809101400; until the
-// latter is applied everywhere the upsert falls back to the five-column form.
+// is the arbiter of the upsert below and its column SET must be named in FULL
+// or Postgres raises 42P10 — see migrations 20260809000000 and 20260809101400.
+// 20260809101400 is unapplied everywhere, so the upsert names the FIVE-column
+// key first and retries with six on 42P10.
 // Manually-curated (is_auto=false) mappings are NEVER clobbered (pre-excluded
 // before the upsert — PostgREST upserts cannot carry a conditional ON CONFLICT,
-// so the guard runs here). The guard does not need an institution_id predicate:
-// each coe_naac_evidence snapshot is already per institution (upserted on
-// institution_id, metric_code, session_code), so a source_id belongs to exactly
-// one college and can never be shared between two.
+// so the guard runs here). That guard matches on (source_id, institution_id),
+// not source_id alone: this route's own snapshots are per institution, but a
+// MANUAL claim on the same source can be curated by ANOTHER college once the
+// six-column key is live, and matching on source_id alone would let it suppress
+// this college's legitimate auto row.
 //
 // CROSS-DB NOTE: the computation lives HERE (TypeScript) because no Postgres
 // fn in the MyJKKN project can reach into the COE project — the DB migration
@@ -260,13 +262,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // (is_auto=false) mappings are pre-excluded here instead.
     let mappings = 0;
     let skippedManual = 0;
-    // 'scoped' = the six-column key (institution_id in the arbiter) is live.
-    // 'legacy' = migration 20260809101400 is not applied on this database.
-    let conflictTargetUsed: 'scoped' | 'legacy' = 'scoped';
+    // 'scoped'        = the six-column key (institution_id in the arbiter) is live.
+    // 'legacy'        = migration 20260809101400 is not applied on this database.
+    // 'not_attempted' = no mapping row was written this run, so the key was never
+    //                   probed. It must NOT default to a real value: a night with
+    //                   zero snapshots would otherwise report the migration's
+    //                   status without having checked it, which is exactly the
+    //                   false signal this field exists to prevent.
+    let conflictTargetUsed: 'scoped' | 'legacy' | 'not_attempted' = 'not_attempted';
     if (upserted.length > 0) {
+      // institution_id is selected and matched, not just source_id. Once the
+      // six-column key is live a MANUAL claim on the same source_id can belong
+      // to a DIFFERENT college — and matching on source_id alone would let that
+      // college's curated row suppress this college's legitimate auto row, which
+      // is precisely the cross-tenant mapping the widened key exists to permit.
       const { data: manual, error: manualErr } = await supabase
         .from('quality_evidence_mappings')
-        .select('source_id')
+        .select('source_id, institution_id')
         .eq('source_table', 'coe_naac_evidence')
         .eq('is_auto', false);
       if (manualErr) {
@@ -275,10 +287,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           { status: 500 },
         );
       }
-      const manualIds = new Set((manual ?? []).map((m) => m.source_id as string));
+      const manualKeys = new Set(
+        (manual ?? []).map((m) => `${m.source_id as string}::${m.institution_id as string}`),
+      );
 
       const mappingRows = upserted
-        .filter((s) => !manualIds.has(s.id))
+        .filter((s) => !manualKeys.has(`${s.id}::${s.institution_id}`))
         .map((s) => ({
           source_table: 'coe_naac_evidence',
           source_id: s.id,
@@ -301,28 +315,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         // to that key so one shared source row can be claimed by every college it
         // serves. Deploys ship code, not migrations, so at any moment production
         // may be on EITHER key and a hard-coded target would break in one of the
-        // two orders. Hence: try six, fall back to five on 42P10. Drop the
-        // fallback once 20260809101400 is applied everywhere.
+        // two orders. Hence: try the LIVE key, fall back on 42P10.
+        //
+        // Live key first, not the six-column one. 20260809101400 is unapplied
+        // everywhere, so leading with six columns would make every run take a
+        // guaranteed 42P10 plus a retry and log a Postgres error nightly for no
+        // gain. Flip the order — or better, delete the fallback — at apply time.
         //
         // The fallback is NOT silent. A silent one would leave nobody able to
         // tell which key production is on, when the fallback stops firing (i.e.
         // when the transitional constant is safe to delete), or when a genuine
         // 42P10 from some third hard-coded writer starts appearing. So the
         // route reports which target it used.
+        conflictTargetUsed = 'legacy';
         let { error: mapErr } = await supabase
           .from('quality_evidence_mappings')
-          .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET });
+          .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET_LEGACY });
         if (mapErr?.code === '42P10') {
-          conflictTargetUsed = 'legacy';
+          conflictTargetUsed = 'scoped';
           console.warn(
-            '[cron/coe-result-naac-snapshots] six-column evidence conflict target ' +
-              'raised 42P10 — migration 20260809101400 is not applied on this database. ' +
-              'Falling back to the five-column key. Under it, a shared source row can be ' +
-              'claimed by only ONE institution.',
+            '[cron/coe-result-naac-snapshots] five-column evidence conflict target ' +
+              'raised 42P10 — migration 20260809101400 IS applied on this database. ' +
+              'Retrying with the six-column key. The legacy constant and this fallback ' +
+              'can now be deleted.',
           );
           ({ error: mapErr } = await supabase
             .from('quality_evidence_mappings')
-            .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET_LEGACY }));
+            .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET }));
         }
         if (mapErr) {
           return NextResponse.json(

@@ -225,7 +225,12 @@ SELECT p.oid,
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public'
    AND p.prokind IN ('f','p')
-   AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*\)';
+   -- FIVE-column OR six-column. Matching only the five-column form would capture
+   -- ZERO rows on the idempotent re-run path, and ASSERT 5 (anon) and ASSERT 6
+   -- (privilege drift) would then pass VACUOUSLY over an empty census while the
+   -- REVOKE block below still ran.
+   AND (pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*\)'
+     OR pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*,\s*institution_id\s*\)');
 
 -- ----------------------------------------------------------------------------
 -- 1. Rebuild all 22 writers onto the six-column target.
@@ -3336,7 +3341,7 @@ BEGIN
   EXECUTE format(
     'COMMENT ON CONSTRAINT %I ON public.quality_evidence_mappings IS %L',
     v_new,
-    'Natural key of an evidence claim. institution_id is part of it on purpose: one shared source row (a guest lecture, an MoU, a committee) may be claimed by every college it genuinely serves, which is what makes fn_accreditation_evidence_scope.shared_count able to exceed 0. Every ON CONFLICT naming this table must list all SIX columns in this order or PostgreSQL raises 42P10. Withdrawal DELETEs against this table MUST also filter on institution_id, or one college''s withdrawal removes another college''s claim.');
+    'Natural key of an evidence claim. institution_id is part of it on purpose: one shared source row (a guest lecture, an MoU, a committee) may be claimed by every college it genuinely serves, which is what makes fn_accreditation_evidence_scope.shared_count able to exceed 0. Every ON CONFLICT naming this table must list all SIX columns — PostgreSQL infers the arbiter by column SET, so the order is free, but the set must match exactly or it raises 42P10. Withdrawal DELETEs against this table MUST also filter on institution_id, or one college''s withdrawal removes another college''s claim.');
 END
 $swap$;
 
@@ -3387,8 +3392,9 @@ DECLARE
   v_captured  int;
   v_drift     int;
   v_unscoped  int;
+  v_restamp   int;
+  v_has_rows  boolean;
   v_variant   int;
-  v_touching  int;
   c_names text[] := ARRAY[
     'auto_populate_anti_ragging_evidence','emit_audit_finding_evidence',
     'emit_event_naac_evidence','emit_grievance_evidence',
@@ -3405,11 +3411,29 @@ DECLARE
 BEGIN
   -- ASSERT 0 — THE BLOCKING PREREQUISITE, ENFORCED.
   --
-  -- No withdrawal DELETE against quality_evidence_mappings may run unscoped by
-  -- institution once two colleges can hold a claim on one source row. Exempt:
-  -- statements keyed on OLD., which are the *_evidence_cleanup_on_delete
-  -- triggers — the source row itself is going away there, so removing every
-  -- college's claim is correct.
+  -- Two hazards are gated here, both introduced BY widening the key:
+  --   (a) a withdrawal DELETE that is not institution-scoped removes another
+  --       college's claim once two colleges can hold one;
+  --   (b) an "institution_id = EXCLUDED.institution_id" re-stamp stops
+  --       correcting a row and starts manufacturing a second one, which
+  --       shared_count then reports as sharing.
+  --
+  -- SCOPE LIMIT, stated rather than implied: this reads pg_proc bodies only. An
+  -- unscoped DELETE issued from application code, from a dynamic EXECUTE string,
+  -- or written with quoted identifiers is invisible to it. The companion PR must
+  -- audit the TypeScript/PostgREST delete call sites too — no in-database gate
+  -- can do that for you.
+  --
+  -- EXEMPT: statements keyed on source_id = OLD.id. Those are the four
+  -- *_evidence_cleanup_on_delete triggers; the source row itself is being
+  -- deleted, so removing every college's claim is correct there. The exemption
+  -- is deliberately that exact shape — an earlier version exempted any mention
+  -- of OLD., which would have waved through
+  -- "source_id = NEW.id AND metric_code <> OLD.metric_code".
+  --
+  -- "Scoped" likewise requires a real predicate (institution_id = / IN), not a
+  -- bare mention: a metadata key, a USING-join column or a comment containing
+  -- the word would otherwise count as tenant-scoping.
   --
   -- [^;]* rather than a non-greedy (.*?) is load-bearing. Postgres ARE decides
   -- greediness for the WHOLE expression from its FIRST quantifier, so a
@@ -3417,6 +3441,11 @@ BEGIN
   -- of the function body — which made an earlier version of this probe report
   -- 15 statements as "already scoped" when in fact zero were. [^;]* cannot
   -- cross a statement boundary whatever the greediness.
+  --
+  -- NOT gated, and therefore not claimed: the 7 catch-up anti-joins. A
+  -- NOT EXISTS subquery has no statement terminator to bound a regex on, and a
+  -- gate that mis-fires would abort a legitimate apply. They stay a documented
+  -- prerequisite. "Enforced" here means DELETEs and re-stamps.
   SELECT count(*) INTO v_unscoped
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace,
@@ -3424,12 +3453,32 @@ BEGIN
             'DELETE\s+FROM\s+(?:public\.)?quality_evidence_mappings([^;]*);', 'gi') AS m
    WHERE n.nspname = 'public'
      AND p.prokind IN ('f','p')
-     AND m[1] !~* 'institution_id'
-     AND m[1] !~* 'OLD\.';
-  IF v_unscoped <> 0 THEN
+     AND m[1] !~* 'institution_id\s*(=|IN)'
+     AND m[1] !~* 'source_id\s*=\s*OLD\.id';
+
+  SELECT count(*) INTO v_restamp
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.prokind IN ('f','p')
+     AND pg_get_functiondef(p.oid) ~* 'institution_id\s*=\s*EXCLUDED\.institution_id';
+
+  -- An EMPTY junction table means there are no claims to destroy and no drift to
+  -- fabricate, which is exactly the from-scratch case: `supabase db reset`, a
+  -- fresh CI database, a new preview branch. Aborting those would break every
+  -- replay for a hazard that cannot exist there, so the gate NOTICEs and
+  -- proceeds instead. It bites on any database holding real evidence — which
+  -- includes production, the only place this file's apply is actually deferred.
+  -- A developer whose fresh database later receives real data still needs the
+  -- companion; this trades a narrow, loud risk for not breaking every reset.
+  SELECT EXISTS (SELECT 1 FROM public.quality_evidence_mappings LIMIT 1) INTO v_has_rows;
+
+  IF (v_unscoped <> 0 OR v_restamp <> 0) AND v_has_rows THEN
     RAISE EXCEPTION
-      'REFUSING TO APPLY: % withdrawal DELETE(s) against quality_evidence_mappings still carry no institution_id predicate. Widening the key while they exist means one college''s withdrawal DELETES another college''s evidence claim, silently. Land the companion PR that institution-scopes them (and the 7 catch-up anti-joins), REGENERATE this file from the post-companion live definitions, then apply. See the BLOCKING PREREQUISITE section in this file''s header.',
-      v_unscoped;
+      'REFUSING TO APPLY: % withdrawal DELETE(s) against quality_evidence_mappings carry no institution_id predicate, and % function(s) still re-stamp institution_id from EXCLUDED. Widening the key while either exists means one college''s withdrawal DELETES another college''s evidence claim, and a corrected stamp MANUFACTURES a second claim that shared_count reports as sharing. Land the companion PR that institution-scopes them (and the 7 catch-up anti-joins, which this gate cannot see), REGENERATE this file from the post-companion live definitions, then apply. See the BLOCKING PREREQUISITE section in this file''s header.',
+      v_unscoped, v_restamp;
+  ELSIF v_unscoped <> 0 OR v_restamp <> 0 THEN
+    RAISE NOTICE
+      'evidence key widening: % unscoped withdrawal DELETE(s) and % re-stamp function(s) remain, but quality_evidence_mappings is EMPTY so nothing can be destroyed here. Proceeding. Do NOT take this as the prerequisite being met.',
+      v_unscoped, v_restamp;
   END IF;
 
   -- ASSERT 1 — the six-column arbiter exists, on exactly those columns in order.
@@ -3496,19 +3545,34 @@ BEGIN
   END IF;
 
   -- ASSERT 4b — ORDER-INSENSITIVE completeness. ASSERT 3 matches one literal
-  -- column order, but PostgreSQL infers a conflict target by column SET: a
-  -- writer naming the same columns in another order, or using
-  -- "ON CONFLICT ON CONSTRAINT <name>", is invisible to it and would raise
-  -- 42P10 on its next write. So: every function that mentions this table AND
-  -- an ON CONFLICT at all must be one of the ones carrying the six-column
-  -- target. No form of the statement escapes both checks.
-  SELECT count(*) INTO v_touching FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  -- column order, but PostgreSQL infers a conflict target by column SET, so a
+  -- writer naming the same columns in another order is invisible to it and
+  -- would raise 42P10 on its next write.
+  --
+  -- Correlated to INSERT statements against THIS table rather than ANDing two
+  -- whole-body ILIKEs: a function that merely reads or DELETEs from the
+  -- junction while upserting some OTHER table would otherwise be counted as an
+  -- unfixed variant and abort a perfectly valid migration.
+  --
+  -- "ON CONFLICT ON CONSTRAINT quality_evidence_mappings_source_scope_key" is
+  -- ACCEPTED, not flagged: the swap above re-adds the key under that same name,
+  -- so a writer naming the constraint keeps working and needs no edit.
+  --
+  -- Known limit: [^;]* stops at the first semicolon, so an INSERT carrying a
+  -- literal ';' before its ON CONFLICT is not seen here. That direction
+  -- UNDER-counts, which is the safe way for a gate to be wrong — and ASSERT 3
+  -- covers the ordinary case schema-wide.
+  SELECT count(*) INTO v_variant
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace,
+    LATERAL regexp_matches(pg_get_functiondef(p.oid),
+            'INSERT\s+INTO\s+(?:public\.)?quality_evidence_mappings([^;]*);', 'gi') AS m
    WHERE n.nspname = 'public' AND p.prokind IN ('f','p')
-     AND pg_get_functiondef(p.oid) ILIKE '%quality_evidence_mappings%'
-     AND pg_get_functiondef(p.oid) ILIKE '%ON CONFLICT%';
-  v_variant := v_touching - v_fixed;
+     AND m[1] ~* 'ON CONFLICT'
+     AND m[1] !~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*,\s*institution_id\s*\)'
+     AND m[1] !~* 'ON CONFLICT\s+ON\s+CONSTRAINT\s+quality_evidence_mappings_source_scope_key';
   IF v_variant <> 0 THEN
-    RAISE EXCEPTION '% function(s) write to quality_evidence_mappings with an ON CONFLICT that is not the six-column target (wrong column order, or ON CONFLICT ON CONSTRAINT). They will raise 42P10 after the swap.', v_variant;
+    RAISE EXCEPTION '% INSERT(s) into quality_evidence_mappings carry an ON CONFLICT that is neither the six-column target nor the named constraint. They will raise 42P10 after the swap.', v_variant;
   END IF;
 
   -- ASSERT 5 — anon may not execute any of them. Checked over the pre-swap

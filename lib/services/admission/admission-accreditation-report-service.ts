@@ -178,14 +178,18 @@ export class AdmissionAccreditationReportService {
    * Idempotent via UNIQUE constraint quality_evidence_mappings_source_scope_key.
    * LIVE TODAY that key is five columns — (source_table, source_id, body_code,
    * metric_code, programme_id). Migration 20260809101400 adds institution_id,
-   * and is not applied anywhere yet, which is why the upsert below still needs
-   * its five-column fallback. Do not delete the fallback on the strength of
-   * this comment; check the live constraint first.
+   * and is not applied anywhere yet, which is why this still carries a
+   * six-column fallback. Do not delete either target on the strength of this
+   * comment; check the live constraint first.
+   *
+   * `conflictTarget` reports which key this call actually landed on — 'legacy'
+   * for the five-column key, 'scoped' once 20260809101400 is applied. Returned
+   * rather than logged because this service runs on the browser client.
    */
   static async emitEnrollmentEvidence(
     institutionId: string,
     academicYearId: string,
-  ): Promise<{ evidenceRowsCreated: number }> {
+  ): Promise<{ evidenceRowsCreated: number; conflictTarget: 'scoped' | 'legacy' }> {
     const evidenceRows = [
       {
         source_table: 'academic_years',
@@ -209,27 +213,27 @@ export class AdmissionAccreditationReportService {
 
     // The conflict target must match quality_evidence_mappings_source_scope_key
     // EXACTLY or Postgres raises 42P10. institution_id joins that key in
-    // migration 20260809101400, but deploys ship code and not migrations, so
-    // production may be on either key when this runs. Try six, fall back to
-    // five — correct under both, no deploy window. Drop the fallback once
-    // 20260809101400 is applied everywhere.
+    // migration 20260809101400, which is unapplied everywhere — so the LIVE
+    // five-column key is tried first and six is the fallback. Leading with six
+    // would put a guaranteed 42P10 plus a retry on every report generation, and
+    // this service runs against the browser client, so that error would surface
+    // as a 400 in the user's network tab and in error monitoring. Flip the order
+    // (or delete the fallback) when 20260809101400 is applied.
     const upsert = (onConflict: string) =>
       (this.supabase as any)
         .from('quality_evidence_mappings')
         .upsert(evidenceRows, { onConflict, ignoreDuplicates: true })
         .select();
 
-    // Not a silent fallback: without this line nobody can tell which key
-    // production is on, nor when the transitional constant becomes safe to
-    // delete, nor when a genuine 42P10 from a third writer starts appearing.
-    let { data, error } = await upsert(EVIDENCE_CONFLICT_TARGET);
+    // Which key was used is RETURNED, not console.warn'd. This service uses the
+    // browser client, so a console warning fires in the end user's tab where no
+    // operator or log aggregator will ever see it — the caller can surface or
+    // record this instead.
+    let conflictTarget: 'scoped' | 'legacy' = 'legacy';
+    let { data, error } = await upsert(EVIDENCE_CONFLICT_TARGET_LEGACY);
     if (error?.code === '42P10') {
-      console.warn(
-        '[admission/accreditation] six-column evidence conflict target raised 42P10 — ' +
-          'migration 20260809101400 is not applied on this database. Falling back to the ' +
-          'five-column key; under it a shared source row can be claimed by only ONE institution.',
-      );
-      ({ data, error } = await upsert(EVIDENCE_CONFLICT_TARGET_LEGACY));
+      conflictTarget = 'scoped';
+      ({ data, error } = await upsert(EVIDENCE_CONFLICT_TARGET));
     }
 
     if (error) {
@@ -237,7 +241,7 @@ export class AdmissionAccreditationReportService {
       throw error;
     }
 
-    return { evidenceRowsCreated: (data ?? []).length };
+    return { evidenceRowsCreated: (data ?? []).length, conflictTarget };
   }
 }
 
