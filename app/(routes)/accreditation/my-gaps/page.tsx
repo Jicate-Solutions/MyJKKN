@@ -546,7 +546,13 @@ export default function MyAccreditationGapsPage() {
 
   if (!canView) return <AccessDenied />;
 
-  const loading = assignmentsLoading || metricsLoading;
+  // `useMyAssignments` is gated on `enabled: !!userId`, and a DISABLED TanStack
+  // query reports isLoading === false with error === null. Without `!userId`
+  // here, any moment where the permission check has cleared but the profile id
+  // has not yet resolved renders "Nothing is assigned to you yet." to someone
+  // whose identity was never established — an answer to a question nobody asked.
+  // Treat an unasked query as still loading.
+  const loading = !userId || assignmentsLoading || metricsLoading;
 
   return (
     <ContentLayout>
