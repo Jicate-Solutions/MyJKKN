@@ -169,7 +169,7 @@ GRANT  EXECUTE ON FUNCTION public.resolve_audience(uuid) TO service_role;
 INSERT INTO public.notification_audiences (name, description, icon, query_type, query_params, is_active)
 SELECT
   'All JKKN College Learners',
-  'Every active learner across the JKKN colleges. Excludes school students (Matric Hr. Sec. and Nattraja Vidhyalya CBSE).',
+  'Every active learner across the JKKN colleges. Excludes school learners (Matric Hr. Sec. and Nattraja Vidhyalya CBSE).',
   'GraduationCap',
   'built_in',
   jsonb_build_object('name', 'college_students'),
