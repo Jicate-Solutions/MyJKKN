@@ -778,6 +778,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
+      // 2026-08-02 — hr_recruitment_scorecards' SELECT policy demanded this key
+      // and it existed nowhere, so interview scorecards were super-admin-only.
+      // Kept as its OWN key rather than folded into hr.recruitment.view: a
+      // scorecard is an interviewer's private assessment of a person, and every
+      // recruiter who may list candidates should not automatically read it.
+      { key: 'hr.recruitment.scorecards.view', label: 'View Interview Scorecards' },
       // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
       // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
       // this comment was aspirational: the policies gated on user_hr_access +
@@ -1205,6 +1211,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.edit', label: 'Edit Counselors' },
       { key: 'admission.counselors.delete', label: 'Delete Counselors' },
       { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+      // 2026-08-02 — admission_counselor_duty_log's SELECT policy demanded this
+      // key and it existed nowhere. Kept separate from performance.view: a duty
+      // log is an attendance-shaped record of an individual's working day.
+      { key: 'admission.counselors.duty_log.view', label: 'View Counselor Duty Log' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
@@ -1520,7 +1530,21 @@ export const PERMISSION_CATEGORIES = [
       // re-assignment control now") — releases HELD CO/PO rollups into the
       // evidence ledger by assigning the right college. Gates
       // fn_copo_restamp_rollup_institution (super admins bypass).
-      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' }
+      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' },
+
+      // 2026-08-02 — registered because the RLS already DEMANDED them.
+      // accreditation_survey_consents and accreditation_submissions carry
+      // policies calling user_has_permission() on these six keys, none of which
+      // existed here, so no role could ever hold one and every non-admin read
+      // and write against those two tables was denied with no way to grant it.
+      // Registering a key grants it to nobody — it only makes it assignable in
+      // Role Management, which is the missing half of the lock.
+      { key: 'accreditation.consents.view', label: 'View Accreditation Survey Consents' },
+      { key: 'accreditation.consents.create', label: 'Record Accreditation Survey Consent' },
+      { key: 'accreditation.consents.withdraw', label: 'Withdraw Accreditation Survey Consent' },
+      { key: 'accreditation.submissions.view', label: 'View Accreditation Submissions' },
+      { key: 'accreditation.submissions.create', label: 'Create Accreditation Submissions' },
+      { key: 'accreditation.submissions.manage', label: 'Manage Accreditation Submissions' }
     ]
   },
   {
@@ -2635,7 +2659,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'rcltp.report.view_all', label: 'View All RCLTP Reports' },
       { key: 'rcltp.report.view_class', label: 'View RCLTP Reports for a Section' },
       { key: 'rcltp.report.view_child', label: 'View RCLTP Reports for Own Ward' },
-      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' }
+      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' },
+      // 2026-08-02 — rcltp_badges, rcltp_learner_badges and rcltp_streaks all
+      // gate on these two keys, neither of which existed here.
+      { key: 'rcltp.reward.view', label: 'View RCLTP Badges & Streaks' },
+      { key: 'rcltp.reward.config', label: 'Configure RCLTP Badges & Streak Rules' }
+    ]
+  },
+  {
+    // Attention Bar — 2026-08-02. The module had ZERO registered permission
+    // keys while six tables (quick_action_audit, quick_action_config,
+    // quick_action_rules, quick_action_state_queries,
+    // notification_generator_config and its audit table) already carried RLS
+    // policies calling user_has_permission() on these four. A key that is
+    // registered nowhere cannot be granted anywhere, so those policies could
+    // only ever pass for is_super_admin()/is_admin(). This registers them so
+    // the access is grantable; it grants nothing to anybody by itself.
+    name: 'Attention Bar',
+    key: 'attention_bar',
+    permissions: [
+      { key: 'attention_bar.rules.view', label: 'View Attention Bar Rules' },
+      { key: 'attention_bar.rules.manage', label: 'Manage Attention Bar Rules & Notification Generators' },
+      { key: 'attention_bar.config.manage', label: 'Manage Attention Bar Config' },
+      { key: 'attention_bar.audit.view', label: 'View Attention Bar Action Audit Trail' }
     ]
   },
   {
