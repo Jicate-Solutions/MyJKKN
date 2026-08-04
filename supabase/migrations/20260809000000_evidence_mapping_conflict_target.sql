@@ -596,9 +596,17 @@ BEGIN
                         WHERE qem.source_table = 'scf_ai_suggestions'
                           AND qem.source_id = s.id
                           AND qem.body_code = 'NAAC' AND qem.metric_code = '7.3.f'))
-  -- deep-review 2026-07-09 dispositions: (a) the arbiter UNIQUE constraint is
-  -- VERIFIED present on prod — quality_evidence_mappings_source_table_source_id_
-  -- body_code__key UNIQUE (source_table, source_id, body_code, metric_code);
+  -- deep-review 2026-07-09 dispositions: (a) the arbiter UNIQUE constraint —
+  -- ⚠️ CORRECTED 2026-08-03. The 2026-07-09 note claimed
+  -- quality_evidence_mappings_source_table_source_id_body_code__key UNIQUE
+  -- (source_table, source_id, body_code, metric_code) was "VERIFIED present on
+  -- prod". That was true when written and is FALSE NOW: the table today carries
+  -- exactly one unique constraint, quality_evidence_mappings_source_scope_key
+  -- UNIQUE NULLS NOT DISTINCT (source_table, source_id, body_code, metric_code,
+  -- programme_id) — five columns — plus the primary key on id. Re-verified
+  -- against pg_constraint AND pg_indexes on 2026-08-03: no four-column unique
+  -- object of any kind exists. The swap therefore happened after 2026-07-09,
+  -- and it is what this migration repairs;
   -- (b) is_auto is NOT NULL DEFAULT false on prod, so "NULL is_auto blocks
   -- refresh" cannot occur — bare WHERE is_auto is exact, and conservatively
   -- treats unknown provenance as never-clobber by design.
