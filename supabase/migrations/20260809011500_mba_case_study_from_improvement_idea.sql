@@ -238,11 +238,19 @@ BEGIN
   RETURNING id INTO v_id;
 
   -- D3: the AI writes the first draft. It can only do that if it is actually TOLD
-  -- something - the job type's prompt_template is the glue '{{prompt}}' and its
-  -- input_schema requires the key 'prompt', which every one of the 30 job types on
-  -- that template carries on 100% of their rows. Assemble it from what is already
-  -- recorded about this improvement: that is the whole point of drafting from a
-  -- verified idea rather than from a blank page.
+  -- something - the job type's prompt_template is the bare glue '{{prompt}}', so
+  -- whatever sits under payload.prompt IS the entire instruction the model receives;
+  -- there is no other text to fall back on. That is not a convention this file is
+  -- inventing: EVERY job type already on the '{{prompt}}' template carries a
+  -- payload.prompt on EVERY one of its rows, with no exceptions and none blank
+  -- (read live 2026-08-04, before this migration inserts its own row). Stated as
+  -- the invariant rather than as a count on purpose - the count moves every time
+  -- somebody adds a job type, the invariant is the thing worth relying on. This
+  -- row's input_schema declares 'prompt' required, which is the majority form but
+  -- not universal: a few of the existing ones declare an empty input_schema and
+  -- still populate the key on every row. Assemble it from what is already recorded
+  -- about this improvement: that is the whole point of drafting from a verified
+  -- idea rather than from a blank page.
   SELECT a.label INTO v_area
     FROM public.improvement_areas a WHERE a.id = v_idea.area_id;
 
@@ -442,9 +450,28 @@ GRANT  EXECUTE ON FUNCTION public.fn_case_study_submit(uuid) TO authenticated;
 --        skipping the learner's hand-in entirely.
 --
 --    (b) THE AUTHOR MAY NEVER GRADE THEIR OWN CASE, whatever permissions they
---        hold. mba_faculty holds board.manage and can also be posted as an
---        associate, so this is a real population, not a theoretical one. Checked
---        against the row itself and NOT short-circuited by is_super_admin.
+--        hold. Checked against the row itself and NOT short-circuited by
+--        is_super_admin.
+--
+--        HONEST ABOUT THE POPULATION: today nobody can hit this. Read live
+--        2026-08-04, 10 people hold improvement.board.manage across those four
+--        roles (6 of them via mba_faculty) and NOT ONE of them appears in
+--        mba_associate_postings in any state, active or inactive - 57 posting
+--        rows, 29 distinct associates, zero overlap. The 14 super admins are
+--        likewise absent from that table. So the guard currently refuses nobody,
+--        and an earlier draft of this comment claimed a real overlapping
+--        population that the data does not support.
+--
+--        It is kept anyway, and the reason is not "defence in depth" hand-waving.
+--        The two sets are disjoint by convention, not by construction: nothing in
+--        the schema stops a role holding board.manage from being posted as an
+--        associate tomorrow, it is one INSERT into mba_associate_postings, and
+--        the MBA programme's own shape - practitioners who both teach and improve
+--        their department - makes that a plausible posting rather than a
+--        far-fetched one. The check costs one comparison against a column already
+--        selected on the line above, and the failure it prevents (a grade
+--        self-awarded on a graded MBA deliverable) is one nobody would catch
+--        from the outside. Cheap now, load-bearing the day the overlap appears.
 --
 --    (c) A GRADE IS FINAL - RE-GRADING IS FORBIDDEN rather than history-erasing.
 --        (a) delivers this by construction: grading moves the case to 'approved'
