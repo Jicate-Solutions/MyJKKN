@@ -48,7 +48,7 @@
 -- decision, not a code change): those 19,446 rows are unattributable, so two
 -- sections that scored below threshold last week (CME365, 11 responses; CME346,
 -- 7 responses) will escalate to nobody. The digest will now RUN instead of
--- crashing -- it still cannot name a teacher who was never recorded.
+-- crashing -- it still cannot name a Senior Learner who was never recorded.
 -- ============================================================================
 
 BEGIN;
@@ -322,6 +322,26 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------
+-- Anon locks. Neither function is new -- both are re-issued from their live
+-- definitions -- but CREATE OR REPLACE re-runs Supabase's default privileges,
+-- so the revokes are restated explicitly. Read live before writing these
+-- (pg_proc.proacl, 2026-08-04):
+--   fn_cac_refresh_attendance_rollup      postgres, authenticated, service_role
+--   fn_scf_apply_weekly_escalation_digest postgres, service_role      <- NO authenticated
+--
+-- The CI guard's suggested remedy is "REVOKE FROM anon, PUBLIC; GRANT TO
+-- authenticated". Applying that to BOTH would hand every logged-in user the
+-- weekly escalation digest, which today only postgres and service_role can run.
+-- Never satisfy a gate by widening access: each function keeps exactly the
+-- grants it already had, and only the anon/PUBLIC revoke is added.
+-- ---------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_cac_refresh_attendance_rollup() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cac_refresh_attendance_rollup() TO authenticated;
+
+REVOKE EXECUTE ON FUNCTION public.fn_scf_apply_weekly_escalation_digest(date, jsonb) FROM anon, PUBLIC;
+-- deliberately NO grant to authenticated here: it does not have one today.
+
+-- ---------------------------------------------------------------------------
 -- Assertions. Any failure raises inside the transaction and rolls the whole
 -- migration back.
 -- ---------------------------------------------------------------------------
@@ -355,6 +375,17 @@ BEGIN
    WHERE n.nspname = 'public' AND p.proname = 'fn_scf_apply_weekly_escalation_digest';
   IF v_n <> 2 THEN
     RAISE EXCEPTION 'expected the null-email filter on BOTH session_feedback scans, found %', v_n;
+  END IF;
+  -- ASSERT 4 - the escalation digest must NOT have gained an authenticated grant.
+  IF has_function_privilege('authenticated',
+       'public.fn_scf_apply_weekly_escalation_digest(date, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'fn_scf_apply_weekly_escalation_digest gained an authenticated EXECUTE grant - refusing to widen it';
+  END IF;
+
+  -- ASSERT 5 - neither function is reachable by anon.
+  IF has_function_privilege('anon', 'public.fn_cac_refresh_attendance_rollup()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.fn_scf_apply_weekly_escalation_digest(date, jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'anon can still EXECUTE one of these functions - refusing';
   END IF;
 END
 $assert$;
