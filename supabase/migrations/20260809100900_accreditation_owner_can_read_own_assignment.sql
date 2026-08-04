@@ -2,7 +2,15 @@
 -- Let a named accreditation owner READ the row that names them.
 --
 -- Date: 2026-08-02
--- Status: FILE ONLY — NOT APPLIED. Director-gated.
+-- Status: ✅ APPLIED TO PRODUCTION 2026-08-04 under Director authorisation.
+--         Rehearsed in BEGIN..ROLLBACK; residue verified 0 in a SEPARATE call.
+--         Pre-checked that the live policy is named exactly
+--         accred_metric_owners_select, so DROP..CREATE replaces it in place
+--         rather than leaving a second permissive policy beside it — verified
+--         after apply by catalog: still 2 policies on the table, and only the
+--         SELECT one carries the owner_user_id self-read. The new predicate is
+--         a strict superset of the old (it adds owner_user_id = auth.uid()
+--         and nothing else), so no reader lost access.
 -- Companion to: /accreditation/my-gaps (the per-owner worklist)
 --
 -- THE PROBLEM
