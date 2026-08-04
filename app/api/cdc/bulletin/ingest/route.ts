@@ -24,13 +24,25 @@ export const dynamic = 'force-dynamic';
  *      Max 25 items per request.
  *
  *   B. { type: 'brief', date, title, body, url? }
- *      One in-app notification fanned out to leadership roles via the shared
+ *      One in-app notification fanned out to the pilot audience via the shared
  *      fanoutNotification() helper. Idempotent per calendar date; expires
  *      after 48h so briefs never pile up unread.
  *
- * UPSTREAM CONTRACT: the pusher is expected to be human-gated — a person
- * approves each day's items before anything is POSTed here. This route does
- * no editorial judgement; it validates shape and writes.
+ *   C. { type: 'problems', items: [...] }
+ *      Newspaper-reported real-world problems for learner innovation teams.
+ *      Idempotent insert into the EXISTING Startup Studio problem bank
+ *      (ss_problem_bank, migration 20260227185501) on the natural key
+ *      (title, source_type='newspaper'). Live on arrival — Director decision
+ *      2026-08-04: no draft state; rows carry source_type='newspaper' so the
+ *      bank always shows their provenance. Max 10 items per request.
+ *
+ * UPSTREAM CONTRACT (updated 2026-08-04, Director decision): the pusher is
+ * FULLY AUTOMATED — the daily-intelligence engine pushes each day's items
+ * without a per-day human approval step. The quality controls live upstream
+ * (every date/amount must be quote-backed from the paper; items carry a
+ * "verify details before applying" line) and in the platform's staff/owner
+ * visibility. This route does no editorial judgement; it validates shape and
+ * writes.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -51,6 +63,26 @@ const MAX_BODY_CHARS = 4000;
 /** Brief TTL — self-obsoleting, same mechanism sunday-wrap uses (expires_at). */
 const BRIEF_TTL_MS = 48 * 60 * 60 * 1000;
 
+/** Hard cap on a single problems push — a day's paper yields at most a handful. */
+const MAX_PROBLEM_ITEMS = 10;
+
+/**
+ * The engine's free-text sector words → ss_problem_theme enum values
+ * (CREATE TYPE ss_problem_theme in migration 20260227185501). The original
+ * sector word is preserved in sub_theme, so no fidelity is lost by mapping.
+ */
+const SECTOR_TO_THEME: Record<string, string> = {
+  waste: 'environment',
+  water: 'environment',
+  energy: 'environment',
+  agriculture: 'agriculture',
+  health: 'healthcare',
+  education: 'education',
+  transport: 'community',
+  civic: 'community',
+  other: 'other',
+};
+
 /**
  * Leadership recipients for the daily brief.
  *
@@ -65,11 +97,11 @@ const BRIEF_TTL_MS = 48 * 60 * 60 * 1000;
  * and 'principal' is the institution-head key.
  */
 const LEADERSHIP_ROLES = [
+  // PILOT (Director decision 2026-08-04): the daily brief goes to the
+  // super_admin bucket only while it proves itself. Widening is deliberate:
+  // restore 'administrator', 'admin', 'cao', 'principal' here when the
+  // Director asks for the full leadership audience.
   'super_admin',
-  'administrator',
-  'admin',
-  'cao',
-  'principal',
 ] as const;
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -90,6 +122,19 @@ type ItemOutcome = {
   status: 'inserted' | 'skipped';
   reason?: string;
 };
+
+interface ProblemItem {
+  title?: unknown;
+  problem_statement?: unknown;
+  who_affected?: unknown;
+  where?: unknown;
+  sector?: unknown;
+  severity?: unknown;
+  current_workaround?: unknown;
+  page?: unknown;
+  paper_date?: unknown;
+  edition?: unknown;
+}
 
 export async function POST(request: NextRequest) {
   await connection();
@@ -125,8 +170,11 @@ export async function POST(request: NextRequest) {
     if (type === 'brief') {
       return await handleBrief(supabase, body);
     }
+    if (type === 'problems') {
+      return await handleProblems(supabase, body);
+    }
     return NextResponse.json(
-      { error: "Unknown type — expected 'scholarships' or 'brief'" },
+      { error: "Unknown type — expected 'scholarships', 'brief' or 'problems'" },
       { status: 400 }
     );
   } catch (error) {
@@ -380,6 +428,151 @@ async function handleBrief(
     notified: result.notified,
     notification_id: result.notificationId ?? null,
     skipped: result.skipped ?? null,
+  });
+}
+
+// ─── C. Problems → ss_problem_bank (Startup Studio) ───────────────────────────
+
+/**
+ * Newspaper-reported problems become live problem-bank rows for learner
+ * innovation teams. The bank and its learner visibility ALREADY exist
+ * (table: 20260227185501; student startup_studio.problem_bank.view grant:
+ * 20260305000002) — this handler only feeds the existing feature.
+ *
+ * Defaults left to the table: validation_status 'unvalidated', status 'open',
+ * is_open_for_attempts true. `submitted_by` stays NULL (no human submitter);
+ * provenance lives in source_type/source_event/metadata.
+ */
+async function handleProblems(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  body: Record<string, unknown>
+) {
+  const rawItems = body.items;
+  if (!Array.isArray(rawItems)) {
+    return NextResponse.json(
+      { error: 'problems requires an items array' },
+      { status: 400 }
+    );
+  }
+  if (rawItems.length === 0) {
+    return NextResponse.json({ type: 'problems', inserted: 0, skipped: 0, results: [] });
+  }
+  if (rawItems.length > MAX_PROBLEM_ITEMS) {
+    return NextResponse.json(
+      { error: `Too many items: ${rawItems.length} (max ${MAX_PROBLEM_ITEMS})` },
+      { status: 400 }
+    );
+  }
+
+  const results: ItemOutcome[] = [];
+  const candidates: Array<{ title: string; row: Record<string, unknown> }> = [];
+
+  for (const raw of rawItems as ProblemItem[]) {
+    const title = str(raw?.title);
+    const statement = str(raw?.problem_statement);
+    const sector = str(raw?.sector).toLowerCase();
+    const paperDate = str(raw?.paper_date);
+
+    if (!title || !statement) {
+      results.push({
+        title: title || '(untitled)',
+        status: 'skipped',
+        reason: 'title and problem_statement are required',
+      });
+      continue;
+    }
+    if (paperDate && !isCalendarDate(paperDate)) {
+      results.push({ title, status: 'skipped', reason: 'paper_date must be a valid YYYY-MM-DD' });
+      continue;
+    }
+
+    // severity is optional; the column CHECK demands 1-10, so anything else
+    // becomes NULL rather than failing the whole insert.
+    const severityNum = Number(raw?.severity);
+    const severity =
+      Number.isInteger(severityNum) && severityNum >= 1 && severityNum <= 10
+        ? severityNum
+        : null;
+
+    const edition = str(raw?.edition);
+    const pageNum = Number(raw?.page);
+
+    candidates.push({
+      title,
+      row: {
+        title,
+        problem_statement: statement,
+        who_affected: str(raw?.who_affected) || null,
+        where_occurs: str(raw?.where) || null,
+        theme: SECTOR_TO_THEME[sector] ?? 'other',
+        sub_theme: sector || null,
+        severity_rating: severity,
+        current_workaround: str(raw?.current_workaround) || null,
+        source_type: 'newspaper',
+        source_year: paperDate ? Number(paperDate.slice(0, 4)) : null,
+        source_event: `The Hindu${edition ? ` (${edition})` : ''}${paperDate ? ` ${paperDate}` : ''}`,
+        metadata: {
+          engine: 'hindu-intel',
+          ...(paperDate ? { paper_date: paperDate } : {}),
+          ...(edition ? { edition } : {}),
+          ...(Number.isInteger(pageNum) && pageNum > 0 ? { page: pageNum } : {}),
+        },
+      },
+    });
+  }
+
+  if (candidates.length === 0) {
+    return NextResponse.json({
+      type: 'problems',
+      inserted: 0,
+      skipped: results.length,
+      results,
+    });
+  }
+
+  // Natural-key pre-check on (title, source_type='newspaper') — same
+  // per-candidate exact-match probe idiom as scholarships (see the note there
+  // on why `.in(...)` batching is avoided).
+  const probes = await Promise.all(
+    candidates.map((c) =>
+      supabase
+        .from('ss_problem_bank')
+        .select('id')
+        .eq('title', c.title)
+        .eq('source_type', 'newspaper')
+        .limit(1)
+    )
+  );
+
+  const seen = new Set<string>();
+  const toInsert: Record<string, unknown>[] = [];
+
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    const probe = probes[i];
+    if (probe.error) throw probe.error;
+
+    if ((probe.data?.length ?? 0) > 0 || seen.has(candidate.title)) {
+      results.push({ title: candidate.title, status: 'skipped', reason: 'already exists' });
+      continue;
+    }
+    seen.add(candidate.title);
+    toInsert.push(candidate.row);
+    results.push({ title: candidate.title, status: 'inserted' });
+  }
+
+  if (toInsert.length > 0) {
+    const { error: insertErr } = await supabase
+      .from('ss_problem_bank')
+      .insert(toInsert);
+    if (insertErr) throw insertErr;
+  }
+
+  return NextResponse.json({
+    type: 'problems',
+    inserted: toInsert.length,
+    skipped: results.length - toInsert.length,
+    results,
   });
 }
 

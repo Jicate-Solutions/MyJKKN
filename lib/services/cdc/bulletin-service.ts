@@ -31,7 +31,13 @@ export class BulletinService {
 
     // Status filter mapped to DB fields
     if (filters?.status === 'active') {
-      query = query.eq('is_active', true).is('archived_at', null);
+      // Auto-hide past-deadline items (Director decision 2026-08-04): an
+      // opportunity whose deadline has passed is not "active" — it is only
+      // reachable through the 'expired'/'all' filters. No-deadline items stay.
+      query = query
+        .eq('is_active', true)
+        .is('archived_at', null)
+        .or(`deadline_date.gte.${new Date().toISOString().split('T')[0]},deadline_date.is.null`);
     } else if (filters?.status === 'expired') {
       // deadline in the past, not archived
       query = query.lt('deadline_date', new Date().toISOString().split('T')[0]).is('archived_at', null);
