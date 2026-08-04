@@ -281,8 +281,21 @@ async function findTargetUsers(
   }
 
   // Check if only role targeting is specified
+  // Institutions are multi-select as of 2026-08-04 (e.g. Dental + Pharmacy in
+  // one send). `institution_ids` is the list; `institution_id` is the legacy
+  // single value the composer still sends when exactly one is picked, and is
+  // what older stored payloads carry. Normalise to ONE list so every branch
+  // below filters identically.
+  const institutionIds: string[] = Array.isArray(targeting.institution_ids)
+    ? targeting.institution_ids.filter(
+        (id: unknown) => typeof id === 'string' && id.length > 0
+      )
+    : targeting.institution_id
+      ? [targeting.institution_id]
+      : [];
+
   const hasLocationTargeting =
-    targeting.institution_id ||
+    institutionIds.length > 0 ||
     targeting.department_id ||
     targeting.program_id ||
     targeting.semester_id ||
@@ -338,7 +351,7 @@ async function findTargetUsers(
 
   // If only institution targeting, get all profiles for that institution
   if (
-    targeting.institution_id &&
+    institutionIds.length > 0 &&
     !targeting.department_id &&
     !targeting.program_id &&
     !targeting.semester_id &&
@@ -347,7 +360,7 @@ async function findTargetUsers(
     let query = supabase
       .from('profiles')
       .select('id')
-      .eq('institution_id', targeting.institution_id);
+      .in('institution_id', institutionIds);
 
     // Add role filtering if specified
     if (hasRoleTargeting) {
@@ -409,8 +422,8 @@ async function findTargetUsers(
   if (!roleRequestedNonStudent) {
     let query = (supabase as any).from('learners_profiles').select('college_email');
 
-    if (targeting.institution_id) {
-      query = query.eq('institution_id', targeting.institution_id);
+    if (institutionIds.length > 0) {
+      query = query.in('institution_id', institutionIds);
     }
     if (targeting.department_id) {
       query = query.eq('department_id', targeting.department_id);
