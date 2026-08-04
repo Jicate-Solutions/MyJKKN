@@ -64,6 +64,13 @@ jobs:
             if find "$d" -mindepth 2 -name 'page.tsx' -print -quit 2>/dev/null | grep -q .; then
               # Check if directory itself has page.tsx
               if [ ! -f "$d/page.tsx" ]; then
+                # A Route Handler exporting GET also serves the URL (no 404):
+                # redirect-only landings use route.ts because a page-body
+                # redirect() degrades under the (routes) Suspense boundary.
+                if { [ -f "$d/route.ts" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.ts"; } || \
+                   { [ -f "$d/route.js" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.js"; }; then
+                  continue
+                fi
                 echo "$d"
               fi
             fi
@@ -91,6 +98,13 @@ jobs:
             esac
             if find "$d" -mindepth 2 -name 'page.tsx' -print -quit 2>/dev/null | grep -q .; then
               if [ ! -f "$d/page.tsx" ]; then
+                # A Route Handler exporting GET also serves the URL (no 404):
+                # redirect-only landings use route.ts because a page-body
+                # redirect() degrades under the (routes) Suspense boundary.
+                if { [ -f "$d/route.ts" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.ts"; } || \
+                   { [ -f "$d/route.js" ] && grep -qE 'export (async )?(function|const) GET' "$d/route.js"; }; then
+                  continue
+                fi
                 echo "$d"
               fi
             fi
