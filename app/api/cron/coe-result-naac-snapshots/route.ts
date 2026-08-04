@@ -282,7 +282,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       if (mappingRows.length > 0) {
         const { error: mapErr } = await supabase
           .from('quality_evidence_mappings')
-          .upsert(mappingRows, { onConflict: 'source_table,source_id,body_code,metric_code' });
+          // Must name all FIVE columns of quality_evidence_mappings_source_scope_key
+          // (…,programme_id). Postgres matches the conflict target to a unique
+          // constraint exactly, so a four-column target raises 42P10 and this
+          // upsert has been failing every night. The constraint is NULLS NOT
+          // DISTINCT and programme_id is NULL on every existing row, so adding it
+          // changes no dedupe behaviour today.
+          .upsert(mappingRows, {
+            onConflict: 'source_table,source_id,body_code,metric_code,programme_id',
+          });
         if (mapErr) {
           return NextResponse.json(
             { ok: false, error: `quality_evidence_mappings upsert failed: ${mapErr.message}` },
