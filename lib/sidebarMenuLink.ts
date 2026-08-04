@@ -273,6 +273,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/school-defaults': 'organizations.school-defaults.view',
   '/organizations/degrees': 'organizations.degrees.view',
   '/organizations/departments': 'organizations.departments.view',
+  // 2026-08-04 — College Leadership. New page; its own key.
+  '/organizations/leadership': 'organizations.leadership.manage',
+  // 2026-08-04 — HoD Assignment has existed and worked since 2026-05-07 but was
+  // never in the sidebar; it was reachable only from lib/organizations/guide/
+  // content.ts. That is why it sits at 7 departments of 89, all Pharmacy. The
+  // page itself gates on admin_or_super_admin (AdminPermissionGuard), so this
+  // maps to the nearest catalog key rather than inventing one.
+  '/organizations/departments/hod-assignment': 'organizations.departments.edit',
   '/organizations/programs': 'organizations.programs.view',
   '/organizations/courses': 'organizations.courses.view',
   '/organizations/semesters': 'organizations.semesters.view',
@@ -1700,7 +1708,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/dashboard', label: 'Dashboard', active: pathname.startsWith('/organizations/dashboard') },
             { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
             { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
-            { href: '/organizations/departments', label: 'Departments', active: pathname.startsWith('/organizations/departments') },
+            { href: '/organizations/departments', label: 'Departments', active: pathname === '/organizations/departments' },
+            // Both entries added 2026-08-04. Leadership is new; HoD Assignment
+            // already worked but had no sidebar entry, which is why 82 of 89
+            // departments still have no Head.
+            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
+            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
             { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
             { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
             { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
