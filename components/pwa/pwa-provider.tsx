@@ -132,8 +132,10 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     // /sw.js from a previous `next build` run keeps firing
     // `bad-precaching-response` for font hashes that no longer exist in the
     // current dev bundle. Scope the sweep to /sw.js only — other workers
-    // (e.g. /sw-dashboard.js for push) must not be unregistered or they
-    // race with their own registrations elsewhere in the tree.
+    // (e.g. /sw-dashboard.js for push at its dedicated narrow scope) must
+    // not be unregistered or they race with their own registrations
+    // elsewhere in the tree. (Root-scoped sw-dashboard.js leftovers are
+    // handled by the dedicated cleanup below.)
     if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'production') {
       navigator.serviceWorker.getRegistrations().then((regs) => {
         regs.forEach((r) => {
@@ -154,10 +156,48 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // One-time cleanup for browsers already affected by the sw-dashboard.js
+    // root-scope contention: it used to register without a scope option,
+    // defaulting to scope '/', where it could replace /sw.js and (via
+    // skipWaiting) steal page control / fire phantom update prompts. The push
+    // worker now lives at the dedicated scope '/sw-dashboard-scope/' (see
+    // components/dashboard/push-subscribe-button.tsx), so any leftover
+    // ROOT-scoped sw-dashboard.js registration must be unregistered before
+    // /sw.js (re)registers. Narrow-scoped registrations are left alone.
+    // Runs for everyone (dev and production).
+    let rootScopeCleanup: Promise<unknown> = Promise.resolve();
+    if ('serviceWorker' in navigator) {
+      rootScopeCleanup = navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => {
+          const rootScope = `${window.location.origin}/`;
+          return Promise.all(
+            regs.map((r) => {
+              const scriptURL =
+                r.active?.scriptURL ??
+                r.waiting?.scriptURL ??
+                r.installing?.scriptURL ??
+                '';
+              if (
+                scriptURL.endsWith('/sw-dashboard.js') &&
+                r.scope === rootScope
+              ) {
+                return r.unregister().catch(() => {});
+              }
+              return Promise.resolve();
+            })
+          );
+        })
+        .catch(() => {});
+    }
+
     // Service worker setup - skip in development (Serwist only generates sw.js in production)
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      // Check if SW is already registered to prevent multiple registrations
-      navigator.serviceWorker.getRegistration().then(existingRegistration => {
+      // Check if SW is already registered to prevent multiple registrations.
+      // Chained AFTER the root-scope cleanup so a leftover root-scoped
+      // sw-dashboard.js registration is neither mistaken for /sw.js nor
+      // blocking its (re)registration.
+      rootScopeCleanup.then(() => navigator.serviceWorker.getRegistration()).then(existingRegistration => {
         if (existingRegistration) {
           return existingRegistration;
         }

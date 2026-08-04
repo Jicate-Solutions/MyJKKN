@@ -144,7 +144,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         ok: false,
         error: 'dedupe ledger unavailable — refusing to send',
         detail: ledgerProbe.error.message,
-        hint: 'apply supabase/migrations/20260808110000_learner_risk_staff_notifications.sql',
+        hint: 'apply supabase/migrations/20260808110002_learner_risk_staff_notifications.sql',
       },
       { status: 503 }
     );

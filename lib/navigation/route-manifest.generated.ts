@@ -5713,8 +5713,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           },
           {
             "path": "/pde/admin/compliance",
-            "label": "Compliance",
-            "iconName": "FileText",
+            "label": "PDE Compliance",
+            "iconName": "ShieldCheck",
             "children": [
               {
                 "path": "/pde/admin/compliance/per-college",

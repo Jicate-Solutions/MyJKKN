@@ -29,6 +29,18 @@ import type { NextRequest } from 'next/server';
  *   CARE hub — the CARE list lives on the audit dashboard (spec §5), so the
  *   bare /audit/care URL redirects there (hub pattern: app/(routes)/audit/page.tsx).
  */
+/**
+ * navMeta — restored verbatim from the pre-#2777 page.tsx (invokedFrom only;
+ * no label/icon override). Kept so the declared "reached from the dashboard
+ * CARE section" relationship survives the route.ts conversion and so the
+ * manifest generator's route.ts scan (scripts/generate-route-manifest.ts)
+ * has the same source of truth a page.tsx landing would carry. Extra named
+ * exports from a Route Handler are legal and ignored by the Next.js runtime.
+ */
+export const navMeta = {
+  invokedFrom: '/audit/dashboard',
+} as const;
+
 export function GET(request: NextRequest) {
   return NextResponse.redirect(new URL('/audit/dashboard', request.url), 307);
 }
