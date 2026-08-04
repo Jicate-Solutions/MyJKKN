@@ -160,6 +160,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // '/foundation' — somebody sitting the programme has no reason to hold
   // foundation.dashboard.view.
   '/foundation/practice': 'foundation.practice.take',
+  // Same key as practising alone. Holding it is not enough to see anything
+  // here — the page also requires you to actually run a group, which is
+  // fp_cohorts.resource_person_id, not a permission.
+  '/foundation/practice/facilitate': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -1059,6 +1063,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  // Per-owner worklist. Gated on the landing key rather than a new one so the
+  // people already trusted with accreditation can reach it — a key not present
+  // in lib/constants/permissions.ts would be ungrantable and the page would be
+  // reachable by nobody but super-admins.
+  '/accreditation/my-gaps': 'accreditation.view',               // per-owner worklist
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
   // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
   // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
@@ -1085,6 +1094,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
   '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
+  // Assigning accountability writes accreditation_metric_owners, whose live RLS
+  // gates writes on accreditation.naac.narrative.manage — so the page gate uses
+  // the same key rather than a second one that could drift away from the table.
+  '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1728,8 +1741,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           // operator keys, so '/foundation' above never renders for them.
           href: '/foundation/practice',
           label: 'Foundation Practice',
-          active: pathname.startsWith('/foundation/practice'),
+          // Exact, so that running a session for somebody else does not also
+          // light up "practise on my own" — they are different acts.
+          active: pathname === '/foundation/practice',
           icon: Target,
+          submenus: []
+        },
+        {
+          // Running the programme FOR a group, as opposed to sitting it.
+          // Gated on the same permission, but only ever populated for whoever
+          // is named as a cohort's resource person — most holders of the key
+          // will correctly see "you are not running any groups yet".
+          href: '/foundation/practice/facilitate',
+          label: 'Run a Practice Session',
+          active: pathname.startsWith('/foundation/practice/facilitate'),
+          icon: Users,
           submenus: []
         },
         {
