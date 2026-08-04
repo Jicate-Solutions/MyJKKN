@@ -65,10 +65,12 @@ export function filterByPermissions(
     }
 
     // MBA case studies — associates WRITE them (improvement.ideas.view) and
-    // board managers / officers GRADE them. mba_faculty holds only
-    // improvement.board.manage and cao stores improvement.ideas.view as an
-    // explicit false, so a single-key gate hides the link from everyone the
-    // review lane is built for. Page-level gate enforces the real capability.
+    // board managers / officers GRADE them. The two populations are reached by
+    // different keys, so a single-key gate hides the link from one of them;
+    // which role_key holds which key is a live value in custom_roles, not
+    // something this file records. Compared by value, never key existence: a
+    // key present and set to false is a denial. This decides the LINK only —
+    // the page's own gate decides the capability.
     if (page.path === '/improvement-board/case-studies') {
       return !!(permissions['improvement.ideas.view'] ||
                 permissions['improvement.board.manage'] ||

@@ -7,17 +7,18 @@
  * it — because its proof asserted only that the deny panel was absent. That
  * assertion passes identically on a blank page. These tests assert the lanes.
  *
- * Permission objects below are the LIVE production values, read from
- * `custom_roles.permissions` on 2026-08-02 and asserted by VALUE, never by key
- * existence: `cao` stores `improvement.ideas.view` as an explicit `false`,
- * which an existence test misreads as "has it".
+ * The permission objects below are FIXTURES, and what they are fixtures OF is
+ * the four shapes a role's `custom_roles.permissions` can take at this screen:
+ * the key granted, the key absent, the key present but explicitly `false`, and
+ * none of the three keys at all. The third shape is the one that matters — an
+ * existence test reads an explicit `false` as "has it" — so every assertion
+ * here goes by VALUE.
  *
- *   mba_associate            ideas.view TRUE
- *   mba_faculty              board.manage TRUE, ideas.view ABSENT
- *   cao                      board.manage TRUE, area_role.assign TRUE,
- *                            ideas.view FALSE (explicit)
- *   executive_admin_officer  board.manage TRUE, area_role.assign TRUE,
- *                            ideas.view ABSENT
+ * They were modelled on production role rows and re-checked against them on
+ * 2026-08-04. They are not a copy of the role table and will not track it: if
+ * you need to know what a role holds today, read `custom_roles.permissions`.
+ * What these tests pin is the screen's behaviour per SHAPE, which does not go
+ * stale when a grant moves.
  *
  * The Supabase browser client is faked but `CaseStudyService` is REAL, so these
  * also prove which queries the screen issues — and that a missing migration is
@@ -28,21 +29,26 @@ import '@testing-library/jest-dom';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// --- Live production permission fixtures ------------------------------------
+// --- Permission fixtures, one per shape --------------------------------------
 
 const PRODUCTION_PERMISSIONS: Record<string, Record<string, boolean>> = {
+  // Shape 1 — the writers' key granted, nothing else.
   mba_associate: { 'improvement.ideas.view': true },
+  // Shape 2 — graders' key granted, writers' key ABSENT.
   mba_faculty: { 'improvement.board.manage': true },
+  // Shape 3 — writers' key PRESENT and explicitly false. The trap: a
+  // key-existence test reads this denial as a grant.
   cao: {
     'improvement.ideas.view': false,
     'improvement.board.manage': true,
     'improvement.area_role.assign': true,
   },
   executive_admin_officer: {
+    'improvement.ideas.view': false,
     'improvement.board.manage': true,
     'improvement.area_role.assign': true,
   },
-  // 483 holders of the teaching role hold none of the three keys.
+  // Shape 4 — none of the three keys. The population that must be refused.
   noBoardAccess: {},
 };
 
@@ -115,7 +121,8 @@ vi.mock('@/hooks/use-permissions', () => ({
       can: (permission: string) =>
         viewer.isLoading ? false : perms[permission] === true,
       isLoading: viewer.isLoading,
-      // Every holder of these roles has is_super_admin = false in production.
+      // Pinned false so these cases exercise the permission union itself and
+      // never the super-admin bypass, which would pass every one of them.
       isSuperAdmin: false,
     };
   },
@@ -448,9 +455,9 @@ describe('missing-object detection', () => {
   });
 
   it('does NOT mistake a business refusal for a missing migration', () => {
-    // fn_case_study_start raises this when the idea is not eligible. Reading it
-    // as "not installed" would tell the author to wait for a change that has
-    // already shipped.
+    // The shape of a P0001 an RPC raises to refuse a request on its merits, as
+    // against a missing object. Reading this one as "not installed" would tell
+    // the author to wait for a change that has already shipped.
     expect(
       isMissingObject({
         code: 'P0001',

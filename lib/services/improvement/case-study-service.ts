@@ -8,37 +8,46 @@
  * the learner can show an employer, so authorship is theirs and the byline is
  * theirs (Director ruling, 2026-08-02).
  *
- * WRITES NEVER TOUCH THE TABLE. `ss_case_studies` carries no INSERT/UPDATE/
- * DELETE policy at all — every mutation goes through one of four SECURITY
- * DEFINER RPCs, mirroring how `gemba_observations` does it:
+ * WRITES ARE RPC CALLS, NEVER TABLE MUTATIONS. Nothing in this file calls
+ * `.insert()`, `.update()` or `.delete()` on `ss_case_studies`; every mutation
+ * is one of four RPC calls, mirroring how `gemba_observations` does it:
  *
- *   fn_case_study_start(p_idea_id)   — eligibility lives HERE, not in this file
- *   fn_case_study_save(...)          — author only, draft only
- *   fn_case_study_submit(p_case_id)  — author only, draft -> under_review
- *   fn_case_study_grade(...)         — improvement.board.manage holders only
+ *   fn_case_study_start(p_idea_id)
+ *   fn_case_study_save(...)
+ *   fn_case_study_submit(p_case_id)
+ *   fn_case_study_grade(...)
  *
- * This layer deliberately does NOT re-implement those guards. It may hide a
+ * DEPENDENCY, stated once here instead of re-asserted at each call site: those
+ * four functions, and six of the columns this screen reads, are created by
+ * migration `20260809010000` in sibling PR #2759. That PR is open, and merging
+ * it does not apply the migration either — migrations in this repo are applied
+ * by hand as a separate deliberate act. So wherever this file says what one of
+ * those functions enforces (eligibility, author-only, `improvement.board.
+ * manage`), read it as a description of that migration's CONTRACT, not as a
+ * statement about anything running today.
+ *
+ * This layer deliberately does NOT re-implement those checks. It may hide a
  * control the server would refuse (so nobody is handed a form that bounces),
  * but it never decides. A client-side eligibility test that disagreed with the
  * RPC would be a second source of truth, and the wrong one.
  *
- * READS ARE NOT YET RESTRICTED BY THE DATABASE. The SELECT policy live on
- * production is `ss_case_studies_select FOR SELECT TO authenticated USING
- * (true)`, created 2026-02-27 with the Solutions Studio tables: every signed-in
- * account can read every row. The policy that limits a case to its author, its
- * graders and the published set arrives with migration `20260809010000` in
- * sibling PR #2759, which is open and NOT applied. Merging that PR does not
- * apply it — migrations here are applied by hand as a separate deliberate act.
- * Until that apply happens, the filters in this file and the permission check
- * on the screen are the ONLY things limiting what comes back. Treat every one
- * of them as load-bearing.
+ * READS ARE NARROWED HERE, IN THIS FILE. The `.eq()` filters below are the only
+ * narrowing this code performs, and the permission check on the screen is the
+ * only gate in front of them. Do not weaken either on the belief that the
+ * database narrows these reads too: any row-level narrowing of
+ * `ss_case_studies` arrives with the same unapplied `20260809010000`.
  *
- * DEGRADING HONESTLY. The four RPCs and the six columns this screen reads are
- * added by a sibling migration that may not be applied yet. Until it is, every
- * query here fails with a missing-object error rather than returning empty —
- * which is the good case, because "no rows" and "no feature" must never look
- * alike. `isMissingObject()` separates the two so the screen can say which one
- * it is instead of rendering a blank page or leaking a raw 500.
+ * And do not look for the current policy set in this comment, or in any other
+ * comment in this file — it is deliberately not written down here. Three
+ * successive revisions of this file each described the live policies in prose
+ * and each was wrong within days, because prose does not move when the database
+ * does. `pg_policy` is the record. This file is not.
+ *
+ * DEGRADING HONESTLY. Until `20260809010000` is applied, every query here fails
+ * with a missing-object error rather than returning empty — which is the good
+ * case, because "no rows" and "no feature" must never look alike.
+ * `isMissingObject()` separates the two so the screen can say which one it is
+ * instead of rendering a blank page or leaking a raw 500.
  *
  * The `ss_*` tables are not in the generated `types/supabase.ts`, so queries
  * cast through `(supabase as any)` — the same pattern the sibling improvement
@@ -58,7 +67,9 @@ export type CaseStudyStatus =
   | 'published'
   | 'archived';
 
-/** The AI drafter's signature in `generated_by`, written by fn_case_study_start. */
+/** The AI drafter's signature this screen looks for in `generated_by`.
+ *  `fn_case_study_start` is specified to write it (`20260809010000` contract —
+ *  see the file header); this constant is only the value compared against. */
 export const AI_DRAFT_MARKER = 'mba.draft_case_study';
 
 /** A row from `ss_case_studies`, limited to the columns this screen reads. */
@@ -169,8 +180,9 @@ export type CaseStudyAvailability = 'ready' | 'not_installed' | 'unavailable';
 
 type ProfileLite = { id: string; full_name: string | null };
 
-/** The columns added by the sibling migration — read together on purpose, so
- *  the availability probe fails if ANY of them is absent. */
+/** Every column this screen reads, six of which `20260809010000` adds (see the
+ *  file header). Read together on purpose: the availability probe below then
+ *  fails if ANY one of them is absent. */
 const NEW_COLUMNS =
   'id, improvement_idea_id, author_id, title, summary, full_content, ' +
   'key_takeaways, learning_objectives, status, published_at, generated_by, ' +
@@ -274,20 +286,14 @@ export class CaseStudyService {
   /**
    * The caller's own cases — drafts, submitted, graded and published alike.
    *
-   * THE `author_id` FILTER IS THE ONLY THING NARROWING THIS TODAY. Do not
-   * remove it. The policy live on production is still the one created with the
-   * Solutions Studio tables on 2026-02-27 — `ss_case_studies_select FOR SELECT
-   * TO authenticated USING (true)` — so every signed-in account can read every
-   * row, unfinished drafts included. Verified over the wire: an unrelated real
-   * account read back another author's draft title AND full body.
+   * THE `author_id` FILTER IS THE ONLY NARROWING IN THIS METHOD. Do not remove
+   * it. It is what makes this "my cases" rather than "every case", and until
+   * `20260809010000` is applied (see the file header) it is the only narrowing
+   * anywhere on the path.
    *
-   * The narrowing policy (author, graders, published) arrives with migration
-   * `20260809010000` in sibling PR #2759, which is open and NOT yet applied.
-   * Merging #2759 does not apply it — migrations here are applied by hand — so
-   * this filter stays load-bearing until that separate apply happens.
-   *
-   * Once applied, the filter is still wanted: an `improvement.board.manage`
-   * holder may read every case, and this lane means only their own.
+   * It stays wanted after that apply too: the policy that migration installs
+   * admits an `improvement.board.manage` holder to every case, and this lane
+   * means only their own.
    */
   static async listMyCases(userId: string): Promise<CaseStudyEnriched[]> {
     const supabase = this.getSupabase();
@@ -310,18 +316,16 @@ export class CaseStudyService {
   /**
    * The review queue — everything submitted and waiting for a grade.
    *
-   * THE DATABASE DOES NOT RESTRICT THIS TODAY. Under the live
-   * `USING (true)` policy, any signed-in account that reached this method would
-   * get the whole queue back. The only thing holding it to graders right now is
-   * the caller: the screen checks `improvement.board.manage` before it calls
-   * this at all. That check is the whole protection, not a belt-and-braces
-   * second copy of a database rule.
+   * THIS METHOD IS NOT SELF-LIMITING. It asks for every `under_review` row and
+   * narrows by nothing else. What holds the queue to graders is the caller: the
+   * screen checks `improvement.board.manage` before calling this at all. Treat
+   * that check as the protection itself, not as a belt-and-braces second copy
+   * of a database rule.
    *
-   * Migration `20260809010000` (sibling PR #2759, open and NOT yet applied) is
-   * what adds the database-side limit. Note what it actually does when it
-   * lands: it narrows reads to graders PLUS each author's own rows PLUS
-   * published rows — so even then this query is not "graders only" on its own,
-   * and the permission check above it still has to stand.
+   * That stays true after `20260809010000` is applied (see the file header).
+   * The policy it installs admits graders PLUS each author's own rows PLUS
+   * published rows, so this query is never "graders only" on its own and the
+   * permission check above it always has to stand.
    */
   static async listReviewQueue(): Promise<CaseStudyEnriched[]> {
     const supabase = this.getSupabase();
@@ -344,12 +348,12 @@ export class CaseStudyService {
   /**
    * The library — every published case.
    *
-   * "Readable by anyone who can open the board" would overstate the boundary.
-   * Today the live `USING (true)` policy lets any signed-in account read every
-   * row, published or not; and once `20260809010000` (PR #2759) is applied,
-   * `status = 'published'` is itself one of that policy's OR branches. Either
-   * way a published case is visible to everyone signed in — the board gate on
-   * the screen decides who is shown this lane, not who may read the rows.
+   * The `status` filter is what makes this the library, and it is NOT a privacy
+   * boundary — nothing in this method is. Publishing is the act that makes a
+   * case open, and `20260809010000` (see the file header) keeps it that way by
+   * admitting `status = 'published'` outright. The board gate on the screen
+   * decides who is SHOWN this lane, not who may read the rows, so do not
+   * document this lane as narrower than the write and review lanes.
    */
   static async listPublished(): Promise<CaseStudyEnriched[]> {
     const supabase = this.getSupabase();
@@ -373,10 +377,11 @@ export class CaseStudyService {
    * The caller's write-up lane: which of their own ideas may become a case, and
    * the funnel counts that explain an empty answer.
    *
-   * The eligibility rule mirrored here — `verified` AND `value_holds` — is
-   * enforced by `fn_case_study_start`. It is repeated in this read purely to
-   * decide what to LIST; the RPC remains the only thing that decides what may
-   * actually be started.
+   * The eligibility rule applied here — `verified` AND `value_holds` — decides
+   * what to LIST, and nothing more. It mirrors the rule `fn_case_study_start`
+   * is specified to enforce (see the file header: that function ships with
+   * `20260809010000`, which is not applied); the RPC, not this filter, is what
+   * decides whether a case may actually be started.
    */
   static async myWritingLane(userId: string): Promise<WritingLane> {
     const supabase = this.getSupabase();
@@ -421,19 +426,16 @@ export class CaseStudyService {
     const verified = ideas.filter((i) => i.status === 'verified');
     const valueHolds = verified.filter((i) => i.value_holds === true);
 
-    // Which of those already have a case? This probe carries no author filter,
-    // and today the database adds none either: the live policy is still
-    // `ss_case_studies_select FOR SELECT TO authenticated USING (true)`, so
-    // every signed-in account reads every row. Nothing here is narrowed
-    // per-author — not by RLS, not by this query.
+    // Which of those already have a case? This probe deliberately carries NO
+    // author filter: the question is "has anyone written this idea up", and a
+    // case another person started still means this idea is taken.
     //
-    // The author / graders / published narrowing arrives with migration
-    // `20260809010000` (sibling PR #2759, open and NOT yet applied). Merging
-    // #2759 does not apply it — the apply is a separate manual act. Once it
-    // happens, a case that a posted associate started on someone ELSE's idea
-    // stops being readable by the idea's author, so `alreadyWritten` will
-    // under-count for them and the idea keeps being offered below until the
-    // RPC refuses it. That belongs to #2759, not to this file.
+    // So `alreadyWritten` is only as complete as what the caller may read. Once
+    // `20260809010000` (see the file header — open in #2759, not applied) adds
+    // row-level narrowing, a case a posted associate started on someone ELSE's
+    // idea stops being visible to the idea's author, the count under-reports
+    // for them, and the idea keeps being offered below until the RPC refuses
+    // it. That consequence belongs to #2759 to handle, not to this file.
     const writtenFor = new Set<string>();
     if (valueHolds.length > 0) {
       const { data: existing, error: existingError } = (await (supabase as any)
@@ -504,7 +506,8 @@ export class CaseStudyService {
   /**
    * Begin the case for one improvement idea and queue the AI first draft.
    * Returns the new case id. Eligibility (`verified` + `value_holds`) and the
-   * author/posting check are the RPC's to enforce, not this call's.
+   * author/posting check are the RPC's to enforce, not this call's — per the
+   * contract of `20260809010000`, which the file header records as unapplied.
    */
   static async start(ideaId: string): Promise<string> {
     const supabase = this.getSupabase();
@@ -515,7 +518,9 @@ export class CaseStudyService {
     return data as string;
   }
 
-  /** Save the author's rewrite. Author only, and only while it is a draft. */
+  /** Save the author's rewrite. Author-only and draft-only are the RPC's rules
+   *  to apply (`20260809010000` contract; see the file header), not this
+   *  call's — it passes the payload through and reports what comes back. */
   static async save(
     caseId: string,
     payload: {
@@ -538,7 +543,8 @@ export class CaseStudyService {
     if (error) throw this.rpcError('save this case study', error);
   }
 
-  /** Hand the draft over for a grade: draft -> under_review. */
+  /** Hand the draft over for a grade. The `draft -> under_review` move is made
+   *  by the RPC, which is also what decides whether this caller may make it. */
   static async submit(caseId: string): Promise<void> {
     const supabase = this.getSupabase();
     const { error } = await (supabase as any).rpc('fn_case_study_submit', {

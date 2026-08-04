@@ -169,9 +169,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
   // MBA case studies — the write-up of an improvement that was actually made.
-  // Nominally improvement.ideas.view (the associates who write them), but the
-  // review lane belongs to improvement.board.manage holders who do NOT hold
-  // ideas.view, so this path is widened by name in BOTH filter sites below and
+  // This entry is the WRITERS' key. It is not the whole gate: navPathAllowed()
+  // widens this path to a union of three keys, in BOTH filter sites below and
   // in lib/navigation/permission-filter.ts. See CASE_STUDIES_NAV_PATH.
   '/improvement-board/case-studies': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
@@ -1516,19 +1515,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 };
 
 /**
- * The case-study screen carries TWO populations, and no single permission key
- * covers both. Read against live production values on 2026-08-02:
+ * The case-study screen carries TWO populations that are reached by DIFFERENT
+ * permission keys: the people who write the cases hold `improvement.ideas.view`,
+ * and the people who grade them hold `improvement.board.manage`. Holding one is
+ * no guarantee of holding the other, so a single-key mapping would hide the
+ * link from one population or the other.
  *
- *   mba_associate           ideas.view TRUE   — writes the cases
- *   mba_faculty             ideas.view ABSENT, board.manage TRUE — grades them
- *   cao                     ideas.view FALSE  (explicitly), board.manage TRUE
- *   executive_admin_officer ideas.view ABSENT, board.manage TRUE
+ * Which role_key holds which of these is a live value in `custom_roles.
+ * permissions` — read it there, not here. This file is not a copy of the role
+ * table and must not be maintained as one.
  *
- * A single-key mapping therefore hides the link from every person the review
- * lane exists for. This union is applied at BOTH nav filter sites below — the
- * submenu filter AND the parent-menu filter — because the parent row is shown
- * only when at least one child passes, and a role whose sole reachable child is
- * this one would otherwise lose the whole Improvement Board row.
+ * The union is applied at BOTH nav filter sites below — the submenu filter AND
+ * the parent-menu filter — because the parent row is shown only when at least
+ * one child passes, and a role whose sole reachable child is this one would
+ * otherwise lose the whole Improvement Board row.
  *
  * Mirrors the identical treatment `/improvement-board/analytics` already gets
  * in lib/navigation/permission-filter.ts.
@@ -1541,9 +1541,9 @@ export const CASE_STUDIES_NAV_KEYS = [
 ] as const;
 
 /**
- * Does this person reach `href` in the nav? Value semantics throughout — `cao`
- * stores `improvement.ideas.view` as an explicit `false`, which a key-existence
- * test misreads as "has it".
+ * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
+ * by key existence: a role may carry a permission key set to an explicit
+ * `false`, and an existence test reads that denial as a grant.
  */
 export function navPathAllowed(
   href: string,
@@ -1639,8 +1639,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
             // MBA case studies — associates write them (improvement.ideas.view),
-            // board managers grade them (improvement.board.manage). Widened by
-            // name in both filter sites so neither population loses the link.
+            // board managers grade them (improvement.board.manage). Reached via
+            // navPathAllowed's union so neither population loses the link.
             { href: '/improvement-board/case-studies', label: 'Case Studies', active: pathname === '/improvement-board/case-studies' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
@@ -3614,11 +3614,7 @@ export function GetRoleBasedPages(
 
             const submenuRoute = normalizeRoute(submenu.href);
             const requiredPermission = MENU_PERMISSIONS[submenuRoute];
-            // A union path carries no single required key, so the unmapped-path
-            // bail-out must not fire on it.
-            if (!requiredPermission && submenuRoute !== CASE_STUDIES_NAV_PATH) {
-              return false; // Changed to false to be consistent
-            }
+            if (!requiredPermission) return false; // Changed to false to be consistent
 
             // Hide "Student Search" submenu for students
             if (isStudent && submenu.href === '/billing/schedule/students') {

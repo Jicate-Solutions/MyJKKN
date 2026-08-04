@@ -11,22 +11,24 @@
  *   3. LIBRARY (anyone who can open the board). Published cases under the
  *      author's byline — the learner gets the credit (Director ruling).
  *
- * ACCESS is the four-key union the sibling gemba screen established, not one
- * key. Read against live production values: `mba_faculty` holds ONLY
- * improvement.board.manage, `cao` stores improvement.ideas.view as explicitly
- * FALSE, and `executive_admin_officer` has no such key at all. Gating on
- * improvement.ideas.view alone would show a no-access panel to the very people
- * the review lane is built for — a defect this module has already shipped
- * twice, in two different costumes.
+ * ACCESS is a union of three permission keys plus the super-admin bypass, the
+ * shape the sibling gemba screen established — not one key. The writers and the
+ * graders are reached by different keys, so gating on improvement.ideas.view
+ * alone shows a no-access panel to the very people the review lane is built for
+ * — a defect this module has already shipped twice, in two different costumes.
+ * Which role_key holds which key is a live value in `custom_roles.permissions`;
+ * this file compares by value (`can()` is `=== true`) and records no roster.
  *
  * WRITES all go through CaseStudyService, which calls the four SECURITY DEFINER
  * RPCs and nothing else. This component never decides eligibility; it hides a
  * control the server would refuse, and shows whatever the server says when a
  * refusal happens anyway.
  *
- * NOT-INSTALLED is a first-class state. The RPCs and columns arrive in a
- * sibling migration; until it lands the screen says so in a sentence. Zero
- * cases and no feature must never look the same.
+ * NOT-INSTALLED is a first-class state. Those RPCs and six of the columns are
+ * created by migration `20260809010000` in sibling PR #2759, which is open and
+ * NOT applied — merging it does not apply it either. Until that happens the
+ * screen says so in a sentence: zero cases and no feature must never look the
+ * same.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -67,11 +69,11 @@ import {
   type WritingLane,
 } from '@/lib/services/improvement/case-study-service';
 
-/** Who may grade, and who may see the review lane at all. */
+/** Gates the review lane: this key alone decides who is shown the grade box. */
 const GRADE_PERMISSION = 'improvement.board.manage';
-/** The two officer keys. Held by cao / executive_admin_officer / ceo. */
+/** Opens the screen for the officer population. Read access only, no grade box. */
 const OFFICER_PERMISSION = 'improvement.area_role.assign';
-/** What an MBA associate holds. */
+/** Opens the screen for the associates who write the cases. */
 const ASSOCIATE_PERMISSION = 'improvement.ideas.view';
 
 function formatWhen(value: string | null): string {
@@ -122,10 +124,12 @@ export function CaseStudiesClient({
     can(OFFICER_PERMISSION) ||
     can(GRADE_PERMISSION);
 
-  // The review lane is exactly the RPC's own guard, no wider: fn_case_study_grade
-  // accepts improvement.board.manage (or a super admin) and refuses everyone
-  // else. Offering the grade box to anyone else would show a form the server
-  // then rejects.
+  // The review lane is held to exactly the check fn_case_study_grade is
+  // SPECIFIED to make — improvement.board.manage, or a super admin — and no
+  // wider. That specification is migration 20260809010000's (PR #2759, open and
+  // not applied); it is matched here so the grade box is not offered to someone
+  // the server would then refuse, and it is deliberately not made more generous
+  // than the contract it mirrors.
   const canGrade = isSuperAdmin || can(GRADE_PERMISSION);
 
   const [availability, setAvailability] =
