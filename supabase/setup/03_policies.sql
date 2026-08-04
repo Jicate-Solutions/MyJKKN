@@ -241,6 +241,22 @@ CREATE POLICY "degrees_select_by_role" ON degrees
         OR user_has_permission('admission.settings.seats.manage')
     );
 
+-- Additive read for campus-living settings admins (Chief Warden), scoped to the
+-- colleges a hostel block serves. The "Add Room Eligibility Rule" modal offers a
+-- cross-institution Institution list (hostel_block_institutions), so the policy
+-- above -- own-institution scope or an organizations.*.view key -- left the
+-- Degree/Department/Program/Semester dropdowns silently empty for wardens.
+-- Granting organizations.*.view instead was rejected: those keys drive sidebar
+-- entries in lib/sidebarMenuLink.ts. Mirrors the four policies added in
+-- 20260804092425_campus_living_chief_warden_academic_cascade_rls.sql; the
+-- department/program/semester twins live beside their own policies below.
+DROP POLICY IF EXISTS "degrees_select_campus_living_settings" ON degrees;
+CREATE POLICY "degrees_select_campus_living_settings" ON degrees
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
+    );
+
 DROP POLICY IF EXISTS "degrees_insert_by_role" ON degrees;
 CREATE POLICY "degrees_insert_by_role" ON degrees
     FOR INSERT WITH CHECK (
@@ -281,6 +297,15 @@ CREATE POLICY "departments_select_by_role" ON departments
         OR user_has_permission('organizations.departments.view')
         OR user_has_permission('admission.settings.seats.view')
         OR user_has_permission('admission.settings.seats.manage')
+    );
+
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "departments_select_campus_living_settings" ON departments;
+CREATE POLICY "departments_select_campus_living_settings" ON departments
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
     );
 
 DROP POLICY IF EXISTS "departments_insert_by_role" ON departments;
@@ -328,6 +353,15 @@ CREATE POLICY "programs_select_by_role" ON programs
         OR user_has_permission('admission.settings.seats.manage')
     );
 
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "programs_select_campus_living_settings" ON programs;
+CREATE POLICY "programs_select_campus_living_settings" ON programs
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
+    );
+
 DROP POLICY IF EXISTS "programs_insert_by_role" ON programs;
 CREATE POLICY "programs_insert_by_role" ON programs
     FOR INSERT WITH CHECK (
@@ -365,6 +399,15 @@ CREATE POLICY "semesters_select_admission_role" ON semesters
         is_super_admin() OR is_admin()
         OR institution_id = get_current_user_institution_id()
         OR user_has_permission('organizations.semesters.view')
+    );
+
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "semesters_select_campus_living_settings" ON semesters;
+CREATE POLICY "semesters_select_campus_living_settings" ON semesters
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
     );
 
 CREATE POLICY "semesters_insert_by_role" ON semesters
