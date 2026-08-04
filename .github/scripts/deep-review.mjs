@@ -68,7 +68,14 @@ function inconclusive(reason) {
 }
 
 async function main() {
-  if (!MODEL || !/^claude-/.test(MODEL)) throw new Error(`Invalid REVIEW_MODEL: ${JSON.stringify(MODEL)}`);
+  // Accept either a family alias (opus / sonnet / haiku — always-latest, the
+  // house convention) or a fully-qualified dated id (claude-*), so REVIEW_MODEL
+  // can still pin an exact build when a run needs to be reproducible.
+  // NOTE: this guard used to demand /^claude-/, which would have REJECTED the
+  // bare "opus" default above and thrown on every run.
+  if (!MODEL || !/^(opus|sonnet|haiku|claude-[a-z0-9.-]+)$/.test(MODEL)) {
+    throw new Error(`Invalid REVIEW_MODEL: ${JSON.stringify(MODEL)} — use a family alias (opus/sonnet/haiku) or a claude-* id`);
+  }
 
   const rawDiff = readFileSync(process.env.DIFF_FILE, "utf8");
   const rawBytes = Buffer.byteLength(rawDiff, "utf8");
