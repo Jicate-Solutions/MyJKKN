@@ -160,6 +160,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // '/foundation' — somebody sitting the programme has no reason to hold
   // foundation.dashboard.view.
   '/foundation/practice': 'foundation.practice.take',
+  // Same key as practising alone. Holding it is not enough to see anything
+  // here — the page also requires you to actually run a group, which is
+  // fp_cohorts.resource_person_id, not a permission.
+  '/foundation/practice/facilitate': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -1732,8 +1736,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           // operator keys, so '/foundation' above never renders for them.
           href: '/foundation/practice',
           label: 'Foundation Practice',
-          active: pathname.startsWith('/foundation/practice'),
+          // Exact, so that running a session for somebody else does not also
+          // light up "practise on my own" — they are different acts.
+          active: pathname === '/foundation/practice',
           icon: Target,
+          submenus: []
+        },
+        {
+          // Running the programme FOR a group, as opposed to sitting it.
+          // Gated on the same permission, but only ever populated for whoever
+          // is named as a cohort's resource person — most holders of the key
+          // will correctly see "you are not running any groups yet".
+          href: '/foundation/practice/facilitate',
+          label: 'Run a Practice Session',
+          active: pathname.startsWith('/foundation/practice/facilitate'),
+          icon: Users,
           submenus: []
         },
         {

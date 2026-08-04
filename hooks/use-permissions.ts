@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { RoleService } from '@/lib/services/roles/role-service';
-import { UserRolesService } from '@/lib/services/users/user-roles-service';
+import { userRolesQueryOptions } from '@/hooks/use-user-roles';
 import { SYSTEM_ROLES, UserRoleAssignment } from '@/types/auth';
 import { Profile, StudentStatus } from '@/types/auth';
 import { useAuth } from './use-auth';
@@ -57,6 +57,8 @@ export function usePermissions(
   
   const { waitForLoad = false } = options;
 
+  const queryClient = useQueryClient();
+
   // Fetch permissions using React Query for caching
   const {
     data: permissionData,
@@ -93,7 +95,13 @@ export function usePermissions(
 
       // Try multi-role approach first (fetches roles with permissions via SECURITY DEFINER)
       try {
-        const roles = await UserRolesService.getUserRoles(userProfile.id);
+        // Resolve through the SHARED ['user-roles', userId] cache entry
+        // (hooks/use-user-roles.ts) — the navbar's UserNav reads the same
+        // entry, so the rpc/get_user_roles_with_details call happens ONCE per
+        // staleTime window across all consumers instead of once per fetcher.
+        const roles = await queryClient.fetchQuery(
+          userRolesQueryOptions(userProfile.id)
+        );
 
         if (roles && roles.length > 0) {
           // Merge permissions client-side from the already-fetched role data
@@ -191,7 +199,7 @@ export function usePermissions(
       };
     },
     enabled: !!userProfile && !authLoading,
-    staleTime: 2 * 60 * 1000, // 2 minutes cache (reduced from 10 to reflect permission changes faster)
+    staleTime: 5 * 60 * 1000, // 5 minutes — aligned with the shared ['user-roles'] entry (2026-08-02 shell dedupe); role/permission edits still land within one window
     gcTime: 10 * 60 * 1000,   // 10 minutes garbage collection
     retry: 1,
     // Respect global default (false). The old per-query override caused PermissionGuard

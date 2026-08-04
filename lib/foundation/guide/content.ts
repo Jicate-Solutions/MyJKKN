@@ -12,7 +12,7 @@
  * sets `requires`; the registry re-keys these onto canonical personas so a
  * rename is a compile error, not a silent fail-open lane.
  */
-import type { GuideBook } from "../../guide/types";
+import type { GuideBook, GuideSection } from "../../guide/types";
 
 /** Permission keys that gate each lane — ONE source of truth. */
 export const REQUIRES = {
@@ -25,7 +25,77 @@ export const REQUIRES = {
   // The person actually sitting the programme, answering the questions — the
   // "practise" gate. Everything else in this module is an operator surface.
   learner: "foundation.practice.take",
+  // The Senior Learner who RUNS a session for a group rather than sitting it.
+  //
+  // Deliberately the same key as `learner`: one permission opens
+  // /foundation/practice/facilitate, and no permission distinguishes running a
+  // session from sitting one — that distinction is DATA
+  // (fp_cohorts.resource_person_id = you), not a grant. The name exists so the
+  // registry reads as what it means, and so this gate can be moved to its own
+  // key later without hunting for the string.
+  //
+  // It is NOT `facilitator` (foundation.students.view) on purpose. The one role
+  // that actually runs sessions today, school_faculty, does not hold that key —
+  // gating these steps on it would hide them from the only person who needs them.
+  session_leader: "foundation.practice.take",
 } as const;
+
+/**
+ * RUNNING A SESSION FOR A GROUP — kept OUT of `GUIDES.lanes` on purpose.
+ *
+ * These steps belong in the facilitator lane, but they cannot be gated the way
+ * the rest of that lane is. `withRequires()` in the registry stamps ONE key
+ * across every section it is given, so a section cannot carry its own key from
+ * here — the registry composes these separately, under `REQUIRES.session_leader`.
+ *
+ * Why that matters concretely: the whole existing Foundation facilitator lane is
+ * gated on `foundation.students.view`, and the one role that actually runs
+ * sessions (school_faculty) does not hold it. Folding these steps in with the
+ * rest would have hidden them from precisely the person they are written for.
+ */
+export const SESSION_LEADER_SECTIONS: GuideSection[] = [
+  {
+    id: "run-a-session",
+    title: "Run a practice session for a group",
+    steps: [
+      {
+        action:
+          "Open **Run a Practice Session** and pick one of your groups.",
+        detail:
+          "You see only the groups you are named as running — not every group in the programme. If a subject shows no questions yet, a session cannot be started for it, and the page says so rather than hiding the group.",
+        prerequisite:
+          "If it says you are not running any groups yet, that is the honest answer, not a fault: nobody has named you on one. Ask whoever sets up the programme to add you as the person running it.",
+        platforms: {
+          web: "left sidebar → Run a Practice Session",
+          mobile: "tap the menu (☰) → Run a Practice Session",
+        },
+        link: {
+          label: "Open Run a Practice Session",
+          href: "/foundation/practice/facilitate",
+        },
+      },
+      {
+        action:
+          "Choose a learner, then work through the questions together, one at a time.",
+        detail:
+          "Their name stays on screen for the whole run. Answers are recorded under that learner, never under you — which is what lets a child with no login of their own still build up a real record of what they know.",
+        prerequisite:
+          "Check the name on screen before you start answering. A run filed under the wrong learner looks completely normal afterwards, so the moment to catch it is now.",
+        link: {
+          label: "Open Run a Practice Session",
+          href: "/foundation/practice/facilitate",
+        },
+      },
+      {
+        action:
+          "Read the explanations at the end together — that is the part worth the time.",
+        detail:
+          "The review names the learner, shows what each answer was and why. Anything left blank is not counted right or wrong either way; the answer is still shown so you can talk it through.",
+        tip: "Each completed run feeds that learner's weakness map, so their revision plan sharpens with every session.",
+      },
+    ],
+  },
+];
 
 export const GUIDES: GuideBook = {
   lanes: {

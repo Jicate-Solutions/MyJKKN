@@ -1,8 +1,13 @@
 import { createServerClient, CookieOptions } from '@supabase/ssr';
+import type { AuthError } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { PROTECTED_ROUTES } from './lib/auth/protected-routes';
 import { profileCache } from './lib/auth/profile-cache';
+import {
+  tokenValidationCache,
+  type VerifiedTokenUser
+} from './lib/auth/token-validation-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
@@ -358,21 +363,50 @@ export async function proxy(request: NextRequest) {
       }
     );
 
-    // Get and verify user - this sends a request to Supabase Auth server every time.
-    // Mobile networks (LTE handoffs, cell switches, weak signal) routinely produce
-    // a single transient 5xx or network error here. Without a retry, that one
-    // failure logs the user out. Match the profile-fetch retry pattern below
-    // (single retry after 200 ms) — cheap, bounded, eliminates the largest class
-    // of "logged out for no reason" mobile failures.
-    let authResult = await supabase.auth.getUser();
-    if (authResult.error && !authResult.data.user) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      authResult = await supabase.auth.getUser();
-    }
+    // Get and verify user. This historically sent a request to the Supabase
+    // Auth server (/auth/v1/user) on EVERY authenticated document request — a
+    // network round trip that set the TTFB floor. It is now amortised through a
+    // short-TTL in-memory per-token validation cache
+    // (lib/auth/token-validation-cache.ts): the FIRST sight of an access token
+    // still performs the real network validation below; subsequent requests
+    // bearing the SAME token reuse the verified verdict until the cache TTL
+    // (60s) or the token's own exp claim, whichever comes first. Expired or
+    // undecodable tokens are never served from cache, so they fall through to
+    // the original getUser() path — the expired→refresh flow is unchanged.
+    //
+    // getSession() here is a LOCAL cookie read (no network) for a valid,
+    // unexpired session; when the token is expired supabase-js refreshes it
+    // exactly as getUser() would have.
     const {
-      data: { user },
-      error: userError
-    } = authResult;
+      data: { session }
+    } = await supabase.auth.getSession();
+    const accessToken = session?.access_token ?? null;
+
+    let user: VerifiedTokenUser | null = accessToken
+      ? await tokenValidationCache.get(accessToken)
+      : null;
+    let userError: AuthError | null = null;
+
+    if (!user) {
+      // Cache miss (or no token) — real network validation, keeping the
+      // original mobile-transient retry: LTE handoffs, cell switches and weak
+      // signal routinely produce a single transient 5xx or network error here,
+      // and without a retry that one failure logs the user out. Single retry
+      // after 200 ms — cheap, bounded (matches the profile-fetch retry below).
+      let authResult = await supabase.auth.getUser();
+      if (authResult.error && !authResult.data.user) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        authResult = await supabase.auth.getUser();
+      }
+      user = authResult.data.user;
+      userError = authResult.error;
+
+      // Only SUCCESSFUL validations are cached — failures are never cached,
+      // not even briefly (fail-closed; see token-validation-cache.ts).
+      if (accessToken && user && !userError) {
+        await tokenValidationCache.set(accessToken, user);
+      }
+    }
 
     if (userError) {
       // FIXED: Clear stale profile cache on auth error to prevent stuck loading states
