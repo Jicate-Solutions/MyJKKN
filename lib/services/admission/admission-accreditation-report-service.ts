@@ -175,9 +175,12 @@ export class AdmissionAccreditationReportService {
    * Same source_id semantics as PR-A5 (polymorphic — source_table is the
    * academic_years row or snapshot identifier).
    *
-   * Idempotent via UNIQUE constraint quality_evidence_mappings_source_scope_key
-   * on (source_table, source_id, body_code, metric_code, programme_id,
-   * institution_id).
+   * Idempotent via UNIQUE constraint quality_evidence_mappings_source_scope_key.
+   * LIVE TODAY that key is five columns — (source_table, source_id, body_code,
+   * metric_code, programme_id). Migration 20260809101400 adds institution_id,
+   * and is not applied anywhere yet, which is why the upsert below still needs
+   * its five-column fallback. Do not delete the fallback on the strength of
+   * this comment; check the live constraint first.
    */
   static async emitEnrollmentEvidence(
     institutionId: string,
@@ -216,8 +219,16 @@ export class AdmissionAccreditationReportService {
         .upsert(evidenceRows, { onConflict, ignoreDuplicates: true })
         .select();
 
+    // Not a silent fallback: without this line nobody can tell which key
+    // production is on, nor when the transitional constant becomes safe to
+    // delete, nor when a genuine 42P10 from a third writer starts appearing.
     let { data, error } = await upsert(EVIDENCE_CONFLICT_TARGET);
     if (error?.code === '42P10') {
+      console.warn(
+        '[admission/accreditation] six-column evidence conflict target raised 42P10 — ' +
+          'migration 20260809101400 is not applied on this database. Falling back to the ' +
+          'five-column key; under it a shared source row can be claimed by only ONE institution.',
+      );
       ({ data, error } = await upsert(EVIDENCE_CONFLICT_TARGET_LEGACY));
     }
 

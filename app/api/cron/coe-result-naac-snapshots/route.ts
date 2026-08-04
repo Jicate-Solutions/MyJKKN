@@ -260,6 +260,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // (is_auto=false) mappings are pre-excluded here instead.
     let mappings = 0;
     let skippedManual = 0;
+    // 'scoped' = the six-column key (institution_id in the arbiter) is live.
+    // 'legacy' = migration 20260809101400 is not applied on this database.
+    let conflictTargetUsed: 'scoped' | 'legacy' = 'scoped';
     if (upserted.length > 0) {
       const { data: manual, error: manualErr } = await supabase
         .from('quality_evidence_mappings')
@@ -300,10 +303,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         // may be on EITHER key and a hard-coded target would break in one of the
         // two orders. Hence: try six, fall back to five on 42P10. Drop the
         // fallback once 20260809101400 is applied everywhere.
+        //
+        // The fallback is NOT silent. A silent one would leave nobody able to
+        // tell which key production is on, when the fallback stops firing (i.e.
+        // when the transitional constant is safe to delete), or when a genuine
+        // 42P10 from some third hard-coded writer starts appearing. So the
+        // route reports which target it used.
         let { error: mapErr } = await supabase
           .from('quality_evidence_mappings')
           .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET });
         if (mapErr?.code === '42P10') {
+          conflictTargetUsed = 'legacy';
+          console.warn(
+            '[cron/coe-result-naac-snapshots] six-column evidence conflict target ' +
+              'raised 42P10 — migration 20260809101400 is not applied on this database. ' +
+              'Falling back to the five-column key. Under it, a shared source row can be ' +
+              'claimed by only ONE institution.',
+          );
           ({ error: mapErr } = await supabase
             .from('quality_evidence_mappings')
             .upsert(mappingRows, { onConflict: EVIDENCE_CONFLICT_TARGET_LEGACY }));
@@ -327,6 +343,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       snapshots: upserted.length,
       mappings,
       skipped_manual: skippedManual,
+      // Which evidence conflict target this run actually used. 'legacy' means
+      // migration 20260809101400 is not applied here, so a shared source row
+      // can still be claimed by only one institution.
+      conflict_target_used: conflictTargetUsed,
       count: upserted.length,
     });
   } catch (err) {
