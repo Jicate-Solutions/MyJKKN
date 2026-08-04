@@ -78,6 +78,11 @@ const config: ModuleNavConfig = {
           icon: 'Leaf',
           href: '/accreditation/manage/utility-readings',
         },
+        {
+          label: 'Assign Owners',
+          icon: 'UserCheck',
+          href: '/accreditation/manage/owners',
+        },
       ],
     },
     {
