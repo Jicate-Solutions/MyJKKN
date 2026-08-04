@@ -202,7 +202,9 @@ export class AdmissionAccreditationReportService {
     const { data, error } = await (this.supabase as any)
       .from('quality_evidence_mappings')
       .upsert(evidenceRows, {
-        onConflict: 'source_table,source_id,body_code,metric_code',
+        // All FIVE columns of quality_evidence_mappings_source_scope_key — a
+        // four-column target does not match the constraint and raises 42P10.
+        onConflict: 'source_table,source_id,body_code,metric_code,programme_id',
         ignoreDuplicates: true,
       })
       .select();
