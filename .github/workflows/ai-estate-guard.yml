@@ -104,13 +104,13 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --description "Daily proof-of-life digest for self-running jobs" \
               --color 0E7C66 2>/dev/null || true
-            NUM=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+            # `gh issue create` has no --json flag; it prints the issue URL.
+            URL=$(gh issue create --repo "$GITHUB_REPOSITORY" \
                     --title "$TITLE" \
                     --label ai-estate-guard \
-                    --body-file digest.md \
-                    --json number --jq .number 2>/dev/null) || true
-            if [ -n "${NUM:-}" ]; then
-              echo "Opened tracking issue #$NUM"
+                    --body-file digest.md 2>/dev/null) || true
+            if [ -n "${URL:-}" ]; then
+              echo "Opened tracking issue ${URL##*/} — $URL"
               exit 0
             fi
             echo "::warning::Could not open the tracking issue; the digest is still on the run summary."
