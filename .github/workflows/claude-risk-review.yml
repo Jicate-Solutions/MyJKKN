@@ -333,7 +333,10 @@ jobs:
             echo "::warning::Claude produced no review file. Advisory job stays green by design, but the PR is now marked NOT REVIEWED."
             # \n escapes + printf %b: a bare newline inside this string would sit
             # at column 0 and terminate the enclosing YAML block scalar.
-            NO_REVIEW_MSG="The \`$TIER\`-tier reviewer ran but wrote no review, so **this PR has not been reviewed by this workflow**. Absence of a review is not a passed review.\n\nReviewer step outcome: \`${OUTCOME:-did-not-run}\`. The job itself stays green because this tier is advisory — read the step log for the cause.\n\nA recurring cause on this repo is the reviewer exiting immediately with \`is_error:true\`, 1 turn and \$0 cost, which points at the configured model or token being rejected rather than at a real review failing.\n\n[Workflow run]($RUN_URL)"
+            # Name the known causes as candidates to check — do NOT assert one.
+            # Both have been observed on this repo and they are unrelated, so a
+            # status that picks one would send triage the wrong way.
+            NO_REVIEW_MSG="The \`$TIER\`-tier reviewer ran but wrote no review, so **this PR has not been reviewed by this workflow**. Absence of a review is not a passed review.\n\nReviewer step outcome: \`${OUTCOME:-did-not-run}\`. The job itself stays green because this tier is advisory. **Read the step log for the actual cause** — two unrelated ones have been seen here:\n\n1. \`Skipping action due to workflow validation\` — the action refuses to run when the PR edits a workflow file, because the file differs from the default branch. **Expected and harmless on workflow PRs**; it starts working again once merged.\n2. An immediate exit with \`is_error:true\`, 1 turn and \$0 cost — nothing was actually reviewed; points at the configured model or the token being rejected.\n\n[Workflow run]($RUN_URL)"
             publish_status neutral \
               "NOT REVIEWED — the advisory reviewer produced nothing" \
               "$(printf '%b\n' "$NO_REVIEW_MSG")"
