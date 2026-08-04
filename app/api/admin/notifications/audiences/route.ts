@@ -16,6 +16,9 @@ const NO_STORE = { 'Cache-Control': 'private, no-store' };
 const ACCEPTED_BUILT_IN_AUDIENCE_NAMES = [
   'all_active_users',
   'all_students',
+  // College learners only — excludes the two schools. See migration
+  // 20260804130000_college_students_audience.sql.
+  'college_students',
   'all_faculty',
   'all_hods',
   'role_filter',

@@ -80,7 +80,12 @@ const BUILT_IN_TYPES = [
   {
     value: 'all_students',
     label: 'All Students',
-    description: 'All students currently enrolled'
+    description: 'All students currently enrolled (includes school students)'
+  },
+  {
+    value: 'college_students',
+    label: 'All College Learners',
+    description: 'Learners in the JKKN colleges only — excludes school students'
   },
   {
     value: 'all_faculty',
