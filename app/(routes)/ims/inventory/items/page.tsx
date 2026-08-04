@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { BeatLoader } from 'react-spinners';
 import { useAuth } from '@/hooks/use-auth';
+// Still used by the edit dialog's stock-diff path, which books a correction when
+// someone changes the current quantity — separate from the removed Adjust Stock
+// dialog, which is now at /ims/stock/adjustments.
 import { ImsStockAdjustmentService } from '@/lib/services/ims/stock-adjustment-service';
 import { ImsStockService } from '@/lib/services/ims/stock-service';
 import {
@@ -66,6 +69,7 @@ import {
   Upload,
   UploadCloud,
   IndianRupee,
+  Eye,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -78,7 +82,10 @@ import {
   useToggleImsItemActive,
   useImsCategoriesForSelect,
   useSetPosVisibility,
+  useAddItemsToStore,
+  useRemoveItemsFromStore,
 } from '@/hooks/ims/use-ims-inventory';
+import { useImsStore } from '@/hooks/ims/use-ims-stores';
 import {
   useCreateImsItemChangeRequest,
   useImsPendingItemChangeIds,
@@ -132,6 +139,59 @@ function formatPrice(amount: number): string {
     currency: 'INR',
     minimumFractionDigits: 2,
   });
+}
+
+// ── Read-only detail view helpers ──────────────────────────────────────────
+// Kept at module scope so they are not redefined on every render of the page.
+
+function unitLabel(unit?: { name: string; abbreviation: string } | null): string | null {
+  if (!unit) return null;
+  // Both when they differ, because "Nos" alone is not always self-explanatory
+  // and the full name alone is long in a two-column grid.
+  return unit.abbreviation && unit.abbreviation !== unit.name
+    ? `${unit.name} (${unit.abbreviation})`
+    : unit.name || unit.abbreviation;
+}
+
+function ViewSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+        {title}
+      </h4>
+      <dl className="divide-y divide-border/60 rounded-md border">{children}</dl>
+    </div>
+  );
+}
+
+/**
+ * One label/value pair. Renders an em dash for anything empty rather than
+ * hiding the row — "we hold no company name for this item" and "this dialog
+ * does not show company names" look identical if the row simply vanishes.
+ */
+function ViewRow({
+  label,
+  children,
+  mono,
+}: {
+  label: string;
+  children?: ReactNode;
+  mono?: boolean;
+}) {
+  const empty =
+    children === null || children === undefined || children === '' || children === false;
+  return (
+    <div className="flex items-baseline justify-between gap-4 px-3 py-2">
+      <dt className="text-xs text-muted-foreground shrink-0">{label}</dt>
+      <dd
+        className={`text-sm text-right break-words ${mono ? 'font-mono' : ''} ${
+          empty ? 'text-muted-foreground' : ''
+        }`}
+      >
+        {empty ? '—' : children}
+      </dd>
+    </div>
+  );
 }
 
 interface ItemFormData {
@@ -215,7 +275,6 @@ function InventoryItemsPageInner() {
   const canProposeEdit = !canEdit && canAccess('ims.inventory', 'propose_edit');
   const router = useRouter();
   const canDelete = permsIsSuperAdmin || canAccess('ims.inventory', 'delete');
-  const canAdjust = permsIsSuperAdmin || canAccess('ims.stock', 'adjust');
 
   // Filters state
   const [search, setSearch] = useState('');
@@ -224,6 +283,18 @@ function InventoryItemsPageInner() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [posFilter, setPosFilter] = useState<'all' | 'at_pos' | 'not_at_pos'>('all');
+
+  // Which catalogue is on screen: what THIS store carries, or everything the
+  // institution has. Only the warehouse and super admins get the choice — the
+  // warehouse distributes, so it has to be able to see an item before any store
+  // stocks it. Everyone else sees their own store, full stop.
+  const { data: currentStore } = useImsStore(storeId ?? '');
+  const isWarehouse = currentStore?.is_central_supply_store ?? false;
+  const canSeeInstitutionCatalog = isSuperAdmin || permsIsSuperAdmin || isWarehouse;
+  const [catalogScope, setCatalogScope] = useState<'store' | 'institution'>('store');
+  const scope: 'store' | 'institution' =
+    canSeeInstitutionCatalog && catalogScope === 'institution' ? 'institution' : 'store';
+  const storeScoped = scope === 'store' && !!storeId;
 
   // Bulk selection. `selectAllMatching` is the difference between "these 20 rows"
   // and "every row this filter matches" — the second cannot be a list of ids,
@@ -244,17 +315,10 @@ function InventoryItemsPageInner() {
   const [batchItem, setBatchItem] = useState<ImsItemWithRelations | null>(null);
   const [viewBatchItem, setViewBatchItem] = useState<ImsItemWithRelations | null>(null);
 
-  // Adjust stock dialog state
-  const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
-  const [adjustingItem, setAdjustingItem] = useState<ImsItemWithRelations | null>(null);
-  const [adjustForm, setAdjustForm] = useState({
-    adjustment_type: 'correction',
-    quantity: 0,
-    reason: '',
-    batch_number: '',
-    expiry_date: '',
-  });
-  const [isAdjusting, setIsAdjusting] = useState(false);
+  // Read-only detail view. Holds the row itself rather than an id — the list
+  // query already carries every field the dialog shows, including the joins and
+  // the store's listing, so opening it costs no extra fetch.
+  const [viewItem, setViewItem] = useState<ImsItemWithRelations | null>(null);
 
   // Debounce search
   useEffect(() => {
@@ -267,7 +331,7 @@ function InventoryItemsPageInner() {
   // Snap back to page 1 whenever the active filters change.
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, categoryFilter, typeFilter, posFilter]);
+  }, [debouncedSearch, categoryFilter, typeFilter, posFilter, scope]);
 
   // A selection describes rows in a particular result set. Once the filters move,
   // those rows may not even be on screen — carrying the selection across would let
@@ -275,7 +339,7 @@ function InventoryItemsPageInner() {
   useEffect(() => {
     setSelectedIds(new Set());
     setSelectAllMatching(false);
-  }, [debouncedSearch, categoryFilter, typeFilter, posFilter, page]);
+  }, [debouncedSearch, categoryFilter, typeFilter, posFilter, scope, page]);
 
   // Build filters
   const filters: ImsItemFilters = {
@@ -284,6 +348,7 @@ function InventoryItemsPageInner() {
     item_type: (typeFilter as ImsItemType) || undefined,
     store_id: storeId || '',
     institution_id: institutionId,
+    scope,
     pos_visibility: posFilter === 'all' ? undefined : posFilter,
     page,
     limit: PAGE_SIZE,
@@ -324,12 +389,19 @@ function InventoryItemsPageInner() {
   // What the buttons promise, and what the server will be told to expect.
   const affectedCount = selectAllMatching ? totalMatching : selectedIds.size;
 
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectAllMatching(false);
+    setBulkConfirm(null);
+  };
+
   const runBulk = (action: 'add' | 'remove') => {
     setPosVisibility.mutate(
       selectAllMatching
         ? {
             action,
             institutionId: institutionId || '',
+            storeId: storeId || '',
             expectedCount: totalMatching,
             mode: 'filter',
             filter: {
@@ -342,19 +414,25 @@ function InventoryItemsPageInner() {
         : {
             action,
             institutionId: institutionId || '',
+            storeId: storeId || '',
             expectedCount: selectedIds.size,
             mode: 'ids',
             ids: [...selectedIds],
           },
-      {
-        onSuccess: () => {
-          setSelectedIds(new Set());
-          setSelectAllMatching(false);
-          setBulkConfirm(null);
-        },
-        onError: () => setBulkConfirm(null),
-      },
+      { onSuccess: clearSelection, onError: () => setBulkConfirm(null) },
     );
+  };
+
+  // Assortment, not stock: listing an item here means this store's catalogue
+  // shows it, so it can be requested and received. It arrives with no quantity.
+  const addToStore = useAddItemsToStore();
+  const removeFromStore = useRemoveItemsFromStore();
+
+  const runAssortment = (action: 'add' | 'remove') => {
+    if (!storeId || selectedIds.size === 0) return;
+    const input = { storeId, itemIds: [...selectedIds] };
+    const mutation = action === 'add' ? addToStore : removeFromStore;
+    mutation.mutate(input, { onSuccess: clearSelection });
   };
   const { data: pendingChangeIds } = useImsPendingItemChangeIds(institutionId);
   const deleteItem = useDeleteImsItem();
@@ -417,7 +495,10 @@ function InventoryItemsPageInner() {
       max_stock_level: Number(item.max_stock_level) || 0,
       track_batch: item.track_batch,
       track_expiry: item.track_expiry,
-      is_sellable_to_students: item.is_sellable_to_students,
+      // The store's listing wins over the catalogue default — the checkbox is
+      // about this counter, so it has to open showing this counter's answer.
+      is_sellable_to_students:
+        item.store_link?.is_sellable_to_students ?? item.is_sellable_to_students,
       image_url: item.image_url || '',
       opening_stock: 0,
       opening_batch_number: '',
@@ -430,7 +511,9 @@ function InventoryItemsPageInner() {
 
   // Submit form
   const handleSubmit = async () => {
-    if (!formData.code || !formData.name || !formData.category_id || !formData.base_unit_id) {
+    // `code` is deliberately absent: it is generated, so it is never a thing the
+    // user can fail to fill in.
+    if (!formData.name || !formData.category_id || !formData.base_unit_id) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -438,7 +521,9 @@ function InventoryItemsPageInner() {
     try {
       if (editingItem) {
         const updateData: UpdateImsItemDto = {
-          code: formData.code,
+          // No `code` here. It is assigned once and immutable — an update that
+          // carried it could collide on ims_items_institution_code_unique, and
+          // updateItem has no 23505 handling.
           name: formData.name,
           description: formData.description || null,
           company_name: formData.company_name || null,
@@ -486,6 +571,27 @@ function InventoryItemsPageInner() {
 
         await updateItem.mutateAsync({ id: editingItem.id, data: updateData });
 
+        // The POS checkbox on this form means "sell it at the counter I am
+        // standing at". It still writes the item-level column above — that is the
+        // catalogue default, and the change-request allowlist is built around it —
+        // but the counter reads the store's listing, so that is what has to move.
+        // Only when the listing exists: the form must not quietly add the item to
+        // a store's catalogue as a side effect of ticking a checkbox.
+        if (
+          storeId &&
+          editingItem.store_link &&
+          editingItem.store_link.is_sellable_to_students !== formData.is_sellable_to_students
+        ) {
+          await setPosVisibility.mutateAsync({
+            action: formData.is_sellable_to_students ? 'add' : 'remove',
+            institutionId: institutionId || '',
+            storeId,
+            expectedCount: 1,
+            mode: 'ids',
+            ids: [editingItem.id],
+          });
+        }
+
         // Stock-side updates: opening_quantity and current_quantity live on
         // ims_stock_summary, not ims_items, so they take different service calls.
         // Diff against the original values and only fire if changed — avoids creating
@@ -530,7 +636,9 @@ function InventoryItemsPageInner() {
         toast.success('Item updated successfully');
       } else {
         const createData: CreateImsItemDto = {
-          code: formData.code,
+          // `code` omitted on purpose — the ims_items_autofill_code trigger
+          // allocates it inside the inserting transaction, so a failed save
+          // cannot burn a number the way client-side generation used to.
           name: formData.name,
           description: formData.description || null,
           company_name: formData.company_name || null,
@@ -573,7 +681,9 @@ function InventoryItemsPageInner() {
             institution_id: institutionId || '',
           });
         }
-        toast.success('Item created successfully');
+        // Show the assigned code. The user never chose it, so telling them what
+        // it turned out to be is the least the confirmation can do.
+        toast.success(`Item created as ${item.code}`);
       }
       setDialogOpen(false);
       setEditingItem(null);
@@ -597,47 +707,35 @@ function InventoryItemsPageInner() {
 
   // Delete item
   const handleDelete = async (item: ImsItemWithRelations) => {
-    if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return;
+    // Name the consequence before asking. An item that appears on no document can
+    // be deleted even while it holds stock — that is deliberate (blocking on stock
+    // would make a mistaken item impossible to remove, because zeroing it writes a
+    // movement) — but discarding a hundred units should never be a surprise.
+    const onHand = Number(item.stock?.current_quantity) || 0;
+    const warning =
+      onHand > 0
+        ? `\n\nThis will also discard ${onHand} unit${onHand === 1 ? '' : 's'} of on-hand stock and its batch records.`
+        : '';
+    if (!confirm(`Delete "${item.name}"?${warning}`)) return;
+
     try {
-      await deleteItem.mutateAsync(item.id);
-      toast.success('Item deleted successfully');
+      const result = await deleteItem.mutateAsync(item.id);
+      toast.success(
+        result?.discarded_qty
+          ? `${result.name} deleted — ${result.discarded_qty} unit(s) of stock discarded`
+          : `${result?.name ?? 'Item'} deleted`,
+      );
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to delete item');
+      // The RPC's refusal names the documents that block it and suggests
+      // deactivating, so it is worth more screen time than a one-line toast.
+      toast.error(error?.message || 'Failed to delete item', { duration: 10000 });
     }
   };
 
-  // Adjust stock handler
-  const handleAdjustStock = async () => {
-    if (!adjustingItem || !adjustForm.adjustment_type || adjustForm.quantity <= 0 || !adjustForm.reason.trim()) {
-      toast.error('Please fill all adjustment fields');
-      return;
-    }
-    setIsAdjusting(true);
-    try {
-      await ImsStockAdjustmentService.createAdjustment(
-        {
-          item_id: adjustingItem.id,
-          adjustment_type: adjustForm.adjustment_type,
-          quantity: adjustForm.quantity,
-          reason: adjustForm.reason,
-          institution_id: institutionId || '',
-          store_id: storeId || undefined,
-          batch_number: adjustForm.batch_number || undefined,
-          expiry_date: adjustForm.expiry_date || undefined,
-        },
-        profile?.id || ''
-      );
-      toast.success('Stock adjusted successfully');
-      setAdjustDialogOpen(false);
-      setAdjustingItem(null);
-      setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
-      queryClient.invalidateQueries({ queryKey: ['ims-items'] });
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to adjust stock');
-    } finally {
-      setIsAdjusting(false);
-    }
-  };
+  // Stock adjustment used to live here as a dialog off the Actions menu. The menu
+  // entry is gone (View took its place), which left the dialog unreachable, so it
+  // went with it. The capability is unaffected — /ims/stock/adjustments is the
+  // real home for it and has its own "New Adjustment" flow.
 
   const isMutating =
     createItem.isPending ||
@@ -666,30 +764,47 @@ function InventoryItemsPageInner() {
                 Import Items
               </Button>
             )}
-            {canEdit && (
-              <Button
-                variant="outline"
-                onClick={() => setPriceDialogOpen(true)}
-              >
-                <IndianRupee className="h-4 w-4 mr-2" />
-                Update Prices
-              </Button>
-            )}
-            {/* Shown to whoever can approve AND to whoever can only propose — the
-                requester needs somewhere to see what happened to their request. */}
+            {/* Secondary page actions, collapsed behind one trigger. Both are
+                occasional — a bulk price sheet and an approval queue — and neither
+                earns permanent space next to Add Item.
+                The pending count stays ON THE TRIGGER, not only inside the menu:
+                a notification nobody can see until they open a dropdown has
+                stopped being a notification. */}
             {(canEdit || canProposeEdit) && (
-              <Button
-                variant="outline"
-                onClick={() => router.push('/ims/inventory/item-approvals')}
-              >
-                <ShieldCheck className="h-4 w-4 mr-2" />
-                Change Requests
-                {pendingChangeIds && pendingChangeIds.size > 0 && (
-                  <Badge variant="secondary" className="ml-2">
-                    {pendingChangeIds.size}
-                  </Badge>
-                )}
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" aria-label="More actions">
+                    <MoreHorizontal className="h-4 w-4" />
+                    {pendingChangeIds && pendingChangeIds.size > 0 && (
+                      <Badge variant="secondary" className="ml-2">
+                        {pendingChangeIds.size}
+                      </Badge>
+                    )}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  {canEdit && (
+                    <DropdownMenuItem onClick={() => setPriceDialogOpen(true)}>
+                      <IndianRupee className="h-4 w-4 mr-2" />
+                      Update Prices
+                    </DropdownMenuItem>
+                  )}
+                  {/* Shown to whoever can approve AND to whoever can only propose —
+                      the requester needs somewhere to see what happened to their
+                      request. */}
+                  <DropdownMenuItem
+                    onClick={() => router.push('/ims/inventory/item-approvals')}
+                  >
+                    <ShieldCheck className="h-4 w-4 mr-2" />
+                    Change Requests
+                    {pendingChangeIds && pendingChangeIds.size > 0 && (
+                      <Badge variant="secondary" className="ml-auto">
+                        {pendingChangeIds.size}
+                      </Badge>
+                    )}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             {canCreate && (
@@ -715,18 +830,25 @@ function InventoryItemsPageInner() {
               <div className="grid gap-4 py-4">
                 {/* Row: Code + Name */}
                 <div className="grid grid-cols-2 gap-4">
+                  {/* Generated, never typed. The sequence lives in
+                      ims_item_code_counters and is drawn by a BEFORE INSERT
+                      trigger, so the value does not exist until the row does —
+                      hence a promise on create rather than a preview. */}
                   <div className="space-y-2">
-                    <Label htmlFor="code">
-                      Code <span className="text-red-500">*</span>
-                    </Label>
+                    <Label htmlFor="code">Code</Label>
                     <Input
                       id="code"
-                      placeholder="e.g. ITM-001"
-                      value={formData.code}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, code: e.target.value }))
-                      }
+                      value={editingItem ? formData.code : ''}
+                      placeholder="Auto-generated on save"
+                      disabled
+                      readOnly
+                      className="font-mono disabled:opacity-100 disabled:cursor-default"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {editingItem
+                        ? 'Item codes cannot be changed once assigned.'
+                        : 'Assigned automatically from this institution’s sequence.'}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="name">
@@ -1341,117 +1463,6 @@ function InventoryItemsPageInner() {
           onUpdateComplete={handleImportComplete}
         />
 
-        {/* Adjust Stock Dialog */}
-        <Dialog open={adjustDialogOpen} onOpenChange={setAdjustDialogOpen}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Adjust Stock</DialogTitle>
-              <DialogDescription>
-                {adjustingItem?.name} — Current:{' '}
-                {adjustingItem?.stock?.current_quantity ?? '—'}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label>Adjustment Type</Label>
-                <Select
-                  value={adjustForm.adjustment_type}
-                  onValueChange={(val) =>
-                    setAdjustForm((p) => ({ ...p, adjustment_type: val }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="correction">Correction (add)</SelectItem>
-                    <SelectItem value="physical_count">Physical Count (add)</SelectItem>
-                    <SelectItem value="transfer">Transfer In (add)</SelectItem>
-                    <SelectItem value="damage">Damage (remove)</SelectItem>
-                    <SelectItem value="expiry">Expiry (remove)</SelectItem>
-                    <SelectItem value="theft">Theft / Loss (remove)</SelectItem>
-                    <SelectItem value="return_to_supplier">Return to Supplier (remove)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Quantity</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  value={adjustForm.quantity}
-                  onChange={(e) =>
-                    setAdjustForm((p) => ({
-                      ...p,
-                      quantity: parseInt(e.target.value) || 0,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Reason</Label>
-                <Textarea
-                  placeholder="Explain the reason for this adjustment..."
-                  value={adjustForm.reason}
-                  onChange={(e) =>
-                    setAdjustForm((p) => ({ ...p, reason: e.target.value }))
-                  }
-                  rows={2}
-                />
-              </div>
-
-              {/* Batch Number — shown for batch-tracked items or loss-type adjustments */}
-              {(adjustingItem?.track_batch ||
-                ['damage', 'expiry', 'theft', 'return_to_supplier'].includes(adjustForm.adjustment_type)) && (
-                <div className="space-y-2">
-                  <Label>
-                    Batch Number{' '}
-                    <span className="text-muted-foreground text-xs">(optional)</span>
-                  </Label>
-                  <Input
-                    placeholder="e.g. B001"
-                    value={adjustForm.batch_number}
-                    onChange={(e) =>
-                      setAdjustForm((p) => ({ ...p, batch_number: e.target.value }))
-                    }
-                  />
-                </div>
-              )}
-
-              {/* Expiry Date — shown for expiry-tracked items or expiry-type adjustments */}
-              {(adjustingItem?.track_expiry || adjustForm.adjustment_type === 'expiry') && (
-                <div className="space-y-2">
-                  <Label>
-                    Expiry Date{' '}
-                    <span className="text-muted-foreground text-xs">(optional)</span>
-                  </Label>
-                  <Input
-                    type="date"
-                    value={adjustForm.expiry_date}
-                    onChange={(e) =>
-                      setAdjustForm((p) => ({ ...p, expiry_date: e.target.value }))
-                    }
-                  />
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setAdjustDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button onClick={handleAdjustStock} disabled={isAdjusting}>
-                {isAdjusting && (
-                  <BeatLoader color="#fff" size={8} className="mr-2" />
-                )}
-                Apply Adjustment
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
         {/* Filters */}
         <Card>
           <CardContent className="pt-6">
@@ -1513,7 +1524,34 @@ function InventoryItemsPageInner() {
                   <SelectItem value="not_at_pos">Not at POS</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* Which catalogue. The warehouse holds nothing it has not been
+                  sent, but it decides what gets sent — so it needs to reach items
+                  no store carries yet. Making the choice visible matters more
+                  than the choice itself: two lists that look identical but hold
+                  different rows is how the original confusion started. */}
+              {canSeeInstitutionCatalog && (
+                <Select
+                  value={catalogScope}
+                  onValueChange={(val) => setCatalogScope(val as typeof catalogScope)}
+                >
+                  <SelectTrigger className="w-full sm:w-[210px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="store">In this store</SelectItem>
+                    <SelectItem value="institution">Whole institution</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
+
+            {scope === 'institution' && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Showing every item in the institution, including ones {currentStore?.name || 'this store'}
+                {' '}does not carry. Stock and POS status are still {currentStore?.name || 'this store'}&apos;s.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -1550,26 +1588,57 @@ function InventoryItemsPageInner() {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={setPosVisibility.isPending}
-                    onClick={() =>
-                      selectAllMatching ? setBulkConfirm('add') : runBulk('add')
-                    }
-                  >
-                    <ShieldCheck className="h-4 w-4 mr-1" />
-                    Add to POS ({affectedCount})
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={setPosVisibility.isPending}
-                    onClick={() =>
-                      selectAllMatching ? setBulkConfirm('remove') : runBulk('remove')
-                    }
-                  >
-                    Remove from POS ({affectedCount})
-                  </Button>
+                  {/* POS is a property of a counter, so these only make sense
+                      against one store. In the institution view the useful action
+                      is the other one: start carrying the item here at all. */}
+                  {storeScoped ? (
+                    <>
+                      <Button
+                        size="sm"
+                        disabled={setPosVisibility.isPending}
+                        onClick={() =>
+                          selectAllMatching ? setBulkConfirm('add') : runBulk('add')
+                        }
+                      >
+                        <ShieldCheck className="h-4 w-4 mr-1" />
+                        Add to POS ({affectedCount})
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={setPosVisibility.isPending}
+                        onClick={() =>
+                          selectAllMatching ? setBulkConfirm('remove') : runBulk('remove')
+                        }
+                      >
+                        Remove from POS ({affectedCount})
+                      </Button>
+                      {/* "All matching" is a filter, not a list of ids, and the
+                          assortment mutations take ids — so this stays on the
+                          explicit selection rather than silently doing less. */}
+                      {!selectAllMatching && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={removeFromStore.isPending}
+                          onClick={() => runAssortment('remove')}
+                        >
+                          Remove from this store ({selectedIds.size})
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    !selectAllMatching && (
+                      <Button
+                        size="sm"
+                        disabled={addToStore.isPending || !storeId}
+                        onClick={() => runAssortment('add')}
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add to {currentStore?.name || 'this store'} ({selectedIds.size})
+                      </Button>
+                    )
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1619,19 +1688,17 @@ function InventoryItemsPageInner() {
                           />
                         </TableHead>
                       )}
-                      <TableHead>Code</TableHead>
                       <TableHead className="w-14">Image</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Category</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Base Unit</TableHead>
+                      {/* Code, Company, Type, Base Unit, GST % and At POS are all
+                          still fetched and still stored — they moved to the View
+                          dialog so the grid fits without sideways scrolling.
+                          Search still matches on code, so it stays findable. */}
                       <TableHead className="text-right">Opening Stock</TableHead>
                       <TableHead className="text-right">Stock Balance</TableHead>
                       <TableHead className="text-right">Cost Price</TableHead>
                       <TableHead className="text-right">MRP</TableHead>
-                      <TableHead className="text-center">GST %</TableHead>
-                      <TableHead className="text-center">At POS</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -1650,7 +1717,6 @@ function InventoryItemsPageInner() {
                             />
                           </TableCell>
                         )}
-                        <TableCell className="font-mono text-sm">{item.code}</TableCell>
                         <TableCell>
                           <div className="w-10 h-10 rounded border bg-muted flex items-center justify-center overflow-hidden">
                             {item.image_url ? (
@@ -1681,17 +1747,6 @@ function InventoryItemsPageInner() {
                         <TableCell className="text-sm text-muted-foreground">
                           {item.category?.name || '—'}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {item.company_name ?? '—'}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={itemTypeBadgeVariant(item.item_type)}>
-                            {item.item_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {item.base_unit?.abbreviation || item.base_unit?.name || '-'}
-                        </TableCell>
                         <TableCell className="text-right">
                           <span className="text-muted-foreground font-medium tabular-nums">
                             {item.stock?.opening_quantity ?? '—'}
@@ -1718,26 +1773,6 @@ function InventoryItemsPageInner() {
                         <TableCell className="text-right">
                           {formatPrice(Number(item.mrp) || 0)}
                         </TableCell>
-                        <TableCell className="text-center">
-                          {Number(item.gst_rate) > 0 ? (
-                            <Badge variant="outline" className="font-mono text-xs">
-                              {item.gst_rate}%
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
-                        </TableCell>
-                        {/* Whether the till will list it. Without this column the
-                            only way to know is to open the item. */}
-                        <TableCell className="text-center">
-                          {item.is_sellable_to_students ? (
-                            <Badge variant="outline" className="text-green-600 border-green-500/50 text-xs">
-                              At POS
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">—</span>
-                          )}
-                        </TableCell>
                         <TableCell>
                           {item.is_active ? (
                             <Badge variant="success">Active</Badge>
@@ -1753,22 +1788,19 @@ function InventoryItemsPageInner() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {/* First, and available to everyone who can see the
+                                  row: with five columns now hidden, View is the
+                                  only way to read the whole item. */}
+                              <DropdownMenuItem onClick={() => setViewItem(item)}>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View
+                              </DropdownMenuItem>
                               {(canEdit || canProposeEdit) && (
                                 <DropdownMenuItem onClick={() => handleEdit(item)}>
                                   <Pencil className="h-4 w-4 mr-2" />
                                   {/* Same form either way — only where Save lands
                                       differs, and the dialog says so. */}
                                   {canEdit ? 'Edit' : 'Request change'}
-                                </DropdownMenuItem>
-                              )}
-                              {canAdjust && (
-                                <DropdownMenuItem onClick={() => {
-                                  setAdjustingItem(item);
-                                  setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
-                                  setAdjustDialogOpen(true);
-                                }}>
-                                  <Layers className="h-4 w-4 mr-2" />
-                                  Adjust Stock
                                 </DropdownMenuItem>
                               )}
                               {canEdit && (
@@ -1851,6 +1883,133 @@ function InventoryItemsPageInner() {
         onClose={() => setViewBatchItem(null)}
       />
 
+      {/* Item detail. The home for everything the table no longer shows —
+          Company, Type, Base Unit, GST and At POS — plus the fields that were
+          never on the grid at all (the other three units, HSN, selling price,
+          stock levels, tracking flags). Read-only by design: editing has its own
+          dialog, and this one is available to anyone who can see the row. */}
+      <Dialog open={!!viewItem} onOpenChange={(o) => !o && setViewItem(null)}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
+          {viewItem && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3">
+                  <span>{viewItem.name}</span>
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {viewItem.code}
+                  </Badge>
+                </DialogTitle>
+                <DialogDescription>
+                  {viewItem.description || 'No description recorded.'}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex flex-col sm:flex-row gap-5 py-2">
+                <div className="w-28 h-28 shrink-0 rounded border bg-muted flex items-center justify-center overflow-hidden">
+                  {viewItem.image_url ? (
+                    <img
+                      src={viewItem.image_url}
+                      alt={viewItem.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <Package className="h-8 w-8 text-muted-foreground/40" />
+                  )}
+                </div>
+
+                <div className="flex-1 flex flex-wrap gap-2 content-start">
+                  <Badge variant="outline" className={itemTypeBadgeVariant(viewItem.item_type)}>
+                    {viewItem.item_type}
+                  </Badge>
+                  {viewItem.is_active ? (
+                    <Badge variant="success">Active</Badge>
+                  ) : (
+                    <Badge variant="secondary">Inactive</Badge>
+                  )}
+                  {/* The store's own listing, not the item-level default —
+                      the same rule the removed column followed. */}
+                  {(storeId ? viewItem.store_link?.is_sellable_to_students : viewItem.is_sellable_to_students) ? (
+                    <Badge variant="outline" className="text-green-600 border-green-500/50">
+                      At POS{currentStore?.name ? ` · ${currentStore.name}` : ''}
+                    </Badge>
+                  ) : storeId && !viewItem.store_link ? (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      Not carried by {currentStore?.name || 'this store'}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-muted-foreground">Not at POS</Badge>
+                  )}
+                  {viewItem.track_batch && <Badge variant="outline">Batch tracked</Badge>}
+                  {viewItem.track_expiry && <Badge variant="outline">Expiry tracked</Badge>}
+                  {viewItem.is_bundle && <Badge variant="outline">Bundle</Badge>}
+                  {!viewItem.is_distributable && (
+                    <Badge variant="outline" className="text-muted-foreground">Not distributable</Badge>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid gap-6 sm:grid-cols-2">
+                <ViewSection title="Details">
+                  <ViewRow label="Code" mono>{viewItem.code}</ViewRow>
+                  <ViewRow label="Category">{viewItem.category?.name}</ViewRow>
+                  <ViewRow label="Company">{viewItem.company_name}</ViewRow>
+                  <ViewRow label="Brand">{viewItem.brand}</ViewRow>
+                  <ViewRow label="Type">{viewItem.item_type}</ViewRow>
+                  <ViewRow label="HSN code" mono>{viewItem.hsn_code}</ViewRow>
+                </ViewSection>
+
+                <ViewSection title="Units">
+                  <ViewRow label="Base unit">{unitLabel(viewItem.base_unit)}</ViewRow>
+                  <ViewRow label="Purchase unit">{unitLabel(viewItem.purchase_unit)}</ViewRow>
+                  <ViewRow label="Sale unit">{unitLabel(viewItem.sale_unit)}</ViewRow>
+                  <ViewRow label="Indent unit">{unitLabel(viewItem.indent_unit)}</ViewRow>
+                </ViewSection>
+
+                <ViewSection title="Pricing &amp; tax">
+                  <ViewRow label="Cost price">{formatPrice(Number(viewItem.cost_price) || 0)}</ViewRow>
+                  <ViewRow label="MRP">{formatPrice(Number(viewItem.mrp) || 0)}</ViewRow>
+                  <ViewRow label="Selling price">{formatPrice(Number(viewItem.selling_price) || 0)}</ViewRow>
+                  <ViewRow label="GST">
+                    {Number(viewItem.gst_rate) > 0 ? `${viewItem.gst_rate}%` : 'Nil'}
+                  </ViewRow>
+                </ViewSection>
+
+                <ViewSection
+                  title={`Stock${currentStore?.name ? ` · ${currentStore.name}` : ''}`}
+                >
+                  <ViewRow label="Opening">{viewItem.stock?.opening_quantity ?? null}</ViewRow>
+                  <ViewRow label="Current">{viewItem.stock?.current_quantity ?? null}</ViewRow>
+                  <ViewRow label="Available">{viewItem.stock?.available_quantity ?? null}</ViewRow>
+                  <ViewRow label="Reorder level">{viewItem.reorder_level}</ViewRow>
+                  <ViewRow label="Max stock level">{viewItem.max_stock_level}</ViewRow>
+                </ViewSection>
+              </div>
+
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button variant="outline" onClick={() => {
+                  const item = viewItem;
+                  setViewItem(null);
+                  setViewBatchItem(item);
+                }}>
+                  <Layers className="h-4 w-4 mr-2" />
+                  View Batches
+                </Button>
+                {(canEdit || canProposeEdit) && (
+                  <Button onClick={() => {
+                    const item = viewItem;
+                    setViewItem(null);
+                    handleEdit(item);
+                  }}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    {canEdit ? 'Edit' : 'Request change'}
+                  </Button>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Confirm only for "all matching" — that path can touch hundreds of rows the
           user never saw, so the count is worth stating before it happens. A plain
           20-row selection is visible on screen and needs no ceremony. */}
@@ -1863,8 +2022,10 @@ function InventoryItemsPageInner() {
             <DialogDescription>
               This will {bulkConfirm === 'add' ? 'put' : 'take'}{' '}
               <strong>{totalMatching} items</strong>{' '}
-              {bulkConfirm === 'add' ? 'on' : 'off'} the counter — every item matching
-              your current filters, including those on other pages.
+              {bulkConfirm === 'add' ? 'on' : 'off'}{' '}
+              <strong>{currentStore?.name || 'this store'}</strong>&apos;s counter — every
+              item matching your current filters, including those on other pages.
+              Other stores&apos; counters are not affected.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

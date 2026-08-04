@@ -2,11 +2,18 @@ export const dynamic = 'force-dynamic';
 
 // POST /api/ims/inventory/pos-visibility
 //
-// Put items on the counter, or take them off — in bulk.
+// Put items on THIS store's counter, or take them off — in bulk.
 //
-// The POS lists only items flagged `is_sellable_to_students`, and almost nothing is
-// flagged: Dental had 1 of 165, Pharmacy 0 of 761. Doing that through the item form
-// is one dialog per item. This is the same change, applied to a selection.
+// The POS lists only items flagged sellable, and almost nothing is flagged:
+// Dental had 1 of 165, Pharmacy 0 of 761. Doing that through the item form is one
+// dialog per item. This is the same change, applied to a selection.
+//
+// WHAT CHANGED IN 20260804090000. The flag used to live on ims_items, which is an
+// INSTITUTION-wide row — so this route enabled an item on every counter in the
+// college at once. Dental has three stores; flagging something at the student
+// store put it on the warehouse's and the patient store's tills as well. The flag
+// now lives on the store's listing (ims_store_items), so a store id is required
+// and the write is scoped to it.
 //
 // TWO THINGS THIS ROUTE DOES THAT A NAIVE VERSION WOULD NOT:
 //
@@ -33,6 +40,8 @@ import { logger } from '@/lib/utils/enhanced-logger';
 interface PosVisibilityBody {
   action: 'add' | 'remove';
   institutionId: string;
+  /** The counter being changed. Required — the flag is per-store. */
+  storeId: string;
   mode: 'ids' | 'filter';
   ids?: string[];
   filter?: {
@@ -40,19 +49,28 @@ interface PosVisibilityBody {
     category_id?: string;
     item_type?: string;
     is_active?: boolean;
-    /** Narrow to items currently on/off the counter. */
+    /** Narrow to items currently on/off THIS store's counter. */
     pos_visibility?: 'at_pos' | 'not_at_pos';
   };
   /** How many rows the caller believes it is about to change. */
   expectedCount: number;
 }
 
-/** Applies exactly the predicates ImsInventoryService.getItems uses. */
-
-function applyFilters(query: any, institutionId: string, filter: PosVisibilityBody['filter']) {
-  // Institution is forced from the validated body, never taken from the filter —
-  // a bulk write must not be able to reach into another college.
-  query = query.eq('institution_id', institutionId);
+/**
+ * Applies exactly the predicates ImsInventoryService.getItems uses under store
+ * scope — including the assortment join, so an item this store does not carry
+ * cannot be put on its counter.
+ */
+function applyFilters(
+  query: any,
+  institutionId: string,
+  storeId: string,
+  filter: PosVisibilityBody['filter']
+) {
+  // Institution and store are both forced from the validated body, never taken
+  // from the filter — a bulk write must not be able to reach into another
+  // college, or another college's store.
+  query = query.eq('institution_id', institutionId).eq('store_link.store_id', storeId);
 
   if (filter?.search) {
     query = query.or(`name.ilike.%${filter.search}%,code.ilike.%${filter.search}%`);
@@ -62,9 +80,9 @@ function applyFilters(query: any, institutionId: string, filter: PosVisibilityBo
   if (filter?.is_active !== undefined) query = query.eq('is_active', filter.is_active);
 
   if (filter?.pos_visibility === 'at_pos') {
-    query = query.eq('is_sellable_to_students', true);
+    query = query.eq('store_link.is_sellable_to_students', true);
   } else if (filter?.pos_visibility === 'not_at_pos') {
-    query = query.eq('is_sellable_to_students', false);
+    query = query.eq('store_link.is_sellable_to_students', false);
   }
 
   return query;
@@ -79,7 +97,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Same gate the item form applies, enforced here because a route is callable
-    // without the form. RLS on ims_items now requires this permission too, so this
+    // without the form. RLS on ims_store_items requires this permission too, so this
     // check is the readable error rather than the only defence.
     const { data: allowed } = await supabase.rpc('user_has_permission', {
       permission_name: 'ims.inventory.edit',
@@ -92,13 +110,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json()) as PosVisibilityBody;
-    const { action, institutionId, mode, ids, filter, expectedCount } = body ?? {};
+    const { action, institutionId, storeId, mode, ids, filter, expectedCount } = body ?? {};
 
     if (action !== 'add' && action !== 'remove') {
       return NextResponse.json({ error: 'action must be "add" or "remove"' }, { status: 400 });
     }
     if (!institutionId) {
       return NextResponse.json({ error: 'institutionId is required' }, { status: 400 });
+    }
+    if (!storeId) {
+      return NextResponse.json({ error: 'storeId is required' }, { status: 400 });
     }
     if (typeof expectedCount !== 'number' || expectedCount < 1) {
       return NextResponse.json({ error: 'expectedCount is required' }, { status: 400 });
@@ -107,50 +128,76 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ids are required for mode "ids"' }, { status: 400 });
     }
 
-    const target = action === 'add';
+    // The store must belong to the institution the caller named. Without this the
+    // pair is unvalidated: a caller could send their own institution (which passes
+    // RLS) alongside a store id from anywhere.
+    const { data: store, error: storeError } = await supabase
+      .from('ims_stores')
+      .select('id, name, institution_id')
+      .eq('id', storeId)
+      .maybeSingle();
 
-    // ── Count first ──────────────────────────────────────────────────────────
-    // The interlock. Counting through the SAME predicates the update will use is
-    // what makes the comparison meaningful.
-
-    let countQuery: any = supabase
-      .from('ims_items')
-      .select('id', { count: 'exact', head: true });
-
-    countQuery = mode === 'ids'
-      ? countQuery.eq('institution_id', institutionId).in('id', ids as string[])
-      : applyFilters(countQuery, institutionId, filter);
-
-    const { count, error: countError } = await countQuery;
-    if (countError) {
-      logger.error('ims/pos-visibility', 'count failed', countError);
-      return NextResponse.json({ error: countError.message }, { status: 500 });
+    if (storeError) {
+      logger.error('ims/pos-visibility', 'store lookup failed', storeError);
+      return NextResponse.json({ error: storeError.message }, { status: 500 });
+    }
+    if (!store || store.institution_id !== institutionId) {
+      return NextResponse.json(
+        { error: 'That store does not belong to this institution.' },
+        { status: 403 },
+      );
     }
 
-    if ((count ?? 0) !== expectedCount) {
+    const target = action === 'add';
+
+    // ── Resolve the exact rows, then check the interlock ─────────────────────
+    // Resolving ids rather than head-counting, because the write now lands on
+    // ims_store_items and needs to know WHICH listings to touch. The inner join
+    // is what confines it to items this store actually carries.
+
+    let selectQuery: any = supabase
+      .from('ims_items')
+      .select('id, store_link:ims_store_items!inner(store_id)');
+
+    selectQuery = mode === 'ids'
+      ? selectQuery
+          .eq('institution_id', institutionId)
+          .eq('store_link.store_id', storeId)
+          .in('id', ids as string[])
+      : applyFilters(selectQuery, institutionId, storeId, filter);
+
+    const { data: matched, error: matchError } = await selectQuery;
+    if (matchError) {
+      logger.error('ims/pos-visibility', 'match failed', matchError);
+      return NextResponse.json({ error: matchError.message }, { status: 500 });
+    }
+
+    const matchedIds: string[] = (matched ?? []).map((r: any) => r.id);
+
+    if (matchedIds.length !== expectedCount) {
       return NextResponse.json(
         {
           error:
-            `This would change ${count ?? 0} items, but the screen showed ${expectedCount}. ` +
-            'The list has moved on — refresh and try again.',
+            `This would change ${matchedIds.length} items at ${store.name}, but the screen ` +
+            `showed ${expectedCount}. The list has moved on — refresh and try again.`,
           expected: expectedCount,
-          actual: count ?? 0,
+          actual: matchedIds.length,
         },
         { status: 409 },
       );
     }
 
     // ── Apply ────────────────────────────────────────────────────────────────
+    // An UPDATE, not an upsert: every matched id came back through the assortment
+    // join, so its listing already exists. Upserting would let a bad id silently
+    // ADD an item to this store's catalogue as a side effect of a POS toggle.
 
-    let updateQuery: any = supabase
-      .from('ims_items')
-      .update({ is_sellable_to_students: target, updated_at: new Date().toISOString() });
-
-    updateQuery = mode === 'ids'
-      ? updateQuery.eq('institution_id', institutionId).in('id', ids as string[])
-      : applyFilters(updateQuery, institutionId, filter);
-
-    const { data: updated, error: updateError } = await updateQuery.select('id');
+    const { data: updated, error: updateError } = await supabase
+      .from('ims_store_items')
+      .update({ is_sellable_to_students: target, updated_at: new Date().toISOString() })
+      .eq('store_id', storeId)
+      .in('item_id', matchedIds)
+      .select('id');
 
     if (updateError) {
       logger.error('ims/pos-visibility', 'bulk update failed', {
@@ -160,7 +207,7 @@ export async function POST(request: NextRequest) {
     }
 
     logger.info('ims/pos-visibility', 'bulk POS visibility changed', {
-      action, mode, institutionId, changed: updated?.length ?? 0, by: user.id,
+      action, mode, institutionId, storeId, changed: updated?.length ?? 0, by: user.id,
     });
 
     return NextResponse.json({ updated: updated?.length ?? 0, action });
