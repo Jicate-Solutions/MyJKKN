@@ -2,8 +2,15 @@
 -- quality_evidence_source_registry — where a person goes to fill the gap
 -- Created: 2026-08-09
 -- ============================================================================
--- NOT APPLIED TO ANY DATABASE. File only — apply is Director-gated via the
--- "Apply Supabase migrations" workflow (workflow_dispatch, typed confirmation).
+-- ✅ APPLIED TO PRODUCTION 2026-08-04 under Director authorisation.
+--    Rehearsed in BEGIN..ROLLBACK; residue verified 0 in a SEPARATE call.
+--    Verified by catalog after apply: 3 columns present; 21 of 24 registry
+--    rows carry fix_route + owner_role; 3 remain NULL by design (no verified
+--    destination, so consumers render the gap with no link).
+--    All 21 fix_route paths were checked to resolve to a real page before the
+--    apply — note /staff is an app/(routes)/staff/route.ts landing, not a
+--    page.tsx, so a page.tsx-only check reports it missing when it is not.
+--    All 4 referenced owner_role keys exist in custom_roles.
 --
 -- Adds three NULLABLE text columns to public.quality_evidence_source_registry
 -- and seeds them for the sources whose destination could be verified. Creates no
