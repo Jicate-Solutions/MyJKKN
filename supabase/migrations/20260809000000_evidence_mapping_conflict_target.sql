@@ -3112,22 +3112,75 @@ REVOKE EXECUTE ON FUNCTION public.fn_sync_procurement_po_evidence(p_po_id uuid) 
 REVOKE EXECUTE ON FUNCTION public.fn_sync_stakeholder_survey_evidence(p_survey_id uuid) FROM anon, PUBLIC;
 
 -- ----------------------------------------------------------------------------
--- Apply-time assert: no stale four-column target may survive this migration.
+-- Apply-time asserts.
+--
+-- Deep-review 2026-08-04 raised two real gaps in the earlier version of this
+-- block, both fixed here:
+--
+--   (1) It only grepped function TEXT and never checked that the five-column
+--       constraint actually EXISTS. Applied against a database where that
+--       constraint is absent, dropped or renamed, the text assert would pass
+--       while every rewritten writer throws 42P10 at runtime — the exact failure
+--       this migration repairs, inverted. Assert 1 now checks pg_constraint for
+--       the precise five-column arbiter BEFORE anything else is believed.
+--
+--   (2) The stale-target scan covered EVERY function in public. A function
+--       legitimately upserting into a DIFFERENT table that really does have a
+--       four-column unique constraint would have failed this whole migration
+--       spuriously. The scan is now scoped to the 22 functions this file
+--       rewrites.
 -- ----------------------------------------------------------------------------
 DO $assert$
-DECLARE v_stale int; v_fixed int;
+DECLARE
+  v_stale int;
+  v_fixed int;
+  v_arbiter int;
+  -- exactly the functions this migration rewrites
+  c_names CONSTANT text[] := ARRAY[
+    'auto_populate_anti_ragging_evidence','emit_audit_finding_evidence',
+    'emit_event_naac_evidence','emit_grievance_evidence',
+    'emit_institution_collaboration_evidence','emit_learner_achievement_evidence',
+    'emit_learner_exit_outcome_evidence','emit_ss_grant_evidence',
+    'fn_accreditation_rollup_loop_evidence','fn_cdc_placement_outcome_measure',
+    'fn_copo_emit_attainment_evidence','fn_event_feedback_refresh_naac_evidence',
+    'fn_facility_teaching_naac_snapshot_refresh','fn_hr_refresh_naac_evidence',
+    'fn_induction_emit_naac_evidence','fn_sustainability_refresh_naac_evidence',
+    'fn_sync_audit_cycle_evidence','fn_sync_bos_meeting_evidence',
+    'fn_sync_cdc_drive_evidence','fn_sync_cdc_training_evidence',
+    'fn_sync_procurement_po_evidence','fn_sync_stakeholder_survey_evidence'
+  ];
 BEGIN
-  SELECT count(*) INTO v_stale FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public'
-     AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*\)';
-  SELECT count(*) INTO v_fixed FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public'
-     AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*\)';
-  IF v_stale <> 0 THEN
-    RAISE EXCEPTION 'evidence conflict-target fix incomplete: % function(s) still name only four columns', v_stale;
+  -- ASSERT 1 — the arbiter these functions now name must genuinely exist, on
+  -- exactly those five columns, in that order. Without this the rest is theatre.
+  SELECT count(*) INTO v_arbiter
+    FROM pg_constraint c
+   WHERE c.conrelid = 'public.quality_evidence_mappings'::regclass
+     AND c.contype  = 'u'
+     AND (SELECT array_agg(a.attname::text ORDER BY k.ord)
+            FROM unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord)
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = k.attnum)
+         = ARRAY['source_table','source_id','body_code','metric_code','programme_id'];
+  IF v_arbiter <> 1 THEN
+    RAISE EXCEPTION
+      'quality_evidence_mappings has no UNIQUE constraint on exactly (source_table, source_id, body_code, metric_code, programme_id) — found %. Every ON CONFLICT rewritten by this migration would raise 42P10. Refusing to apply.',
+      v_arbiter;
   END IF;
+
+  -- ASSERT 2 — no function THIS migration owns may still name only four columns.
+  SELECT count(*) INTO v_stale FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = ANY (c_names)
+     AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*\)';
+  IF v_stale <> 0 THEN
+    RAISE EXCEPTION 'evidence conflict-target fix incomplete: % of the 22 rewritten function(s) still name only four columns', v_stale;
+  END IF;
+
+  -- ASSERT 3 — and all 22 must carry the five-column target.
+  SELECT count(*) INTO v_fixed FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = ANY (c_names)
+     AND pg_get_functiondef(p.oid) ~* 'ON CONFLICT\s*\(\s*source_table\s*,\s*source_id\s*,\s*body_code\s*,\s*metric_code\s*,\s*programme_id\s*\)';
   IF v_fixed < 22 THEN
-    RAISE EXCEPTION 'expected at least 22 functions on the five-column target, found %', v_fixed;
+    RAISE EXCEPTION 'expected 22 functions on the five-column target, found %', v_fixed;
   END IF;
 END
 $assert$;
