@@ -112,7 +112,7 @@ const ALLOWED_FILE_TYPES = [
   // validator rejected them, so an announcement could never carry a poster,
   // circular scan, or screenshot. The storage bucket's allowed_mime_types was
   // missing them too — both layers had to change (see the companion migration
-  // 20260804120000_notification_attachments_allow_images.sql).
+  // 20260804170000_notification_attachments_allow_images.sql).
   'image/png',
   'image/jpeg',
   'image/jpg',
