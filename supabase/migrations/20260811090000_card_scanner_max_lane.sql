@@ -7,6 +7,14 @@
 -- migration (20260810130000): parallel lanes otherwise all reach for the same
 -- "next" timestamp and collide (feedback_parallel_fanout_must_allocate_migration_versions).
 
+-- Wrapped in a transaction (added 2026-08-05, PR #2835 review finding #5):
+-- section 2 DROPs the lane CHECK on the populated ai_job_types and re-ADDs it.
+-- Un-wrapped, a failure between those two statements leaves the table with NO
+-- lane constraint at all — a partial-failure window on a table every AI feature
+-- routes through. NOTE: this file was already applied to production before the
+-- wrapper was added; the wrapper protects re-runs and other environments.
+BEGIN;
+
 -- ── 1. Private bucket for card photos ───────────────────────────────────────
 -- PRIVATE by design: a visiting card is personal data. Director decision 11
 -- keeps the photo as provenance ("why do you have my details?") AND requires a
@@ -90,3 +98,5 @@ SET lane             = EXCLUDED.lane,
     expected_seconds = EXCLUDED.expected_seconds,
     max_inflight     = EXCLUDED.max_inflight,
     updated_at       = now();
+
+COMMIT;
