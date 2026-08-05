@@ -135,15 +135,17 @@ export default function NAACCommitteesPage() {
   // asked for when the permission did NOT already open it — for a permission
   // holder this read would return every roster row on the platform and change
   // nothing about the answer.
-  const { data: rosterCommitteeIds, isLoading: rosterLoading } =
+  const { data: mySeats, isLoading: rosterLoading } =
     useMyCommitteeRoster({ enabled: !permsLoading && !hasViewPermission });
 
   // The gate is derived from that read, so it can never open wider than the
   // data: if RLS returned nothing, the viewer gets the refusal panel below
-  // rather than an empty list that reads as "no committees exist".
+  // rather than an empty list that reads as "no committees exist". Director
+  // decision 7: a seat whose term has ended does not open the page either, and
+  // the panel names the date instead of pretending they were never appointed.
   const access = decideCommitteeListAccess({
     hasViewPermission,
-    rosterCommitteeIds: rosterCommitteeIds ?? [],
+    seats: mySeats ?? [],
   });
   const canView = access.allowed;
   const isRosterOnlyViewer = access.via === 'roster';
