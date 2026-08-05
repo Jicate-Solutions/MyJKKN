@@ -39,6 +39,7 @@
     "batch:autofill-schools": "tsx scripts/batch-autofill-school-learners.ts",
     "seed:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts",
     "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list",
+    "propose:fp-bloom": "tsx --env-file=.env.local scripts/propose-fp-item-bloom-levels.ts",
     "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
     "gen:guide-load": "tsx scripts/load-profile.ts",
     "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs"
