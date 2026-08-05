@@ -119,7 +119,7 @@ const EDITABLE_LABELS: Array<[keyof ScanFields, string]> = [
 const SOURCE_LABEL: Record<CardMatch['source'], string> = {
   networker: 'Contact book',
   profiles: 'Already in MyJKKN',
-  staff: 'Staff member',
+  staff: 'Team member',
   admission_leads: 'Admission lead',
 };
 
