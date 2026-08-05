@@ -5258,7 +5258,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/contacts",
         "label": "Contacts",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/meetings/contacts/scan",
+            "label": "Scan",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       },
       {
         "path": "/meetings/embed",
@@ -5616,6 +5623,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           }
         ]
+      },
+      {
+        "path": "/organizations/leadership",
+        "label": "Leadership",
+        "iconName": "Building2",
+        "children": []
       },
       {
         "path": "/organizations/programs",
