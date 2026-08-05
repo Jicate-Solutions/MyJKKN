@@ -78,6 +78,10 @@ const run = promisify(execFile);
 const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const LANE = process.env.LANE || 'max-cards';
 const RUNNER = process.env.RUNNER || 'windows-cards';
+// A scheduled task's PATH does not include the CLI on the Windows box — bare
+// `claude` resolves interactively and fails under Task Scheduler. All four
+// existing drains hardcode the absolute path; do the same here.
+const CLAUDE_BIN = process.env.CLAUDE_BIN || 'C:\\Users\\Admin\\.local\\bin\\claude.exe';
 
 // Strict-JSON contract. Every field may be null — a card that lacks a website
 // must not make the model invent one. `confidence` lets the review screen sort
