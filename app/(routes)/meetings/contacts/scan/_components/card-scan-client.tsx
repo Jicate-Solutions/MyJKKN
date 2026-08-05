@@ -220,7 +220,18 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
           toast({ title: 'Photo not accepted', description: json.error, variant: 'destructive' });
           return 'done';
         }
-        // Everything else (429 busy, 500, 503) is transient: keep the card.
+        // A 429 is only retryable when the route SAYS so. The busy/in-flight
+        // ceiling clears in seconds; a daily-cap 429 never will, and retrying it
+        // forever would spin a card silently instead of telling the user.
+        if (res.status === 429 && json.code !== 'busy') {
+          toast({
+            title: 'Scanning limit reached',
+            description: json.error ?? 'You have reached today’s scanning limit.',
+            variant: 'destructive',
+          });
+          return 'done';
+        }
+        // Everything else (busy 429, 500, 503) is transient: keep the card.
         setPending((prev) =>
           prev.map((p) =>
             p.key === shot.key
@@ -319,7 +330,14 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
       if (isUnreadable(scan)) return;
 
       try {
+        // Without a deadline this fetch can hang, leaving `matches` null and no
+        // warning on screen — and Save is deliberately NOT blocked (decision 21),
+        // so a contact would be created having never been checked. Bounded, so a
+        // stall becomes a visible "couldn't check" instead of silence.
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 8000);
         const res = await fetch('/api/contacts/card-scan/match', {
+          signal: ctl.signal,
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -329,6 +347,7 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
             mobile: scan.fields?.mobile ?? '',
           }),
         });
+        clearTimeout(timer);
         const json = await res.json();
         if (json.ok) {
           setMatches(json.matches as CardMatch[]);
