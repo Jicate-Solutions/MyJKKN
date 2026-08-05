@@ -107,7 +107,12 @@ SELECT 'handover_overdue', NULL, 'gte', 1, 0, 7, 'grantee', true,
        || 'free slot. Seeded ACTIVE — Director decision 9, a recorded override of '
        || 'the seed-inactive pattern. The volume fuse '
        || '(HANDOVER_CHASE_MAX_RECIPIENTS, default 50) is what bounds the blast '
-       || 'radius instead.'
+       || 'radius instead. NOTE ON THRESHOLD: 1 is the only value that does '
+       || 'anything. Raising it does NOT add a grace period, it switches the '
+       || 'valve off — access ends at the due date (decision 4), so a handover is '
+       || 'already labelled expired by day 2 and never comes back round for a '
+       || 'day-3 pass. To stop the chasing, switch `active` off; do not raise '
+       || 'this number.'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.meeting_trigger_rules
   WHERE metric_key = 'handover_overdue' AND institution_id IS NULL

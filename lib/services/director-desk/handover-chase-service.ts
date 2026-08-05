@@ -602,6 +602,18 @@ export async function runHandoverChase(
       // switch has to mean something.
       if (!rule) continue;
 
+      // So does the threshold on that same screen. It is seeded at 1 — "the day
+      // after the due date" — and at 1 this is always true, because a handover
+      // only reaches this loop once it is at least a day past due. It is checked
+      // anyway so the number on the admin screen is not decoration.
+      //
+      // Raising it above 1 switches the valve OFF rather than adding a grace
+      // period, and that is not a bug to fix here: access itself ends at the due
+      // date (decision 4), so by day 2 the handover is already labelled expired
+      // and is no longer in this engine's candidate set. There is no day-3 pass
+      // for it to be caught by. The rule's `notes` says so.
+      if (overdueBy < Number(rule.threshold ?? 1)) continue;
+
       const deadline = new Date(
         now.getTime() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
       ).toISOString();

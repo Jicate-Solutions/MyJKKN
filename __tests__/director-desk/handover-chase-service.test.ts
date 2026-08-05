@@ -559,6 +559,18 @@ describe('runHandoverChase — the status sweep', () => {
     expect(nudges()).toHaveLength(0);
   });
 
+  it('does not open the valve when the rule threshold has been raised past reach', async () => {
+    // A threshold above 1 switches the valve OFF rather than granting a grace
+    // period: access ends at the due date, so the handover is labelled expired
+    // on day 1 and never comes back round for a day-3 pass. Asserted so nobody
+    // "fixes" the threshold check later believing it buys leniency.
+    seed({ handovers: [handover({ id: 'h0', due_date: '2026-08-09' })] });
+    tables.meeting_trigger_rules[0].threshold = 3;
+    const r = await runHandoverChase({ now: NOW });
+    expect(r.expired).toBe(1);
+    expect(tables.meeting_trigger_events).toHaveLength(0);
+  });
+
   it('does not open the valve when the rule has been switched off', async () => {
     seed({
       handovers: [handover({ id: 'h0', due_date: '2026-08-07' })],
