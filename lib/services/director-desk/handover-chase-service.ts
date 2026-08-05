@@ -133,6 +133,23 @@ export const DEFAULT_MAX_RECIPIENTS = 50;
  * runaway run before the fuse has had a chance to look at it.
  */
 const LOAD_LIMIT = 500;
+/**
+ * Ids per `.in(...)` lookup.
+ *
+ * PostgREST puts the whole list in the QUERY STRING, and a uuid costs 37 bytes
+ * there. LOAD_LIMIT ids in one request is ~18.5 KB of URL, past the usual 8–16 KB
+ * request-line ceiling, and the reply is a 414 the sweep would (correctly) treat
+ * as "I could not look" — so the labels would simply stop being written, quietly,
+ * on exactly the busy night somebody is watching.
+ */
+const IN_CHUNK = 100;
+
+/** Split a list into `IN_CHUNK`-sized batches for a PostgREST `.in()` lookup. */
+function chunk<T>(xs: T[], size: number = IN_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
 
 /**
  * Where the two sides of this feature live. Both routes are owned by sibling
@@ -462,12 +479,41 @@ export function nudgeCopy(
  * strict `=== true` in TypeScript would silently disagree with the SQL for the
  * second one — the "works for some people" shape this repo has hit before.
  */
-function grantsHandoverCreate(permissions: unknown): boolean {
-  const v = (permissions as Record<string, unknown> | null | undefined)?.[
-    HANDOVER_CREATE_KEY
-  ];
+function isTrueish(v: unknown): boolean {
   return v === true || v === 'true';
 }
+
+function grantsHandoverCreate(permissions: unknown): boolean {
+  return isTrueish(
+    (permissions as Record<string, unknown> | null | undefined)?.[HANDOVER_CREATE_KEY]
+  );
+}
+
+/**
+ * Ask PostgREST to project ONE key out of `permissions` instead of shipping the
+ * whole blob.
+ *
+ * Measured against production 2026-08-05: `select=id,role_key,permissions` over
+ * the 85 custom roles is **2,877,263 bytes**; this projection is **8,547**. The
+ * blob grows with every permission key the platform adds (1,300+ today), and
+ * this runs every night, so pulling all of it to answer one boolean was a real
+ * cost I introduced and not a hypothetical one.
+ *
+ * The key MUST be quoted. Probed with a positive control: `permissions->>ims.view`
+ * (unquoted) returns 0 rows even though four roles hold `ims.view` — PostgREST
+ * reads the dots as a nested path `permissions->ims->>view`. The quoted form
+ * returns exactly those four, and a bogus quoted key returns none. That unquoted
+ * spelling would have been a silent zero, which is defect E2 all over again.
+ */
+const HANDOVER_CREATE_PROJECTION = `id, role_key, handover_create:permissions->>"${HANDOVER_CREATE_KEY}"`;
+/**
+ * The alias PostgREST emits for that projection. It is present on EVERY row even
+ * when the value is null (verified: 85 of 85), so its ABSENCE is a reliable
+ * tripwire that the projection did not take effect — at which point this falls
+ * back to reading the whole blob rather than reporting zero Directors, which is
+ * the failure this whole function exists to end.
+ */
+const PROJECTION_ALIAS = 'handover_create';
 
 /**
  * Who "the Director" is for a run-level notice (the blown fuse).
@@ -529,18 +575,41 @@ export async function resolveDirectors(
     .eq('is_active', true);
   add(legacy as any[], 'legacy_profile_role');
 
-  // Both remaining paths start from custom_roles.
-  const { data: roles } = await db
-    .from('custom_roles')
-    .select('id, role_key, permissions');
+  // Both remaining paths start from custom_roles. Projected, not the whole
+  // permissions blob — see HANDOVER_CREATE_PROJECTION for the measured reason.
+  let roleRows: any[] = [];
+  let carriesKey: (r: any) => boolean = (r) => isTrueish(r[PROJECTION_ALIAS]);
 
-  const roleRows = (roles ?? []) as any[];
+  const { data: projected, error: projErr } = await db
+    .from('custom_roles')
+    .select(HANDOVER_CREATE_PROJECTION);
+
+  const projectionTookEffect =
+    !projErr &&
+    Array.isArray(projected) &&
+    (projected.length === 0 || PROJECTION_ALIAS in (projected[0] as object));
+
+  if (projectionTookEffect) {
+    roleRows = projected as any[];
+  } else {
+    // The tripwire fired. Read the blob and use the same predicate — expensive,
+    // but "I could not project" must never be reported as "no Director exists".
+    if (projErr) {
+      logger.warn(MODULE, 'permission projection failed, falling back to full read', {
+        message: projErr.message
+      });
+    }
+    const { data: full } = await db.from('custom_roles').select('id, role_key, permissions');
+    roleRows = (full ?? []) as any[];
+    carriesKey = (r) => grantsHandoverCreate(r.permissions);
+  }
+
   const assignableRoleIds = roleRows
-    .filter((r) => r.role_key === DIRECTOR_ROLE_KEY || grantsHandoverCreate(r.permissions))
+    .filter((r) => r.role_key === DIRECTOR_ROLE_KEY || carriesKey(r))
     .map((r) => r.id)
     .filter(Boolean);
   const permissionRoleKeys = roleRows
-    .filter((r) => grantsHandoverCreate(r.permissions))
+    .filter((r) => carriesKey(r))
     .map((r) => r.role_key)
     .filter(Boolean);
 
@@ -553,14 +622,16 @@ export async function resolveDirectors(
     const userIds = [
       ...new Set(((assignments ?? []) as any[]).map((a) => a.user_id).filter(Boolean))
     ];
-    if (userIds.length > 0) {
-      const { data: assigned } = await db
+    const assigned: any[] = [];
+    for (const batch of chunk(userIds)) {
+      const { data } = await db
         .from('profiles')
         .select('id, created_at')
-        .in('id', userIds)
+        .in('id', batch)
         .eq('is_active', true);
-      add(assigned as any[], 'user_roles_assignment');
+      assigned.push(...((data ?? []) as any[]));
     }
+    add(assigned, 'user_roles_assignment');
   }
 
   // --- path 3: profiles.role names a role that carries the permission -------
@@ -686,11 +757,13 @@ export async function runHandoverChase(
   // --- 2. classify (no writes yet) -----------------------------------------
   const granteeIds = [...new Set(handovers.map((h) => h.grantee_user_id))];
   const profilesById = new Map<string, GranteeProfile>();
-  if (granteeIds.length > 0) {
+  // Chunked: LOAD_LIMIT grantee ids in one `.in()` is ~18.5 KB of query string,
+  // and the 414 that comes back would abort a run that had nothing wrong with it.
+  for (const batch of chunk(granteeIds)) {
     const { data: profs, error: profErr } = await db
       .from('profiles')
       .select('id, is_active')
-      .in('id', granteeIds);
+      .in('id', batch);
     if (profErr) {
       // RLS denial is silent (0 rows, error null), but a genuine error here
       // would make EVERY grantee look inactive and orphan the whole desk. Stop
@@ -874,27 +947,27 @@ export async function runHandoverChase(
   const expiredIds = classified.expired.map((h) => h.id);
   const windowBySubject = new Map<string, { status: string }>();
   let windowsReadable = true;
-  if (expiredIds.length > 0) {
+  for (const batch of chunk(expiredIds)) {
     const { data: evs, error: evLoadErr } = await db
       .from('meeting_trigger_events')
       .select('id, subject_id, status')
       .eq('subject_type', HANDOVER_SUBJECT)
-      .in('subject_id', expiredIds);
+      .in('subject_id', batch);
     if (evLoadErr) {
-      // Fail CLOSED. "No window exists" and "I could not look" produce the same
-      // empty map, and acting on the first when it was really the second opens a
-      // duplicate window every night
-      // (feedback_empty_response_from_failclosed_producer_means_unknown).
+      // Fail CLOSED, and for the WHOLE sweep, not just this batch. "No window
+      // exists" and "I could not look" produce the same empty map, and acting on
+      // the first when it was really the second opens a duplicate window every
+      // night (feedback_empty_response_from_failclosed_producer_means_unknown).
       windowsReadable = false;
       result.errors.push(`load handover windows: ${evLoadErr.message}`);
-    } else {
-      for (const e of (evs ?? []) as any[]) {
-        const prev = windowBySubject.get(e.subject_id);
-        // An open window wins over a resolved one: if any row is still
-        // 'notified' the grantee still has time on the clock.
-        if (!prev || e.status === 'notified') {
-          windowBySubject.set(e.subject_id, { status: e.status });
-        }
+      break;
+    }
+    for (const e of (evs ?? []) as any[]) {
+      const prev = windowBySubject.get(e.subject_id);
+      // An open window wins over a resolved one: if any row is still 'notified'
+      // the grantee still has time on the clock.
+      if (!prev || e.status === 'notified') {
+        windowBySubject.set(e.subject_id, { status: e.status });
       }
     }
   }
@@ -1180,12 +1253,12 @@ export async function reconcileHandoverExplanations(
   // ANSWERED BY FINISHING — a handover the run cannot see as closed would be
   // escalated to a meeting about work that is done.
   const statusById = new Map<string, string>();
-  if (eventRows.length > 0) {
-    const subjectIds = [...new Set(eventRows.map((e) => e.subject_id).filter(Boolean))];
+  const subjectIds = [...new Set(eventRows.map((e) => e.subject_id).filter(Boolean))];
+  for (const batch of chunk(subjectIds)) {
     const { data: hs, error: hErr } = await db
       .from('director_handovers')
       .select('id, status')
-      .in('id', subjectIds);
+      .in('id', batch);
     if (hErr) {
       // Fail closed for the whole pass rather than escalate on a guess: an
       // unreadable handover table and an empty one look identical from here.

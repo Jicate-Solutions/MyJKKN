@@ -675,6 +675,26 @@ describe('runHandoverChase — the volume fuse', () => {
     expect(r.director_resolution).toBe('super_admin_fallback');
   });
 
+  it('splits its lookups so a big night does not become a 414', async () => {
+    // PostgREST puts an `.in(...)` list in the QUERY STRING at 37 bytes a uuid.
+    // 250 held by one person is 2 recipients — the fuse holds, the run proceeds,
+    // and a single unsplit lookup would be ~9 KB of URL against an 8 KB ceiling.
+    // A 414 reads as "I could not look", which fails closed, which means the
+    // labels silently stop being written on the busiest night.
+    const hs = Array.from({ length: 250 }, (_, i) =>
+      handover({ id: `h${i}`, grantee_user_id: person(1), due_date: '2026-08-07' })
+    );
+    seed({ handovers: hs });
+
+    const r = await runHandoverChase({ now: NOW });
+
+    expect(r.recipients_resolved).toBe(2); // the one grantee + the one granter
+    expect(r.fuse_blown).toBe(false);
+    expect(r.loaded).toBe(250);
+    expect(r.overdue_opened).toBe(250);
+    expect(r.errors).toEqual([]);
+  });
+
   it('records a run that did NOT blow the fuse too', async () => {
     seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(400) })] });
     await runHandoverChase({ now: NOW });
@@ -1210,6 +1230,39 @@ describe('resolveDirectors — all three of fn_can_hand_over()\'s paths', () => 
     });
     const r = await resolveDirectors(makeDb());
     expect(r.ids).toEqual([person(15)]);
+  });
+
+  it('uses the PROJECTED key when PostgREST supplies it', async () => {
+    // The fast path. Production ships 2,877,263 bytes for the whole permissions
+    // blob across 85 roles and 8,547 for this projection, and this runs nightly.
+    // PostgREST returns `handover_create` as text: "true" / "false" / null.
+    blankSeed();
+    profile(person(19), 'dean');
+    tables.custom_roles.push({
+      id: CR_DEAN,
+      role_key: 'dean',
+      // No `permissions` at all — exactly what the projected query returns.
+      handover_create: 'true',
+    });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(19)]);
+  });
+
+  it('falls back to the full blob when the projection did not take effect', async () => {
+    // The tripwire. PostgREST emits the alias on every row even when null
+    // (verified 85 of 85 against production), so a MISSING alias means the
+    // projection silently did not apply — and reporting "no Director" then
+    // would be defect E2 all over again, from a different cause.
+    blankSeed();
+    profile(person(20), 'dean');
+    tables.custom_roles.push({
+      id: CR_DEAN,
+      role_key: 'dean',
+      // No `handover_create` alias -> tripwire -> re-read using `permissions`.
+      permissions: { 'director.handover.create': true },
+    });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(20)]);
   });
 
   it('does not count a role whose permission is false, or an inactive person', async () => {
