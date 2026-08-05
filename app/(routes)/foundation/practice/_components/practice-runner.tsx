@@ -163,11 +163,24 @@ export function PracticeRunner({
   examDefinitionId,
   examName,
   onExit,
+  forLearnerId,
+  forLearnerName,
 }: {
   examDefinitionId: string;
   examName: string;
   onExit: () => void;
+  /** Set when a Senior Learner is running this session for a learner who holds
+   *  no account. The id is only a request — the route re-checks it against the
+   *  database before drawing anything, so passing one here grants nothing. */
+  forLearnerId?: string;
+  forLearnerName?: string;
 }) {
+  // Resume state is scoped per learner as well as per subject. Without this, a
+  // facilitator moving from one child to the next in the same subject would pick
+  // up the previous child's half-finished run and file it under the new name.
+  const runScope = forLearnerId
+    ? `${examDefinitionId}.${forLearnerId}`
+    : examDefinitionId;
   // `run` identifies one draw of questions. Bumping it changes the query key,
   // which fetches a fresh set — that is what "Practise again" does. Keeping the
   // fetch in react-query rather than an effect avoids the cascading renders that
@@ -176,7 +189,7 @@ export function PracticeRunner({
 
   // Read once, at mount, in a lazy initialiser — not in an effect, which would
   // cause a second render pass and trip the set-state-in-effect rule.
-  const resumed = useMemo(() => loadSavedRun(examDefinitionId), [examDefinitionId]);
+  const resumed = useMemo(() => loadSavedRun(runScope), [runScope]);
 
   const [index, setIndex] = useState(() => resumed?.index ?? 0);
   const [chosen, setChosen] = useState<Record<string, string>>(
@@ -195,13 +208,20 @@ export function PracticeRunner({
     isPending,
     error: loadError,
   } = useQuery({
-    queryKey: ['foundation', 'practice', examDefinitionId, run],
+    queryKey: ['foundation', 'practice', runScope, run],
     queryFn: async (): Promise<Draw> => {
       // An interrupted run resumes with the SAME questions. Only a deliberate
       // "Practise again" (which bumps `run` and clears storage) draws fresh.
       if (run === 0 && resumed) return resumed.draw;
 
-      const res = await fetch(`/api/foundation/practice/${examDefinitionId}`);
+      // forLearner is a request, not a grant: the route verifies the caller runs
+      // a session for that learner before it draws anything.
+      const query = forLearnerId
+        ? `?forLearner=${encodeURIComponent(forLearnerId)}`
+        : '';
+      const res = await fetch(
+        `/api/foundation/practice/${examDefinitionId}${query}`,
+      );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(body?.error ?? 'Could not start practice.');
@@ -216,7 +236,7 @@ export function PracticeRunner({
 
   /** Start a fresh draw and clear everything from the previous one. */
   function startAgain() {
-    clearSavedRun(examDefinitionId);
+    clearSavedRun(runScope);
     setIndex(0);
     setChosen({});
     setTimeByItem({});
@@ -262,6 +282,7 @@ export function PracticeRunner({
         review={review}
         onAgain={startAgain}
         onExit={onExit}
+        forLearnerName={forLearnerName}
       />
     );
   }
@@ -283,13 +304,13 @@ export function PracticeRunner({
     }));
     // Persist on every tap, in the event handler rather than an effect, so an
     // interrupted run resumes exactly where it stopped.
-    saveRun(examDefinitionId, { draw, chosen: nextChosen, index });
+    saveRun(runScope, { draw, chosen: nextChosen, index });
   }
 
   function goTo(next: number) {
     setAskedAt(Date.now());
     setIndex(next);
-    saveRun(examDefinitionId, { draw, chosen, index: next });
+    saveRun(runScope, { draw, chosen, index: next });
   }
 
   async function submit() {
@@ -324,7 +345,7 @@ export function PracticeRunner({
       });
 
       // The run is safely recorded; the resume copy has done its job.
-      clearSavedRun(examDefinitionId);
+      clearSavedRun(runScope);
 
       // Skipped questions are handed back so the review can still show what the
       // answer was. They are not graded and do not affect the score.
@@ -358,6 +379,17 @@ export function PracticeRunner({
           {index + 1} of {total}
         </span>
       </div>
+
+      {/* Whose answers these are, kept on screen for the whole run. A facilitator
+          working through a group is one mis-click away from filing a child's
+          answers under the previous name, and nothing downstream would ever
+          reveal it. */}
+      {forLearnerName && (
+        <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Recording answers for{' '}
+          <span className="font-medium text-foreground">{forLearnerName}</span>
+        </p>
+      )}
 
       <Progress value={((index + 1) / total) * 100} className="mb-10 h-1" />
 
@@ -445,24 +477,36 @@ function Review({
   review,
   onAgain,
   onExit,
+  forLearnerName,
 }: {
   examName: string;
   review: ReviewPayload;
   onAgain: () => void;
   onExit: () => void;
+  forLearnerName?: string;
 }) {
+  // Second person when you answered it yourself; the learner's name when
+  // somebody recorded it for them. "You answered 4 of 10" shown to the Senior
+  // Learner running the session reads as their own score, which is nobody's.
+  const who = forLearnerName ?? null;
   return (
     <div className="mx-auto max-w-2xl py-6">
       <div className="mb-10 border-b border-border pb-6">
         <p className="text-sm text-muted-foreground">{examName}</p>
         <p className="mt-1 text-base text-foreground">
-          You answered{' '}
+          {who ? (
+            <>
+              <span className="font-medium">{who}</span> answered{' '}
+            </>
+          ) : (
+            'You answered '
+          )}
           <span className="font-semibold tabular-nums">{review.correct}</span> of{' '}
           <span className="tabular-nums">{review.total}</span> correctly.
         </p>
         {(review.skipped ?? 0) > 0 && (
           <p className="mt-1 text-sm text-muted-foreground">
-            You skipped{' '}
+            {who ? `${who} skipped ` : 'You skipped '}
             <span className="tabular-nums">{review.skipped}</span>. Those are not
             counted either way — the answers are below so you can read them.
           </p>

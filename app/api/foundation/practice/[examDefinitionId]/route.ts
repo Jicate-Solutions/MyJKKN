@@ -38,7 +38,7 @@ function shuffle<T>(input: T[]): T[] {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ examDefinitionId: string }> },
 ) {
   await connection();
@@ -59,16 +59,72 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Identity through RLS: fp_students only yields the caller's own row.
-    const { data: learner } = await (supabase as any)
-      .from('fp_students')
-      .select('id, status')
-      .eq('profile_id', user.id)
-      .maybeSingle();
+    // ---- Whose run is this? -------------------------------------------------
+    // Without ?forLearner, the caller is answering as themself and identity comes
+    // from RLS: fp_students only ever yields the row whose profile_id is the
+    // caller. That policy, not this code, is the boundary.
+    //
+    // With ?forLearner, somebody is running a session for a child who holds no
+    // account. The id in the query string is a CLAIM and is treated as one: it
+    // is checked against the database before it is used, using the same two
+    // predicates fn_fp_record_attempt itself will apply at submit time. Checking
+    // the identical pair matters — a looser check here would draw questions for
+    // a learner whose answers the RPC would then refuse to save, stranding the
+    // session at the last click.
+    // `new URL(request.url)` rather than `request.nextUrl`, matching the sibling
+    // results route: the query string is all that is needed and this works on a
+    // plain Request, which is what the tests construct.
+    const forLearner = new URL(request.url).searchParams.get('forLearner');
+    let learner: { id: string; status: string } | null = null;
+
+    if (forLearner) {
+      if (!UUID_RE.test(forLearner)) {
+        return NextResponse.json(
+          { error: 'forLearner must be a uuid' },
+          { status: 400 },
+        );
+      }
+
+      // Both RPCs resolve against auth.uid() internally, so a forged id cannot
+      // widen anything: fn_fp_teaches_student is
+      // fp_cohorts.resource_person_id = auth.uid() for a cohort THIS learner is
+      // enrolled in, and fn_fp_can_manage_student covers the school's owner.
+      const [{ data: teaches }, { data: manages }] = await Promise.all([
+        (supabase as any).rpc('fn_fp_teaches_student', { p_student_id: forLearner }),
+        (supabase as any).rpc('fn_fp_can_manage_student', { p_student_id: forLearner }),
+      ]);
+
+      if (teaches !== true && manages !== true) {
+        return NextResponse.json(
+          { error: 'You do not run a session for this learner.' },
+          { status: 403 },
+        );
+      }
+
+      // Read through the SESSION client even though authorisation has already
+      // passed, so RLS stays the last word rather than being bypassed here.
+      const { data: row } = await (supabase as any)
+        .from('fp_students')
+        .select('id, status')
+        .eq('id', forLearner)
+        .maybeSingle();
+      learner = row ?? null;
+    } else {
+      const { data: row } = await (supabase as any)
+        .from('fp_students')
+        .select('id, status')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      learner = row ?? null;
+    }
 
     if (!learner || learner.status !== 'active') {
       return NextResponse.json(
-        { error: 'You are not enrolled on the Foundation programme.' },
+        {
+          error: forLearner
+            ? 'That learner is not active on the Foundation programme.'
+            : 'You are not enrolled on the Foundation programme.',
+        },
         { status: 403 },
       );
     }
