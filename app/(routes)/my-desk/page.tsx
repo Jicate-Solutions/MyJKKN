@@ -267,6 +267,12 @@ function useDeskPeople(userId: string | undefined) {
   });
 }
 
+interface DeskTrails {
+  rows: AuditRow[];
+  /** A chunk hit its ceiling, so some item's history may be missing entries. */
+  truncated: boolean;
+}
+
 /**
  * The trail. Append-only in the database, so this is history, never state.
  *
@@ -282,7 +288,7 @@ function useDeskAudit(handoverIds: string[]) {
   return useQuery({
     queryKey: [...QK, 'audit', key],
     enabled: key.length > 0,
-    queryFn: async (): Promise<AuditRow[]> => {
+    queryFn: async (): Promise<DeskTrails> => {
       const sb = createClientSupabaseClient() as any;
       const groups = chunk(key.split(','), AUDIT_ID_CHUNK);
       const results = await Promise.all(
@@ -297,7 +303,19 @@ function useDeskAudit(handoverIds: string[]) {
       );
       const failed = results.find((r: any) => r.error);
       if (failed) throw new Error(failed.error.message);
-      return results.flatMap((r: any) => (r.data ?? []) as AuditRow[]);
+
+      // A chunk at its ceiling is a chunk we cannot vouch for: the rows come
+      // back newest-first ACROSS the whole chunk, so one chatty handover can eat
+      // the budget and leave its neighbours with nothing — which Trail would
+      // otherwise render as "nothing ever happened here".
+      const truncated = results.some(
+        (r: any) => ((r.data ?? []) as AuditRow[]).length >= AUDIT_ROW_LIMIT,
+      );
+
+      return {
+        rows: results.flatMap((r: any) => (r.data ?? []) as AuditRow[]),
+        truncated,
+      };
     },
     staleTime: 30 * 1000,
     retry: false,
@@ -373,8 +391,15 @@ async function respondToHandover(
  * Post an update. This is the thing that keeps an item out of the "gone quiet"
  * bucket, so it is checked on the field that actually moves: last_activity_at.
  * The status deliberately does not change, so status cannot be the proof.
+ *
+ * The comparison is SERVER TIMESTAMP against SERVER TIMESTAMP — the value the
+ * row carried before, against the value it carries now. An earlier version
+ * compared the database's clock against this browser's, so a machine running a
+ * few minutes fast reported "your update was not saved" about a write that had
+ * landed; the person then retried and a duplicate note went into a trail that
+ * cannot be edited. A false failure is worse than no check here.
  */
-async function postProgress(handoverId: string, note: string, startedAt: number) {
+async function postProgress(handoverId: string, note: string, before: string | null) {
   const sb = createClientSupabaseClient() as any;
   const { data, error } = await sb.rpc('fn_director_handover_progress', {
     p_handover_id: handoverId,
@@ -383,11 +408,13 @@ async function postProgress(handoverId: string, note: string, startedAt: number)
   if (error) throw new Error(error.message);
 
   const after = afterFromRpc(data) ?? (await readBack(handoverId));
-  const moved = after?.last_activity_at ? Date.parse(after.last_activity_at) : NaN;
-  // Five minutes of slack absorbs clock skew between this browser and the
-  // database. It is a coarse check on purpose: its job is to catch a write that
-  // did not land at all, not to time one that did.
-  if (!Number.isFinite(moved) || moved < startedAt - 5 * 60_000) {
+  if (!after) throw new Error('Your update was not saved. Please try again.');
+
+  const now = after.last_activity_at ? Date.parse(after.last_activity_at) : NaN;
+  const then = before ? Date.parse(before) : NaN;
+  // Only assert when both values are readable. If either is missing we have a
+  // row back from an RPC that raises on every failure — that is enough.
+  if (Number.isFinite(now) && Number.isFinite(then) && now <= then) {
     throw new Error('Your update was not saved. Please try again.');
   }
 }
@@ -802,8 +829,10 @@ export default function MyDeskPage() {
 
   const today = istToday();
   const buckets = useMemo(() => splitDesk(rows, today), [rows, today]);
-  const trails = useMemo(() => indexAudit(auditQuery.data ?? []), [auditQuery.data]);
-  const trailUnavailable = !!auditQuery.error;
+  const trails = useMemo(() => indexAudit(auditQuery.data?.rows ?? []), [auditQuery.data]);
+  // Truncation counts as unavailable: a starved item would otherwise render an
+  // empty trail, which reads as "nothing ever happened" — a claim, not a fact.
+  const trailUnavailable = !!auditQuery.error || auditQuery.data?.truncated === true;
 
   const verdict = readabilityVerdict({
     rowsFailed: !!rowsQuery.error,
@@ -955,11 +984,18 @@ export default function MyDeskPage() {
               <ShieldQuestion className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div>
                 <p className="font-medium">
-                  Showing the first {verdict.visible} of {verdict.expected}.
+                  Showing {verdict.visible} of {verdict.expected}.
                 </p>
+                {/*
+                  Deliberately names NO limit. `capped` fires when either the
+                  open read or the ended read hits its own ceiling, and printing
+                  one number beside a total produced by the other read gave a
+                  sentence that contradicted itself on screen.
+                */}
                 <p className="text-muted-foreground">
-                  This page only loads {DESK_ROW_LIMIT} at a time, so the rest are
-                  simply not on screen — nothing is being withheld from you.
+                  This page loads only so many at a time, so the rest are simply
+                  not on screen — nothing is being withheld from you. Open work is
+                  always loaded first.
                 </p>
               </div>
             </CardContent>
@@ -1151,15 +1187,16 @@ export default function MyDeskPage() {
                   'Declined. They have been told.',
                 );
                 return;
-              case 'progress': {
-                const startedAt = Date.now();
+              case 'progress':
+                // The row's CURRENT server timestamp, so the check afterwards
+                // compares the database against itself and never against this
+                // browser's clock.
                 void run(
                   row,
-                  () => postProgress(row.id, text.trim(), startedAt),
+                  () => postProgress(row.id, text.trim(), row.last_activity_at),
                   'Update posted.',
                 );
                 return;
-              }
               case 'done':
                 void run(row, () => completeHandover(row.id, text), 'Marked done.');
             }
