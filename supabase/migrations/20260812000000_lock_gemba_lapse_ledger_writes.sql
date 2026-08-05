@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20260810150000 — the lapse ledger accepts writes only from its own function
+-- 20260812000000 — the lapse ledger accepts writes only from its own function
 -- ============================================================================
 -- 20260810140000 created public.gemba_official_lapse_notices with RLS on and a
 -- read policy, and correctly revoked anon. It did NOT revoke the Supabase
