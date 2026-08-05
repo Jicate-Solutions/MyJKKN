@@ -5316,11 +5316,35 @@ CREATE POLICY "hr_recruitment_candidates_update_permission"
         AND role_has_institution_access(institution_id))
   );
 
+-- Narrowed 2026-08-05 (20260810170000_hr_recruitment_purge_rejected_applicant.sql):
+-- deleting a candidate destroys a person's whole record, so it is super-admin only.
+-- It previously also allowed is_admin() and every holder of 'hr.recruitment.delete'
+-- (hr_head / ceo / coo / hr_admin), which would have let those roles bypass
+-- fn_purge_rejected_recruitment_applicant and delete without the audit trail or the
+-- Google Drive resume cleanup. Nothing in the app deleted candidates before that date.
 CREATE POLICY "hr_recruitment_candidates_delete_permission"
   ON public.hr_recruitment_candidates FOR DELETE USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.recruitment.delete')
+    (SELECT is_super_admin())
   );
+
+-- ---- hr_recruitment_purge_log -----------------------------------------
+-- PII-free tombstone of super-admin purges. Read-only to super admins; ALL writes
+-- go through the SECURITY DEFINER functions, so no write policy exists by design.
+
+ALTER TABLE public.hr_recruitment_purge_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_purge_log_select_super_admin"
+  ON public.hr_recruitment_purge_log FOR SELECT USING (
+    (SELECT is_super_admin())
+  );
+
+REVOKE ALL ON public.hr_recruitment_purge_log FROM anon;
+GRANT SELECT ON public.hr_recruitment_purge_log TO authenticated;
+
+-- NOTE: hr_job_applications deliberately has NO DELETE policy. Deletes happen only
+-- inside fn_purge_rejected_recruitment_applicant (SECURITY DEFINER, self-authorizing
+-- on is_super_admin()). Adding a delete policy here would widen the surface —
+-- with none, PostgREST denies by default.
 
 -- ---- hr_recruitment_candidate_packages --------------------------------
 -- STRICTER RLS per Learning #8:
@@ -8419,3 +8443,74 @@ ALTER POLICY "members_select" ON public.accreditation_committee_members USING ((
 ALTER POLICY "members_insert" ON public.accreditation_committee_members WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
 ALTER POLICY "members_update" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
 ALTER POLICY "members_delete" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+
+-- =====================================================
+-- PHYSICAL-ROOM ELIGIBILITY RULES (campus living)
+-- =====================================================
+-- These two tables had no entry in this reference file until 2026-08-04; the
+-- block below is the full live policy set, not just the newly added policies.
+--
+-- Reads are open (a rule is not sensitive data); writes were originally gated on
+-- hardcoded admin identity, which locked out Chief Wardens who hold
+-- campus_living.settings.edit. The *_settings_edit policies added in
+-- 20260804102100_campus_living_room_rule_writes_by_permission_key.sql are
+-- additive and gate on that key instead. hostel_blocks RLS independently limits
+-- which blocks a warden can see, so the Block picker stays scoped either way.
+
+ALTER TABLE public.hostel_room_eligibility_rules      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hostel_room_eligibility_rule_rooms ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_select" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_select" ON public.hostel_room_eligibility_rules
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_insert" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_insert" ON public.hostel_room_eligibility_rules
+    FOR INSERT WITH CHECK ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_update" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_update" ON public.hostel_room_eligibility_rules
+    FOR UPDATE USING ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_delete" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_delete" ON public.hostel_room_eligibility_rules
+    FOR DELETE USING ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_select" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_select" ON public.hostel_room_eligibility_rule_rooms
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_insert" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_insert" ON public.hostel_room_eligibility_rule_rooms
+    FOR INSERT WITH CHECK ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_delete" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_delete" ON public.hostel_room_eligibility_rule_rooms
+    FOR DELETE USING ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+-- Additive permission-key writes (2026-08-04) — see the migration for rationale.
+DROP POLICY IF EXISTS "hostel_room_elig_rules_insert_settings_edit" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_insert_settings_edit" ON public.hostel_room_eligibility_rules
+    FOR INSERT TO authenticated
+    WITH CHECK ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_update_settings_edit" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_update_settings_edit" ON public.hostel_room_eligibility_rules
+    FOR UPDATE TO authenticated
+    USING      ((SELECT user_has_permission('campus_living.settings.edit')))
+    WITH CHECK ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_delete_settings_edit" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_delete_settings_edit" ON public.hostel_room_eligibility_rules
+    FOR DELETE TO authenticated
+    USING ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_insert_settings_edit" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_insert_settings_edit" ON public.hostel_room_eligibility_rule_rooms
+    FOR INSERT TO authenticated
+    WITH CHECK ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_delete_settings_edit" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_delete_settings_edit" ON public.hostel_room_eligibility_rule_rooms
+    FOR DELETE TO authenticated
+    USING ((SELECT user_has_permission('campus_living.settings.edit')));

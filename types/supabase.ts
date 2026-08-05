@@ -45745,6 +45745,51 @@ export type Database = {
           },
         ]
       }
+      hr_recruitment_purge_log: {
+        Row: {
+          application_id: string | null
+          candidate_id: string | null
+          drive_cleared_at: string | null
+          drive_file_id: string | null
+          had_resume: boolean
+          hr_organization_id: string | null
+          id: string
+          institution_id: string | null
+          job_id: string | null
+          purged_at: string
+          purged_by: string
+          stage: string
+        }
+        Insert: {
+          application_id?: string | null
+          candidate_id?: string | null
+          drive_cleared_at?: string | null
+          drive_file_id?: string | null
+          had_resume?: boolean
+          hr_organization_id?: string | null
+          id?: string
+          institution_id?: string | null
+          job_id?: string | null
+          purged_at?: string
+          purged_by: string
+          stage: string
+        }
+        Update: {
+          application_id?: string | null
+          candidate_id?: string | null
+          drive_cleared_at?: string | null
+          drive_file_id?: string | null
+          had_resume?: boolean
+          hr_organization_id?: string | null
+          id?: string
+          institution_id?: string | null
+          job_id?: string | null
+          purged_at?: string
+          purged_by?: string
+          stage?: string
+        }
+        Relationships: []
+      }
       hr_recruitment_signal_cache: {
         Row: {
           blocked_inputs: string[] | null

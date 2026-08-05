@@ -4,6 +4,24 @@ import {
   resolveBosBoardScope,
   casSiblingInstitutionIds,
 } from '@/lib/utils/bos/bos-access';
+import { isInstitutionWideCommittee } from '@/lib/utils/bos/ta-da-rates';
+
+/**
+ * Narrow a bos_ta_da_rates query to one council.
+ *
+ * Real names use `ilike` — a case-insensitive exact match, safe because names
+ * are dropdown-sourced and carry no wildcards. The institution-wide sentinel
+ * ('*') MUST use `eq`: PostgREST rewrites '*' to '%' inside like/ilike, so an
+ * ilike term would compile to `ILIKE '%'` and return every council's rows.
+ */
+function filterByCommittee<T extends { eq: (c: string, v: string) => T; ilike: (c: string, v: string) => T }>(
+  query: T,
+  committeeName: string,
+): T {
+  return isInstitutionWideCommittee(committeeName)
+    ? query.eq('committee_name', committeeName.trim())
+    : query.ilike('committee_name', committeeName);
+}
 
 /**
  * ── /api/bos/ta-da/rates ─────────────────────────────────────────────────────
@@ -62,8 +80,7 @@ export async function GET(request: NextRequest) {
       .eq('is_active', true)
       .order('committee_name')
       .order('member_type');
-    // Case-insensitive exact name match (dropdown-sourced, no wildcards).
-    if (committeeName) query = query.ilike('committee_name', committeeName);
+    if (committeeName) query = filterByCommittee(query, committeeName);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -208,12 +225,14 @@ export async function PUT(request: NextRequest) {
     const keptTypes = new Set(
       upsertRows.map((r) => (r.member_type as string).toLowerCase())
     );
-    const { data: activeRows, error: activeErr } = await db
-      .from('bos_ta_da_rates')
-      .select('id, member_type')
-      .eq('institutions_id', institutionsId)
-      .ilike('committee_name', committeeName)
-      .eq('is_active', true);
+    const { data: activeRows, error: activeErr } = await filterByCommittee(
+      db
+        .from('bos_ta_da_rates')
+        .select('id, member_type')
+        .eq('institutions_id', institutionsId)
+        .eq('is_active', true),
+      committeeName,
+    );
     if (activeErr) throw activeErr;
     const toDeactivate = (activeRows ?? [])
       .filter((r: { member_type: string }) => !keptTypes.has(r.member_type.toLowerCase()))

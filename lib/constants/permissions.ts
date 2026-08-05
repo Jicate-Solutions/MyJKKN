@@ -1459,6 +1459,25 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   // ======================================================================
+  // Director's Desk (2026-08-04) — hand over any page; the handover IS the grant
+  // Spec: specs/director-desk/SPEC.md
+  //
+  // These MUST be registered here even though they are never handed over — a key
+  // absent from this file is UNGRANTABLE, because Role Management can only offer
+  // what it can enumerate. fn_handover_key_is_blocked() permanently walls
+  // `director.handover.%` from being handed over, so a deliberate trip to Role
+  // Management is the ONLY way to obtain them. That is the intended friction:
+  // it is what stops the master key from propagating (decision 5).
+  // ======================================================================
+  {
+    name: "Director's Desk",
+    key: 'director',
+    permissions: [
+      { key: 'director.handover.create', label: 'Hand over a page or job to someone' },
+      { key: 'director.handover.view_all', label: "See every handover on the Director's desk" }
+    ]
+  },
+  // ======================================================================
   // Faculty Innovation Portfolio (spec v1.0.0 — 2026-04-15) — merged from jicate/main via PR #188
   // ======================================================================
   {

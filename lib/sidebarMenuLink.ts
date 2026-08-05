@@ -27,6 +27,7 @@ import {
   GraduationCap,
   BookOpen,
   ClipboardCheck,
+  Inbox,
   Gauge,
   IdCard,
   Lock,
@@ -107,6 +108,12 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
+// The single answer to "which MENU_PERMISSIONS values are not permission keys".
+// Imported rather than restated so the sidebar, the route guard
+// (isPageAccessible) and the SQL walls cannot drift into disagreeing about the
+// `super_admin` sentinel. permission-filter imports only a type from
+// ./navigation/types, so there is no import cycle back into this file.
+import { isSentinelPermission } from '@/lib/navigation/permission-filter';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -219,6 +226,37 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
+
+  // ======================================================================
+  // Director's Desk (2026-08-05) — spec: specs/director-desk/SPEC.md
+  //
+  // /director-desk is the Director's own console: everything he has handed
+  // out, and which of it is not green. Genuinely restricted — it lists work
+  // assigned across the whole institution — so it carries a real key.
+  //
+  // /my-desk is the RECEIVER's side and must be reachable by someone who
+  // holds NO module permission at all: the entire point of a handover is that
+  // the receiver could not open the page before. Gating it on any real module
+  // key would defeat the feature.
+  //
+  // `view_profile` is this codebase's universal-authenticated idiom — it is
+  // hard-coded as always-true in isPageAccessible() and filterByPermissions()
+  // (lib/navigation/permission-filter.ts), which is what RoutePermissionGuard
+  // reads, and it is EXEMPT from the catalog gate for exactly this reason
+  // (scripts/check-permissions-catalog.mjs EXEMPT_KEYS). Same pattern already
+  // used by /profile and /ai-pulse.
+  //
+  // CAUTION, measured 2026-08-05 against production: `view_profile` is true on
+  // only 18 of 85 custom_roles. It is a baseline in DEFAULT_ROLE_PERMISSIONS
+  // but 67 live roles predate that and do not carry it — including principal,
+  // hod, faculty, staff, coo and ceo. isPageAccessible short-circuits the key
+  // so the PAGE opens for everyone; the SIDEBAR filter in GetRoleBasedPages
+  // does NOT short-circuit it and would have hidden the link from 79% of
+  // roles. That is why /my-desk also gets an explicit always-visible carve-out
+  // below, the same treatment as /guide and /my-induction-sessions.
+  // ======================================================================
+  '/director-desk': 'director.handover.view_all',
+  '/my-desk': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -1604,6 +1642,11 @@ export const OWNERS_NAV_KEYS = [
  * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
  * by key existence: a role may carry a permission key set to an explicit
  * `false`, and an existence test reads that denial as a grant.
+ *
+ * Real super admins and admins never reach this function — GetRoleBasedPages
+ * returns their whole menu earlier — so anything that arrives here belongs to
+ * somebody who is not one. That is why the sentinel wall below is a flat `false`
+ * rather than a role test.
  */
 export function navPathAllowed(
   href: string,
@@ -1617,6 +1660,12 @@ export function navPathAllowed(
     return OWNERS_NAV_KEYS.some((key) => permissions[key] === true);
   }
   if (!requiredPermission) return false;
+  // A sentinel is not a permission key. MENU_PERMISSIONS gates 14 routes on the
+  // literal value `super_admin`, and Director's Desk ORs a handover's keys into
+  // this very map — so a handover of the ID-card printing policy page used to
+  // reveal the entire super-admin sidebar to its receiver. The database walls
+  // the key now; this is the layer that would have acted on it.
+  if (isSentinelPermission(requiredPermission)) return false;
   return permissions[requiredPermission] === true;
 }
 
@@ -1728,6 +1777,28 @@ export function GetPages(pathname: string): MenuGroup[] {
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
           ]
+        },
+        {
+          // Director's Desk — the red/green master view of every job handed
+          // out (spec: specs/director-desk/SPEC.md). Gated by
+          // director.handover.view_all via MENU_PERMISSIONS.
+          href: '/director-desk',
+          label: "Director's Desk",
+          active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // My Desk — the receiving side of a handover. Deliberately visible to
+          // EVERY authenticated user (explicit carve-out in GetRoleBasedPages
+          // below): a handover exists precisely because the receiver holds no
+          // permission for the work, so gating its inbox on a module key would
+          // make the feature undiscoverable to the only people who need it.
+          href: '/my-desk',
+          label: 'My Desk',
+          active: pathname === '/my-desk' || pathname.startsWith('/my-desk/'),
+          icon: Inbox,
+          submenus: []
         },
         {
           // CEO Rounds — the daily rounds log (participation-graded attendance,
@@ -3598,6 +3669,18 @@ export function GetRoleBasedPages(
           // Platform Guide is always visible for all users (universal in-app help)
           if (menu.href === '/guide') return true;
 
+          // My Desk is always visible for all users. A handover exists BECAUSE
+          // the receiver holds no permission for the work — so the inbox where
+          // they accept or decline it cannot itself be permission-gated, or the
+          // only people it is for can never find it. Its MENU_PERMISSIONS entry
+          // maps to view_profile, which isPageAccessible() treats as universal
+          // and so opens the page; this line is the sidebar half, because the
+          // filter below does NOT short-circuit view_profile and that key is
+          // true on only 18 of 85 live roles (measured 2026-08-05 — principal,
+          // hod, faculty, staff, coo and ceo are all missing it). Same
+          // treatment as /guide and /my-induction-sessions.
+          if (menu.href === '/my-desk') return true;
+
           // "My Induction Sessions" is SELF-SCOPED: its RPCs gate on speakership
           // (event_session_speakers.profile_id = auth.uid()); non-presenters just
           // see an empty state. It deliberately has no MENU_PERMISSIONS entry, but
@@ -3659,6 +3742,15 @@ export function GetRoleBasedPages(
             );
             return false;
           }
+
+          // A sentinel is not a permission key (see isSentinelPermission).
+          // `super_admin` marks 14 routes and real super admins already returned
+          // above; reaching here means the viewer is not one, so the link stays
+          // hidden no matter what the merged permission map contains under that
+          // name. Director's Desk can put arbitrary MENU_PERMISSIONS values into
+          // that map, which is how a handover of the ID-card printing policy page
+          // used to reveal the whole super-admin sidebar.
+          if (isSentinelPermission(requiredPermission)) return false;
 
           return userRole.permissions[requiredPermission] === true;
         })
