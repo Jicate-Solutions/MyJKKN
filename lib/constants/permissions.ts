@@ -2716,6 +2716,10 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'calendar.view', label: 'View Calendar' },
       { key: 'calendar.people_leave.view', label: 'View Person-Level Leave on Calendar' },
+      // Added 2026-08-05 with the COE-backed calendar chips. Granted to every
+      // staff role but NOT to learners (migration 20260805130000). The Exam
+      // Schedule chip has no key of its own — it rides on calendar.view.
+      { key: 'calendar.coe_calendar.view', label: 'View COE Academic Calendar on Calendar' },
       { key: 'calendar.holidays.manage', label: 'Manage Common Holidays & Events' },
       { key: 'calendar.config.manage', label: 'Manage Calendar Config (Feeds, Categories)' }
     ]

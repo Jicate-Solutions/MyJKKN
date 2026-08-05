@@ -208,24 +208,6 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
     }
   };
 
-  // DOCX twin of generateMinutes — same payload shape, different renderer. The
-  // module is lazy-imported so the docx library (~300KB gzipped) doesn't ship
-  // in the initial bundle for users who never download a Word doc.
-  const generateMinutesWord = async () => {
-    const [{ generateMinutesDocx }, header] = await Promise.all([
-      import('@/lib/utils/bos/meeting-minutes-docx'),
-      buildHeader(),
-    ]);
-    await generateMinutesDocx({
-      header,
-      meeting,
-      attendees: attendance,
-      agendaItems,
-      chairmanName,
-      boardName,
-    });
-    toast.success('Minutes (Word) downloaded');
-  };
 
   if (isLoading) {
     return (
@@ -262,22 +244,6 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
                 : undefined
             }
             onGenerate={generateMinutes}
-          />
-          {/* Word-format twin of the Minutes PDF. Same content, different
-              renderer (docx library, lazy-imported in generateMinutesWord). */}
-          <DocCard
-            title='Minutes of Meeting (Word)'
-            description='Same content as the PDF, in editable .docx format'
-            disabled={isBeforeCompleted || !hasAttendance}
-            disabledReason={
-              isBeforeCompleted
-                ? 'Meeting must be completed first'
-                : !hasAttendance
-                ? 'Record attendance first'
-                : undefined
-            }
-            onGenerate={generateMinutesWord}
-            buttonLabel='Download Word'
           />
         </div>
       </div>

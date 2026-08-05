@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
+  BosAttendanceMode,
   BosAttendanceStatus,
   bosMemberTypeLabel,
 } from '@/types/bos';
@@ -141,6 +142,8 @@ export async function GET(
 interface AttendanceUpsertRecord {
   member_id: string;
   attendance_status: BosAttendanceStatus;
+  /** 'offline' | 'online' — anything else (or absent) is stored as offline. */
+  attendance_mode?: BosAttendanceMode;
   absence_reason?: string;
   ta_da_eligible?: boolean;
   institutions_id: string;
@@ -169,6 +172,10 @@ export async function POST(
       member_id: r.member_id,
       institutions_id: r.institutions_id,
       attendance_status: r.attendance_status,
+      // Whitelisted rather than passed through: the column carries a CHECK
+      // constraint, and a bad value would fail the whole batch (taking the
+      // user's attendance edits with it) instead of just this row.
+      attendance_mode: r.attendance_mode === 'online' ? 'online' : 'offline',
       absence_reason: r.absence_reason ?? null,
       ta_da_eligible: r.ta_da_eligible ?? false,
     }));
@@ -232,6 +239,7 @@ type AttendeeRow = {
   member_id: string;
   institutions_id: string;
   attendance_status: BosAttendanceStatus;
+  attendance_mode: BosAttendanceMode | null;
   ta_da_eligible: boolean;
   member: {
     staff_id: string | null;
@@ -259,6 +267,7 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       member_id,
       institutions_id,
       attendance_status,
+      attendance_mode,
       ta_da_eligible,
       member:bos_members ( staff_id, expert_id, member_type, member_type_id )
     `)
@@ -291,15 +300,15 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
       const instIds = await casExpandedIds(admin, meetingInstitutionId, []);
       const { data: rateRows } = await admin
         .from('bos_ta_da_rates')
-        .select('member_type, honorarium_amount, ta_per_km')
+        .select(
+          'member_type, honorarium_amount, honorarium_amount_online, ta_per_km, travel_basis, travel_flat_amount'
+        )
         .in('institutions_id', instIds)
         .ilike('committee_name', committeeName) // case-insensitive exact match
         .eq('is_active', true);
-      for (const r of (rateRows ?? []) as Array<{
-        member_type: string;
-        honorarium_amount: number;
-        ta_per_km: number;
-      }>) {
+      for (const r of (rateRows ?? []) as Array<
+        TaDaRateOverride & { member_type: string }
+      >) {
         ratesByMemberType.set(r.member_type.trim().toLowerCase(), r);
       }
     }
@@ -393,9 +402,13 @@ async function autoSyncClaims(meetingId: string): Promise<AutoClaimSyncResult> {
         : undefined;
       const rateKey = (catalogName ?? labelFallback ?? '').trim().toLowerCase();
       const rate = rateKey ? ratesByMemberType.get(rateKey) ?? null : null;
+      // Mode drives which sitting charge applies and whether travel is paid at
+      // all (online → zero). Legacy rows predating 20260805120000 read back as
+      // the column's 'offline' default, so their amounts are unchanged.
       const amounts = computeClaimAmountsWithRate(rate, {
         isExternal,
         oneWayKm,
+        mode: a.attendance_mode ?? 'offline',
       });
       toInsert.push({
         institutions_id: a.institutions_id,
