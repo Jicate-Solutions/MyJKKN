@@ -269,7 +269,13 @@ export class ImsInventoryServiceServer {
         : null;
 
       validItems.push({
-        code: d.code.toUpperCase(),
+        // NULL — not undefined — when the sheet's Code cell is blank. PostgREST
+        // builds a bulk INSERT's column list from the keys and rejects the batch
+        // with PGRST102 if they differ between rows, so a sheet mixing filled and
+        // blank codes must still send the key on every row. NULL is what the
+        // ims_items_autofill_code trigger looks for; NOT NULL is checked after
+        // BEFORE triggers run, so the row is complete by the time it matters.
+        code: d.code ? d.code.toUpperCase() : null,
         name: d.name,
         description: d.description,
         category_id: categoryId,
@@ -314,6 +320,9 @@ export class ImsInventoryServiceServer {
     const duplicateCodes: string[] = [];
 
     const deduped = validItems.filter((item, idx) => {
+      // A blank code is a request for a generated one, not a value — twenty blank
+      // rows are twenty new items, not nineteen duplicates of the first.
+      if (!item.code) return true;
       const key = item.code.toLowerCase();
       if (seenCodes.has(key)) {
         const firstRow = seenCodes.get(key)! + 2;
@@ -333,7 +342,9 @@ export class ImsInventoryServiceServer {
     // Codes are unique per institution (constraint: ims_items_institution_code_unique).
     // Filter the pre-flight check by institution so we match the constraint scope —
     // otherwise the check passes but the INSERT collides with rows from another store.
-    const codesToCheck = deduped.map((i) => i.code.toUpperCase());
+    const codesToCheck = deduped
+      .filter((i) => !!i.code)
+      .map((i) => i.code!.toUpperCase());
 
     let dbDupQuery = supabase
       .from('ims_items')
@@ -353,6 +364,7 @@ export class ImsInventoryServiceServer {
     );
 
     const itemsToInsert = deduped.filter((item, idx) => {
+      if (!item.code) return true;
       if (existingCodes.has(item.code.toUpperCase())) {
         allErrors.push({
           row: idx + 2,
@@ -428,6 +440,34 @@ export class ImsInventoryServiceServer {
         ins.id as string,
       ])
     );
+
+    // ── List them at the importing store (non-fatal) ────────────────────────
+    // The ims_stock_summary trigger would cover the rows with opening stock, but
+    // it defaults the POS flag to false and never fires at all for the ones
+    // imported at zero. Both matter: the sheet has a "sellable" column, and an
+    // item imported with no stock still has to be visible so it can be received.
+    if (storeId) {
+      try {
+        const links = itemsToInsert
+          .map((item) => ({
+            store_id: storeId,
+            item_id: insertedCodeMap.get(item.code.toUpperCase()),
+            is_sellable_to_students: item.is_sellable_to_students ?? false,
+          }))
+          .filter((l) => !!l.item_id);
+
+        if (links.length > 0) {
+          const { error: linkError } = await supabase
+            .from('ims_store_items')
+            .upsert(links, { onConflict: 'store_id,item_id' });
+          if (linkError) {
+            console.warn('[ImsInventoryServiceServer] bulkImport store listing failed:', linkError.message);
+          }
+        }
+      } catch (e) {
+        console.warn('[ImsInventoryServiceServer] bulkImport store listing threw:', e);
+      }
+    }
 
     const stockItems = itemsToInsert.filter((item) => item.opening_stock > 0);
 

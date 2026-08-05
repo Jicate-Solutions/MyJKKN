@@ -38082,7 +38082,7 @@ export type Database = {
           is_active: boolean
           program_id: string | null
           rule_name: string | null
-          semester_id: string | null
+          semester_ids: string[]
           updated_at: string
           updated_by: string | null
         }
@@ -38098,7 +38098,7 @@ export type Database = {
           is_active?: boolean
           program_id?: string | null
           rule_name?: string | null
-          semester_id?: string | null
+          semester_ids?: string[]
           updated_at?: string
           updated_by?: string | null
         }
@@ -38114,7 +38114,7 @@ export type Database = {
           is_active?: boolean
           program_id?: string | null
           rule_name?: string | null
-          semester_id?: string | null
+          semester_ids?: string[]
           updated_at?: string
           updated_by?: string | null
         }
@@ -38145,13 +38145,6 @@ export type Database = {
             columns: ["program_id"]
             isOneToOne: false
             referencedRelation: "programs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_room_eligibility_rules_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
             referencedColumns: ["id"]
           },
         ]
@@ -106127,6 +106120,19 @@ export type Database = {
       hr_policy_restore: {
         Args: { p_table_name: string; p_user_id: string; p_version_id: string }
         Returns: string
+      }
+      hr_staff_payroll_directory: {
+        Args: never
+        Returns: {
+          payer_org_id: string
+          payer_org_name: string
+          person_name: string
+          role_title: string
+          staff_code: string
+          staff_uuid: string
+          works_at_id: string
+          works_at_name: string
+        }[]
       }
       hr_staff_without_payer: {
         Args: never

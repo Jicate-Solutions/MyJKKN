@@ -16,12 +16,17 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 // the only question that screen needs: which groups are mine, and who is in
 // them.
 //
-// AUTHORISATION IS RLS, NOT A FILTER HERE
-// The cohort query is scoped to resource_person_id = the caller, and the learner
-// read goes through the session client, where fp_students is gated on
-// fn_fp_can_view_student — which admits the learner themself, their guardian,
-// whoever runs their cohort, and the school's owner. Narrowing in SQL here is
-// belt-and-braces, not the boundary.
+// AUTHORISATION IS THREE LAYERS, DELIBERATELY
+//   1. the permission gate below — foundation.practice.take, the same key the
+//      page checks, so the API cannot be reached by somebody the UI refuses;
+//   2. the cohort query, scoped to resource_person_id = the caller, so even a
+//      permission holder only ever sees the groups they actually run;
+//   3. RLS on fp_students (fn_fp_can_view_student), which admits the learner
+//      themself, their guardian, whoever runs their cohort, and the school's
+//      owner — the last word, and the one that cannot be edited away from here.
+// Layer 2 alone was never a leak, but it is a property of one SQL statement.
+// Layer 1 is a property of the route, and it is the one that survives a
+// refactor of that statement.
 //
 // Question counts come from the service-role client because fp_items carries the
 // answer keys and is operator-gated. Only a COUNT crosses back, never an item.
@@ -42,6 +47,28 @@ export async function GET() {
     } = await supabase.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Same key the page checks, checked again here.
+    //
+    // This route was never leaking: the cohort query below is scoped to
+    // resource_person_id = the caller, so somebody without the permission
+    // already got an empty list rather than anybody else's group. But "returns
+    // nothing" and "is not allowed" are different answers, and only one of them
+    // survives a future edit to that query. Scoping is a property of today's
+    // SQL; the gate is a property of the route.
+    //
+    // Single-argument overload on purpose: it resolves against auth.uid()
+    // internally, so there is no caller-supplied user id to forge. It carries
+    // the super-admin bypass and multi-role OR-merging with it.
+    const { data: allowed } = await (supabase as any).rpc('user_has_permission', {
+      permission_name: 'foundation.practice.take',
+    });
+    if (allowed !== true) {
+      return NextResponse.json(
+        { error: 'You do not have access to Foundation practice.' },
+        { status: 403 },
+      );
     }
 
     const { data: cohortRows, error: cohortError } = await (supabase as any)

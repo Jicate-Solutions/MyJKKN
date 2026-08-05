@@ -22,6 +22,9 @@ import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
 
+import { selectBusyCalendarIds, FREEBUSY_MAX_CALENDARS } from './google-busy-calendars';
+import type { GoogleCalendarListEntry } from './google-busy-calendars';
+
 const LOG_PREFIX = '[google-calendar]';
 
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -33,6 +36,11 @@ const SCOPES = [
   'email',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/calendar.freebusy',
+  // Lists WHICH calendars the host has, so busy-checking is not limited to
+  // 'primary'. The narrowest of the four scopes Google accepts for
+  // calendarList.list — it grants the list only, not the events inside them
+  // (calendar.readonly would have granted both).
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 ].join(' ');
 
 /** OAuth state tokens older than this are rejected. */
@@ -71,6 +79,15 @@ export type HostBusyResult =
   | { status: 'none' }
   /** Connection exists but the check failed — caller must FAIL CLOSED (D19). */
   | { status: 'failed' };
+
+// The calendar-selection rule lives in its own dependency-free module so it can
+// be unit-tested without importing this service's transitive graph. Re-exported
+// here so existing call sites keep working.
+export {
+  selectBusyCalendarIds,
+  FREEBUSY_MAX_CALENDARS,
+  type GoogleCalendarListEntry,
+} from './google-busy-calendars';
 
 export interface CreateEventInput {
   summary: string;
@@ -250,6 +267,15 @@ export class GoogleCalendarService {
       .eq('host_profile_id', hostProfileId)
       .eq('auto_hidden', true);
 
+    // Re-consent may have granted the calendar-list scope, so forget any earlier
+    // "no" and let the next busy-check find out. Without this reset a host who
+    // reconnects specifically to fix their coverage stays stuck on primary-only
+    // forever — silently, since reduced protection still returns slots.
+    await supabase
+      .from('meeting_host_google_connections')
+      .update({ calendar_list_scope: null })
+      .eq('host_profile_id', hostProfileId);
+
     // Start the inbound push-notification watch so calendar-side edits sync
     // back immediately. Best-effort: a watch failure (e.g. unverified webhook
     // domain) must not fail the connection — the daily cron retries it.
@@ -333,22 +359,54 @@ export class GoogleCalendarService {
     const token = await this.accessTokenForHost(supabase, hostProfileId);
     if (!token) return { status: 'failed' };
 
+    // Which calendars count as busy? Everything the host owns and shows — not
+    // just 'primary'. A meeting kept on a second calendar used to be invisible
+    // here, so the engine called the host free and offered the slot to a
+    // stranger. `calendarIdsForHost` returns ['primary'] for connections that
+    // predate the calendarList scope, which is exactly the old behaviour.
+    const { ids, reduced } = await this.calendarIdsForHost(supabase, hostProfileId, token);
+
     const res = await fetch(`${CAL_BASE}/freeBusy`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timeMin: fromIso, timeMax: toIso, items: [{ id: 'primary' }] }),
+      body: JSON.stringify({
+        timeMin: fromIso,
+        timeMax: toIso,
+        items: ids.map((id) => ({ id })),
+      }),
     });
     if (!res.ok) {
       console.error(`${LOG_PREFIX} freeBusy failed for ${hostProfileId}:`, res.status);
       return { status: 'failed' };
     }
     const json = (await res.json()) as {
-      calendars?: { primary?: { busy?: GoogleBusyRange[]; errors?: unknown[] } };
+      calendars?: Record<string, { busy?: GoogleBusyRange[]; errors?: unknown[] }>;
     };
-    const cal = json.calendars?.primary;
-    if (!cal || (cal.errors && cal.errors.length)) {
-      console.error(`${LOG_PREFIX} freeBusy returned errors for ${hostProfileId}`);
-      return { status: 'failed' };
+
+    const calendars = json.calendars ?? {};
+    const busy: GoogleBusyRange[] = [];
+
+    for (const id of ids) {
+      const cal = calendars[id];
+      // Fail CLOSED on any calendar we asked about but could not read. Skipping
+      // it would mean treating "unknown" as "free", which is the exact bug this
+      // change exists to remove — now with the calendar NAMED, so the failure is
+      // diagnosable instead of a mystery empty slot list.
+      if (!cal || (cal.errors && cal.errors.length)) {
+        console.error(
+          `${LOG_PREFIX} freeBusy could not read calendar ${id} for ${hostProfileId} — failing closed`,
+        );
+        return { status: 'failed' };
+      }
+      busy.push(...(cal.busy ?? []));
+    }
+
+    if (reduced) {
+      // Not an error, but never silent: this host is protected on one calendar
+      // only until they reconnect and grant the calendar-list scope.
+      console.warn(
+        `${LOG_PREFIX} ${hostProfileId} checked PRIMARY ONLY — reconnect Google to cover every calendar`,
+      );
     }
 
     // Health bookkeeping (best effort — never blocks the read).
@@ -357,7 +415,89 @@ export class GoogleCalendarService {
       .update({ last_ok_at: new Date().toISOString() })
       .eq('host_profile_id', hostProfileId);
 
-    return { status: 'ok', busy: cal.busy ?? [] };
+    return { status: 'ok', busy };
+  }
+
+  /**
+   * The calendar ids to busy-check for this host.
+   *
+   * Connections created before the calendar-list scope existed cannot call
+   * calendarList.list at all, and /meet slots is a public hot path — probing
+   * Google for a guaranteed 403 on every page load would be a wasted round trip
+   * per visitor. So the answer is cached on the connection row:
+   *
+   *   NULL   not yet probed → try once, record what happened
+   *   true   list it every time
+   *   false  do not try again until the host reconnects (which resets it to NULL)
+   *
+   * Never throws. Any failure degrades to ['primary'] — today's behaviour — with
+   * `reduced` set so the caller can say so out loud.
+   */
+  private static async calendarIdsForHost(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    token: string,
+  ): Promise<{ ids: string[]; reduced: boolean }> {
+    const PRIMARY_ONLY = { ids: ['primary'], reduced: true };
+
+    try {
+      const { data: conn } = await supabase
+        .from('meeting_host_google_connections')
+        .select('calendar_list_scope')
+        .eq('host_profile_id', hostProfileId)
+        .maybeSingle();
+
+      // Known not to have the scope — skip the round trip.
+      if (conn?.calendar_list_scope === false) return PRIMARY_ONLY;
+
+      const res = await fetch(
+        `${CAL_BASE}/users/me/calendarList?minAccessRole=owner&showHidden=false&maxResults=250`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      if (res.status === 401 || res.status === 403) {
+        // The connection predates the scope. Record it so this costs one call
+        // per host, ever — not one per booking-page visit.
+        await supabase
+          .from('meeting_host_google_connections')
+          .update({ calendar_list_scope: false })
+          .eq('host_profile_id', hostProfileId);
+        console.warn(
+          `${LOG_PREFIX} ${hostProfileId} cannot list calendars (${res.status}) — primary only until reconnect`,
+        );
+        return PRIMARY_ONLY;
+      }
+
+      if (!res.ok) {
+        // A transient failure is NOT recorded as "no scope" — that would
+        // permanently downgrade a host over one bad minute.
+        console.error(`${LOG_PREFIX} calendarList failed for ${hostProfileId}:`, res.status);
+        return PRIMARY_ONLY;
+      }
+
+      const json = (await res.json()) as { items?: GoogleCalendarListEntry[] };
+      const { ids, truncated } = selectBusyCalendarIds(json.items ?? []);
+
+      if (truncated > 0) {
+        // Never cap silently: the calendars we dropped are ones the engine will
+        // treat as free.
+        console.warn(
+          `${LOG_PREFIX} ${hostProfileId} has more than ${FREEBUSY_MAX_CALENDARS} eligible calendars — ${truncated} not checked`,
+        );
+      }
+
+      if (conn?.calendar_list_scope !== true) {
+        await supabase
+          .from('meeting_host_google_connections')
+          .update({ calendar_list_scope: true })
+          .eq('host_profile_id', hostProfileId);
+      }
+
+      return { ids, reduced: false };
+    } catch (err) {
+      console.error(`${LOG_PREFIX} calendarList threw for ${hostProfileId}:`, err);
+      return PRIMARY_ONLY;
+    }
   }
 
   /** Calendar event for a booking; attendee is invited by Google itself. */

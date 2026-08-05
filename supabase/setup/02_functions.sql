@@ -9334,7 +9334,7 @@ $$;
 -- =====================================================
 -- validate_learner_semester_year_scope() — Added 2026-07-30
 --   Migration: 20260730160000_repair_cross_institution_learner_semester_academic_year.sql
---   Extended 2026-07-30 by 20260808100000_repair_learner_degree_id_cross_institution.sql
+--   Extended 2026-07-30 by 20260808100001_repair_learner_degree_id_cross_institution.sql
 --   to also cover degree_id and department_id.
 --   Extended 2026-07-31 by 20260731100100_extend_learner_scope_guard_section_id.sql
 --   to also cover section_id — the column the first two waves never checked,
@@ -14997,7 +14997,7 @@ BEGIN
              AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
              AND (c.department_id IS NULL OR c.department_id = v_dept)
              AND (c.program_id    IS NULL OR c.program_id    = v_program)
-             AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)
+             AND (cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids))
          )
     INTO v_has_covering, v_matches;
 
@@ -15014,7 +15014,7 @@ BEGIN
       AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
       AND (r.department_id IS NULL OR r.department_id = v_dept)
       AND (r.program_id    IS NULL OR r.program_id    = v_program)
-      AND (r.semester_id   IS NULL OR r.semester_id   = v_semester)
+      AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids))
   ) INTO v_pinned;
 
   RETURN NOT v_pinned;
@@ -16732,7 +16732,7 @@ BEGIN
               AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
               AND (c.department_id IS NULL OR c.department_id = v_dept)
               AND (c.program_id    IS NULL OR c.program_id    = v_program)
-              AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)),
+              AND (cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids))),
     (SELECT jsonb_agg(jsonb_build_object(
        'rule_name', COALESCE(NULLIF(btrim(c.rule_name),''),'(unnamed rule)'),
        'floor', c.floor,
@@ -16740,12 +16740,13 @@ BEGIN
               AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
               AND (c.department_id IS NULL OR c.department_id = v_dept)
               AND (c.program_id    IS NULL OR c.program_id    = v_program)
-              AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)), false),
+              AND (cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids))), false),
        'cohort', NULLIF(concat_ws(' · ',
          (SELECT degree_name     FROM degrees     WHERE id=c.degree_id),
          (SELECT department_name FROM departments WHERE id=c.department_id),
          (SELECT program_name    FROM programs    WHERE id=c.program_id),
-         (SELECT semester_name   FROM semesters   WHERE id=c.semester_id)),''),
+         (SELECT string_agg(s.semester_name, ', ' ORDER BY array_position(c.semester_ids, s.id))
+            FROM semesters s WHERE s.id = ANY(c.semester_ids))),''),
        'institution',    (SELECT name FROM institutions WHERE id=c.institution_id),
        'institution_ok', COALESCE(c.institution_id = v_inst, false),
        'degree',         (SELECT degree_name FROM degrees WHERE id=c.degree_id),
@@ -16754,8 +16755,9 @@ BEGIN
        'department_ok',  COALESCE((c.department_id IS NULL OR c.department_id = v_dept), false),
        'program',        (SELECT program_name FROM programs WHERE id=c.program_id),
        'program_ok',     COALESCE((c.program_id IS NULL OR c.program_id = v_program), false),
-       'semester',       (SELECT semester_name FROM semesters WHERE id=c.semester_id),
-       'semester_ok',    COALESCE((c.semester_id IS NULL OR c.semester_id = v_semester), false)
+       'semester',       (SELECT string_agg(s.semester_name, ', ' ORDER BY array_position(c.semester_ids, s.id))
+                            FROM semesters s WHERE s.id = ANY(c.semester_ids)),
+       'semester_ok',    COALESCE((cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids)), false)
      ) ORDER BY c.rule_name) FROM covering c)
   INTO v_has_covering, v_matched, v_rules;
 
@@ -16767,7 +16769,7 @@ BEGIN
       AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
       AND (r.department_id IS NULL OR r.department_id = v_dept)
       AND (r.program_id    IS NULL OR r.program_id    = v_program)
-      AND (r.semester_id   IS NULL OR r.semester_id   = v_semester)
+      AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids))
   ),
   (SELECT string_agg(DISTINCT hb.name, ', ')
      FROM hostel_room_eligibility_rules r
@@ -16777,7 +16779,7 @@ BEGIN
        AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
        AND (r.department_id IS NULL OR r.department_id = v_dept)
        AND (r.program_id    IS NULL OR r.program_id    = v_program)
-       AND (r.semester_id   IS NULL OR r.semester_id   = v_semester))
+       AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids)))
   INTO v_pinned, v_pinned_blocks;
 
   -- The cohort's reservation rule(s) themselves (any block) — the configured condition
@@ -16791,7 +16793,8 @@ BEGIN
       'degree',      (SELECT degree_name FROM degrees WHERE id=r.degree_id),
       'department',  (SELECT department_name FROM departments WHERE id=r.department_id),
       'program',     (SELECT program_name FROM programs WHERE id=r.program_id),
-      'semester',    (SELECT semester_name FROM semesters WHERE id=r.semester_id),
+      'semester',    (SELECT string_agg(s.semester_name, ', ' ORDER BY array_position(r.semester_ids, s.id))
+                        FROM semesters s WHERE s.id = ANY(r.semester_ids)),
       'covers_allocated_room', (r.block_id = v_block)
     ) ORDER BY hb.name)
   INTO v_pinned_rules
@@ -16802,7 +16805,7 @@ BEGIN
     AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
     AND (r.department_id IS NULL OR r.department_id = v_dept)
     AND (r.program_id    IS NULL OR r.program_id    = v_program)
-    AND (r.semester_id   IS NULL OR r.semester_id   = v_semester);
+    AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids));
 
   SELECT count(*)::int INTO v_acad_bill FROM billing_student_bills b
     WHERE b.student_id=v_lp AND b.fee_source='academic' AND b.status NOT IN ('cancelled','superseded');
@@ -25144,3 +25147,56 @@ REVOKE ALL ON FUNCTION public.get_billing_coverage_learner_bills(
 GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learner_bills(
   uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
   uuid, uuid, uuid, uuid, uuid, integer) TO authenticated, service_role;
+
+-- ================================================================================
+-- HR PAYROLL ORGANISATION (2026-08-04)
+-- Source migration: 20260804090000_hr_staff_payroll_directory_rpc.sql
+-- ================================================================================
+
+-- Every ACTIVE staff member with their recorded payer, assigned or not.
+-- Superset of hr_staff_without_payer(); SELF-AUTHORIZES on
+-- hr.payroll.institution.view and re-applies role_has_institution_access().
+CREATE OR REPLACE FUNCTION public.hr_staff_payroll_directory()
+RETURNS TABLE (
+  staff_uuid     uuid,
+  staff_code     text,
+  person_name    text,
+  role_title     text,
+  works_at_id    uuid,
+  works_at_name  text,
+  payer_org_id   uuid,
+  payer_org_name text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.institution.view') THEN
+    RAISE EXCEPTION 'hr.payroll.institution.view is required to see payroll organisations.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text
+    FROM public.staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+   WHERE COALESCE(s.is_active, false)
+     AND public.role_has_institution_access(s.institution_id)
+   ORDER BY (p.staff_id IS NOT NULL), i.name, s.designation, 3;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_payroll_directory() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.hr_staff_payroll_directory() FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_staff_payroll_directory() TO authenticated;

@@ -20,7 +20,7 @@
 // list.
 
 import { usePermissions } from '@/hooks/use-permissions';
-import { useImsStoresForSelect } from '@/hooks/ims/use-ims-stores';
+import { useImsStore } from '@/hooks/ims/use-ims-stores';
 import { useImsActiveStore } from '@/hooks/ims/use-ims-active-store';
 import { useStore } from '@/hooks/use-store';
 
@@ -44,12 +44,26 @@ export function useImsHomeRoute(): ImsHomeRoute {
   const { canAccess, isSuperAdmin, isLoading } = usePermissions();
 
   const activeStoreId = useStore(useImsActiveStore, (s) => s.storeId);
-  const { data: stores, isLoading: storesLoading } = useImsStoresForSelect();
+
+  // Read THE store, not the store list.
+  //
+  // This used to call useImsStoresForSelect() with no arguments — and that query is
+  // `enabled: !isPermissionsLoading && (!!institutionId || effectiveSuperAdmin)`,
+  // which with no arguments is `false || false`. It never ran. `stores` stayed
+  // undefined, the find() below returned undefined, and isPosStore fell through to
+  // its fail-open default of true — so the POS page's "this store has no selling
+  // counter" guard could never fire.
+  //
+  // That is how a till opened for a store flagged is_pos_store = false, took a
+  // payment, and then had the sale refused by ims_assert_pos_store with the money
+  // already captured. Fetching the one store by id has no such precondition
+  // (useImsStore is `enabled: !!id`) and cannot be filtered out of a list.
+  const { data: activeStore, isFetched: storeFetched } = useImsStore(activeStoreId ?? '');
 
   // Unknown store → assume it IS a counter. Every store was a counter before this
-  // flag existed, so guessing "not a shop" while the list loads would bounce a
-  // cashier to the inventory page for a frame and then correct itself.
-  const activeStore = stores?.find((s) => s.id === activeStoreId);
+  // flag existed, so guessing "not a shop" while it loads would bounce a cashier to
+  // the inventory page for a frame and then correct itself. isReady below is what
+  // stops anything acting on the assumption before the answer is in.
   const isPosStore = activeStore ? activeStore.is_pos_store !== false : true;
 
   const canSell = isSuperAdmin || canAccess('ims.sales', 'create');
@@ -83,6 +97,10 @@ export function useImsHomeRoute(): ImsHomeRoute {
     // canAccess returns false for EVERYTHING while permissions load, which would
     // read as "cannot run the store" and bounce an admin to the till for a frame.
     // Nothing may redirect until this is true.
-    isReady: !isLoading && !storesLoading,
+    //
+    // isFetched rather than !isLoading, so a store lookup that ERRORS still settles
+    // — a permanently-false isReady would make the POS page skip its guard and
+    // render the till anyway, which is the same fail-open by another route.
+    isReady: !isLoading && (!activeStoreId || storeFetched),
   };
 }

@@ -307,6 +307,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // it this page would fall through to '/hr' → 'hr.view' — a key almost every
   // role holds — and the paying organisation is HR-only by design.
   '/hr/payroll/organisation': 'hr.payroll.institution.view',
+  // The hub at /hr/payroll only redirects to the page above, but it needs its
+  // own entry: without one the longest-prefix match falls through to '/hr' →
+  // 'hr.view', so anyone in HR could open it and be denied one redirect later.
+  // Gating it here denies at the hub and keeps the AutoTabNav chip's gate
+  // (MENU_PERMISSIONS[href]) in step with the route guard.
+  '/hr/payroll': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar.
@@ -1063,6 +1069,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  // Per-owner worklist. Gated on the landing key rather than a new one so the
+  // people already trusted with accreditation can reach it — a key not present
+  // in lib/constants/permissions.ts would be ungrantable and the page would be
+  // reachable by nobody but super-admins.
+  '/accreditation/my-gaps': 'accreditation.view',               // per-owner worklist
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
   // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
   // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
@@ -1469,6 +1480,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/reports/sales': 'ims.reports.view',
   '/ims/reports/stock': 'ims.reports.view',
   '/ims/reports/upi': 'ims.reports.view',
+  '/ims/reports/gateway-payments': 'ims.reports.view',
   // Sales (POS, history, receipt)
   '/ims/sales': 'ims.sales.view',
   '/ims/sales/history': 'ims.sales.view',
