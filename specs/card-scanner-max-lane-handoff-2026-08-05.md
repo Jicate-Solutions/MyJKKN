@@ -173,6 +173,28 @@ for (;;) {
 
 ## 5. Proof required before merge
 
+**Prerequisite — APPLIED to prod 2026-08-05** (after a BEGIN…ROLLBACK dry run): lane CHECK
+widened, private `card-scans` bucket, and the `contacts.card_extract` row
+(`lane max-cards`, `interactive true`, `provider`/`model_id` NULL). Step 0 passes.
+
+Enqueue a proof job by hand from the box like this — **`fn_ai_enqueue_system`, not
+`fn_ai_enqueue`**. Both exist on prod, but `fn_ai_enqueue` enforces the *caller's*
+`allow_rule` + daily cap and there is no user session on the Windows box:
+
+```sql
+-- storage_path must name a real object already in the private card-scans bucket
+SELECT fn_ai_enqueue_system('contacts.card_extract',
+  '{"storage_path":"TEST/card-test.jpg","sha256":"manual-test","scanned_by":"windows-test"}'::jsonb,
+  'card-proof-1');
+
+SELECT id, status, claimed_by, error,
+       extract(epoch FROM claimed_at - requested_at) AS claim_seconds,
+       result->'fields' AS fields
+FROM ai_jobs
+WHERE job_type = 'contacts.card_extract'
+ORDER BY requested_at DESC LIMIT 3;
+```
+
 1. Test job claimed on `max-cards` within ~30 s and completed with parseable JSON.
 2. A real bilingual card returns Latin-script fields + `languages_seen`.
 3. A deliberately blurred card returns `confidence: "low"` rather than invented text.
