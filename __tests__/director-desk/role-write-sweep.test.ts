@@ -3,7 +3,7 @@
  *
  * Defect B4, proven end to end on Postgres 16 before this test existed:
  *
- *   Director hands /organizations/leadership to Bob (a lab assistant) at level
+ *   Director hands /organizations/leadership to Bob (a junior team member) at level
  *   `full`. Bob calls fn_set_college_leadership(college,'principal',bob). Its
  *   authorisation is user_has_permission('organizations.leadership.manage'),
  *   which the handover makes true. It DELETEs the sitting Principal's user_roles

@@ -69,7 +69,7 @@ describe('Director handover — the super_admin sentinel is not a delegable perm
     expect(isSentinelPermission('billing.analytics.view')).toBe(false);
   });
 
-  it('THE EXPLOIT: a lab assistant whose merged map contains super_admin gets nothing', () => {
+  it('THE EXPLOIT: a receiver whose merged map contains super_admin gets nothing', () => {
     // Exactly the map hooks/use-permissions.ts would produce for a receiver
     // holding a handover whose permission_keys is ['super_admin'].
     const merged = { 'academic.attendance.view': true, super_admin: true };

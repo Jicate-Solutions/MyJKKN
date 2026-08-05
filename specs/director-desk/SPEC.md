@@ -154,7 +154,7 @@ The 2026-08-05 sweep found three authorising keys:
 |---|---|---|
 | `organizations.leadership.manage` | `fn_set_college_leadership` | `principal` / `vice_principal`, permanently |
 | `admission.counselors.create` | `assign_counselor_role` | `counselor` — `institution_scope='all'`, so a **cluster-wide** role |
-| `staff.create` | `mirror_staff_role_to_user_roles` | any role the staff row names (already walled by wall 2) |
+| `staff.create` | `mirror_staff_role_to_user_roles` | any role the team-member record names (already walled by wall 2) |
 
 Every other role-writing function is a trigger or is gated on a `role_key` (e.g.
 `fn_induction_can_manage_coordinators` requires `role_key = 'induction_lead'`), and a handover
