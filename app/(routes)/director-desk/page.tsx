@@ -18,7 +18,7 @@
 // WHERE RED IS DECIDED
 // --------------------
 // Not here. fn_director_handover_board() (migration 20260811130000) computes the
-// four rules in SQL and returns, per row, the most urgent rule plus every rule
+// five rules in SQL and returns, per row, the most urgent rule plus every rule
 // that fired. The nightly chase engine (PR 5) reads the same function. That is
 // deliberate: if the board and the chase engine each had their own idea of red,
 // the Director would get a nudge sent about an item his screen calls green, and
@@ -29,9 +29,20 @@
 // THE COUNTS ADD UP
 // -----------------
 // An item routinely breaks two or three rules at once. The strip at the top
-// counts each item ONCE, under its most urgent rule, so the four numbers sum
+// counts each item ONCE, under its most urgent rule, so the five numbers sum
 // exactly to the not-green total. The extra rules an item breaks are shown on
 // the item itself, not in the counts.
+//
+// WHOSE DESK IS THIS, EXACTLY
+// ---------------------------
+// The board returns the caller's OWN handovers, plus — for anyone entitled to
+// see everything — every handover inside their institution scope. Those are two
+// very different screens, and an empty one means two very different things.
+// So the page asks fn_director_handover_sees_all() and words the empty state
+// accordingly. It used to assert, in a comment, that "an empty array really does
+// mean nothing is out" — which was false for every caller who was not a super
+// admin, including the one production `administrator` account, which was shown
+// "Nothing is out with anyone." permanently.
 // ============================================================================
 
 import { useMemo, useState } from 'react';
@@ -71,12 +82,38 @@ function useHandoverBoard() {
         logger.error('director-desk', 'board query failed', error);
         throw error;
       }
-      // An empty board and a board the caller may not read look identical over
-      // the wire (RLS denial is silent). The RPC is SECURITY DEFINER precisely so
-      // that cannot happen here: an empty array really does mean nothing is out.
+      // The RPC is SECURITY DEFINER, so an empty array is not a silent RLS
+      // denial — it really is the complete answer to the question that was
+      // asked. But WHICH question was asked depends on the caller: for most
+      // people it is "what have I handed out", not "what is out anywhere".
+      // useSeesAll below is what lets the empty state say which one it means.
       return (data ?? []) as HandoverBoardRow[];
     },
     staleTime: 60 * 1000
+  });
+}
+
+/**
+ * Am I looking at everyone's handovers, or only my own?
+ *
+ * The same predicate the RPC's row filter uses, asked directly, so the two can
+ * never disagree about what this screen is. `null` means we could not find out —
+ * and the page then declines to characterise an empty result at all, rather than
+ * guessing at the more flattering of two very different meanings.
+ */
+function useSeesAll() {
+  return useQuery({
+    queryKey: ['director-desk', 'sees-all'],
+    queryFn: async (): Promise<boolean> => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any).rpc('fn_director_handover_sees_all');
+      if (error) {
+        logger.error('director-desk', 'scope query failed', error);
+        throw error;
+      }
+      return data === true;
+    },
+    staleTime: 5 * 60 * 1000
   });
 }
 
@@ -85,22 +122,35 @@ export default function DirectorDeskPage() {
   const allowed = isSuperAdmin || can(VIEW_KEY);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useHandoverBoard();
+  const seesAllQuery = useSeesAll();
+  // `undefined` while loading or after a failure — deliberately not coerced to
+  // false, because "I only see my own" and "I could not find out" must produce
+  // different sentences on an empty screen.
+  const seesAll: boolean | null = seesAllQuery.isError
+    ? null
+    : (seesAllQuery.data ?? null);
   const [filter, setFilter] = useState<Filter>('all');
 
   const rows = useMemo(() => data ?? [], [data]);
 
   const counts = useMemo(() => {
-    const byReason = { owner_gone: 0, overdue: 0, never_accepted: 0, quiet: 0 } as Record<
-      NotGreenReason,
-      number
-    >;
+    const byReason = {
+      owner_gone: 0,
+      no_access: 0,
+      overdue: 0,
+      never_accepted: 0,
+      quiet: 0
+    } as Record<NotGreenReason, number>;
     let notGreen = 0;
     let live = 0;
     for (const row of rows) {
       if (row.is_live) live += 1;
       if (row.not_green_reason) {
         notGreen += 1;
-        byReason[row.not_green_reason] += 1;
+        // Guarded: a reason SQL knows about and this file does not would
+        // otherwise turn a tile into NaN and quietly break the "counts add up"
+        // promise the strip is built on.
+        if (row.not_green_reason in byReason) byReason[row.not_green_reason] += 1;
       }
     }
     return { total: rows.length, live, notGreen, green: rows.length - notGreen, byReason };
@@ -141,7 +191,11 @@ export default function DirectorDeskPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Director&apos;s Desk</h1>
           <p className="text-sm text-muted-foreground">
-            Everything you have handed out, and what has stopped moving.
+            {seesAll === true
+              ? 'Every job handed out in your colleges, and what has stopped moving.'
+              : seesAll === false
+                ? 'Everything you have handed out, and what has stopped moving.'
+                : 'What has been handed out, and what has stopped moving.'}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -162,7 +216,7 @@ export default function DirectorDeskPage() {
       ) : null}
 
       {/* ---- the counts strip ------------------------------------------- */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
         <CountTile
           label="Open items"
           sub="on your desk"
@@ -201,8 +255,10 @@ export default function DirectorDeskPage() {
       </div>
 
       <p className="mb-4 text-xs text-muted-foreground">
-        Each item is counted once, under the most urgent rule it breaks — so the four numbers add
+        Each item is counted once, under the most urgent rule it breaks — so the five numbers add
         up to &ldquo;not green&rdquo;. Anything else an item breaks is written on the item.
+        &ldquo;Access still open&rdquo; counts the items the receiver can actually open right
+        now, checked against the same rule the page itself enforces.
       </p>
 
       {/* ---- the board --------------------------------------------------- */}
@@ -212,15 +268,48 @@ export default function DirectorDeskPage() {
           <Skeleton className="h-36 w-full" />
         </div>
       ) : rows.length === 0 ? (
+        /*
+          THREE DIFFERENT EMPTY SCREENS, because an empty board means three
+          different things and only one of them is "nothing is out".
+
+          The version this replaces said "Nothing is out with anyone." to
+          everybody. For the one production `administrator` account — which
+          passes the route guard's admin bypass but holds no director key and is
+          not a super admin — that sentence was permanently false: the query had
+          only ever asked about rows that account had personally created.
+        */
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <Inbox className="h-8 w-8 text-muted-foreground" />
-            <div>
-              <p className="font-medium">Nothing is out with anyone.</p>
-              <p className="text-sm text-muted-foreground">
-                Hand a page over from that page&apos;s own screen and it will appear here.
-              </p>
-            </div>
+            {seesAll === true ? (
+              <div>
+                <p className="font-medium">Nothing is out with anyone.</p>
+                <p className="text-sm text-muted-foreground">
+                  You can see every handover across your colleges, and there are none
+                  open. Hand a page over from that page&apos;s own screen and it will
+                  appear here.
+                </p>
+              </div>
+            ) : seesAll === false ? (
+              <div>
+                <p className="font-medium">You have not handed anything out.</p>
+                <p className="text-sm text-muted-foreground">
+                  This screen shows the handovers <span className="font-medium">you</span>{' '}
+                  created. It is not a statement about anybody else&apos;s — other people
+                  may well have work out. Hand a page over from that page&apos;s own screen
+                  and it will appear here.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="font-medium">Nothing to show.</p>
+                <p className="text-sm text-muted-foreground">
+                  We could not check whether this screen covers everyone&apos;s handovers or
+                  only your own, so this empty result should not be read as either. Try
+                  Refresh.
+                </p>
+              </div>
+            )}
             <Button asChild variant="outline" size="sm">
               <Link href="/my-desk">See what has been handed to you</Link>
             </Button>

@@ -1,12 +1,12 @@
 // ============================================================================
-// The four not-green rules — presentation half.
+// The five not-green rules — presentation half.
 //
 // The rules THEMSELVES are computed in SQL (fn_director_handover_board, migration
 // 20260811130000) so this page and the nightly chase engine cannot disagree about
 // what red means. Nothing here re-derives a rule; this file only decides what
 // each SQL-computed reason is CALLED and what colour it is drawn in.
 //
-// The four are kept apart on purpose. They are not four flavours of "late" —
+// The five are kept apart on purpose. They are not five flavours of "late" —
 // the Director's next move is different for each one, and collapsing them into a
 // single amber bucket destroys exactly the information he opened the page for:
 //
@@ -14,9 +14,22 @@
 //   quiet          nothing for 7 days           -> ask what's happening
 //   never_accepted nobody has said yes yet      -> reassign it
 //   owner_gone     the person has left          -> reassign it now
+//   no_access      the door never opened        -> hand it over again, higher
+//
+// `no_access` was added on 2026-08-05. It is the one rule whose absence made the
+// other four lie: a handover whose keys its access level does not cover grants
+// nothing, and the board used to draw it green for a week and then call it
+// "gone quiet" — which reads as "he is ignoring me" when the truth is "he was
+// never let in". 207 of 860 MENU_PERMISSIONS keys grant nothing at the DEFAULT
+// level, so this was the common case, not the corner.
 // ============================================================================
 
-export type NotGreenReason = 'owner_gone' | 'overdue' | 'never_accepted' | 'quiet';
+export type NotGreenReason =
+  | 'owner_gone'
+  | 'no_access'
+  | 'overdue'
+  | 'never_accepted'
+  | 'quiet';
 
 export interface NotGreenRule {
   reason: NotGreenReason;
@@ -49,7 +62,15 @@ export interface HandoverBoardRow {
   days_remaining: number;
   created_at: string;
   responded_at: string | null;
+  /** Anyone's activity, the Director's own nudges included. Not the quiet clock. */
   last_activity_at: string;
+  /**
+   * The last thing the GRANTEE did — the only signal the quiet rule reads, and
+   * the one `days_quiet` counts from. Separate from `last_activity_at` because
+   * the nudge button writes that column, and a Director must not be able to
+   * clear "gone quiet" by talking to himself.
+   */
+  last_grantee_activity_at: string;
   days_quiet: number;
   last_note: string | null;
   is_live: boolean;
@@ -72,6 +93,17 @@ export const NOT_GREEN_RULES: NotGreenRule[] = [
       'border-purple-300 bg-purple-100 text-purple-900 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-200',
     cardClass: 'border-l-4 border-l-purple-500',
     dotClass: 'bg-purple-500'
+  },
+  {
+    reason: 'no_access',
+    label: 'The door never opened',
+    action: 'Hand it over again',
+    describe: (r) =>
+      `${r.grantee_name} cannot open ${r.route}. Nothing on this item unlocks — the access level it was sent at (${r.access_level}) does not cover the permission it names, or that permission is one no handover may cross. Hand the same page over again at a level that covers it.`,
+    chipClass:
+      'border-sky-300 bg-sky-100 text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200',
+    cardClass: 'border-l-4 border-l-sky-500',
+    dotClass: 'bg-sky-500'
   },
   {
     reason: 'overdue',
@@ -101,8 +133,10 @@ export const NOT_GREEN_RULES: NotGreenRule[] = [
     reason: 'quiet',
     label: 'Gone quiet',
     action: 'Ask what is happening',
+    // Names the person on purpose. The clock counts only what the GRANTEE has
+    // done — your own nudges do not appear in this number and do not reset it.
     describe: (r) =>
-      `No update for ${r.days_quiet} ${plural(r.days_quiet, 'day', 'days')}.`,
+      `Nothing from ${r.grantee_name} for ${r.days_quiet} ${plural(r.days_quiet, 'day', 'days')}. Your own nudges do not count towards this.`,
     chipClass:
       'border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
     cardClass: 'border-l-4 border-l-amber-500',

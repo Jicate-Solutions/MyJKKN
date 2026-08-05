@@ -9,10 +9,21 @@
 // up exactly to the not-green total.
 //
 // Two actions, both spine RPCs:
-//   nudge      fn_director_handover_progress(id, note)  — also resets the
-//              7-day quiet clock, which is why it is the fix for a quiet item
-//              and not merely a message.
+//   nudge      fn_director_handover_progress(id, note)  — records a message on
+//              the item. It does NOT clear "gone quiet", and the copy here must
+//              never say it does.
 //   take back  fn_director_handover_revoke(id, reason)  — ends access.
+//
+// WHY THE NUDGE NO LONGER CLEARS THE FLAG
+// ---------------------------------------
+// It used to. fn_director_handover_progress stamps last_activity_at, and the
+// board's quiet rule read that column — so posting a nudge turned the row green
+// with the receiver still having done nothing. Proven on Postgres 16: nudging
+// every 8th day kept a 60-day handover green for 52 of them, then it flipped
+// straight to overdue with no escalation in between. The board now reads only
+// the GRANTEE's own audit rows (migration 20260811130000), so a nudge is a
+// message and nothing more. Saying otherwise on this button would put the lie
+// back in the interface after taking it out of the database.
 //
 // Both refuse a row whose status is already expired or orphaned, so the buttons
 // are disabled there with the reason stated rather than left clickable to fail.
@@ -83,7 +94,7 @@ export function HandoverCard({ row, onChanged }: HandoverCardProps) {
 
       toast.success(
         action === 'nudge'
-          ? 'Nudge posted. The clock on this item is reset.'
+          ? 'Nudge posted. It stays flagged until they reply on it.'
           : 'Taken back. Access has ended.'
       );
       setText('');
@@ -166,11 +177,18 @@ export function HandoverCard({ row, onChanged }: HandoverCardProps) {
           </span>
           <span className="inline-flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
-            {row.days_quiet === 0 ? 'Updated today' : `Last update ${row.days_quiet}d ago`}
+            {/* Counted from the GRANTEE's last action only — see not-green.ts. */}
+            {row.days_quiet === 0
+              ? 'They updated it today'
+              : `Last heard from them ${row.days_quiet}d ago`}
           </span>
           <span className="font-mono">{row.route}</span>
           {!row.is_live ? (
-            <span className="font-medium text-foreground">Access already closed</span>
+            <span className="font-medium text-foreground">
+              {row.not_green_reason === 'no_access'
+                ? 'This never opened for them'
+                : 'Access already closed'}
+            </span>
           ) : null}
         </div>
 
@@ -211,7 +229,7 @@ export function HandoverCard({ row, onChanged }: HandoverCardProps) {
               <div className="space-y-2 rounded-md border p-3">
                 <label className="text-xs font-medium" htmlFor={`note-${row.id}-${openAction}`}>
                   {openAction === 'nudge'
-                    ? 'What do you want to say? This is recorded on the item and resets its 7-day clock.'
+                    ? 'What do you want to say? This is recorded on the item. It will stay flagged as quiet until they answer on it — your own message does not clear that.'
                     : 'Why are you taking it back? Optional, and recorded.'}
                 </label>
                 <Textarea

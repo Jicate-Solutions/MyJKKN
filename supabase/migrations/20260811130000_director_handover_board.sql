@@ -3,7 +3,8 @@
 --
 -- Date: 2026-08-05
 -- Spec: specs/director-desk/SPEC.md (Director interview, 12 locked decisions)
--- Depends on: 20260811100000 (director_handovers, director_handover_audit)
+-- Depends on: 20260811100000 (director_handovers, director_handover_audit,
+--                             fn_handover_grants_key)
 --             20260811100200 (fn_director_handover_revoke / _progress)
 --
 -- WHY THIS FUNCTION EXISTS AT ALL
@@ -15,7 +16,12 @@
 --   3. never accepted (pending  > 48h)         -> reassign
 --   4. owner gone (grantee no longer active)   -> reassign, urgently
 --
--- Those four are read by TWO different consumers: this page, and the nightly
+-- A fifth was added on 2026-08-05 after adversarial review, and it is not a
+-- flavour of the other four:
+--
+--   5. the door never opened (the row is open, in date, and grants NOTHING)
+--
+-- Those five are read by TWO different consumers: this page, and the nightly
 -- chase engine (PR 5). If each computed them for itself, the Director would be
 -- looking at a board that says green while the chase engine is sending a nudge,
 -- or vice versa — and there would be no way to tell which one was right.
@@ -40,6 +46,9 @@
 --
 -- Urgency order is the order in which the Director's action changes:
 --   owner_gone  (no amount of chasing helps — there is nobody to chase)
+--   no_access   (there is nobody to chase either: the door never opened, so
+--                nothing was ever possible. Ranks above overdue because it
+--                EXPLAINS the overdue: hand it again, at the right level.)
 --   overdue     (the promise is already broken)
 --   never_accepted (nobody has even said yes yet)
 --   quiet       (accepted, in date, but nothing is happening)
@@ -66,6 +75,63 @@
 -- that belongs in the spine's predicate, not in a second opinion here.
 -- ============================================================================
 
+
+-- ============================================================================
+-- WHO IS ENTITLED TO SEE MORE THAN THEIR OWN HANDOVERS
+--
+-- Extracted into its own function on 2026-08-05, for one reason: the page needs
+-- to know the answer too.
+--
+-- The board used to filter on `granted_by = auth.uid() OR is_super_admin()`
+-- while the page it feeds was gated on `director.handover.view_all`, a key
+-- labelled "See every handover on the Director's desk". Those are not the same
+-- population, and the gap was not theoretical:
+--
+--   * production carries exactly one `administrator` account with
+--     is_super_admin = false. isPageAccessible() waves that role through every
+--     route guard (hasAdminBypass mirrors the database's is_admin()), so the
+--     account opened /director-desk, matched neither branch of the filter, and
+--     was shown "Nothing is out with anyone." permanently — a factual claim
+--     about the whole institution, made from a query that had asked only about
+--     rows the caller had personally created.
+--
+--   * anyone granted director.handover.view_all through Role Management got the
+--     same screen, for the same reason.
+--
+-- The decision (SPEC option (a)): the key means what its label says. This
+-- function is the single definition of "sees everything", and BOTH the row
+-- filter below and the page's empty-state wording read it, so the page can
+-- never again describe an own-rows-only result as an institution-wide fact.
+--
+-- The three branches mirror this codebase's canonical policy shape exactly
+-- (`is_super_admin() OR is_admin() OR user_has_permission(key)` — CLAUDE.md,
+-- "Standardized RLS Policy Pattern"), which is also what the client-side route
+-- guard already enforces. It grants nothing the page gate did not already open.
+--
+-- Institution scope is applied by the CALLER, not here: role_has_institution_access
+-- narrows a "sees everything" caller to their own college, and that is a
+-- per-row question this per-caller function has no row to ask it about.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_director_handover_sees_all()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(public.is_super_admin(), false)
+      OR COALESCE(public.is_admin(), false)
+      OR COALESCE(public.user_has_permission('director.handover.view_all'), false);
+$$;
+
+COMMENT ON FUNCTION public.fn_director_handover_sees_all() IS
+  'True when the caller is entitled to every handover in their institution scope, not merely the ones they handed out. Read by fn_director_handover_board''s row filter AND by /director-desk, so an own-rows-only result can never be worded as an institution-wide fact.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_director_handover_sees_all() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_director_handover_sees_all() TO authenticated;
+
+
 -- ============================================================================
 -- THE BOARD
 --
@@ -78,42 +144,48 @@
 -- Because it is SECURITY DEFINER, the row filter is re-stated in the body and
 -- does NOT rely on the caller's RLS:
 --   * you see what you handed out, or
---   * you are a super admin, in which case you see everything your institution
---     scope allows (role_has_institution_access is the house helper; a super
---     admin's scope is 'all', so this is total for them and correctly narrows
---     for any future admin persona granted this key with scope 'own').
+--   * you hold the "see everything" entitlement above, in which case you see
+--     everything your institution scope allows.
 --
 -- The granter clause is deliberately NOT and-ed with the institution check.
 -- A handover carries the GRANTEE's institution_id, so a Director handing work
 -- across colleges would otherwise be unable to see the item he himself created.
 -- Ownership of the row is the stronger claim; institution scope narrows the
 -- "see everyone's" branch only.
+--
+-- DROP before CREATE: the returned column list changed on 2026-08-05
+-- (last_grantee_activity_at was added), and CREATE OR REPLACE cannot change a
+-- function's result type. Without the drop this migration fails on any
+-- environment that already ran an earlier copy of it.
 -- ============================================================================
+
+DROP FUNCTION IF EXISTS public.fn_director_handover_board();
 
 CREATE OR REPLACE FUNCTION public.fn_director_handover_board()
 RETURNS TABLE (
-  id                 uuid,
-  route              text,
-  title              text,
-  note               text,
-  permission_keys    text[],
-  access_level       text,
-  status             text,
-  grantee_user_id    uuid,
-  grantee_name       text,
-  grantee_email      text,
-  grantee_is_active  boolean,
-  institution_id     uuid,
-  due_date           date,
-  days_remaining     integer,
-  created_at         timestamptz,
-  responded_at       timestamptz,
-  last_activity_at   timestamptz,
-  days_quiet         integer,
-  last_note          text,
-  is_live            boolean,
-  not_green_reason   text,
-  not_green_reasons  text[]
+  id                        uuid,
+  route                     text,
+  title                     text,
+  note                      text,
+  permission_keys           text[],
+  access_level              text,
+  status                    text,
+  grantee_user_id           uuid,
+  grantee_name              text,
+  grantee_email             text,
+  grantee_is_active         boolean,
+  institution_id            uuid,
+  due_date                  date,
+  days_remaining            integer,
+  created_at                timestamptz,
+  responded_at              timestamptz,
+  last_activity_at          timestamptz,
+  last_grantee_activity_at  timestamptz,
+  days_quiet                integer,
+  last_note                 text,
+  is_live                   boolean,
+  not_green_reason          text,
+  not_green_reasons         text[]
 )
 LANGUAGE sql
 STABLE
@@ -128,7 +200,68 @@ AS $$
       dh.*,
       p.full_name                        AS p_full_name,
       p.email                            AS p_email,
-      COALESCE(p.is_active, true)        AS p_active
+      COALESCE(p.is_active, true)        AS p_active,
+
+      -- ---- THE QUIET CLOCK, READ FROM THE RIGHT WRIST -------------------
+      -- last_activity_at is written by fn_director_handover_progress, and that
+      -- RPC admits `grantee_user_id = auth.uid() OR granted_by = auth.uid()`.
+      -- The Director is the granter. So the Director posting a nudge stamped
+      -- the very column the "gone quiet" rule reads, and the row went green —
+      -- turning "Post a nudge" into a button that clears the flag it was
+      -- raised by, with the receiver still having done nothing. Proven on
+      -- Postgres 16: nudge every 8th day and a 60-day handover reads green for
+      -- 52 of them, then flips straight to overdue with no warning.
+      --
+      -- The clock therefore reads ONLY the grantee's own footprints in the
+      -- audit trail — accept, decline, and every progress note they wrote —
+      -- because the question the rule asks is "is the person doing the work
+      -- doing anything", and nobody else's keystrokes can answer it.
+      --
+      -- COALESCE to created_at, not NULL: a handover nobody has touched must
+      -- start its clock the moment it was handed over. Left as NULL the
+      -- comparison below would evaluate to NULL, which is not true, and an
+      -- untouched item would be the one thing that could never go quiet.
+      COALESCE(
+        (
+          SELECT max(a.created_at)
+          FROM public.director_handover_audit a
+          WHERE a.handover_id = dh.id
+            AND a.actor_user_id = dh.grantee_user_id
+        ),
+        dh.created_at
+      )                                  AS grantee_activity_at,
+
+      -- ---- IS THE DOOR ACTUALLY OPEN ------------------------------------
+      -- Calls the spine's OWN predicate, once per key. It used to be restated
+      -- here as "status is open AND the date has not passed AND the person is
+      -- active", which is three of the spine's conjuncts and silently dropped
+      -- two: fn_handover_key_allowed_at_level and fn_handover_key_is_blocked.
+      --
+      -- That gap was worth 207 of 860 MENU_PERMISSIONS keys at the DEFAULT
+      -- access level: hand over /improvement-board/manage-boards (key
+      -- improvement.board.manage) at 'update' and the board reported live,
+      -- green, 14 days left, while fn_handover_grants_key returned FALSE and
+      -- the receiver got access-denied. The Director then read the eventual
+      -- "gone quiet" as "he is ignoring me".
+      --
+      -- Calling fn_handover_grants_key rather than re-deriving it is the point:
+      -- a restatement can drift from the thing it restates, and this one did.
+      -- Executable because this function is SECURITY DEFINER and its owner owns
+      -- that function too — fn_handover_grants_key is deliberately granted to
+      -- no role (spine migration 20260811100000).
+      --
+      -- KNOWN IMPRECISION, stated rather than hidden: fn_handover_grants_key
+      -- asks "may this PERSON use this key", so a receiver holding the same key
+      -- through a SECOND live handover makes this row read live. The door
+      -- genuinely is open in that case — the board is telling the truth about
+      -- what the Director asked ("can they work on it?"), it is simply not
+      -- telling him which row opened it. The failure this replaces was the
+      -- opposite and far worse: green over a door that was shut.
+      EXISTS (
+        SELECT 1
+        FROM unnest(COALESCE(dh.permission_keys, ARRAY[]::text[])) AS k(key)
+        WHERE public.fn_handover_grants_key(dh.grantee_user_id, k.key)
+      )                                  AS door_open
     FROM public.director_handovers dh
     JOIN public.profiles p ON p.id = dh.grantee_user_id
     WHERE dh.status IN ('pending', 'accepted', 'expired', 'orphaned')
@@ -136,9 +269,9 @@ AS $$
       AND (
         -- what you handed out
         dh.granted_by = (SELECT auth.uid())
-        -- or everything, if you are a super admin (institution scope still applies)
+        -- or everything, if you are entitled to it (institution scope applies)
         OR (
-          COALESCE(public.is_super_admin(), false)
+          public.fn_director_handover_sees_all()
           AND (
             dh.institution_id IS NULL
             OR COALESCE(public.role_has_institution_access(dh.institution_id), false)
@@ -150,6 +283,17 @@ AS $$
     SELECT
       v.*,
       (SELECT t.d FROM today t) AS today_ist,
+
+      -- Everything the LIFECYCLE says is open: status, date, person. This is
+      -- what `is_live` used to be, and on its own it is not enough to promise
+      -- anyone can do anything — it is only the half of the question that does
+      -- not involve permission keys. Kept separate so "the row is open but
+      -- grants nothing" is expressible at all.
+      (
+        v.status IN ('pending', 'accepted')
+        AND v.due_date >= (SELECT t.d FROM today t)
+        AND v.p_active
+      )                                                                 AS lifecycle_open,
 
       -- ---- DECISION 12, RULE 4: owner gone -------------------------------
       -- 'orphaned' is what PR 5's sweep writes; p_active is the same thing
@@ -174,10 +318,26 @@ AS $$
       (v.status = 'pending' AND v.created_at < now() - interval '48 hours') AS r_never_accepted,
 
       -- ---- RULE 2: gone quiet --------------------------------------------
-      -- last_activity_at is touched by accept/decline and by every progress
-      -- note, and NOT by the nightly chase — otherwise the chase would keep
-      -- resetting the very clock it exists to watch.
-      (v.last_activity_at < now() - interval '7 days')                    AS r_quiet
+      -- Reads the GRANTEE's clock only. See grantee_activity_at above for why
+      -- the Director's own nudge must not touch it, and the nightly chase must
+      -- not either.
+      (v.grantee_activity_at < now() - interval '7 days')                 AS r_quiet,
+
+      -- ---- RULE 5: the door never opened ---------------------------------
+      -- The row is open by every lifecycle test the Director can see, and it
+      -- unlocks nothing. Either no key it names survives its access level, or
+      -- every key it names is walled, or it names none at all, or the receiver
+      -- has moved college since. Whatever the cause, the receiver is looking at
+      -- an access-denied panel and the Director is looking at a green row.
+      --
+      -- Deliberately NOT folded into 'quiet': the fix is not a conversation,
+      -- it is handing the same page over again at a level that covers the key.
+      (
+        v.status IN ('pending', 'accepted')
+        AND v.due_date >= (SELECT t.d FROM today t)
+        AND v.p_active
+        AND NOT v.door_open
+      )                                                                   AS r_no_access
     FROM visible v
   )
   SELECT
@@ -198,8 +358,15 @@ AS $$
     (f.due_date - f.today_ist)::int                                AS days_remaining,
     f.created_at,
     f.responded_at,
+    -- The raw column, unchanged: anyone's activity, including the Director's
+    -- own nudges. Returned for transparency and for the audit trail's sake.
     f.last_activity_at,
-    GREATEST(0, EXTRACT(DAY FROM (now() - f.last_activity_at))::int) AS days_quiet,
+    -- The one the quiet rule actually reads.
+    f.grantee_activity_at                                          AS last_grantee_activity_at,
+    -- ...and therefore the one "days quiet" is counted from. Counting from
+    -- last_activity_at here would have printed "Updated today" the instant the
+    -- Director talked to himself.
+    GREATEST(0, EXTRACT(DAY FROM (now() - f.grantee_activity_at))::int) AS days_quiet,
     (
       SELECT a.detail->>'note'
       FROM public.director_handover_audit a
@@ -209,18 +376,13 @@ AS $$
       LIMIT 1
     )                                                              AS last_note,
 
-    -- The spine's own definition of live, restated so the desk and the door
-    -- agree: status is pending/accepted, the due day has not passed, and the
-    -- person is still active. (revoked_at IS NULL is already in the filter.)
-    (
-      f.status IN ('pending', 'accepted')
-      AND f.due_date >= f.today_ist
-      AND f.p_active
-    )                                                              AS is_live,
+    -- The spine's own answer, not a second opinion about it.
+    f.door_open                                                    AS is_live,
 
     -- The one rule that decides the row's colour and the top-of-page counts.
     CASE
       WHEN f.r_owner_gone     THEN 'owner_gone'
+      WHEN f.r_no_access      THEN 'no_access'
       WHEN f.r_overdue        THEN 'overdue'
       WHEN f.r_never_accepted THEN 'never_accepted'
       WHEN f.r_quiet          THEN 'quiet'
@@ -230,6 +392,7 @@ AS $$
     -- Every rule that fired. Built by concatenation rather than
     -- array_remove(..., NULL), whose NULL semantics are a trap.
     (CASE WHEN f.r_owner_gone     THEN ARRAY['owner_gone']::text[]     ELSE ARRAY[]::text[] END)
+    || (CASE WHEN f.r_no_access      THEN ARRAY['no_access']::text[]      ELSE ARRAY[]::text[] END)
     || (CASE WHEN f.r_overdue        THEN ARRAY['overdue']::text[]        ELSE ARRAY[]::text[] END)
     || (CASE WHEN f.r_never_accepted THEN ARRAY['never_accepted']::text[] ELSE ARRAY[]::text[] END)
     || (CASE WHEN f.r_quiet          THEN ARRAY['quiet']::text[]          ELSE ARRAY[]::text[] END)
@@ -238,17 +401,18 @@ AS $$
   ORDER BY
     CASE
       WHEN f.r_owner_gone     THEN 0
-      WHEN f.r_overdue        THEN 1
-      WHEN f.r_never_accepted THEN 2
-      WHEN f.r_quiet          THEN 3
-      ELSE 4
+      WHEN f.r_no_access      THEN 1
+      WHEN f.r_overdue        THEN 2
+      WHEN f.r_never_accepted THEN 3
+      WHEN f.r_quiet          THEN 4
+      ELSE 5
     END,
     f.due_date ASC,
     f.created_at ASC;
 $$;
 
 COMMENT ON FUNCTION public.fn_director_handover_board() IS
-  'The Director''s board. Computes decision 12''s four not-green rules in SQL so the page and the nightly chase engine cannot disagree about what red means. Returns the granter''s own handovers; super admins see all, within institution scope.';
+  'The Director''s board. Computes decision 12''s not-green rules in SQL so the page and the nightly chase engine cannot disagree about what red means. is_live calls the spine''s fn_handover_grants_key rather than restating it; the quiet clock reads the GRANTEE''s audit rows only, so a Director''s own nudge cannot reset it. Returns the caller''s own handovers, plus everything in scope for holders of the see-everything entitlement.';
 
 -- ============================================================================
 -- GRANTS
