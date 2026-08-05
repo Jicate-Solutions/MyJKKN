@@ -173,6 +173,16 @@ export const PERMISSION_CATEGORIES = [
     key: 'improvement',
     permissions: [
       { key: 'improvement.ideas.view', label: 'View Improvement Board' },
+      // Oversight read for the HOD and the principal, held separately from
+      // improvement.ideas.view so the two populations stay independently
+      // grantable and revocable: ideas.view marks a board PARTICIPANT (files
+      // ideas, appears on the leaderboard), view_scoped marks a READER who
+      // oversees the department the finding lands on. Both branches of the
+      // RLS policy are institution-scoped, so a holder reads open ideas
+      // raised inside their own institution and nothing from the other
+      // colleges. Registered here because a key that is registered nowhere
+      // cannot be granted through Role Management.
+      { key: 'improvement.ideas.view_scoped', label: 'Read Improvement Ideas for Own Institution (HOD / Principal)' },
       { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
       { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
       // Assigning a role holder writes hr_additional_roles — institution-wide org data,
@@ -322,7 +332,23 @@ export const PERMISSION_CATEGORIES = [
       { key: 'organizations.sections.view', label: 'View Sections' },
       { key: 'organizations.sections.create', label: 'Create Sections' },
       { key: 'organizations.sections.edit', label: 'Edit Sections' },
-      { key: 'organizations.sections.delete', label: 'Delete Sections' }
+      { key: 'organizations.sections.delete', label: 'Delete Sections' },
+      // 2026-08-04 — College Leadership (/organizations/leadership).
+      // The ONE key behind naming a Principal, Vice Principal, IQAC Chairman,
+      // IQAC Coordinator or Head of Department. It stands in for five keys the
+      // underlying tables would otherwise demand — including roles.create and
+      // roles.edit, which are NOT institution-scoped and would grant global
+      // role management to a college officer. The writes happen inside
+      // fn_set_college_leadership (SECURITY DEFINER) so this key grants nothing
+      // anywhere else.
+      //
+      // Registered but granted to NO role: an unregistered key can never be
+      // granted at all (this repo carries 77 such orphans), so it has to exist
+      // here first. Who holds it is the Director's decision.
+      {
+        key: 'organizations.leadership.manage',
+        label: 'Manage College Leadership (Principal, Vice Principal, IQAC, HoD)'
+      }
     ]
   },
   {
@@ -2447,6 +2473,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.polls.view', label: 'View Meeting Polls' },
       { key: 'meetings.polls.manage', label: 'Manage Meeting Polls' },
       { key: 'meetings.contacts.view', label: 'View Contacts' },
+      // Business-card scanner. Replaces the job type's original
+      // allow_rule = 'seat_owner', which resolved to the AI natural-language
+      // QUERY feature's seat list — one user — and so locked the whole team out
+      // of a feature Director decision 1 opens to everyone.
+      { key: 'meetings.contacts.scan', label: 'Scan Business Cards' },
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },
@@ -2709,6 +2740,10 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'calendar.view', label: 'View Calendar' },
       { key: 'calendar.people_leave.view', label: 'View Person-Level Leave on Calendar' },
+      // Added 2026-08-05 with the COE-backed calendar chips. Granted to every
+      // staff role but NOT to learners (migration 20260805130000). The Exam
+      // Schedule chip has no key of its own — it rides on calendar.view.
+      { key: 'calendar.coe_calendar.view', label: 'View COE Academic Calendar on Calendar' },
       { key: 'calendar.holidays.manage', label: 'Manage Common Holidays & Events' },
       { key: 'calendar.config.manage', label: 'Manage Calendar Config (Feeds, Categories)' }
     ]

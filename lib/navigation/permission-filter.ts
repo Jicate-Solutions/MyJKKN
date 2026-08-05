@@ -102,10 +102,25 @@ export function filterByPermissions(
                 permissions['improvement.board.manage']);
     }
 
+    // MBA case studies — associates WRITE them (improvement.ideas.view) and
+    // board managers / officers GRADE them. The two populations are reached by
+    // different keys, so a single-key gate hides the link from one of them;
+    // which role_key holds which key is a live value in custom_roles, not
+    // something this file records. Compared by value, never key existence: a
+    // key present and set to false is a denial. This decides the LINK only —
+    // the page's own gate decides the capability.
+    if (page.path === '/improvement-board/case-studies') {
+      return !!(permissions['improvement.ideas.view'] ||
+                permissions['improvement.board.manage'] ||
+                permissions['improvement.area_role.assign']);
+    }
+
     // A sentinel is not a key. Anyone entitled to a `super_admin`-marked route
     // has already returned true at the admin bypass above; reaching here means
     // the caller is not an admin, so the answer is no — regardless of what the
-    // merged permission map happens to contain under that name.
+    // merged permission map happens to contain under that name. Placed LAST, so
+    // it narrows only the generic lookup below and never shadows a named route
+    // rule above it.
     if (isSentinelPermission(page.permission)) return false;
 
     // Check specific permission from merged role permissions
@@ -138,9 +153,19 @@ export function isPageAccessible(
     return !!(permissions['improvement.ideas.view'] ||
               permissions['improvement.board.manage']);
   }
-  // Same sentinel wall as filterByPermissions. Both functions are used as route
-  // guards and they must not disagree: a link the sidebar hides but the guard
-  // opens is still a reachable page.
+  // MBA case studies — same union as filterByPermissions above. Kept in both
+  // functions because they are called from different surfaces (sidebar vs
+  // Command Palette) and a divergence would show the link in one and not
+  // the other.
+  if (pagePath === '/improvement-board/case-studies') {
+    return !!(permissions['improvement.ideas.view'] ||
+              permissions['improvement.board.manage'] ||
+              permissions['improvement.area_role.assign']);
+  }
+  // Same sentinel wall as filterByPermissions, in the same position (last, so it
+  // narrows only the generic lookup). Both functions are route guards and they
+  // must not disagree: a link the sidebar hides but the guard opens is still a
+  // reachable page.
   if (isSentinelPermission(permission)) return false;
   return !!permissions[permission];
 }

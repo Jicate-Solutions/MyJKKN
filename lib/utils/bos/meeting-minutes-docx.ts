@@ -17,10 +17,10 @@
  * content based on viewer settings, so we focus on logical structure and
  * legible defaults (Times New Roman, A4 portrait, standard margins).
  *
- * Logos/seal/sign images are NOT embedded in this version: the docx library
- * supports ImageRun but base64 → ArrayBuffer + sizing fiddling adds ~80
- * lines of brittle code. If you want logos in the .docx later, mirror the
- * pattern in course-syllabus-docx.ts which already does this.
+ * Seal/sign images are NOT embedded. The college logo IS, but only on the CET
+ * letterhead (buildCetLetterhead), which reproduces the printed stationery —
+ * see the ImageRun + dataUrlToBytes pair there, and course-syllabus-docx.ts
+ * for the same pattern loading from a URL instead of a data URL.
  */
 
 import {
@@ -39,6 +39,8 @@ import {
   HeadingLevel,
   LineRuleType,
   PageOrientation,
+  ImageRun,
+  VerticalAlign,
   convertMillimetersToTwip,
 } from 'docx';
 import type {
@@ -226,7 +228,165 @@ function sectionHeading(text: string): Paragraph {
 
 // ── Section builders ─────────────────────────────────────────────────────────
 
+// ── CET printed stationery ───────────────────────────────────────────────────
+// Word twin of the letterhead in meeting-minutes-html-pdf.ts. Text is
+// transcribed verbatim from the printed sheet (note "NATTRAJA" double-T and
+// "Kumarapalayam"); colours match the PDF's #1a7a3d green and #c2185b/#b0135c
+// magenta. Only the engineering college switches over — every other
+// institution keeps the plain banner below, driven by its own header config.
+const CET_LETTERHEAD = {
+  name: 'J.K.K.NATTRAJA COLLEGE OF ENGINEERING & TECHNOLOGY',
+  autonomous: '( An Autonomous Institution )',
+  trust: '( MANAGED BY J.K.K.RANGAMMAL CHARITABLE TRUST )',
+  lines: [
+    '(Approved by AICTE - New Delhi & Affiliated to Anna University, Chennai)',
+    'Recognized by UGC Under Section 2(f) & Accredited by NAAC',
+    'Natarajapuram, Kumarapalayam - 638 183, Namakkal Dt., Tamil Nadu.',
+  ],
+};
+const CET_GREEN = '1A7A3D';
+const CET_TRUST = 'C2185B';
+const CET_MAGENTA = 'B0135C';
+const CET_RULE = 'E0407F';
+
+function isCetInstitution(name?: string): boolean {
+  return /engineering|technology/i.test(name ?? '');
+}
+
+/** base64 data URL → bytes. Runs in the browser (the caller lazy-imports this
+ * module client-side), so atob is the primary path; Buffer covers a server
+ * render. Returns null for anything that isn't a data URL. */
+function dataUrlToBytes(dataUrl?: string): Uint8Array | null {
+  if (!dataUrl?.startsWith('data:image/')) return null;
+  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  try {
+    if (typeof atob === 'function') {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    return new Uint8Array(Buffer.from(b64, 'base64'));
+  } catch {
+    return null;
+  }
+}
+
+/** Word needs explicit pixel dimensions for an image — unlike the PDF's
+ * object-fit: contain — so read the PNG's own IHDR and scale it into the box
+ * rather than hardcoding a ratio and stretching the mark. */
+function fitPngIntoBox(
+  bytes: Uint8Array,
+  boxW: number,
+  boxH: number,
+): { width: number; height: number } {
+  const isPng =
+    bytes.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e;
+  if (!isPng) return { width: boxW, height: boxH };
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const w = view.getUint32(16);
+  const h = view.getUint32(20);
+  if (!w || !h) return { width: boxW, height: boxH };
+  const scale = Math.min(boxW / w, boxH / h);
+  return { width: Math.round(w * scale), height: Math.round(h * scale) };
+}
+
+function buildCetLetterhead(header: BosPdfHeader): (Paragraph | Table)[] {
+  const centred = (
+    text: string,
+    opts: { size: number; color: string; bold?: boolean; after?: number },
+  ) =>
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 0, after: opts.after ?? 20, line: 240, lineRule: LineRuleType.AUTO },
+      children: [
+        new TextRun({
+          text,
+          font: FONT,
+          size: opts.size,
+          bold: opts.bold ?? false,
+          color: opts.color,
+        }),
+      ],
+    });
+
+  const bannerParas = [
+    centred(CET_LETTERHEAD.name, { size: SIZE_HEADER, color: CET_GREEN, bold: true }),
+    centred(CET_LETTERHEAD.autonomous, { size: 18, color: CET_GREEN, bold: true }),
+    centred(CET_LETTERHEAD.trust, { size: 17, color: CET_TRUST }),
+    ...CET_LETTERHEAD.lines.map((l) =>
+      centred(l, { size: 17, color: CET_MAGENTA, bold: true }),
+    ),
+  ];
+
+  // The engineering mark lives in rightLogoImage (institution-header.ts); the
+  // generic trust logo is the fallback.
+  const logoBytes = dataUrlToBytes(header.rightLogoImage || header.logoImage);
+  const noBorders = {
+    top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+    bottom: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+    left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+    right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+  };
+
+  // Logo | banner | empty spacer of equal width. The mirror column is what
+  // keeps the banner centred on the PAGE rather than on the leftover space.
+  const logoColDxa = convertMillimetersToTwip(28);
+  const bannerColDxa = CONTENT_WIDTH_DXA - logoColDxa * 2;
+
+  const bannerTable = new Table({
+    width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+    columnWidths: [logoColDxa, bannerColDxa, logoColDxa],
+    layout: TableLayoutType.FIXED,
+    borders: {
+      ...noBorders,
+      insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+      insideVertical: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
+    },
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: logoColDxa, type: WidthType.DXA },
+            borders: noBorders,
+            verticalAlign: VerticalAlign.CENTER,
+            children: [
+              logoBytes
+                ? new Paragraph({
+                    alignment: AlignmentType.LEFT,
+                    children: [
+                      new ImageRun({
+                        type: 'png',
+                        data: logoBytes,
+                        transformation: fitPngIntoBox(logoBytes, 104, 66),
+                      }),
+                    ],
+                  })
+                : new Paragraph({ children: [new TextRun({ text: '' })] }),
+            ],
+          }),
+          new TableCell({
+            width: { size: bannerColDxa, type: WidthType.DXA },
+            borders: noBorders,
+            verticalAlign: VerticalAlign.CENTER,
+            children: bannerParas,
+          }),
+          new TableCell({
+            width: { size: logoColDxa, type: WidthType.DXA },
+            borders: noBorders,
+            children: [new Paragraph({ children: [new TextRun({ text: '' })] })],
+          }),
+        ],
+      }),
+    ],
+  });
+
+  return [bannerTable, ...buildOfficialsBlock(header, CET_RULE)];
+}
+
 function buildLetterhead(header: BosPdfHeader): (Paragraph | Table)[] {
+  if (isCetInstitution(header.institution_name)) return buildCetLetterhead(header);
+
   const paras: (Paragraph | Table)[] = [];
 
   paras.push(
@@ -276,9 +436,21 @@ function buildLetterhead(header: BosPdfHeader): (Paragraph | Table)[] {
     );
   }
 
-  // Officials block — Secretary on left, Principal on right. We render as one
-  // 2-column table without borders so it sits naturally below the centered
-  // institution banner.
+  paras.push(...buildOfficialsBlock(header, '000000'));
+
+  return paras;
+}
+
+/** Officials block — Secretary on left, Principal on right. Rendered as one
+ * 2-column borderless table so it sits naturally below the institution banner;
+ * its bottom border doubles as the letterhead's divider rule, hence the
+ * caller-supplied colour (black for the plain banner, pink for CET). */
+function buildOfficialsBlock(
+  header: BosPdfHeader,
+  ruleColor: string,
+): (Paragraph | Table)[] {
+  const paras: (Paragraph | Table)[] = [];
+
   if (header.officials) {
     const o = header.officials;
     const contactBits: string[] = [];
@@ -300,7 +472,7 @@ function buildLetterhead(header: BosPdfHeader): (Paragraph | Table)[] {
       layout: TableLayoutType.FIXED,
       borders: {
         top: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
-        bottom: { style: BorderStyle.SINGLE, size: 8, color: '000000' },
+        bottom: { style: BorderStyle.SINGLE, size: 8, color: ruleColor },
         left: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
         right: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
         insideHorizontal: { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' },
