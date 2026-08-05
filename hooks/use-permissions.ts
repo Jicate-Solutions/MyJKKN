@@ -41,6 +41,30 @@ interface PermissionData {
 }
 
 /**
+ * How long the handover lookup may hold up the whole permission fetch.
+ *
+ * This RPC runs for every non-super-admin on every permissions load. Awaiting it
+ * with no ceiling means one hanging PostgREST call — a slow pool, a dropped
+ * connection, a Supabase blip — pins `isLoading` true and every page gate on the
+ * platform renders its access-denied/spinner branch until the socket gives up.
+ * The role-derived map is already in hand at this point, so the correct
+ * behaviour on a slow call is to ship it and let the next fetch pick up the
+ * handovers.
+ */
+const HANDOVER_RPC_TIMEOUT_MS = 2000;
+
+/** Module-level so the "RPC not deployed yet" warning is logged ONCE per page
+ *  load, not once per permission fetch. Before the migration is applied this
+ *  fires on every fetch for every user, which is how a console gets useless. */
+let handoverRpcWarned = false;
+
+function warnOnceAboutHandoverRpc(detail: string) {
+  if (handoverRpcWarned) return;
+  handoverRpcWarned = true;
+  console.warn('[permissions] handover keys unavailable (logged once):', detail);
+}
+
+/**
  * Director's Desk — OR the viewer's live handover keys into the role-derived map.
  *
  * WHY THIS EXISTS. `user_has_permission()` in the database was taught to read
@@ -51,44 +75,90 @@ interface PermissionData {
  * along" defect this repo has hit three times (see the four-layers rule —
  * page gate · RLS · RPC · API route).
  *
+ * RETURNS A COPY, ALWAYS. This used to write `permissions[key] = true` into its
+ * ARGUMENT and hand the same reference back. On the legacy path that argument is
+ * `role.permissions` — the permissions object of the CustomRole record fetched by
+ * RoleService — so one user's handover keys were written into the object that
+ * represents the ROLE, and that same object then became the cached permission map.
+ * The role record and the permission map were aliases of each other.
+ *
+ * (Scope check, done rather than assumed: `RoleService.getRoleByKey` re-fetches on
+ * every call with no module-level cache, so this did NOT reach other users. It was
+ * an aliasing bug inside one session, not a cross-user leak. Still wrong, and the
+ * fix is one line: copy first, mutate the copy, never touch the caller's object.)
+ *
  * FAILS SOFT, DELIBERATELY. This code can reach production before the migration
  * that creates `fn_my_handover_permissions` is applied — in this repo merging does
  * not apply migrations, and the two halves ship independently. If the RPC is
- * missing or RLS refuses it, we log and return the role-derived permissions
- * untouched. A hard failure here would break permissions for every user on the
- * platform to deliver a feature only the Director is using yet.
+ * missing, RLS refuses it, or it simply takes too long, we return the role-derived
+ * permissions untouched. A hard failure here would break permissions for every user
+ * on the platform to deliver a feature only the Director is using yet.
  *
  * Handovers can only ever ADD. Nothing here sets a key to false, so no handover
  * can take away access someone already holds by role.
+ *
+ * REVOKE IS NOT INSTANT ON THE CLIENT. The merged keys live in this query's cache
+ * for its staleTime (5 minutes), so a revoked receiver keeps their page gates open
+ * until the next refetch. The DATA closes immediately — every RLS policy re-asks
+ * the database — so the worst case is an open shell over rows that return nothing,
+ * not a leak. Documented honestly in specs/director-desk/SPEC.md rather than
+ * claimed to be instant.
  */
 async function applyHandoverGrants(
   permissions: Record<string, boolean>
 ): Promise<Record<string, boolean>> {
+  // Copy up front. Every return path below returns `out`, never the argument, so
+  // there is no path — success, error, timeout — that hands the caller's object back.
+  const out: Record<string, boolean> = { ...permissions };
+
   try {
     const supabase = createClientSupabaseClient();
     // `as any`: the generated database types are regenerated from the applied
     // schema, and this RPC ships in the same PR as the migration that creates
     // it — so the types cannot know about it yet. Matches the existing house
     // pattern for new RPCs (195 call sites).
-    const { data, error } = await (supabase as any).rpc(
-      'fn_my_handover_permissions'
-    );
+    const rpc = (supabase as any)
+      .rpc('fn_my_handover_permissions')
+      .then((r: { data: unknown; error: { message: string } | null }) => r);
+
+    // A sentinel rather than a rejection: a timeout here is an expected,
+    // non-exceptional outcome, and modelling it as an error would put it in the
+    // same bucket as "the RPC does not exist".
+    const TIMED_OUT = Symbol('handover-rpc-timeout');
+    const raced = await Promise.race([
+      rpc,
+      new Promise<typeof TIMED_OUT>((resolve) =>
+        setTimeout(() => resolve(TIMED_OUT), HANDOVER_RPC_TIMEOUT_MS)
+      )
+    ]);
+
+    if (raced === TIMED_OUT) {
+      warnOnceAboutHandoverRpc(
+        `no response in ${HANDOVER_RPC_TIMEOUT_MS}ms — falling back to role permissions`
+      );
+      return out;
+    }
+
+    const { data, error } = raced as {
+      data: unknown;
+      error: { message: string } | null;
+    };
 
     if (error) {
-      console.warn('[permissions] handover keys unavailable:', error.message);
-      return permissions;
+      warnOnceAboutHandoverRpc(error.message);
+      return out;
     }
 
     if (Array.isArray(data)) {
       for (const key of data) {
-        if (typeof key === 'string' && key) permissions[key] = true;
+        if (typeof key === 'string' && key) out[key] = true;
       }
     }
   } catch (handoverError) {
-    console.warn('[permissions] handover merge skipped:', handoverError);
+    warnOnceAboutHandoverRpc(String(handoverError));
   }
 
-  return permissions;
+  return out;
 }
 
 // Stable fallback references to prevent infinite re-render loops.
