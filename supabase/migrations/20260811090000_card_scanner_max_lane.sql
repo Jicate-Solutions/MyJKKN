@@ -37,7 +37,26 @@ BEGIN
   END IF;
 END $$;
 
--- ── 2. Max-lane job type ────────────────────────────────────────────────────
+-- ── 2. Allow the new sub-lane ───────────────────────────────────────────────
+-- ai_job_types.lane carries a CHECK enumerating every legal lane; 'max-cards'
+-- must join it before the row below can exist (caught by a rolled-back dry run,
+-- 2026-08-05 — the fourth constraint this build met the hard way).
+--
+-- Deliberately NOT reusing the already-allowed-but-unused 'max-pdf': a card is
+-- not a PDF, and sharing a lane would let a future PDF runner claim card jobs it
+-- cannot stage — fn_ai_claim filters on lane with NO job_type filter, so lane IS
+-- the routing key. Two file-shaped features still need two lanes.
+--
+-- Additive only: every existing value is preserved, so no current row can break.
+ALTER TABLE public.ai_job_types DROP CONSTRAINT IF EXISTS ai_job_types_lane_chk;
+ALTER TABLE public.ai_job_types ADD CONSTRAINT ai_job_types_lane_chk
+  CHECK (lane = ANY (ARRAY[
+    'max'::text, 'api'::text, 'either'::text,
+    'max-pdf'::text, 'max-sentiment'::text, 'max-pde'::text,
+    'max-cards'::text
+  ]));
+
+-- ── 3. Max-lane job type ────────────────────────────────────────────────────
 -- interactive = TRUE is load-bearing, not a preference. Measured over 14 days
 -- on this database: interactive jobs are claimed in ~8 s; batch jobs in ~8,209 s
 -- (2.3 hours). A counsellor holding a card at a fair cannot wait 2 hours, so a

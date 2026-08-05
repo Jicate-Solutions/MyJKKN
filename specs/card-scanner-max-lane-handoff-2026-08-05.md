@@ -67,6 +67,10 @@ claimed within ~30 s, completes, and writes parseable JSON into `ai_jobs.result`
 ```js
 // ~/jkkn-max-lane/card-extract.mjs — drain for lane 'max-cards'
 // Mirrors the procurement-PDF recipe: file to disk, prompt names the path.
+// NOTE: the existing drains on the Windows box are dependency-free (raw fetch /
+// PostgREST). Either `npm i @supabase/supabase-js` inside ~/jkkn-max-lane, or port
+// the four db calls below to the house fetch style — the runner's shape is the
+// contract here, not this client library.
 import { createClient } from '@supabase/supabase-js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -125,7 +129,7 @@ async function handle(job) {
     await writeFile(join(dir, file), Buffer.from(await blob.arrayBuffer()));
 
     // cwd = the sandbox, so --allowedTools Read can only reach this one card.
-    const { stdout } = await run('claude',
+    const { stdout } = await run(CLAUDE_BIN,
       ['-p', '--model', 'sonnet', '--output-format', 'json', '--allowedTools', 'Read'],
       { cwd: dir, input: PROMPT(file), maxBuffer: 8 * 1024 * 1024, timeout: 120_000 });
 
