@@ -107,6 +107,12 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
+// The single answer to "which MENU_PERMISSIONS values are not permission keys".
+// Imported rather than restated so the sidebar, the route guard
+// (isPageAccessible) and the SQL walls cannot drift into disagreeing about the
+// `super_admin` sentinel. permission-filter imports only a type from
+// ./navigation/types, so there is no import cycle back into this file.
+import { isSentinelPermission } from '@/lib/navigation/permission-filter';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -3516,6 +3522,7 @@ export function GetRoleBasedPages(
               const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
               return (
                 requiredPermission &&
+                !isSentinelPermission(requiredPermission) &&
                 userRole.permissions[requiredPermission] === true
               );
             });
@@ -3531,6 +3538,15 @@ export function GetRoleBasedPages(
             );
             return false;
           }
+
+          // A sentinel is not a permission key (see isSentinelPermission).
+          // `super_admin` marks 14 routes and real super admins already returned
+          // above; reaching here means the viewer is not one, so the link stays
+          // hidden no matter what the merged permission map contains under that
+          // name. Director's Desk can put arbitrary MENU_PERMISSIONS values into
+          // that map, which is how a handover of the ID-card printing policy page
+          // used to reveal the whole super-admin sidebar.
+          if (isSentinelPermission(requiredPermission)) return false;
 
           return userRole.permissions[requiredPermission] === true;
         })
@@ -3601,6 +3617,9 @@ export function GetRoleBasedPages(
             if (isStudent && submenu.href.startsWith('/learners/leave-onduty')) {
               return true;
             }
+
+            // Sentinel wall — same reason as the leaf check above.
+            if (isSentinelPermission(requiredPermission)) return false;
 
             return userRole.permissions[requiredPermission] === true;
           }).map((submenu) => {

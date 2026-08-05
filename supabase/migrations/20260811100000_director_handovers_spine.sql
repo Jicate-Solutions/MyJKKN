@@ -202,10 +202,21 @@ $$;
 -- THIS DENYLIST DEFAULTS OPEN (`ELSE false`). A permission key invented by a
 -- future PR is handable unless it matches a clause here. That is deliberate —
 -- an allowlist would silently break the feature every time a module ships — but
--- it means the walls need a tripwire, not just a review. It has one:
--- __tests__/director-desk/handover-key-classification.test.ts fails when any key
--- in lib/constants/permissions.ts is not explicitly classified against the
--- clauses in THIS function.
+-- it means the walls need a tripwire, not just a review. It has TWO, because the
+-- first revision of this file had only half of one and both halves were wrong:
+--
+--   * __tests__/director-desk/handover-key-classification.test.ts classifies the
+--     UNION of lib/constants/permissions.ts AND every distinct value in
+--     MENU_PERMISSIONS. Iterating permissions.ts alone validated the wrong key
+--     universe: 20 values that gate real routes are absent from that file, and
+--     one of them is the literal sentinel `super_admin`, which gates 14 admin
+--     routes. None of them had ever been classified.
+--   * __tests__/director-desk/role-write-sweep.test.ts re-derives, from the SQL
+--     itself, every SECURITY DEFINER function that writes user_roles /
+--     custom_roles / profiles.role, and fails if any permission key that
+--     authorises one of them is not walled below. A wall keyed on a NAME cannot
+--     see that `organizations.leadership.manage` is named after its module and
+--     not after the fact that it rewrites role assignments.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_handover_key_is_blocked(p_key text)
@@ -215,6 +226,33 @@ IMMUTABLE
 AS $$
   SELECT CASE
     WHEN p_key IS NULL OR p_key = '' THEN true
+
+    -- ---- WALL 1a: SENTINELS — values that are not permissions at all -------
+    -- lib/navigation/permission-filter.ts does not treat every MENU_PERMISSIONS
+    -- value as a key to look up. Three of them are SENTINELS the filter reads
+    -- structurally, and handing one over does not delegate a page — it flips a
+    -- branch in the filter.
+    --
+    --   `super_admin`  gates FOURTEEN routes (/admin/ai-models — AI provider
+    --                  selection and spend caps, /admin/loops, /admin/learner-notes,
+    --                  /admin/page-metadata, /admin/proof-disputes, /ai-query/admin,
+    --                  /admin/id-cards/policy and seven /internships/policy/* pages).
+    --                  The filter's final line was a bare
+    --                  `return !!permissions[permission]`, so ONE handover of the
+    --                  ID-card printing policy page stored the key `super_admin`
+    --                  and opened all fourteen. It is not a permission; it is the
+    --                  word "super admin" used as a route marker.
+    --   `view_dashboard` / `view_profile`
+    --                  are returned true unconditionally by the filter for every
+    --                  authenticated user. Handing them over grants nothing and
+    --                  would only produce a handover that looks live and does
+    --                  nothing — the silent-no-op shape this spec forbids.
+    --
+    -- Walled, not special-cased downstream, so the refusal happens at grant time
+    -- with a message naming the key. The client filter refuses them a second
+    -- time (lib/navigation/permission-filter.ts) — one layer is not enough for a
+    -- value that means "bypass".
+    WHEN p_key IN ('super_admin', 'view_dashboard', 'view_profile') THEN true
 
     -- ---- WALL 1: access control ------------------------------------------
     -- The escape hatch, and the only wall whose breach OUTLIVES the handover.
@@ -238,6 +276,41 @@ AS $$
     WHEN p_key LIKE '%.role.assign'  OR p_key LIKE '%.role.grant'        THEN true
     WHEN p_key LIKE '%.roles.assign' OR p_key LIKE '%.roles.grant'       THEN true
     WHEN p_key LIKE '%.impersonate'  OR p_key LIKE '%impersonation%'     THEN true
+
+    -- ---- WALL 1b: keys that AUTHORISE A ROLE WRITE ------------------------
+    -- Wall 1 above is keyed on the NAME of the permission, and a name is not
+    -- what makes a key dangerous. `organizations.leadership.manage` is named
+    -- after its module; what it actually does is DELETE the sitting Principal's
+    -- user_roles row and INSERT the receiver's with is_primary = true, firing
+    -- sync_primary_role_trigger, which writes profiles.role = 'principal'. On
+    -- day 8 the handover expires. The user_roles row and profiles.role DO NOT.
+    -- The receiver is permanently Principal and the real Principal has been
+    -- stripped — decision 4 broken at the root, by a key that passed every
+    -- name-shaped wall above.
+    --
+    -- This list is NOT hand-written and NOT a guess. It is derived from the SQL
+    -- by __tests__/director-desk/role-write-sweep.test.ts, which reads every
+    -- function definition in supabase/, keeps the SECURITY DEFINER ones whose
+    -- body writes user_roles / custom_roles / profiles.role /
+    -- profiles.is_super_admin / user_institution_access, resolves the
+    -- user_has_permission('...') keys that authorise them (following one level
+    -- of `can-manage` helper), and FAILS if any such key is not walled here.
+    -- The result is recorded as a maintained artifact in
+    -- specs/director-desk/role-writing-functions.json.
+    --
+    -- Today that sweep finds exactly three authorising keys:
+    --   organizations.leadership.manage -> fn_set_college_leadership
+    --   admission.counselors.create     -> assign_counselor_role   (the
+    --       `counselor` role is institution_scope='all' — a handover of one
+    --       college's counselor page would mint a permanent CLUSTER-WIDE role)
+    --   staff.create                    -> mirror_staff_role_to_user_roles
+    --       (already walled by wall 2 below; left there, and asserted by the
+    --       sweep, so removing it from wall 2 fails this gate too)
+    -- Every other role-writing function is a trigger or is gated on a role_key
+    -- rather than a permission key, and so is unreachable from a handover.
+    WHEN p_key = 'organizations.leadership'
+      OR p_key LIKE 'organizations.leadership.%'                          THEN true
+    WHEN p_key = 'admission.counselors.create'                            THEN true
 
     -- ---- WALL 2: salary and team-member files ----------------------------
     -- Pay, contracts, disciplinary records, personal files.
@@ -518,16 +591,61 @@ GRANT  EXECUTE ON FUNCTION public.fn_handover_key_is_blocked(text) TO authentica
 REVOKE EXECUTE ON FUNCTION public.fn_handover_key_allowed_at_level(text, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_handover_key_allowed_at_level(text, text) TO authenticated;
 
--- fn_handover_grants_key gets NO grant to `authenticated`, on purpose.
--- It is SECURITY DEFINER, takes a caller-supplied uuid, and answers a yes/no
--- question about ANOTHER person: with an authenticated grant, any logged-in user
--- could probe "does <uuid> hold <key>" for every user and every key on the
--- platform — a boolean oracle over the whole permission surface, reachable
--- straight from PostgREST. Its only real caller is user_has_permission(), which
--- is itself SECURITY DEFINER and therefore executes it as the function owner,
--- needing no grant at all. The revoke stays; the grant does not come back
--- without a named caller that cannot be served by user_has_permission.
+-- fn_handover_grants_key must be callable by NOBODY over the wire.
+--
+-- ⚠️  THE PREVIOUS VERSION OF THIS COMMENT WAS FALSE, AND ITS FALSEHOOD SHIPPED.
+-- It said the function "gets NO grant to authenticated, on purpose" and revoked
+-- only anon and PUBLIC. OMITTING A GRANT IS NOT DENYING ONE. Supabase ships
+-- `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO
+-- authenticated` (and to anon), which is a DIRECT grant on every newly created
+-- function, independent of PUBLIC and unaffected by revoking PUBLIC. So the
+-- function was in fact executable by every signed-in user on the platform.
+--
+-- What that bought an attacker: it is SECURITY DEFINER, it takes a
+-- caller-supplied uuid, and it never compares that uuid to auth.uid(). Any
+-- signed-in learner could POST /rest/v1/rpc/fn_handover_grants_key with
+-- {"p_user_id":"<any of 7,231 profile uuids>","p_key":"billing.receipts.create"}
+-- and read back true/false — 7,231 uuids x 1,329 keys, a complete map of who
+-- holds what, straight from PostgREST.
+--
+-- This repo has measured this exact behaviour before: PR #2730,
+-- fn_soi_inactivity_core, same "deliberately no grant" comment, same true
+-- result (memory: feedback_secdef_anon_gate_ignores_authenticated_grant). The
+-- repo's own CI gate does not catch it either —
+-- scripts/ci/check-secdef-anon-revoke.mjs inspects anon and nothing else, so it
+-- was green over this hole.
+--
+-- The revoke below is therefore explicit for BOTH roles, and asserted at apply
+-- time rather than trusted. The only real caller is user_has_permission(), which
+-- is itself SECURITY DEFINER and so executes this as the function owner, needing
+-- no grant at all.
 REVOKE EXECUTE ON FUNCTION public.fn_handover_grants_key(uuid, text) FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_handover_grants_key(uuid, text) FROM authenticated;
+
+-- Apply-time assert. A REVOKE that silently failed to take (an owner grant, a
+-- later default-privilege change, a role that inherits from another) would leave
+-- the oracle open and nothing would say so. has_function_privilege is safe here
+-- because the function is created earlier in THIS file, so the ::regprocedure
+-- cast cannot raise on a missing object (memory:
+-- feedback_privilege_checks_raise_on_missing_object).
+DO $$
+DECLARE
+  v_role text;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_role)
+       AND has_function_privilege(
+             v_role,
+             'public.fn_handover_grants_key(uuid,text)'::regprocedure,
+             'EXECUTE'
+           ) THEN
+      RAISE EXCEPTION
+        'fn_handover_grants_key is still EXECUTE-able by %. It is a SECURITY DEFINER boolean oracle over every user and every permission key; it must be reachable only from user_has_permission(), which runs it as the owner.',
+        v_role;
+    END IF;
+  END LOOP;
+END
+$$;
 
 -- ============================================================================
 -- 7. updated_at

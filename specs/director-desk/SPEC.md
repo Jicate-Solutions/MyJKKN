@@ -95,6 +95,8 @@ migration, which requires a PR, which requires review. That is the point.
 | Wall | Blocked | Still handable |
 |---|---|---|
 | **1. Access control** | the whole `roles`, `users`, `settings`, `permissions` and `director.handover` namespaces (prefix key **and** everything beneath it), plus anything named `%user_roles%`, `%.role(s).assign/grant` or `%impersonat%` | — |
+| **1a. Sentinels** (see below) | `super_admin`, `view_dashboard`, `view_profile` — MENU_PERMISSIONS values that are *markers*, not keys | — |
+| **1b. Keys that authorise a role write** (see below) | `organizations.leadership%`, `admission.counselors.create`, `staff.create` — derived from the SQL, not from their names | — |
 | **2. Salary & team-member files** | `hr.payroll`, `hr.employees`, `hr.documents`, `hr.performance_reviews`, `hr.promotion.case`, `hr.counseling`, `hr.grievance`, `hr.memos`, `hr.recruitment.packages`, `hr.leave.encashment` (each: prefix key **and** everything beneath it), `staff.create/edit/delete/status_update` | routine `hr.leave.apply/approve/view`, `hr.attendance.%`, `hr.dashboard.%`, `hr.policies.%` |
 | **3. Exam marks & results** | `academic.internal-marks` **and** `academic.internal_marks` (both spellings), `academic.course-grades`, `academic.exam_eligibility`, `lti.grade_sync` (each: prefix key **and** everything beneath it) | `academic.attendance.mark` — that is *marking attendance*, a verb collision, not exam marks |
 | **4. Money movement** | every `billing%` / `admission_fees%` that is **not** read-only, plus `campus_living.deposits.refund`, `campus_living.fees.refund`, `ims.sales.refund`, `dashboard.queue.approve.waiver` | `billing.%.view/read/export`, `billing.analytics.%`, `billing.coverage.%`, `admission_fees.%.view/read/export` — reports were explicitly kept handable |
@@ -108,20 +110,108 @@ does not match the prefix key itself, and `roles`, `users`, `billing` and `hr.pa
 exist in this key space as whole keys — a prefix-only wall let the *widest* version of each
 walled thing straight through.
 
-### The denylist defaults OPEN — and has a tripwire
+### Wall 1a — sentinels: MENU_PERMISSIONS values that are not permissions
+
+Three values in `MENU_PERMISSIONS` are not keys anybody holds; they are markers that
+`lib/navigation/permission-filter.ts` reads structurally.
+
+`super_admin` gates **fourteen routes** — `/admin/ai-models` (AI provider selection and spend
+caps), `/admin/loops`, `/admin/learner-notes`, `/admin/page-metadata`, `/admin/proof-disputes`,
+`/ai-query/admin`, `/admin/id-cards/policy`, and seven `/internships/policy/*` pages. The
+filter ended in a bare `return !!permissions[permission]`, and a handover ORs its keys into
+exactly that map — so **one handover of the ID-card printing policy page opened all fourteen.**
+
+`view_dashboard` and `view_profile` are the mirror image: always true for everyone. Handing one
+over grants nothing, which is the silent-no-op this spec forbids elsewhere.
+
+Walled in SQL **and** refused by the filter. Two layers, because the wall and the filter deploy
+on different schedules (merging does not apply migrations here) and a value meaning "bypass"
+must be refused by the code that would act on it, not only by the code that hands it out.
+`isSentinelPermission()` in `lib/navigation/permission-filter.ts` is the single list; the
+classification test asserts SQL and client agree about it.
+
+### Wall 1b — keys that authorise a role write, derived from the SQL
+
+Wall 1 is keyed on the **name** of a permission, and a name does not tell you what a key does.
+`organizations.leadership.manage` is named after its module. What it authorises is
+`fn_set_college_leadership`, which DELETEs the sitting Principal's `user_roles` row and INSERTs
+the caller's with `is_primary = true`, firing `sync_primary_role_trigger`, which writes
+`profiles.role = 'principal'`. **On day 8 the handover expires; the `user_roles` row and
+`profiles.role` do not.** Measured end to end on Postgres 16: after every handover was revoked
+the receiver still held the role and the real Principal had zero rows left. Decision 4 broken at
+the root, by a key that crossed every name-shaped wall.
+
+So this wall is not written from names. `__tests__/director-desk/role-write-sweep.test.ts` reads
+every function definition in `supabase/`, keeps the `SECURITY DEFINER` ones whose body writes
+`user_roles` / `custom_roles` / `profiles.role` / `profiles.is_super_admin` /
+`user_institution_access`, resolves the `user_has_permission('…')` keys that authorise them
+(following one level of `can-manage` helper), and **fails if any of those keys is handable**.
+
+The result is the maintained artifact **`specs/director-desk/role-writing-functions.json`**.
+The 2026-08-05 sweep found three authorising keys:
+
+| Key | Function | What it grants |
+|---|---|---|
+| `organizations.leadership.manage` | `fn_set_college_leadership` | `principal` / `vice_principal`, permanently |
+| `admission.counselors.create` | `assign_counselor_role` | `counselor` — `institution_scope='all'`, so a **cluster-wide** role |
+| `staff.create` | `mirror_staff_role_to_user_roles` | any role the staff row names (already walled by wall 2) |
+
+Every other role-writing function is a trigger or is gated on a `role_key` (e.g.
+`fn_induction_can_manage_coordinators` requires `role_key = 'induction_lead'`), and a handover
+cannot grant a `role_key`, so none of them is reachable this way.
+
+**Limits, stated so a pass is not mistaken for a proof:** the sweep reads the repo, not
+production, so a function created by hand through the Management API is invisible to it
+(`feedback_ci_guard_cannot_see_hand_run_sql`), and it resolves helpers three levels deep.
+
+### The second half: nobody installs themselves
+
+Walling the key closes the *handover* route into `fn_set_college_leadership`. It does not close
+the other half, which was always open and has nothing to do with handovers: that function never
+checked whether the person being installed is the person doing the installing.
+
+`20260811100300_no_self_authority_placement.sql` adds `trg_no_self_authority_placement` on
+`user_roles` — a write that grants an authority role (`principal`, `vice_principal`,
+`counselor`, `super_admin`, `admin`, `administrator`, `director`) to `auth.uid()` themselves is
+refused. A trigger rather than an edit to `fn_set_college_leadership` for three reasons:
+reproducing ~270 lines of another lane's function to add one guard is the silent-drift-revert
+failure `20260811100100`'s own header warns about; the invariant is broken by **three** write
+paths, not one; and a later `CREATE OR REPLACE` by another lane can silently drop an in-function
+guard but cannot drop a trigger.
+
+**What it deliberately breaks:** a non-super-admin holding `organizations.leadership.manage` (or
+`staff.create`) can no longer name *themselves* Principal, Vice Principal or Counselor. Somebody
+else has to. **What it does not touch:** `auth.uid() IS NULL` writes (every server route, AI
+routine, migration and provisioning job), super admins, any role outside that list, and re-saving
+a grant the person already holds.
+
+### The denylist defaults OPEN — and has two tripwires
 
 `fn_handover_key_is_blocked` ends in `ELSE false`: a permission key invented by a future PR is
 **handable unless someone walls it**. That default is deliberate (an allowlist would break the
-feature every time a module ships), so it is backed by a test rather than by hope:
+feature every time a module ships), so it is backed by tests rather than by hope:
 
-- `specs/director-desk/handover-key-classification.json` records every key in
-  `lib/constants/permissions.ts` as **walled** or **handable** — today 105 walled, 1,224 handable.
+- `specs/director-desk/handover-key-classification.json` records the **union** of every key in
+  `lib/constants/permissions.ts` and every distinct value in `MENU_PERMISSIONS` as **walled** or
+  **handable** — today 109 walled, 1,240 handable, of which **20 are `menuOnly`**: they gate a
+  route but Role Management cannot enumerate them.
 - `__tests__/director-desk/handover-key-classification.test.ts` fails if any key is missing from
-  that file, if any key changed side, or if a hard-coded list of must-never-be-delegated keys
-  stops being walled. It evaluates the **real** `CASE` expression parsed out of the migration,
-  not a TypeScript restatement of it.
+  that file, if any key changed side, if a new `menuOnly` value appears, if a client sentinel is
+  not walled in SQL, or if a hard-coded list of must-never-be-delegated keys stops being walled.
+  It evaluates the **real** `CASE` expression parsed out of the migration, not a TypeScript
+  restatement of it.
+- `__tests__/director-desk/role-write-sweep.test.ts` is the second tripwire — see wall 1b.
 - Regenerate deliberately with
-  `UPDATE_HANDOVER_CLASSIFICATION=1 npx vitest run __tests__/director-desk`, then read the diff.
+  `UPDATE_HANDOVER_CLASSIFICATION=1 UPDATE_ROLE_WRITE_SWEEP=1 npx vitest run __tests__/director-desk`,
+  then read the diff.
+
+> **The union is the fix, and it is worth saying why.** The first version of this gate iterated
+> `PERMISSION_CATEGORIES` alone and reported "105 walled / 1,224 handable, zero disagreements".
+> That cross-check was internally sound and pointed at the wrong set: a handover stores the
+> **MENU_PERMISSIONS value** of the route the Director was standing on, and twenty of those
+> values are absent from `permissions.ts`. All twenty were unclassified and handable by default,
+> including the `super_admin` sentinel. A green gate over the wrong universe is worse than no
+> gate, because it is quoted as evidence.
 
 ### Judgment calls made, flagged for correction
 
@@ -136,6 +226,33 @@ feature every time a module ships), so it is backed by a test rather than by hop
   handing over the handover power would let the receiver mint grants, defeating decision #5.
 
 ---
+
+### Nothing here is a boolean oracle — and "we never granted it" is not a defence
+
+`fn_handover_grants_key(uuid, text)` is `SECURITY DEFINER`, takes a caller-supplied uuid, and
+never compares it to `auth.uid()`. Its first revision revoked `anon, PUBLIC` and carried a nine-line
+comment asserting it therefore had no `authenticated` grant. **That comment was false.** Supabase
+ships `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO authenticated`, a
+**direct** grant on every new function, independent of `PUBLIC` and unaffected by revoking it.
+*Omitting a grant is not denying one.*
+
+Measured on Postgres 16 with Supabase's default privileges in place: any signed-in learner could
+`POST /rest/v1/rpc/fn_handover_grants_key` with `{"p_user_id":"<any profile uuid>","p_key":"<any key>"}`
+and read back true/false — 7,231 uuids × 1,329 keys, a complete map of who holds what. The repo's
+own gate was green over it: `scripts/ci/check-secdef-anon-revoke.mjs` inspects `anon` and nothing
+else. The same shape was measured here before, on PR #2730 / `fn_soi_inactivity_core`.
+
+Fixed with an explicit `REVOKE … FROM authenticated` plus an **apply-time assert** on
+`has_function_privilege` — a revoke that failed to take would otherwise leave the oracle open and
+say nothing. Its only real caller is `user_has_permission()`, itself `SECURITY DEFINER`, which
+runs it as the owner and needs no grant at all.
+
+The rest of the spine was audited for the same class and is clean: `fn_can_hand_over()` and
+`fn_my_handover_permissions()` take no identity argument, and `respond` / `progress` / `complete` /
+`revoke` all scope their `WHERE` clause to `auth.uid()` rather than trusting the handover id.
+`fn_handover_key_is_blocked` and `fn_handover_key_allowed_at_level` are pure functions of a key
+string and disclose only the wall policy, which is in a public repo. `fn_dh_touch_updated_at()`
+returns `trigger`, a type PostgREST refuses to expose, so it is not RPC-reachable.
 
 ## Multi-tenant scoping (CLAUDE.md #8)
 
@@ -238,7 +355,7 @@ that key over at `full`.
 
 | PR | Scope | Migrations allocated |
 |---|---|---|
-| **1 — spine** | tables, walls, `user_has_permission` extension, client RPC, lifecycle RPCs | `20260811100000`, `20260811100100`, `20260811100200` |
+| **1 — spine** | tables, walls, `user_has_permission` extension, client RPC, lifecycle RPCs, self-placement guard | `20260811100000`, `20260811100100`, `20260811100200`, `20260811100300` |
 | 2 — hand-over button | Director-only capture control, works on any route | `20260811110000` |
 | 3 — `/my-desk` | receiver side: accept/decline, update, mark done | `20260811120000` |
 | 4 — Director's desk | red/green master view, 4 red rules | `20260811130000` |
