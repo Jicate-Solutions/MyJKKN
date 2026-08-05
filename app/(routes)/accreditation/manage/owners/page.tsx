@@ -817,10 +817,11 @@ export default function AccreditationOwnersPage() {
                 </span>
               </div>
             </div>
+            )}
 
             {/* Per-body breakdown */}
             <div className="flex flex-wrap gap-2">
-              {byBody.map((b) => (
+              {(campusOutOfScope ? [] : byBody).map((b) => (
                 <Badge
                   key={b.bodyCode}
                   variant="outline"
