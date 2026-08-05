@@ -259,7 +259,7 @@ export async function GET(request: NextRequest) {
   if (unattributed.rows.length > 0) {
     console.warn(
       `[cron/session-feedback-escalation] ${unattributed.rows.length} escalation(s) ` +
-        'could not be attributed to a member of staff and were excluded: ' +
+        'could not be attributed to a team member and were excluded: ' +
         unattributed.rows
           .map((u) => `${u.course_code} (${u.responses} responses, avg ${u.avg_understood}/5)`)
           .join('; '),
