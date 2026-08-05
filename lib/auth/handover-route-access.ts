@@ -29,31 +29,102 @@
  * by role never pays for it — asserted by call-count in
  * __tests__/lib/auth/director-handover-middleware.test.ts, not by assertion here.
  *
- * On the deny path it asks the database exactly one question, through the very
- * function the page gates use: `fn_my_handover_permissions()`. That function —
- * not a copy of its WHERE clause — is what makes this layer agree with the
- * other four. It already filters on status, revoked_at, due date (IST,
- * inclusive), grantee still active, grantee still inside the granting
- * institution, `fn_handover_key_allowed_at_level` and
- * `fn_handover_key_is_blocked`. Restating any of that here would create the
- * exact drift the spine's shared-predicate design exists to prevent.
+ * On the deny path it asks the database through the very function the page
+ * gates use: `fn_my_handover_permissions()`. That function — not a copy of its
+ * WHERE clause — is what makes this layer agree with the other four. It already
+ * filters on status, revoked_at, due date (IST, inclusive), grantee still
+ * active, grantee still inside the granting institution,
+ * `fn_handover_key_allowed_at_level` and `fn_handover_key_is_blocked`.
+ * Restating any of that here would create the exact drift the spine's
+ * shared-predicate design exists to prevent.
  *
- * WHY IT KEYS ON THE PERMISSION, NOT ON `director_handovers.route`
- * ---------------------------------------------------------------
- * The requested path is resolved to its MENU_PERMISSIONS key with the SAME
- * `routeMatcher.match()` call that `hasAccess()` just made — one matcher, so
- * dynamic segments (`/projects/[id]/budget` vs a literal id) resolve
- * identically by construction. The handover's stored `route` is deliberately
- * NOT re-matched: re-deriving it would be a second matcher that could disagree
- * with the first.
+ * ── TWO LANES DID THE RIGHT THING AND STILL DISAGREED ─────────────────────────
  *
- * The consequence is stated plainly: if two routes map to the same
- * MENU_PERMISSIONS key, a handover for one opens both. That is not a widening
- * this layer invents — `user_has_permission()` already grants the key platform
- * wide, so RLS, the RPCs, the API routes and the client page gate all opened
- * both already. A middleware that were NARROWER than the other four would
- * reintroduce this bug's own shape: bounced at the edge, permitted everywhere
- * else, with no way for the receiver to tell why.
+ * An earlier revision of this file compared ONE thing: the requested path's
+ * MENU_PERMISSIONS key against the key set above. That is correct only while
+ * the keys WRITTEN onto a handover are menu keys. They are not, and deliberately
+ * so. `components/director-desk/route-permission-resolver.ts` resolves the keys
+ * from `ROUTE_GATE_MAP` — the page's REAL `PermissionGuard` / `PolicyPageShell`
+ * keys — and drops the menu key wherever no `RoutePermissionGuard` enforces it.
+ * That was itself a fix: the resolver used to write a key the page's own gate
+ * never reads, producing handovers that looked healthy and granted nothing.
+ *
+ * Both changes are right. Their COMPOSITION was not. Measured on this tree
+ * against that resolver's own map: of 477 routes with a recorded gate, 122 are
+ * un-handable, 99 also sit under a RoutePermissionGuard (so the menu key is
+ * granted too) and 186 happen to agree — leaving **70 routes** where the page's
+ * real gate key is NOT the menu key, e.g.
+ *
+ *     /accreditation/manage/metrics      menu accreditation.view
+ *                                        page accreditation.metrics.manage
+ *     /admission/gd-pi/[id]/evaluate     menu admission.applications.edit
+ *                                        page admission.gd_pi.evaluate
+ *     /bos/committees                    menu bos.view
+ *                                        page academic.bos-compositions.view
+ *
+ * On every one of those the row carries keys this layer was never looking for,
+ * no key matched, and the receiver was bounced — the very showstopper the fifth
+ * layer exists to kill.
+ *
+ * ── THE UNION, AND WHY IT IS A UNION ──────────────────────────────────────────
+ *
+ * Access is granted on (key match) OR (route match), never on both:
+ *
+ *   key match    the requested path's MENU_PERMISSIONS key is in the live key
+ *                set. Unchanged, byte for byte, from what round 2 proved.
+ *   route match  the caller holds a live handover whose stored `route` IS this
+ *                page.
+ *
+ * The route lane closes the 70-route gap no matter how either resolver evolves,
+ * because it stops asking the two lanes to agree on a key at all.
+ *
+ * It cannot be a swap. The other four layers grant by KEY, and
+ * `user_has_permission()` already grants that key platform-wide, so dropping
+ * the key lane would make this middleware NARROWER than the other four — this
+ * bug's exact shape: permitted everywhere, bounced at the edge, with no way for
+ * the receiver to tell why.
+ *
+ * ── WHERE THE ROUTE LANE GETS ITS LIVENESS ────────────────────────────────────
+ *
+ * Not from TypeScript. The routes are read from `director_handovers` under RLS
+ * (policy `dh_select` — a grantee may read the row that names them), and the
+ * only filter that decides whether a row counts is
+ * `permission_keys && <the key set fn_my_handover_permissions() just
+ * returned>`. Status, revoked_at, the inclusive IST due date, grantee active,
+ * grantee still in the granting institution, the walls and the access level are
+ * therefore enforced by the spine's own function and are not restated here in
+ * any form. A revoked, expired or declined handover contributes no keys, so it
+ * contributes no routes: when the key set comes back EMPTY the route query is
+ * not issued at all.
+ *
+ * `.eq('grantee_user_id', …)` is not a liveness filter — `dh_select` also lets
+ * ADMINS read other people's handovers, and an admin must not inherit a
+ * colleague's routes.
+ *
+ * Two consequences, stated plainly rather than discovered later.
+ *
+ * ONE. A route whose keys are live only because a DIFFERENT live handover
+ * carries the same key is matched. That is not a widening — the page gate, RLS,
+ * the RPCs and the API routes all opened it already, on that same live key.
+ *
+ * TWO, and it is a real widening of THIS layer: `route` and `permission_keys`
+ * are independent arguments to `fn_director_handover_create`. The capture
+ * control derives both from one pathname, but a Director calling the RPC
+ * directly could store a route that its own keys do not unlock. The route lane
+ * would then carry that person past the EDGE — and no further. The page's own
+ * gate, RLS, the RPCs and the API routes all still refuse, because none of them
+ * looks at `route` at all. The trade is deliberate: an edge layer that is never
+ * narrower than the other four cannot also be the layer that decides, and only
+ * a `director` or a super admin can create a row in the first place.
+ *
+ * ── SAME MATCHER, NOT A SECOND ONE ────────────────────────────────────────────
+ *
+ * Both lanes go through `routeMatcher`. The key lane uses the same
+ * `routeMatcher.match()` call `hasAccess()` just made; the route lane uses
+ * `routeMatcher.sameRoute()`, which walks that same permission trie, so a
+ * segment is dynamic exactly where the trie says it is. `/x/[id]/budget` and a
+ * literal id are one route by construction, and two different literal segments
+ * stay two routes even when they resolve to the same menu key.
  *
  * FAIL CLOSED, ALWAYS
  * -------------------
@@ -67,14 +138,15 @@
 import { routeMatcher } from './route-matcher';
 
 /**
- * Hard ceiling on the one extra database round trip. This is edge middleware on
- * every request; a hung PostgREST call must not be able to hold a document
- * request open. At the deadline we abort and keep the redirect.
+ * Hard ceiling on the extra database work. This is edge middleware on every
+ * request; a hung PostgREST call must not be able to hold a document request
+ * open. At the deadline we abort and keep the redirect. The budget covers the
+ * WHOLE lookup, both lanes, not one call each.
  */
 export const HANDOVER_LOOKUP_TIMEOUT_MS = 300;
 
 /**
- * How long a user's live handover key set is reused. Next prefetches links, so
+ * How long a user's live handover grants are reused. Next prefetches links, so
  * one page view can drive several middleware invocations; without this a
  * receiver would pay a round trip for each.
  *
@@ -96,29 +168,43 @@ export const HANDOVER_EMPTY_TTL_MS = 5_000;
 /** Bound on the in-memory map, so a long-lived isolate cannot grow unbounded. */
 const MAX_CACHE_ENTRIES = 500;
 
-interface CachedKeys {
+/** What one deny-path lookup yields. Both lanes, one cache entry. */
+export interface LiveHandoverGrants {
+  /** fn_my_handover_permissions() — the spine's own predicate, verbatim. */
   keys: string[];
+  /** `director_handovers.route` for the rows those keys came from. */
+  routes: string[];
+}
+
+interface CachedGrants extends LiveHandoverGrants {
   expiresAt: number;
 }
 
-const keyCache = new Map<string, CachedKeys>();
+const keyCache = new Map<string, CachedGrants>();
 
-/** Minimal shape this module needs. Keeps the module testable without the SDK. */
+/**
+ * Minimal shape this module needs. Keeps the module testable without the SDK.
+ *
+ * `from` is optional on purpose: a caller that cannot read the table (or a test
+ * double that models only the RPC) simply has no route lane, and the key lane
+ * behaves exactly as it did before. Degrading is never opening.
+ */
 export interface HandoverRpcClient {
   rpc: (fn: string, args?: Record<string, unknown>) => unknown;
+  from?: (table: string) => unknown;
 }
 
-function readCache(userId: string): string[] | null {
+function readCache(userId: string): LiveHandoverGrants | null {
   const hit = keyCache.get(userId);
   if (!hit) return null;
   if (hit.expiresAt <= Date.now()) {
     keyCache.delete(userId);
     return null;
   }
-  return hit.keys;
+  return { keys: hit.keys, routes: hit.routes };
 }
 
-function writeCache(userId: string, keys: string[]) {
+function writeCache(userId: string, grants: LiveHandoverGrants) {
   if (keyCache.size >= MAX_CACHE_ENTRIES) {
     const now = Date.now();
     for (const [id, entry] of Array.from(keyCache.entries())) {
@@ -129,8 +215,8 @@ function writeCache(userId: string, keys: string[]) {
     if (keyCache.size >= MAX_CACHE_ENTRIES) keyCache.clear();
   }
   const ttl =
-    keys.length > 0 ? HANDOVER_KEYS_TTL_MS : HANDOVER_EMPTY_TTL_MS;
-  keyCache.set(userId, { keys, expiresAt: Date.now() + ttl });
+    grants.keys.length > 0 ? HANDOVER_KEYS_TTL_MS : HANDOVER_EMPTY_TTL_MS;
+  keyCache.set(userId, { ...grants, expiresAt: Date.now() + ttl });
 }
 
 /** Test seam. Never called by the middleware. */
@@ -139,14 +225,87 @@ export function __clearHandoverKeyCache() {
 }
 
 /**
- * One RPC, hard-bounded.
- * @returns the caller's live handover keys, or null when the answer is unknown
- *          (error, timeout, malformed). null is never treated as "no keys" —
- *          the caller must fail closed on it.
+ * Await a PostgREST builder, passing the abort signal when the builder supports
+ * it. Shared by both lanes so a stalled socket on either is bounded the same
+ * way.
  */
-async function fetchLiveHandoverKeys(
-  supabase: HandoverRpcClient
+async function settle(builder: unknown, signal: AbortSignal): Promise<unknown> {
+  const withAbort = builder as {
+    abortSignal?: (s: AbortSignal) => unknown;
+  };
+  return typeof withAbort?.abortSignal === 'function'
+    ? await withAbort.abortSignal(signal)
+    : await (builder as Promise<unknown>);
+}
+
+/**
+ * LANE 1 — the keys, from the spine's own function.
+ * @returns the caller's live handover keys, or null when the answer is unknown
+ *          (error, malformed). null is never treated as "no keys".
+ */
+async function fetchLiveKeys(
+  supabase: HandoverRpcClient,
+  signal: AbortSignal
 ): Promise<string[] | null> {
+  const awaited = await settle(supabase.rpc('fn_my_handover_permissions'), signal);
+  const { data, error } = (awaited ?? {}) as { data?: unknown; error?: unknown };
+
+  // Includes the pre-migration case: the function does not exist yet, so
+  // PostgREST answers PGRST202 and this layer stays inert.
+  if (error) return null;
+  if (!Array.isArray(data)) return [];
+  return data.filter((k): k is string => typeof k === 'string');
+}
+
+/**
+ * LANE 2 — the routes of the rows those keys came from.
+ *
+ * Issued ONLY when lane 1 returned at least one live key, which is what makes
+ * the liveness of these routes the spine's answer rather than this file's. A
+ * failure here yields no routes and never an error: lane 1 has already
+ * succeeded and its grant must still stand.
+ */
+async function fetchLiveRoutes(
+  supabase: HandoverRpcClient,
+  userId: string,
+  liveKeys: string[],
+  signal: AbortSignal
+): Promise<string[]> {
+  if (typeof supabase.from !== 'function') return [];
+  try {
+    const query = (supabase.from('director_handovers') as {
+      select: (cols: string) => {
+        eq: (col: string, val: string) => {
+          overlaps: (col: string, vals: string[]) => unknown;
+        };
+      };
+    })
+      .select('route')
+      .eq('grantee_user_id', userId)
+      .overlaps('permission_keys', liveKeys);
+
+    const awaited = await settle(query, signal);
+    const { data, error } = (awaited ?? {}) as {
+      data?: unknown;
+      error?: unknown;
+    };
+    if (error || !Array.isArray(data)) return [];
+    return data
+      .map((row) => (row as { route?: unknown })?.route)
+      .filter((r): r is string => typeof r === 'string' && r.startsWith('/'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Both lanes, hard-bounded by ONE deadline.
+ * @returns the caller's live grants, or null when the answer is unknown.
+ */
+async function fetchLiveGrants(
+  supabase: HandoverRpcClient,
+  userId: string
+): Promise<LiveHandoverGrants | null> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -163,26 +322,15 @@ async function fetchLiveHandoverKeys(
     }, HANDOVER_LOOKUP_TIMEOUT_MS);
   });
 
-  const lookup = (async (): Promise<string[] | null> => {
-    const builder = supabase.rpc('fn_my_handover_permissions') as {
-      abortSignal?: (signal: AbortSignal) => unknown;
-    };
-
-    const awaited =
-      typeof builder?.abortSignal === 'function'
-        ? await builder.abortSignal(controller.signal)
-        : await (builder as unknown as Promise<unknown>);
-
-    const { data, error } = (awaited ?? {}) as {
-      data?: unknown;
-      error?: unknown;
-    };
-
-    // Includes the pre-migration case: the function does not exist yet, so
-    // PostgREST answers PGRST202 and this layer stays inert.
-    if (error) return null;
-    if (!Array.isArray(data)) return [];
-    return data.filter((k): k is string => typeof k === 'string');
+  const lookup = (async (): Promise<LiveHandoverGrants | null> => {
+    const keys = await fetchLiveKeys(supabase, controller.signal);
+    if (keys === null) return null;
+    // No live key means no live handover, so there is nothing for the route
+    // lane to find. Skipping the second call is what keeps the cost of an
+    // ordinary denial at exactly one round trip, as measured.
+    if (keys.length === 0) return { keys, routes: [] };
+    const routes = await fetchLiveRoutes(supabase, userId, keys, controller.signal);
+    return { keys, routes };
   })();
 
   try {
@@ -198,10 +346,18 @@ async function fetchLiveHandoverKeys(
   }
 }
 
+/** Query string, hash and trailing slash are not part of a route's identity. */
+function normalizePath(raw: string): string {
+  let path = (raw ?? '').split('#')[0].split('?')[0].trim();
+  if (!path.startsWith('/')) path = `/${path}`;
+  if (path.length > 1) path = path.replace(/\/+$/, '');
+  return path === '' ? '/' : path;
+}
+
 /**
- * Does a live Director's Desk handover grant this user the permission key the
- * requested path is gated on?
+ * Does a live Director's Desk handover open the requested path for this user?
  *
+ * Granted on (key match) OR (route match) — see the union note in the header.
  * Call this ONLY after the role-derived check has already decided to redirect.
  * It fails closed on every uncertainty.
  */
@@ -211,25 +367,38 @@ export async function routeAllowedByHandover(
   path: string
 ): Promise<boolean> {
   try {
-    // The same matcher, the same call, that hasAccess() just used.
-    const requiredKey = routeMatcher.match(path)?.permission;
+    const requestedPath = normalizePath(path);
 
-    // No MENU_PERMISSIONS key on this path means the denial came from the
-    // static PROTECTED_ROUTES role list, and there is no key for a handover to
-    // have granted. It also means the route could never have been handed over:
-    // the capture control resolves permission_keys from MENU_PERMISSIONS, and
-    // director_handovers.dh_keys_not_empty rejects an empty array. Fail closed.
-    if (!requiredKey) return false;
+    // The same matcher, the same call, that hasAccess() just used. A path this
+    // matcher does not know at all is not a protected route, so hasAccess()
+    // cannot have denied it and nothing can have been handed over for it —
+    // answer without asking the database anything.
+    const config = routeMatcher.match(requestedPath);
+    if (!config) return false;
 
-    const cached = readCache(userId);
-    if (cached) return cached.includes(requiredKey);
+    // May be absent: a denial from the static PROTECTED_ROUTES role list has no
+    // MENU_PERMISSIONS key. That kills the key lane for this request, not the
+    // route lane — such a page can still declare its own gate keys and so can
+    // still have been handed over.
+    const requiredKey = config.permission ?? null;
 
-    const keys = await fetchLiveHandoverKeys(supabase);
-    // A null answer means UNKNOWN, never "no keys" — it is not cached at all,
-    // so a transient PostgREST blip cannot pin a user out for a whole TTL.
-    if (keys === null) return false; // keep the redirect
-    writeCache(userId, keys);
-    return keys.includes(requiredKey);
+    let grants = readCache(userId);
+    if (!grants) {
+      grants = await fetchLiveGrants(supabase, userId);
+      // A null answer means UNKNOWN, never "no grants" — it is not cached at
+      // all, so a transient PostgREST blip cannot pin a user out for a TTL.
+      if (!grants) return false; // keep the redirect
+      writeCache(userId, grants);
+    }
+
+    // LANE 1 — the key the page is gated on, unchanged.
+    if (requiredKey && grants.keys.includes(requiredKey)) return true;
+
+    // LANE 2 — a live handover whose stored route IS this page. Closes the 70
+    // routes whose real gate key is not their menu key.
+    return grants.routes.some((stored) =>
+      routeMatcher.sameRoute(normalizePath(stored), requestedPath)
+    );
   } catch {
     return false;
   }

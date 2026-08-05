@@ -64,16 +64,18 @@ branch that was already about to redirect**.
   `fn_handover_key_is_blocked` are all enforced there. Restating any of it in
   TypeScript would create exactly the drift the spine's shared-predicate design
   exists to prevent.
-- **Same matcher, not a second one.** The requested path resolves to its
-  `MENU_PERMISSIONS` key through the same `routeMatcher.match()` call
-  `hasAccess()` just made, so `/projects/[id]/budget` and a literal id resolve
-  identically by construction. `director_handovers.route` is deliberately never
-  re-matched.
-- **Keys, not routes.** If two routes map to one `MENU_PERMISSIONS` key, a
-  handover for either opens both — because `user_has_permission()` already
-  granted that key platform-wide, so RLS, the RPCs, the API routes and the page
-  gate opened both already. A middleware NARROWER than the other four would
-  reintroduce this bug's exact shape.
+- **Same matcher, not a second one.** Both lanes below go through
+  `routeMatcher`: the key lane through the same `routeMatcher.match()` call
+  `hasAccess()` just made, the route lane through `routeMatcher.sameRoute()`,
+  which walks that same permission trie. A segment is dynamic exactly where the
+  trie says it is, so `/projects/[id]/budget` and a literal id are one route by
+  construction and there is no second matcher free to disagree.
+- **Keys OR routes — a union, never an intersection.** See the section below.
+  If two routes map to one `MENU_PERMISSIONS` key, a handover for either opens
+  both — because `user_has_permission()` already granted that key platform-wide,
+  so RLS, the RPCs, the API routes and the page gate opened both already. A
+  middleware NARROWER than the other four would reintroduce this bug's exact
+  shape.
 - **Fails closed, always.** Error, timeout (300 ms ceiling), malformed answer →
   the redirect stands. That includes production today: the spine migration is
   unapplied, the function does not exist, PostgREST answers `PGRST202`, and this
@@ -82,13 +84,66 @@ branch that was already about to redirect**.
   reaches the lookup — asserted by RPC call-count in
   `__tests__/lib/auth/director-handover-middleware.test.ts`.
 
+## The union — and the 70 routes that made it necessary
+
+Comparing the requested path's `MENU_PERMISSIONS` key is correct only while the
+keys **written onto a handover** are menu keys. They are not, deliberately.
+`components/director-desk/route-permission-resolver.ts` resolves the keys from
+`ROUTE_GATE_MAP` — the page's real `PermissionGuard` / `PolicyPageShell` gate —
+and drops the menu key wherever no `RoutePermissionGuard` enforces it. That was
+itself a fix: the resolver used to write a key the page's own gate never reads,
+producing handovers that looked healthy and granted nothing.
+
+Both changes are right. Their **composition** was not. Measured against that
+resolver's own map: of **477** routes with a recorded gate, 122 are un-handable,
+99 also sit under a `RoutePermissionGuard` (so the menu key is granted too) and
+186 agree by coincidence — leaving **70 routes where the page's real gate key is
+not the menu key**:
+
+| Route | Menu key | Key actually written |
+|---|---|---|
+| `/accreditation/manage/metrics` | `accreditation.view` | `accreditation.metrics.manage` |
+| `/admission/gd-pi/[id]/evaluate` | `admission.applications.edit` | `admission.gd_pi.evaluate` |
+| `/bos/committees` | `bos.view` | `academic.bos-compositions.view` |
+| `/campus-living/mess/menu-loop` | `campus_living.mess.view` | `campus_living.settings.view` |
+| `/admission/gate-entry` | `admission.dashboard.view` | `admission.gate_entry.create` |
+
+On every one of those the row carried keys this layer never looked for, no key
+matched, and the receiver was bounced — the showstopper the fifth layer exists
+to kill, surviving inside the fix for it.
+
+Access is therefore granted on **(key match) OR (route match)**:
+
+| Lane | Question | Source |
+|---|---|---|
+| key | is the requested path's `MENU_PERMISSIONS` key in my live key set? | `fn_my_handover_permissions()`, unchanged |
+| route | do I hold a live handover whose stored `route` **is** this page? | `director_handovers.route` under RLS `dh_select` |
+
+It cannot be a swap. The other four layers grant by key, so dropping the key
+lane would make this middleware narrower than all of them.
+
+**Where the route lane gets its liveness.** Not from TypeScript. Rows are
+filtered by `permission_keys && <the key set `fn_my_handover_permissions()` just
+returned>`, so status, `revoked_at`, the inclusive IST due date, grantee active,
+grantee still in the granting institution, the walls and the access level are all
+enforced by the spine's own function and are restated nowhere. A revoked,
+expired or declined handover contributes no keys and therefore no routes — and
+when the key set comes back empty the route query is **not issued at all**, which
+is what keeps an ordinary denial at exactly one round trip.
+`.eq('grantee_user_id', …)` is not a liveness filter: `dh_select` also lets
+admins read other people's handovers, and an admin must not inherit a
+colleague's routes.
+
 ### Where a handover still cannot rescue a receiver
 
-If the denial came from the **static** `PROTECTED_ROUTES` role list rather than a
-`MENU_PERMISSIONS` key, there is no key for a handover to have granted, and the
-redirect stands. This is not a gap: such a route can never be handed over,
-because the capture control resolves `permission_keys` from `MENU_PERMISSIONS`
-and `director_handovers.dh_keys_not_empty` rejects an empty array.
+A path the matcher does not recognise at all is not a protected route, so
+`hasAccess()` cannot have denied it and nothing can have been handed over for
+it — answered without asking the database anything.
+
+A denial that came from the **static** `PROTECTED_ROUTES` role list carries no
+`MENU_PERMISSIONS` key, which kills the key lane for that request. The route lane
+still applies: such a page can declare its own gate keys and so can still have
+been handed over.
 
 ### Cache window
 
@@ -103,7 +158,8 @@ documents.
 
 | Path | Added |
 |---|---|
-| Allowed by role (the overwhelming majority) | **0** — the lookup is not reached; RPC call count asserted as 0 |
+| Allowed by role (the overwhelming majority) | **0** — the lookup is not reached; RPC and table-query counts both asserted as 0 |
 | Denied by role, cache hit | **0.74 µs** in-process |
-| Denied by role, cache miss | **one** PostgREST RPC — 45.7 ms median / 48.2 ms p90 measured against production Supabase over a warm keep-alive connection (n=14, from a client in Tamil Nadu; a Vercel function co-located with the database will be lower) |
-| Any failure or stall | **≤ 300 ms**, then the original redirect |
+| Denied by role, cache miss, **no live handover** | **one** PostgREST RPC — 45.7 ms median / 48.2 ms p90 measured against production Supabase over a warm keep-alive connection (n=14, from a client in Tamil Nadu; a Vercel function co-located with the database will be lower). The route query is skipped on an empty key set, so this is unchanged. |
+| Denied by role, cache miss, **holds a live handover** | that RPC **plus** one indexed `director_handovers` read — only for the handful of people who actually hold one, and only until the 30 s cache warms |
+| Any failure or stall | **≤ 300 ms**, then the original redirect — one deadline covering **both** lanes, not one each |
