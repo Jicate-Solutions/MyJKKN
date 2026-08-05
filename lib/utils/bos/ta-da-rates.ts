@@ -23,6 +23,46 @@ export const TA_DA_RATES = {
   travelPerKm: 5,
 } as const;
 
+/**
+ * Reserved `bos_ta_da_rates.committee_name` meaning "this institution, every
+ * council" — the institution-wide tier of the rate resolution.
+ *
+ * Rates are keyed (institutions_id, committee_name, member_type), which until
+ * now forced an institution paying a non-SOP rate to repeat the same grid
+ * under every council name — and left councils created later silently back on
+ * the code constants. A row stored under this sentinel applies to all of the
+ * institution's councils.
+ *
+ * Resolution, most specific wins:
+ *   1. a row for the meeting's own council      (per-council override)
+ *   2. a row under INSTITUTION_WIDE_COMMITTEE   (institution default)
+ *   3. the flat TA_DA_RATES constants above     (code SOP)
+ *
+ * Both lookups are per MEMBER TYPE, so a council may override one type and
+ * inherit the rest. Institutions that never configure anything still land on
+ * (3), and existing per-council rows keep winning — the tier is additive.
+ *
+ * '*' is safe as a sentinel because real names come from the committee
+ * dropdown (bos_committees.name), which can never produce it.
+ *
+ * ⚠ ALWAYS match it with `eq`, NEVER `ilike`. PostgREST rewrites '*' to '%'
+ * inside like/ilike filters, so `.ilike('committee_name', '*')` compiles to
+ * `ILIKE '%'` and silently matches EVERY council's rows — which would let one
+ * institution's per-council config leak in as its institution-wide tier.
+ * Real council names keep using `ilike` (case-insensitive exact match).
+ *
+ * Never render it raw — it is a storage key, not a label.
+ */
+export const INSTITUTION_WIDE_COMMITTEE = '*';
+
+/** Label for the sentinel wherever a council name is shown to a user. */
+export const INSTITUTION_WIDE_LABEL = 'Institution-wide (all councils)';
+
+/** True when a stored committee_name is the institution-wide sentinel. */
+export function isInstitutionWideCommittee(name: string | null | undefined): boolean {
+  return name?.trim() === INSTITUTION_WIDE_COMMITTEE;
+}
+
 export interface ComputeClaimInput {
   /** True when the member is external (member.expert_id IS NOT NULL). */
   isExternal: boolean;

@@ -9,23 +9,44 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   startup: 9, facilitator: 10, principal: 11, member_secretary: 12, student: 13,
 };
 
-function memberTypeRank(t: string | null | undefined): number {
-  // Catalog-name values (20260710150000) aren't in the enum map — rank 99.
-  return t ? ((MEMBER_TYPE_ORDER as Record<string, number>)[t] ?? 99) : 99;
+/** The `member:bos_members(...)` embed the attendance route sends us. */
+interface AttendeeMember {
+  member_type?: BosMemberType | string | null;
+  /** Catalog row joined via member_type_id — carries the coarse base_type. */
+  member_type_rec?: { base_type?: BosMemberType | string | null } | null;
+  sort_order?: number | null;
+  display_name?: string;
+}
+
+function memberTypeRank(member: AttendeeMember): number {
+  // Since migration 20260710150000, bos_members.member_type stores the SELECTED
+  // catalog type's NAME verbatim ("Nominated by the Governing Body"), not the
+  // coarse enum. Matching that free text against MEMBER_TYPE_ORDER missed on
+  // every catalog-linked row, so all attendees ranked 99, the rank comparison
+  // was always a tie, and the table fell through to sort_order — which is how
+  // Assistant Professors ended up printed above the Chairman and the HoD.
+  //
+  // The catalog's base_type is the sanctioned discriminator (see the same rule
+  // in types/bos.ts isBosChairmanRow). The raw literal stays as the fallback
+  // for legacy rows whose member_type_id is NULL and which still hold enum
+  // values.
+  const rank = (v?: string | null): number | undefined =>
+    v ? (MEMBER_TYPE_ORDER as Record<string, number>)[v.trim().toLowerCase()] : undefined;
+  return rank(member.member_type_rec?.base_type) ?? rank(member.member_type) ?? 99;
 }
 
 function sortAttendeesForPdf(attendees: BosMeetingAttendee[]): BosMeetingAttendee[] {
   return [...attendees].sort((a, b) => {
-    const ma = (a as unknown as { member?: { member_type?: BosMemberType | null } }).member ?? {};
-    const mb = (b as unknown as { member?: { member_type?: BosMemberType | null } }).member ?? {};
-    const rankDiff = memberTypeRank(ma.member_type) - memberTypeRank(mb.member_type);
+    const ma = (a as unknown as { member?: AttendeeMember }).member ?? {};
+    const mb = (b as unknown as { member?: AttendeeMember }).member ?? {};
+    // Chairman (1) → university nominee → experts → faculty (7) → HoD (8) → …
+    const rankDiff = memberTypeRank(ma) - memberTypeRank(mb);
     if (rankDiff !== 0) return rankDiff;
-    const maSort = (a as unknown as { member?: { sort_order?: number | null } }).member?.sort_order ?? 0;
-    const mbSort = (b as unknown as { member?: { sort_order?: number | null } }).member?.sort_order ?? 0;
+    // Within a type group, the roster's composition-wide rank, ascending.
+    const maSort = ma.sort_order ?? 0;
+    const mbSort = mb.sort_order ?? 0;
     if (maSort !== mbSort) return maSort - mbSort;
-    const maName = (a as unknown as { member?: { display_name?: string } }).member?.display_name ?? '';
-    const mbName = (b as unknown as { member?: { display_name?: string } }).member?.display_name ?? '';
-    return maName.localeCompare(mbName);
+    return (ma.display_name ?? '').localeCompare(mb.display_name ?? '');
   });
 }
 
@@ -132,6 +153,27 @@ function isCetInstitution(institutionName: string): boolean {
   return /engineering|technology/i.test(institutionName);
 }
 
+/**
+ * Printable member-type label.
+ *
+ * Since 20260710150000 `bos_members.member_type` holds the SELECTED catalog
+ * name ('University Nominee') and is printed as-is. Legacy rows created before
+ * that migration still hold the coarse enum ('university_nominee'); for those
+ * the joined catalog row is the better name, and failing that the enum is
+ * un-snaked rather than printed raw on an official sheet.
+ */
+function memberTypeLabel(member?: {
+  member_type?: string | null;
+  member_type_rec?: { name?: string | null } | null;
+} | null): string {
+  const raw = (member?.member_type ?? '').trim();
+  if (raw && !raw.includes('_')) return raw;
+  const catalog = (member?.member_type_rec?.name ?? '').trim();
+  if (catalog) return catalog;
+  if (!raw) return '';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function generateMinutesHtml({
   meeting,
   attendees,
@@ -164,19 +206,37 @@ function generateMinutesHtml({
   // generic trust logo is the fallback.
   const cetLogo = rightLogoImage || logoImage;
 
-  const officialsHtml = `
+  // Officials letterhead row (Secretary left, Principal right).
+  //
+  // Only Arts & Science carries an `officials` entry in institution-header.ts;
+  // Engineering/CET has none, so the caller's fallbacks (documents-tab.tsx)
+  // arrive as the LITERAL placeholder strings 'Secretary' and 'Principal'.
+  // Rendering those printed a letterhead reading
+  //   Secretary        Principal
+  //   Secretary        Principal
+  // — the name line and the role line saying the same word. Emit the block only
+  // when a real name is present, so CET minutes drop it entirely and A&S
+  // minutes keep their genuine names.
+  const realName = (value: string, placeholder: string): string => {
+    const t = (value ?? '').trim();
+    return t && t.toLowerCase() !== placeholder ? t : '';
+  };
+  const secretaryReal = realName(secretaryName, 'secretary');
+  const principalReal = realName(principalName, 'principal');
+
+  const officialsHtml = secretaryReal || principalReal
+    ? `
       <div class="officials">
         <div class="official-left">
-          <div class="official-name">${htmlEscape(secretaryName)}</div>
-          <div class="official-role">Secretary</div>
+          ${secretaryReal ? `<div class="official-name">${htmlEscape(secretaryReal)}</div><div class="official-role">Secretary</div>` : ''}
         </div>
         <div class="official-right">
-          <div class="official-name">${htmlEscape(principalName)}</div>
-          <div class="official-role">${htmlEscape(principalTitle)}</div>
+          ${principalReal ? `<div class="official-name">${htmlEscape(principalReal)}</div><div class="official-role">${htmlEscape(principalTitle)}</div>` : ''}
           ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
           ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
         </div>
-      </div>`;
+      </div>`
+    : '';
 
   const headerHtml = isCet
     ? `
@@ -224,16 +284,26 @@ function generateMinutesHtml({
       background: white;
     }
 
+    /* The sheet's margins belong to the print job (see page.pdf below), NOT to
+       this block. A fixed 210mm width plus 12mm of its own padding double-
+       counted against the printer margin: the block was wider than the
+       printable area, so the right-hand border of anything full-width — the
+       narrative box most visibly — was pushed off the sheet. It also meant a
+       narrative that ran onto a second sheet continued with no top margin at
+       all, because padding only applies at the start and end of a block.
+       Width and height now come from the printable area itself. */
     .page {
-      width: 210mm;
-      /* min-height, not height: a formatted narrative can be taller than one
-         sheet, and a fixed height clips it instead of paginating. */
-      min-height: 297mm;
-      margin: 0 auto;
-      padding: 12mm 12mm;
+      width: auto;
+      margin: 0;
+      padding: 0;
       background: white;
       page-break-after: always;
       position: relative;
+    }
+
+    /* Without this Chromium emits a trailing blank sheet after the signatures. */
+    .page:last-child {
+      page-break-after: auto;
     }
 
     .header {
@@ -418,7 +488,9 @@ function generateMinutesHtml({
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 10px;
-      font-size: 10px;
+      /* 12px Times New Roman — the 10px body was too small to read comfortably
+         in the printed attendance / signature sheets. */
+      font-size: 12px;
       page-break-inside: avoid;
       table-layout: fixed;
     }
@@ -445,7 +517,7 @@ function generateMinutesHtml({
       font-weight: bold;
       text-align: left;
       padding: 6px 6px;
-      font-size: 10px;
+      font-size: 12px;
     }
 
     tbody tr td:first-child {
@@ -464,6 +536,14 @@ function generateMinutesHtml({
       font-size: 10px;
       line-height: 1.5;
       text-align: left;
+      /* A long narrative legitimately runs onto the next sheet. Cloning the
+         decoration closes the border on every fragment instead of leaving one
+         open-ended box straddling the break. */
+      -webkit-box-decoration-break: clone;
+      box-decoration-break: clone;
+      /* An unbroken token (a pasted URL, a long code) must wrap rather than
+         widen the box past its border. */
+      overflow-wrap: break-word;
     }
 
     /* ── Narrative rich text ──────────────────────────────────────────────
@@ -512,6 +592,10 @@ function generateMinutesHtml({
     .narrative table {
       table-layout: fixed;
       width: 100%;
+      /* The editor writes colgroup widths in pixels sized for the on-screen
+         canvas, which is wider than the sheet; without the cap a resized table
+         reaches past the narrative's right border. */
+      max-width: 100%;
       font-size: inherit;
       margin: 6px 0;
     }
@@ -553,13 +637,28 @@ function generateMinutesHtml({
       padding: 0;
     }
 
-    .footer {
-      margin-top: 14px;
-      padding-top: 8px;
-      font-size: 8px;
-      color: #666;
-      text-align: right;
-    }
+${isCet ? `
+    /* ── CET type scale ───────────────────────────────────────────────────
+       The engineering college's minutes are signed in ink and then photocopied
+       for the file, and the shared 10-12px Times was too small to stay legible
+       through that. Last in the sheet so it overrides the base rules above.
+       CET only — the other colleges keep the scale their sheets are already
+       laid out for.
+
+       The two sheet tables are named explicitly rather than bumping bare
+       \`table, th, td\`: a plain \`td\` rule (0,0,1) would also beat the
+       \`.narrative table { font-size: inherit }\` above and re-shape the
+       author's rates table inside the narrative. */
+    .attendance-table, .attendance-table th, .attendance-table td,
+    .signature-table, .signature-table th, .signature-table td { font-size: 14px; }
+
+    /* Narrative body (remuneration letter, resolutions). Its nested tables
+       inherit from here, so the author's rates table scales with the prose. */
+    .narrative { font-size: 13px; }
+
+    /* Agenda items entered via "Add Item". */
+    .agenda-title, .agenda-detail { font-size: 13px; }
+` : ''}
   </style>
 </head>
 <body>
@@ -581,21 +680,27 @@ function generateMinutesHtml({
         <tr>
           <th style="width: 5%;">S.No</th>
           <th style="width: 28%;">Name</th>
-          <th style="width: 28%;">Designation</th>
+          <th style="width: 28%;">${isCet ? 'Member Type' : 'Designation'}</th>
           <th style="width: 12%;">Status</th>
           <th style="width: 27%;">Signature</th>
         </tr>
       </thead>
       <tbody>
         ${sorted.map((a, i) => {
-          const member = (a as unknown as { member?: { display_name?: string; display_designation?: string } }).member ?? {};
+          const member = (a as unknown as { member?: { display_name?: string; display_designation?: string; member_type?: string | null; member_type_rec?: { name?: string | null } | null } }).member ?? {};
           const status = a.attendance_status === 'present' ? 'Present' : 'Absent';
           const statusClass = a.attendance_status === 'present' ? 'status-present' : 'status-absent';
+          // CET's attendance sheet identifies members by their role on the board
+          // (Chairman / University Nominee / Industry Expert), not by their job
+          // title. Designation is still carried on the page-3 Members block.
+          const roleCell = isCet
+            ? memberTypeLabel(member)
+            : member.display_designation ?? '';
           return `
             <tr>
               <td style="width: 5%;">${i + 1}</td>
               <td style="width: 28%;">${htmlEscape(member.display_name ?? '—')}</td>
-              <td style="width: 28%;">${htmlEscape(member.display_designation ?? '')}</td>
+              <td style="width: 28%;">${htmlEscape(roleCell)}</td>
               <td style="width: 12%;"><span class="${statusClass}">${status}</span></td>
               <td style="width: 27%; height: 40px;"></td>
             </tr>
@@ -644,7 +749,6 @@ function generateMinutesHtml({
       </div>
     ` : ''}
 
-    <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}</div>
   </div>
 
   <!-- Page 3: Signatures -->
@@ -653,17 +757,18 @@ function generateMinutesHtml({
 
     <div class="section-title">Signatures of Board Members</div>
 
-    <table style="table-layout: fixed;">
+    <table class="signature-table" style="table-layout: fixed;">
       <thead>
         <tr>
           <th style="width: 8%;">S.No</th>
-          <th style="width: 60%;">Members</th>
-          <th style="width: 32%;">Signature</th>
+          <th style="width: ${isCet ? '46%' : '60%'};">Members</th>
+          ${isCet ? '<th style="width: 22%;">Member Type</th>' : ''}
+          <th style="width: ${isCet ? '24%' : '32%'};">Signature</th>
         </tr>
       </thead>
       <tbody>
         ${presentSorted.map((a, i) => {
-          const m = (a as unknown as { member?: { display_name?: string; display_designation?: string; display_institution?: string; address?: string; member_type?: BosMemberType | null } }).member ?? {};
+          const m = (a as unknown as { member?: { display_name?: string; display_designation?: string; display_institution?: string; address?: string; member_type?: BosMemberType | string | null; member_type_rec?: { name?: string | null } | null } }).member ?? {};
           const lines = [
             m.display_name ?? '—',
             m.display_designation ?? '',
@@ -674,6 +779,7 @@ function generateMinutesHtml({
             <tr>
               <td style="text-align: center; font-weight: bold;">${i + 1}</td>
               <td>${lines.map(l => htmlEscape(l)).join('<br>')}</td>
+              ${isCet ? `<td>${htmlEscape(memberTypeLabel(m))}</td>` : ''}
               <td style="height: 45px;"></td>
             </tr>
           `;
@@ -681,7 +787,6 @@ function generateMinutesHtml({
       </tbody>
     </table>
 
-    <div class="footer">Generated on ${new Date().toLocaleString('en-IN')}</div>
   </div>
 </body>
 </html>
@@ -763,9 +868,14 @@ export async function generateMinutesHtmlPdf(
       await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
       console.log('[PDF] Content set, generating PDF...');
 
+      // Margins are given in millimetres, not as bare numbers: a bare number is
+      // CSS pixels (10 ≈ 2.6mm), which is what left the sheet's own 12mm
+      // gutters fighting the .page block's padding. Owning the margins here
+      // means every sheet gets them, including the second sheet of a narrative
+      // that spills over.
       const pdf = await page.pdf({
         format: 'A4',
-        margin: { top: 10, right: 10, bottom: 10, left: 10 },
+        margin: { top: '12mm', right: '12mm', bottom: '12mm', left: '12mm' },
         printBackground: true,
       });
 

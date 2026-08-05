@@ -74,24 +74,34 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   student: 13,
 };
 
-function memberTypeRank(t: string | null | undefined): number {
-  if (!t) return 99;
-  // Catalog-name values (20260710150000) aren't in the enum map — rank 99.
-  return (MEMBER_TYPE_ORDER as Record<string, number>)[t] ?? 99;
+type AttendeeMember = {
+  member_type?: BosMemberType | string | null;
+  /** Catalog row joined via member_type_id — carries the coarse base_type. */
+  member_type_rec?: { base_type?: BosMemberType | string | null } | null;
+  sort_order?: number | null;
+  display_name?: string | null;
+};
+
+function memberTypeRank(member: AttendeeMember): number {
+  // Since migration 20260710150000, bos_members.member_type holds the SELECTED
+  // catalog type's NAME verbatim, not the coarse enum — so matching it against
+  // MEMBER_TYPE_ORDER ranked every catalog-linked row 99 and the sort collapsed
+  // to sort_order alone. Rank from the catalog's base_type (the sanctioned
+  // discriminator), falling back to the raw literal for legacy rows with a NULL
+  // member_type_id. Mirrors meeting-minutes-html-pdf.ts — keep the two in sync.
+  const rank = (v?: string | null): number | undefined =>
+    v ? (MEMBER_TYPE_ORDER as Record<string, number>)[v.trim().toLowerCase()] : undefined;
+  return rank(member.member_type_rec?.base_type) ?? rank(member.member_type) ?? 99;
 }
 
 function sortAttendeesForDocx(attendees: BosMeetingAttendee[]): BosMeetingAttendee[] {
-  type AttendeeMember = {
-    member_type?: BosMemberType | null;
-    sort_order?: number | null;
-    display_name?: string | null;
-  };
   const memberOf = (a: BosMeetingAttendee): AttendeeMember =>
     ((a as unknown as { member?: AttendeeMember }).member) ?? {};
   return [...attendees].sort((a, b) => {
     const ma = memberOf(a);
     const mb = memberOf(b);
-    const rankDiff = memberTypeRank(ma.member_type) - memberTypeRank(mb.member_type);
+    // Chairman (1) → university nominee → experts → faculty (7) → HoD (8) → …
+    const rankDiff = memberTypeRank(ma) - memberTypeRank(mb);
     if (rankDiff !== 0) return rankDiff;
     const soDiff = (ma.sort_order ?? 0) - (mb.sort_order ?? 0);
     if (soDiff !== 0) return soDiff;
