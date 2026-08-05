@@ -55,6 +55,15 @@ while IFS= read -r nav; do
       continue
     fi
 
+    # 2b. A GET-exporting Route Handler serves the path with a real HTTP 307
+    #     (pure-redirect landing pattern, PR #2763/#2777). Reachable exactly
+    #     like a page.tsx — but only when it actually exports GET.
+    candidate3="${ROUTES_ROOT}${path}/route.ts"
+    if [ -f "$candidate3" ] && grep -qE 'export[[:space:]]+(async[[:space:]]+)?function[[:space:]]+GET|export[[:space:]]+const[[:space:]]+GET' "$candidate3"; then
+      checked=$((checked + 1))
+      continue
+    fi
+
     # 3. Trailing dynamic segment: /a/b/standard is served by app/(routes)/a/b/[tier]/page.tsx.
     #    (2026-06-07: /campus-living/mess/menu-editor/standard false-positive — the
     #    page exists as menu-editor/[tier]/page.tsx. Mid-path dynamics still unsupported.)
@@ -64,7 +73,7 @@ while IFS= read -r nav; do
       continue
     fi
 
-    echo "::error file=$nav::nav-config promises href '$path' but neither $candidate1 nor $candidate2 exists. Either create the page or remove the nav entry."
+    echo "::error file=$nav::nav-config promises href '$path' but no page.tsx, .tsx file, or GET-exporting route.ts exists for it. Either create the page/handler or remove the nav entry."
     fail=1
 
   done < <(grep -oE "href:[[:space:]]*['\"]/[^'\"]*['\"]" "$nav" || true)

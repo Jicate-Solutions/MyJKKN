@@ -206,30 +206,46 @@ export class ImsSalesService {
   }
 
   /**
-   * Get items available for sale (sellable, in-stock items).
+   * Get items available for sale at a store.
    *
-   * Catalog is institution-scoped (ims_items is UNIQUE(institution_id, code));
-   * the quantity shown is strictly the ACTIVE STORE's balance.
+   * The catalogue row is institution-wide (ims_items is UNIQUE(institution_id, code)),
+   * but WHICH of those items this counter sells is per-store (ims_store_items), and
+   * so is the quantity (ims_stock_summary).
    */
   static async getSellableItems(
     storeId: string,
     institutionId?: string
   ): Promise<ImsSellableItem[]> {
+    // No store, no counter. Previously an empty storeId still returned the whole
+    // institution's sellable items with every quantity at 0 — a till full of
+    // things that cannot be sold.
+    if (!storeId) return [];
+
     try {
+      // What is on THIS counter, not what is on some counter in this institution.
+      //
+      // This used to read ims_items.is_sellable_to_students, which is an
+      // institution-wide column: flagging an item at the student store put it on
+      // the warehouse's and the patient store's tills too. The flag now lives on
+      // the store's listing, so the inner join answers both questions at once —
+      // does this store carry it, and does this store sell it.
       let query = this.supabase
         .from('ims_items')
         .select(
           `id, name, code, selling_price, cost_price, image_url,
            base_unit:ims_units!ims_items_base_unit_id_fkey(abbreviation),
-           category:ims_item_categories(name)`
+           category:ims_item_categories(name),
+           store_link:ims_store_items!inner(store_id)`
         )
         .eq('is_active', true)
-        .eq('is_sellable_to_students', true);
+        .eq('store_link.store_id', storeId)
+        .eq('store_link.is_sellable_to_students', true)
+        .eq('store_link.is_active', true);
 
+      // Belt and braces: the listing already implies the institution, but RLS and
+      // the caller both expect the filter, and it keeps the plan on the index.
       if (institutionId) {
         query = query.eq('institution_id', institutionId);
-      } else if (storeId) {
-        query = query.eq('store_id', storeId);
       }
 
       const { data, error } = await query;

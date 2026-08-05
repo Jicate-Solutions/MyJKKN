@@ -10,9 +10,12 @@
 
 import { useState, useMemo } from 'react';
 import { format, startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsGatewayPaymentsReport } from '@/hooks/ims/use-ims-reports';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,6 +34,8 @@ import {
   ShieldCheck,
   AlertTriangle,
   XCircle,
+  RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { useRouter } from 'next/navigation';
@@ -44,6 +49,17 @@ const formatCurrency = (value: number) =>
   }).format(value);
 
 type DatePreset = 'today' | 'week' | 'month' | 'custom';
+
+/**
+ * Money is ours, but no sale exists for it.
+ *
+ * The single predicate for "somebody has to act on this row" — the same one
+ * ImsReportsService counts into summary.needs_attention_count. Kept as one
+ * function so the filter, the row styling and the action can never disagree
+ * about which rows they mean.
+ */
+const needsAttention = (txn: { status: string; sale_id: string | null }) =>
+  txn.status === 'amount_mismatch' || (txn.status === 'paid' && !txn.sale_id);
 
 /** Status → how it should read at a glance. */
 const STATUS_STYLE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
@@ -99,6 +115,58 @@ function GatewayPaymentsReportPageInner() {
     dateTo,
     institutionId
   );
+
+  const queryClient = useQueryClient();
+  const { isSuperAdmin, canAccess } = usePermissions();
+  // Re-booking runs ims_pos_checkout, which is a SALE. The page itself only needs
+  // ims.reports.view, so the action needs its own gate — the RPC enforces this
+  // server-side too, making this the readable version rather than the only one.
+  const canRebook = isSuperAdmin || canAccess('ims.sales', 'create');
+
+  const [strandedOnly, setStrandedOnly] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  const visibleTransactions = useMemo(() => {
+    const rows = report?.transactions ?? [];
+    return strandedOnly ? rows.filter(needsAttention) : rows;
+  }, [report, strandedOnly]);
+
+  /**
+   * Book a payment whose money arrived but whose sale never did.
+   *
+   * Deliberately no new booking logic: GET .../status already books when it finds
+   * `paid` with no sale, and it is the ONE path that does (the webhook and the
+   * callback both defer to it). This just gives that path a button, for the case
+   * where nobody still has the /ims/sales?gp=… tab open.
+   */
+  const retryBooking = async (paymentId: string) => {
+    setRetryingId(paymentId);
+    try {
+      const res = await fetch(`/api/ims/payment/gateway/${paymentId}/status`);
+      const body = await res.json();
+
+      if (!res.ok) throw new Error(body?.error || 'Could not complete the sale');
+
+      if (body?.sale_id) {
+        toast.success(
+          body.sale_number ? `Booked as ${body.sale_number}` : 'Sale completed',
+        );
+        queryClient.invalidateQueries({ queryKey: ['ims-gateway-payments'] });
+        queryClient.invalidateQueries({ queryKey: ['ims-sales'] });
+      } else {
+        // Still refused. finalize_error carries the reason, and it names the thing
+        // a person has to go and fix.
+        toast.error(body?.finalize_error || 'The sale still could not be completed', {
+          duration: 10000,
+        });
+        queryClient.invalidateQueries({ queryKey: ['ims-gateway-payments'] });
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Could not complete the sale', { duration: 10000 });
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   return (
     <ContentLayout title="Gateway Payments">
@@ -157,6 +225,23 @@ function GatewayPaymentsReportPageInner() {
                   />
                 </div>
               )}
+
+              {/* The reason most people open this page. On a busy day the rows that
+                  need acting on are a handful among hundreds that are simply fine. */}
+              <Button
+                variant={strandedOnly ? 'default' : 'outline'}
+                size="sm"
+                className="ml-auto"
+                onClick={() => setStrandedOnly((v) => !v)}
+              >
+                <AlertTriangle className="mr-2 h-4 w-4" />
+                Needs attention only
+                {report && report.summary.needs_attention_count > 0 && (
+                  <Badge variant="secondary" className="ml-2">
+                    {report.summary.needs_attention_count}
+                  </Badge>
+                )}
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -228,17 +313,20 @@ function GatewayPaymentsReportPageInner() {
                         <TableHead>Customer</TableHead>
                         <TableHead>Cashier</TableHead>
                         <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {report.transactions.length === 0 ? (
+                      {visibleTransactions.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
-                            No gateway payments for the selected period
+                          <TableCell colSpan={10} className="text-center py-12 text-muted-foreground">
+                            {strandedOnly
+                              ? 'Nothing needs attention in this period — every payment is accounted for.'
+                              : 'No gateway payments for the selected period'}
                           </TableCell>
                         </TableRow>
                       ) : (
-                        report.transactions.map((txn) => {
+                        visibleTransactions.map((txn) => {
                           const style = STATUS_STYLE[txn.status] ?? {
                             label: txn.status,
                             variant: 'secondary' as const,
@@ -319,7 +407,17 @@ function GatewayPaymentsReportPageInner() {
                                     {txn.sale_number}
                                   </span>
                                 ) : stranded ? (
-                                  <span className="text-xs text-amber-600">not booked</span>
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="text-xs text-amber-600">not booked</span>
+                                    {/* The service has always selected finalize_error and
+                                        the page has never shown it — yet it is the one
+                                        sentence that says what to go and fix. */}
+                                    {txn.finalize_error && (
+                                      <span className="text-[10px] text-muted-foreground max-w-[22rem]">
+                                        {txn.finalize_error}
+                                      </span>
+                                    )}
+                                  </div>
                                 ) : (
                                   <span className="text-muted-foreground text-xs">—</span>
                                 )}
@@ -337,6 +435,33 @@ function GatewayPaymentsReportPageInner() {
 
                               <TableCell className="text-muted-foreground whitespace-nowrap">
                                 {format(new Date(txn.created_at), 'dd MMM yyyy, hh:mm a')}
+                              </TableCell>
+
+                              {/* Money in, no sale. Until now this row could only be
+                                  recovered by whoever still had the /ims/sales?gp=…
+                                  tab open — close it and a captured live payment was
+                                  unreachable from the UI entirely. */}
+                              <TableCell
+                                className="text-right"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {txn.status === 'paid' && !txn.sale_id && canRebook ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={retryingId === txn.id}
+                                    onClick={() => retryBooking(txn.id)}
+                                  >
+                                    {retryingId === txn.id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                                    )}
+                                    {retryingId === txn.id ? '' : 'Complete sale'}
+                                  </Button>
+                                ) : (
+                                  <span className="text-muted-foreground text-xs">—</span>
+                                )}
                               </TableCell>
                             </TableRow>
                           );

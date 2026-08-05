@@ -5,15 +5,16 @@
  *
  * Substrate: 20260731071358_staff_working_institution_hr_payroll.sql
  *            20260731090000_hr_staff_without_payer_rpc.sql
+ *            20260804090000_hr_staff_payroll_directory_rpc.sql
  *
  * Reads go straight to the browser client rather than through an API route:
  * hr_staff_payroll is gated by RLS on hr.payroll.institution.view, so the
  * database is already the enforcement point and a route would only re-wrap it.
  *
- * The queue and the assignment list share these query keys so recording a payer
- * refreshes BOTH — a person leaves the queue at the same moment they gain an
- * assignment, and two independent caches would show the row in both places
- * until a reload.
+ * Every mutation invalidates the queue AND the directory. The two RPCs read the
+ * same underlying rows through different lenses, so refreshing one and not the
+ * other would show the same person as both assigned and outstanding until a
+ * reload.
  */
 
 import { useMemo } from 'react';
@@ -23,12 +24,14 @@ import {
   StaffPayrollService,
   type PayrollOrganization,
   type StaffAwaitingPayer,
+  type StaffPayerRow,
 } from '@/lib/services/hr/payroll/staff-payroll-service';
 
 export const STAFF_PAYROLL_KEYS = {
   awaitingPayer: ['hr', 'staff-payroll', 'awaiting-payer'] as const,
   organizations: ['hr', 'staff-payroll', 'organizations'] as const,
   payer: (staffId: string) => ['hr', 'staff-payroll', 'payer', staffId] as const,
+  directory: ['hr', 'staff-payroll', 'directory'] as const,
 };
 
 /**
@@ -61,6 +64,24 @@ export function usePayrollOrganizations() {
   });
 }
 
+/**
+ * Every active staff member with their payer, assigned or not — what the
+ * Payroll Organisation screen lists.
+ *
+ * Also the single source for the coverage cards: recorded and awaiting are
+ * counted from these rows rather than fetched separately, so the cards and the
+ * table can never disagree about how many people are outstanding.
+ */
+export function useStaffPayerDirectory() {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  return useQuery<StaffPayerRow[]>({
+    queryKey: STAFF_PAYROLL_KEYS.directory,
+    queryFn: () => StaffPayrollService.listDirectory(supabase),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useSetStaffPayer() {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
   const queryClient = useQueryClient();
@@ -77,9 +98,42 @@ export function useSetStaffPayer() {
     }) => StaffPayrollService.setPayer(supabase, staffId, hrOrganizationId, notes),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: STAFF_PAYROLL_KEYS.awaitingPayer });
+      queryClient.invalidateQueries({ queryKey: STAFF_PAYROLL_KEYS.directory });
       queryClient.invalidateQueries({
         queryKey: STAFF_PAYROLL_KEYS.payer(variables.staffId),
       });
+    },
+  });
+}
+
+/**
+ * Record one payer for every selected person in a single statement.
+ *
+ * Invalidates the same keys as the single-row mutation so the queue, the
+ * coverage cards and any open per-person query all move together — a partial
+ * refresh here would leave the cards claiming work that the table shows as
+ * already done.
+ */
+export function useSetStaffPayersBulk() {
+  const supabase = useMemo(() => createClientSupabaseClient(), []);
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      staffIds,
+      hrOrganizationId,
+    }: {
+      staffIds: string[];
+      hrOrganizationId: string;
+    }) => StaffPayrollService.setPayersBulk(supabase, staffIds, hrOrganizationId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: STAFF_PAYROLL_KEYS.awaitingPayer });
+      queryClient.invalidateQueries({ queryKey: STAFF_PAYROLL_KEYS.directory });
+      for (const staffId of variables.staffIds) {
+        queryClient.invalidateQueries({
+          queryKey: STAFF_PAYROLL_KEYS.payer(staffId),
+        });
+      }
     },
   });
 }
@@ -93,6 +147,7 @@ export function useClearStaffPayer() {
       StaffPayrollService.clearPayer(supabase, staffId),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: STAFF_PAYROLL_KEYS.awaitingPayer });
+      queryClient.invalidateQueries({ queryKey: STAFF_PAYROLL_KEYS.directory });
       queryClient.invalidateQueries({
         queryKey: STAFF_PAYROLL_KEYS.payer(variables.staffId),
       });

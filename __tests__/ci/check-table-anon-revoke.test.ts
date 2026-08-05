@@ -258,3 +258,149 @@ describe('check-table-anon-revoke gate', () => {
     expect(code).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Backup / rollback relations — the rule with no escape hatch.
+//
+// Each of the three shapes below EXITED 0 before this rule existed, measured on
+// 2026-08-01 against the guard as it then stood. Two of them did worse than miss:
+// they printed "✓ ... 1 locked" over a relation carrying a live GRANT TO anon.
+// That is the 2026-07-31 shape, where one `_bak_learner_section_repair_20260731`
+// table published 179 learners' identities to the public anon key.
+// ---------------------------------------------------------------------------
+
+describe('check-table-anon-revoke gate — backup relations have no exemption', () => {
+  it('FAILS a _bak_ CTAS with no revoke and no RLS (the 2026-07-31 shape)', () => {
+    // CREATE TABLE AS never enables RLS, so this is how a repair backup is
+    // actually born. Both dimensions must fire, and the exit code must be 1.
+    //
+    // Honest scope: this shape was ALREADY red before the backup rule existed —
+    // the generic rules catch it, and a mutation run against the pre-change guard
+    // confirms it exited 1 there too. It is kept as a REGRESSION pin: the backup
+    // path now owns this relation's verdict, so a refactor of that path could
+    // silently take it over and lose the failure. It is not evidence of new
+    // coverage; the hatched and granted fixtures below are.
+    const { code, out } = runGate(`
+      CREATE TABLE public._bak_learner_section_repair_20260731 AS
+        SELECT id, full_name FROM public.learners_profiles;
+    `, 'bak-bare.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('BACKUP RELATION NOT LOCKED');
+    expect(out).toContain('_bak_learner_section_repair_20260731');
+    expect(out).toContain('no anon revoke');
+    expect(out).toContain('no ENABLE ROW LEVEL SECURITY');
+  });
+
+  it('FAILS a _bak_ table even when the file carries BOTH escape-hatch markers', () => {
+    // Measured pre-change: exited 0 and reported "0 new table(s)/view(s) checked"
+    // — the guard did not merely pass it, it never looked at it. The hatch is a
+    // whole-FILE marker, so one legitimate scratch table in a repair migration
+    // silently exempted every backup relation beside it.
+    const { code, out } = runGate(`
+      -- ci:allow-anon-table live repair backup, dropped next week
+      -- ci:allow-no-rls live repair backup, dropped next week
+      CREATE TABLE public._bak_learner_repair_20260731 AS
+        SELECT id, full_name FROM public.learners_profiles;
+    `, 'bak-hatched.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('_bak_learner_repair_20260731');
+    expect(out).toContain('ci:allow-anon-table does NOT cover a backup relation');
+    expect(out).toContain('ci:allow-no-rls does NOT cover a backup relation');
+    // It must actually inspect the relation, not skip the file.
+    expect(out).not.toContain('0 new table(s)/view(s) checked');
+  });
+
+  it('FAILS a _bak_ table published by GRANT ... TO anon (was scored as LOCKED)', () => {
+    // The sharpest regression. Criterion (b) — "public on purpose" — used to
+    // accept this AND exempt it from the RLS check, so a table granted to the
+    // public anon key reported clean on both dimensions.
+    const { code, out } = runGate(`
+      CREATE TABLE public._bak_hostel_allocations_20260731 AS
+        SELECT id, student_id FROM public.hostel_allocations;
+      GRANT SELECT ON TABLE public._bak_hostel_allocations_20260731 TO anon;
+    `, 'bak-granted.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('_bak_hostel_allocations_20260731');
+    expect(out).toContain('BACKUP RELATION NOT LOCKED');
+    // Assert the COUNTER, not the absence of a phrase: the summary must score the
+    // relation as inspected-and-not-locked. (A first pass asserted
+    // `not.toContain('1 locked')` and failed — the guard's own explanatory text
+    // quotes that phrase when describing the old behaviour, so the assertion was
+    // matching prose rather than the verdict.)
+    expect(out).toContain('1 new table(s)/view(s) checked, 0 locked');
+  });
+
+  it('PASSES a _bak_ table that carries the revoke AND enables RLS', () => {
+    // The satisfiable path — proving the rule is a gate, not a wall.
+    const { code, out } = runGate(`
+      CREATE TABLE public._bak_learner_section_repair_20260801 AS
+        SELECT id, full_name FROM public.learners_profiles;
+      REVOKE ALL ON TABLE public._bak_learner_section_repair_20260801 FROM anon, PUBLIC;
+      GRANT SELECT ON TABLE public._bak_learner_section_repair_20260801 TO service_role;
+      ALTER TABLE public._bak_learner_section_repair_20260801 ENABLE ROW LEVEL SECURITY;
+    `, 'bak-ok.sql');
+    expect(code).toBe(0);
+    expect(out).toContain('backup relation');
+  });
+
+  it('accepts a blanket REVOKE ON ALL TABLES for a backup table (a real revoke, not an exemption)', () => {
+    const { code } = runGate(`
+      CREATE TABLE public._bak_fee_repair_20260801 AS SELECT 1 AS id;
+      REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+      ALTER TABLE public._bak_fee_repair_20260801 ENABLE ROW LEVEL SECURITY;
+    `, 'bak-blanket.sql');
+    expect(code).toBe(0);
+  });
+
+  it('FAILS a _rollback_ VIEW with no revoke, but does NOT demand RLS of it', () => {
+    // A view cannot carry a policy at all, so demanding RLS would be an
+    // unsatisfiable gate. The anon revoke is the real exposure path for a view
+    // anyway: unless it is security_invoker it runs as its OWNER, so it can
+    // republish a correctly locked table straight to anon.
+    const { code, out } = runGate(`
+      CREATE VIEW public._rollback_learner_snapshot AS
+        SELECT id, full_name FROM public.learners_profiles;
+      GRANT SELECT ON TABLE public._rollback_learner_snapshot TO anon;
+    `, 'rollback-view.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('_rollback_learner_snapshot');
+    expect(out).toContain('[view] no anon revoke');
+    expect(out).toContain('0 new table(s) checked');   // RLS dimension: not demanded
+  });
+
+  it('covers the *_backup_<date> naming too, not only the _bak_ house convention', () => {
+    // Calibrated against the four real ones the `bak` pattern alone misses:
+    // hr_leave_applications_backup_20260728, ims_rls_policy_backup_20260728,
+    // student_attendance_backup_20250109, _staff_scope_lockdown_backup_20260511.
+    //
+    // BOTH hatch markers are present on purpose. With only one, the file goes red
+    // on the OTHER dimension and the test passes without ever exercising the
+    // backup rule — a mutation run against the pre-change guard caught exactly
+    // that, so this fixture is written to be green on main and red only here.
+    const { code, out } = runGate(`
+      -- ci:allow-anon-table repair leftover
+      -- ci:allow-no-rls repair leftover
+      CREATE TABLE public.hr_leave_applications_backup_20260801 AS
+        SELECT * FROM public.hr_leave_applications;
+    `, 'suffix-backup.sql');
+    expect(code).toBe(1);
+    expect(out).toContain('hr_leave_applications_backup_20260801');
+    expect(out).toContain('BACKUP RELATION NOT LOCKED');
+  });
+
+  it('does NOT fire on legitimate feature tables that merely sound like backups', () => {
+    // The false-positive guard. `snapshot` is a real domain word here
+    // (accreditation_iiqa_snapshots, cdc_placement_snapshots,
+    // hostel_occupancy_snapshots …) and is deliberately NOT in the pattern; if it
+    // were, real feature work would hit a gate with no hatch and the gate would
+    // get disabled. Segment matching is also why `bakery_orders` is safe.
+    const { code } = runGate(`
+      -- ci:allow-anon-table ordinary feature table, hatch still available
+      -- ci:allow-no-rls ordinary feature table, hatch still available
+      CREATE TABLE public.hostel_occupancy_snapshots (id uuid PRIMARY KEY);
+      CREATE TABLE public.cdc_placement_snapshots (id uuid PRIMARY KEY);
+      CREATE TABLE public.bakery_orders (id uuid PRIMARY KEY);
+    `, 'no-false-positive.sql');
+    expect(code).toBe(0);
+  });
+});
