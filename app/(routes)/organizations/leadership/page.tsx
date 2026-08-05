@@ -19,12 +19,17 @@
 // college officer global role management. See the migration header:
 //   supabase/migrations/20260809101500_college_leadership.sql
 //
-// Reads go through fn_list_leadership_colleges / fn_get_college_leadership for
-// the same reason plus a sharper one: user_roles and the committee tables are
-// not readable without roles.edit / accreditation.naac.committees.view, and RLS
-// denial is SILENT (zero rows, error null). Reading them directly would print
+// Reads go through fn_list_leadership_colleges / fn_get_college_leadership /
+// fn_list_leadership_candidates for the same reason plus a sharper one:
+// user_roles, user_institution_access and the committee tables are not readable
+// without roles.edit / accreditation.naac.committees.view, and RLS denial is
+// SILENT (zero rows, error null). Reading them directly would print
 // "Not assigned" over posts that are filled — fabricated absence on the one
 // screen whose whole job is showing real absence.
+//
+// 2026-08-05: Principal and Vice Principal now live in institution_leadership,
+// one row per college, so one person can hold the post at more than one. See
+//   supabase/migrations/20260809102100_institution_leadership_posts.sql
 // ============================================================================
 
 'use client';
@@ -186,21 +191,26 @@ function useCollegeLeadership(institutionId: string) {
   });
 }
 
-/** Everyone at this college who could hold a post. profiles is readable
- *  under existing RLS (profiles_select_policy), so no RPC is needed. */
+/** Everyone who could hold a post at this college.
+ *
+ *  Reads fn_list_leadership_candidates rather than filtering profiles by
+ *  institution_id directly. profiles.institution_id is single-valued, so that
+ *  filter hid anyone serving a second college — Dr Dhanasekar Balakrishnan is
+ *  Principal of Dental AND of Allied Health, and his profile can only name one
+ *  of them, so he never appeared in the other's picker. The RPC returns the same
+ *  people plus anyone holding an active user_institution_access grant, which is
+ *  exactly the set fn_set_college_leadership accepts, and it is SECURITY DEFINER
+ *  because user_institution_access is not readable by a college officer and RLS
+ *  denial is silent — a direct read would quietly return a short list. */
 function useCollegePeople(institutionId: string) {
   return useQuery({
     queryKey: QK.people(institutionId),
     enabled: !!institutionId,
     queryFn: async (): Promise<Candidate[]> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('profiles')
-        .select('id, full_name, email')
-        .eq('institution_id', institutionId)
-        .eq('is_active', true)
-        .order('full_name', { ascending: true })
-        .limit(2000);
+      const { data, error } = await sb.rpc('fn_list_leadership_candidates', {
+        p_institution_id: institutionId,
+      });
       if (error) throw error;
       return (data ?? []) as Candidate[];
     },

@@ -27,8 +27,9 @@
 //   private or draft types by guessing slugs.
 
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
+import { resolveRetiredHandle } from '@/lib/services/meetings/handle-redirect';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import {
   PublicHostService,
@@ -106,7 +107,19 @@ export default async function MeetTypePage({ params }: MeetTypePageProps) {
   const { handle, type } = await params;
   const [host, viewer] = await Promise.all([loadHost(handle), loadViewer()]);
 
-  if (!host) notFound();
+  // Same retired-address forward the parent page does — carrying the type slug
+  // through, so /meet/<old>/<type> lands on /meet/<new>/<type> rather than the
+  // host's index.
+  //
+  // This route shipped (#2816) before the rename feature existed (#2818), so for
+  // a day the parent forwarded and this one 404'd. Nobody hit it — no handle has
+  // been retired yet — but the first rename would have quietly broken exactly
+  // the links most worth sharing: the ones naming a specific meeting.
+  if (!host) {
+    const current = await resolveRetiredHandle(handle);
+    if (current) permanentRedirect(`/meet/${current}/${encodeURIComponent(type)}`);
+    notFound();
+  }
 
   const meetingType = findType(host, type);
   // Deliberately the same 404 as an unknown handle — see the "no oracle" note

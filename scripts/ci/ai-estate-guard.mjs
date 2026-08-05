@@ -258,6 +258,77 @@ async function checkScheduledWorkflows() {
   return { failing, checked: workflows.length };
 }
 
+/**
+ * Has anything been merged to main that production is not yet serving?
+ *
+ * WHY THIS IS HERE
+ *   Merging to main is supposed to trigger a Vercel deploy through the GitHub
+ *   integration. On 2026-08-04 it did not fire for six merges, and again on
+ *   2026-08-05 for one more — three separate occasions where the deploy hook had
+ *   to be fired by hand. Nothing anywhere announced the gap.
+ *
+ *   That failure is invisible by construction: the site keeps serving happily,
+ *   every check is green, and the only symptom is that a change somebody merged
+ *   simply is not live. No error, no red tick, no alert — the merge looks done.
+ *
+ *   The routine half of this guard would never catch it, because nothing is
+ *   broken in the database. It needs asking from the repository side.
+ *
+ * Never throws. On any failure it returns a "could not check" shape rather than
+ * a clean bill of health, because "I could not tell" and "nothing is wrong" must
+ * not look the same — the same rule the blind-digest path follows.
+ */
+async function checkDeployDrift() {
+  if (!GH_TOKEN) return { skipped: 'no GITHUB_TOKEN — deploy drift not checked' };
+  const headers = {
+    Authorization: `Bearer ${GH_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'MyJKKN-ai-estate-guard/1.0',
+  };
+
+  try {
+    const headRes = await fetch(`https://api.github.com/repos/${GH_REPO}/commits/main`, { headers });
+    if (!headRes.ok) return { skipped: `GitHub API said ${headRes.status} for main` };
+    const head = await headRes.json();
+    const headSha = head?.sha;
+    if (!headSha) return { skipped: 'could not read main HEAD' };
+
+    const depRes = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/deployments?environment=Production%20%E2%80%93%20my-jkkn&per_page=1`,
+      { headers },
+    );
+    // The environment name contains an en dash and is easy to get wrong; fall
+    // back to the unfiltered list rather than silently reporting "no deploys".
+    let deployments = depRes.ok ? await depRes.json() : [];
+    if (!Array.isArray(deployments) || deployments.length === 0) {
+      const anyRes = await fetch(`https://api.github.com/repos/${GH_REPO}/deployments?per_page=1`, { headers });
+      deployments = anyRes.ok ? await anyRes.json() : [];
+    }
+    if (!Array.isArray(deployments) || deployments.length === 0) {
+      return { skipped: 'no deployment records found' };
+    }
+
+    const deployedSha = deployments[0].sha;
+    if (deployedSha === headSha) return { drifted: false, headSha, deployedSha };
+
+    // How far behind? A count makes "one merge ago" and "nine merges ago"
+    // different sentences, which they should be.
+    let behind = null;
+    const cmpRes = await fetch(
+      `https://api.github.com/repos/${GH_REPO}/compare/${deployedSha}...${headSha}`,
+      { headers },
+    );
+    if (cmpRes.ok) {
+      const cmp = await cmpRes.json();
+      behind = typeof cmp.ahead_by === 'number' ? cmp.ahead_by : null;
+    }
+
+    return { drifted: true, headSha, deployedSha, behind };
+  } catch (err) {
+    return { skipped: `deploy-drift check threw: ${err.message}` };
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Report
  * ------------------------------------------------------------------ */
@@ -271,7 +342,7 @@ const TIER_TITLE = {
   OFF:    'Switched off',
 };
 
-function buildReport({ routines, queue, workflows, now }) {
+function buildReport({ routines, queue, workflows, deploy, now }) {
   const buckets = Object.fromEntries(TIER_ORDER.map((t) => [t, []]));
   for (const r of routines) {
     const verdict = classify(r, now);
@@ -289,7 +360,7 @@ function buildReport({ routines, queue, workflows, now }) {
   L.push('');
 
   // --- headline ---------------------------------------------------------
-  if (problems === 0 && wfFailing === 0) {
+  if (problems === 0 && wfFailing === 0 && !deploy?.drifted) {
     L.push(`**All clear.** ${routines.length} routines checked, nothing down, nothing stale, nothing silently producing zero.`);
   } else {
     const bits = [];
@@ -297,6 +368,7 @@ function buildReport({ routines, queue, workflows, now }) {
     if (buckets.SILENT.length) bits.push(`${buckets.SILENT.length} silent`);
     if (buckets.STALE.length) bits.push(`${buckets.STALE.length} stale`);
     if (wfFailing) bits.push(`${wfFailing} scheduled check failing`);
+    if (deploy?.drifted) bits.push('merged code NOT deployed');
     L.push(`**${bits.join(' · ')}** out of ${routines.length} routines.`);
   }
   L.push('');
@@ -311,6 +383,29 @@ function buildReport({ routines, queue, workflows, now }) {
     }
     L.push('');
   }
+
+  // --- deploy drift -----------------------------------------------------
+  L.push('## Is production serving what was merged?');
+  L.push('');
+  if (deploy.skipped) {
+    L.push(`_Not checked: ${deploy.skipped}_`);
+  } else if (deploy.drifted) {
+    const n = deploy.behind;
+    L.push(
+      `- ⚠️ **Merged but NOT deployed.** \`main\` is at \`${deploy.headSha.slice(0, 10)}\`, ` +
+      `production is serving \`${deploy.deployedSha.slice(0, 10)}\`` +
+      (n ? ` — **${n} commit${n === 1 ? '' : 's'} behind**.` : '.'),
+    );
+    L.push('');
+    L.push(
+      '  Merging is supposed to trigger a deploy automatically. It did not fire on ' +
+      '2026-08-04 (six merges) or 2026-08-05 (one), so this is a known-recurring gap. ' +
+      'Nothing looks broken when it happens — the site keeps serving the older build.',
+    );
+  } else {
+    L.push(`Yes — production is serving \`${deploy.deployedSha.slice(0, 10)}\`, the current tip of main.`);
+  }
+  L.push('');
 
   // --- scheduled workflows ---------------------------------------------
   L.push('## Scheduled checks (GitHub Actions)');
@@ -386,16 +481,19 @@ async function main() {
     process.exit(1);
   }
 
+  let deploy;
   try {
     workflows = await checkScheduledWorkflows();
   } catch (err) {
     workflows = { skipped: `check threw: ${err.message}` };
   }
+  deploy = await checkDeployDrift();
 
   const report = buildReport({
     routines,
     queue: queueRows[0] ?? {},
     workflows,
+    deploy,
     now,
   });
 
