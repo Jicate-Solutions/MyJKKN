@@ -73,6 +73,8 @@ import {
   useRemoveMember,
   useDeactivateNAACCommittee,
 } from '@/hooks/accreditation/use-naac-committees';
+import { useMyCommitteeRoster } from '@/hooks/accreditation/use-my-committee-roster';
+import { decideCommitteeDetailAccess } from '../_lib/committee-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CommitteeMemberRole } from '@/lib/services/accreditation/accreditation-committee-service';
 import { MeetingsSection } from './_components/meetings-section';
@@ -160,7 +162,22 @@ export default function NAACCommitteeDetailPage({
   const { id } = use(params);
   const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
 
-  const canView = isSuperAdmin || can('accreditation.naac.committees.view');
+  const hasViewPermission =
+    isSuperAdmin || can('accreditation.naac.committees.view');
+
+  // Director decision 8: being named on THIS committee's roster opens it, no
+  // matter what the viewer's job title is. Only read when the permission did
+  // not already answer the question.
+  const { data: rosterCommitteeIds, isLoading: rosterLoading } =
+    useMyCommitteeRoster({ enabled: !permsLoading && !hasViewPermission });
+
+  const access = decideCommitteeDetailAccess({
+    hasViewPermission,
+    rosterCommitteeIds: rosterCommitteeIds ?? [],
+    committeeId: id,
+  });
+  const canView = access.allowed;
+
   const canManageMembers =
     isSuperAdmin || can('accreditation.naac.committees.members.manage');
   const canManageMeetings =
@@ -181,7 +198,7 @@ export default function NAACCommitteeDetailPage({
   const profileIds = [...new Set([...memberUserIds, ...(chairId ? [chairId] : [])])];
   const { data: profiles } = useProfileLookup(profileIds);
 
-  if (permsLoading || cLoading) {
+  if (permsLoading || cLoading || rosterLoading) {
     return (
       <ContentLayout title="IQAC Committee">
         <Skeleton className="h-40 w-full" />
@@ -201,20 +218,32 @@ export default function NAACCommitteeDetailPage({
     );
   }
 
-  if (!committee) {
-    notFound();
-  }
-
+  // Refusal is decided BEFORE notFound(). RLS denial in this repo is silent —
+  // a denied read returns null with no error — so the previous order turned
+  // "you are not allowed" into a 404, which tells the viewer the committee does
+  // not exist. That is the same fabricated-absence failure the roster arm was
+  // written to end, so it is fixed here rather than left to bite the first real
+  // member. A genuine bad id still 404s, below.
   if (!canView) {
     return (
       <ContentLayout title="IQAC Committee">
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            You do not have permission to view this committee.
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="text-base font-semibold">{access.title}</p>
+            <p className="mx-auto max-w-xl text-sm text-muted-foreground">
+              {access.detail}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Who to ask: <span className="font-medium">{access.contact}</span>
+            </p>
           </CardContent>
         </Card>
       </ContentLayout>
     );
+  }
+
+  if (!committee) {
+    notFound();
   }
 
   return (
