@@ -125,14 +125,50 @@ export async function POST(request: NextRequest) {
   // Decision 10 says keep EVERY phone/email and mark one primary. Networker's
   // `contacts` table has exactly ONE phone and ONE email column, so the surplus
   // has nowhere structured to live. Losing it silently is the failure mode this
-  // build already met once (a real card printed three numbers and the extractor
-  // returned two), so the extras are written into the note instead of dropped.
-  // This is a stopgap that PRESERVES the data; it is not decision 10 satisfied.
+  // build already met once — a real card printed THREE numbers and the extractor
+  // returned two, at confidence:"high", with nothing to signal the loss.
+  //
+  // Reads BOTH shapes on purpose. The revised box prompt returns `phones: [{number,
+  // label}]`; an un-updated box still returns only `phone` + `mobile`. Handling
+  // both means the correct behaviour does not depend on which version of the
+  // runner happened to read this particular card.
+  const rawExtract = (job.result as { fields?: Record<string, unknown> } | null)?.fields ?? {};
+  const listedPhones = Array.isArray(rawExtract.phones)
+    ? (rawExtract.phones as Array<{ number?: unknown; label?: unknown }>)
+        .map((p) => ({
+          number: typeof p?.number === 'string' ? p.number.trim() : '',
+          label: typeof p?.label === 'string' ? p.label.trim() : '',
+        }))
+        .filter((p) => p.number)
+    : [];
+  const listedEmails = Array.isArray(rawExtract.emails)
+    ? (rawExtract.emails as unknown[]).filter(
+        (e): e is string => typeof e === 'string' && e.trim().length > 0,
+      )
+    : [];
+
   const primaryPhone = human.mobile ?? human.phone;
+  const primaryEmail = human.email;
+
+  // Compare on digits so "+91 98430 41971" and "9843041971" are not both kept.
+  const digits = (s: string) => s.replace(/\D/g, '');
+  const seenPhone = new Set([primaryPhone, human.phone, human.mobile].filter(Boolean).map((p) => digits(p as string)));
   const extraLines: string[] = [];
-  if (human.mobile && human.phone && human.mobile !== human.phone) {
+
+  for (const p of listedPhones) {
+    if (seenPhone.has(digits(p.number))) continue;
+    seenPhone.add(digits(p.number));
+    extraLines.push(`Also on: ${p.number}${p.label ? ` (${p.label})` : ''}`);
+  }
+  // Fallback for the un-updated box: the two fixed fields may still disagree.
+  if (listedPhones.length === 0 && human.mobile && human.phone && human.mobile !== human.phone) {
     extraLines.push(`Also on: ${human.phone}`);
   }
+  for (const e of listedEmails) {
+    if (primaryEmail && e.toLowerCase() === primaryEmail.toLowerCase()) continue;
+    extraLines.push(`Also at: ${e}`);
+  }
+
   if (human.handwritten_note) extraLines.push(human.handwritten_note);
   if (body.routed_to) extraLines.push(`Who: ${body.routed_to}`);
 
