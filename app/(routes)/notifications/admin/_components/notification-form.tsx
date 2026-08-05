@@ -108,9 +108,20 @@ const ALLOWED_FILE_TYPES = [
   'video/mp4',
   'audio/mpeg',
   'audio/mp3',
+  // Images (added 2026-08-04): the picker previously greyed images out and the
+  // validator rejected them, so an announcement could never carry a poster,
+  // circular scan, or screenshot. The storage bucket's allowed_mime_types was
+  // missing them too — both layers had to change (see the companion migration
+  // 20260804170000_notification_attachments_allow_images.sql).
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
 ];
 
-const ALLOWED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3';
+const ALLOWED_EXTENSIONS =
+  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3,.png,.jpg,.jpeg,.gif,.webp';
 const MAX_FILE_SIZE_MB = 25;
 const MAX_ATTACHMENTS = 5;
 
@@ -122,6 +133,8 @@ interface AttachmentFile {
 }
 
 function getFileIcon(type: string) {
+  // Checked first: 'image/*' must not fall through to the generic document icon.
+  if (type.startsWith('image/')) return <FileImage className='h-4 w-4 text-sky-500' />;
   if (type.includes('pdf')) return <FileText className='h-4 w-4 text-red-500' />;
   if (type.includes('word') || type.includes('document')) return <FileText className='h-4 w-4 text-blue-500' />;
   if (type.includes('excel') || type.includes('spreadsheet')) return <FileSpreadsheet className='h-4 w-4 text-green-500' />;
