@@ -35,6 +35,19 @@ export interface PublicMeetingType {
    * the booker so they can find an in-person meeting. null = custom/no room.
    */
   locationDetails: string | null;
+  /**
+   * Purpose grouping: types sharing a non-null value are ONE choice on the
+   * public page, and this value is that choice's label — the booker picks the
+   * purpose first, then the format. null = stands alone under its own title,
+   * which is the pre-existing behaviour for every host that has not set it.
+   *
+   * This restores a concept the 2026-06-11 Calendly mirror lost: 14 types came
+   * from Calendly events whose location was "in-person / online, invitee
+   * chooses". The import had nowhere to put that, so it forced a single
+   * location_mode and left the real meaning in free text — which is why some
+   * types still show a format badge that contradicts their own description.
+   */
+  purposeGroup: string | null;
 }
 
 export interface PublicHost {
@@ -117,7 +130,7 @@ export class PublicHostService {
         .maybeSingle(),
       supabase
         .from('meeting_types')
-        .select('id, title, slug, duration_min, description, location_mode, location_text, location_resource_id')
+        .select('id, title, slug, duration_min, description, location_mode, location_text, location_resource_id, purpose_group')
         .eq('host_profile_id', page.host_profile_id)
         .eq('is_active', true)
         .eq('hidden', false)
@@ -160,6 +173,9 @@ export class PublicHostService {
         locationDetails: t.location_resource_id
           ? directionsById.get(t.location_resource_id as string) ?? null
           : null,
+        // Treat an all-whitespace value as unset so a stray space in the host
+        // editor cannot silently create a group of one with a blank label.
+        purposeGroup: ((t.purpose_group as string | null) ?? '').trim() || null,
       })),
     };
   }

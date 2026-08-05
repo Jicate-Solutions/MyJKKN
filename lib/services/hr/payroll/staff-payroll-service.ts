@@ -31,6 +31,26 @@ export interface StaffAwaitingPayer {
   works_at_name: string;
 }
 
+/**
+ * One active staff member and their recorded payer. Shape of
+ * hr_staff_payroll_directory().
+ *
+ * `payer_org_id` is NULL when nobody has recorded a payer — the same
+ * "not yet decided" state that absence of an hr_staff_payroll row carries, kept
+ * as null rather than defaulted to the work location so the UI never presents a
+ * guess as a recorded fact.
+ */
+export interface StaffPayerRow {
+  staff_uuid: string;
+  staff_code: string | null;
+  person_name: string;
+  role_title: string | null;
+  works_at_id: string;
+  works_at_name: string;
+  payer_org_id: string | null;
+  payer_org_name: string | null;
+}
+
 export interface StaffPayerAssignment {
   staff_id: string;
   hr_organization_id: string;
@@ -159,6 +179,78 @@ export class StaffPayrollService {
     if (error) {
       throw new Error(
         `Failed to record the payroll organisation: ${getErrorMessage(error)}`
+      );
+    }
+  }
+
+  /**
+   * EVERY active staff member with their recorded payer, assigned or not.
+   *
+   * This is what the screen lists. listWithoutPayer() above answers the
+   * narrower "who is missing a payer" and stays as the payslip-gap signal, but
+   * it cannot reach the 638 people who already have one — and because the
+   * backfill set payer = work institution for all of them, every one of those
+   * is an assumption that may need correcting. Listing only the gap made the
+   * assignment unreachable and therefore uncorrectable.
+   *
+   * Goes through an RPC for the same two reasons as the queue: PostgREST cannot
+   * express this LEFT JOIN across two tables in one request, and the RPC raises
+   * 42501 when the caller lacks the permission key instead of quietly returning
+   * [] — an empty directory must mean "no staff", never "you cannot see them".
+   *
+   * Returns the whole set unpaginated (744 rows on live data). The screen
+   * filters, sorts and pages it in memory; if this ever approaches a few
+   * thousand, parameterise the RPC rather than growing the payload.
+   */
+  static async listDirectory(supabase: SupabaseClient): Promise<StaffPayerRow[]> {
+    const { data, error } = await (supabase as any).rpc(
+      'hr_staff_payroll_directory'
+    );
+
+    if (error) {
+      throw new Error(
+        `Failed to load payroll organisations: ${getErrorMessage(error)}`
+      );
+    }
+
+    return (data ?? []) as StaffPayerRow[];
+  }
+
+  /**
+   * Record ONE payer for many people at once.
+   *
+   * The queue is dominated by groups who share a payer by construction — 30 bus
+   * drivers, 16 hostel scavengers — so assigning them one row at a time is 30
+   * round trips and 30 chances to stop half way. A single upsert is one
+   * statement: either every row lands or none does.
+   *
+   * Same onConflict as setPayer ('staff_id' is a real UNIQUE constraint), so
+   * re-assigning someone who already has a payer updates rather than throwing.
+   */
+  static async setPayersBulk(
+    supabase: SupabaseClient,
+    staffIds: string[],
+    hrOrganizationId: string
+  ): Promise<void> {
+    if (staffIds.length === 0) return;
+
+    const { data: userData } = await supabase.auth.getUser();
+    const updatedBy = userData?.user?.id ?? null;
+    const updatedAt = new Date().toISOString();
+
+    const { error } = await (supabase as any).from('hr_staff_payroll').upsert(
+      staffIds.map((staffId) => ({
+        staff_id: staffId,
+        hr_organization_id: hrOrganizationId,
+        updated_by: updatedBy,
+        updated_at: updatedAt,
+      })),
+      { onConflict: 'staff_id' }
+    );
+
+    if (error) {
+      throw new Error(
+        `Failed to record the payroll organisation for ${staffIds.length} team members: ${getErrorMessage(error)}`
       );
     }
   }
