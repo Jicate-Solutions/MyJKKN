@@ -21,12 +21,18 @@
 // membership, the member's role, committees.chair_user_id) so the two agree.
 // Where they might not, the copy says what it does not know instead of
 // reporting an empty read as a fact.
+//
+// A NOTE OUTLIVES ITS AUTHOR (20260809102500). When a member leaves and their
+// profile row is deleted, author_user_id becomes NULL and the note stays put.
+// So attribution is read from the note's own author_name / author_email
+// snapshot FIRST; the live profile is only consulted for rows written before
+// that snapshot existed. Resolving the name by joining profiles at read time is
+// the failure this fixes — after the departure there is nothing left to join to.
 // ============================================================================
 
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -43,11 +49,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { AlertTriangle, Info, NotebookPen, Save, Users } from 'lucide-react';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
 import { useNAACCommitteeMembers } from '@/hooks/accreditation/use-naac-committees';
 import {
   useMeetingMemberNotes,
+  useNoteAuthorProfiles,
   useSaveMinutesSummary,
   useSaveMyMeetingNote,
 } from '@/hooks/accreditation/use-naac-meeting-member-notes';
@@ -59,42 +65,15 @@ import {
 } from '@/lib/services/accreditation/meeting-minutes-compiler';
 import type { AccreditationCommittee } from '@/lib/services/accreditation/accreditation-committee-service';
 import type { CommitteeMeeting } from '@/lib/services/accreditation/committee-meeting-service';
-import type { MeetingMemberNote } from '@/lib/services/accreditation/meeting-member-notes-service';
+import {
+  isFormerMemberNote,
+  noteAuthorSnapshotLabel,
+  type MeetingMemberNote,
+} from '@/lib/services/accreditation/meeting-member-notes-service';
 import { toast } from 'sonner';
 
 /** Roles that compile the accounts into the official minutes. */
 const COMPILER_ROLES = ['chair', 'coordinator'] as const;
-
-interface ProfileLite {
-  id: string;
-  full_name: string | null;
-  email: string | null;
-}
-
-function useNoteAuthorProfiles(userIds: string[]) {
-  return useQuery({
-    // Same key shape as the detail page's lookup, so the two share a cache.
-    queryKey: ['profiles', 'lookup', [...userIds].sort().join(',')],
-    queryFn: async (): Promise<Record<string, ProfileLite>> => {
-      if (userIds.length === 0) return {};
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('profiles')
-        .select('id, full_name, email')
-        .in('id', userIds);
-      if (error) throw error;
-      return ((data ?? []) as ProfileLite[]).reduce<Record<string, ProfileLite>>(
-        (acc, p) => {
-          acc[p.id] = p;
-          return acc;
-        },
-        {},
-      );
-    },
-    enabled: userIds.length > 0,
-    staleTime: 5 * 60 * 1000,
-  });
-}
 
 export function MemberNotesPanel({
   meeting,
@@ -132,21 +111,32 @@ export function MemberNotesPanel({
       canManage);
   const canAuthor = !!myUserId && (!!myMembership || canManage);
 
+  // A departed author's note has author_user_id === null, which matches nobody:
+  // it is never mistaken for the signed-in member's own box, and it stays in the
+  // "other accounts" list where the compiler can still read it.
   const myNote: MeetingMemberNote | undefined = myUserId
-    ? (notes ?? []).find((n) => n.author_user_id === myUserId)
+    ? (notes ?? []).find((n) => !!n.author_user_id && n.author_user_id === myUserId)
     : undefined;
-  const othersNotes = (notes ?? []).filter(
-    (n) => n.author_user_id !== myUserId,
+  const othersNotes = (notes ?? []).filter((n) => n.id !== myNote?.id);
+
+  const { data: authorProfiles } = useNoteAuthorProfiles(
+    (notes ?? []).map((n) => n.author_user_id),
   );
 
-  const authorIds = [...new Set((notes ?? []).map((n) => n.author_user_id))];
-  const { data: authorProfiles } = useNoteAuthorProfiles(authorIds);
+  // Snapshot first — see the file header. The live profile is a fallback for
+  // rows written before the snapshot existed, not the source of truth, and for
+  // a departed author there is no profile left to consult at all.
+  const labelFor = (n: MeetingMemberNote): string => {
+    const snapshot = noteAuthorSnapshotLabel(n);
+    if (snapshot) return snapshot;
 
-  const nameFor = (userId: string): string => {
-    const p = authorProfiles?.[userId];
-    const fromProfile = p?.full_name?.trim() || p?.email || null;
+    const p = n.author_user_id ? authorProfiles?.[n.author_user_id] : undefined;
+    const fromProfile = p?.full_name?.trim() || p?.email?.trim() || null;
     if (fromProfile) return fromProfile;
-    const m = (members ?? []).find((x) => x.user_id === userId);
+
+    const m = n.author_user_id
+      ? (members ?? []).find((x) => x.user_id === n.author_user_id)
+      : undefined;
     return m?.external_name?.trim() || 'Committee member';
   };
 
@@ -184,13 +174,13 @@ export function MemberNotesPanel({
               <Separator />
               <OtherAccounts
                 notes={othersNotes}
-                nameFor={nameFor}
+                labelFor={labelFor}
                 updatedFor={(n) => n.updated_at}
               />
               <CompileMinutesButton
                 meeting={meeting}
                 notes={notes ?? []}
-                nameFor={nameFor}
+                labelFor={labelFor}
                 canWriteMinutes={canManage}
               />
             </>
@@ -287,11 +277,11 @@ function MyAccountBox({
 
 function OtherAccounts({
   notes,
-  nameFor,
+  labelFor,
   updatedFor,
 }: {
   notes: MeetingMemberNote[];
-  nameFor: (userId: string) => string;
+  labelFor: (n: MeetingMemberNote) => string;
   updatedFor: (n: MeetingMemberNote) => string;
 }) {
   return (
@@ -308,11 +298,18 @@ function OtherAccounts({
         <div className="grid gap-2 md:grid-cols-2">
           {notes.map((n) => (
             <div key={n.id} className="rounded-md border bg-card p-3">
-              <div className="text-xs font-medium">
-                {nameFor(n.author_user_id)}
+              <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
+                {labelFor(n)}
+                {isFormerMemberNote(n) && (
+                  <Badge variant="outline" className="font-normal">
+                    Former member
+                  </Badge>
+                )}
               </div>
               <div className="mt-0.5 text-[11px] text-muted-foreground">
                 {new Date(updatedFor(n)).toLocaleString('en-IN')}
+                {isFormerMemberNote(n) &&
+                  ' — this account was kept after they left the platform.'}
               </div>
               <p className="mt-2 whitespace-pre-wrap text-xs leading-relaxed">
                 {n.note_text.trim() || '(left blank)'}
@@ -332,21 +329,26 @@ function OtherAccounts({
 function CompileMinutesButton({
   meeting,
   notes,
-  nameFor,
+  labelFor,
   canWriteMinutes,
 }: {
   meeting: CommitteeMeeting;
   notes: MeetingMemberNote[];
-  nameFor: (userId: string) => string;
+  labelFor: (n: MeetingMemberNote) => string;
   canWriteMinutes: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  // compileMemberNotes treats its first field as an opaque key handed back to
+  // the resolver, so key by NOTE id rather than author id: a departed author has
+  // no user id, and keying by a shared null would collapse two people's accounts
+  // onto one name in the official minutes.
+  const labelByNoteId = new Map(notes.map((n) => [n.id, labelFor(n)]));
   const compiled = compileMemberNotes(
     notes.map((n) => ({
-      author_user_id: n.author_user_id,
+      author_user_id: n.id,
       note_text: n.note_text,
     })),
-    nameFor,
+    (noteId) => labelByNoteId.get(noteId) ?? 'Committee member',
     meeting.meeting_no,
   );
 
