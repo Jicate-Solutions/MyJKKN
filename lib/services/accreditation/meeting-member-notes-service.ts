@@ -20,6 +20,12 @@
 // zero rows and error === null, exactly like a sitting nobody has written up.
 // Callers MUST NOT render an empty list as "nobody wrote anything" unless they
 // have independently established that the viewer is allowed to see all of them.
+//
+// ⚠️ A note OUTLIVES its author (20260809102500). When a departing member's
+// profile row is deleted the FK sets author_user_id to NULL and the note stays.
+// Attribution therefore comes from the author_name / author_email SNAPSHOT
+// written at save time — never from joining profiles at read time, because
+// after the departure there is nothing there to join to.
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -27,11 +33,37 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 export interface MeetingMemberNote {
   id: string;
   meeting_id: string;
-  author_user_id: string;
+  /** NULL once the author has left the platform and their profile was deleted. */
+  author_user_id: string | null;
+  /** Snapshot of the author's name at save time. Survives their departure. */
+  author_name: string | null;
+  /** Snapshot of the author's email at save time. The fallback label. */
+  author_email: string | null;
   note_text: string;
   institution_id: string;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * How a note is attributed. The snapshot comes FIRST and on purpose: it is the
+ * only source that still exists after the author's profile row is gone, and
+ * preferring a live profile here would reintroduce exactly the read-time join
+ * this design removes. Returns null when the note carries no snapshot at all
+ * (rows written before 20260809102500 whose backfill found no profile), which
+ * lets the caller fall back to something it knows and never print an empty name.
+ */
+export function noteAuthorSnapshotLabel(
+  note: Pick<MeetingMemberNote, 'author_name' | 'author_email'>,
+): string | null {
+  return note.author_name?.trim() || note.author_email?.trim() || null;
+}
+
+/** True when the author's profile is gone — the note survived them. */
+export function isFormerMemberNote(
+  note: Pick<MeetingMemberNote, 'author_user_id'>,
+): boolean {
+  return note.author_user_id === null;
 }
 
 export class MeetingMemberNotesService {
@@ -62,9 +94,11 @@ export class MeetingMemberNotesService {
    * UNIQUE (meeting_id, author_user_id) constraint declared in the migration —
    * these two must stay identical or PostgreSQL raises 42P10 at runtime.
    *
-   * institution_id is deliberately NOT sent: a BEFORE trigger derives it from
-   * the parent meeting, so a client cannot file an account under a college it
-   * does not belong to.
+   * institution_id is deliberately NOT sent, and neither are author_name /
+   * author_email: the same BEFORE trigger derives all three — institution_id
+   * from the parent meeting, the author snapshot from the author's profile — so
+   * a client can neither file an account under a college it does not belong to
+   * nor sign it with somebody else's name.
    */
   static async saveMyNote(
     meetingId: string,

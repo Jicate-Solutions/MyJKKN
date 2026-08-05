@@ -14,6 +14,7 @@ import {
 } from '@/lib/services/accreditation/meeting-member-notes-service';
 import { CommitteeMeetingService } from '@/lib/services/accreditation/committee-meeting-service';
 import { naacMeetingKeys } from '@/hooks/accreditation/use-naac-committee-meetings';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export const naacMeetingNoteKeys = {
   notes: [...naacMeetingKeys.meetings, 'member-notes'] as const,
@@ -31,6 +32,49 @@ export function useMeetingMemberNotes(meetingId: string | undefined) {
     enabled: !!meetingId,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
+  });
+}
+
+export interface NoteAuthorProfileLite {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+}
+
+/**
+ * Live profiles for note authors who still have one.
+ *
+ * This is a CONVENIENCE, not the source of attribution. A note carries its own
+ * author_name / author_email snapshot precisely so it stays attributed after
+ * the author's profile row is deleted, and callers must prefer that snapshot;
+ * this lookup only exists so a note written before the snapshot landed still
+ * shows a name. Departed authors have author_user_id === null and are filtered
+ * out here — passing a null into .in('id', …) would send `null` to PostgREST
+ * and turn a legitimate lookup into a malformed one.
+ */
+export function useNoteAuthorProfiles(userIds: (string | null)[]) {
+  const ids = [...new Set(userIds.filter((v): v is string => !!v))].sort();
+  return useQuery({
+    // Same key shape as the committee detail page's lookup, so the two share a
+    // cache entry rather than issuing the request twice.
+    queryKey: ['profiles', 'lookup', ids.join(',')],
+    queryFn: async (): Promise<Record<string, NoteAuthorProfileLite>> => {
+      if (ids.length === 0) return {};
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', ids);
+      if (error) throw error;
+      return ((data ?? []) as NoteAuthorProfileLite[]).reduce<
+        Record<string, NoteAuthorProfileLite>
+      >((acc, p) => {
+        acc[p.id] = p;
+        return acc;
+      }, {});
+    },
+    enabled: ids.length > 0,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
