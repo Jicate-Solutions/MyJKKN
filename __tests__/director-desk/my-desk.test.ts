@@ -16,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import {
   accessIsLive,
   accessLevelWords,
+  chunk,
   closedAt,
   closedReason,
   daysQuiet,
@@ -320,6 +321,23 @@ describe('personName', () => {
 });
 
 // ---------------------------------------------------------------------------
+describe('chunk — the audit id list must not become a 19KB URL', () => {
+  it('splits into groups no larger than the size', () => {
+    const ids = Array.from({ length: 250 }, (_, i) => `id-${i}`);
+    const groups = chunk(ids, 100);
+    expect(groups.map((g) => g.length)).toEqual([100, 100, 50]);
+  });
+
+  it('loses nothing and reorders nothing', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    expect(chunk(ids, 2).flat()).toEqual(ids);
+  });
+
+  it('returns no groups for no ids, so no pointless request is made', () => {
+    expect(chunk([], 100)).toEqual([]);
+  });
+});
+
 describe('probeAnswered', () => {
   it('treats "checked: false" as no answer — that is the probe saying it could not identify me', () => {
     expect(probeAnswered({ checked: false })).toBe(false);

@@ -94,12 +94,15 @@ import {
   daysQuiet,
   describeAudit,
   describeDue,
+  chunk,
   hasPermissionKeys,
   indexAudit,
   istToday,
   personName,
   readabilityVerdict,
   splitDesk,
+  AUDIT_ID_CHUNK,
+  CLOSED_ROW_LIMIT,
   DESK_ROW_LIMIT,
   type AuditRow,
   type DeskPerson,
@@ -121,9 +124,12 @@ const HANDOVER_COLUMNS =
 /** After this many silent days an item starts showing up in the daily chase. */
 const QUIET_DAYS = 7;
 
+/** Per-chunk ceiling on the audit read, for the same reason as DESK_ROW_LIMIT. */
+const AUDIT_ROW_LIMIT = 2000;
+
 /**
  * Ceiling on any one write. supabase-js has no default timeout, so a request
- * that never settles leaves `busyId` set and that item's buttons permanently
+ * that never settles leaves `busyIds` populated and that item's buttons permanently
  * disabled with no toast and no way back short of a reload.
  */
 const WRITE_TIMEOUT_MS = 20_000;
@@ -148,27 +154,63 @@ function withTimeout<T>(work: Promise<T>, ms = WRITE_TIMEOUT_MS): Promise<T> {
 // Reads
 // ---------------------------------------------------------------------------
 
+interface DeskList {
+  rows: HandoverRow[];
+  /** True when either read hit its own ceiling, so the list is short by design. */
+  capped: boolean;
+}
+
 /**
- * The desk itself. Filtered to `grantee_user_id` even though RLS already scopes
- * the table: the policy also admits rows the viewer GRANTED, and those belong on
- * the Director's desk, not this one.
+ * The desk itself, read as TWO queries.
+ *
+ * Filtered to `grantee_user_id` even though RLS already scopes the table: the
+ * policy also admits rows the viewer GRANTED, and those belong on the Director's
+ * desk, not this one.
+ *
+ * Open and ended are read separately because a single capped read ordered by
+ * due date spends its budget oldest-first — and on a desk with any history that
+ * is all closed rows, pushing the live work off the bottom while the page
+ * cheerfully reports that nothing is being withheld. Open work gets its own
+ * ceiling and cannot be evicted by things that already finished.
  */
 function useMyHandovers(userId: string | undefined) {
   return useQuery({
     queryKey: [...QK, 'rows', userId],
     enabled: !!userId,
-    queryFn: async (): Promise<HandoverRow[]> => {
+    queryFn: async (): Promise<DeskList> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
+
+      const open = await sb
         .from('director_handovers')
         .select(HANDOVER_COLUMNS)
         .eq('grantee_user_id', userId)
+        .in('status', ['pending', 'accepted'])
         .order('due_date', { ascending: true })
         // Explicit, so a short answer is OUR cap and not an unknowable
         // PostgREST truncation the page would misread as rows being withheld.
         .limit(DESK_ROW_LIMIT);
-      if (error) throw new Error(error.message);
-      return (data ?? []) as HandoverRow[];
+      if (open.error) throw new Error(open.error.message);
+
+      // `not in` rather than a list of ended statuses: a status added to the
+      // spine later must land here on its own, not vanish from the page while
+      // the probe keeps counting it and the two reads argue forever.
+      const closed = await sb
+        .from('director_handovers')
+        .select(HANDOVER_COLUMNS)
+        .eq('grantee_user_id', userId)
+        .not('status', 'in', '(pending,accepted)')
+        .order('updated_at', { ascending: false })
+        .limit(CLOSED_ROW_LIMIT);
+      if (closed.error) throw new Error(closed.error.message);
+
+      const openRows = (open.data ?? []) as HandoverRow[];
+      const closedRows = (closed.data ?? []) as HandoverRow[];
+
+      return {
+        rows: [...openRows, ...closedRows],
+        capped:
+          openRows.length >= DESK_ROW_LIMIT || closedRows.length >= CLOSED_ROW_LIMIT,
+      };
     },
     staleTime: 30 * 1000,
     retry: false,
@@ -225,7 +267,16 @@ function useDeskPeople(userId: string | undefined) {
   });
 }
 
-/** The trail. Append-only in the database, so this is history, never state. */
+/**
+ * The trail. Append-only in the database, so this is history, never state.
+ *
+ * Read in chunks: the id filter travels in the query string, and a few hundred
+ * uuids is enough URL to earn a 414 from Kong or a CDN — a failure that would
+ * render as "this item has no history", which is the page asserting from a
+ * request that never arrived that nothing ever happened. A chunk that fails
+ * throws, and the caller shows a "history could not be loaded" line instead of
+ * an empty trail.
+ */
 function useDeskAudit(handoverIds: string[]) {
   const key = useMemo(() => [...handoverIds].sort().join(','), [handoverIds]);
   return useQuery({
@@ -233,13 +284,20 @@ function useDeskAudit(handoverIds: string[]) {
     enabled: key.length > 0,
     queryFn: async (): Promise<AuditRow[]> => {
       const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('director_handover_audit')
-        .select('id, handover_id, action, actor_user_id, detail, created_at')
-        .in('handover_id', key.split(','))
-        .order('created_at', { ascending: false });
-      if (error) throw new Error(error.message);
-      return (data ?? []) as AuditRow[];
+      const groups = chunk(key.split(','), AUDIT_ID_CHUNK);
+      const results = await Promise.all(
+        groups.map((ids) =>
+          sb
+            .from('director_handover_audit')
+            .select('id, handover_id, action, actor_user_id, detail, created_at')
+            .in('handover_id', ids)
+            .order('created_at', { ascending: false })
+            .limit(AUDIT_ROW_LIMIT),
+        ),
+      );
+      const failed = results.find((r: any) => r.error);
+      if (failed) throw new Error(failed.error.message);
+      return results.flatMap((r: any) => (r.data ?? []) as AuditRow[]);
     },
     staleTime: 30 * 1000,
     retry: false,
@@ -387,11 +445,22 @@ function AccessChip({ level }: { level: string }) {
 function Trail({
   entries,
   people,
+  unavailable,
 }: {
   entries: AuditRow[];
   people: Record<string, DeskPerson> | undefined;
+  /** The audit read failed. An empty trail here would be a claim, not a fact. */
+  unavailable: boolean;
 }) {
   const [open, setOpen] = useState(false);
+
+  if (unavailable) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        The history could not be loaded — this does not mean nothing happened.
+      </span>
+    );
+  }
   if (entries.length === 0) return null;
 
   return (
@@ -543,6 +612,7 @@ function OpenItem({
   today,
   people,
   trail,
+  trailUnavailable,
   busy,
   onAccept,
   onAsk,
@@ -551,6 +621,7 @@ function OpenItem({
   today: string;
   people: Record<string, DeskPerson> | undefined;
   trail: AuditRow[];
+  trailUnavailable: boolean;
   busy: boolean;
   onAccept: (row: HandoverRow) => void;
   onAsk: (next: PendingDialog) => void;
@@ -663,7 +734,7 @@ function OpenItem({
               </Button>
             </>
           )}
-          <Trail entries={trail} people={people} />
+          <Trail entries={trail} people={people} unavailable={trailUnavailable} />
         </div>
       </div>
     </div>
@@ -674,10 +745,12 @@ function ClosedItem({
   row,
   people,
   trail,
+  trailUnavailable,
 }: {
   row: HandoverRow;
   people: Record<string, DeskPerson> | undefined;
   trail: AuditRow[];
+  trailUnavailable: boolean;
 }) {
   const from = personName(people, row.granted_by);
   return (
@@ -700,7 +773,7 @@ function ClosedItem({
         </Badge>
       </div>
       <div className="pt-1">
-        <Trail entries={trail} people={people} />
+        <Trail entries={trail} people={people} unavailable={trailUnavailable} />
       </div>
     </div>
   );
@@ -713,27 +786,31 @@ export default function MyDeskPage() {
   const { profile, isLoading: authLoading } = useAuth();
   const userId = profile?.id as string | undefined;
 
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // A SET, not a scalar. With one id, finishing a write on row A cleared the
+  // flag and re-enabled row B's buttons while B's own request was still in
+  // flight — one more click and the audit trail carries a duplicate.
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
   const [dialog, setDialog] = useState<PendingDialog>(null);
 
   const rowsQuery = useMyHandovers(userId);
   const probeQuery = useDeskProbe(userId);
   const peopleQuery = useDeskPeople(userId);
 
-  const rows = useMemo(() => rowsQuery.data ?? [], [rowsQuery.data]);
+  const rows = useMemo(() => rowsQuery.data?.rows ?? [], [rowsQuery.data]);
   const handoverIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const auditQuery = useDeskAudit(handoverIds);
 
   const today = istToday();
   const buckets = useMemo(() => splitDesk(rows, today), [rows, today]);
   const trails = useMemo(() => indexAudit(auditQuery.data ?? []), [auditQuery.data]);
+  const trailUnavailable = !!auditQuery.error;
 
   const verdict = readabilityVerdict({
     rowsFailed: !!rowsQuery.error,
     probeFailed: !!probeQuery.error,
     probe: probeQuery.data,
     visibleCount: rows.length,
-    listCapped: rows.length >= DESK_ROW_LIMIT,
+    listCapped: rowsQuery.data?.capped === true,
   });
 
   const refreshDesk = useCallback(async () => {
@@ -742,7 +819,7 @@ export default function MyDeskPage() {
 
   const run = useCallback(
     async (row: HandoverRow, job: () => Promise<void>, success: string) => {
-      setBusyId(row.id);
+      setBusyIds((current) => new Set(current).add(row.id));
       try {
         await withTimeout(job());
         toast.success(success);
@@ -754,7 +831,11 @@ export default function MyDeskPage() {
           error instanceof Error ? error.message : 'That did not go through. Please try again.',
         );
       } finally {
-        setBusyId(null);
+        setBusyIds((current) => {
+          const next = new Set(current);
+          next.delete(row.id);
+          return next;
+        });
       }
     },
     [refreshDesk],
@@ -937,7 +1018,8 @@ export default function MyDeskPage() {
                   today={today}
                   people={peopleQuery.data}
                   trail={trails[row.id] ?? []}
-                  busy={busyId === row.id}
+                  trailUnavailable={trailUnavailable}
+                  busy={busyIds.has(row.id)}
                   onAccept={onAccept}
                   onAsk={setDialog}
                 />
@@ -960,7 +1042,8 @@ export default function MyDeskPage() {
                   today={today}
                   people={peopleQuery.data}
                   trail={trails[row.id] ?? []}
-                  busy={busyId === row.id}
+                  trailUnavailable={trailUnavailable}
+                  busy={busyIds.has(row.id)}
                   onAccept={onAccept}
                   onAsk={setDialog}
                 />
@@ -995,6 +1078,7 @@ export default function MyDeskPage() {
                       row={row}
                       people={peopleQuery.data}
                       trail={trails[row.id] ?? []}
+                      trailUnavailable={trailUnavailable}
                     />
                   ))}
                   {buckets.olderClosedCount > 0 && (
@@ -1055,7 +1139,7 @@ export default function MyDeskPage() {
           onOpenChange={(next) => {
             if (!next) setDialog(null);
           }}
-          busy={!!busyId}
+          busy={busyIds.size > 0}
           {...DIALOG_COPY[dialog.kind]}
           onConfirm={(text) => {
             const row = dialog.row;

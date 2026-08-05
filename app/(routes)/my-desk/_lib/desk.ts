@@ -80,7 +80,7 @@ export const OPEN_STATUSES: readonly string[] = ['pending', 'accepted'];
 export const RECENTLY_CLOSED_DAYS = 30;
 
 /**
- * Hard ceiling on the list read.
+ * Hard ceiling on each list read.
  *
  * PostgREST silently truncates at its own max-rows and says so only in a header
  * (feedback_postgrest_caps_at_10k_silently). An unbounded read that came back
@@ -88,8 +88,37 @@ export const RECENTLY_CLOSED_DAYS = 30;
  * blame a permission rule for its own truncation. Asking for an explicit limit
  * makes the truncation OURS and therefore knowable: `rows.length >= this` is
  * the signal.
+ *
+ * OPEN AND CLOSED ARE READ SEPARATELY, and this is the reason: one capped read
+ * ordered by due date would spend its whole budget on the oldest rows — which
+ * on a long-lived desk are all closed — and drop the live work off the bottom,
+ * under a banner promising nothing was withheld. A cap that can hide the very
+ * thing the page is for is worse than no cap. Open work gets its own budget and
+ * cannot be evicted by history.
  */
 export const DESK_ROW_LIMIT = 500;
+
+/** Separate budget for ended items — they are a collapsed footnote, not the page. */
+export const CLOSED_ROW_LIMIT = 200;
+
+/** Chunk size for the audit read. See `chunk` for why this exists at all. */
+export const AUDIT_ID_CHUNK = 100;
+
+/**
+ * Split a list into fixed-size chunks.
+ *
+ * The audit read filters on `handover_id=in.(…)`, which PostgREST takes in the
+ * QUERY STRING. Five hundred uuids is roughly 19KB of URL — past what Kong and
+ * most CDNs will accept, and the failure is a 414 that would render as "this
+ * item has no history": the page stating, from a request that never arrived,
+ * that nothing ever happened.
+ */
+export function chunk<T>(items: T[], size: number): T[][] {
+  if (size <= 0) return items.length > 0 ? [items] : [];
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Dates
