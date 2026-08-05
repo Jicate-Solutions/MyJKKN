@@ -69,6 +69,14 @@ export interface Destination {
   requiresParent: ParentKind;
   /** Columns that carry real value but that a card often lacks. */
   softFields: string[];
+  /**
+   * Columns the DATABASE requires non-empty for the row to be legitimate.
+   * NOT NULL alone is not enough to lean on: an empty string satisfies NOT NULL,
+   * so writing `?? ''` would insert a contact whose mobile is "" — a required
+   * field that LOOKS filled and is worse than an honest refusal. When one of
+   * these is blank the card is reported unroutable instead.
+   */
+  hardFields?: string[];
   build: (p: CardPerson, ctx: RouteContext) => Record<string, unknown>;
 }
 
@@ -135,14 +143,13 @@ export const DESTINATIONS: Record<string, Destination> = {
     table: 'internship_site_contacts',
     requiresParent: 'site',
     softFields: ['email', 'designation'],
+    hardFields: ['mobile', 'institution_id'],
     build: (p, ctx) => ({
       institution_id: ctx.institutionId,
       site_id: ctx.siteId,
       contact_name: p.name,
       designation: p.role ?? null,
-      // mobile is NOT NULL here; a card without any number cannot land in this
-      // table, and the caller is told which field is missing rather than 500ing.
-      mobile: phoneOf(p) ?? '',
+      mobile: phoneOf(p),
       email: p.email ?? null,
     }),
   },
@@ -151,6 +158,7 @@ export const DESTINATIONS: Record<string, Destination> = {
     table: 'internship_preceptors',
     requiresParent: 'site',
     softFields: ['email', 'designation'],
+    hardFields: ['institution_id'],
     build: (p, ctx) => ({
       institution_id: ctx.institutionId,
       site_id: ctx.siteId,
@@ -166,6 +174,7 @@ export const DESTINATIONS: Record<string, Destination> = {
     table: 'industry_partners',
     requiresParent: null,
     softFields: ['company_website', 'city'],
+    hardFields: ['institution_id'],
     build: (p, ctx) => ({
       institution_id: ctx.institutionId,
       company_name: p.organization ?? p.name,
@@ -233,12 +242,13 @@ export const DESTINATIONS: Record<string, Destination> = {
     table: 'sh_prospects',
     requiresParent: null,
     softFields: ['contact_email'],
+    hardFields: ['contact_phone'],
     build: (p) => ({
       prospect_code: derivedCode('PRO', p),
       company_name: p.organization ?? p.name,
       contact_person: p.name,
       contact_email: p.email ?? null,
-      contact_phone: phoneOf(p) ?? '',
+      contact_phone: phoneOf(p),
       source_type: 'card_scan',
       source_detail: 'Business card scanned in MyJKKN',
       notes: p.note ?? null,
@@ -325,10 +335,24 @@ export async function routeCard(
   }
 
   const row = dest.build(person, ctx);
-  base.missingFields = dest.softFields.filter((f) => {
+  const blank = (f: string) => {
     const v = row[f];
     return v === null || v === undefined || v === '';
-  });
+  };
+
+  base.missingFields = dest.softFields.filter(blank);
+
+  // A hard field the card cannot supply means this row would either be rejected
+  // by the database or, worse, accepted with an empty string in a required
+  // column. Refuse honestly and let the module owner finish it (decision 18).
+  const missingHard = (dest.hardFields ?? []).filter(blank);
+  if (missingHard.length > 0) {
+    return {
+      ...base,
+      missingFields: [...base.missingFields, ...missingHard],
+      error: `Cannot add to ${dest.label}: ${missingHard.join(', ')} required but not on the card.`,
+    };
+  }
 
   const { data, error } = await db.from(dest.table).insert(row).select('id').single();
 
