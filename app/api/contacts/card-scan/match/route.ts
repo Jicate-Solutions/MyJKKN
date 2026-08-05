@@ -41,7 +41,7 @@ function last10(raw: unknown): string | null {
 }
 
 export interface CardMatch {
-  source: 'networker' | 'profiles' | 'staff' | 'admission_leads';
+  source: 'networker' | 'profiles' | 'team' | 'admission_leads';
   id: string;
   name: string;
   detail: string | null;
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     }
     for (const s of stf.data ?? []) {
       add({
-        source: 'staff',
+        source: 'team',
         id: s.id,
         name: [s.first_name, s.last_name].filter(Boolean).join(' ') || 'Unnamed',
         detail: s.email ?? null,

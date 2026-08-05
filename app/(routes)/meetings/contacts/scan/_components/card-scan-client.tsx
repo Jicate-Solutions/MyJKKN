@@ -75,7 +75,7 @@ interface Scan {
 }
 
 interface CardMatch {
-  source: 'networker' | 'profiles' | 'staff' | 'admission_leads';
+  source: 'networker' | 'profiles' | 'team' | 'admission_leads';
   id: string;
   name: string;
   detail: string | null;
@@ -119,7 +119,7 @@ const EDITABLE_LABELS: Array<[keyof ScanFields, string]> = [
 const SOURCE_LABEL: Record<CardMatch['source'], string> = {
   networker: 'Contact book',
   profiles: 'Already in MyJKKN',
-  staff: 'Team member',
+  team: 'Team member',
   admission_leads: 'Admission lead',
 };
 
