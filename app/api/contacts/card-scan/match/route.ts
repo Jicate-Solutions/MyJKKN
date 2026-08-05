@@ -152,41 +152,56 @@ export async function POST(request: NextRequest) {
   // The cost is that RLS denial is silent (0 rows, error null), so a match the
   // caller cannot read simply does not appear — the check is a safety net, not
   // an exhaustive guarantee, and the UI says so.
-  const orPhone = phones.map((p) => `%${p}%`);
+  // Deliberately NOT a string-built `.or()`. Interpolating the card's email into
+  // a PostgREST filter string (`email.eq.${email}`) lets a comma or parenthesis
+  // in that value inject extra predicates or 500 the query — and the email comes
+  // straight off a photographed card, i.e. from outside. Each signal therefore
+  // runs as its own PARAMETERIZED query and the results are unioned here.
+  // Phones are already digits-only so they were never the risk; email was.
+  const runProbes = async <T>(
+    table: 'profiles' | 'staff' | 'admission_leads',
+    cols: string,
+    phoneCol: string,
+  ): Promise<T[]> => {
+    const queries = [];
+    if (email) {
+      queries.push(supabase.from(table).select(cols).eq('email', email).limit(5));
+    }
+    for (const p of phones) {
+      queries.push(supabase.from(table).select(cols).ilike(phoneCol, `%${p}%`).limit(5));
+    }
+    if (queries.length === 0) return [];
+    const settled = await Promise.all(queries);
+    const merged = new Map<string, T>();
+    for (const r of settled) {
+      for (const row of (r.data ?? []) as unknown as Array<T & { id: string }>) {
+        merged.set(row.id, row as T);
+      }
+    }
+    return [...merged.values()].slice(0, 5);
+  };
 
-  if (email || orPhone.length) {
-    const [prof, stf, leads] = await Promise.all([
-      supabase
-        .from('profiles')
-        .select('id, full_name, email, phone_number')
-        .or(
-          [
-            ...(email ? [`email.eq.${email}`] : []),
-            ...orPhone.map((p) => `phone_number.ilike.${p}`),
-          ].join(','),
-        )
-        .limit(5),
-      supabase
-        .from('staff')
-        .select('id, first_name, last_name, email, phone')
-        .or(
-          [
-            ...(email ? [`email.eq.${email}`] : []),
-            ...orPhone.map((p) => `phone.ilike.${p}`),
-          ].join(','),
-        )
-        .limit(5),
-      supabase
-        .from('admission_leads')
-        .select('id, full_name, email, phone')
-        .or(
-          [
-            ...(email ? [`email.eq.${email}`] : []),
-            ...orPhone.map((p) => `phone.ilike.${p}`),
-          ].join(','),
-        )
-        .limit(5),
+  if (email || phones.length) {
+    const [profRows, stfRows, leadRows] = await Promise.all([
+      runProbes<{ id: string; full_name: string | null; email: string | null }>(
+        'profiles',
+        'id, full_name, email, phone_number',
+        'phone_number',
+      ),
+      runProbes<{ id: string; first_name: string | null; last_name: string | null; email: string | null }>(
+        'staff',
+        'id, first_name, last_name, email, phone',
+        'phone',
+      ),
+      runProbes<{ id: string; full_name: string | null; email: string | null; phone: string | null }>(
+        'admission_leads',
+        'id, full_name, email, phone',
+        'phone',
+      ),
     ]);
+    const prof = { data: profRows };
+    const stf = { data: stfRows };
+    const leads = { data: leadRows };
 
     for (const p of prof.data ?? []) {
       add({

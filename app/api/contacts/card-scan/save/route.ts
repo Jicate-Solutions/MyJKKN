@@ -17,7 +17,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { ingestContact, enrichContact, isNetworkerConfigured } from '@/lib/networker/client';
+import {
+  ingestContact,
+  enrichContact,
+  isNetworkerConfigured,
+  searchContacts,
+} from '@/lib/networker/client';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -58,6 +63,37 @@ function diffFields(ai: Fields, human: Fields): string[] {
     if (a !== h) changed.push(k);
   }
   return changed;
+}
+
+/**
+ * The Networker contact ids that are a legitimate enrich target for THIS card.
+ *
+ * Re-derived server-side rather than trusted from the request body. `target_id`
+ * arriving from the client is otherwise an unscoped fill-write into any contact
+ * in the shared book — including ones the duplicate check never showed the user.
+ * Cheap: the same searches /match already runs, against a 118-row book.
+ */
+async function matchableContactIds(f: Fields): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (!isNetworkerConfigured()) return ids;
+
+  const digitsOnly = (s: string) => s.replace(/\D/g, '');
+  const probes = [f.name, f.email, f.mobile, f.phone]
+    .map((v) => (typeof v === 'string' ? v.trim() : ''))
+    .filter(Boolean)
+    .map((v) => (digitsOnly(v).length >= 7 ? digitsOnly(v) : v));
+
+  for (const p of probes) {
+    try {
+      const res = await searchContacts(p, 10);
+      for (const c of res.data ?? []) ids.add(c.id);
+    } catch {
+      // A search outage must not silently widen what may be written. Returning
+      // what we have means an unverifiable target_id is refused, not accepted.
+      break;
+    }
+  }
+  return ids;
 }
 
 export async function POST(request: NextRequest) {
@@ -188,6 +224,51 @@ export async function POST(request: NextRequest) {
     scanned_by: user.email ?? undefined,
   };
 
+  // ── Claim the scan BEFORE writing to the contact book ─────────────────────
+  // `contact_card_scans` is UNIQUE on job_id, so this insert is the idempotency
+  // lock. It must happen BEFORE the Networker write, not after: a double-tap on
+  // Save, a retry over a flaky connection, or the card re-appearing in the queue
+  // would otherwise each create a SECOND contact — the exact twin this feature
+  // exists to prevent. Claim first, write second, then record the outcome.
+  const corrected = diffFields(aiFields, human);
+  const { error: claimErr } = await admin.from('contact_card_scans').insert({
+    job_id: jobId,
+    scanned_by: user.id,
+    save_mode: 'created',
+    ai_fields: aiFields,
+    final_fields: human,
+    corrected_fields: corrected,
+    routed_to: body.routed_to ?? null,
+    event_label: event,
+  });
+
+  // 23505 = unique_violation on job_id → this card has already been saved.
+  if (claimErr && claimErr.code === '23505') {
+    const { data: prior } = await admin
+      .from('contact_card_scans')
+      .select('networker_contact_id, save_mode')
+      .eq('job_id', jobId)
+      .maybeSingle();
+    return NextResponse.json({
+      ok: true,
+      already_saved: true,
+      mode: prior?.save_mode ?? 'created',
+      contact: prior?.networker_contact_id ? { id: prior.networker_contact_id } : null,
+      message: 'This card was already saved.',
+    });
+  }
+  // 42P01 = table missing (migration not applied in this environment). Do not
+  // cost the user a confirmed card over a missing guard — proceed unguarded and
+  // say so in the response rather than pretending the guard held.
+  const guarded = !claimErr;
+  if (claimErr && claimErr.code !== '42P01') {
+    console.error('[card-scan/save] claim failed:', claimErr.message);
+    return NextResponse.json(
+      { ok: false, error: 'Could not save this card. Please try again.' },
+      { status: 500 },
+    );
+  }
+
   // ── Write ─────────────────────────────────────────────────────────────────
   let result;
   try {
@@ -199,6 +280,20 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+      // `target_id` must be a contact the duplicate check actually surfaced for
+      // THIS card. Without it the body carries an unscoped fill-write primitive
+      // into any contact id in the shared book, shown to the user or not.
+      const allowed = await matchableContactIds(human);
+      if (!allowed.has(targetId)) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              'That contact is no longer a match for this card. Reopen the card and pick from the list shown.',
+          },
+          { status: 409 },
+        );
+      }
       result = await enrichContact(targetId, payload);
     } else {
       result = await ingestContact(payload);
@@ -206,31 +301,31 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error('[card-scan/save] networker write failed:', message);
+    // Release the claim so the user can try again. Leaving it would lock this
+    // card out of saving forever behind a guard for a write that never landed.
+    if (guarded) await admin.from('contact_card_scans').delete().eq('job_id', jobId);
     return NextResponse.json(
       { ok: false, error: 'Could not save to the contact book. Your card is still in the queue.' },
       { status: 502 },
     );
   }
 
-  // ── Correction capture (decision 15) — best effort, never blocks a save ───
-  // The table ships in migration 20260811090100 and may not be applied yet on
-  // every environment. A missing table must not cost the user a confirmed card,
-  // so a failure here is logged and swallowed. The save above has already
-  // succeeded and is the thing the user cares about.
-  const corrected = diffFields(aiFields, human);
-  const { error: trackErr } = await admin.from('contact_card_scans').insert({
-    job_id: jobId,
-    scanned_by: user.id,
-    networker_contact_id: result?.data?.id ?? null,
-    save_mode: result?.mode ?? 'created',
-    ai_fields: aiFields,
-    final_fields: human,
-    corrected_fields: corrected,
-    routed_to: body.routed_to ?? null,
-    event_label: event,
-  });
-  if (trackErr) {
-    console.warn('[card-scan/save] correction tracking skipped:', trackErr.message);
+  // ── Record the outcome on the claim row (decision 15) ─────────────────────
+  // The row already exists (claimed above); this fills in where the contact
+  // landed. Correction capture is the point: AI output vs human fix, per field.
+  // Capture only — nothing here closes a loop and no moat claim is earned by it.
+  if (guarded) {
+    const { error: trackErr } = await admin
+      .from('contact_card_scans')
+      .update({
+        networker_contact_id: result?.data?.id ?? null,
+        save_mode: result?.mode ?? 'created',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('job_id', jobId);
+    if (trackErr) {
+      console.warn('[card-scan/save] outcome not recorded:', trackErr.message);
+    }
   }
 
   return NextResponse.json({
@@ -241,6 +336,6 @@ export async function POST(request: NextRequest) {
     skipped: result?.skipped ?? [],
     filled: result?.filled ?? [],
     corrected_fields: corrected,
-    correction_tracking: trackErr ? 'unavailable' : 'recorded',
+    correction_tracking: guarded ? 'recorded' : 'unavailable',
   });
 }
