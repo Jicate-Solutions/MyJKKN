@@ -222,4 +222,71 @@ BEGIN
 END;
 $$;
 
+-- ============================================================================
+-- CLOSE THE PERMISSION ORACLE ON THE (uuid, text) OVERLOAD
+--
+-- This overload is SECURITY DEFINER, takes a CALLER-SUPPLIED uuid, and never
+-- compares it to auth.uid(). It has held an explicit
+--   GRANT EXECUTE ... TO authenticated
+-- since 20251210_fix_security_and_performance_issues.sql:687 (re-granted by
+-- 20260605191101:259). Verified live on 2026-08-05:
+--   has_function_privilege('authenticated', ...) = TRUE  on BOTH overloads.
+--
+-- That means any signed-in user can POST /rest/v1/rpc/user_has_permission with
+-- {"user_id":"<anybody>","permission_key":"<anything>"} and read back true/false
+-- — 7,231 profiles x 1,393 keys, a complete map of who holds what, harvested by
+-- an account that holds nothing.
+--
+-- THE HOLE PREDATES THIS FEATURE. It is closed here because this migration is
+-- what makes it worse: appending the handover branch above means the same oracle
+-- now also answers "does Bob hold a handover for X", turning a role-disclosure
+-- leak into a leak of who has been quietly delegated what.
+--
+-- WHY REVOKE RATHER THAN AN INTERNAL auth.uid() GUARD
+-- ---------------------------------------------------
+-- A guard (RAISE when user_id <> auth.uid()) was the other candidate and is
+-- WRONG here: the legitimate callers pass OTHER people's ids on purpose — that
+-- is the entire reason this overload exists, separate from the (text) form.
+-- A guard would break them; a revoke does not touch them.
+--
+-- EVIDENCE THAT THE REVOKE IS SAFE, measured against production 2026-08-05:
+--   * RLS policies calling the 2-arg form ........ 0
+--     (a policy executes as the QUERYING role, so a policy caller WOULD have
+--      needed the authenticated grant. There are none.)
+--   * SQL functions calling the 2-arg form ....... 5, ALL SECURITY DEFINER
+--     (fn_admission_lead_scope, get_lead_counts_by_source,
+--      user_can_view_organizations, fn_soi_digest_audience,
+--      fn_calendar_items_for_user — each executes as the function OWNER, which
+--      keeps EXECUTE, so none of them is affected.)
+--   * TypeScript/PostgREST callers of the 2-arg form ... 0
+--     (every .rpc('user_has_permission', …) call site in app/ and lib/ passes
+--      { permission_name } — the ONE-arg form, which resolves auth.uid()
+--      internally and can therefore only answer about the caller themselves.)
+--
+-- The (text) overload deliberately KEEPS its grant: it is called from the client
+-- all over the app and is not an oracle, because it only ever answers about
+-- auth.uid().
+--
+-- APPLY-TIME ASSERT: fails loudly rather than silently leaving the hole open.
+-- ============================================================================
+
+REVOKE EXECUTE ON FUNCTION public.user_has_permission(uuid, text) FROM authenticated, anon, PUBLIC;
+
+DO $assert$
+BEGIN
+  IF has_function_privilege('authenticated',
+       'public.user_has_permission(uuid, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION
+      'Permission oracle still open: authenticated retains EXECUTE on user_has_permission(uuid, text)';
+  END IF;
+
+  -- The (text) form MUST keep its grant, or every client permission check breaks.
+  IF NOT has_function_privilege('authenticated',
+       'public.user_has_permission(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION
+      'user_has_permission(text) lost its authenticated grant — client permission checks would all fail';
+  END IF;
+END;
+$assert$;
+
 NOTIFY pgrst, 'reload schema';

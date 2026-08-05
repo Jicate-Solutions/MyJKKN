@@ -356,9 +356,37 @@ AS $$
     -- No dot in these two patterns, so they already match the bare prefix key.
     WHEN p_key LIKE 'billing%'                   THEN true
     WHEN p_key LIKE 'admission_fees%'            THEN true
-    WHEN p_key IN ('campus_living.deposits.refund','campus_living.fees.refund',
-                   'ims.sales.refund','dashboard.queue.approve.waiver')
-                                                 THEN true
+    -- Money that moves OUTSIDE the billing/admission_fees namespaces.
+    --
+    -- The four originally listed here were found by eye and were not enough. This
+    -- list is the output of a mechanical sweep of all 1,393 keys in
+    -- lib/constants/permissions.ts reading the LABEL, not the key prefix —
+    -- matching pay/payment/payout/disburse/refund/waive/reconcile/settle/collect/
+    -- write-off/adjust/invoice/receipt/charge/fee and excluding read-shaped labels
+    -- (view/read/export/report/analytics/dashboard/list/history/audit).
+    -- It returned 13; only 4 were walled. The 9 additions are marked below.
+    --
+    -- Prefix walls could never have caught these: the key is named after its
+    -- MODULE (campus_living, ims, learners, procurement) while the money-ness
+    -- lives only in the label. That is the same shape as the role-write keys in
+    -- wall 1b — a wall keyed on names cannot see what a permission DOES.
+    WHEN p_key IN (
+                   -- originally walled
+                   'campus_living.deposits.refund',      -- Refund Deposit
+                   'campus_living.fees.refund',          -- Refund Fee
+                   'ims.sales.refund',                   -- Refund / Void Sales
+                   'dashboard.queue.approve.waiver',     -- Approve fee waivers from queue
+                   -- added 2026-08-05 by the label sweep
+                   'campus_living.fees.waive',           -- Waive Fee (forgives money owed)
+                   'campus_living.fees.config',          -- Configure Fee Structure (sets what is owed)
+                   'campus_living.maintenance.approve_payment', -- Approve Vendor Payment
+                   'campus_living.mess.caterers.pay',    -- Process Caterer Payment
+                   'campus_living.mess.billing.reconcile', -- Reconcile Mess Billing
+                   'campus_living.parent_portal.pay_fee',-- Parent Portal — Pay Fee
+                   'learners.finance.edit',              -- Edit Finance Details (Fee Structure)
+                   'ims.stock.adjust',                   -- Adjust Stock (Write-off, Correction)
+                   'procurement.grn_create'              -- Goods Receipt Notes — creates a payable
+                  )                              THEN true
 
     ELSE false
   END;

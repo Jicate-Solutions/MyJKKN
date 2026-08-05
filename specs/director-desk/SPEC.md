@@ -99,11 +99,43 @@ migration, which requires a PR, which requires review. That is the point.
 | **1b. Keys that authorise a role write** (see below) | `organizations.leadership%`, `admission.counselors.create`, `staff.create` — derived from the SQL, not from their names | — |
 | **2. Salary & team-member files** | `hr.payroll`, `hr.employees`, `hr.documents`, `hr.performance_reviews`, `hr.promotion.case`, `hr.counseling`, `hr.grievance`, `hr.memos`, `hr.recruitment.packages`, `hr.leave.encashment` (each: prefix key **and** everything beneath it), `staff.create/edit/delete/status_update` | routine `hr.leave.apply/approve/view`, `hr.attendance.%`, `hr.dashboard.%`, `hr.policies.%` |
 | **3. Exam marks & results** | `academic.internal-marks` **and** `academic.internal_marks` (both spellings), `academic.course-grades`, `academic.exam_eligibility`, `lti.grade_sync` (each: prefix key **and** everything beneath it) | `academic.attendance.mark` — that is *marking attendance*, a verb collision, not exam marks |
-| **4. Money movement** | every `billing%` / `admission_fees%` that is **not** read-only, plus `campus_living.deposits.refund`, `campus_living.fees.refund`, `ims.sales.refund`, `dashboard.queue.approve.waiver` | `billing.%.view/read/export`, `billing.analytics.%`, `billing.coverage.%`, `admission_fees.%.view/read/export` — reports were explicitly kept handable |
+| **4. Money movement** | every `billing%` / `admission_fees%` that is **not** read-only, **plus 13 keys found by label sweep** (see below) | `billing.%.view/read/export`, `billing.analytics.%`, `billing.coverage.%`, `admission_fees.%.view/read/export` — reports were explicitly kept handable |
 
 **Walls 1–3 block reads too** (seeing every team member's file or every learner's marks is
 itself the sensitive act). **Wall 4 blocks writes only**, per decision: reports are fine,
 moving actual money is not.
+
+### Wall 4 — why a prefix wall could never have been enough
+
+The first version of this wall listed four keys, found by eye. A mechanical sweep of all
+1,393 keys in `lib/constants/permissions.ts` on 2026-08-05 — reading the **label**, not the
+key prefix — found **13**. Nine were handable, including:
+
+| Key | Label |
+|---|---|
+| `campus_living.fees.waive` | Waive Fee |
+| `campus_living.maintenance.approve_payment` | Approve Vendor Payment |
+| `campus_living.mess.caterers.pay` | Process Caterer Payment |
+| `campus_living.mess.billing.reconcile` | Reconcile Mess Billing |
+| `learners.finance.edit` | Edit Finance Details (Fee Structure) |
+| `campus_living.fees.config` | Configure Fee Structure |
+| `ims.stock.adjust` | Adjust Stock (Write-off, Correction) |
+| `campus_living.parent_portal.pay_fee` | Parent Portal — Pay Fee |
+| `procurement.grn_create` | Goods Receipt Notes — creates a payable |
+
+**The lesson generalises past money.** Every one of these is named after its *module*
+(`campus_living`, `ims`, `learners`, `procurement`) while the money-ness lives only in the
+label. A wall keyed on names cannot see what a permission *does* — the identical failure as
+wall 1b, where `organizations.leadership.manage` reads like an org-chart page and in fact
+rewrites `user_roles` and `profiles.role`.
+
+Sweep method, repeatable: match labels on
+`pay|payment|payout|disburse|refund|waive|reconcile|settle|collect|write-off|adjust|invoice|receipt|charge|fee`
+and exclude read-shaped labels (`view|read|export|report|analytics|dashboard|list|history|audit`).
+
+**This remains a denylist that defaults open.** Any key a future PR adds is handable unless
+someone classifies it. The structural fix is an allowlist; that is a Director decision and is
+not taken here.
 
 **Every wall is written `p_key = 'prefix' OR p_key LIKE 'prefix.%'`.** A bare `LIKE 'prefix.%'`
 does not match the prefix key itself, and `roles`, `users`, `billing` and `hr.payroll` all
