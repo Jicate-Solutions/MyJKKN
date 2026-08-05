@@ -35,7 +35,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-import { BosTaDaRate } from '@/types/bos';
+import {
+  BosTaDaRate,
+  BosTaDaTravelBasis,
+  BOS_TA_DA_TRAVEL_BASIS_LABELS,
+} from '@/types/bos';
 import { TA_DA_RATES } from '@/lib/utils/bos/ta-da-rates';
 import { useBosCommittees } from '@/hooks/bos/use-bos-committees';
 import { useBosMemberTypes } from '@/hooks/bos/use-bos-member-types';
@@ -54,6 +58,8 @@ const EXTERNAL_BASE_TYPES: ReadonlySet<string> = new Set([
   'student',
 ]);
 
+const TRAVEL_BASES: BosTaDaTravelBasis[] = ['distance', 'flat', 'none'];
+
 interface CatalogType {
   name: string;
   base_type: string | null;
@@ -63,20 +69,37 @@ interface RateRowState {
   /** Local list key — NOT the DB id (rows are synced wholesale on save). */
   key: string;
   memberType: string;
+  /** Sitting charge for in-person attendance. */
   honorarium: string;
+  /** Sitting charge for online attendance (usually the same figure). */
+  honorariumOnline: string;
+  travelBasis: BosTaDaTravelBasis;
+  /** Used under the 'distance' basis. */
   taPerKm: string;
+  /** Used under the 'flat' basis. */
+  travelFlat: string;
 }
 
 let rowSeq = 0;
 const nextKey = () => `row-${++rowSeq}`;
 
-function sopDefaults(baseType: string | null | undefined): { honorarium: string; taPerKm: string } {
+function sopDefaults(
+  baseType: string | null | undefined,
+): Omit<RateRowState, 'key' | 'memberType'> {
   const external = !!baseType && EXTERNAL_BASE_TYPES.has(baseType);
+  const sitting = String(
+    external ? TA_DA_RATES.honorariumExternal : TA_DA_RATES.honorariumInternal
+  );
   return {
-    honorarium: String(
-      external ? TA_DA_RATES.honorariumExternal : TA_DA_RATES.honorariumInternal
-    ),
+    honorarium: sitting,
+    // The SOP quotes the same sitting charge offline and online; an admin who
+    // needs them to differ edits the online cell.
+    honorariumOnline: sitting,
+    // Internal members receive no travel under the SOP — 'none' says that
+    // outright rather than leaning on a ₹0 per-km rate.
+    travelBasis: external ? 'distance' : 'none',
     taPerKm: String(external ? TA_DA_RATES.travelPerKm : 0),
+    travelFlat: '0',
   };
 }
 
@@ -85,10 +108,12 @@ function AmountInput({
   value,
   onChange,
   suffix,
+  disabled,
 }: {
   value: string;
   onChange: (v: string) => void;
   suffix?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className='relative'>
@@ -100,6 +125,7 @@ function AmountInput({
         inputMode='decimal'
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         className={`h-9 pl-8 ${suffix ? 'pr-12' : ''}`}
       />
       {suffix && (
@@ -125,6 +151,11 @@ interface RateSettingsDialogProps {
  * fallback. Member types come from the institution's bos_member_types catalog
  * (the same list /bos/member-types manages); removing a row deactivates its
  * rate on save.
+ *
+ * Each row carries the SOP's four money facts (20260805120000): the offline
+ * and online sitting charges, and how travel is computed — per-km on the
+ * recorded distance, a flat amount, or nothing at all. Online attendance never
+ * pays travel, so there is no online travel column to configure.
  */
 export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSettingsDialogProps) {
   const queryClient = useQueryClient();
@@ -196,7 +227,16 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
         key: nextKey(),
         memberType: r.member_type,
         honorarium: String(r.honorarium_amount),
+        // NULL in the column means "same as offline" (rows written before the
+        // online split, or by a client that omitted it) — show the offline
+        // figure so the cell is never a confusing blank.
+        honorariumOnline:
+          r.honorarium_amount_online === null || r.honorarium_amount_online === undefined
+            ? String(r.honorarium_amount)
+            : String(r.honorarium_amount_online),
+        travelBasis: r.travel_basis ?? 'distance',
         taPerKm: String(r.ta_per_km),
+        travelFlat: String(r.travel_flat_amount ?? 0),
       }))
     );
   }, [savedRates, committeeName]);
@@ -208,7 +248,18 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
   const allTypesUsed = catalog.length > 0 && usedTypes.size >= catalog.length;
 
   const addRow = () => {
-    setRows((prev) => [...prev, { key: nextKey(), memberType: '', honorarium: '', taPerKm: '' }]);
+    setRows((prev) => [
+      ...prev,
+      {
+        key: nextKey(),
+        memberType: '',
+        honorarium: '',
+        honorariumOnline: '',
+        travelBasis: 'distance',
+        taPerKm: '',
+        travelFlat: '',
+      },
+    ]);
   };
 
   const removeRow = (key: string) => {
@@ -222,7 +273,7 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
         if (r.key !== key) return r;
         // Prefill SOP defaults (by the type's base_type) when the row has no
         // amounts yet; a repick keeps whatever the user already typed.
-        const blank = r.honorarium === '' && r.taPerKm === '';
+        const blank = r.honorarium === '' && r.taPerKm === '' && r.honorariumOnline === '';
         return blank
           ? { ...r, memberType: name, ...sopDefaults(entry?.base_type) }
           : { ...r, memberType: name };
@@ -230,8 +281,29 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
     );
   };
 
-  const setRowValue = (key: string, field: 'honorarium' | 'taPerKm', value: string) => {
+  const setRowValue = (
+    key: string,
+    field: 'honorarium' | 'honorariumOnline' | 'taPerKm' | 'travelFlat',
+    value: string
+  ) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  };
+
+  const setRowBasis = (key: string, basis: BosTaDaTravelBasis) => {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.key !== key) return r;
+        // Seed the newly-relevant amount so switching basis doesn't leave the
+        // input blank (which would fail validation on save).
+        if (basis === 'distance' && !r.taPerKm) {
+          return { ...r, travelBasis: basis, taPerKm: String(TA_DA_RATES.travelPerKm) };
+        }
+        if (basis === 'flat' && !r.travelFlat) {
+          return { ...r, travelBasis: basis, travelFlat: '0' };
+        }
+        return { ...r, travelBasis: basis };
+      })
+    );
   };
 
   const handleSave = async () => {
@@ -242,7 +314,17 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
         toast.error('Every row needs a member type — remove empty rows or pick a type.');
         return;
       }
-      if (Number(r.honorarium) < 0 || Number(r.taPerKm) < 0 || r.honorarium === '') {
+      const sittingInvalid =
+        r.honorarium === '' ||
+        Number(r.honorarium) < 0 ||
+        r.honorariumOnline === '' ||
+        Number(r.honorariumOnline) < 0;
+      // Only the amount the chosen basis actually uses has to be valid — an
+      // untouched per-km box on a flat-travel row is not an error.
+      const travelInvalid =
+        (r.travelBasis === 'distance' && (r.taPerKm === '' || Number(r.taPerKm) < 0)) ||
+        (r.travelBasis === 'flat' && (r.travelFlat === '' || Number(r.travelFlat) < 0));
+      if (sittingInvalid || travelInvalid) {
         toast.error(`Enter valid amounts for ${r.memberType}.`);
         return;
       }
@@ -259,7 +341,10 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
           rates: rows.map((r) => ({
             member_type: r.memberType,
             honorarium_amount: Number(r.honorarium) || 0,
+            honorarium_amount_online: Number(r.honorariumOnline) || 0,
+            travel_basis: r.travelBasis,
             ta_per_km: Number(r.taPerKm) || 0,
+            travel_flat_amount: Number(r.travelFlat) || 0,
           })),
         }),
       });
@@ -287,7 +372,7 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
           Rate Settings
         </Button>
       </DialogTrigger>
-      <DialogContent className='max-w-3xl max-h-[85vh] overflow-y-auto'>
+      <DialogContent className='max-w-5xl max-h-[85vh] overflow-y-auto'>
         <DialogHeader>
           <DialogTitle className='flex items-center gap-2'>
             <Settings2 className='h-5 w-5 text-primary' />
@@ -419,14 +504,33 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
                   </Button>
                 </div>
               ) : (
-                <div className='overflow-hidden rounded-lg border'>
+                <div className='overflow-x-auto rounded-lg border'>
                   <Table>
                     <TableHeader className='bg-muted/50'>
+                      {/* Two header rows mirror the printed SOP table: the
+                          sitting charge is quoted per attendance mode, travel
+                          is a single offline figure (online pays none). */}
                       <TableRow className='hover:bg-muted/50'>
-                        <TableHead className='text-xs'>Member Type</TableHead>
-                        <TableHead className='w-36 text-xs'>Honorarium</TableHead>
-                        <TableHead className='w-36 text-xs'>TA per km</TableHead>
-                        <TableHead className='w-12' />
+                        <TableHead rowSpan={2} className='align-bottom text-xs'>
+                          Member Type
+                        </TableHead>
+                        <TableHead colSpan={2} className='border-l text-center text-xs'>
+                          Sitting Charges
+                        </TableHead>
+                        <TableHead colSpan={2} className='border-l text-center text-xs'>
+                          Travel Allowance
+                        </TableHead>
+                        <TableHead rowSpan={2} className='w-12' />
+                      </TableRow>
+                      <TableRow className='hover:bg-muted/50'>
+                        <TableHead className='w-32 border-l text-xs font-normal'>
+                          Offline
+                        </TableHead>
+                        <TableHead className='w-32 text-xs font-normal'>Online</TableHead>
+                        <TableHead className='w-40 border-l text-xs font-normal'>
+                          Basis
+                        </TableHead>
+                        <TableHead className='w-36 text-xs font-normal'>Amount</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -437,7 +541,7 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
                               value={row.memberType}
                               onValueChange={(v) => setRowType(row.key, v)}
                             >
-                              <SelectTrigger className='h-9'>
+                              <SelectTrigger className='h-9 min-w-[11rem]'>
                                 <SelectValue placeholder='Select member type' />
                               </SelectTrigger>
                               <SelectContent>
@@ -468,7 +572,7 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
                               </SelectContent>
                             </Select>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className='border-l'>
                             <AmountInput
                               value={row.honorarium}
                               onChange={(v) => setRowValue(row.key, 'honorarium', v)}
@@ -476,10 +580,44 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
                           </TableCell>
                           <TableCell>
                             <AmountInput
-                              value={row.taPerKm}
-                              onChange={(v) => setRowValue(row.key, 'taPerKm', v)}
-                              suffix='/km'
+                              value={row.honorariumOnline}
+                              onChange={(v) => setRowValue(row.key, 'honorariumOnline', v)}
                             />
+                          </TableCell>
+                          <TableCell className='border-l'>
+                            <Select
+                              value={row.travelBasis}
+                              onValueChange={(v) =>
+                                setRowBasis(row.key, v as BosTaDaTravelBasis)
+                              }
+                            >
+                              <SelectTrigger className='h-9'>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {TRAVEL_BASES.map((b) => (
+                                  <SelectItem key={b} value={b}>
+                                    {BOS_TA_DA_TRAVEL_BASIS_LABELS[b]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          <TableCell>
+                            {row.travelBasis === 'none' ? (
+                              <span className='text-sm text-muted-foreground'>—</span>
+                            ) : row.travelBasis === 'flat' ? (
+                              <AmountInput
+                                value={row.travelFlat}
+                                onChange={(v) => setRowValue(row.key, 'travelFlat', v)}
+                              />
+                            ) : (
+                              <AmountInput
+                                value={row.taPerKm}
+                                onChange={(v) => setRowValue(row.key, 'taPerKm', v)}
+                                suffix='/km'
+                              />
+                            )}
                           </TableCell>
                           <TableCell>
                             <Button
@@ -509,11 +647,16 @@ export function RateSettingsDialog({ institutionsIdsCsv, institutionId }: RateSe
               <div className='flex gap-2 rounded-lg border bg-muted/40 px-3 py-2.5'>
                 <Info className='mt-0.5 h-4 w-4 shrink-0 text-muted-foreground' />
                 <p className='text-xs leading-relaxed text-muted-foreground'>
-                  TA = round-trip distance (one-way km × 2) × rate; distance
-                  comes from the external expert&apos;s profile, so member
-                  types without a distance receive honorarium only. Removing a
-                  row restores the SOP default for that type. Changes apply to
-                  claims generated after saving.
+                  The sitting charge is chosen by each attendee&apos;s
+                  Offline/Online marking on the meeting&apos;s Attendance tab.{' '}
+                  <strong>Online attendance never pays travel</strong>, so the
+                  travel column applies to in-person attendance only. Under{' '}
+                  <em>As per distance</em>, travel = round-trip distance
+                  (one-way km × 2) × rate, and distance comes from the external
+                  expert&apos;s profile — so member types without a distance
+                  receive the sitting charge only. Removing a row restores the
+                  SOP default for that type. Changes apply to claims generated
+                  after saving.
                 </p>
               </div>
             </>

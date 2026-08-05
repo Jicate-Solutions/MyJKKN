@@ -184,6 +184,16 @@ const PUBLIC_PATH_PREFIXES = [
   '/api/calendar/feed/', // ICS calendar feed — token-keyed bearer secret, no login (Google Calendar polls this)
   '/verify/', // Public certificate verification (/verify/[number]) — QR-scanned by recruiters, no login. Also the LinkedIn "See credential" target. Page under app/verify/ is public-by-design but was never allowlisted (307→login bug); pde_certificates was empty so it stayed latent.
   '/proof/', // Verified Skills Record verify-links (/proof/[token]) — employer-facing, no login; token-validated server-side (fn_vsr_shared_record), learner-revocable.
+  '/r/', // Routing forms (/r/[slug]) — a visitor answers one question and is sent
+  //        to the right booking link. Public by definition: the whole point is that
+  //        somebody with no account can use it. Lives under app/(public)/r/[slug]/
+  //        and was never allowlisted, so it 307'd to login — exactly the failure
+  //        already recorded against '/verify/' above. It stayed latent because
+  //        routing_forms held zero rows until 2026-08-05; the first form ever
+  //        created surfaced it within the hour.
+  '/embed/', // Embeddable booking widget (/embed/[handle]) — same story. An embed
+  //        that demands a login is not an embed: it is loaded in an iframe on
+  //        somebody else's website, where the visitor has no JKKN session at all.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
