@@ -37,6 +37,7 @@ import type {
   HRJobApplication,
   HRJobApplicationInsert,
   JobApplicationStatus,
+  PurgeRejectedApplicantResponse,
   HRRecruitmentCandidateComment,
   HRRecruitmentJobNote,
   ApprovalsJobOverviewRow,
@@ -765,6 +766,42 @@ export function usePromoteApplication() {
       qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
       qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+    },
+  });
+}
+
+/**
+ * Permanently erase a REJECTED applicant — super admins only, irreversible.
+ *
+ * Pass whichever id the row has: `applicationId` for a screening rejection,
+ * `candidateId` for one rejected inside the approval pipeline. The server follows
+ * promoted_candidate_id to clean up the other side, so a promoted-then-rejected
+ * person is fully removed either way.
+ *
+ * The super-admin and rejected-only checks are enforced server-side; the UI gate
+ * only decides whether the button is shown.
+ */
+export function usePurgeRejectedApplicant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { applicationId?: string; candidateId?: string }) => {
+      const path = payload.applicationId
+        ? `${BASE}/applications/${payload.applicationId}`
+        : `${BASE}/candidates/${payload.candidateId}`;
+      const res = await fetch(path, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Delete failed');
+      }
+      return ((await res.json()).data) as PurgeRejectedApplicantResponse;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr-job-applications'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-approvals-overview'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-candidates'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-job-analytics'] });
+      qc.invalidateQueries({ queryKey: ['hr-recruitment-interviews'] });
     },
   });
 }
