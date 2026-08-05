@@ -193,9 +193,32 @@ function useInstitutions() {
     queryKey: ['institutions', 'owner-desk'],
     queryFn: async (): Promise<InstitutionRow[]> => {
       const sb = createClientSupabaseClient() as any;
+
+      // `institutions` carries a blanket `institutions_select USING (true)`
+      // policy, so reading the table directly offers EVERY campus to everyone —
+      // including a strictly own-scoped HOD. That is not a data leak (the owner
+      // rows themselves are correctly scoped by accred_metric_owners_select),
+      // and that is exactly what makes it dangerous: picking another campus
+      // returns 0 rows silently, so the page renders "nobody named" about a
+      // college that may have every owner assigned. A denied read must never
+      // render as a factual claim.
+      //
+      // `_user_accessible_institutions()` is the existing helper for this —
+      // STABLE SECURITY DEFINER, takes no argument so the caller is derived
+      // from auth.uid() rather than supplied, and returns exactly the ids where
+      // role_has_institution_access() holds.
+      const { data: allowedIds, error: allowedError } = await sb.rpc(
+        '_user_accessible_institutions',
+      );
+      if (allowedError) throw allowedError;
+
+      const ids = (allowedIds ?? []) as string[];
+      if (ids.length === 0) return [];
+
       const { data, error } = await sb
         .from('institutions')
         .select('id, name')
+        .in('id', ids)
         .order('name');
       if (error) throw error;
       return (data ?? []) as InstitutionRow[];
@@ -393,6 +416,19 @@ export default function AccreditationOwnersPage() {
     (userProfile as any)?.institution_id ??
     institutions?.[0]?.id ??
     null;
+
+  // Second half of the same guard. The picker above now only offers campuses
+  // this viewer may read, but `institutionId` also arrives from state a user
+  // can reach directly. If the selected campus is not one they may read, the
+  // owner query returns 0 rows with error === null (RLS denial is silent), and
+  // the page would state "nobody named" about a college it cannot actually see.
+  // Say so instead. `institutions === undefined` means still loading — not a
+  // denial — so only judge once the list has resolved.
+  const campusOutOfScope =
+    Array.isArray(institutions) &&
+    institutions.length > 0 &&
+    activeInstitution != null &&
+    !institutions.some((i) => i.id === activeInstitution);
 
   const { data: ownerRows, isLoading: ownersLoading } =
     useOwnerRows(activeInstitution);
@@ -747,6 +783,20 @@ export default function AccreditationOwnersPage() {
               />
             </div>
 
+            {campusOutOfScope ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+                <div className="font-medium">
+                  This campus is outside your access
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You can only read accreditation ownership for the campuses
+                  your role covers, so nothing is shown here. This is not a
+                  statement that the campus has no owners — it means this page
+                  cannot see them. Ask a super admin for access to this campus
+                  if you need it.
+                </p>
+              </div>
+            ) : (
             <div className="rounded-lg border bg-card p-4">
               <div className="text-sm text-muted-foreground">Owners set</div>
               <div className="text-3xl font-bold">
@@ -767,10 +817,11 @@ export default function AccreditationOwnersPage() {
                 </span>
               </div>
             </div>
+            )}
 
             {/* Per-body breakdown */}
             <div className="flex flex-wrap gap-2">
-              {byBody.map((b) => (
+              {(campusOutOfScope ? [] : byBody).map((b) => (
                 <Badge
                   key={b.bodyCode}
                   variant="outline"
