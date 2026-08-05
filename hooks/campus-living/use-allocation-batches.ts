@@ -46,22 +46,13 @@ export function useAutoBlocks() {
   return { blocks: query.data ?? [], loading: query.isLoading };
 }
 
-// Floors (with student rooms) for the selected block — drives the floor-scope picker.
-export function useBlockFloors(blockId: string) {
+// Institutions housed by any block of this hostel type — scopes the Institution
+// cohort filter on the auto-allocate page.
+export function useHostelTypeInstitutions(hostelType: string) {
   const query = useQuery({
-    queryKey: [...KEY, 'block-floors', blockId],
-    queryFn: () => AllocationBatchService.getBlockFloors(blockId),
-    enabled: !!blockId,
-  });
-  return { floors: query.data ?? [], loading: query.isLoading };
-}
-
-// Institutions the selected block serves — scopes the Institution cohort filter.
-export function useBlockInstitutions(blockId: string) {
-  const query = useQuery({
-    queryKey: [...KEY, 'block-institutions', blockId],
-    queryFn: () => AllocationBatchService.getBlockInstitutions(blockId),
-    enabled: !!blockId,
+    queryKey: [...KEY, 'hostel-type-institutions', hostelType],
+    queryFn: () => AllocationBatchService.getInstitutionsByHostelType(hostelType),
+    enabled: !!hostelType,
   });
   return { institutions: query.data ?? [], loading: query.isLoading };
 }
@@ -84,16 +75,14 @@ export function useAllocationBatchActions() {
 
   const generate = useCallback(
     async (
-      blockId: string,
-      hostelYearId: string,
-      strict = false,
-      floor: number | null = null,
+      hostelType: string,
+      strict = true,
       institutionId: string | null = null,
       programId: string | null = null,
       semesterId: string | null = null,
     ) => {
       const id = await AllocationBatchService.generate(
-        blockId, hostelYearId, strict, floor, institutionId, programId, semesterId,
+        hostelType, strict, institutionId, programId, semesterId,
       );
       await invalidate();
       return id;
