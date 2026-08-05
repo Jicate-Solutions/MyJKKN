@@ -6267,6 +6267,40 @@ CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
 CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
   ON hr_recruitment_job_notes(job_id, created_at);
 
+-- =====================================================================================
+-- hr_recruitment_purge_log — PII-free tombstone for super-admin purges of a REJECTED
+-- applicant (migration 20260810170000). Deliberately stores NO name/email/phone/
+-- qualification/resume URL: the whole point of the purge is that those are gone.
+--
+-- No FKs — every id it holds points at a row that has been deleted by design.
+--
+-- drive_file_id is operational, not identifying (an opaque Drive handle that resolves
+-- only for the service account). It is kept ONLY until the resume is confirmed deleted,
+-- then nulled by fn_clear_recruitment_purge_drive_ref. A row still carrying one
+-- therefore means "orphaned resume, needs a Drive sweep".
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_purge_log (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id     uuid,
+  candidate_id       uuid,
+  job_id             uuid,
+  institution_id     uuid,
+  hr_organization_id uuid,
+  stage              text NOT NULL
+                       CHECK (stage IN ('screening_rejected', 'pipeline_rejected')),
+  had_resume         boolean NOT NULL DEFAULT false,
+  drive_file_id      text,
+  drive_cleared_at   timestamptz,
+  purged_by          uuid NOT NULL,
+  purged_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_purge_log_purged_at
+  ON hr_recruitment_purge_log (purged_at DESC);
+-- Orphan-resume sweep: purges whose Drive file was never confirmed gone.
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_purge_log_pending_drive
+  ON hr_recruitment_purge_log (purged_at DESC)
+  WHERE drive_file_id IS NOT NULL;
+
 -- ── Cohort Core — M7.2 experiments + M7.3 proposals (Phase 7 · THE MOAT) ─────
 -- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql (2026-07-06)
 -- cohort_experiments: one causal-lift result per cohort (control-group A/B).

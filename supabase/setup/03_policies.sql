@@ -5316,11 +5316,35 @@ CREATE POLICY "hr_recruitment_candidates_update_permission"
         AND role_has_institution_access(institution_id))
   );
 
+-- Narrowed 2026-08-05 (20260810170000_hr_recruitment_purge_rejected_applicant.sql):
+-- deleting a candidate destroys a person's whole record, so it is super-admin only.
+-- It previously also allowed is_admin() and every holder of 'hr.recruitment.delete'
+-- (hr_head / ceo / coo / hr_admin), which would have let those roles bypass
+-- fn_purge_rejected_recruitment_applicant and delete without the audit trail or the
+-- Google Drive resume cleanup. Nothing in the app deleted candidates before that date.
 CREATE POLICY "hr_recruitment_candidates_delete_permission"
   ON public.hr_recruitment_candidates FOR DELETE USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.recruitment.delete')
+    (SELECT is_super_admin())
   );
+
+-- ---- hr_recruitment_purge_log -----------------------------------------
+-- PII-free tombstone of super-admin purges. Read-only to super admins; ALL writes
+-- go through the SECURITY DEFINER functions, so no write policy exists by design.
+
+ALTER TABLE public.hr_recruitment_purge_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_purge_log_select_super_admin"
+  ON public.hr_recruitment_purge_log FOR SELECT USING (
+    (SELECT is_super_admin())
+  );
+
+REVOKE ALL ON public.hr_recruitment_purge_log FROM anon;
+GRANT SELECT ON public.hr_recruitment_purge_log TO authenticated;
+
+-- NOTE: hr_job_applications deliberately has NO DELETE policy. Deletes happen only
+-- inside fn_purge_rejected_recruitment_applicant (SECURITY DEFINER, self-authorizing
+-- on is_super_admin()). Adding a delete policy here would widen the surface —
+-- with none, PostgREST denies by default.
 
 -- ---- hr_recruitment_candidate_packages --------------------------------
 -- STRICTER RLS per Learning #8:
