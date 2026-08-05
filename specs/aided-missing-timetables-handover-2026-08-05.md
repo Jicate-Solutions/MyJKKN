@@ -11,7 +11,7 @@
 
 164 first-year learners at Aided are enrolled, active and fee-paid — and **attendance cannot be marked for any of them**, because the sections they sit in have no timetable attached.
 
-This is easy to miss, and the reason is worth understanding. MyJKKN's "Pending Attendance" screen builds its list of *expected* classes from timetables. A section with no timetable produces no expected classes, therefore produces no pending rows, and therefore renders as **perfectly healthy** on the very dashboard meant to catch unmarked attendance. Silence there means "nothing scheduled", not "nothing missing".
+This is easy to miss, and the reason is worth understanding. MyJKKN's "Pending Attendance" screen builds its list of *expected* sessions from timetables. A section with no timetable produces no expected sessions, therefore produces no pending rows, and therefore renders as **perfectly healthy** on the very dashboard meant to catch unmarked attendance. Silence there means "nothing scheduled", not "nothing missing".
 
 So the exposure is invisible by default. This document makes it explicit.
 
