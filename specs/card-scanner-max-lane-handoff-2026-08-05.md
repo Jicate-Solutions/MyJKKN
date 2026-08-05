@@ -1,6 +1,50 @@
 # Business-card scanner → ₹0 Max lane
 
-**Date:** 2026-08-05 · **Decided by:** Director interview (19 decisions, 2026-08-01/02) · **Status:** spec locked; MyJKKN code ships as DRAFT until the box runner is proven
+**Date:** 2026-08-05 · **Decided by:** Director interview (19 decisions, 2026-08-01/02) · **Status:** ✅ **GATE PASSED 2026-08-05 06:49 IST — runner live, proven, restart-proof. PR #2835 out of draft.**
+
+## Gate results (verified independently against prod, not taken on report)
+
+| Proof | Claim | Result |
+|---|---|---|
+| 1 · clean English card | **1.1 s** | `confidence: high`; phone/mobile split correctly; handwritten note captured verbatim; `linkedin` **null, not invented** |
+| 2 · bilingual Tamil+English | **3.4 s** | fields all Latin-script, `languages_seen: ["Tamil","English"]` |
+| 3 · blurred / cropped | 15.5 s | **every field null, `confidence: "low"`** — the name was borderline guessable and the model still refused it. Zero fabrication. |
+| 4 · after kill-test | **3.9 s** | task relaunched in 10 s; job claimed by the task-hosted process |
+
+**₹0 proven by ledger, not by assertion:** `ai_model_usage` shows `claude_code` / `claude-sonnet-5`,
+4 calls, **`total_inr = 0`**, all `success = true`.
+
+Always-on: task `ai.jkkn.maxlane.ai-jobs-cards`, registered with the box-proven **TimeTrigger**
+shape (`PT1M` × `P3650D`, `IgnoreNew`, `ExecutionTimeLimit PT0S`) — never `-AtLogOn`, which is not
+always-on. Verified by killing the process, not by reading the registration.
+
+### Seven changes the box made to the script (all correct, all carried here)
+
+1. **`claimOne()` unwraps `{job, spec}`** — see the comment in the code below. Silent-starvation bug.
+2. **Ported off `@supabase/supabase-js` to plain `fetch`** — every drain on that box is deliberately
+   dependency-free. Three RPCs + one storage GET.
+3. **Absolute `claude.exe` path** — bare `claude` does not resolve under Task Scheduler.
+4. **Credentials read from the shared env file** when absent from process env — the service key must
+   never be copied into task XML.
+5. **`delete process.env.ANTHROPIC_API_KEY`** inside the runner — none exists on that box today, but
+   the ₹0 guarantee must not depend on that staying true.
+6. **Sandbox file keeps the storage object's real extension** rather than a hardcoded `card.jpg`.
+7. **Writes the `ai_model_usage` ledger on both success and failure** — platform convention. Without
+   it `/admin/ai-models` reports the feature as *paid Google* forever, i.e. a ₹0 feature would be
+   invisible as ₹0 exactly where cost is reviewed.
+
+### Known gap before the first real fair
+
+All three proof cards were **synthetic GDI+ renders** (Nirmala UI for Tamil, Segoe Script for the
+handwriting). They exercise every contract behaviour, but a phone-camera photo — skew, shadow,
+glare, curled edge — has not been through yet. **Run one real card before the first event.**
+
+### Test-procedure note
+
+`fn_ai_enqueue` returns `{ok:false, error:"UNAUTHORIZED"}` under the service role: it requires
+`auth.uid()`. Seed proof jobs with **`fn_ai_enqueue_system`**. The app path in #2835 enqueues as a
+signed-in user, so it is unaffected — but a test plan written against the wrong RPC will look like
+a broken feature.
 
 ## Why this shape
 
