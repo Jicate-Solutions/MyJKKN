@@ -783,6 +783,20 @@ export default function AccreditationOwnersPage() {
               />
             </div>
 
+            {campusOutOfScope ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+                <div className="font-medium">
+                  This campus is outside your access
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You can only read accreditation ownership for the campuses
+                  your role covers, so nothing is shown here. This is not a
+                  statement that the campus has no owners — it means this page
+                  cannot see them. Ask a super admin for access to this campus
+                  if you need it.
+                </p>
+              </div>
+            ) : (
             <div className="rounded-lg border bg-card p-4">
               <div className="text-sm text-muted-foreground">Owners set</div>
               <div className="text-3xl font-bold">
