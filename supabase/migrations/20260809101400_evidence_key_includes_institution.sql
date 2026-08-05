@@ -136,6 +136,24 @@
 -- 🛑 BLOCKING PREREQUISITE — ENFORCED BY ASSERT 0, NOT BY THIS COMMENT
 -- ============================================================================
 --
+-- STATUS UPDATE 2026-08-05 — the DELETE half of this prerequisite is now MET.
+-- The companion migration 20260809101700 (PR #2834) was applied to production
+-- on 2026-08-05. Re-measured live immediately after, using ASSERT 0's own
+-- queries: v_unscoped went 19 → **0**. The cross-tenant deletion hazard
+-- described below no longer exists in the live definitions.
+--
+-- The re-stamp half needed a correction to the CHECK ITSELF rather than to any
+-- function — see the comment above the v_restamp query in ASSERT 0. It was
+-- counting every function in the database carrying that string, three of which
+-- never touch this table and are perfectly correct, so the gate could never be
+-- satisfied. Scoped to this table, v_restamp is **0**.
+--
+-- This file is still FILE ONLY / NOT APPLIED. What changed is that ASSERT 0
+-- would now PASS rather than refuse — the gate has stopped reporting a hazard
+-- that is no longer there. The remaining decision (whether to widen the key at
+-- all, and when) is unchanged and still a human one. The 7 catch-up anti-joins
+-- noted below are still NOT covered by ASSERT 0 and were not verified here.
+--
 -- Widening the key lets two colleges hold a claim on one source row. The
 -- writers are NOT ready for that state. Measured on production 2026-08-04 by
 -- parsing the live definitions:
