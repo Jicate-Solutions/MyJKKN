@@ -160,7 +160,13 @@ AS $$
       -- ---- RULE 1: past its due date and still open ----------------------
       -- Dates are compared in IST and the due day is inclusive, matching the
       -- spine: an item due today is not overdue until tomorrow.
-      (v.due_date < (SELECT t.d FROM today t))                            AS r_overdue,
+      --
+      -- 'expired' is included for the same reason 'orphaned' is included in the
+      -- rule above: it is what PR 5's sweep writes when the date passes. Reading
+      -- only the date would leave a swept row that somehow disagrees with its own
+      -- due_date wearing a green "on track" chip while its access is shut — the
+      -- one thing this board must never do.
+      (v.status = 'expired' OR v.due_date < (SELECT t.d FROM today t))     AS r_overdue,
 
       -- ---- RULE 3: never accepted ----------------------------------------
       -- Literally still 'pending', 48h after it was handed over. Once someone
