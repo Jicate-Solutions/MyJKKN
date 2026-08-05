@@ -1,8 +1,14 @@
-import { BosMeetingAttendee, BosAttendanceStatus } from '@/types/bos';
+import { BosMeetingAttendee, BosAttendanceMode, BosAttendanceStatus } from '@/types/bos';
 
 export interface AttendanceUpsertRecord {
   member_id: string;
   attendance_status: BosAttendanceStatus;
+  /**
+   * Offline (in person) or online. Drives which sitting charge the
+   * auto-generated TA/DA claim uses, and whether travel is paid at all.
+   * Omitted = offline.
+   */
+  attendance_mode?: BosAttendanceMode;
   absence_reason?: string;
   ta_da_eligible?: boolean;
   institutions_id: string;
