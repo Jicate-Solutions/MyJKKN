@@ -95,11 +95,17 @@ Rules:
 - Multiple numbers: the mobile goes in "mobile", the landline/office in "phone".
 - confidence: "low" if the image is blurred, cropped, or you are unsure of any character.`;
 
+// fn_ai_claim returns a JSONB ENVELOPE, not the job row:
+//   { "job": {id, job_type, payload, ...}, "spec": {...} }   — work available
+//   { "job": null }                                          — nothing to claim
+// Unwrapping this wrongly is a SILENT killer: `data.id` is undefined forever, so
+// the drain idle-polls looking perfectly healthy while claiming nothing. Caught
+// by the Windows box during the 2026-08-05 pre-flight, before a single job ran.
 async function claimOne() {
   const { data, error } = await db.rpc('fn_ai_claim',
     { p_lane: LANE, p_runner: RUNNER, p_interactive: true });
   if (error) throw error;
-  return Array.isArray(data) ? data[0] : data;
+  return data?.job ?? null;
 }
 
 async function handle(job) {
