@@ -173,6 +173,16 @@ export const PERMISSION_CATEGORIES = [
     key: 'improvement',
     permissions: [
       { key: 'improvement.ideas.view', label: 'View Improvement Board' },
+      // Oversight read for the HOD and the principal, held separately from
+      // improvement.ideas.view so the two populations stay independently
+      // grantable and revocable: ideas.view marks a board PARTICIPANT (files
+      // ideas, appears on the leaderboard), view_scoped marks a READER who
+      // oversees the department the finding lands on. Both branches of the
+      // RLS policy are institution-scoped, so a holder reads open ideas
+      // raised inside their own institution and nothing from the other
+      // colleges. Registered here because a key that is registered nowhere
+      // cannot be granted through Role Management.
+      { key: 'improvement.ideas.view_scoped', label: 'Read Improvement Ideas for Own Institution (HOD / Principal)' },
       { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
       { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
       // Assigning a role holder writes hr_additional_roles — institution-wide org data,
