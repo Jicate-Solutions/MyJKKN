@@ -60,6 +60,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
+import { isPageAccessible } from '@/lib/navigation/permission-filter';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { cn } from '@/lib/utils';
@@ -121,8 +122,25 @@ function useSeesAll() {
 }
 
 export default function DirectorDeskPage() {
-  const { can, isSuperAdmin, isLoading: permLoading } = usePermissions();
-  const allowed = isSuperAdmin || can(VIEW_KEY);
+  const { permissions, isSuperAdmin, userProfile, isLoading: permLoading } = usePermissions();
+
+  // The SAME call the layout's RoutePermissionGuard makes, not a second opinion
+  // about it. It used to be `isSuperAdmin || can(VIEW_KEY)`, and `can()` carries
+  // no admin bypass while isPageAccessible() does — so the one production
+  // `administrator` account (is_super_admin false) was waved through the layout
+  // and then refused by the body of the page it had just been let into.
+  //
+  // This also has to agree with the DATABASE, which now admits
+  // is_super_admin() OR is_admin() OR the key (migration 20260811130000). Three
+  // gates, one verdict; calling the canonical function is what keeps it that way
+  // rather than restating the role list here for a fourth time.
+  const allowed = isPageAccessible(
+    '/director-desk',
+    VIEW_KEY,
+    permissions,
+    isSuperAdmin,
+    userProfile?.role ?? ''
+  );
 
   const { data, isLoading, isFetching, isError, error, refetch } = useHandoverBoard();
   const seesAllQuery = useSeesAll();

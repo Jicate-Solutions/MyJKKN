@@ -289,17 +289,6 @@ AS $$
       v.*,
       (SELECT t.d FROM today t) AS today_ist,
 
-      -- Everything the LIFECYCLE says is open: status, date, person. This is
-      -- what `is_live` used to be, and on its own it is not enough to promise
-      -- anyone can do anything — it is only the half of the question that does
-      -- not involve permission keys. Kept separate so "the row is open but
-      -- grants nothing" is expressible at all.
-      (
-        v.status IN ('pending', 'accepted')
-        AND v.due_date >= (SELECT t.d FROM today t)
-        AND v.p_active
-      )                                                                 AS lifecycle_open,
-
       -- ---- DECISION 12, RULE 4: owner gone -------------------------------
       -- 'orphaned' is what PR 5's sweep writes; p_active is the same thing
       -- observed live, before any sweep has run. Either one means the person
@@ -337,6 +326,10 @@ AS $$
       --
       -- Deliberately NOT folded into 'quiet': the fix is not a conversation,
       -- it is handing the same page over again at a level that covers the key.
+      --
+      -- The first three conjuncts are the LIFECYCLE half of the old is_live —
+      -- status, date, person — spelled out rather than referenced, because a
+      -- sibling alias in the same SELECT list is not addressable in SQL.
       (
         v.status IN ('pending', 'accepted')
         AND v.due_date >= (SELECT t.d FROM today t)
