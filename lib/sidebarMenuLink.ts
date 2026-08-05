@@ -27,6 +27,7 @@ import {
   GraduationCap,
   BookOpen,
   ClipboardCheck,
+  Inbox,
   Gauge,
   IdCard,
   Lock,
@@ -196,6 +197,37 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
+
+  // ======================================================================
+  // Director's Desk (2026-08-05) — spec: specs/director-desk/SPEC.md
+  //
+  // /director-desk is the Director's own console: everything he has handed
+  // out, and which of it is not green. Genuinely restricted — it lists work
+  // assigned across the whole institution — so it carries a real key.
+  //
+  // /my-desk is the RECEIVER's side and must be reachable by someone who
+  // holds NO module permission at all: the entire point of a handover is that
+  // the receiver could not open the page before. Gating it on any real module
+  // key would defeat the feature.
+  //
+  // `view_profile` is this codebase's universal-authenticated idiom — it is
+  // hard-coded as always-true in isPageAccessible() and filterByPermissions()
+  // (lib/navigation/permission-filter.ts), which is what RoutePermissionGuard
+  // reads, and it is EXEMPT from the catalog gate for exactly this reason
+  // (scripts/check-permissions-catalog.mjs EXEMPT_KEYS). Same pattern already
+  // used by /profile and /ai-pulse.
+  //
+  // CAUTION, measured 2026-08-05 against production: `view_profile` is true on
+  // only 18 of 85 custom_roles. It is a baseline in DEFAULT_ROLE_PERMISSIONS
+  // but 67 live roles predate that and do not carry it — including principal,
+  // hod, faculty, staff, coo and ceo. isPageAccessible short-circuits the key
+  // so the PAGE opens for everyone; the SIDEBAR filter in GetRoleBasedPages
+  // does NOT short-circuit it and would have hidden the link from 79% of
+  // roles. That is why /my-desk also gets an explicit always-visible carve-out
+  // below, the same treatment as /guide and /my-induction-sessions.
+  // ======================================================================
+  '/director-desk': 'director.handover.view_all',
+  '/my-desk': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -1634,6 +1666,28 @@ export function GetPages(pathname: string): MenuGroup[] {
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
           ]
+        },
+        {
+          // Director's Desk — the red/green master view of every job handed
+          // out (spec: specs/director-desk/SPEC.md). Gated by
+          // director.handover.view_all via MENU_PERMISSIONS.
+          href: '/director-desk',
+          label: "Director's Desk",
+          active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // My Desk — the receiving side of a handover. Deliberately visible to
+          // EVERY authenticated user (explicit carve-out in GetRoleBasedPages
+          // below): a handover exists precisely because the receiver holds no
+          // permission for the work, so gating its inbox on a module key would
+          // make the feature undiscoverable to the only people who need it.
+          href: '/my-desk',
+          label: 'My Desk',
+          active: pathname === '/my-desk' || pathname.startsWith('/my-desk/'),
+          icon: Inbox,
+          submenus: []
         },
         {
           // CEO Rounds — the daily rounds log (participation-graded attendance,
@@ -3501,6 +3555,18 @@ export function GetRoleBasedPages(
 
           // Platform Guide is always visible for all users (universal in-app help)
           if (menu.href === '/guide') return true;
+
+          // My Desk is always visible for all users. A handover exists BECAUSE
+          // the receiver holds no permission for the work — so the inbox where
+          // they accept or decline it cannot itself be permission-gated, or the
+          // only people it is for can never find it. Its MENU_PERMISSIONS entry
+          // maps to view_profile, which isPageAccessible() treats as universal
+          // and so opens the page; this line is the sidebar half, because the
+          // filter below does NOT short-circuit view_profile and that key is
+          // true on only 18 of 85 live roles (measured 2026-08-05 — principal,
+          // hod, faculty, staff, coo and ceo are all missing it). Same
+          // treatment as /guide and /my-induction-sessions.
+          if (menu.href === '/my-desk') return true;
 
           // "My Induction Sessions" is SELF-SCOPED: its RPCs gate on speakership
           // (event_session_speakers.profile_id = auth.uid()); non-presenters just
