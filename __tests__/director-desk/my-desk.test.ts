@@ -12,6 +12,9 @@
 // you" — a sentence the page must never say without evidence.
 // ============================================================================
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { describe, it, expect } from 'vitest';
 import {
   accessIsLive,
@@ -23,13 +26,17 @@ import {
   daysUntil,
   describeAudit,
   describeDue,
+  deskNeedsPermissionCatchUp,
+  handoverKeysAreLoaded,
   hasPermissionKeys,
   indexAudit,
   istToday,
+  permissionCatchUpPlan,
   personName,
   probeAnswered,
   readabilityVerdict,
   splitDesk,
+  PERMISSION_CATCH_UP_ATTEMPTS,
   type AuditRow,
   type HandoverRow,
 } from '@/app/(routes)/my-desk/_lib/desk';
@@ -497,6 +504,229 @@ describe('readabilityVerdict — the page may not claim what it did not read', (
     expect(v.kind).toBe('unknown');
   });
 
+});
+
+// ---------------------------------------------------------------------------
+// The "Open the page" button that landed on access-denied.
+//
+// These test the exact sequence that was reproduced by hand: a person with the
+// app open since before the handover existed, whose ['permissions'] cache is up
+// to five minutes old, opening a /my-desk that refreshes every thirty seconds.
+// The desk sees the item; the page gate does not.
+// ---------------------------------------------------------------------------
+describe('handoverKeysAreLoaded', () => {
+  const live = handover({
+    id: 'h1',
+    status: 'accepted',
+    permission_keys: ['improvement.board.manage'],
+    due_date: '2026-08-20',
+  });
+
+  it('is FALSE for the stale map the receiver actually has at 10:01', () => {
+    // The HOD's role permissions, cached at 09:57, before the 10:00 handover.
+    const staleMap = { 'academic.attendance.mark': true, 'view_profile': true };
+    expect(handoverKeysAreLoaded(live, staleMap, false)).toBe(false);
+  });
+
+  it('is TRUE once the merged map carries the key', () => {
+    expect(
+      handoverKeysAreLoaded(live, { 'improvement.board.manage': true }, false),
+    ).toBe(true);
+  });
+
+  it('needs only ONE of the named keys, because a level grants a subset', () => {
+    // Handed at `watch`, naming a view and a manage key. fn_my_handover_permissions
+    // returns only the view key. Requiring both would call a working handover broken.
+    const row = handover({
+      id: 'h2',
+      access_level: 'watch',
+      permission_keys: ['reports.annual.view', 'reports.annual.manage'],
+    });
+    expect(handoverKeysAreLoaded(row, { 'reports.annual.view': true }, false)).toBe(true);
+  });
+
+  it('treats a key present-but-false as absent, never as a grant', () => {
+    expect(
+      handoverKeysAreLoaded(live, { 'improvement.board.manage': false }, false),
+    ).toBe(false);
+  });
+
+  it('short-circuits for a super admin, whose merged map is empty by design', () => {
+    expect(handoverKeysAreLoaded(live, {}, true)).toBe(true);
+    expect(handoverKeysAreLoaded(live, {}, false)).toBe(false);
+  });
+
+  it('a row naming no key can never be loaded', () => {
+    expect(handoverKeysAreLoaded(handover({ id: 'h3', permission_keys: [] }), {}, false))
+      .toBe(false);
+    expect(handoverKeysAreLoaded(handover({ id: 'h4', permission_keys: null }), {}, false))
+      .toBe(false);
+  });
+
+  it('a missing map is not a grant', () => {
+    expect(handoverKeysAreLoaded(live, null, false)).toBe(false);
+    expect(handoverKeysAreLoaded(live, undefined, false)).toBe(false);
+  });
+});
+
+describe('deskNeedsPermissionCatchUp', () => {
+  const stale = { 'academic.attendance.mark': true };
+  const fresh = { 'improvement.board.manage': true };
+  const liveRow = handover({
+    id: 'h1',
+    status: 'accepted',
+    permission_keys: ['improvement.board.manage'],
+    due_date: '2026-08-20',
+  });
+
+  it('fires on the 10:01 case: live item, stale permission map', () => {
+    expect(deskNeedsPermissionCatchUp([liveRow], stale, false, TODAY)).toBe(true);
+  });
+
+  it('does not fire once the map has caught up', () => {
+    expect(deskNeedsPermissionCatchUp([liveRow], fresh, false, TODAY)).toBe(false);
+  });
+
+  it('ignores items whose door is shut anyway — nothing to catch up to', () => {
+    const past = handover({
+      id: 'h2',
+      status: 'accepted',
+      permission_keys: ['improvement.board.manage'],
+      due_date: '2026-08-01', // already gone
+    });
+    const revoked = handover({
+      id: 'h3',
+      status: 'accepted',
+      permission_keys: ['improvement.board.manage'],
+      due_date: '2026-08-20',
+      revoked_at: '2026-08-04T00:00:00.000Z',
+    });
+    const closed = handover({
+      id: 'h4',
+      status: 'done',
+      permission_keys: ['improvement.board.manage'],
+      due_date: '2026-08-20',
+    });
+    expect(deskNeedsPermissionCatchUp([past, revoked, closed], stale, false, TODAY)).toBe(false);
+  });
+
+  it('an empty desk asks for nothing', () => {
+    expect(deskNeedsPermissionCatchUp([], stale, false, TODAY)).toBe(false);
+  });
+});
+
+describe('permissionCatchUpPlan', () => {
+  it('asks immediately the first time — the usual cause is one stale cache', () => {
+    const plan = permissionCatchUpPlan({
+      needsCatchUp: true,
+      permissionsLoading: false,
+      attemptsMade: 0,
+    });
+    expect(plan).toEqual({ act: true, delayMs: 0, exhausted: false });
+  });
+
+  it('backs off on each retry rather than hammering a slow endpoint', () => {
+    expect(
+      permissionCatchUpPlan({ needsCatchUp: true, permissionsLoading: false, attemptsMade: 1 })
+        .delayMs,
+    ).toBe(2000);
+    expect(
+      permissionCatchUpPlan({ needsCatchUp: true, permissionsLoading: false, attemptsMade: 2 })
+        .delayMs,
+    ).toBe(4000);
+  });
+
+  it('STOPS after the budget, so a cause it cannot fix never becomes a loop', () => {
+    // This is the guard that matters: if the Director sent a key the access
+    // level does not cover, the keys will NEVER arrive, and an unbounded
+    // self-heal would invalidate for as long as the tab stayed open.
+    const plan = permissionCatchUpPlan({
+      needsCatchUp: true,
+      permissionsLoading: false,
+      attemptsMade: PERMISSION_CATCH_UP_ATTEMPTS,
+    });
+    expect(plan.act).toBe(false);
+    expect(plan.exhausted).toBe(true);
+  });
+
+  it('waits rather than stacking a second ask on top of a fetch in flight', () => {
+    expect(
+      permissionCatchUpPlan({ needsCatchUp: true, permissionsLoading: true, attemptsMade: 0 }).act,
+    ).toBe(false);
+  });
+
+  it('does nothing at all when the desk and the gate already agree', () => {
+    const plan = permissionCatchUpPlan({
+      needsCatchUp: false,
+      permissionsLoading: false,
+      attemptsMade: 0,
+    });
+    expect(plan).toEqual({ act: false, delayMs: 0, exhausted: false });
+  });
+
+  it('the whole budget is spent within seconds, not minutes', () => {
+    // The five-minute dead end this exists to break: the total wait across every
+    // automatic attempt must be far inside one staleTime window, or it is not a
+    // fix, only a shorter version of the same wait.
+    let total = 0;
+    for (let i = 0; i < PERMISSION_CATCH_UP_ATTEMPTS; i += 1) {
+      total += permissionCatchUpPlan({
+        needsCatchUp: true,
+        permissionsLoading: false,
+        attemptsMade: i,
+      }).delayMs;
+    }
+    expect(total).toBeLessThan(30_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A structural guard, because the defect was structural.
+//
+// The pure functions above can be perfect while the page never calls them. What
+// actually shipped in round 1 was a page.tsx in which the string "permissions"
+// did not appear ONCE — the only invalidation was of the desk's own reads. No
+// unit test of a helper could have caught that, because there was no helper to
+// test: the bug was an absence.
+//
+// So this reads the page source and asserts the wiring is present. If somebody
+// removes the invalidation while refactoring, the arithmetic tests above all
+// stay green and this one goes red, which is the right way round.
+// ---------------------------------------------------------------------------
+describe('/my-desk tells the page gate about a handover', () => {
+  const source = readFileSync(
+    path.resolve(process.cwd(), 'app/(routes)/my-desk/page.tsx'),
+    'utf8',
+  );
+
+  it('names the permissions cache entry at all (round 1 did not, at all)', () => {
+    expect(source).toMatch(/PERMISSIONS_QK\s*=\s*\['permissions'\]/);
+  });
+
+  it('clears it on every write — accept, decline, update, done', () => {
+    // All four go through `run`, which awaits refreshDesk. So refreshDesk is
+    // the single place that has to clear it, and it must clear BOTH.
+    const refresh = source.slice(
+      source.indexOf('const refreshDesk'),
+      source.indexOf('const refreshAccess'),
+    );
+    expect(refresh).toContain('queryKey: QK');
+    expect(refresh).toContain('queryKey: PERMISSIONS_QK');
+  });
+
+  it('re-asks when the desk and the gate disagree, and bounds how often', () => {
+    expect(source).toContain('deskNeedsPermissionCatchUp');
+    expect(source).toContain('permissionCatchUpPlan');
+    expect(source).toContain('PERMISSION_CATCH_UP_ATTEMPTS');
+  });
+
+  it('does not offer an "Open the page" link the gate would refuse', () => {
+    // The link is rendered only when the item is live AND this browser already
+    // holds the access — never on `live` alone, which is what sent people to an
+    // access-denied panel.
+    expect(source).toContain('live && keysLoaded ?');
+    expect(source).not.toMatch(/\{live \?\s*\(\s*<Button asChild/);
+  });
 });
 
 describe('istToday', () => {

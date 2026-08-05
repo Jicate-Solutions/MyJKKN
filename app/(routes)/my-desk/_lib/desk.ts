@@ -207,6 +207,113 @@ export function accessIsLive(row: HandoverRow, todayIso: string): boolean {
   return Number.isFinite(days) && days >= 0;
 }
 
+// ---------------------------------------------------------------------------
+// Has the page gate caught up with the handover?
+//
+// THE BUG THESE EXIST TO CLOSE, stated plainly.
+//
+// A handover unlocks a page in two places. The database learns about it
+// immediately — every RLS policy re-asks on the next query. The BROWSER learns
+// about it from `usePermissions`, whose React Query entry has a five-minute
+// staleTime. /my-desk's own reads have a thirty-second one. So:
+//
+//   09:57  a HOD opens the app. usePermissions caches a map with no handovers.
+//   10:00  the Director hands them a page.
+//   10:01  the HOD opens /my-desk. Fresh read: the item is there, live, with an
+//          "Open the page" button. They click it. The target page reads the
+//          STALE permission map and renders access-denied.
+//
+// The header on this page promises "Opening the page works for as long as the
+// item is open — you do not need any other access." That promise was false for
+// up to five minutes, and accepting the item did not fix it, because nothing on
+// this page ever touched the ['permissions'] cache entry.
+//
+// It is worse than a five-minute wait in one case. `applyHandoverGrants` races
+// the handover RPC against a 2-second timeout and, on timeout, returns the
+// role-only map — which React Query then caches for the FULL five minutes with
+// no retry. One slow PostgREST call and the receiver is locked out of their own
+// handover for five minutes, with nothing on the page able to clear it.
+//
+// So the page needs to answer two questions, and both are decidable without the
+// network, which is why they live here with tests:
+//   1. does the browser's permission map already carry this item's keys?
+//   2. if not, may we ask for a fresh one, and how long should we wait first?
+// ---------------------------------------------------------------------------
+
+/**
+ * Does the viewer's merged permission map already carry this handover's access?
+ *
+ * `some`, not `every`, and deliberately: a row handed at `watch` naming
+ * ["x.view", "x.manage"] grants only x.view, so fn_my_handover_permissions
+ * returns the one key. Requiring every key would report a correctly-working
+ * handover as broken forever.
+ *
+ * Super admins short-circuit because `usePermissions` returns an EMPTY map for
+ * them and carries the capability on a flag instead — testing keys there would
+ * report every super admin as permanently un-caught-up.
+ */
+export function handoverKeysAreLoaded(
+  row: Pick<HandoverRow, 'permission_keys'>,
+  permissions: Record<string, boolean> | null | undefined,
+  isSuperAdmin: boolean,
+): boolean {
+  if (isSuperAdmin) return true;
+  const keys = row.permission_keys ?? [];
+  if (keys.length === 0) return false;
+  if (!permissions) return false;
+  return keys.some((key) => permissions[key] === true);
+}
+
+/**
+ * Is any item on this desk open to the person while their browser does not yet
+ * know it? That is exactly the set of "Open the page" buttons that would land on
+ * an access-denied panel.
+ */
+export function deskNeedsPermissionCatchUp(
+  rows: HandoverRow[],
+  permissions: Record<string, boolean> | null | undefined,
+  isSuperAdmin: boolean,
+  todayIso: string,
+): boolean {
+  return rows.some(
+    (row) =>
+      accessIsLive(row, todayIso) && !handoverKeysAreLoaded(row, permissions, isSuperAdmin),
+  );
+}
+
+/** How many times the page will ask for a fresh permission map before stopping. */
+export const PERMISSION_CATCH_UP_ATTEMPTS = 3;
+
+/**
+ * May we ask for a fresh permission map, and how long should we wait first?
+ *
+ * BOUNDED ON PURPOSE. Invalidating on every render while the keys stay missing
+ * would be an infinite refetch loop against the exact endpoint that was already
+ * too slow to answer — turning a five-minute inconvenience into a hot loop. So:
+ * at most `maxAttempts` asks, backing off, and then the page stops and offers a
+ * button instead. A cause it cannot fix (the Director sent a key the access
+ * level does not cover) must not become traffic.
+ *
+ * The first ask has no delay: the overwhelmingly common case is simply a cache
+ * older than the handover, and one immediate refetch settles it.
+ */
+export function permissionCatchUpPlan(input: {
+  needsCatchUp: boolean;
+  /** True while a permissions fetch is already in flight — asking again is noise. */
+  permissionsLoading: boolean;
+  attemptsMade: number;
+  maxAttempts?: number;
+}): { act: boolean; delayMs: number; exhausted: boolean } {
+  const { needsCatchUp, permissionsLoading, attemptsMade } = input;
+  const maxAttempts = input.maxAttempts ?? PERMISSION_CATCH_UP_ATTEMPTS;
+
+  if (!needsCatchUp) return { act: false, delayMs: 0, exhausted: false };
+  if (attemptsMade >= maxAttempts) return { act: false, delayMs: 0, exhausted: true };
+  if (permissionsLoading) return { act: false, delayMs: 0, exhausted: false };
+
+  return { act: true, delayMs: attemptsMade === 0 ? 0 : 2000 * attemptsMade, exhausted: false };
+}
+
 /** Access level in the words a colleague would use, not the enum. */
 export function accessLevelWords(level: string): { title: string; detail: string } {
   switch (level) {

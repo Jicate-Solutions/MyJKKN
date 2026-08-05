@@ -39,9 +39,29 @@
 // policy would also let a receiver rewrite permission_keys and grant themselves
 // the rest of the platform. And success is asserted on RE-READ STATE, never on
 // the absence of an error.
+//
+// WHY THIS PAGE TOUCHES THE ['permissions'] CACHE (SPEC.md line 52).
+//
+// A handover unlocks a page in the database at once and in the BROWSER only
+// after usePermissions' five-minute staleTime expires. This page reads on a
+// thirty-second one, so it was routinely showing a live item with an "Open the
+// page" button several minutes before that button could work — and the header
+// above it promising "you do not need any other access". Accepting did not fix
+// it either; nothing here ever cleared that cache entry.
+//
+// So: every write clears it, and the page also watches for the specific
+// mismatch — an item this page calls live whose keys the permission map does
+// not carry — and asks for a fresh map up to three times, backing off. That
+// bounded retry is also the only thing that can clear the worse case: on a slow
+// handover RPC, applyHandoverGrants times out at 2s and caches the
+// handover-free map for the full five minutes with no retry of its own.
+//
+// While the two disagree, the button says so instead of pretending. Sending
+// somebody to an access-denied panel from the one page built to stop exactly
+// that is the failure this feature exists to remove.
 // ============================================================================
 
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -84,6 +104,7 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -95,15 +116,19 @@ import {
   describeAudit,
   describeDue,
   chunk,
+  deskNeedsPermissionCatchUp,
+  handoverKeysAreLoaded,
   hasPermissionKeys,
   indexAudit,
   istToday,
+  permissionCatchUpPlan,
   personName,
   readabilityVerdict,
   splitDesk,
   AUDIT_ID_CHUNK,
   CLOSED_ROW_LIMIT,
   DESK_ROW_LIMIT,
+  PERMISSION_CATCH_UP_ATTEMPTS,
   type AuditRow,
   type DeskPerson,
   type DeskProbe,
@@ -114,6 +139,14 @@ const LOG = 'director-desk/my-desk';
 
 /** Everything this page reads, under one key prefix so one call clears it all. */
 const QK = ['director-desk', 'my-desk'] as const;
+
+/**
+ * The cache entry that decides whether a page GATE opens, as opposed to whether
+ * the data behind it can be read. Owned by hooks/use-permissions.ts; named here
+ * because this page has to clear it, and a typo would fail silently — React
+ * Query invalidates nothing and reports success.
+ */
+const PERMISSIONS_QK = ['permissions'] as const;
 
 /** Columns the desk needs. Named explicitly so a schema addition cannot surprise it. */
 const HANDOVER_COLUMNS =
@@ -641,6 +674,9 @@ function OpenItem({
   trail,
   trailUnavailable,
   busy,
+  keysLoaded,
+  catchUpExhausted,
+  onRetryAccess,
   onAccept,
   onAsk,
 }: {
@@ -650,6 +686,11 @@ function OpenItem({
   trail: AuditRow[];
   trailUnavailable: boolean;
   busy: boolean;
+  /** The browser's permission map already carries this item's access. */
+  keysLoaded: boolean;
+  /** The page has asked for a fresh map as often as it is allowed to. */
+  catchUpExhausted: boolean;
+  onRetryAccess: () => void;
   onAccept: (row: HandoverRow) => void;
   onAsk: (next: PendingDialog) => void;
 }) {
@@ -675,13 +716,38 @@ function OpenItem({
         <div className="flex shrink-0 flex-col items-end gap-2">
           <DueChip dueDate={row.due_date} today={today} />
           <AccessChip level={row.access_level} />
-          {live ? (
+          {/*
+            THREE STATES, not two. The middle one is the whole point: the item
+            is open, and this browser's page gate does not know it yet. Rendering
+            the link there sent people to an access-denied panel from the one
+            page whose header promises they need no other access.
+          */}
+          {live && keysLoaded ? (
             <Button asChild variant="outline" size="sm">
               <Link href={row.route}>
                 Open the page
                 <ArrowRight className="ml-1 h-3.5 w-3.5" />
               </Link>
             </Button>
+          ) : live ? (
+            <div className="flex flex-col items-end gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onRetryAccess}
+                title="Ask again for your up-to-date access"
+              >
+                <Loader2
+                  className={`mr-1 h-3.5 w-3.5 ${catchUpExhausted ? '' : 'animate-spin'}`}
+                />
+                {catchUpExhausted ? 'Try again' : 'Getting your access ready'}
+              </Button>
+              <span className="max-w-56 text-right text-[11px] text-muted-foreground">
+                {catchUpExhausted
+                  ? 'Your access still has not come through. Try again, and tell the person who handed this over if it keeps happening — the level it was sent at may not cover this page.'
+                  : 'This is open to you; your browser is still catching up. A moment.'}
+              </span>
+            </div>
           ) : (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <Lock className="h-3.5 w-3.5" />
@@ -811,6 +877,7 @@ function ClosedItem({
 export default function MyDeskPage() {
   const qc = useQueryClient();
   const { profile, isLoading: authLoading } = useAuth();
+  const { permissions, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
   const userId = profile?.id as string | undefined;
 
   // A SET, not a scalar. With one id, finishing a write on row A cleared the
@@ -842,9 +909,59 @@ export default function MyDeskPage() {
     listCapped: rowsQuery.data?.capped === true,
   });
 
+  // ---- The page gate has to be told, and only this page can tell it --------
+  //
+  // Every write below clears ['permissions'] as well as the desk's own reads.
+  // Accepting an item is the moment a person expects to be able to work on it,
+  // and it was previously the moment they discovered they could not.
   const refreshDesk = useCallback(async () => {
-    await qc.invalidateQueries({ queryKey: QK });
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: QK }),
+      qc.invalidateQueries({ queryKey: PERMISSIONS_QK }),
+    ]);
   }, [qc]);
+
+  // The manual escape hatch, and the only thing that refills the automatic
+  // budget. It is an event handler, so resetting the counter here is a plain
+  // state update and not the effect-writes-state pattern this codebase avoids.
+  const refreshAccess = useCallback(() => {
+    setCatchUpAttempts(0);
+    void qc.invalidateQueries({ queryKey: PERMISSIONS_QK });
+  }, [qc]);
+
+  // Which items this page calls live but the browser's page gate does not yet
+  // know about. Empty is the normal state; non-empty is the stale-cache window
+  // (and, on a timed-out handover RPC, a five-minute one that nothing else can
+  // clear).
+  const needsCatchUp = useMemo(
+    () => deskNeedsPermissionCatchUp(rows, permissions, isSuperAdmin, today),
+    [rows, permissions, isSuperAdmin, today],
+  );
+
+  // Attempt counter in STATE, not a ref: after an invalidate the map may come
+  // back still missing the keys, and `needsCatchUp` does not change — so the
+  // counter is what has to move for the effect to run again, and what stops it
+  // running forever. Nothing resets it automatically; only the person clicking
+  // "Try again" does, which keeps a cause this page cannot fix (a level that
+  // does not cover the key) from becoming a permanent refetch loop.
+  const [catchUpAttempts, setCatchUpAttempts] = useState(0);
+  useEffect(() => {
+    const plan = permissionCatchUpPlan({
+      needsCatchUp,
+      permissionsLoading,
+      attemptsMade: catchUpAttempts,
+    });
+    if (!plan.act) return;
+
+    const timer = setTimeout(() => {
+      logger.dev(LOG, 'asking for a fresh permission map', { attempt: catchUpAttempts + 1 });
+      void qc.invalidateQueries({ queryKey: PERMISSIONS_QK });
+      setCatchUpAttempts((n) => n + 1);
+    }, plan.delayMs);
+    return () => clearTimeout(timer);
+  }, [needsCatchUp, permissionsLoading, catchUpAttempts, qc]);
+
+  const catchUpExhausted = catchUpAttempts >= PERMISSION_CATCH_UP_ATTEMPTS;
 
   const run = useCallback(
     async (row: HandoverRow, job: () => Promise<void>, success: string) => {
@@ -927,8 +1044,10 @@ export default function MyDeskPage() {
           <CardContent className="space-y-1 text-sm text-muted-foreground">
             <p>
               Each item below is one job on one page, with a date and a note from
-              the person who asked. Opening the page works for as long as the item
-              is open — you do not need any other access.
+              the person who asked. You do not need any other access — the item
+              itself is what opens the page, for as long as it is open. If a
+              button says it is still getting your access ready, that is this
+              browser catching up; give it a moment.
             </p>
             <p>
               Nothing here is yours until you accept it, and declining is a normal
@@ -1056,6 +1175,9 @@ export default function MyDeskPage() {
                   trail={trails[row.id] ?? []}
                   trailUnavailable={trailUnavailable}
                   busy={busyIds.has(row.id)}
+                  keysLoaded={handoverKeysAreLoaded(row, permissions, isSuperAdmin)}
+                  catchUpExhausted={catchUpExhausted}
+                  onRetryAccess={refreshAccess}
                   onAccept={onAccept}
                   onAsk={setDialog}
                 />
@@ -1080,6 +1202,9 @@ export default function MyDeskPage() {
                   trail={trails[row.id] ?? []}
                   trailUnavailable={trailUnavailable}
                   busy={busyIds.has(row.id)}
+                  keysLoaded={handoverKeysAreLoaded(row, permissions, isSuperAdmin)}
+                  catchUpExhausted={catchUpExhausted}
+                  onRetryAccess={refreshAccess}
                   onAccept={onAccept}
                   onAsk={setDialog}
                 />
