@@ -567,6 +567,17 @@ describe('handoverKeysAreLoaded', () => {
     expect(handoverKeysAreLoaded(live, null, false)).toBe(false);
     expect(handoverKeysAreLoaded(live, undefined, false)).toBe(false);
   });
+
+  it('treats the universal keys as loaded, because the route guard does', () => {
+    // isPageAccessible() short-circuits view_profile and view_dashboard before
+    // it consults the map at all. But view_profile is true on only 18 of 85 live
+    // roles, so testing the map would leave a handover of a page that opens for
+    // EVERYBODY stuck behind "Getting your access ready" for as long as the tab
+    // stayed open — and would burn the whole retry budget getting there.
+    const universal = handover({ id: 'h5', permission_keys: ['view_profile'] });
+    expect(handoverKeysAreLoaded(universal, {}, false)).toBe(true);
+    expect(handoverKeysAreLoaded(universal, { view_profile: false }, false)).toBe(true);
+  });
 });
 
 describe('deskNeedsPermissionCatchUp', () => {

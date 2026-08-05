@@ -241,6 +241,19 @@ export function accessIsLive(row: HandoverRow, todayIso: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * Keys that open a page whether or not the map carries them.
+ *
+ * isPageAccessible() (lib/navigation/permission-filter.ts) short-circuits these
+ * two before it looks at anything, so a route declaring one is open to every
+ * signed-in user. They must be treated as loaded here for the same reason, and
+ * it is not hypothetical: `view_profile` is true on only 18 of 85 live roles,
+ * so a handover of /profile — a route that opens for everybody — would
+ * otherwise sit behind "Getting your access ready" forever while the page it
+ * points at worked perfectly.
+ */
+const UNIVERSAL_KEYS = new Set(['view_profile', 'view_dashboard']);
+
+/**
  * Does the viewer's merged permission map already carry this handover's access?
  *
  * `some`, not `every`, and deliberately: a row handed at `watch` naming
@@ -251,6 +264,11 @@ export function accessIsLive(row: HandoverRow, todayIso: string): boolean {
  * Super admins short-circuit because `usePermissions` returns an EMPTY map for
  * them and carries the capability on a flag instead — testing keys there would
  * report every super admin as permanently un-caught-up.
+ *
+ * FAILS CLOSED on a missing map, on purpose. The alternative is to assume the
+ * gate will open and offer a link that lands on access-denied, which is the
+ * defect this function exists to close. A caught-up map is cheap to obtain; a
+ * wrongly-promised page is not.
  */
 export function handoverKeysAreLoaded(
   row: Pick<HandoverRow, 'permission_keys'>,
@@ -260,6 +278,7 @@ export function handoverKeysAreLoaded(
   if (isSuperAdmin) return true;
   const keys = row.permission_keys ?? [];
   if (keys.length === 0) return false;
+  if (keys.some((key) => UNIVERSAL_KEYS.has(key))) return true;
   if (!permissions) return false;
   return keys.some((key) => permissions[key] === true);
 }
