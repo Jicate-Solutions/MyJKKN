@@ -68,6 +68,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Authorize BEFORE any bytes are persisted ──────────────────────────────
+  // fn_ai_enqueue holds the real gate, but it runs AFTER the upload — so a
+  // caller who fails it had already had their photo written to the private
+  // bucket, and the sha256 dedupe only sees ENQUEUED jobs, so those orphans
+  // accumulate unreferenced. Check the same permission up front; the enqueue
+  // remains the authoritative check, this is just refusing to store first.
+  const { data: mayScan } = await supabase.rpc('user_has_permission', {
+    permission_name: 'meetings.contacts.scan',
+  });
+  if (mayScan === false) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'You do not have access to card scanning yet. Ask an administrator to grant the “Scan Business Cards” permission.',
+        code: 'not_allowed',
+      },
+      { status: 403 },
+    );
+  }
+
   const bytes = Buffer.from(await file.arrayBuffer());
   const sha256 = createHash('sha256').update(bytes).digest('hex');
 
