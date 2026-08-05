@@ -19,12 +19,15 @@
 // --------------------
 // Not here. fn_director_handover_board() (migration 20260811130000) computes the
 // five rules in SQL and returns, per row, the most urgent rule plus every rule
-// that fired. The nightly chase engine (PR 5) reads the same function. That is
-// deliberate: if the board and the chase engine each had their own idea of red,
-// the Director would get a nudge sent about an item his screen calls green, and
-// no way to tell which was lying.
+// that fired. This file only counts and colours what SQL already decided.
 //
-// This file only counts and colours what SQL already decided.
+// An earlier version of this comment said the nightly chase engine reads the
+// same function. Checked on branch feat/director-desk-chase: it does not — it
+// selects from director_handovers directly and implements only the overdue rule,
+// with no quiet rule of its own. Nothing disagrees today; the coupling simply
+// was not there. Anyone adding a quiet rule to that job must call this function,
+// because reading last_activity_at directly is exactly how the Director's own
+// nudge used to clear the flag it raised.
 //
 // THE COUNTS ADD UP
 // -----------------

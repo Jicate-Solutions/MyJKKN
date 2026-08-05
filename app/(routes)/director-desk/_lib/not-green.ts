@@ -2,9 +2,10 @@
 // The five not-green rules — presentation half.
 //
 // The rules THEMSELVES are computed in SQL (fn_director_handover_board, migration
-// 20260811130000) so this page and the nightly chase engine cannot disagree about
-// what red means. Nothing here re-derives a rule; this file only decides what
-// each SQL-computed reason is CALLED and what colour it is drawn in.
+// 20260811130000) so no consumer can invent a private idea of red. Nothing here
+// re-derives a rule; this file only decides what each SQL-computed reason is
+// CALLED and what colour it is drawn in. (The nightly chase engine does NOT read
+// that function today — checked, not assumed; see page.tsx.)
 //
 // The five are kept apart on purpose. They are not five flavours of "late" —
 // the Director's next move is different for each one, and collapsing them into a

@@ -21,14 +21,19 @@
 --
 --   5. the door never opened (the row is open, in date, and grants NOTHING)
 --
--- Those five are read by TWO different consumers: this page, and the nightly
--- chase engine (PR 5). If each computed them for itself, the Director would be
--- looking at a board that says green while the chase engine is sending a nudge,
--- or vice versa — and there would be no way to tell which one was right.
+-- The rules live HERE, once, in SQL, so that every consumer renders the same
+-- verdict and none of them can invent a private idea of red.
 --
--- So the rules live HERE, once, in SQL. The page renders what this returns; the
--- chase engine will chase what this returns. They cannot disagree, because
--- there is only one implementation to disagree with.
+-- WHAT PR 5 ACTUALLY DOES — checked on branch feat/director-desk-chase rather
+-- than assumed, because an earlier version of this header asserted it:
+-- lib/services/director-desk/handover-chase-service.ts does NOT call this
+-- function. It selects from director_handovers directly, and it implements only
+-- the overdue rule and the explain-within-24h window — it has no quiet rule of
+-- its own at all. So there is no live disagreement today. But the coupling this
+-- header claimed does not exist, and anyone adding a quiet rule to the chase
+-- engine must call this function rather than read last_activity_at, or the
+-- defect fixed below (see grantee_activity_at) comes straight back in the
+-- nightly job while the board stays honest.
 --
 -- THE PRIMARY REASON vs. ALL REASONS
 -- ----------------------------------
