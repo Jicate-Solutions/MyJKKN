@@ -332,7 +332,23 @@ export const PERMISSION_CATEGORIES = [
       { key: 'organizations.sections.view', label: 'View Sections' },
       { key: 'organizations.sections.create', label: 'Create Sections' },
       { key: 'organizations.sections.edit', label: 'Edit Sections' },
-      { key: 'organizations.sections.delete', label: 'Delete Sections' }
+      { key: 'organizations.sections.delete', label: 'Delete Sections' },
+      // 2026-08-04 — College Leadership (/organizations/leadership).
+      // The ONE key behind naming a Principal, Vice Principal, IQAC Chairman,
+      // IQAC Coordinator or Head of Department. It stands in for five keys the
+      // underlying tables would otherwise demand — including roles.create and
+      // roles.edit, which are NOT institution-scoped and would grant global
+      // role management to a college officer. The writes happen inside
+      // fn_set_college_leadership (SECURITY DEFINER) so this key grants nothing
+      // anywhere else.
+      //
+      // Registered but granted to NO role: an unregistered key can never be
+      // granted at all (this repo carries 77 such orphans), so it has to exist
+      // here first. Who holds it is the Director's decision.
+      {
+        key: 'organizations.leadership.manage',
+        label: 'Manage College Leadership (Principal, Vice Principal, IQAC, HoD)'
+      }
     ]
   },
   {
@@ -691,11 +707,33 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
+      // the /billing/schedule/bulk-create flow (pick many learners, or upload
+      // an Excel of bills). Separate from billing.schedule.create so the bulk
+      // path can be revoked without removing single-bill creation.
+      //
+      // ADDITIVE, NOT A REPLACEMENT: every surface checks create AND
+      // bulk_create together, because the RLS INSERT policy on
+      // billing_student_bills still gates on billing.schedule.create. Granting
+      // bulk_create alone would render the button and then fail every insert
+      // with an RLS denial.
+      { key: 'billing.schedule.bulk_create', label: 'Bulk Create Bills' },
       { key: 'billing.receipts.view', label: 'View Receipts' },
       { key: 'billing.receipts.create', label: 'Create Receipts' },
       { key: 'billing.receipts.edit', label: 'Edit Receipts' },
       { key: 'billing.receipts.delete', label: 'Delete/Void Receipts Directly' },
       { key: 'billing.receipts.generate', label: 'Generate Receipts' },
+      // Bulk receipt generation from the Billing Schedule page: download a
+      // pre-filled Excel of outstanding bills, fill "Paid Amount", upload, and
+      // create one receipt per (student, paid date, payment mode) group — up to
+      // 5000 bills per batch. Deliberately a SEPARATE key from
+      // billing.receipts.create: the single-receipt key is held by 7 roles, and
+      // one mis-filled sheet here writes thousands of payment rows at once, so
+      // the bulk path is opted into per role rather than inherited.
+      // The three API routes behind it run on the service-role client (RLS is
+      // bypassed), so they check THIS key plus the caller's accessible
+      // institutions — see lib/auth/bulk-receipt-access.ts.
+      { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
       // Cancelling a receipt reverses money, so it is split in two: staff RAISE
       // a request, and only a SUPER ADMIN decides it. There is deliberately no
       // "cancel.approve" key — approval is gated on is_super_admin() in
@@ -766,6 +804,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
+      // 2026-08-02 — hr_recruitment_scorecards' SELECT policy demanded this key
+      // and it existed nowhere, so interview scorecards were super-admin-only.
+      // Kept as its OWN key rather than folded into hr.recruitment.view: a
+      // scorecard is an interviewer's private assessment of a person, and every
+      // recruiter who may list candidates should not automatically read it.
+      { key: 'hr.recruitment.scorecards.view', label: 'View Interview Scorecards' },
       // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
       // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
       // this comment was aspirational: the policies gated on user_hr_access +
@@ -1193,6 +1237,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.edit', label: 'Edit Counselors' },
       { key: 'admission.counselors.delete', label: 'Delete Counselors' },
       { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+      // 2026-08-02 — admission_counselor_duty_log's SELECT policy demanded this
+      // key and it existed nowhere. Kept separate from performance.view: a duty
+      // log is an attendance-shaped record of an individual's working day.
+      { key: 'admission.counselors.duty_log.view', label: 'View Counselor Duty Log' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
@@ -1508,7 +1556,21 @@ export const PERMISSION_CATEGORIES = [
       // re-assignment control now") — releases HELD CO/PO rollups into the
       // evidence ledger by assigning the right college. Gates
       // fn_copo_restamp_rollup_institution (super admins bypass).
-      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' }
+      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' },
+
+      // 2026-08-02 — registered because the RLS already DEMANDED them.
+      // accreditation_survey_consents and accreditation_submissions carry
+      // policies calling user_has_permission() on these six keys, none of which
+      // existed here, so no role could ever hold one and every non-admin read
+      // and write against those two tables was denied with no way to grant it.
+      // Registering a key grants it to nobody — it only makes it assignable in
+      // Role Management, which is the missing half of the lock.
+      { key: 'accreditation.consents.view', label: 'View Accreditation Survey Consents' },
+      { key: 'accreditation.consents.create', label: 'Record Accreditation Survey Consent' },
+      { key: 'accreditation.consents.withdraw', label: 'Withdraw Accreditation Survey Consent' },
+      { key: 'accreditation.submissions.view', label: 'View Accreditation Submissions' },
+      { key: 'accreditation.submissions.create', label: 'Create Accreditation Submissions' },
+      { key: 'accreditation.submissions.manage', label: 'Manage Accreditation Submissions' }
     ]
   },
   {
@@ -1576,6 +1638,16 @@ export const PERMISSION_CATEGORIES = [
 
       // Compliance
       { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' },
+
+      // Department capability register (2026-08-01). /solutions/departments was
+      // retired 2026-04-02 with its obsolete nomination workflow; the capability
+      // editor went with it, which is why all 44 activated departments still
+      // declare nothing. These keys gate the register that brings it back.
+      { key: 'solutions.departments.view', label: 'View Department Capabilities' },
+      {
+        key: 'solutions.departments.capabilities.edit',
+        label: 'Declare Department Capabilities',
+      },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -2613,7 +2685,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'rcltp.report.view_all', label: 'View All RCLTP Reports' },
       { key: 'rcltp.report.view_class', label: 'View RCLTP Reports for a Section' },
       { key: 'rcltp.report.view_child', label: 'View RCLTP Reports for Own Ward' },
-      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' }
+      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' },
+      // 2026-08-02 — rcltp_badges, rcltp_learner_badges and rcltp_streaks all
+      // gate on these two keys, neither of which existed here.
+      { key: 'rcltp.reward.view', label: 'View RCLTP Badges & Streaks' },
+      { key: 'rcltp.reward.config', label: 'Configure RCLTP Badges & Streak Rules' }
+    ]
+  },
+  {
+    // Attention Bar — 2026-08-02. The module had ZERO registered permission
+    // keys while six tables (quick_action_audit, quick_action_config,
+    // quick_action_rules, quick_action_state_queries,
+    // notification_generator_config and its audit table) already carried RLS
+    // policies calling user_has_permission() on these four. A key that is
+    // registered nowhere cannot be granted anywhere, so those policies could
+    // only ever pass for is_super_admin()/is_admin(). This registers them so
+    // the access is grantable; it grants nothing to anybody by itself.
+    name: 'Attention Bar',
+    key: 'attention_bar',
+    permissions: [
+      { key: 'attention_bar.rules.view', label: 'View Attention Bar Rules' },
+      { key: 'attention_bar.rules.manage', label: 'Manage Attention Bar Rules & Notification Generators' },
+      { key: 'attention_bar.config.manage', label: 'Manage Attention Bar Config' },
+      { key: 'attention_bar.audit.view', label: 'View Attention Bar Action Audit Trail' }
     ]
   },
   {
@@ -2676,13 +2770,39 @@ export const PERMISSION_CATEGORIES = [
     // migration 20260731040000_cohort_core_spine.sql). SELECT→cohort.view,
     // INSERT→cohort.create, UPDATE→cohort.edit, DELETE→cohort.manage. Grant
     // 'cohort.manage' to cohort coordinators; super_admin/admin bypass every policy.
+    //
+    // ⚠ THE FOUR KEYS ABOVE ARE PROGRAMME-BLIND. The spine's RLS is not scoped per
+    // cohort kind, so any of them reaches EVERY programme sharing these tables —
+    // sf100, foundations, cdc, trainer, mba_associate and school_of_influence
+    // alike — within the holder's institution scope. Grant them only to someone
+    // meant to run cohorts across the board.
+    //
+    // For a coordinator of ONE programme, use the programme-scoped keys below
+    // instead. Added 2026-08-01, migration
+    // 20260808220000_cohort_programme_scoped_permission_keys.sql. They are backed
+    // by additional policies that sit BESIDE the four broad ones (the broad ones
+    // are untouched), each pinned to kind='school_of_influence', and they open the
+    // same doors for that programme and no other. Same action→key mapping:
+    // SELECT→.view, INSERT→.create, UPDATE→.edit, DELETE→.manage; .manage also
+    // opens fn_soi_can_manage_batch and fn_soi_can_review_applications, which gate
+    // every School of Influence RPC.
+    //
+    // Grant a School of Influence coordinator ALL FOUR narrow keys together. The
+    // .view key is load-bearing on the write paths, not merely a read convenience:
+    // CohortService.createMembership does .insert().select().single(), so without
+    // the read-back the accept lands the row, returns nothing, throws, and leaves
+    // an orphan membership with the application still showing 'pending'.
     name: 'Cohort Core',
     key: 'cohort',
     permissions: [
-      { key: 'cohort.view', label: 'View Cohorts' },
-      { key: 'cohort.create', label: 'Create Cohorts' },
-      { key: 'cohort.edit', label: 'Edit Cohorts' },
-      { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
+      { key: 'cohort.view', label: 'View Cohorts (ALL programmes)' },
+      { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
+      { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
+      { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
+      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
     ]
   },
   {

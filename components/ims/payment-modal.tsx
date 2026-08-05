@@ -9,7 +9,6 @@ import {
   Layers,
   Loader2,
   AlertCircle,
-  ShieldCheck,
 } from 'lucide-react';
 import {
   Dialog,
@@ -103,7 +102,6 @@ export function PaymentModal({
   const [mixCash, setMixCash] = useState('');
   const [mixCard, setMixCard] = useState('');
   const [mixGpay, setMixGpay] = useState('');
-  const [mixUpiQr, setMixUpiQr] = useState('');
 
   // ── Derived values ──
   const cashNum = parseFloat(cashAmount) || 0;
@@ -112,17 +110,27 @@ export function PaymentModal({
   const mixCashNum = parseFloat(mixCash) || 0;
   const mixCardNum = parseFloat(mixCard) || 0;
   const mixGpayNum = parseFloat(mixGpay) || 0;
-  const mixUpiQrNum = parseFloat(mixUpiQr) || 0;
-  const mixTotal = mixCashNum + mixCardNum + mixGpayNum + mixUpiQrNum;
+  const mixTotal = mixCashNum + mixCardNum + mixGpayNum;
   const mixRemaining = total - mixTotal;
 
   // ── Tab icon/label map ──
+  //
+  // The self-hosted 'upi_qr' tab is HIDDEN, not deleted — leaving this list is all
+  // it takes to bring it back. It asked the cashier to confirm a UTR and believed
+  // the answer; the gateway tab below takes the same payment and has Razorpay
+  // confirm the credit instead. Two QR tabs side by side only ever invited the
+  // cashier to pick the one with no proof behind it.
+  //
+  // With it gone, "UPI (verified)" no longer needs the qualifier — there is nothing
+  // left to distinguish it FROM, and "verified" described our plumbing rather than
+  // anything the customer does. Razorpay's hosted page opens straight onto a UPI QR
+  // (see the launcher's prefill), so from the counter this simply IS "UPI QR" —
+  // the name the staff already use.
   const tabs: { value: PaymentTab; label: string; icon: React.ReactNode }[] = [
     { value: 'cash', label: 'Cash', icon: <Banknote className="h-4 w-4" /> },
     { value: 'card', label: 'Card', icon: <CreditCard className="h-4 w-4" /> },
     { value: 'gpay', label: 'GPay', icon: <Smartphone className="h-4 w-4" /> },
-    { value: 'upi_qr', label: 'UPI QR', icon: <QrCode className="h-4 w-4" /> },
-    { value: 'upi_verified', label: 'UPI (verified)', icon: <ShieldCheck className="h-4 w-4" /> },
+    { value: 'upi_verified', label: 'UPI QR', icon: <QrCode className="h-4 w-4" /> },
     { value: 'mixed', label: 'Mixed', icon: <Layers className="h-4 w-4" /> },
   ];
 
@@ -136,7 +144,6 @@ export function PaymentModal({
     setMixCash('');
     setMixCard('');
     setMixGpay('');
-    setMixUpiQr('');
     setStockErrors([]);
     setIsProcessing(false);
     setFailedAttempt(null);
@@ -238,24 +245,21 @@ export function PaymentModal({
       return;
     }
 
-    if (mixCashNum < 0 || mixCardNum < 0 || mixGpayNum < 0 || mixUpiQrNum < 0) {
+    if (mixCashNum < 0 || mixCardNum < 0 || mixGpayNum < 0) {
       toast.error('Payment amounts cannot be negative');
       return;
     }
 
-    // A UPI leg needs a QR and a confirmed UTR to be real money. Typing an amount
-    // into this box created an ims_sales row with upi_qr_amount > 0 and NO
-    // ims_upi_qr_payments row, no QR and no UTR — and the UPI audit report filters
-    // on .gt('upi_qr_amount', 0), so those phantom receipts showed up as UPI
-    // takings that no bank statement would ever match. Until the Mixed tab can
-    // launch the QR flow for its UPI portion, route UPI-inclusive payments through
-    // the UPI QR tab.
-    if (mixUpiQrNum > 0) {
-      toast.error(
-        'UPI in a split payment needs a QR code. Take the UPI part on the UPI QR tab, or use Cash / Card / GPay here.'
-      );
-      return;
-    }
+    // The UPI box is gone from this tab rather than erroring on use.
+    //
+    // It never worked: typing an amount here created an ims_sales row with
+    // upi_qr_amount > 0 and NO ims_upi_qr_payments row — no QR, no UTR — and the
+    // UPI audit report filters on .gt('upi_qr_amount', 0), so those phantom
+    // receipts surfaced as UPI takings no bank statement would ever match. The
+    // guard that replaced it told the cashier to "use the UPI QR tab", which is
+    // now hidden, and the gateway that replaced THAT settles the full total in one
+    // go and cannot take a partial leg. So a UPI split is genuinely unsupported,
+    // and a box that always refuses is a worse way to say so than no box.
 
     // Determine payment method
     const methods: ImsPaymentMethod[] = [];
@@ -372,7 +376,12 @@ export function PaymentModal({
             setShowQr(false);
           }}
         >
-          <TabsList className="w-full grid grid-cols-6">
+          {/* Driven off tabs.length rather than a hardcoded grid-cols-N, which
+              silently left an empty sixth column the moment a tab was hidden. */}
+          <TabsList
+            className="w-full grid"
+            style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+          >
             {tabs.map((tab) => (
               <TabsTrigger key={tab.value} value={tab.value} className="gap-1 text-xs">
                 {tab.icon}
@@ -488,7 +497,12 @@ export function PaymentModal({
             </Button>
           </TabsContent>
 
-          {/* ── UPI QR ── */}
+          {/* ── UPI QR, self-hosted — HIDDEN, NOT DELETED ──
+              No trigger renders for this tab (see the `tabs` array), so it is
+              currently unreachable. Kept whole because it is a working payment
+              path with its own table (ims_upi_qr_payments), its own API routes and
+              settled money already recorded against it; restoring it is one line
+              in `tabs`. Delete it only once that history no longer matters. */}
           <TabsContent value="upi_qr" className="space-y-4">
             {!showQr ? (
               <div className="flex flex-col items-center gap-4 py-4">
@@ -577,19 +591,12 @@ export function PaymentModal({
                   className="mt-1"
                 />
               </div>
-              <div>
-                <Label className="text-xs">UPI QR</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  placeholder="0.00"
-                  value={mixUpiQr}
-                  onChange={(e) => setMixUpiQr(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              UPI cannot be part of a split — the payment page settles the whole
+              amount at once. Take a UPI payment on the UPI QR tab instead.
+            </p>
 
             {/* Balance indicator */}
             <div className={`flex justify-between text-sm p-2 rounded ${

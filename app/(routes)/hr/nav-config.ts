@@ -246,6 +246,34 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      // WHO PAYS each team member (2026-07-31, PR #2694). The sidebar entry
+      // shipped with that PR but this config did not, and a module with
+      // hasNavConfig renders ONLY the groups declared here — AutoTabNav stops
+      // auto-discovering manifest siblings — so the page had no chip and
+      // check-nav-reachability reported /hr/payroll as an orphan.
+      //
+      // Anchored on the /hr/payroll hub rather than the leaf because
+      // check-nav-reachability BFS-walks chips that actually RENDER and
+      // explicitly ignores matchPaths — a path only counts as covered when
+      // some chip links to it literally. That is safe only because
+      // MENU_PERMISSIONS now maps '/hr/payroll' to the same HR-only key as the
+      // leaf; chips inherit their gate from MENU_PERMISSIONS[href], so without
+      // that entry this would fall through to 'hr.view' and render a chip
+      // everyone in HR can see and nobody but HR can open.
+      label: 'Payroll',
+      icon: 'Wallet',
+      href: '/hr/payroll',
+      matchPaths: ['/hr/payroll'],
+      children: [
+        {
+          label: 'Payroll Organisation',
+          icon: 'Wallet',
+          href: '/hr/payroll/organisation',
+          matchPaths: ['/hr/payroll/organisation'],
+        },
+      ],
+    },
+    {
       label: 'Policies',
       icon: 'ShieldCheck',
       href: '/hr/policies',

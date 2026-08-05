@@ -9334,12 +9334,15 @@ $$;
 -- =====================================================
 -- validate_learner_semester_year_scope() — Added 2026-07-30
 --   Migration: 20260730160000_repair_cross_institution_learner_semester_academic_year.sql
---   Extended 2026-07-30 by 20260808100000_repair_learner_degree_id_cross_institution.sql
+--   Extended 2026-07-30 by 20260808100001_repair_learner_degree_id_cross_institution.sql
 --   to also cover degree_id and department_id.
+--   Extended 2026-07-31 by 20260731100100_extend_learner_scope_guard_section_id.sql
+--   to also cover section_id — the column the first two waves never checked,
+--   which left 179 learners on another institution's same-named section.
 -- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
 --
--- Rejects a learners_profiles row whose degree_id, department_id, semester_id
--- or academic_year_id belongs to a DIFFERENT institution. These tables are all
+-- Rejects a learners_profiles row whose degree_id, department_id, semester_id,
+-- academic_year_id or section_id belongs to a DIFFERENT institution. These tables are all
 -- institution-scoped and carry duplicate NAMES across institutions (nine rows
 -- named 'Undergraduate', one per institution), so a mis-pointed FK renders
 -- identically in the UI and is invisible until a filter silently returns zero
@@ -9418,6 +9421,23 @@ BEGIN
       RAISE EXCEPTION
         'academic_year_id % belongs to institution %, not the learner''s institution %',
         NEW.academic_year_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- Added 2026-07-31 — the gap that let the section_id corruption survive.
+  -- 457 section rows are named 'A' group-wide, so the list rendered the right
+  -- label off the wrong row and only the section FILTER exposed the mismatch.
+  IF NEW.section_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.section_id     IS DISTINCT FROM OLD.section_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT sc.institution_id INTO v_inst
+      FROM public.sections sc WHERE sc.id = NEW.section_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'section_id % belongs to institution %, not the learner''s institution %',
+        NEW.section_id, v_inst, NEW.institution_id
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -14977,7 +14997,7 @@ BEGIN
              AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
              AND (c.department_id IS NULL OR c.department_id = v_dept)
              AND (c.program_id    IS NULL OR c.program_id    = v_program)
-             AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)
+             AND (cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids))
          )
     INTO v_has_covering, v_matches;
 
@@ -14994,7 +15014,7 @@ BEGIN
       AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
       AND (r.department_id IS NULL OR r.department_id = v_dept)
       AND (r.program_id    IS NULL OR r.program_id    = v_program)
-      AND (r.semester_id   IS NULL OR r.semester_id   = v_semester)
+      AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids))
   ) INTO v_pinned;
 
   RETURN NOT v_pinned;
@@ -16712,7 +16732,7 @@ BEGIN
               AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
               AND (c.department_id IS NULL OR c.department_id = v_dept)
               AND (c.program_id    IS NULL OR c.program_id    = v_program)
-              AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)),
+              AND (cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids))),
     (SELECT jsonb_agg(jsonb_build_object(
        'rule_name', COALESCE(NULLIF(btrim(c.rule_name),''),'(unnamed rule)'),
        'floor', c.floor,
@@ -16720,12 +16740,13 @@ BEGIN
               AND (c.degree_id     IS NULL OR c.degree_id     = v_degree)
               AND (c.department_id IS NULL OR c.department_id = v_dept)
               AND (c.program_id    IS NULL OR c.program_id    = v_program)
-              AND (c.semester_id   IS NULL OR c.semester_id   = v_semester)), false),
+              AND (cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids))), false),
        'cohort', NULLIF(concat_ws(' · ',
          (SELECT degree_name     FROM degrees     WHERE id=c.degree_id),
          (SELECT department_name FROM departments WHERE id=c.department_id),
          (SELECT program_name    FROM programs    WHERE id=c.program_id),
-         (SELECT semester_name   FROM semesters   WHERE id=c.semester_id)),''),
+         (SELECT string_agg(s.semester_name, ', ' ORDER BY array_position(c.semester_ids, s.id))
+            FROM semesters s WHERE s.id = ANY(c.semester_ids))),''),
        'institution',    (SELECT name FROM institutions WHERE id=c.institution_id),
        'institution_ok', COALESCE(c.institution_id = v_inst, false),
        'degree',         (SELECT degree_name FROM degrees WHERE id=c.degree_id),
@@ -16734,8 +16755,9 @@ BEGIN
        'department_ok',  COALESCE((c.department_id IS NULL OR c.department_id = v_dept), false),
        'program',        (SELECT program_name FROM programs WHERE id=c.program_id),
        'program_ok',     COALESCE((c.program_id IS NULL OR c.program_id = v_program), false),
-       'semester',       (SELECT semester_name FROM semesters WHERE id=c.semester_id),
-       'semester_ok',    COALESCE((c.semester_id IS NULL OR c.semester_id = v_semester), false)
+       'semester',       (SELECT string_agg(s.semester_name, ', ' ORDER BY array_position(c.semester_ids, s.id))
+                            FROM semesters s WHERE s.id = ANY(c.semester_ids)),
+       'semester_ok',    COALESCE((cardinality(c.semester_ids) = 0 OR v_semester = ANY(c.semester_ids)), false)
      ) ORDER BY c.rule_name) FROM covering c)
   INTO v_has_covering, v_matched, v_rules;
 
@@ -16747,7 +16769,7 @@ BEGIN
       AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
       AND (r.department_id IS NULL OR r.department_id = v_dept)
       AND (r.program_id    IS NULL OR r.program_id    = v_program)
-      AND (r.semester_id   IS NULL OR r.semester_id   = v_semester)
+      AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids))
   ),
   (SELECT string_agg(DISTINCT hb.name, ', ')
      FROM hostel_room_eligibility_rules r
@@ -16757,7 +16779,7 @@ BEGIN
        AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
        AND (r.department_id IS NULL OR r.department_id = v_dept)
        AND (r.program_id    IS NULL OR r.program_id    = v_program)
-       AND (r.semester_id   IS NULL OR r.semester_id   = v_semester))
+       AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids)))
   INTO v_pinned, v_pinned_blocks;
 
   -- The cohort's reservation rule(s) themselves (any block) — the configured condition
@@ -16771,7 +16793,8 @@ BEGIN
       'degree',      (SELECT degree_name FROM degrees WHERE id=r.degree_id),
       'department',  (SELECT department_name FROM departments WHERE id=r.department_id),
       'program',     (SELECT program_name FROM programs WHERE id=r.program_id),
-      'semester',    (SELECT semester_name FROM semesters WHERE id=r.semester_id),
+      'semester',    (SELECT string_agg(s.semester_name, ', ' ORDER BY array_position(r.semester_ids, s.id))
+                        FROM semesters s WHERE s.id = ANY(r.semester_ids)),
       'covers_allocated_room', (r.block_id = v_block)
     ) ORDER BY hb.name)
   INTO v_pinned_rules
@@ -16782,7 +16805,7 @@ BEGIN
     AND (r.degree_id     IS NULL OR r.degree_id     = v_degree)
     AND (r.department_id IS NULL OR r.department_id = v_dept)
     AND (r.program_id    IS NULL OR r.program_id    = v_program)
-    AND (r.semester_id   IS NULL OR r.semester_id   = v_semester);
+    AND (cardinality(r.semester_ids) = 0 OR v_semester = ANY(r.semester_ids));
 
   SELECT count(*)::int INTO v_acad_bill FROM billing_student_bills b
     WHERE b.student_id=v_lp AND b.fee_source='academic' AND b.status NOT IN ('cancelled','superseded');
@@ -22441,11 +22464,14 @@ GRANT EXECUTE ON FUNCTION public.get_markable_resident_photos(uuid) TO authentic
 -- Strategy: delete-all-then-reinsert — safe because
 -- events_registrations.custom_fields keys answers by field_key, never the
 -- field row id, so churning ids on save orphans nothing.
--- Canonical body:
---   supabase/migrations/20260715090000_save_event_registration_form_rpc.sql
+-- 2026-07-31: now FORM-scoped, not event-scoped. An event holds many named
+-- registration forms (one per monthly run), so the first argument is p_form_id
+-- and the form must already exist — creating one is the service's createForm(),
+-- which chooses the name and slug. Canonical body:
+--   supabase/migrations/20260731150000_event_multi_registration_forms.sql
 -- ============================================================================
 CREATE OR REPLACE FUNCTION save_event_registration_form(
-  p_event_id uuid,
+  p_form_id uuid,
   p_is_enabled boolean,
   p_sections jsonb
 )
@@ -22455,19 +22481,24 @@ SECURITY INVOKER
 SET search_path = public
 AS $$
 DECLARE
-  v_form_id    uuid;
+  v_event_id   uuid;
   v_section    jsonb;
   v_section_id uuid;
   v_field      jsonb;
 BEGIN
-  -- 1. Lazy-create / update the form row (RLS authorizes via WITH CHECK).
-  INSERT INTO event_registration_forms (event_id, is_enabled)
-  VALUES (p_event_id, COALESCE(p_is_enabled, true))
-  ON CONFLICT (event_id) DO UPDATE SET is_enabled = EXCLUDED.is_enabled
-  RETURNING id INTO v_form_id;
+  -- 1. Resolve the form; sections/fields still carry event_id for their RLS gates.
+  SELECT event_id INTO v_event_id
+    FROM event_registration_forms WHERE id = p_form_id;
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Registration form % not found', p_form_id;
+  END IF;
 
-  -- 2. Clear existing structure; fields cascade off sections.
-  DELETE FROM event_registration_form_sections WHERE form_id = v_form_id;
+  UPDATE event_registration_forms
+     SET is_enabled = COALESCE(p_is_enabled, true), updated_at = now()
+   WHERE id = p_form_id;
+
+  -- 2. Clear THIS form's structure only; fields cascade off sections.
+  DELETE FROM event_registration_form_sections WHERE form_id = p_form_id;
 
   -- 3. Re-insert the desired structure, in payload order.
   FOR v_section IN
@@ -22475,8 +22506,8 @@ BEGIN
   LOOP
     INSERT INTO event_registration_form_sections (form_id, event_id, title, display_order)
     VALUES (
-      v_form_id,
-      p_event_id,
+      p_form_id,
+      v_event_id,
       COALESCE(NULLIF(btrim(v_section->>'title'), ''), 'Section'),
       COALESCE((v_section->>'display_order')::int, 0)
     )
@@ -22486,13 +22517,14 @@ BEGIN
       SELECT * FROM jsonb_array_elements(COALESCE(v_section->'fields', '[]'::jsonb))
     LOOP
       INSERT INTO event_registration_form_fields (
-        section_id, event_id, field_key, field_label, field_type, is_required,
+        form_id, section_id, event_id, field_key, field_label, field_type, is_required,
         display_order, placeholder, help_text, min_length, max_length,
         min_value, max_value, pattern, options, condition
       )
       VALUES (
+        p_form_id,
         v_section_id,
-        p_event_id,
+        v_event_id,
         v_field->>'field_key',
         v_field->>'field_label',
         v_field->>'field_type',
@@ -22514,11 +22546,28 @@ END;
 $$;
 
 COMMENT ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) IS
-  'Atomically replaces a tournament registration form (sections + fields) from a desired-state payload. SECURITY INVOKER: authorization comes from the event_registration_form_* _manage RLS policies.';
+  'Atomically replace one registration form''s sections + fields. Form-scoped: an event holds many forms. SECURITY INVOKER — the caller must pass the event_registration_form*_manage RLS gate.';
 
 REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION save_event_registration_form(uuid, boolean, jsonb) TO authenticated;
+
+-- ============================================================================
+-- 2026-07-31: clone_event_registration_form — copy a form (sections + fields)
+-- into a new CLOSED form on the same event. One transaction, so a half-copied
+-- form is impossible. De-duplicates the slug within the event so cloning twice
+-- cannot trip UNIQUE (event_id, slug). Returns the new form id.
+-- Canonical body:
+--   supabase/migrations/20260731150000_event_multi_registration_forms.sql
+-- ============================================================================
+-- (body omitted here — see the migration; this file is a reference index)
+
+COMMENT ON FUNCTION clone_event_registration_form(uuid, text, text) IS
+  'Copy a registration form (sections + fields) into a new CLOSED form on the same event; de-duplicates the slug. Returns the new form id. SECURITY INVOKER.';
+
+REVOKE ALL ON FUNCTION clone_event_registration_form(uuid, text, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION clone_event_registration_form(uuid, text, text) FROM anon;
+GRANT EXECUTE ON FUNCTION clone_event_registration_form(uuid, text, text) TO authenticated;
 
 
 -- ============================================================================
@@ -25098,3 +25147,56 @@ REVOKE ALL ON FUNCTION public.get_billing_coverage_learner_bills(
 GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learner_bills(
   uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
   uuid, uuid, uuid, uuid, uuid, integer) TO authenticated, service_role;
+
+-- ================================================================================
+-- HR PAYROLL ORGANISATION (2026-08-04)
+-- Source migration: 20260804090000_hr_staff_payroll_directory_rpc.sql
+-- ================================================================================
+
+-- Every ACTIVE staff member with their recorded payer, assigned or not.
+-- Superset of hr_staff_without_payer(); SELF-AUTHORIZES on
+-- hr.payroll.institution.view and re-applies role_has_institution_access().
+CREATE OR REPLACE FUNCTION public.hr_staff_payroll_directory()
+RETURNS TABLE (
+  staff_uuid     uuid,
+  staff_code     text,
+  person_name    text,
+  role_title     text,
+  works_at_id    uuid,
+  works_at_name  text,
+  payer_org_id   uuid,
+  payer_org_name text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.institution.view') THEN
+    RAISE EXCEPTION 'hr.payroll.institution.view is required to see payroll organisations.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text
+    FROM public.staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+   WHERE COALESCE(s.is_active, false)
+     AND public.role_has_institution_access(s.institution_id)
+   ORDER BY (p.staff_id IS NOT NULL), i.name, s.designation, 3;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_payroll_directory() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.hr_staff_payroll_directory() FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_staff_payroll_directory() TO authenticated;

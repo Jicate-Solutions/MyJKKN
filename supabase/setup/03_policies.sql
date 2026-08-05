@@ -241,6 +241,22 @@ CREATE POLICY "degrees_select_by_role" ON degrees
         OR user_has_permission('admission.settings.seats.manage')
     );
 
+-- Additive read for campus-living settings admins (Chief Warden), scoped to the
+-- colleges a hostel block serves. The "Add Room Eligibility Rule" modal offers a
+-- cross-institution Institution list (hostel_block_institutions), so the policy
+-- above -- own-institution scope or an organizations.*.view key -- left the
+-- Degree/Department/Program/Semester dropdowns silently empty for wardens.
+-- Granting organizations.*.view instead was rejected: those keys drive sidebar
+-- entries in lib/sidebarMenuLink.ts. Mirrors the four policies added in
+-- 20260804092425_campus_living_chief_warden_academic_cascade_rls.sql; the
+-- department/program/semester twins live beside their own policies below.
+DROP POLICY IF EXISTS "degrees_select_campus_living_settings" ON degrees;
+CREATE POLICY "degrees_select_campus_living_settings" ON degrees
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
+    );
+
 DROP POLICY IF EXISTS "degrees_insert_by_role" ON degrees;
 CREATE POLICY "degrees_insert_by_role" ON degrees
     FOR INSERT WITH CHECK (
@@ -281,6 +297,15 @@ CREATE POLICY "departments_select_by_role" ON departments
         OR user_has_permission('organizations.departments.view')
         OR user_has_permission('admission.settings.seats.view')
         OR user_has_permission('admission.settings.seats.manage')
+    );
+
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "departments_select_campus_living_settings" ON departments;
+CREATE POLICY "departments_select_campus_living_settings" ON departments
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
     );
 
 DROP POLICY IF EXISTS "departments_insert_by_role" ON departments;
@@ -328,6 +353,15 @@ CREATE POLICY "programs_select_by_role" ON programs
         OR user_has_permission('admission.settings.seats.manage')
     );
 
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "programs_select_campus_living_settings" ON programs;
+CREATE POLICY "programs_select_campus_living_settings" ON programs
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
+    );
+
 DROP POLICY IF EXISTS "programs_insert_by_role" ON programs;
 CREATE POLICY "programs_insert_by_role" ON programs
     FOR INSERT WITH CHECK (
@@ -365,6 +399,15 @@ CREATE POLICY "semesters_select_admission_role" ON semesters
         is_super_admin() OR is_admin()
         OR institution_id = get_current_user_institution_id()
         OR user_has_permission('organizations.semesters.view')
+    );
+
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "semesters_select_campus_living_settings" ON semesters;
+CREATE POLICY "semesters_select_campus_living_settings" ON semesters
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
     );
 
 CREATE POLICY "semesters_insert_by_role" ON semesters
@@ -1473,6 +1516,26 @@ CREATE POLICY "bills_select_student" ON billing_student_bills
         )
     );
 
+-- Updated 2026-08-01 (migration 20260801120000): the billing.schedule.* family
+-- of policies. This INSERT policy previously gated on the permission key ALONE
+-- while its UPDATE/DELETE siblings ANDed in role_has_institution_access — so an
+-- institution-scoped role could create a bill against any institution and then
+-- be unable to edit it. Now symmetric.
+-- The (SELECT fn()) wrappers are deliberate: those calls reference no column,
+-- so the subquery forces once-per-statement evaluation. role_has_institution_access
+-- DOES reference a column and must stay unwrapped (per-row).
+DROP POLICY IF EXISTS billing_bills_insert_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_insert_permission
+  ON public.billing_student_bills FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.schedule.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
+
 -- BILLING_RECEIPTS TABLE (8 policies)
 ALTER TABLE billing_receipts ENABLE ROW LEVEL SECURITY;
 
@@ -1508,6 +1571,26 @@ CREATE POLICY "receipts_select_student" ON billing_receipts
             WHERE email = (SELECT email FROM profiles WHERE id = auth.uid())
         )
     );
+
+-- Updated 2026-08-01 (migration 20260801120000): same asymmetry fix as
+-- billing_bills_insert_permission above. Note this uses
+-- role_has_institution_access(institution_id) rather than the older
+-- `institution_id = get_current_user_institution_id()` form used by the
+-- receipts_*_admin policies — the function additionally honours
+-- custom_roles.institution_scope='all', CAS sibling institutions, and
+-- user_institution_access grants, so scope='all' finance roles keep working
+-- even when their profiles.institution_id is NULL.
+DROP POLICY IF EXISTS billing_receipts_insert_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_insert_permission
+  ON public.billing_receipts FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.receipts.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
 
 CREATE POLICY "receipts_select_accountant" ON billing_receipts
     FOR SELECT USING (accountant_id = auth.uid());
@@ -8313,3 +8396,26 @@ CREATE POLICY billing_bills_delete_permission
     is_super_admin()
     OR (user_has_permission('billing.schedule.delete') AND role_has_institution_access(institution_id))
   );
+
+-- ============================================================================
+-- 2026-08-01 — IQAC committee RLS realigned onto the GRANTABLE permission family
+-- (mig 20260808210000_accreditation_committee_rls_naac_permission_family)
+--
+-- These eight policies checked accreditation.committees.* (no `naac` segment) —
+-- keys that exist on ZERO roles and in ZERO lines of lib/constants/permissions.ts,
+-- so Role Management could never grant them and only is_super_admin()/is_admin()
+-- could reach the module. The UI, and the RLS on accreditation_committee_meetings
+-- and accreditation_committee_resolutions, already use accreditation.naac.committees.*
+-- — which IS registered and grantable. Only the key string changed; the policy
+-- shape and the role_has_institution_access(institution_id) conjunct are
+-- byte-identical to the live production expressions.
+-- ============================================================================
+ALTER POLICY "committees_select" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_insert" ON public.accreditation_committees WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.create'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_update" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_delete" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.delete'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+ALTER POLICY "members_select" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission)));
+ALTER POLICY "members_insert" ON public.accreditation_committee_members WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+ALTER POLICY "members_update" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+ALTER POLICY "members_delete" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));

@@ -10,6 +10,46 @@ import type { AccreditationBodyCode } from '@/lib/services/solutions/types';
 export type { AccreditationBodyCode };
 
 /**
+ * The `ON CONFLICT` arbiter for `quality_evidence_mappings` once migration
+ * 20260809101400 is applied — as one constant rather than a string repeated per
+ * call site.
+ *
+ * PostgreSQL matches an inferred conflict target to a unique constraint
+ * EXACTLY: name one column too few or too many and the statement raises 42P10,
+ * "there is no unique or exclusion constraint matching the ON CONFLICT
+ * specification". The match is on the column SET — the order you list them in
+ * is free, the set is not. Every writer therefore has to move in lockstep with
+ * `quality_evidence_mappings_source_scope_key`, and the last time they did not,
+ * 22 functions raised 42P10 and five nightly routines failed for weeks before
+ * anyone read the error (migration 20260809000000).
+ *
+ * Two copies of this string in two files is that same bug waiting to happen,
+ * so there is one copy and both writers import it.
+ */
+export const EVIDENCE_CONFLICT_TARGET =
+  'source_table,source_id,body_code,metric_code,programme_id,institution_id';
+
+/**
+ * The five-column arbiter — **what is actually live everywhere today**.
+ * Migration 20260809101400 has not been applied in any environment, and cannot
+ * be until its companion PR lands.
+ *
+ * TRANSITIONAL, and the ORDER OF ATTEMPTS MATTERS. Writers try this one FIRST
+ * and fall back to {@link EVIDENCE_CONFLICT_TARGET} on SQLSTATE 42P10. Trying
+ * the six-column target first would mean every single write today takes a
+ * guaranteed 42P10 plus a retry — a Postgres error logged every night, and in
+ * the admission path a 400 surfaced to the browser on every report generation.
+ *
+ * Trying the live key first and the future key second keeps both writers
+ * correct under either schema with no wasted round trip in the common case.
+ *
+ * When 20260809101400 is applied everywhere: delete this constant and both
+ * fallbacks, leaving only {@link EVIDENCE_CONFLICT_TARGET}.
+ */
+export const EVIDENCE_CONFLICT_TARGET_LEGACY =
+  'source_table,source_id,body_code,metric_code,programme_id';
+
+/**
  * Static metadata for the 10 compliance bodies. Rendered on the landing page
  * and drives routing + display. Sequence is intentional:
  * 1. Cross-cutting (NAAC, UGC) first

@@ -2827,6 +2827,15 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
     ? 'practical'
     : 'theory';
 
+  // Escape hatch for courses whose COE category doesn't describe how the
+  // syllabus is actually written — e.g. a "Practical" lab course whose approved
+  // document is unit-wise (UNIT I … UNIT VI with hours) rather than a numbered
+  // experiment list. Without this the Theory tab is disabled and the author is
+  // forced to flatten those units into topics, which is exactly how they are
+  // then exported. Session-local: what persists is the mode the author picks
+  // (is_practical + the populated shape), so no schema change is needed.
+  const [allowAnyMode, setAllowAnyMode] = useState(false);
+
   // Which Content-Type tabs the course category permits. The category strings
   // ("Theory", "Practical", "Project", "Theory + Practical", "Theory + Project",
   // "Group Project", …) are matched by substring so combined types light up both
@@ -2844,9 +2853,14 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
     if (!c || (!modes.theory && !modes.practical && !modes.project)) {
       modes.theory = modes.practical = modes.project = true;
     }
+    if (allowAnyMode) {
+      modes.theory = modes.practical = modes.project = true;
+    }
     modes[activeMode] = true;
     return modes;
   })();
+  // Only worth offering when the category actually locks a tab.
+  const categoryRestricts = !(allowedModes.theory && allowedModes.practical && allowedModes.project);
 
   const units = content?.units || [];
   const topics: {
@@ -3116,6 +3130,19 @@ function ContentEditor({ content, onChange, courseCode, courseCategory }: any) {
             {courseCode ? <span className="font-mono">{courseCode}</span> : null} · {courseCategory}
           </span>
         ) : null}
+        {/* Unlock the tabs the course category disables — for a practical course
+            whose approved syllabus is written unit-wise (and vice versa). The
+            export follows whatever shape ends up populated. */}
+        {(categoryRestricts || allowAnyMode) && (
+          <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+            <Checkbox
+              checked={allowAnyMode}
+              onCheckedChange={(v) => setAllowAnyMode(v === true)}
+              aria-label="Allow all content types for this course"
+            />
+            Written differently? Allow all content types
+          </label>
+        )}
       </div>
 
       {isProject ? (

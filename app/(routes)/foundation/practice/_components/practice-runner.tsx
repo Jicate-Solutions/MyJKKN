@@ -19,7 +19,7 @@
 // fn_fp_record_attempt. Grading happens inside that function against the answer
 // key, which this component never receives.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Check, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -55,26 +55,146 @@ interface ReviewQuestion {
 interface ReviewPayload {
   total: number;
   correct: number;
+  skipped?: number;
   questions: ReviewQuestion[];
+}
+
+interface Draw {
+  assessmentId: string;
+  learnerId: string;
+  questions: Question[];
+}
+
+// ---------------------------------------------------------------------------
+// Resuming an interrupted run
+// ---------------------------------------------------------------------------
+// A bell rings and the page closes. Without this, the answers given so far are
+// gone, and a learner who has to start over often just doesn't.
+//
+// Kept in the browser rather than the database on purpose: a run is ~10
+// questions over a few minutes, so surviving a closed tab is what actually
+// matters, and storing it here means no half-finished attempt rows accumulate
+// in the record for every interruption. The trade-off is that a run resumes on
+// the same device only.
+//
+// The DRAWN QUESTIONS are stored alongside the answers. Restoring answers
+// against a freshly drawn set would attach them to the wrong questions.
+
+const STORAGE_PREFIX = 'jkkn.foundation.practice.v1';
+const RESUME_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface SavedRun {
+  draw: Draw;
+  chosen: Record<string, string>;
+  index: number;
+  savedAt: number;
+}
+// Per-question timings are deliberately NOT persisted. They feed the nullable
+// fp_responses.time_ms analytics column only, so losing them on resume costs
+// nothing — and keeping Date.now() out of the save path keeps the handler pure.
+
+function storageKey(examDefinitionId: string) {
+  return `${STORAGE_PREFIX}.${examDefinitionId}`;
+}
+
+function loadSavedRun(examDefinitionId: string): SavedRun | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(storageKey(examDefinitionId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedRun;
+    if (
+      !parsed?.draw?.questions?.length ||
+      typeof parsed.savedAt !== 'number' ||
+      Date.now() - parsed.savedAt > RESUME_MAX_AGE_MS
+    ) {
+      window.localStorage.removeItem(storageKey(examDefinitionId));
+      return null;
+    }
+    return parsed;
+  } catch {
+    // Corrupt or unreadable storage must never block practice.
+    return null;
+  }
+}
+
+function saveRun(examDefinitionId: string, run: Omit<SavedRun, 'savedAt'>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      storageKey(examDefinitionId),
+      JSON.stringify({ ...run, savedAt: Date.now() }),
+    );
+  } catch {
+    // Private browsing or a full quota. Losing resume is acceptable; losing the
+    // run in progress is not, so this failure is deliberately silent.
+  }
+}
+
+function clearSavedRun(examDefinitionId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(storageKey(examDefinitionId));
+  } catch {
+    /* nothing to do */
+  }
+}
+
+/** Turn whatever the write path threw into something a learner can act on. */
+function friendlySubmitError(err: any): string {
+  const raw = String(err?.message ?? '');
+  if (/parental consent/i.test(raw)) {
+    return 'Your answers could not be saved yet because a parent or guardian still needs to give permission. Please ask whoever set up your account.';
+  }
+  if (err?.code === '42501' || /not authorized|permission denied/i.test(raw)) {
+    return 'Your answers could not be saved because this practice is not set up for your account. Please tell whoever runs the programme at your school.';
+  }
+  if (/assessment .* not found/i.test(raw)) {
+    return 'This subject is not ready for practice right now. Please try again later.';
+  }
+  if (/fetch|network|failed to/i.test(raw)) {
+    return 'Your answers could not be saved — check your connection and try again. Nothing you typed has been lost.';
+  }
+  // Never surface a raw database message to a learner.
+  return 'Your answers could not be saved. Please try again — nothing you typed has been lost.';
 }
 
 export function PracticeRunner({
   examDefinitionId,
   examName,
   onExit,
+  forLearnerId,
+  forLearnerName,
 }: {
   examDefinitionId: string;
   examName: string;
   onExit: () => void;
+  /** Set when a Senior Learner is running this session for a learner who holds
+   *  no account. The id is only a request — the route re-checks it against the
+   *  database before drawing anything, so passing one here grants nothing. */
+  forLearnerId?: string;
+  forLearnerName?: string;
 }) {
+  // Resume state is scoped per learner as well as per subject. Without this, a
+  // facilitator moving from one child to the next in the same subject would pick
+  // up the previous child's half-finished run and file it under the new name.
+  const runScope = forLearnerId
+    ? `${examDefinitionId}.${forLearnerId}`
+    : examDefinitionId;
   // `run` identifies one draw of questions. Bumping it changes the query key,
   // which fetches a fresh set — that is what "Practise again" does. Keeping the
   // fetch in react-query rather than an effect avoids the cascading renders that
   // a setState-inside-useEffect causes.
   const [run, setRun] = useState(0);
 
-  const [index, setIndex] = useState(0);
-  const [chosen, setChosen] = useState<Record<string, string>>({});
+  // Read once, at mount, in a lazy initialiser — not in an effect, which would
+  // cause a second render pass and trip the set-state-in-effect rule.
+  const resumed = useMemo(() => loadSavedRun(runScope), [runScope]);
+
+  const [index, setIndex] = useState(() => resumed?.index ?? 0);
+  const [chosen, setChosen] = useState<Record<string, string>>(
+    () => resumed?.chosen ?? {},
+  );
   const [askedAt, setAskedAt] = useState<number>(() => Date.now());
   const [timeByItem, setTimeByItem] = useState<Record<string, number>>({});
 
@@ -88,18 +208,25 @@ export function PracticeRunner({
     isPending,
     error: loadError,
   } = useQuery({
-    queryKey: ['foundation', 'practice', examDefinitionId, run],
-    queryFn: async () => {
-      const res = await fetch(`/api/foundation/practice/${examDefinitionId}`);
+    queryKey: ['foundation', 'practice', runScope, run],
+    queryFn: async (): Promise<Draw> => {
+      // An interrupted run resumes with the SAME questions. Only a deliberate
+      // "Practise again" (which bumps `run` and clears storage) draws fresh.
+      if (run === 0 && resumed) return resumed.draw;
+
+      // forLearner is a request, not a grant: the route verifies the caller runs
+      // a session for that learner before it draws anything.
+      const query = forLearnerId
+        ? `?forLearner=${encodeURIComponent(forLearnerId)}`
+        : '';
+      const res = await fetch(
+        `/api/foundation/practice/${examDefinitionId}${query}`,
+      );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(body?.error ?? 'Could not start practice.');
       }
-      return body as {
-        assessmentId: string;
-        learnerId: string;
-        questions: Question[];
-      };
+      return body as Draw;
     },
     staleTime: Infinity,
     gcTime: 0,
@@ -109,6 +236,7 @@ export function PracticeRunner({
 
   /** Start a fresh draw and clear everything from the previous one. */
   function startAgain() {
+    clearSavedRun(runScope);
     setIndex(0);
     setChosen({});
     setTimeByItem({});
@@ -154,6 +282,7 @@ export function PracticeRunner({
         review={review}
         onAgain={startAgain}
         onExit={onExit}
+        forLearnerName={forLearnerName}
       />
     );
   }
@@ -167,24 +296,43 @@ export function PracticeRunner({
 
   function choose(optionKey: string) {
     if (!current) return;
-    setChosen((prev) => ({ ...prev, [current.id]: optionKey }));
+    const nextChosen = { ...chosen, [current.id]: optionKey };
+    setChosen(nextChosen);
     setTimeByItem((prev) => ({
       ...prev,
       [current.id]: (prev[current.id] ?? 0) + (Date.now() - askedAt),
     }));
+    // Persist on every tap, in the event handler rather than an effect, so an
+    // interrupted run resumes exactly where it stopped.
+    saveRun(runScope, { draw, chosen: nextChosen, index });
   }
 
   function goTo(next: number) {
     setAskedAt(Date.now());
     setIndex(next);
+    saveRun(runScope, { draw, chosen, index: next });
   }
 
   async function submit() {
     if (!assessmentId || !learnerId) return;
     setSubmitError(null);
-    const responses = questions.map((q) => ({
+
+    const answered = questions.filter((q) => chosen[q.id] != null);
+    const skipped = questions.filter((q) => chosen[q.id] == null);
+
+    if (answered.length === 0) {
+      setSubmitError('Answer at least one question before finishing.');
+      return;
+    }
+
+    // Only what was actually answered is sent. A blank is not recorded at all,
+    // which is what keeps it out of BOTH the run score and the mastery average
+    // — fn_fp_record_attempt divides by the responses it receives, and
+    // fn_fp_recompute_weakness averages over the rows that exist. A row written
+    // with a null answer would count as wrong in both.
+    const responses = answered.map((q) => ({
       item_id: q.id,
-      chosen: chosen[q.id] ?? null,
+      chosen: chosen[q.id],
       time_ms: timeByItem[q.id],
     }));
 
@@ -196,7 +344,17 @@ export function PracticeRunner({
         examDefinitionId,
       });
 
-      const res = await fetch(`/api/foundation/practice/attempts/${attemptId}`);
+      // The run is safely recorded; the resume copy has done its job.
+      clearSavedRun(runScope);
+
+      // Skipped questions are handed back so the review can still show what the
+      // answer was. They are not graded and do not affect the score.
+      const query = skipped.length
+        ? `?skipped=${skipped.map((q) => q.id).join(',')}`
+        : '';
+      const res = await fetch(
+        `/api/foundation/practice/attempts/${attemptId}${query}`,
+      );
       const body = await res.json();
       if (!res.ok) {
         setSubmitError(
@@ -206,7 +364,7 @@ export function PracticeRunner({
       }
       setReview(body);
     } catch (err: any) {
-      setSubmitError(err?.message ?? 'Your answers could not be saved. Try again.');
+      setSubmitError(friendlySubmitError(err));
     }
   }
 
@@ -221,6 +379,17 @@ export function PracticeRunner({
           {index + 1} of {total}
         </span>
       </div>
+
+      {/* Whose answers these are, kept on screen for the whole run. A facilitator
+          working through a group is one mis-click away from filing a child's
+          answers under the previous name, and nothing downstream would ever
+          reveal it. */}
+      {forLearnerName && (
+        <p className="mb-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          Recording answers for{' '}
+          <span className="font-medium text-foreground">{forLearnerName}</span>
+        </p>
+      )}
 
       <Progress value={((index + 1) / total) * 100} className="mb-10 h-1" />
 
@@ -290,8 +459,9 @@ export function PracticeRunner({
 
       {answeredCount < total && isLast && (
         <p className="mt-4 text-center text-sm text-muted-foreground">
-          {total - answeredCount} still unanswered. You can finish anyway — they
-          will be marked as not attempted.
+          {total - answeredCount} still unanswered. You can finish anyway —
+          skipped questions are not counted for or against you, and you will
+          still see their answers.
         </p>
       )}
     </div>
@@ -307,21 +477,40 @@ function Review({
   review,
   onAgain,
   onExit,
+  forLearnerName,
 }: {
   examName: string;
   review: ReviewPayload;
   onAgain: () => void;
   onExit: () => void;
+  forLearnerName?: string;
 }) {
+  // Second person when you answered it yourself; the learner's name when
+  // somebody recorded it for them. "You answered 4 of 10" shown to the Senior
+  // Learner running the session reads as their own score, which is nobody's.
+  const who = forLearnerName ?? null;
   return (
     <div className="mx-auto max-w-2xl py-6">
       <div className="mb-10 border-b border-border pb-6">
         <p className="text-sm text-muted-foreground">{examName}</p>
         <p className="mt-1 text-base text-foreground">
-          You answered{' '}
+          {who ? (
+            <>
+              <span className="font-medium">{who}</span> answered{' '}
+            </>
+          ) : (
+            'You answered '
+          )}
           <span className="font-semibold tabular-nums">{review.correct}</span> of{' '}
           <span className="tabular-nums">{review.total}</span> correctly.
         </p>
+        {(review.skipped ?? 0) > 0 && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            {who ? `${who} skipped ` : 'You skipped '}
+            <span className="tabular-nums">{review.skipped}</span>. Those are not
+            counted either way — the answers are below so you can read them.
+          </p>
+        )}
         <p className="mt-3 text-sm text-muted-foreground">
           The useful part is below — what each answer was, and why.
         </p>
