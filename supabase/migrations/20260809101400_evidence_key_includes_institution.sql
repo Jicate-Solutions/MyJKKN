@@ -3468,9 +3468,30 @@ BEGIN
      AND m[1] !~* 'institution_id\s*(=|IN)'
      AND m[1] !~* 'source_id\s*=\s*OLD\.id';
 
+  -- The `quality_evidence_mappings` clause is load-bearing, not decoration.
+  -- Without it this counts EVERY function in the database that re-stamps an
+  -- institution_id from EXCLUDED — including ones that have nothing to do with
+  -- evidence sharing and are perfectly correct. Measured live 2026-08-05, after
+  -- the companion PR (#2834) took the unscoped withdrawal DELETEs to 0, this
+  -- half still returned 3 and kept the gate red:
+  --
+  --   fn_ai_pulse_measure_cycle_outcomes   — AI Pulse, does NOT touch this table
+  --   fn_learner_360_record_verdict        — Learner 360, does NOT touch this table
+  --   link_pre_registered_profile          — profile linking, does NOT touch this table
+  --
+  -- All three legitimately re-stamp institution_id on their OWN tables, so they
+  -- would never be "fixed" — there is nothing wrong with them. As written the
+  -- gate was therefore permanently unsatisfiable: it refused to apply forever,
+  -- for a reason that was 100% false positives.
+  --
+  -- The v_unscoped half above is already scoped this way implicitly (its regex
+  -- only matches DELETEs against this table); this makes the restamp half agree.
+  -- It does NOT weaken the gate — 32 functions touch quality_evidence_mappings
+  -- and every one is still scanned, so a genuine re-stamp is still caught.
   SELECT count(*) INTO v_restamp
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.prokind IN ('f','p')
+     AND pg_get_functiondef(p.oid) ~* 'quality_evidence_mappings'
      AND pg_get_functiondef(p.oid) ~* 'institution_id\s*=\s*EXCLUDED\.institution_id';
 
   -- An EMPTY junction table means there are no claims to destroy and no drift to
