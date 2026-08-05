@@ -9,6 +9,9 @@ import {
   categoriesForBody,
   bodyCodes,
   ownerSourceLabel,
+  canAnswerAssignment,
+  isAssignedTo,
+  shouldSkipAssign,
   type OwnerRow,
   type FrameworkMetric,
   type AssignmentStatus,
@@ -305,6 +308,170 @@ describe('bulk assignment by category', () => {
 describe('bodyCodes', () => {
   it('orders bodies by how many metrics they carry', () => {
     expect(bodyCodes(FRAMEWORK)).toEqual(['NAAC', 'NBA', 'NIRF']);
+  });
+});
+
+describe('canAnswerAssignment — the buttons must be reachable at BOTH levels', () => {
+  // The defect this covers: Accept/Decline existed only in the body-owner table,
+  // so a metric-level assignment (and every row "assign a whole category" writes)
+  // landed as pending with no control anywhere on the page to answer it.
+  it('offers the pair on an explicit pending row addressed to me', () => {
+    const resolved = resolveMetricOwners(
+      [NAAC_3_1_1],
+      [row({ metric_code: '3.1.1', owner_user_id: BOB })],
+      INST,
+    );
+
+    expect(resolved[0].source).toBe('explicit');
+    expect(canAnswerAssignment(resolved[0], BOB)).toBe(true);
+  });
+
+  it('offers nothing to anyone but the named person', () => {
+    const resolved = resolveMetricOwners(
+      [NAAC_3_1_1],
+      [row({ metric_code: '3.1.1', owner_user_id: BOB })],
+      INST,
+    );
+
+    expect(canAnswerAssignment(resolved[0], ALICE)).toBe(false);
+    expect(canAnswerAssignment(resolved[0], null)).toBe(false);
+    expect(canAnswerAssignment(resolved[0], undefined)).toBe(false);
+  });
+
+  it('does NOT duplicate the body row pair onto every inherited metric', () => {
+    // An inherited row's `row` is the body-level row, already answerable in the
+    // Body owners table. Rendering it per metric would put one pair per metric
+    // on screen, all driving the same single write.
+    const resolved = resolveMetricOwners(FRAMEWORK, [row({ owner_user_id: ALICE })], INST);
+    const naac = resolved.filter((r) => r.bodyCode === 'NAAC');
+
+    expect(naac).toHaveLength(3);
+    expect(naac.every((r) => r.source === 'inherited')).toBe(true);
+    expect(naac.every((r) => canAnswerAssignment(r, ALICE) === false)).toBe(true);
+  });
+
+  it('stops offering once the row has been answered', () => {
+    const accepted = resolveMetricOwners(
+      [NAAC_3_1_1],
+      [
+        row({
+          metric_code: '3.1.1',
+          owner_user_id: BOB,
+          assignment_status: 'confirmed',
+          acknowledged_at: 'x',
+        }),
+      ],
+      INST,
+    );
+    const declined = resolveMetricOwners(
+      [NAAC_3_1_1],
+      [
+        row({
+          metric_code: '3.1.1',
+          owner_user_id: BOB,
+          assignment_status: 'declined',
+          acknowledged_at: 'x',
+        }),
+      ],
+      INST,
+    );
+
+    expect(canAnswerAssignment(accepted[0], BOB)).toBe(false);
+    expect(canAnswerAssignment(declined[0], BOB)).toBe(false);
+  });
+
+  it('offers nothing on a metric nobody owns', () => {
+    const resolved = resolveMetricOwners([NAAC_3_1_1], [], INST);
+    expect(resolved[0].source).toBe('none');
+    expect(canAnswerAssignment(resolved[0], BOB)).toBe(false);
+  });
+});
+
+describe('isAssignedTo — the "Assigned to me" view', () => {
+  // A PENDING row counts as owned, so it drops out of the 'unassigned' view the
+  // page opens on. Without this filter the named person has no path to their own
+  // pending rows short of scanning all 107.
+  it('finds a pending metric addressed to me that the default view hides', () => {
+    const resolved = resolveMetricOwners(
+      FRAMEWORK,
+      [row({ metric_code: '3.1.1', owner_user_id: BOB })],
+      INST,
+    );
+    const mine = resolved.filter((r) => isAssignedTo(r, BOB));
+
+    expect(mine.map((r) => r.metricCode)).toEqual(['3.1.1']);
+    // The row this test exists for: owned, therefore invisible under 'unassigned'.
+    expect(mine[0].isOwned).toBe(true);
+    expect(resolved.filter((r) => !r.isOwned).map((r) => r.metricCode)).not.toContain(
+      '3.1.1',
+    );
+  });
+
+  it('includes inherited metrics, so a body owner sees their whole scope', () => {
+    const resolved = resolveMetricOwners(FRAMEWORK, [row({ owner_user_id: ALICE })], INST);
+    expect(resolved.filter((r) => isAssignedTo(r, ALICE))).toHaveLength(3);
+  });
+
+  it('keeps a declined row in view — it is still addressed to them', () => {
+    const resolved = resolveMetricOwners(
+      [NAAC_3_1_1],
+      [
+        row({
+          metric_code: '3.1.1',
+          owner_user_id: BOB,
+          assignment_status: 'declined',
+          acknowledged_at: 'x',
+        }),
+      ],
+      INST,
+    );
+    expect(isAssignedTo(resolved[0], BOB)).toBe(true);
+    expect(resolved[0].isOwned).toBe(false);
+  });
+
+  it('shows nothing to a signed-out or unnamed viewer', () => {
+    const resolved = resolveMetricOwners(FRAMEWORK, [row({ owner_user_id: ALICE })], INST);
+    expect(resolved.filter((r) => isAssignedTo(r, null))).toHaveLength(0);
+    expect(resolved.filter((r) => isAssignedTo(r, BOB))).toHaveLength(0);
+  });
+});
+
+describe('shouldSkipAssign — a decline must be re-sendable', () => {
+  it('skips re-picking the person who already holds a live assignment', () => {
+    expect(shouldSkipAssign(row({ owner_user_id: ALICE }), ALICE)).toBe(true);
+    expect(
+      shouldSkipAssign(
+        row({ owner_user_id: ALICE, assignment_status: 'confirmed', acknowledged_at: 'x' }),
+        ALICE,
+      ),
+    ).toBe(true);
+  });
+
+  it('does NOT skip re-picking the person who declined', () => {
+    // Skipping wrote nothing and raised no toast, so a refusal was stuck: the
+    // only route back to pending was to hand the metric to somebody else and
+    // then hand it back.
+    expect(
+      shouldSkipAssign(
+        row({ owner_user_id: ALICE, assignment_status: 'declined', acknowledged_at: 'x' }),
+        ALICE,
+      ),
+    ).toBe(false);
+  });
+
+  it('never skips a genuine change of owner, whatever the status', () => {
+    expect(shouldSkipAssign(row({ owner_user_id: ALICE }), BOB)).toBe(false);
+    expect(
+      shouldSkipAssign(
+        row({ owner_user_id: ALICE, assignment_status: 'declined', acknowledged_at: 'x' }),
+        BOB,
+      ),
+    ).toBe(false);
+  });
+
+  it('never skips a first assignment', () => {
+    expect(shouldSkipAssign(null, ALICE)).toBe(false);
+    expect(shouldSkipAssign(undefined, ALICE)).toBe(false);
   });
 });
 

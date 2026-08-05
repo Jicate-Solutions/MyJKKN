@@ -221,7 +221,7 @@ export class RecruitmentService {
     if (!flows || flows.length === 0) {
       throw new Error(
         'No recruitment approval flows configured for this organisation yet. ' +
-        'Open /hr/admin/policies/hr_approval_flows (or /hr/admin → HR Policies) ' +
+        'Open /hr/admin/recruitment-approval-flows (HR Admin → Recruitment Approval Flows) ' +
         'to seed at least one flow with flow_for=recruitment_approval. ' +
         'If you need a quick band-agnostic Teaching Faculty fallback, the ' +
         '/hr/admin/recruitment-maintenance page can guide you.'
@@ -241,13 +241,12 @@ export class RecruitmentService {
 
     if (!chosen) {
       throw new Error(
-        `No approval flow matches this candidate. ` +
-        `role_category='${roleCategory}', monthly_salary_band='${monthlySalaryBand ?? 'none (unset)'}'. ` +
-        `Either: (a) set this candidate's salary band so an existing flow matches, ` +
-        `or (b) open /hr/admin/policies/hr_approval_flows and add a flow whose ` +
-        `conditions JSONB matches '${roleCategory}' (with or without a band). ` +
-        `If you have several legacy candidates stuck the same way, ` +
-        `/hr/admin/recruitment-maintenance can backfill them after the matching flow is created.`
+        `No approval flow matches this candidate — nothing routes the role ` +
+        `category '${roleCategory}' in this organisation yet. ` +
+        `Open /hr/admin/recruitment-approval-flows, add an active flow for ` +
+        `'${roleCategory}', then promote again. ` +
+        `If several candidates are stuck the same way, ` +
+        `/hr/admin/recruitment-maintenance can backfill them once the flow exists.`
       );
     }
 

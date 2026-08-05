@@ -297,3 +297,62 @@ export function ownerSourceLabel(resolved: ResolvedOwner): string {
   if (resolved.source === 'explicit') return 'Set for this metric';
   return 'No owner';
 }
+
+/**
+ * Whether THIS metric row should offer Accept / Decline to the signed-in person.
+ *
+ * The page shipped with the pair rendered only in the body-owner table, so a
+ * metric-level assignment — and every row the "assign a whole category" control
+ * writes — landed as pending with no button anywhere to answer it. That is the
+ * same unreachable-button dead end the acknowledgement function exists to close,
+ * reinstated one level down.
+ *
+ * EXPLICIT only, deliberately. An inherited row's `row` IS the body-level row,
+ * whose pair already sits in the Body owners table; offering it again per metric
+ * would put dozens of duplicate buttons on one screen, every one of them driving
+ * the same single write.
+ *
+ * Identity is checked here rather than in RLS because RLS cannot express "the
+ * row's own owner" for rendering. It is NOT the security boundary — the write
+ * still goes through fn_accreditation_acknowledge_ownership, which takes the
+ * caller from auth.uid() and refuses anyone who is not the named owner. This
+ * decides what to draw, not what is permitted.
+ */
+export function canAnswerAssignment(
+  resolved: ResolvedOwner,
+  currentUserId: string | null | undefined,
+): boolean {
+  return (
+    resolved.source === 'explicit' &&
+    resolved.row !== null &&
+    !!currentUserId &&
+    resolved.row.owner_user_id === currentUserId &&
+    resolved.status === 'pending'
+  );
+}
+
+/** Whether a metric is addressed to this person at all — the "Assigned to me" view. */
+export function isAssignedTo(
+  resolved: ResolvedOwner,
+  currentUserId: string | null | undefined,
+): boolean {
+  return !!currentUserId && resolved.ownerUserId === currentUserId;
+}
+
+/**
+ * Whether picking an owner should do nothing at all.
+ *
+ * Re-selecting the person who already holds a LIVE assignment is a genuine
+ * no-op. Re-selecting the person who DECLINED it is not: it is "I am asking you
+ * again", and the only way to reset that row to pending. Treating the two the
+ * same left a refusal permanently stuck — the sole route back was to hand the
+ * metric to somebody else first and then hand it back.
+ */
+export function shouldSkipAssign(
+  existing: OwnerRow | null | undefined,
+  nextOwnerId: string,
+): boolean {
+  if (!existing) return false;
+  if (existing.owner_user_id !== nextOwnerId) return false;
+  return existing.assignment_status !== 'declined';
+}

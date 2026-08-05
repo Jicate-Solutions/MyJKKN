@@ -55,17 +55,22 @@ import { useStartOnboarding } from '@/hooks/hr/use-recruitment';
 import {
   CANDIDATE_STATUS_LABELS,
   INTERVIEW_MODE_LABELS,
-  type CandidateStatus,
   type HRJobApplication,
   type HRRecruitmentCandidate,
   type HRRecruitmentInterview,
 } from '@/types/hr-recruitment';
+import {
+  CHIP_ORDER,
+  STAGE_META,
+  applicationStage,
+  candidateStage,
+  stageMeta,
+  type StageKey,
+} from './stage-model';
 
 // ---- Unified stage model -------------------------------------------------------------
-
-type StageKey =
-  | 'pending' | 'reviewed' | 'shortlisted' | 'in_approval'
-  | 'approved' | 'joined' | 'rejected' | 'closed';
+// StageKey, STAGE_META and the two status mappers live in ./stage-model so the
+// mapping can be unit-tested without mounting this tab.
 
 interface UnifiedRow {
   key: string;
@@ -79,29 +84,6 @@ interface UnifiedRow {
   stage: StageKey;
   app: HRJobApplication | null;
   candidate: HRRecruitmentCandidate | null;
-}
-
-const STAGE_META: Record<StageKey, { label: string; badge: string }> = {
-  pending:     { label: 'Pending Review', badge: 'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300' },
-  reviewed:    { label: 'Reviewed',       badge: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300' },
-  shortlisted: { label: 'Shortlisted',    badge: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-300' },
-  in_approval: { label: 'In Approval',    badge: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300' },
-  approved:    { label: 'Approved',       badge: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' },
-  joined:      { label: 'Joined',         badge: 'border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200' },
-  rejected:    { label: 'Rejected',       badge: 'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300' },
-  closed:      { label: 'Closed',         badge: 'border-slate-300 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400' },
-};
-
-const CHIP_ORDER: (StageKey | 'all')[] = [
-  'all', 'pending', 'reviewed', 'shortlisted', 'in_approval', 'approved', 'joined', 'rejected', 'closed',
-];
-
-function candidateStage(status: CandidateStatus): StageKey {
-  if (status === 'submitted' || status === 'pending_approval') return 'in_approval';
-  if (status === 'approved' || status === 'package_fixed' || status === 'offer_issued') return 'approved';
-  if (status === 'joined') return 'joined';
-  if (status === 'rejected') return 'rejected';
-  return 'closed'; // withdrawn | offer_rescinded | no_show
 }
 
 const fmtExp = (months: number | null) => {
@@ -164,7 +146,9 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
         experienceMonths: a.experience_months,
         resumeUrl: a.resume_url,
         submittedAt: a.submitted_at,
-        stage: cand ? candidateStage(cand.status) : (a.status as StageKey),
+        // No cast here: application statuses are NOT a subset of StageKey
+        // ('promoted' has no StageKey), so this must go through the mapper.
+        stage: cand ? candidateStage(cand.status) : applicationStage(a.status),
         app: a,
         candidate: cand,
       };
@@ -303,7 +287,8 @@ function CandidateRow({
   alumniSignal: Parameters<typeof AlumniSignalLine>[0]['signal'];
 }) {
   const { app, candidate } = row;
-  const meta = STAGE_META[row.stage];
+  // Defence in depth: a bad stage must not take the whole page down.
+  const meta = stageMeta(row.stage);
   const exp = fmtExp(row.experienceMonths);
 
   return (

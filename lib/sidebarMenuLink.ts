@@ -169,15 +169,38 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board': 'improvement.ideas.view',
   '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  // Gemba visits — the screen that records someone going to look. A posted
+  // associate holds improvement.ideas.view, and the RPC does the real gating
+  // (posted to that department, or an officer). NOTE: the database grants read
+  // on a UNION this one-key-per-route map cannot express — the CAO, Executive
+  // Administrative Officers and MBA Faculty reach it on
+  // improvement.area_role.assign / improvement.board.manage and hold no
+  // ideas.view at all. The submenu filter in GetRoleBasedPages carries that
+  // union; keep the two in step.
+  '/improvement-board/gemba': 'improvement.ideas.view',
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA case studies — the write-up of an improvement that was actually made.
+  // This entry is the WRITERS' key. It is not the whole gate: navPathAllowed()
+  // widens this path to a union of three keys, in BOTH filter sites below and
+  // in lib/navigation/permission-filter.ts. See CASE_STUDIES_NAV_PATH.
+  '/improvement-board/case-studies': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
   '/improvement-board/postings': 'improvement.board.manage',
   // MBA Data Gaps — manager-only triage of gaps Associates reported.
   '/improvement-board/data-gaps': 'improvement.board.manage',
   // Manage boards — manager-only CRUD over the areas ideas are filed against.
   '/improvement-board/manage-boards': 'improvement.board.manage',
+  // Department owners — names ONE accountable person per board. Two tiers:
+  // improvement.board.manage OR improvement.area_role.assign may SEE it, but
+  // only improvement.area_role.assign may CHANGE an owner (the RPC refuses
+  // everyone else). This map holds one key per route, so the broader SEE tier
+  // is declared here and the officer half of the union is carried at the two
+  // nav filter sites via OWNERS_UNION_PERMISSIONS below — an officer role that
+  // does not also hold board.manage would otherwise get a page it can use and
+  // no link to reach it.
+  '/improvement-board/owners': 'improvement.board.manage',
   // MBA Team Rotation — the rota chart is viewable by associates; team-builder
   // and cycle-setup are manager-only (improvement.board.manage).
   '/improvement-board/rotation': 'improvement.ideas.view',
@@ -273,6 +296,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/school-defaults': 'organizations.school-defaults.view',
   '/organizations/degrees': 'organizations.degrees.view',
   '/organizations/departments': 'organizations.departments.view',
+  // 2026-08-04 — College Leadership. New page; its own key.
+  '/organizations/leadership': 'organizations.leadership.manage',
+  // 2026-08-04 — HoD Assignment has existed and worked since 2026-05-07 but was
+  // never in the sidebar; it was reachable only from lib/organizations/guide/
+  // content.ts. That is why it sits at 7 departments of 89, all Pharmacy. The
+  // page itself gates on admin_or_super_admin (AdminPermissionGuard), so this
+  // maps to the nearest catalog key rather than inventing one.
+  '/organizations/departments/hod-assignment': 'organizations.departments.edit',
   '/organizations/programs': 'organizations.programs.view',
   '/organizations/courses': 'organizations.courses.view',
   '/organizations/semesters': 'organizations.semesters.view',
@@ -1353,6 +1384,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/workflows': 'meetings.workflows.view',
   '/meetings/polls': 'meetings.polls.view',
   '/meetings/contacts': 'meetings.contacts.view',
+  '/meetings/contacts/scan': 'meetings.contacts.scan',
   '/meetings/analytics': 'meetings.analytics.view',
   '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
@@ -1530,6 +1562,65 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 };
 
 /**
+ * The case-study screen carries TWO populations that are reached by DIFFERENT
+ * permission keys: the people who write the cases hold `improvement.ideas.view`,
+ * and the people who grade them hold `improvement.board.manage`. Holding one is
+ * no guarantee of holding the other, so a single-key mapping would hide the
+ * link from one population or the other.
+ *
+ * Which role_key holds which of these is a live value in `custom_roles.
+ * permissions` — read it there, not here. This file is not a copy of the role
+ * table and must not be maintained as one.
+ *
+ * The union is applied at BOTH nav filter sites below — the submenu filter AND
+ * the parent-menu filter — because the parent row is shown only when at least
+ * one child passes, and a role whose sole reachable child is this one would
+ * otherwise lose the whole Improvement Board row.
+ *
+ * Mirrors the identical treatment `/improvement-board/analytics` already gets
+ * in lib/navigation/permission-filter.ts.
+ */
+export const CASE_STUDIES_NAV_PATH = '/improvement-board/case-studies';
+export const CASE_STUDIES_NAV_KEYS = [
+  'improvement.ideas.view',
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
+ * /improvement-board/owners — a board manager may SEE who owns each department;
+ * an officer (improvement.area_role.assign) is the only one who may CHANGE it,
+ * and is the screen's real audience. Declaring only the officer key would hide
+ * it from managers; declaring only the manager key would hide it from an
+ * officer role that does not also hold board.manage. Both are listed.
+ */
+export const OWNERS_NAV_PATH = '/improvement-board/owners';
+export const OWNERS_NAV_KEYS = [
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
+ * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
+ * by key existence: a role may carry a permission key set to an explicit
+ * `false`, and an existence test reads that denial as a grant.
+ */
+export function navPathAllowed(
+  href: string,
+  permissions: Record<string, boolean>,
+  requiredPermission: string | undefined
+): boolean {
+  if (href === CASE_STUDIES_NAV_PATH) {
+    return CASE_STUDIES_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (href === OWNERS_NAV_PATH) {
+    return OWNERS_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (!requiredPermission) return false;
+  return permissions[requiredPermission] === true;
+}
+
+/**
  * GetPages — sidebar tree builder.
  *
  * **Wave 2b PR-S2 (2026-04-24):** Structural rewrite per
@@ -1608,8 +1699,15 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
             { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
             { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // Gemba visits — records that somebody went and looked, which is the
+            // only thing that makes a department playbook official (improvement.ideas.view).
+            { href: '/improvement-board/gemba', label: 'Gemba Visits', active: pathname === '/improvement-board/gemba' },
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA case studies — associates write them (improvement.ideas.view),
+            // board managers grade them (improvement.board.manage). Reached via
+            // navPathAllowed's union so neither population loses the link.
+            { href: '/improvement-board/case-studies', label: 'Case Studies', active: pathname === '/improvement-board/case-studies' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
             // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
@@ -1622,6 +1720,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Manage boards — manager-only CRUD over the areas ideas are filed
             // against (improvement.board.manage).
             { href: '/improvement-board/manage-boards', label: 'Manage Boards', active: pathname === '/improvement-board/manage-boards' },
+            // Department owners — who is accountable for each board. Visible to
+            // board managers AND to the officers who assign holders; see
+            // OWNERS_UNION_PERMISSIONS for why that union is not in MENU_PERMISSIONS.
+            { href: '/improvement-board/owners', label: 'Department Owners', active: pathname === '/improvement-board/owners' },
             // Teaching-enterprise cohort config — manager-only, hidden from
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
@@ -1700,7 +1802,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/dashboard', label: 'Dashboard', active: pathname.startsWith('/organizations/dashboard') },
             { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
             { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
-            { href: '/organizations/departments', label: 'Departments', active: pathname.startsWith('/organizations/departments') },
+            { href: '/organizations/departments', label: 'Departments', active: pathname === '/organizations/departments' },
+            // Both entries added 2026-08-04. Leadership is new; HoD Assignment
+            // already worked but had no sidebar entry, which is why 82 of 89
+            // departments still have no Head.
+            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
+            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
             { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
             { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
             { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
@@ -2851,7 +2958,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
-            { href: '/meetings/contacts', label: 'Contacts', active: pathname.startsWith('/meetings/contacts') },
+            { href: '/meetings/contacts', label: 'Contacts', active: pathname === '/meetings/contacts' },
+            { href: '/meetings/contacts/scan', label: 'Scan a Card', active: pathname.startsWith('/meetings/contacts/scan') },
             { href: '/meetings/analytics', label: 'Analytics', active: pathname.startsWith('/meetings/analytics') },
             { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
@@ -3367,6 +3475,7 @@ export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
     .filter((group) => group.menus.length > 0);
 }
 
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
@@ -3511,12 +3620,31 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
-            // Show parent if any submenu is accessible
+            // Improvement Board — the oversight read (HOD / principal). They
+            // hold improvement.ideas.view_scoped and NOT one of the keys any
+            // submenu below declares, so the .some() would hide the whole
+            // parent and the rows the RLS branch hands them stay unreachable
+            // except by typing the URL. MENU_PERMISSIONS is one key per route
+            // and cannot express the union, so the union is carried here — the
+            // same idiom the submenu filter below already uses for several
+            // routes. The matching submenu case opens the board itself ONLY.
+            if (
+              menu.href === '/improvement-board' &&
+              userRole.permissions['improvement.ideas.view_scoped'] === true
+            ) {
+              return true;
+            }
+
+            // Show parent if any submenu is accessible. Routed through
+            // navPathAllowed so a path whose access is a UNION of keys (see
+            // CASE_STUDIES_NAV_PATH) can still be the child that keeps the
+            // parent row visible.
             return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              return (
-                requiredPermission &&
-                userRole.permissions[requiredPermission] === true
+              const route = normalizeRoute(submenu.href);
+              return navPathAllowed(
+                route,
+                userRole.permissions,
+                MENU_PERMISSIONS[route]
               );
             });
           }
@@ -3559,6 +3687,26 @@ export function GetRoleBasedPages(
               return true;
             }
 
+            // Improvement Board — the oversight read. A HOD / principal holding
+            // improvement.ideas.view_scoped reads open ideas raised inside their
+            // own institution (the branch this PR adds to improvement_ideas_select),
+            // but MENU_PERMISSIONS is one key per route and can only name
+            // improvement.ideas.view. Without this case the rows arrive and the
+            // link does not, so the board is reachable only by typing the URL.
+            //
+            // DELIBERATELY the board itself and nothing else. My Dashboard,
+            // Team Rotation and My Analytics are cohort-management surfaces
+            // (an associate's own contribution, the rota, the analyst views);
+            // an oversight reader has no use for them and opening them would
+            // hand a HOD the associate-management surface nobody asked for.
+            // They stay on improvement.ideas.view.
+            if (submenu.href === '/improvement-board') {
+              return (
+                userRole.permissions['improvement.ideas.view'] === true ||
+                userRole.permissions['improvement.ideas.view_scoped'] === true
+              );
+            }
+
             // Student-portal links (My Attendance / My Profile / My Marks /
             // My Timetable) are ONLY for students — even when nested as a
             // submenu under an admin parent's flyout (e.g. "Admission
@@ -3589,7 +3737,23 @@ export function GetRoleBasedPages(
               return false;
             }
 
-            const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
+            // Gemba visits — the database grants read on a union MENU_PERMISSIONS
+            // (one key per route) cannot express. `gemba_observations_read` allows
+            // improvement.area_role.assign OR improvement.board.manage as well as
+            // a posting, because — as that migration records — the CAO and
+            // Executive Administrative Officers hold no improvement.ideas.view at
+            // all. Without this the link is hidden from the very officers the
+            // RPC's officer lane exists for.
+            if (submenu.href === '/improvement-board/gemba') {
+              return (
+                userRole.permissions['improvement.ideas.view'] === true ||
+                userRole.permissions['improvement.area_role.assign'] === true ||
+                userRole.permissions['improvement.board.manage'] === true
+              );
+            }
+
+            const submenuRoute = normalizeRoute(submenu.href);
+            const requiredPermission = MENU_PERMISSIONS[submenuRoute];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
             // Hide "Student Search" submenu for students
@@ -3602,7 +3766,11 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            return userRole.permissions[requiredPermission] === true;
+            return navPathAllowed(
+              submenuRoute,
+              userRole.permissions,
+              requiredPermission
+            );
           }).map((submenu) => {
             // Change submenu labels for students
             if (isStudent) {
