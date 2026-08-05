@@ -195,6 +195,29 @@ export async function POST(request: NextRequest) {
         { status: 429 },
       );
     }
+    // The partial unique index (migration 20260811090200) makes the sha256
+    // dedupe atomic, so the loser of a genuine race lands here rather than
+    // creating a second job. That is the dedupe WORKING — return the job the
+    // winner created, exactly as the SELECT above would have.
+    if (/duplicate key|unique constraint|23505/i.test(errText)) {
+      const { data: raced } = await admin
+        .from('ai_jobs')
+        .select('id, status')
+        .eq('job_type', 'contacts.card_extract')
+        .eq('requested_by', user.id)
+        .contains('payload', { sha256 })
+        .order('requested_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (raced?.id) {
+        return NextResponse.json({
+          ok: true,
+          job_id: raced.id,
+          status: raced.status,
+          duplicate: true,
+        });
+      }
+    }
     console.error('[card-scan] enqueue failed:', errText);
     return NextResponse.json({ ok: false, error: 'Could not queue the card for reading.' }, { status: 500 });
   }
