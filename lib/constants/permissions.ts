@@ -2444,6 +2444,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.polls.view', label: 'View Meeting Polls' },
       { key: 'meetings.polls.manage', label: 'Manage Meeting Polls' },
       { key: 'meetings.contacts.view', label: 'View Contacts' },
+      // Business-card scanner. Replaces the job type's original
+      // allow_rule = 'seat_owner', which resolved to the AI natural-language
+      // QUERY feature's seat list — one user — and so locked the whole team out
+      // of a feature Director decision 1 opens to everyone.
+      { key: 'meetings.contacts.scan', label: 'Scan Business Cards' },
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },

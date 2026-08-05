@@ -143,6 +143,37 @@ export async function POST(request: NextRequest) {
         { status: 429 },
       );
     }
+    // An access denial must SAY it is an access denial (CLAUDE.md rule #27).
+    // Before this branch existed the caller got a generic 500 "Could not queue
+    // the card for reading", which reads as a broken feature rather than a
+    // closed door — proven live 2026-08-05, when the Director's own account hit
+    // exactly that 500 because the job type's allow_rule admits one user.
+    if (errText === 'not allowed for this job_type') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'You do not have access to card scanning yet. Ask an administrator to grant the “Scan Business Cards” permission.',
+          code: 'not_allowed',
+        },
+        { status: 403 },
+      );
+    }
+    // In-flight ceiling (max_inflight on the job type). This is NOT a failure of
+    // the scan — the photo is stored and the card can be re-submitted the moment
+    // a slot frees. The capture screen must retry rather than lose the card
+    // (decision 21: never block scanning, losing the card is the worst outcome).
+    if (errText === 'too many in-flight jobs of this type') {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Still reading your last few cards — this one will go through in a moment.',
+          code: 'busy',
+          retryable: true,
+        },
+        { status: 429 },
+      );
+    }
     console.error('[card-scan] enqueue failed:', errText);
     return NextResponse.json({ ok: false, error: 'Could not queue the card for reading.' }, { status: 500 });
   }
@@ -151,8 +182,31 @@ export async function POST(request: NextRequest) {
 }
 
 /**
+ * Review-queue sort weight — DOUBTFUL FIRST (Director decision 25).
+ *
+ * Explicitly NOT newest-first: at a fair, thirty clean cards scanned after a
+ * blurry one would bury the only card that actually needs a human, and the
+ * blurry one is the one whose owner is still standing in front of you.
+ * (Newest-first remains the default for SEARCH results — decision 14 — which is
+ * a different surface.)
+ *
+ *   0  unreadable / errored → "Couldn't read it — retake?" (decision 20)
+ *   1  read, confidence low
+ *   2  read, confidence medium (or absent)
+ *   3  read, confidence high → quick tap-confirm
+ *   4  still being read → cannot be confirmed yet, so it sinks
+ */
+function reviewRank(status: string, confidence: string | null): number {
+  if (status === 'error') return 0;
+  if (status !== 'done') return 4;
+  if (confidence === 'low') return 1;
+  if (confidence === 'high') return 3;
+  return 2;
+}
+
+/**
  * GET ?job_id=…   — one card's status/result
- * GET (no params) — this user's pending review queue (newest first, decision 14)
+ * GET (no params) — this user's review queue, DOUBTFUL FIRST (decision 25)
  */
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
@@ -183,17 +237,55 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Could not read the scan queue.' }, { status: 500 });
   }
 
-  const rows = (data ?? []).map((j) => ({
-    job_id: j.id,
-    status: j.status,
-    // The runner writes { fields, raw }; only `fields` is meant for the UI.
-    fields: (j.result as { fields?: Record<string, unknown> } | null)?.fields ?? null,
-    error: j.error,
-    event: (j.payload as { event?: string | null } | null)?.event ?? null,
-    storage_path: (j.payload as { storage_path?: string } | null)?.storage_path ?? null,
-    requested_at: j.requested_at,
-    completed_at: j.completed_at,
+  const rows = (data ?? []).map((j) => {
+    const fields = (j.result as { fields?: Record<string, unknown> } | null)?.fields ?? null;
+    const confidence =
+      typeof fields?.confidence === 'string' ? (fields.confidence as string) : null;
+    return {
+      job_id: j.id,
+      status: j.status,
+      // The runner writes { fields, raw }; only `fields` is meant for the UI.
+      fields,
+      confidence,
+      error: j.error,
+      event: (j.payload as { event?: string | null } | null)?.event ?? null,
+      storage_path: (j.payload as { storage_path?: string } | null)?.storage_path ?? null,
+      requested_at: j.requested_at,
+      completed_at: j.completed_at,
+    };
+  });
+
+  // ── Signed URLs for the card photos ───────────────────────────────────────
+  // `card-scans` is private and service-role-only on purpose: a browser must
+  // never be able to enumerate other people's card photos. The review screen
+  // still has to SHOW the card beside the extracted form (decision 5) and the
+  // blurry one on a retake prompt (decision 20), so the server mints a
+  // short-lived signed URL per row it has already scoped to this user.
+  const paths = rows.map((r) => r.storage_path).filter((p): p is string => Boolean(p));
+  const signed = new Map<string, string>();
+  if (paths.length > 0) {
+    const { data: urls } = await admin.storage.from(BUCKET).createSignedUrls(paths, 60 * 15);
+    for (const u of urls ?? []) {
+      if (u.path && u.signedUrl) signed.set(u.path, u.signedUrl);
+    }
+  }
+  const withPhotos = rows.map((r) => ({
+    ...r,
+    photo_url: r.storage_path ? (signed.get(r.storage_path) ?? null) : null,
   }));
 
-  return NextResponse.json(jobId ? { ok: true, scan: rows[0] ?? null } : { ok: true, scans: rows });
+  if (jobId) {
+    return NextResponse.json({ ok: true, scan: withPhotos[0] ?? null });
+  }
+
+  // Doubtful first; within a band, oldest first — a card that has been waiting
+  // longest is the one most likely to be forgotten (decision 22).
+  withPhotos.sort((a, b) => {
+    const ra = reviewRank(a.status, a.confidence);
+    const rb = reviewRank(b.status, b.confidence);
+    if (ra !== rb) return ra - rb;
+    return String(a.requested_at).localeCompare(String(b.requested_at));
+  });
+
+  return NextResponse.json({ ok: true, scans: withPhotos });
 }
