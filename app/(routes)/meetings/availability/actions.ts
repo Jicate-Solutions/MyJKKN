@@ -469,7 +469,18 @@ export async function deleteScheduleOverrideDate(
 export interface BookingPageState {
   /** null = integration env not provisioned yet (connect button disabled). */
   googleConfigured: boolean;
-  connection: { status: 'active' | 'broken' | 'revoked'; googleEmail: string } | null;
+  connection: {
+    status: 'active' | 'broken' | 'revoked';
+    googleEmail: string;
+    /**
+     * Is every calendar this host owns checked for busy time, or only 'primary'?
+     * null = not yet probed, false = primary only (they must reconnect to grant
+     * the calendar-list scope). Connections made before 2026-08-05 cannot list
+     * calendars at all, so a meeting kept on a second calendar is invisible to
+     * the slot engine and that slot is still offered to strangers.
+     */
+    allCalendarsChecked: boolean | null;
+  } | null;
   page: {
     handle: string;
     isPublic: boolean;
@@ -521,7 +532,7 @@ export async function getBookingPageState(): Promise<ActionResult<BookingPageSta
     const [{ data: conn }, { data: page }, { data: profile }] = await Promise.all([
       supabase
         .from('meeting_host_google_connections')
-        .select('status, google_email')
+        .select('status, google_email, calendar_list_scope')
         .eq('host_profile_id', user.id)
         .maybeSingle(),
       supabase
@@ -553,7 +564,11 @@ export async function getBookingPageState(): Promise<ActionResult<BookingPageSta
       data: {
         googleConfigured: isGoogleCalConfigured(),
         connection: conn
-          ? { status: conn.status, googleEmail: conn.google_email }
+          ? {
+            status: conn.status,
+            googleEmail: conn.google_email,
+            allCalendarsChecked: (conn as { calendar_list_scope?: boolean | null }).calendar_list_scope ?? null,
+          }
           : null,
         page: page
           ? {
