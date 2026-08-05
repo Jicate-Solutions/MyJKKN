@@ -228,8 +228,27 @@ export async function GET(request: NextRequest) {
     .eq('job_type', 'contacts.card_extract')
     .eq('requested_by', user.id);
 
-  if (jobId) query = query.eq('id', jobId);
-  else query = query.order('requested_at', { ascending: false }).limit(50);
+  if (jobId) {
+    query = query.eq('id', jobId);
+  } else {
+    // Already-saved cards leave the queue. Without this they keep re-appearing
+    // and invite a second save of a card that already became a contact.
+    const { data: saved } = await admin
+      .from('contact_card_scans')
+      .select('job_id')
+      .eq('scanned_by', user.id);
+    const savedIds = (saved ?? []).map((s) => s.job_id).filter(Boolean);
+    if (savedIds.length > 0) {
+      query = query.not('id', 'in', `(${savedIds.join(',')})`);
+    }
+
+    // The row cap must NOT truncate by recency before the doubtful-first sort
+    // below — that is exactly how a blurry card sinks under thirty clean ones,
+    // which decision 25 exists to prevent. Oldest-first keeps the longest-waiting
+    // (and most likely forgotten, decision 22) cards inside the window, and the
+    // cap is high enough that a realistic unsaved queue is never clipped.
+    query = query.order('requested_at', { ascending: true }).limit(200);
+  }
 
   const { data, error } = await query;
   if (error) {
