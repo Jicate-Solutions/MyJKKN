@@ -160,6 +160,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // '/foundation' — somebody sitting the programme has no reason to hold
   // foundation.dashboard.view.
   '/foundation/practice': 'foundation.practice.take',
+  // Same key as practising alone. Holding it is not enough to see anything
+  // here — the page also requires you to actually run a group, which is
+  // fp_cohorts.resource_person_id, not a permission.
+  '/foundation/practice/facilitate': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
@@ -177,6 +181,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ceo-rounds': 'ceo_rounds.log',
   // MBA Analyst dashboard — an associate's own assigned-department analytics.
   '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA case studies — the write-up of an improvement that was actually made.
+  // This entry is the WRITERS' key. It is not the whole gate: navPathAllowed()
+  // widens this path to a union of three keys, in BOTH filter sites below and
+  // in lib/navigation/permission-filter.ts. See CASE_STUDIES_NAV_PATH.
+  '/improvement-board/case-studies': 'improvement.ideas.view',
   // MBA Analyst assignments — manager-only "who covers which department".
   '/improvement-board/postings': 'improvement.board.manage',
   // MBA Data Gaps — manager-only triage of gaps Associates reported.
@@ -278,6 +287,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/school-defaults': 'organizations.school-defaults.view',
   '/organizations/degrees': 'organizations.degrees.view',
   '/organizations/departments': 'organizations.departments.view',
+  // 2026-08-04 — College Leadership. New page; its own key.
+  '/organizations/leadership': 'organizations.leadership.manage',
+  // 2026-08-04 — HoD Assignment has existed and worked since 2026-05-07 but was
+  // never in the sidebar; it was reachable only from lib/organizations/guide/
+  // content.ts. That is why it sits at 7 departments of 89, all Pharmacy. The
+  // page itself gates on admin_or_super_admin (AdminPermissionGuard), so this
+  // maps to the nearest catalog key rather than inventing one.
+  '/organizations/departments/hod-assignment': 'organizations.departments.edit',
   '/organizations/programs': 'organizations.programs.view',
   '/organizations/courses': 'organizations.courses.view',
   '/organizations/semesters': 'organizations.semesters.view',
@@ -312,6 +329,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // it this page would fall through to '/hr' → 'hr.view' — a key almost every
   // role holds — and the paying organisation is HR-only by design.
   '/hr/payroll/organisation': 'hr.payroll.institution.view',
+  // The hub at /hr/payroll only redirects to the page above, but it needs its
+  // own entry: without one the longest-prefix match falls through to '/hr' →
+  // 'hr.view', so anyone in HR could open it and be denied one redirect later.
+  // Gating it here denies at the hub and keeps the AutoTabNav chip's gate
+  // (MENU_PERMISSIONS[href]) in step with the route guard.
+  '/hr/payroll': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
   // HR Leave — parent + 6 submenus shown in sidebar.
@@ -976,7 +999,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/matlab': 'solutions.matlab.view',
   '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
   '/solutions/ai-solution-compliance': 'solutions.compliance.view',
-  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
+  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift.
+  // Reinstated 2026-08-01 as the capability register only (the nomination /
+  // approval workflow stays retired). Reached from the Solutions Hub tab bar.
+  '/solutions/departments': 'solutions.departments.view',
 
   // Learners Council
   '/learners-council': 'learners_council.dashboard.view',
@@ -1065,7 +1091,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  // Per-owner worklist. Gated on the landing key rather than a new one so the
+  // people already trusted with accreditation can reach it — a key not present
+  // in lib/constants/permissions.ts would be ungrantable and the page would be
+  // reachable by nobody but super-admins.
+  '/accreditation/my-gaps': 'accreditation.view',               // per-owner worklist
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
+  // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
+  // is not in lib/constants/permissions.ts is ungrantable and never appears as
+  // a toggle in the role dialog.
+  '/accreditation/iqac': 'accreditation.metrics.view',          // IQAC master framework dashboard
   '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 c1 NAAC IQAC dashboard
   '/accreditation/naac/committees': 'accreditation.naac.committees.view',         // PR-A8 c2
   '/accreditation/naac/committees/[id]': 'accreditation.naac.committees.view',    // PR-A8 c2
@@ -1086,6 +1122,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
   '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
+  // Assigning accountability writes accreditation_metric_owners, whose live RLS
+  // gates writes on accreditation.naac.narrative.manage — so the page gate uses
+  // the same key rather than a second one that could drift away from the table.
+  '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1462,6 +1502,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/reports/sales': 'ims.reports.view',
   '/ims/reports/stock': 'ims.reports.view',
   '/ims/reports/upi': 'ims.reports.view',
+  '/ims/reports/gateway-payments': 'ims.reports.view',
   // Sales (POS, history, receipt)
   '/ims/sales': 'ims.sales.view',
   '/ims/sales/history': 'ims.sales.view',
@@ -1509,6 +1550,49 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // access to non-admin roles (e.g. dedicated feedback reviewers).
   '/feedback': 'feedback.view',
 };
+
+/**
+ * The case-study screen carries TWO populations that are reached by DIFFERENT
+ * permission keys: the people who write the cases hold `improvement.ideas.view`,
+ * and the people who grade them hold `improvement.board.manage`. Holding one is
+ * no guarantee of holding the other, so a single-key mapping would hide the
+ * link from one population or the other.
+ *
+ * Which role_key holds which of these is a live value in `custom_roles.
+ * permissions` — read it there, not here. This file is not a copy of the role
+ * table and must not be maintained as one.
+ *
+ * The union is applied at BOTH nav filter sites below — the submenu filter AND
+ * the parent-menu filter — because the parent row is shown only when at least
+ * one child passes, and a role whose sole reachable child is this one would
+ * otherwise lose the whole Improvement Board row.
+ *
+ * Mirrors the identical treatment `/improvement-board/analytics` already gets
+ * in lib/navigation/permission-filter.ts.
+ */
+export const CASE_STUDIES_NAV_PATH = '/improvement-board/case-studies';
+export const CASE_STUDIES_NAV_KEYS = [
+  'improvement.ideas.view',
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
+ * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
+ * by key existence: a role may carry a permission key set to an explicit
+ * `false`, and an existence test reads that denial as a grant.
+ */
+export function navPathAllowed(
+  href: string,
+  permissions: Record<string, boolean>,
+  requiredPermission: string | undefined
+): boolean {
+  if (href === CASE_STUDIES_NAV_PATH) {
+    return CASE_STUDIES_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (!requiredPermission) return false;
+  return permissions[requiredPermission] === true;
+}
 
 /**
  * GetPages — sidebar tree builder.
@@ -1594,6 +1678,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/improvement-board/gemba', label: 'Gemba Visits', active: pathname === '/improvement-board/gemba' },
             // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
             { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA case studies — associates write them (improvement.ideas.view),
+            // board managers grade them (improvement.board.manage). Reached via
+            // navPathAllowed's union so neither population loses the link.
+            { href: '/improvement-board/case-studies', label: 'Case Studies', active: pathname === '/improvement-board/case-studies' },
             // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
             // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
@@ -1684,7 +1772,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/dashboard', label: 'Dashboard', active: pathname.startsWith('/organizations/dashboard') },
             { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
             { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
-            { href: '/organizations/departments', label: 'Departments', active: pathname.startsWith('/organizations/departments') },
+            { href: '/organizations/departments', label: 'Departments', active: pathname === '/organizations/departments' },
+            // Both entries added 2026-08-04. Leadership is new; HoD Assignment
+            // already worked but had no sidebar entry, which is why 82 of 89
+            // departments still have no Head.
+            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
+            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
             { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
             { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
             { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
@@ -1732,8 +1825,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           // operator keys, so '/foundation' above never renders for them.
           href: '/foundation/practice',
           label: 'Foundation Practice',
-          active: pathname.startsWith('/foundation/practice'),
+          // Exact, so that running a session for somebody else does not also
+          // light up "practise on my own" — they are different acts.
+          active: pathname === '/foundation/practice',
           icon: Target,
+          submenus: []
+        },
+        {
+          // Running the programme FOR a group, as opposed to sitting it.
+          // Gated on the same permission, but only ever populated for whoever
+          // is named as a cohort's resource person — most holders of the key
+          // will correctly see "you are not running any groups yet".
+          href: '/foundation/practice/facilitate',
+          label: 'Run a Practice Session',
+          active: pathname.startsWith('/foundation/practice/facilitate'),
+          icon: Users,
           submenus: []
         },
         {
@@ -2936,6 +3042,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
+            // The parent "Events" row is a PURE ACCORDION TOGGLE at runtime
+            // (components/Navbar/menu.tsx: `e.preventDefault(); toggleModule(...)`),
+            // so its own href was never clickable and /events had no sidebar path
+            // at all — the hub's General Events list (the only surface listing
+            // wizard-created lectures/cultural/convocation events) was reachable
+            // only via Ctrl+K or a typed URL. check:reachability did NOT catch
+            // this: it seeds from every literal href in this file and assumes
+            // sidebar links are reachable, which the accordion parent is not.
+            // Same parent-href-as-leaf fix as '/users' → "All Users" and
+            // '/procurement' → "Overview". Also restores the chip gateway to
+            // /events/proposals, which AutoTabNav only renders from /events.
+            { href: '/events', label: 'All Events', active: pathname === '/events' },
             // Events Platform Promotion PR9 (2026-06-23): one create flow asks format + home
             { href: '/events/create', label: 'Create an Event', active: pathname === '/events/create' },
             { href: '/events/presets', label: 'Event Presets', active: pathname === '/events/presets' },
@@ -3470,12 +3588,16 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
-            // Show parent if any submenu is accessible
+            // Show parent if any submenu is accessible. Routed through
+            // navPathAllowed so a path whose access is a UNION of keys (see
+            // CASE_STUDIES_NAV_PATH) can still be the child that keeps the
+            // parent row visible.
             return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              return (
-                requiredPermission &&
-                userRole.permissions[requiredPermission] === true
+              const route = normalizeRoute(submenu.href);
+              return navPathAllowed(
+                route,
+                userRole.permissions,
+                MENU_PERMISSIONS[route]
               );
             });
           }
@@ -3563,7 +3685,8 @@ export function GetRoleBasedPages(
               );
             }
 
-            const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
+            const submenuRoute = normalizeRoute(submenu.href);
+            const requiredPermission = MENU_PERMISSIONS[submenuRoute];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
             // Hide "Student Search" submenu for students
@@ -3576,7 +3699,11 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            return userRole.permissions[requiredPermission] === true;
+            return navPathAllowed(
+              submenuRoute,
+              userRole.permissions,
+              requiredPermission
+            );
           }).map((submenu) => {
             // Change submenu labels for students
             if (isStudent) {

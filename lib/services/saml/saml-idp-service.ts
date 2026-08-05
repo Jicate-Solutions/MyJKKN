@@ -6,7 +6,7 @@
 
 import * as samlify from 'samlify';
 import * as zlib from 'zlib';
-import { createPrivateKey } from 'crypto';
+import { createPrivateKey, randomUUID } from 'crypto';
 import {
   SamlIdpConfig,
   SamlSpConfig,
@@ -199,6 +199,26 @@ export class SamlIdpService {
   }
 
   /**
+   * Bare base64 DER body of the certificate — no PEM header/footer, no newlines.
+   *
+   * This is the INVERSE of formatCertificate() and is what samlify's getKeyInfo()
+   * requires when constructSAMLSignature() is called directly (as
+   * generateErrorResponse does): it feeds the value straight into forge's base64
+   * decoder AND embeds it verbatim inside <ds:X509Certificate>, where XML-DSig
+   * mandates the bare body. Passing full PEM throws
+   * "Unparsed DER bytes remain after ASN.1 parsing".
+   *
+   * The generateSamlResponse() path does NOT need this — it goes through
+   * samlify's IdentityProvider, which normalises the cert itself.
+   */
+  private static stripCertificate(cert: string): string {
+    return cert
+      .replace(/-----BEGIN CERTIFICATE-----/g, '')
+      .replace(/-----END CERTIFICATE-----/g, '')
+      .replace(/\s+/g, '');
+  }
+
+  /**
    * Create Service Provider instance from database
    */
   private static async createSP(
@@ -232,6 +252,27 @@ export class SamlIdpService {
         ? this.formatCertificate(sp.x509_certificate)
         : undefined,
     });
+  }
+
+  /**
+   * Compare two ACS URLs for equality.
+   *
+   * Scheme and host are case-insensitive per RFC 3986; the path is not. A lone
+   * trailing slash is ignored so ".../SSO" and ".../SSO/" count as the same
+   * endpoint. Anything unparseable falls back to an exact string compare —
+   * fail-closed, since a URL we cannot parse must not be treated as a match.
+   */
+  private static isSameAcsUrl(a: string, b: string): boolean {
+    const normalise = (value: string): string => {
+      try {
+        const parsed = new URL(value.trim());
+        const path = parsed.pathname.replace(/\/$/, '');
+        return `${parsed.protocol.toLowerCase()}//${parsed.host.toLowerCase()}${path}${parsed.search}`;
+      } catch {
+        return value.trim();
+      }
+    };
+    return normalise(a) === normalise(b);
   }
 
   /**
@@ -318,10 +359,38 @@ export class SamlIdpService {
           : { body: { SAMLRequest: processedSamlRequest } };
       const { extract } = await idp.parseLoginRequest(sp, binding, requestData);
 
-      // Fall back to the registered ACS URL if the request omits it (SAML 2.0 §3.4.1.2)
-      const acsUrl =
-        extract.request.assertionConsumerServiceURL ||
-        spConfig.assertion_consumer_service_url;
+      // An AuthnRequest MAY name its own AssertionConsumerServiceURL, but it
+      // must match the one registered for this SP.
+      //
+      // This is load-bearing, not defence in depth: wantAuthnRequestsSigned is
+      // false (see getIdP), so nothing authenticates the request and EVERY
+      // field here is untrusted input. Without this check an attacker could
+      // craft a request naming MathWorks as Issuer but their own ACS URL, lure
+      // a signed-in JKKN user to it, and receive a valid signed assertion for
+      // that user's identity.
+      //
+      // Omitting the URL entirely is legal (SAML 2.0 §3.4.1.2) — the registered
+      // value is then used. We always emit the registered value, never the
+      // requested one, so a match modulo trailing slash still resolves to our
+      // canonical endpoint.
+      const registeredAcsUrl = spConfig.assertion_consumer_service_url;
+      const requestedAcsUrl = extract.request.assertionConsumerServiceURL as
+        | string
+        | undefined;
+
+      if (requestedAcsUrl && !this.isSameAcsUrl(requestedAcsUrl, registeredAcsUrl)) {
+        console.error(
+          '[saml-idp] AssertionConsumerServiceURL does not match the registered SP ACS:',
+          { spEntityId, requested: requestedAcsUrl, registered: registeredAcsUrl }
+        );
+        throw new SamlError(
+          'AssertionConsumerServiceURL does not match the registered Service Provider',
+          SamlStatusCode.REQUESTER,
+          'acs_url_mismatch'
+        );
+      }
+
+      const acsUrl = registeredAcsUrl;
 
       return {
         request: {
@@ -417,6 +486,110 @@ export class SamlIdpService {
         SamlStatusCode.RESPONDER,
         'response_generation_failed'
       );
+    }
+  }
+
+  /**
+   * Top-level SAML status codes permitted by SAML 2.0 Core §3.2.2.2.
+   * Everything else (AuthnFailed, InvalidAttrNameOrValue, …) is a SECOND-level
+   * code and MUST be nested inside one of these — SPs reject a Response whose
+   * top-level StatusCode is e.g. AuthnFailed.
+   */
+  private static readonly TOP_LEVEL_STATUS_CODES: ReadonlySet<string> = new Set([
+    SamlStatusCode.SUCCESS,
+    SamlStatusCode.REQUESTER,
+    SamlStatusCode.RESPONDER,
+    SamlStatusCode.VERSION_MISMATCH,
+  ]);
+
+  private static escapeXml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+
+  /**
+   * Generate a signed SAML error Response (a Response with a failure Status and
+   * NO Assertion), base64-encoded ready for HTTP-POST to the SP's ACS.
+   *
+   * Why this exists: previously every failure inside /api/saml/sso returned a
+   * JSON 500 served from jkkn.ai, which strands the user on our domain. SAML
+   * 2.0 Core §3.2.2 requires the IdP to report protocol/authentication failures
+   * back to the requesting SP, and MathWorks' explicit acceptance criterion for
+   * this integration is that the browser returns to a MathWorks page "even if
+   * an error is shown".
+   *
+   * The Response carries no Assertion, so there is no identity to forge; if
+   * signing fails we still emit it unsigned rather than strand the user.
+   */
+  static generateErrorResponse(params: {
+    destination: string;
+    statusCode?: SamlStatusCode;
+    statusMessage?: string;
+    inResponseTo?: string;
+  }): string {
+    const config = this.getIdPConfig();
+    const { destination, inResponseTo } = params;
+    const requested = params.statusCode || SamlStatusCode.RESPONDER;
+
+    const isTopLevel = this.TOP_LEVEL_STATUS_CODES.has(requested);
+    const topLevelCode = isTopLevel
+      ? requested
+      : requested === SamlStatusCode.AUTHN_FAILED
+        ? SamlStatusCode.RESPONDER
+        : SamlStatusCode.REQUESTER;
+    const secondLevelCode = isTopLevel ? null : requested;
+
+    // Truncated deliberately: `destination` comes from the AuthnRequest, so a
+    // full internal error string must never be shipped verbatim to it.
+    const statusMessage = (params.statusMessage || '').slice(0, 200);
+
+    // SAML IDs are xsd:ID (an NCName) — must not start with a digit.
+    const responseId = `_${randomUUID().replace(/-/g, '')}`;
+
+    const xml =
+      `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"` +
+      ` xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"` +
+      ` ID="${responseId}" Version="2.0" IssueInstant="${new Date().toISOString()}"` +
+      ` Destination="${this.escapeXml(destination)}"` +
+      (inResponseTo ? ` InResponseTo="${this.escapeXml(inResponseTo)}"` : '') +
+      `>` +
+      `<saml:Issuer>${this.escapeXml(config.entityId)}</saml:Issuer>` +
+      `<samlp:Status>` +
+      `<samlp:StatusCode Value="${topLevelCode}">` +
+      (secondLevelCode ? `<samlp:StatusCode Value="${secondLevelCode}"/>` : '') +
+      `</samlp:StatusCode>` +
+      (statusMessage
+        ? `<samlp:StatusMessage>${this.escapeXml(statusMessage)}</samlp:StatusMessage>`
+        : '') +
+      `</samlp:Status>` +
+      `</samlp:Response>`;
+
+    try {
+      return samlify.SamlLib.constructSAMLSignature({
+        rawSamlMessage: xml,
+        // Sign the whole Response: there is no Assertion to sign here.
+        isMessageSigned: true,
+        privateKey: this.formatPrivateKey(config.privateKey),
+        signingCert: this.stripCertificate(config.certificate),
+        signatureAlgorithm: samlify.Constants.algorithms.signature.RSA_SHA256,
+        signatureConfig: {
+          prefix: 'ds',
+          location: {
+            reference: "/*[local-name(.)='Response']/*[local-name(.)='Issuer']",
+            action: 'after',
+          },
+        },
+        isBase64Output: true,
+      });
+    } catch (error) {
+      // Signing is best-effort. An unsigned error Response still lets the SP
+      // end the flow on its own domain, which beats a 500 on ours.
+      console.error('[saml-idp] Failed to sign error Response — sending unsigned:', error);
+      return Buffer.from(xml, 'utf-8').toString('base64');
     }
   }
 

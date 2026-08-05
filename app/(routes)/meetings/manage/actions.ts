@@ -38,6 +38,8 @@ export interface ManageEventType {
   lengthInMinutes: number;
   hidden: boolean;
   description: string | null;
+  /** Grouping label; types sharing one are a single choice on the public page. */
+  purposeGroup: string | null;
   locationMode: MeetingLocationMode;
   locationText: string | null;
   // Venue from Resource Management (PR1). When set, the in-person meeting happens
@@ -79,6 +81,12 @@ export interface EventTypeFormInput {
   description?: string;
   /** Update-only: toggle visibility on the booking page. */
   hidden?: boolean;
+  /**
+   * Optional grouping label. Types sharing a value are shown on the public
+   * page as ONE choice (this text is its label) and the booker picks the
+   * format second. Blank/omitted = stands alone under its own title.
+   */
+  purposeGroup?: string | null;
   /** U3 (D4): defaults to in_person when omitted (matches the DB default). */
   locationMode?: MeetingLocationMode;
   /** Free-text place for in_person (e.g. "Pharmacy block, Room 204"). */
@@ -133,6 +141,8 @@ interface MeetingTypeRow {
   duration_min: number;
   hidden: boolean;
   description: string | null;
+  /** Added 20260809090000 — absent on databases predating that migration. */
+  purpose_group?: string | null;
   location_mode: MeetingLocationMode | null;
   location_text: string | null;
   // Venue-from-resource PR1 (migration 20260715000000) — absent pre-migration.
@@ -154,7 +164,7 @@ interface MeetingTypeRow {
 
 /** Columns the manage actions select / round-trip (kept in one place). */
 const MT_COLUMNS =
-  'id, title, slug, duration_min, hidden, description, location_mode, location_text, location_resource_id, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy, requires_deposit, deposit_amount_paise';
+  'id, title, slug, duration_min, hidden, description, purpose_group, location_mode, location_text, location_resource_id, buffer_before_min, buffer_after_min, min_notice_min, slot_interval_min, kind, capacity, host_pool, redirect_url, cancellation_policy, requires_deposit, deposit_amount_paise';
 
 /**
  * Base mapper; hostEmails (cohosts / pool) and locationResourceName (room name)
@@ -173,6 +183,7 @@ function toManageEventType(
     lengthInMinutes: row.duration_min,
     hidden: Boolean(row.hidden),
     description: row.description ?? null,
+    purposeGroup: row.purpose_group ?? null,
     locationMode: row.location_mode ?? 'in_person',
     locationText: row.location_text ?? null,
     locationResourceId: row.location_resource_id ?? null,
@@ -304,6 +315,7 @@ function validateForm(
     slug: string;
     duration_min: number;
     description?: string;
+    purpose_group: string | null;
     location_mode: MeetingLocationMode;
     location_text: string | null;
     location_resource_id: string | null;
@@ -339,6 +351,9 @@ function validateForm(
   }
 
   const description = input.description?.trim();
+  // Blank or whitespace-only means "no group" — store NULL rather than an
+  // empty string, or the public page would build a group with a blank label.
+  const purposeGroup = (input.purposeGroup ?? '').trim() || null;
 
   const locationMode = input.locationMode ?? 'in_person';
   if (!['in_person', 'phone', 'online'].includes(locationMode)) {
@@ -447,6 +462,7 @@ function validateForm(
       slug,
       duration_min: Math.round(len),
       ...(description ? { description } : {}),
+      purpose_group: purposeGroup,
       location_mode: locationMode,
       // Only in-person meetings carry a venue; both cleared otherwise (above).
       location_text: resolvedLocationText,

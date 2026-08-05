@@ -58,10 +58,20 @@ export function PushToStoreSlideover({
   );
 
   // Only what the warehouse actually holds and is allowed to distribute.
+  //
+  // It now does what that sentence says. store_id alone used to filter on
+  // ims_items.store_id — which store CREATED the row — so this listed items the
+  // warehouse had never held, and at Dental (where every item was created at the
+  // student store) it listed nothing at all. has_stock reads ims_stock_summary,
+  // and is_distributable/is_bundle were passed here but silently ignored by
+  // getItems until 20260804090000.
   const { data: itemsData } = useImsItems({
     store_id: warehouseStoreId || undefined,
+    scope: 'store',
+    has_stock: true,
     is_distributable: true,
     is_bundle: false,
+    limit: 200,
   });
 
   const items = useMemo(() => {

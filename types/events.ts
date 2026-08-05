@@ -296,6 +296,12 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   status?: EventStatus;
   registration_open_date?: string;
   registration_close_date?: string;
+  /**
+   * On the `events` table and on Event, but absent from CreateEventDto — so it
+   * was unsettable until the full edit dialog needed it. start_time has always
+   * been creatable; this is its missing pair.
+   */
+  end_time?: string;
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;

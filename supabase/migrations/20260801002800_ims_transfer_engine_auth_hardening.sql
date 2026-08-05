@@ -230,6 +230,12 @@ GRANT  EXECUTE ON FUNCTION public.ims_create_push_transfer(UUID, UUID, UUID, TEX
 -- leaving cost_price, expiry and quantities world-read/write across every tenant.
 -- Mirror the ims_supply_shipments policy it hangs off, reached via shipment_item.
 DROP POLICY IF EXISTS ims_supply_shipment_item_batches_all ON public.ims_supply_shipment_item_batches;
+-- 2026-08-04: 20260801002300 now creates this policy under its final name rather
+-- than the permissive `_all` one it used to create, so on a fresh replay the
+-- CREATE below would hit 42710 (policy already exists) without this line. Adding
+-- a DROP IF EXISTS changes nothing about production — this migration is already
+-- applied and will not re-run — it only keeps a from-scratch replay green.
+DROP POLICY IF EXISTS ims_supply_shipment_item_batches_select ON public.ims_supply_shipment_item_batches;
 
 CREATE POLICY ims_supply_shipment_item_batches_select
   ON public.ims_supply_shipment_item_batches

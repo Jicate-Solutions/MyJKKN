@@ -113,8 +113,13 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
+  // The typed reference: Type + ID + Person resolve together into
+  // referral_type / referred_by_id / referred_by_name plus the legacy mirror.
+  // 'Reference Name' stays as an alias so templates downloaded before
+  // 2026-08-01 keep mapping to the same resolver.
   'reference_type': ['Reference Type', 'reference_type'],
-  'reference_name': ['Reference Name', 'reference_name'],
+  'referred_by_id': ['Reference ID', 'referred_by_id'],
+  'referred_by_name': ['Reference Person', 'Reference Name', 'referred_by_name', 'reference_name'],
   'reference_contact': ['Reference Contact', 'reference_contact'],
 
   // SECTION 11: Student Specific
@@ -611,12 +616,18 @@ export async function POST(request: NextRequest) {
         if (['yes', 'y', 'true', '1'].includes(b)) sanitizedData.bus_required = true;
         else if (['no', 'n', 'false', '0'].includes(b)) sanitizedData.bus_required = false;
       }
-      // SECTION 10: Reference Information
+      // SECTION 10: Reference Information — must stay byte-identical to the
+      // preview route's block, or a file can pass review and then write
+      // something else. Reference ID passes through untouched: sanitizeValue
+      // upper-cases, which mangles a uuid.
       if (mappedData.reference_type) {
-        sanitizedData.reference_type = sanitizeValue(mappedData.reference_type, 'text');
+        sanitizedData.reference_type = String(mappedData.reference_type).trim();
       }
-      if (mappedData.reference_name) {
-        sanitizedData.reference_name = sanitizeValue(mappedData.reference_name, 'text');
+      if (mappedData.referred_by_id) {
+        sanitizedData.referred_by_id = String(mappedData.referred_by_id).trim();
+      }
+      if (mappedData.referred_by_name) {
+        sanitizedData.referred_by_name = sanitizeValue(mappedData.referred_by_name, 'text');
       }
       if (mappedData.reference_contact) {
         sanitizedData.reference_contact = sanitizeValue(mappedData.reference_contact, 'mobile');

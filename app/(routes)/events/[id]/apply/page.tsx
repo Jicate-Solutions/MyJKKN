@@ -35,6 +35,17 @@ import {
 } from '@/components/ui/card';
 import type { SoiApplyContext } from '@/lib/services/school-of-influence/apply-types';
 import { SoiApplyForm } from './_components/soi-apply-form';
+import {
+  SoiApplicationOutcome,
+  useOwnApplicationOutcome,
+} from './_components/soi-application-outcome';
+
+/**
+ * The two refusal codes that mean "you already have an application or a place
+ * here". Only on these does the screen go and read the applicant's own record,
+ * so the ordinary apply path costs no extra query.
+ */
+const HAS_OWN_APPLICATION_CODES = ['already_applied', 'already_member'];
 
 const formatDay = (value: string | null) => {
   if (!value) return null;
@@ -70,6 +81,17 @@ export default function SchoolOfInfluenceApplyPage() {
   const eventId = String(params?.id ?? '');
   const queryClient = useQueryClient();
   const { data: context, isLoading, error } = useApplyContext(eventId);
+
+  // Director decision, 2026-08-01: a turned-down applicant must read the
+  // coordinator's actual words, not a generic sentence. That text lives on the
+  // applicant's own registration row, so it is fetched only when the refusal
+  // says they have one.
+  const hasOwnApplication =
+    !!context?.refusal && HAS_OWN_APPLICATION_CODES.includes(context.refusal.code);
+  const { data: outcome, isLoading: outcomeLoading } = useOwnApplicationOutcome(
+    eventId,
+    hasOwnApplication
+  );
 
   const title = context?.eventName ?? 'School of Influence';
 
@@ -134,12 +156,33 @@ export default function SchoolOfInfluenceApplyPage() {
 
         {context.refusal ? (
           <>
-            {/* The refusal IS the page. Explicit, on screen, with the next step. */}
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>You cannot apply right now</AlertTitle>
-              <AlertDescription>{context.refusal.message}</AlertDescription>
-            </Alert>
+            {/*
+              The refusal IS the page. Explicit, on screen, with the next step.
+
+              When the applicant has an application of their own here, the
+              account of THAT — including a rejection's actual reason — replaces
+              this generic sentence rather than sitting beneath it. Showing both
+              would leave the vague message on top, which is exactly what the
+              Director asked to be fixed. While the record is loading, and if it
+              cannot be read or cannot be honestly interpreted, the screen falls
+              back to the sentence it has always shown: less specific, still true.
+            */}
+            {hasOwnApplication && outcomeLoading ? (
+              <div className="flex h-24 items-center justify-center">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : outcome ? (
+              <SoiApplicationOutcome
+                outcome={outcome}
+                fallbackBatchName={context.existingMembership?.batchName ?? null}
+              />
+            ) : (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>You cannot apply right now</AlertTitle>
+                <AlertDescription>{context.refusal.message}</AlertDescription>
+              </Alert>
+            )}
 
             {context.refusal.code === 'not_signed_in' && (
               <Button asChild size="sm">
