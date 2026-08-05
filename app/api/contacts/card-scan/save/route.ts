@@ -23,6 +23,7 @@ import {
   isNetworkerConfigured,
   searchContacts,
 } from '@/lib/networker/client';
+import { routeCard } from '@/lib/services/contacts/card-routing';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -118,6 +119,9 @@ export async function POST(request: NextRequest) {
     mode?: 'create' | 'enrich';
     target_id?: string;
     routed_to?: string;
+    /** Chosen in the picker when a destination needs a parent it cannot infer. */
+    event_id?: string;
+    site_id?: string;
   };
   try {
     body = await request.json();
@@ -310,6 +314,53 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Route to the module's own table (decisions 17/18) ─────────────────────
+  // Runs AFTER the contact book write and never blocks it: by here the person
+  // is already saved, and decision 18 is explicit that an unroutable or
+  // half-filled module record must not cost the user their scan.
+  const { data: prof } = await admin
+    .from('profiles')
+    .select('institution_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  const routing = await routeCard(
+    admin,
+    body.routed_to,
+    {
+      name: human.name!,
+      organization: human.organization,
+      role: human.role,
+      email: human.email,
+      phone: human.phone,
+      mobile: human.mobile,
+      website: human.website,
+      city: human.city,
+      note: human.handwritten_note,
+    },
+    {
+      institutionId: (prof as { institution_id?: string | null } | null)?.institution_id ?? null,
+      scannedByProfileId: user.id,
+      scannedByEmail: user.email ?? null,
+      eventId: clean(body.event_id),
+      siteId: clean(body.site_id),
+      eventLabel: event,
+    },
+  ).catch((e): null => {
+    console.error('[card-scan/save] routing threw:', e instanceof Error ? e.message : String(e));
+    return null;
+  });
+
+  const routingStatus = !routing
+    ? 'failed'
+    : routing.routed
+      ? 'routed'
+      : routing.pendingParent
+        ? 'pending_parent'
+        : routing.error
+          ? 'failed'
+          : 'none';
+
   // ── Record the outcome on the claim row (decision 15) ─────────────────────
   // The row already exists (claimed above); this fills in where the contact
   // landed. Correction capture is the point: AI output vs human fix, per field.
@@ -320,6 +371,12 @@ export async function POST(request: NextRequest) {
       .update({
         networker_contact_id: result?.data?.id ?? null,
         save_mode: result?.mode ?? 'created',
+        routed_table: routing?.table ?? null,
+        routed_row_id: routing?.rowId ?? null,
+        routing_status: routingStatus,
+        pending_parent: routing?.pendingParent ?? null,
+        missing_fields: routing?.missingFields ?? [],
+        routing_error: routing?.error ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq('job_id', jobId);
@@ -337,5 +394,16 @@ export async function POST(request: NextRequest) {
     filled: result?.filled ?? [],
     corrected_fields: corrected,
     correction_tracking: guarded ? 'recorded' : 'unavailable',
+    /** Where the module row landed, or why it could not (decisions 17/18). */
+    routing: routing
+      ? {
+          status: routingStatus,
+          table: routing.table,
+          needs: routing.pendingParent,
+          missing_fields: routing.missingFields,
+          scheduling_contact: routing.meetingContactWritten,
+          error: routing.error,
+        }
+      : { status: 'failed', table: null, needs: null, missing_fields: [], error: 'routing failed' },
   });
 }
