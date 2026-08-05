@@ -75,13 +75,19 @@ export async function GET(request: NextRequest) {
   }
 }
 
+const TRAVEL_BASES = new Set(['distance', 'flat', 'none']);
+
 interface RateUpsertBody {
   institutions_id?: string;
   committee_name?: string;
   rates?: Array<{
     member_type?: string;
     honorarium_amount?: number;
+    /** Null = "same as the offline charge" (the column is nullable). */
+    honorarium_amount_online?: number | null;
     ta_per_km?: number;
+    travel_basis?: string;
+    travel_flat_amount?: number;
   }>;
 }
 
@@ -139,18 +145,46 @@ export async function PUT(request: NextRequest) {
       seenTypes.add(memberType.toLowerCase());
       const honorarium = Number(r.honorarium_amount);
       const taPerKm = Number(r.ta_per_km);
-      if (!Number.isFinite(honorarium) || honorarium < 0 || !Number.isFinite(taPerKm) || taPerKm < 0) {
+      const travelFlat = Number(r.travel_flat_amount ?? 0);
+      // Null/undefined means "same as offline" and is stored as NULL — an
+      // explicit 0 is a real configured amount and must survive as 0, so this
+      // deliberately distinguishes the two rather than using `|| null`.
+      const onlineRaw = r.honorarium_amount_online;
+      const honorariumOnline =
+        onlineRaw === null || onlineRaw === undefined ? null : Number(onlineRaw);
+
+      if (
+        !Number.isFinite(honorarium) || honorarium < 0 ||
+        !Number.isFinite(taPerKm) || taPerKm < 0 ||
+        !Number.isFinite(travelFlat) || travelFlat < 0 ||
+        (honorariumOnline !== null &&
+          (!Number.isFinite(honorariumOnline) || honorariumOnline < 0))
+      ) {
         return NextResponse.json(
           { error: `Amounts for ${memberType} must be non-negative numbers` },
           { status: 400 }
         );
       }
+
+      // Absent basis defaults to 'distance' — the only behaviour that existed
+      // before 20260805120000, so an older client's payload is unchanged.
+      const travelBasis = (r.travel_basis ?? 'distance').trim();
+      if (!TRAVEL_BASES.has(travelBasis)) {
+        return NextResponse.json(
+          { error: `Invalid travel_basis for ${memberType}: ${r.travel_basis}` },
+          { status: 400 }
+        );
+      }
+
       upsertRows.push({
         institutions_id: institutionsId,
         committee_name: committeeName,
         member_type: memberType,
         honorarium_amount: honorarium,
+        honorarium_amount_online: honorariumOnline,
         ta_per_km: taPerKm,
+        travel_basis: travelBasis,
+        travel_flat_amount: travelFlat,
         is_active: true,
         created_by: user.id,
       });

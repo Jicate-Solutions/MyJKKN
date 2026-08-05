@@ -1,4 +1,6 @@
-import puppeteer, { Browser } from 'puppeteer';
+import puppeteerCore, { type Browser } from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+import DOMPurify from 'isomorphic-dompurify';
 import { BosMeeting, BosMeetingAttendee, BosAgendaItem, BosMemberType } from '@/types/bos';
 
 const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
@@ -56,15 +58,41 @@ function htmlEscape(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-function stripHtml(html: string): string {
+/**
+ * The minutes narrative is authored in the Tiptap editor and persisted as HTML
+ * (minutes_content.narrative_html). It used to be flattened with a tag-stripping
+ * regex, which collapsed headings, indents, lists and tables into one wall of
+ * text — the whole letter arrived as a single paragraph.
+ *
+ * Chromium renders the real markup instead. It is sanitised first: the content
+ * is user-authored and this string is interpolated straight into a page we then
+ * execute, so a pasted <script> or an on* handler would run inside the PDF
+ * renderer. `style` is deliberately kept — it carries the editor's font family,
+ * font size, colour and text-align, which are exactly the properties that were
+ * being lost.
+ */
+function sanitizeNarrativeHtml(html: string): string {
   if (!html) return '';
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .trim();
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'span', 'div',
+      'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup', 'mark', 'code', 'pre',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'ul', 'ol', 'li', 'blockquote', 'hr',
+      // colgroup/col carry the column widths Tiptap writes when a table is
+      // resized in the editor. Drop them and every table re-flows to content
+      // width in the PDF — the remuneration rates table is the visible casualty.
+      'table', 'colgroup', 'col', 'thead', 'tbody', 'tr', 'th', 'td',
+      'img', 'a',
+    ],
+    ALLOWED_ATTR: [
+      'style', 'class', 'colspan', 'rowspan', 'start', 'type',
+      'href', 'src', 'alt', 'width', 'height',
+    ],
+    // Images are inlined as data: URIs by the editor; no other scheme is needed
+    // and the PDF renderer has no business making network requests.
+    ALLOWED_URI_REGEXP: /^(?:data:image\/[a-z+]+;base64,|https?:|mailto:|#)/i,
+  });
 }
 
 function formatDate(iso?: string | null): string {
@@ -77,6 +105,31 @@ function formatTime(t?: string | null): string {
   const [h, m] = t.split(':').map(Number);
   const ampm = h >= 12 ? 'PM' : 'AM';
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+// ── Letterhead ───────────────────────────────────────────────────────────────
+// CET's printed BoS stationery: green college name + "( An Autonomous
+// Institution )", magenta trust/approval/NAAC/address lines, logo at the left,
+// pink double rule. Transcribed verbatim (including "NATTRAJA" double-T and
+// "Kumarapalayam") to match lib/pdf/bos-meeting-notice.ts — the call letter and
+// the minutes must not disagree about the college's own name.
+//
+// Only the engineering college is switched over. CAS / CNR / COP / DCH minutes
+// keep the previous plain banner, which is driven by their own header config.
+// Same institution test as buildCallLetterHtml().
+const CET_LETTERHEAD = {
+  name: 'J.K.K.NATTRAJA COLLEGE OF ENGINEERING & TECHNOLOGY',
+  autonomous: '( An Autonomous Institution )',
+  trust: '( MANAGED BY J.K.K.RANGAMMAL CHARITABLE TRUST )',
+  lines: [
+    '(Approved by AICTE - New Delhi & Affiliated to Anna University, Chennai)',
+    'Recognized by UGC Under Section 2(f) & Accredited by NAAC',
+    'Natarajapuram, Kumarapalayam - 638 183, Namakkal Dt., Tamil Nadu.',
+  ],
+};
+
+function isCetInstitution(institutionName: string): boolean {
+  return /engineering|technology/i.test(institutionName);
 }
 
 function generateMinutesHtml({
@@ -104,6 +157,57 @@ function generateMinutesHtml({
 
   const boardTitle = [boardType, boardName].filter(Boolean).join(' - ').toUpperCase() || 'BOARD OF STUDIES';
 
+  // The header repeats on all three pages (attendance / minutes / signatures),
+  // so it's built once here instead of being pasted three times.
+  const isCet = isCetInstitution(institutionName);
+  // CET's engineering mark is loaded into rightLogoImage by the caller; the
+  // generic trust logo is the fallback.
+  const cetLogo = rightLogoImage || logoImage;
+
+  const officialsHtml = `
+      <div class="officials">
+        <div class="official-left">
+          <div class="official-name">${htmlEscape(secretaryName)}</div>
+          <div class="official-role">Secretary</div>
+        </div>
+        <div class="official-right">
+          <div class="official-name">${htmlEscape(principalName)}</div>
+          <div class="official-role">${htmlEscape(principalTitle)}</div>
+          ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
+          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
+        </div>
+      </div>`;
+
+  const headerHtml = isCet
+    ? `
+    <div class="header header-cet">
+      <div class="lh">
+        <div class="lh-logo">${cetLogo ? `<img src="${cetLogo}" alt="Logo">` : ''}</div>
+        <div class="lh-body">
+          <div class="lh-name">${htmlEscape(CET_LETTERHEAD.name)}</div>
+          <div class="lh-autonomous">${htmlEscape(CET_LETTERHEAD.autonomous)}</div>
+          <div class="lh-trust">${htmlEscape(CET_LETTERHEAD.trust)}</div>
+          ${CET_LETTERHEAD.lines.map(l => `<div class="lh-line">${htmlEscape(l)}</div>`).join('\n          ')}
+        </div>
+      </div>
+      ${officialsHtml}
+      <hr class="lh-rule">
+      <hr class="lh-rule-thin">
+    </div>`
+    : `
+    <div class="header">
+      <div class="header-banner">
+        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
+        <div class="header-center">
+          <div class="header-title">${htmlEscape(institutionName)}</div>
+          ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
+          <div class="header-address">${htmlEscape(institutionAddress)}</div>
+        </div>
+        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
+      </div>
+      ${officialsHtml}
+    </div>`;
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -122,7 +226,9 @@ function generateMinutesHtml({
 
     .page {
       width: 210mm;
-      height: 297mm;
+      /* min-height, not height: a formatted narrative can be taller than one
+         sheet, and a fixed height clips it instead of paginating. */
+      min-height: 297mm;
       margin: 0 auto;
       padding: 12mm 12mm;
       background: white;
@@ -181,6 +287,65 @@ function generateMinutesHtml({
       font-size: 10px;
       font-weight: bold;
       margin-top: 3px;
+      color: #000;
+    }
+
+    /* ── CET printed-stationery letterhead ────────────────────────────────
+       Colours and metrics mirror lib/pdf/bos-meeting-notice.ts so the minutes
+       and the call letter print as the same stationery. The logo is absolutely
+       positioned so the centred text block spans the FULL width — that is what
+       keeps the college name and the address each on a single line. */
+    .header-cet {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .lh {
+      position: relative;
+      display: flex;
+      align-items: center;
+      min-height: 60pt;
+    }
+
+    .lh-logo {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 78pt;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .lh-logo img { max-width: 100%; max-height: 58pt; object-fit: contain; }
+
+    .lh-body { flex: 1; text-align: center; padding: 1pt 0 0; }
+
+    .lh-name {
+      font-size: 13pt;
+      font-weight: bold;
+      color: #1a7a3d;
+      line-height: 1.15;
+      letter-spacing: 0.2pt;
+    }
+
+    .lh-autonomous { font-size: 9pt; font-weight: bold; color: #1a7a3d; margin-top: 1pt; }
+    .lh-trust { font-size: 8.5pt; color: #c2185b; margin-top: 1.5pt; }
+    .lh-line { font-size: 8.5pt; font-weight: bold; color: #b0135c; margin-top: 1pt; white-space: nowrap; }
+
+    .lh-rule { border: none; border-top: 2.2pt solid #e0407f; margin-top: 3pt; }
+    .lh-rule-thin { border: none; border-top: 0.8pt solid #e0407f; margin-top: 1.2pt; }
+
+    /* The pink rules replace the black divider, so the officials row above them
+       must not draw its own. */
+    .header-cet .officials { border-top: none; padding-top: 3px; }
+
+    /* Explicit black. The row sits directly under the CET banner's green and
+       magenta runs, and anything that inherits colour there prints the
+       Principal's name in the letterhead's green — a real bug report. */
+    .officials,
+    .officials * {
       color: #000;
     }
 
@@ -301,6 +466,63 @@ function generateMinutesHtml({
       text-align: left;
     }
 
+    /* ── Narrative rich text ──────────────────────────────────────────────
+       The narrative is real Tiptap markup, so it needs the block styling the
+       editor gives it. Inline styles on the elements themselves (font-family,
+       font-size, colour, text-align) win over everything here, which is what
+       carries the author's formatting through to the page. */
+    .narrative p { margin: 0 0 6px 0; }
+    .narrative p:last-child { margin-bottom: 0; }
+    /* Tiptap emits <p></p> for a blank line; without a height it collapses and
+       the author's paragraph spacing disappears. */
+    .narrative p:empty { min-height: 1em; }
+
+    .narrative h1 { font-size: 15px; font-weight: bold; margin: 10px 0 5px; }
+    .narrative h2 { font-size: 13px; font-weight: bold; margin: 9px 0 5px; }
+    .narrative h3 { font-size: 12px; font-weight: bold; margin: 8px 0 4px; }
+    .narrative h4,
+    .narrative h5,
+    .narrative h6 { font-size: 11px; font-weight: bold; margin: 7px 0 4px; }
+    .narrative h1:first-child,
+    .narrative h2:first-child,
+    .narrative h3:first-child { margin-top: 0; }
+
+    .narrative ul { list-style: disc; padding-left: 20px; margin: 0 0 6px; }
+    .narrative ol { list-style: decimal; padding-left: 20px; margin: 0 0 6px; }
+    .narrative li { margin-bottom: 2px; }
+    .narrative li > p { margin: 0; }
+
+    .narrative blockquote {
+      margin: 6px 0 6px 12px;
+      padding-left: 8px;
+      border-left: 2px solid #999;
+      color: #333;
+    }
+
+    .narrative hr { border: none; border-top: 1px solid #999; margin: 8px 0; }
+    .narrative img { max-width: 100%; height: auto; }
+    .narrative mark { background: #fff59d; }
+    .narrative pre { white-space: pre-wrap; font-family: 'Courier New', monospace; }
+
+    /* Narrative tables mirror the editor, where .ProseMirror table is
+       table-layout: fixed at width 100% (app/globals.css) and the author's
+       column widths come from colgroup. What they must NOT inherit is the
+       attendance sheet's bold, centred, 5%-wide first column — those rules are
+       global further up this stylesheet and would re-shape the rates table. */
+    .narrative table {
+      table-layout: fixed;
+      width: 100%;
+      font-size: inherit;
+      margin: 6px 0;
+    }
+    .narrative th,
+    .narrative td { padding: 3px 5px; }
+    .narrative tbody tr td:first-child {
+      text-align: inherit;
+      font-weight: inherit;
+      width: auto;
+    }
+
     .agenda-section {
       margin-bottom: 8px;
       padding: 0;
@@ -343,29 +565,7 @@ function generateMinutesHtml({
 <body>
   <!-- Page 1: Attendance Sheet -->
   <div class="page">
-    <div class="header">
-      <div class="header-banner">
-        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
-        <div class="header-center">
-          <div class="header-title">${htmlEscape(institutionName)}</div>
-          ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
-          <div class="header-address">${htmlEscape(institutionAddress)}</div>
-        </div>
-        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
-      </div>
-      <div class="officials">
-        <div class="official-left">
-          <div class="official-name">${htmlEscape(secretaryName)}</div>
-          <div class="official-role">Secretary</div>
-        </div>
-        <div class="official-right">
-          <div class="official-name">${htmlEscape(principalName)}</div>
-          <div class="official-role">${htmlEscape(principalTitle)}</div>
-          ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
-          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
-        </div>
-      </div>
-    </div>
+    ${headerHtml}
 
     <div class="board-info">Board: ${htmlEscape(boardTitle)}</div>
 
@@ -407,29 +607,7 @@ function generateMinutesHtml({
 
   <!-- Page 2+: Minutes -->
   <div class="page">
-    <div class="header">
-      <div class="header-banner">
-        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
-        <div class="header-center">
-          <div class="header-title">${htmlEscape(institutionName)}</div>
-          ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
-          <div class="header-address">${htmlEscape(institutionAddress)}</div>
-        </div>
-        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
-      </div>
-      <div class="officials">
-        <div class="official-left">
-          <div class="official-name">${htmlEscape(secretaryName)}</div>
-          <div class="official-role">Secretary</div>
-        </div>
-        <div class="official-right">
-          <div class="official-name">${htmlEscape(principalName)}</div>
-          <div class="official-role">${htmlEscape(principalTitle)}</div>
-          ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
-          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
-        </div>
-      </div>
-    </div>
+    ${headerHtml}
 
     <div class="board-info">Board: ${htmlEscape(boardTitle)}</div>
 
@@ -455,7 +633,7 @@ function generateMinutesHtml({
     ${meeting.minutes_content?.narrative_html ? `
       <div class="section-title">Minutes Narrative</div>
       <div class="narrative">
-        ${stripHtml(meeting.minutes_content.narrative_html)}
+        ${sanitizeNarrativeHtml(meeting.minutes_content.narrative_html)}
       </div>
     ` : ''}
 
@@ -471,29 +649,7 @@ function generateMinutesHtml({
 
   <!-- Page 3: Signatures -->
   <div class="page">
-    <div class="header">
-      <div class="header-banner">
-        ${logoImage ? `<img src="${logoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
-        <div class="header-center">
-          <div class="header-title">${htmlEscape(institutionName)}</div>
-          ${institutionAccreditation ? `<div class="header-accreditation">${htmlEscape(institutionAccreditation)}</div>` : ''}
-          <div class="header-address">${htmlEscape(institutionAddress)}</div>
-        </div>
-        ${rightLogoImage ? `<img src="${rightLogoImage}" class="header-logo" alt="Logo">` : '<div style="width: 20mm;"></div>'}
-      </div>
-      <div class="officials">
-        <div class="official-left">
-          <div class="official-name">${htmlEscape(secretaryName)}</div>
-          <div class="official-role">Secretary</div>
-        </div>
-        <div class="official-right">
-          <div class="official-name">${htmlEscape(principalName)}</div>
-          <div class="official-role">${htmlEscape(principalTitle)}</div>
-          ${contactCell ? `<div class="official-contact">Cell: ${htmlEscape(contactCell)}</div>` : ''}
-          ${contactWeb || contactEmail ? `<div class="official-contact">${[contactWeb && `Web: ${htmlEscape(contactWeb)}`, contactEmail && `E-Mail: ${htmlEscape(contactEmail)}`].filter(Boolean).join(' | ')}</div>` : ''}
-        </div>
-      </div>
-    </div>
+    ${headerHtml}
 
     <div class="section-title">Signatures of Board Members</div>
 
@@ -546,15 +702,37 @@ async function getBrowser(): Promise<Browser> {
   }
 
   try {
-    const args = process.platform !== 'win32'
-      ? ['--no-sandbox', '--disable-setuid-sandbox']
-      : [];
+    // Same launcher contract as lib/pdf/bos-meeting-notice.ts — see that file
+    // for the Vercel notes. Statically importing the FULL `puppeteer` package
+    // here used to crash the Next dev render worker ("Jest worker encountered
+    // 2 child process exceptions") because it isn't externalised from the
+    // server bundle, and it has no Chrome binary on Vercel at all. Keep the
+    // heavyweight import lazy and behind the local-dev branch.
+    const isServerless =
+      !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
 
-    console.log('[PDF] Launching Puppeteer browser...', { platform: process.platform, args });
-    browser = await puppeteer.launch({
-      headless: true,
-      args,
+    console.log('[PDF] Launching Puppeteer browser...', {
+      platform: process.platform,
+      isServerless,
     });
+
+    if (isServerless) {
+      browser = await puppeteerCore.launch({
+        args: chromium.args,
+        defaultViewport: { width: 1280, height: 1024 },
+        executablePath: await chromium.executablePath(),
+        headless: true,
+      });
+    } else {
+      const puppeteer = (await import('puppeteer')).default;
+      browser = (await puppeteer.launch({
+        headless: true,
+        args:
+          process.platform !== 'win32'
+            ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+            : [],
+      })) as unknown as Browser;
+    }
     console.log('[PDF] Browser launched successfully');
   } catch (err) {
     console.error('[PDF] Failed to launch browser:', err);

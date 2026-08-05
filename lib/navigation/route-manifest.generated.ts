@@ -455,12 +455,24 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/accreditation/manage/owners",
+            "label": "Owners",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/accreditation/manage/utility-readings",
             "label": "Utility Readings",
             "iconName": "FileText",
             "children": []
           }
         ]
+      },
+      {
+        "path": "/accreditation/my-gaps",
+        "label": "My Gaps",
+        "iconName": "FileText",
+        "children": []
       },
       {
         "path": "/accreditation/naac",
@@ -3501,7 +3513,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/foundation/practice",
         "label": "Practice",
         "iconName": "FileText",
-        "children": []
+        "children": [
+          {
+            "path": "/foundation/practice/facilitate",
+            "label": "Facilitate",
+            "iconName": "FileText",
+            "children": []
+          }
+        ]
       }
     ]
   },
