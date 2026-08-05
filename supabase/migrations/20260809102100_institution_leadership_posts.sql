@@ -71,8 +71,23 @@
 -- first — it replaces two of that file's functions and calls a third
 -- (fn_college_leadership_can_manage). Section 0 refuses to apply otherwise,
 -- loudly, rather than leaving a CREATE OR REPLACE pointing at a function that
--- is not there. As of 2026-08-05 20260809101500 is itself still NOT APPLIED, so
--- these two files must be applied together and in order.
+-- is not there.
+--
+-- CORRECTION 2026-08-05: an earlier draft of this header stated that
+-- 20260809101500 was "still NOT APPLIED". That was WRONG — it was read from the
+-- repo file's own stale status line, not from the database. Verified live
+-- against production by catalog: all four of its functions exist and are
+-- SECURITY DEFINER (fn_college_leadership_can_manage, fn_list_leadership_colleges,
+-- fn_get_college_leadership, fn_set_college_leadership), and its data half ran
+-- too — the vice_principal custom_role is live with institution_scope='own'.
+-- Independently corroborated by calling fn_get_college_leadership and
+-- fn_set_college_leadership over PostgREST as a real signed-in user; a
+-- file-only function cannot be called. 20260809101500 shipped in PR #2829,
+-- merged 2026-08-05T01:42:15Z.
+--
+-- So this file has no unapplied prerequisite. Section 0 stays anyway: it costs
+-- nothing when the prerequisite is present, and it is the correct guard for a
+-- from-scratch replay (db reset / fresh CI database) where ordering is real.
 -- ============================================================================
 
 
