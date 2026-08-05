@@ -192,6 +192,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/improvement-board/data-gaps': 'improvement.board.manage',
   // Manage boards — manager-only CRUD over the areas ideas are filed against.
   '/improvement-board/manage-boards': 'improvement.board.manage',
+  // Department owners — names ONE accountable person per board. Two tiers:
+  // improvement.board.manage OR improvement.area_role.assign may SEE it, but
+  // only improvement.area_role.assign may CHANGE an owner (the RPC refuses
+  // everyone else). This map holds one key per route, so the broader SEE tier
+  // is declared here and the officer half of the union is carried at the two
+  // nav filter sites via OWNERS_UNION_PERMISSIONS below — an officer role that
+  // does not also hold board.manage would otherwise get a page it can use and
+  // no link to reach it.
+  '/improvement-board/owners': 'improvement.board.manage',
   // MBA Team Rotation — the rota chart is viewable by associates; team-builder
   // and cycle-setup are manager-only (improvement.board.manage).
   '/improvement-board/rotation': 'improvement.ideas.view',
@@ -1578,6 +1587,19 @@ export const CASE_STUDIES_NAV_KEYS = [
 ] as const;
 
 /**
+ * /improvement-board/owners — a board manager may SEE who owns each department;
+ * an officer (improvement.area_role.assign) is the only one who may CHANGE it,
+ * and is the screen's real audience. Declaring only the officer key would hide
+ * it from managers; declaring only the manager key would hide it from an
+ * officer role that does not also hold board.manage. Both are listed.
+ */
+export const OWNERS_NAV_PATH = '/improvement-board/owners';
+export const OWNERS_NAV_KEYS = [
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
  * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
  * by key existence: a role may carry a permission key set to an explicit
  * `false`, and an existence test reads that denial as a grant.
@@ -1589,6 +1611,9 @@ export function navPathAllowed(
 ): boolean {
   if (href === CASE_STUDIES_NAV_PATH) {
     return CASE_STUDIES_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (href === OWNERS_NAV_PATH) {
+    return OWNERS_NAV_KEYS.some((key) => permissions[key] === true);
   }
   if (!requiredPermission) return false;
   return permissions[requiredPermission] === true;
@@ -1694,6 +1719,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Manage boards — manager-only CRUD over the areas ideas are filed
             // against (improvement.board.manage).
             { href: '/improvement-board/manage-boards', label: 'Manage Boards', active: pathname === '/improvement-board/manage-boards' },
+            // Department owners — who is accountable for each board. Visible to
+            // board managers AND to the officers who assign holders; see
+            // OWNERS_UNION_PERMISSIONS for why that union is not in MENU_PERMISSIONS.
+            { href: '/improvement-board/owners', label: 'Department Owners', active: pathname === '/improvement-board/owners' },
             // Teaching-enterprise cohort config — manager-only, hidden from
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
@@ -3443,6 +3472,7 @@ export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
     }))
     .filter((group) => group.menus.length > 0);
 }
+
 
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
