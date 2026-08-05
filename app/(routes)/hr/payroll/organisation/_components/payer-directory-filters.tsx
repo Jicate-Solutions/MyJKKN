@@ -22,6 +22,8 @@
 import { useState } from 'react';
 import { Check, ChevronsUpDown, RotateCcw } from 'lucide-react';
 
+import type { StaffPayerRow } from '@/lib/services/hr/payroll/staff-payroll-service';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -89,6 +91,45 @@ export function countActiveDirectoryFilters(
     (f.payerOrgId ? 1 : 0) +
     (f.roleKey ? 1 : 0)
   );
+}
+
+/** Which dropdown a count is being computed for. See matchesDirectoryFilters. */
+export type DirectoryFacet = 'worksAt' | 'payer' | 'role';
+
+/**
+ * Does this row survive the filter bar? The filters are ANDed.
+ *
+ * `except` omits ONE filter, which is how each dropdown counts its own options:
+ * a facet must be counted against the OTHER filters and never against itself,
+ * or every option except the selected one would read 0.
+ *
+ * This is the SINGLE definition of "matches". The counts in the dropdowns and
+ * the rows in the table both go through it — they used to carry separate
+ * copies, and the divergence was the bug: the "Works at" option advertised
+ * "JKKN Main Office (104)" from the unfiltered array while the table applied
+ * the conjunction and found nobody. Main Office runs no payroll
+ * (is_payroll_entity = false), so every one of its people has a NULL payer;
+ * combining it with any payer filter is empty by construction, and only for
+ * that one institution.
+ */
+export function matchesDirectoryFilters(
+  r: StaffPayerRow,
+  f: PayerDirectoryFilterState,
+  except?: DirectoryFacet
+): boolean {
+  const hasPayer = !!r.payer_org_id;
+  if (f.payerStatus === 'awaiting' && hasPayer) return false;
+  if (f.payerStatus === 'recorded' && !hasPayer) return false;
+  if (except !== 'worksAt' && f.worksAtId && r.works_at_id !== f.worksAtId) {
+    return false;
+  }
+  if (except !== 'payer' && f.payerOrgId && r.payer_org_id !== f.payerOrgId) {
+    return false;
+  }
+  if (except !== 'role' && f.roleKey && normaliseRole(r.role_title) !== f.roleKey) {
+    return false;
+  }
+  return true;
 }
 
 export interface FilterOption {

@@ -52,22 +52,52 @@ import { PayrollOrgStats } from './_components/payroll-org-stats';
 import {
   PayerDirectoryFilters,
   DEFAULT_PAYER_DIRECTORY_FILTERS,
+  matchesDirectoryFilters,
   normaliseRole,
   type FilterOption,
   type PayerDirectoryFilterState,
 } from './_components/payer-directory-filters';
 import { PayerDirectoryDataTable } from './_components/payer-directory-data-table';
 
+/**
+ * The option sets below are FACETED: an option exists if any row carries that
+ * value at all, but its count is measured against the OTHER active filters.
+ *
+ * Counting against the unfiltered array is what made this screen lie. "Works
+ * at" offered "JKKN Main Office (104)" no matter what else was selected, while
+ * the table ANDs all four filters. Main Office is the only organisation with
+ * is_payroll_entity = false — it runs no payroll, so all 104 of its people have
+ * a NULL payer — which makes "works at Main Office AND has a payer" empty by
+ * construction, and empty for that one institution only. The promise of 104 and
+ * the bare "No results." below it had no way to be reconciled by the user.
+ *
+ * A zero now shows as "JKKN Main Office (0)" before the user picks it, and the
+ * option is still listed so a stale selection keeps a label in the trigger.
+ * Sorting on count keeps the zeroes at the bottom.
+ */
+function byCountThenLabel(a: FilterOption, b: FilterOption): number {
+  return b.count - a.count || a.label.localeCompare(b.label);
+}
+
 /** Distinct work locations present in the directory, most-populated first. */
-function buildWorksAtOptions(rows: StaffPayerRow[]): FilterOption[] {
+function buildWorksAtOptions(
+  rows: StaffPayerRow[],
+  filters: PayerDirectoryFilterState
+): FilterOption[] {
   const byId = new Map<string, FilterOption>();
   for (const r of rows) {
     if (!r.works_at_id) continue;
+    const hit = matchesDirectoryFilters(r, filters, 'worksAt') ? 1 : 0;
     const existing = byId.get(r.works_at_id);
-    if (existing) existing.count += 1;
-    else byId.set(r.works_at_id, { value: r.works_at_id, label: r.works_at_name, count: 1 });
+    if (existing) existing.count += hit;
+    else
+      byId.set(r.works_at_id, {
+        value: r.works_at_id,
+        label: r.works_at_name,
+        count: hit,
+      });
   }
-  return [...byId.values()].sort((a, b) => b.count - a.count);
+  return [...byId.values()].sort(byCountThenLabel);
 }
 
 /**
@@ -75,20 +105,24 @@ function buildWorksAtOptions(rows: StaffPayerRow[]): FilterOption[] {
  * organisations catalogue so the filter never lists an organisation that pays
  * nobody — picking it would return an empty table with no explanation.
  */
-function buildPayerOptions(rows: StaffPayerRow[]): FilterOption[] {
+function buildPayerOptions(
+  rows: StaffPayerRow[],
+  filters: PayerDirectoryFilterState
+): FilterOption[] {
   const byId = new Map<string, FilterOption>();
   for (const r of rows) {
     if (!r.payer_org_id) continue;
+    const hit = matchesDirectoryFilters(r, filters, 'payer') ? 1 : 0;
     const existing = byId.get(r.payer_org_id);
-    if (existing) existing.count += 1;
+    if (existing) existing.count += hit;
     else
       byId.set(r.payer_org_id, {
         value: r.payer_org_id,
         label: r.payer_org_name ?? 'Unknown',
-        count: 1,
+        count: hit,
       });
   }
-  return [...byId.values()].sort((a, b) => b.count - a.count);
+  return [...byId.values()].sort(byCountThenLabel);
 }
 
 /**
@@ -96,18 +130,21 @@ function buildPayerOptions(rows: StaffPayerRow[]): FilterOption[] {
  * "Bus cleaner" are one option. Rows with no recorded role are skipped: their
  * key would be '', which is the sentinel for "no role filter".
  */
-function buildRoleOptions(rows: StaffPayerRow[]): FilterOption[] {
+function buildRoleOptions(
+  rows: StaffPayerRow[],
+  filters: PayerDirectoryFilterState
+): FilterOption[] {
   const byKey = new Map<string, FilterOption>();
   for (const r of rows) {
     const key = normaliseRole(r.role_title);
     if (!key) continue;
+    const hit = matchesDirectoryFilters(r, filters, 'role') ? 1 : 0;
     const existing = byKey.get(key);
-    if (existing) existing.count += 1;
-    else byKey.set(key, { value: key, label: (r.role_title ?? '').trim(), count: 1 });
+    if (existing) existing.count += hit;
+    else
+      byKey.set(key, { value: key, label: (r.role_title ?? '').trim(), count: hit });
   }
-  return [...byKey.values()].sort(
-    (a, b) => b.count - a.count || a.label.localeCompare(b.label)
-  );
+  return [...byKey.values()].sort(byCountThenLabel);
 }
 
 export default function PayrollOrganisationPage() {
@@ -145,9 +182,64 @@ export default function PayrollOrganisationPage() {
   );
   const awaiting = rows.length - recorded;
 
-  const worksAtOptions = useMemo(() => buildWorksAtOptions(rows), [rows]);
-  const payerOptions = useMemo(() => buildPayerOptions(rows), [rows]);
-  const roleOptions = useMemo(() => buildRoleOptions(rows), [rows]);
+  const worksAtOptions = useMemo(
+    () => buildWorksAtOptions(rows, filters),
+    [rows, filters]
+  );
+  const payerOptions = useMemo(
+    () => buildPayerOptions(rows, filters),
+    [rows, filters]
+  );
+  const roleOptions = useMemo(
+    () => buildRoleOptions(rows, filters),
+    [rows, filters]
+  );
+
+  /**
+   * How many rows the filter bar actually reaches, so an empty table can say
+   * WHY it is empty. The table applies the same predicate over the same array;
+   * this is not a second source of truth, it is the same one read early enough
+   * to explain itself.
+   */
+  const matchCount = useMemo(
+    () => rows.filter((r) => matchesDirectoryFilters(r, filters)).length,
+    [rows, filters]
+  );
+
+  /**
+   * Which single filter is emptying the table — the one whose removal brings
+   * rows back. Naming it turns a bare "No results." into an instruction.
+   * Null when no single filter is responsible and two or more must go.
+   *
+   * "Works at" is tried LAST on purpose. When it conflicts with "Paid by" both
+   * removals would work, and the work location is the one the user just chose
+   * deliberately; suggesting they abandon it would answer the wrong question.
+   */
+  const blockingFilter = useMemo(() => {
+    if (matchCount > 0 || rows.length === 0) return null;
+
+    const candidates: Array<{
+      label: string;
+      active: boolean;
+      patch: Partial<PayerDirectoryFilterState>;
+    }> = [
+      {
+        label: 'Payer status',
+        active: filters.payerStatus !== 'all',
+        patch: { payerStatus: 'all' },
+      },
+      { label: 'Paid by', active: !!filters.payerOrgId, patch: { payerOrgId: '' } },
+      { label: 'Role', active: !!filters.roleKey, patch: { roleKey: '' } },
+      { label: 'Works at', active: !!filters.worksAtId, patch: { worksAtId: '' } },
+    ];
+
+    for (const c of candidates) {
+      if (!c.active) continue;
+      const relaxed = { ...filters, ...c.patch };
+      if (rows.some((r) => matchesDirectoryFilters(r, relaxed))) return c;
+    }
+    return null;
+  }, [rows, filters, matchCount]);
 
   const handleFilterChange = useCallback(
     (patch: Partial<PayerDirectoryFilterState>) =>
@@ -340,6 +432,52 @@ export default function PayrollOrganisationPage() {
                   You can see who pays each team member but not change it — that
                   needs the Manage Payroll Organisation permission.
                 </p>
+              )}
+
+              {/* The DataTable's own empty state is a bare "No results.", which
+                  cannot distinguish "nobody matches" from "these filters
+                  contradict each other". Combining a work location that runs no
+                  payroll with any payer filter is empty by construction, so say
+                  so and offer the one click that fixes it. */}
+              {!isLoading && rows.length > 0 && matchCount === 0 && (
+                <div className='rounded-lg border border-dashed p-4 text-sm'>
+                  <p className='font-medium'>
+                    No team member matches all of these filters
+                  </p>
+                  {blockingFilter ? (
+                    <>
+                      <p className='mt-1 text-muted-foreground'>
+                        Every other filter has matches on its own — it is{' '}
+                        <strong>{blockingFilter.label}</strong> that rules
+                        everyone out. A work location that runs no payroll has
+                        nobody with a recorded payer, so pairing it with a payer
+                        filter can never return a row.
+                      </p>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='mt-3'
+                        onClick={() => handleFilterChange(blockingFilter.patch)}
+                      >
+                        Clear {blockingFilter.label}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <p className='mt-1 text-muted-foreground'>
+                        More than one filter has to go before any row comes back.
+                      </p>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        className='mt-3'
+                        onClick={handleFilterReset}
+                      >
+                        Reset all filters
+                      </Button>
+                    </>
+                  )}
+                </div>
               )}
 
               <PayerDirectoryDataTable
