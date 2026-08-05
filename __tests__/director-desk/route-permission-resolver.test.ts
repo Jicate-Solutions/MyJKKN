@@ -11,7 +11,9 @@
 
 import { describe, it, expect } from 'vitest';
 
+import { routeMatcher } from '@/lib/auth/route-matcher';
 import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { ROUTE_GATE_MAP } from '@/components/director-desk/route-gate-map.generated';
 import {
   ACCESS_LEVELS,
   deriveHandoverTitle,
@@ -108,6 +110,119 @@ describe('resolveRoutePermissionKeys', () => {
     it('never invents a key from the path segments', () => {
       const result = resolveRoutePermissionKeys('/definitely-not-a-real-module-xyz');
       expect(result.keys).toHaveLength(0);
+    });
+  });
+
+  // ==========================================================================
+  // DEFECT C2 — the resolver used to write a key the real gate never reads.
+  //
+  // MENU_PERMISSIONS is authoritative only where RoutePermissionGuard is
+  // mounted: 37 files out of 1,446 page.tsx. 112 files gate with SuperAdminOnly
+  // (reads profiles.is_super_admin — something a handover row can never set)
+  // and 359 gate with PermissionGuard using their own module/action pair.
+  //
+  // The assertions below run against the REAL generated gate map and the REAL
+  // routeMatcher. The first one is the worked exploit, kept in the shape that
+  // makes the bug visible: the matcher still answers 'hr.dashboard.view' for
+  // /hr/admin/payroll — that answer is unwalled and legal even at Watch, so
+  // both server refusals passed and the dialog reached its green screen. What
+  // changed is that the resolver no longer repeats it.
+  // ==========================================================================
+  describe('pages whose real gate a handover cannot satisfy', () => {
+    it('refuses /hr/admin/payroll, which round 1 handed over as hr.dashboard.view', () => {
+      // The old answer is still reachable — proving the fix is the refusal, not
+      // a change in the underlying map.
+      expect(routeMatcher.match('/hr/admin/payroll')?.permission).toBe('hr.dashboard.view');
+
+      const result = resolveRoutePermissionKeys('/hr/admin/payroll');
+      expect(result.blocked).toBe('superAdmin');
+      expect(result.keys).toEqual([]);
+      expect(result.blockedReason).toMatch(/super administrator/i);
+      expect(result.blockedReason).toMatch(/Role Management/i);
+    });
+
+    it.each([
+      '/hr/admin/memos',
+      '/hr/admin/disciplinary',
+      '/hr/admin/terminations',
+      '/hr/admin/performance-reviews',
+      '/hr/admin/promotions',
+      '/hr/admin/offboarding',
+      '/admin/saml',
+      '/rcltp/admin/policies',
+    ])('refuses %s', (route) => {
+      const result = resolveRoutePermissionKeys(route);
+      expect(result.blocked).not.toBeNull();
+      expect(result.keys).toEqual([]);
+    });
+
+    it('refuses an admin-role page too — a handover grants permissions, not roles', () => {
+      const result = resolveRoutePermissionKeys('/admin/bug-reports');
+      expect(result.blocked).toBe('adminRole');
+      expect(result.keys).toEqual([]);
+    });
+
+    it('refuses through a dynamic segment, not just the literal pattern', () => {
+      const result = resolveRoutePermissionKeys(
+        '/hr/admin/payroll/periods/3f9a1c22-5d4e-4b17-9f0a-2c6e8b1d4a77'
+      );
+      expect(result.blocked).toBe('superAdmin');
+      expect(result.keys).toEqual([]);
+    });
+
+    it('inherits the refusal for a deeper route under a blocked page', () => {
+      // Fail closed: a sub-path with no page.tsx of its own must not slip
+      // through on the section's menu key.
+      const result = resolveRoutePermissionKeys('/hr/admin/payroll/some/deeper/tab');
+      expect(result.blocked).toBe('superAdmin');
+      expect(result.keys).toEqual([]);
+    });
+
+    it('leaves NO blocked route with a resolvable key — the whole class, not the examples', () => {
+      const offenders = Object.keys(ROUTE_GATE_MAP)
+        .filter((route) => ROUTE_GATE_MAP[route].blocked)
+        .filter((route) => {
+          const r = resolveRoutePermissionKeys(route.replace(/\[[^\]]+\]/g, 'x'));
+          return r.keys.length > 0 || r.blocked === null;
+        });
+      expect(offenders).toEqual([]);
+    });
+  });
+
+  describe('pages that gate with their OWN module/action pair', () => {
+    it('resolves the page gate, not the menu key', () => {
+      // /admission/analytics is wrapped in <PermissionGuard module="admission"
+      // action="view">, and MENU_PERMISSIONS declares admission.analytics.view.
+      // Round 1 wrote the menu key, which that guard never reads.
+      expect(routeMatcher.match('/admission/analytics')?.permission).toBe(
+        'admission.analytics.view'
+      );
+      const result = resolveRoutePermissionKeys('/admission/analytics');
+      expect(result.keys).toEqual(['admission.view']);
+      expect(result.source).toBe('page-gate');
+      expect(result.blocked).toBeNull();
+    });
+
+    it('adds the menu key ONLY where a RoutePermissionGuard also enforces it', () => {
+      // /admission/settings/* sits under a RoutePermissionGuard AND wraps its
+      // own PermissionGuard, so both gates have to pass and both keys are
+      // needed. Granting the menu key everywhere "just in case" would widen
+      // every handover by a whole section's key for nothing.
+      const result = resolveRoutePermissionKeys('/admission/settings/sources');
+      expect(result.source).toBe('page-gate+menu');
+      expect(result.keys).toContain('admission.settings.view');
+      expect(result.keys).toContain('admission.settings.sources.view');
+    });
+
+    it('agrees with the generated map for every page-gated route', () => {
+      const mismatches = Object.keys(ROUTE_GATE_MAP)
+        .filter((route) => !ROUTE_GATE_MAP[route].blocked && ROUTE_GATE_MAP[route].keys?.length)
+        .filter((route) => !route.includes('['))
+        .filter((route) => {
+          const resolved = resolveRoutePermissionKeys(route).keys;
+          return !ROUTE_GATE_MAP[route].keys!.every((k) => resolved.includes(k));
+        });
+      expect(mismatches).toEqual([]);
     });
   });
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // ============================================================================
-// The two behaviours of the hand-over control that a green typecheck cannot
-// prove, and that would each be invisible in a screenshot of the happy path:
+// The behaviours of the hand-over control that a green typecheck cannot prove,
+// and that would each be invisible in a screenshot of the happy path:
 //
 //   1. It is ABSENT for everyone the server does not vouch for — not hidden,
 //      absent. The requirement was explicitly "must not merely be hidden by
@@ -9,6 +9,14 @@
 //   2. When the walls reject a handover, the Director reads the server's own
 //      sentence. Swallowing a 42501 into "something went wrong" is how he ends
 //      up believing a permanently-walled page was delegated.
+//   3. DEFECT C2 — a page whose real gate is SuperAdminOnly is refused UP FRONT,
+//      with a reason, and never reaches the green "Handed over" screen. Round 1
+//      resolved /hr/admin/payroll to ['hr.dashboard.view'], which is unwalled
+//      and legal even at Watch, so both server refusals passed and the Director
+//      was shown a success screen with a copy-link button for a page the
+//      receiver could not open.
+//   4. DEFECT C3 — a level that carries none of the page's keys BLOCKS submit.
+//      The amber warning was advisory while canSubmit ignored it entirely.
 // ============================================================================
 
 import '@testing-library/jest-dom';
@@ -94,6 +102,121 @@ describe('HandoverDialog — a page with no permission of its own', () => {
       await screen.findByText(/no permission of its own/i)
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /hand it over/i })).toBeDisabled();
+  });
+});
+
+describe('HandoverDialog — a page whose real gate a handover cannot satisfy (C2)', () => {
+  it('refuses /hr/admin/payroll outright, before anyone is picked', async () => {
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    render(<HandoverDialog open onOpenChange={() => {}} pathname="/hr/admin/payroll" />);
+
+    expect(
+      await screen.findByText(/this page cannot be handed over/i)
+    ).toBeInTheDocument();
+    expect(screen.getByText(/super administrators/i)).toBeInTheDocument();
+    expect(screen.getByText(/Role Management/i)).toBeInTheDocument();
+
+    // No form at all: nothing to fill in, nothing to submit, nothing to copy.
+    expect(screen.queryByRole('button', { name: /hand it over/i })).toBeNull();
+    expect(screen.queryByLabelText(/who is it for/i)).toBeNull();
+    // The success screen's own heading, exactly — not a substring of the
+    // refusal's "This page cannot be handed over".
+    expect(screen.queryByText('Handed over')).toBeNull();
+    expect(screen.queryByRole('button', { name: /copy the link/i })).toBeNull();
+  });
+
+  it('never calls the create RPC for a blocked page', async () => {
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    render(<HandoverDialog open onOpenChange={() => {}} pathname="/hr/admin/memos" />);
+
+    await screen.findByText(/this page cannot be handed over/i);
+    expect(
+      rpcMock.mock.calls.some(([fn]) => fn === 'fn_director_handover_create')
+    ).toBe(false);
+  });
+});
+
+describe('HandoverDialog — a level that carries none of the keys (C3)', () => {
+  it('blocks submit instead of only warning', async () => {
+    // /accreditation/manage/metrics gates on accreditation.metrics.manage.
+    // The dialog defaults to Update, and Update deliberately excludes .manage —
+    // so this handover would be stored and grant nothing.
+    rpcMock.mockImplementation((fn: string) => {
+      if (fn === 'fn_handover_people_search') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 'p-1',
+              full_name: 'Test Colleague',
+              email: 'colleague@jkkn.ac.in',
+              role: 'principal',
+              designation: 'Principal',
+              institution_name: 'JKKN',
+            },
+          ],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: { id: 'should-never-happen' }, error: null });
+    });
+
+    render(
+      <HandoverDialog
+        open
+        onOpenChange={() => {}}
+        pathname="/accreditation/manage/metrics"
+      />
+    );
+
+    (await screen.findByText('Test Colleague')).click();
+
+    const submit = await screen.findByRole('button', { name: /hand it over/i });
+    await waitFor(() => expect(submit).toBeDisabled());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /accreditation\.metrics\.manage/
+    );
+
+    // Raising the level to Full is the fix, and the dialog says so.
+    screen.getByRole('button', { name: /^Full/ }).click();
+    await waitFor(() => expect(submit).not.toBeDisabled());
+  });
+
+  it('does not submit while the level is wrong', async () => {
+    rpcMock.mockImplementation((fn: string) => {
+      if (fn === 'fn_handover_people_search') {
+        return Promise.resolve({
+          data: [
+            {
+              id: 'p-1',
+              full_name: 'Test Colleague',
+              email: 'colleague@jkkn.ac.in',
+              role: 'principal',
+              designation: 'Principal',
+              institution_name: 'JKKN',
+            },
+          ],
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: { id: 'should-never-happen' }, error: null });
+    });
+
+    render(
+      <HandoverDialog
+        open
+        onOpenChange={() => {}}
+        pathname="/accreditation/manage/metrics"
+      />
+    );
+    (await screen.findByText('Test Colleague')).click();
+    const submit = await screen.findByRole('button', { name: /hand it over/i });
+    await waitFor(() => expect(submit).toBeDisabled());
+    submit.click();
+
+    expect(
+      rpcMock.mock.calls.some(([fn]) => fn === 'fn_director_handover_create')
+    ).toBe(false);
+    expect(screen.queryByText(/^Handed over$/)).toBeNull();
   });
 });
 

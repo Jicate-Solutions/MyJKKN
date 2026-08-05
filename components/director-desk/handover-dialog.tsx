@@ -8,14 +8,28 @@
 // in, the due date already has a sensible value, and the only thing he MUST do
 // is name a person. Everything else has a default that is safe.
 //
-// The two places this refuses to be clever:
+// The four places this refuses to be clever:
 //
 //  1. NO KEY, NO SUBMIT. If the page declares no permission of its own, the
 //     dialog says so in plain words and disables submit. It does not invent a
 //     key and it does not send an empty array — a handover of nothing is worse
 //     than no handover, because it looks delegated on both desks.
 //
-//  2. SERVER ERRORS ARE SHOWN VERBATIM. fn_director_handover_create names the
+//  2. A GATE A GRANT CANNOT SATISFY IS REFUSED UP FRONT. If the page is behind
+//     SuperAdminOnly (112 files) or an admin-role guard, no key, level or person
+//     makes the handover work. The dialog says so before the Director picks
+//     anyone, and never reaches the success screen. Round 1 resolved
+//     /hr/admin/payroll to ['hr.dashboard.view'] — unwalled, legal at Watch,
+//     accepted by both server refusals, green "Handed over" screen, and the
+//     receiver got access-denied.
+//
+//  3. A LEVEL THAT CARRIES NONE OF THE KEYS BLOCKS SUBMIT. The warning used to
+//     be advisory while `canSubmit` ignored it, so a Director could send a
+//     handover that grants nothing. The server rejects it too — but a form that
+//     lets you press a button it knows will fail is a form that taught you
+//     nothing until you pressed it.
+//
+//  4. SERVER ERRORS ARE SHOWN VERBATIM. fn_director_handover_create names the
 //     exact keys it refused and why. Collapsing that into "something went
 //     wrong" is how a Director ends up believing he handed over a page that is
 //     permanently walled. The raw sentence is more use to him than any
@@ -96,7 +110,11 @@ function todayIso(): string {
 export function HandoverDialog({ open, onOpenChange, pathname }: HandoverDialogProps) {
   const route = normalizePathname(pathname);
   const resolution = useMemo(() => resolveRoutePermissionKeys(route), [route]);
-  const hasKeys = resolution.keys.length > 0;
+  // `blocked` and `hasKeys` are not the same refusal and must not be collapsed.
+  // No key = "there is nothing to hand over, just send the link". Blocked = "no
+  // handover can ever open this page, and Role Management is the only route".
+  const blocked = resolution.blocked !== null;
+  const hasKeys = !blocked && resolution.keys.length > 0;
 
   const [title, setTitle] = useState('');
   const [query, setQuery] = useState('');
@@ -182,7 +200,21 @@ export function HandoverDialog({ open, onOpenChange, pathname }: HandoverDialogP
 
   const dueDateInPast = dueDate < todayIso();
   const canSubmit =
-    hasKeys && !!person && !!title.trim() && !!dueDate && !dueDateInPast && !submitting;
+    hasKeys &&
+    !blocked &&
+    // DEFECT C3. This used to be advisory only: the amber warning appeared and
+    // the button stayed live, so a handover whose keys are all dead at the
+    // chosen level was submitted, accepted by an older server build, and
+    // reported as success. The server (fn_director_handover_create, spine
+    // migration 20260811100200) does reject it by name — this stops the
+    // Director from having to discover that by pressing the button, and stops
+    // the dialog from ever being the half that says yes.
+    keysTooHigh.length === 0 &&
+    !!person &&
+    !!title.trim() &&
+    !!dueDate &&
+    !dueDateInPast &&
+    !submitting;
 
   const shareLink =
     typeof window !== 'undefined' ? `${window.location.origin}${route}` : route;
@@ -235,7 +267,37 @@ export function HandoverDialog({ open, onOpenChange, pathname }: HandoverDialogP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        {createdId ? (
+        {blocked ? (
+          /*
+            DEFECT C2. This page's real gate is SuperAdminOnly, an admin-role
+            guard, or one this control cannot read. A handover row grants
+            permission keys; it cannot grant profiles.is_super_admin and it
+            cannot grant a role. So there is no key, no level and no person that
+            makes this work — and the honest thing is to say so here, with the
+            reason, rather than take a name and a date and show a green screen.
+          */
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-destructive" />
+                This page cannot be handed over
+              </DialogTitle>
+              <DialogDescription className="break-all font-mono text-xs">
+                {route}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+              <p className="text-sm text-destructive/90">{resolution.blockedReason}</p>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </>
+        ) : createdId ? (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -432,7 +494,12 @@ export function HandoverDialog({ open, onOpenChange, pathname }: HandoverDialogP
                 </div>
 
                 {keysTooHigh.length > 0 ? (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                  /*
+                    Blocking, not advisory (defect C3). The server refuses this
+                    too — but a form that lets you press a button it already
+                    knows will fail teaches you nothing until you press it.
+                  */
+                  <p role="alert" className="text-xs text-destructive">
                     At this level, <span className="font-mono">
                       {keysTooHigh.join(', ')}
                     </span>{' '}
@@ -440,11 +507,11 @@ export function HandoverDialog({ open, onOpenChange, pathname }: HandoverDialogP
                     {keysTooHigh.length === resolution.keys.length
                       ? ' — so they would get nothing on this page'
                       : ''}
-                    . It needs{' '}
+                    . Choose{' '}
                     <span className="font-medium">
                       {ACCESS_LEVELS.find((l) => l.value === suggestedLevel)?.label}
-                    </span>
-                    .
+                    </span>{' '}
+                    to hand it over.
                   </p>
                 ) : null}
               </div>
