@@ -8,6 +8,20 @@
 //   2. The Chairman/Coordinator sees every other member's account side by side.
 //   3. Someone who is not on the active roster is told so explicitly, and told
 //      who to ask — never a dead box or a silent nothing.
+//   4. Director decision 7 — "member notes survive a leaver, with the author's
+//      name on them". Migration 20260809102500 turns the author FK from
+//      ON DELETE CASCADE into ON DELETE SET NULL, so a departure leaves exactly
+//      one observable shape at this boundary: author_user_id === null, no
+//      profiles row to join to, and an author_name snapshot taken at write
+//      time. The tests below feed the panel that shape.
+//
+// A note on what these do and do not prove. They do NOT re-implement the FK
+// rule and then assert that the re-implementation agrees with itself — that
+// would prove nothing. They assert the half this repo owns: that GIVEN the
+// post-departure row, the surviving note is still shown, still attributed by
+// name, and still carries that name into the compiled minutes. The database
+// half — that the row survives the DELETE at all — is behavioural and is
+// proved by step (d) of the migration's verification block, as a real user.
 // ============================================================================
 
 import '@testing-library/jest-dom';
@@ -38,6 +52,18 @@ vi.mock('@/hooks/accreditation/use-naac-committees', () => ({
 
 vi.mock('@/hooks/accreditation/use-naac-meeting-member-notes', () => ({
   useMeetingMemberNotes: () => ({ data: notes, isLoading: false, error: null }),
+  // Only people who still HAVE a profile appear here. A departed author is
+  // absent on purpose — that absence is the whole condition under test.
+  useNoteAuthorProfiles: () => ({
+    data: {
+      [CHAIR]: { id: CHAIR, full_name: 'Chair Person', email: 'chair@jkkn.ac.in' },
+      [MEMBER]: {
+        id: MEMBER,
+        full_name: 'Ordinary Member',
+        email: 'member@jkkn.ac.in',
+      },
+    },
+  }),
   useSaveMyMeetingNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSaveMinutesSummary: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
@@ -114,7 +140,27 @@ const CHAIR_NOTE = {
   id: 'n1',
   meeting_id: 'meet-1',
   author_user_id: CHAIR,
+  author_name: 'Chair Person',
+  author_email: 'chair@jkkn.ac.in',
   note_text: 'The Chairman account of the sitting.',
+  institution_id: 'inst-1',
+  created_at: '2026-07-11T00:00:00Z',
+  updated_at: '2026-07-11T00:00:00Z',
+};
+
+/**
+ * Exactly what a note looks like once its author has left and their profile row
+ * was deleted: the FK set author_user_id to NULL, nothing in `profiles` matches
+ * them any more, and the only surviving attribution is the snapshot stamped
+ * when they wrote it.
+ */
+const DEPARTED_MEMBER_NOTE = {
+  id: 'n-gone',
+  meeting_id: 'meet-1',
+  author_user_id: null,
+  author_name: 'Kavitha Raman',
+  author_email: 'kavitha.raman@jkkn.ac.in',
+  note_text: 'I recorded my dissent on the lab-hours resolution.',
   institution_id: 'inst-1',
   created_at: '2026-07-11T00:00:00Z',
   updated_at: '2026-07-11T00:00:00Z',
@@ -160,6 +206,8 @@ describe('MemberNotesPanel', () => {
         ...CHAIR_NOTE,
         id: 'n2',
         author_user_id: MEMBER,
+        author_name: 'Ordinary Member',
+        author_email: 'member@jkkn.ac.in',
         note_text: 'What the ordinary member took away.',
       },
     ];
@@ -216,6 +264,106 @@ describe('MemberNotesPanel', () => {
       screen.getByRole('button', { name: /compile into minutes/i }),
     ).toBeDisabled();
     expect(screen.getByText(/Nothing to compile yet/i)).toBeInTheDocument();
+  });
+});
+
+// ============================================================================
+// Director decision 7. "Member notes survive a leaver, with the author's name
+// on them. The record does not change because someone left."
+//
+// Every test here is fed the post-departure row shape and nothing else: no
+// author_user_id, no profiles row. If the panel resolved names by joining
+// profiles at read time — which is what it did before 20260809102500 — the
+// name assertions below would read "Committee member" and fail.
+// ============================================================================
+describe('MemberNotesPanel — a note survives its author', () => {
+  it('the account of a member who has left is still shown, and still carries their name', () => {
+    signedInAs = CHAIR;
+    notes = [CHAIR_NOTE, DEPARTED_MEMBER_NOTE];
+    renderPanel(false);
+
+    // The record did not change because someone left: the words are still there…
+    expect(
+      screen.getByText('I recorded my dissent on the lab-hours resolution.'),
+    ).toBeInTheDocument();
+    // …and so is the name of the person who wrote them.
+    expect(screen.getByText(/Kavitha Raman/)).toBeInTheDocument();
+    // Never an anonymous stub — that would satisfy "survives" while losing the
+    // half of the decision that says "with the author's name on them".
+    expect(screen.queryByText('Committee member')).not.toBeInTheDocument();
+  });
+
+  it('says plainly that the author has left, instead of implying they are still on the roster', () => {
+    signedInAs = CHAIR;
+    notes = [CHAIR_NOTE, DEPARTED_MEMBER_NOTE];
+    renderPanel(false);
+
+    expect(screen.getByText(/Former member/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/kept after they left the platform/i),
+    ).toBeInTheDocument();
+  });
+
+  it('attributes from the note’s own snapshot, not from a live profile lookup', () => {
+    // The author is still on the platform, but their profile now reads
+    // "Ordinary Member" while the note was signed under their name at the time.
+    // The snapshot must win: it is the field that has to keep working after the
+    // profile is gone, so it cannot be a mere fallback that nothing exercises.
+    signedInAs = CHAIR;
+    notes = [
+      CHAIR_NOTE,
+      {
+        ...CHAIR_NOTE,
+        id: 'n3',
+        author_user_id: MEMBER,
+        author_name: 'Name At The Time Of Writing',
+        author_email: 'member@jkkn.ac.in',
+        note_text: 'Written under the name I had then.',
+      },
+    ];
+    renderPanel(false);
+
+    expect(screen.getByText(/Name At The Time Of Writing/)).toBeInTheDocument();
+    expect(screen.queryByText(/Ordinary Member/)).not.toBeInTheDocument();
+  });
+
+  it('carries the departed member’s name into the compiled minutes', () => {
+    signedInAs = CHAIR;
+    notes = [CHAIR_NOTE, DEPARTED_MEMBER_NOTE];
+    renderPanel(true, { minutes_summary: null });
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /compile into minutes/i }),
+    );
+
+    const editor = screen
+      .getAllByRole('textbox')
+      .find((el) =>
+        (el as HTMLTextAreaElement).value.includes('Kavitha Raman'),
+      ) as HTMLTextAreaElement | undefined;
+    expect(editor).toBeDefined();
+    expect(editor!.value).toContain(
+      'I recorded my dissent on the lab-hours resolution.',
+    );
+    // Two accounts, two distinct names — a departed author has no user id, so
+    // keying attribution by user id would collapse both onto one heading.
+    expect(editor!.value).toContain('Chair Person');
+    expect(editor!.value).toContain('2 accounts');
+  });
+
+  it('never mistakes a departed author’s note for the signed-in member’s own box', () => {
+    signedInAs = MEMBER;
+    notes = [DEPARTED_MEMBER_NOTE];
+    renderPanel(false);
+
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(box.value).toBe('');
+    expect(
+      screen.getByText(/this box is yours and starts empty/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('I recorded my dissent on the lab-hours resolution.'),
+    ).not.toBeInTheDocument();
   });
 });
 
