@@ -94,11 +94,13 @@ import {
   daysQuiet,
   describeAudit,
   describeDue,
+  hasPermissionKeys,
   indexAudit,
   istToday,
   personName,
   readabilityVerdict,
   splitDesk,
+  DESK_ROW_LIMIT,
   type AuditRow,
   type DeskPerson,
   type DeskProbe,
@@ -119,6 +121,29 @@ const HANDOVER_COLUMNS =
 /** After this many silent days an item starts showing up in the daily chase. */
 const QUIET_DAYS = 7;
 
+/**
+ * Ceiling on any one write. supabase-js has no default timeout, so a request
+ * that never settles leaves `busyId` set and that item's buttons permanently
+ * disabled with no toast and no way back short of a reload.
+ */
+const WRITE_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(work: Promise<T>, ms = WRITE_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const bell = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            'That took too long and we do not know whether it went through. Reload the page before trying again.',
+          ),
+        ),
+      ms,
+    );
+  });
+  return Promise.race([work, bell]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
+
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
@@ -138,7 +163,10 @@ function useMyHandovers(userId: string | undefined) {
         .from('director_handovers')
         .select(HANDOVER_COLUMNS)
         .eq('grantee_user_id', userId)
-        .order('due_date', { ascending: true });
+        .order('due_date', { ascending: true })
+        // Explicit, so a short answer is OUR cap and not an unknowable
+        // PostgREST truncation the page would misread as rows being withheld.
+        .limit(DESK_ROW_LIMIT);
       if (error) throw new Error(error.message);
       return (data ?? []) as HandoverRow[];
     },
@@ -222,7 +250,30 @@ function useDeskAudit(handoverIds: string[]) {
 // Writes — every one asserted on re-read state
 // ---------------------------------------------------------------------------
 
-async function readBack(handoverId: string) {
+type AfterState = { status?: string; last_activity_at?: string | null } | null;
+
+/**
+ * The state the row is actually in after a write.
+ *
+ * Every lifecycle RPC is declared `RETURNS public.director_handovers`, so the
+ * authoritative post-state comes back with the call itself. Prefer it. A second
+ * SELECT is only a fallback, and a poor one: it goes through the session client,
+ * where a denied or replica-lagged read is a silent null — which would report
+ * "your answer was not recorded" about a write that already succeeded, and send
+ * the person to retry against a row that has already moved.
+ */
+function afterFromRpc(data: unknown): AfterState {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row || typeof row !== 'object') return null;
+  const { status, last_activity_at } = row as Record<string, unknown>;
+  if (typeof status !== 'string') return null;
+  return {
+    status,
+    last_activity_at: typeof last_activity_at === 'string' ? last_activity_at : null,
+  };
+}
+
+async function readBack(handoverId: string): Promise<AfterState> {
   const sb = createClientSupabaseClient() as any;
   const { data, error } = await sb
     .from('director_handovers')
@@ -230,7 +281,7 @@ async function readBack(handoverId: string) {
     .eq('id', handoverId)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data as { id: string; status: string; last_activity_at: string | null } | null;
+  return data as AfterState;
 }
 
 /**
@@ -245,14 +296,14 @@ async function respondToHandover(
   reason?: string,
 ) {
   const sb = createClientSupabaseClient() as any;
-  const { error } = await sb.rpc('fn_director_handover_respond', {
+  const { data, error } = await sb.rpc('fn_director_handover_respond', {
     p_handover_id: handoverId,
     p_decision: decision,
     p_reason: reason ?? null,
   });
   if (error) throw new Error(error.message);
 
-  const after = await readBack(handoverId);
+  const after = afterFromRpc(data) ?? (await readBack(handoverId));
   if (!after || after.status !== decision) {
     throw new Error(
       'Your answer was not recorded. Try again, and tell the person who handed this over if it keeps happening.',
@@ -267,16 +318,18 @@ async function respondToHandover(
  */
 async function postProgress(handoverId: string, note: string, startedAt: number) {
   const sb = createClientSupabaseClient() as any;
-  const { error } = await sb.rpc('fn_director_handover_progress', {
+  const { data, error } = await sb.rpc('fn_director_handover_progress', {
     p_handover_id: handoverId,
     p_note: note,
   });
   if (error) throw new Error(error.message);
 
-  const after = await readBack(handoverId);
+  const after = afterFromRpc(data) ?? (await readBack(handoverId));
   const moved = after?.last_activity_at ? Date.parse(after.last_activity_at) : NaN;
-  // A minute of slack absorbs clock skew between this browser and the database.
-  if (!Number.isFinite(moved) || moved < startedAt - 60_000) {
+  // Five minutes of slack absorbs clock skew between this browser and the
+  // database. It is a coarse check on purpose: its job is to catch a write that
+  // did not land at all, not to time one that did.
+  if (!Number.isFinite(moved) || moved < startedAt - 5 * 60_000) {
     throw new Error('Your update was not saved. Please try again.');
   }
 }
@@ -284,13 +337,13 @@ async function postProgress(handoverId: string, note: string, startedAt: number)
 /** Mark done — decision 4: access to the page ends here. */
 async function completeHandover(handoverId: string, note: string | null) {
   const sb = createClientSupabaseClient() as any;
-  const { error } = await sb.rpc('fn_director_handover_complete', {
+  const { data, error } = await sb.rpc('fn_director_handover_complete', {
     p_handover_id: handoverId,
     p_note: note && note.trim() !== '' ? note.trim() : null,
   });
   if (error) throw new Error(error.message);
 
-  const after = await readBack(handoverId);
+  const after = afterFromRpc(data) ?? (await readBack(handoverId));
   if (!after || after.status !== 'done') {
     throw new Error('This could not be marked done. Please try again.');
   }
@@ -550,10 +603,18 @@ function OpenItem({
             {row.note}
           </p>
         )}
-        {!live && (
+        {!live && !hasPermissionKeys(row) && (
           <p className="text-xs text-red-700 dark:text-red-300">
-            The date on this has passed, so the page no longer opens for you. Post
-            an update saying where it stands, or ask for a new date.
+            This item does not name any page permission, so opening it would not
+            work. Ask the person who handed it over to send it again.
+          </p>
+        )}
+        {!live && hasPermissionKeys(row) && (
+          <p className="text-xs text-red-700 dark:text-red-300">
+            The date on this has passed, so the page no longer opens for you.
+            {row.status === 'pending'
+              ? ' Answer it below, and ask for a new date if you are taking it on.'
+              : ' Post an update saying where it stands, or ask for a new date.'}
           </p>
         )}
         {row.status === 'accepted' && quiet !== null && quiet >= QUIET_DAYS && (
@@ -672,6 +733,7 @@ export default function MyDeskPage() {
     probeFailed: !!probeQuery.error,
     probe: probeQuery.data,
     visibleCount: rows.length,
+    listCapped: rows.length >= DESK_ROW_LIMIT,
   });
 
   const refreshDesk = useCallback(async () => {
@@ -682,7 +744,7 @@ export default function MyDeskPage() {
     async (row: HandoverRow, job: () => Promise<void>, success: string) => {
       setBusyId(row.id);
       try {
-        await job();
+        await withTimeout(job());
         toast.success(success);
         setDialog(null);
         await refreshDesk();
@@ -733,10 +795,14 @@ export default function MyDeskPage() {
   }
 
   const loading = rowsQuery.isLoading || probeQuery.isLoading;
+  // olderClosedCount belongs in here: those are rows the page READ. Leaving
+  // them out let a desk whose every item closed a month ago render "nothing
+  // open" with the count silently dropped.
   const nothingToShow =
     buckets.awaitingAnswer.length === 0 &&
     buckets.mine.length === 0 &&
-    buckets.recentlyClosed.length === 0;
+    buckets.recentlyClosed.length === 0 &&
+    buckets.olderClosedCount === 0;
 
   return (
     <ContentLayout>
@@ -792,27 +858,52 @@ export default function MyDeskPage() {
               <div>
                 <p className="font-medium">This list may not be everything.</p>
                 <p className="text-muted-foreground">
-                  One of the two checks behind this page did not answer, so an
-                  empty desk here is not proof that nothing was handed to you.
-                  Reload, and ask directly if you were expecting something.
+                  The second check behind this page did not answer, so nothing
+                  here can be treated as the complete picture — and an empty desk
+                  is not proof that nothing was handed to you. Reload, and ask
+                  directly if you were expecting something.
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
 
+        {!loading && verdict.kind === 'capped' && (
+          <Card className="border-amber-200 dark:border-amber-900/50">
+            <CardContent className="flex items-start gap-3 pt-6 text-sm">
+              <ShieldQuestion className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium">
+                  Showing the first {verdict.visible} of {verdict.expected}.
+                </p>
+                <p className="text-muted-foreground">
+                  This page only loads {DESK_ROW_LIMIT} at a time, so the rest are
+                  simply not on screen — nothing is being withheld from you.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/*
+          Deliberately does NOT name a cause. The page can see that the two
+          reads disagree; it cannot see WHY, and "held back by a permission
+          rule" was a guess dressed as a fact on the one page whose thesis is
+          never to state what it did not verify.
+        */}
         {!loading && verdict.kind === 'partial' && (
           <Card className="border-amber-200 dark:border-amber-900/50">
             <CardContent className="flex items-start gap-3 pt-6 text-sm">
               <ShieldQuestion className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div>
                 <p className="font-medium">
-                  {verdict.expected} items are on your desk, but only{' '}
-                  {verdict.visible} can be shown here.
+                  The two checks disagree: {verdict.expected} items are on your
+                  desk, but only {verdict.visible} can be shown here.
                 </p>
                 <p className="text-muted-foreground">
-                  The rest are being held back by a permission rule rather than by
-                  anything you did. Ask the person who handed them over to check.
+                  Reload before acting on this list. If it still does not add up,
+                  ask the person who handed the work over — they can see it from
+                  their side.
                 </p>
               </div>
             </CardContent>
@@ -879,7 +970,8 @@ export default function MyDeskPage() {
         )}
 
         {/* ── Recently closed ──────────────────────────────────────────────── */}
-        {!loading && buckets.recentlyClosed.length > 0 && (
+        {!loading &&
+          (buckets.recentlyClosed.length > 0 || buckets.olderClosedCount > 0) && (
           <Collapsible>
             <Card>
               <CardHeader className="pb-3">
@@ -889,7 +981,7 @@ export default function MyDeskPage() {
                     className="flex w-full items-center justify-between text-left"
                   >
                     <CardTitle className="text-lg">
-                      Recently off your desk ({buckets.recentlyClosed.length})
+                      Off your desk ({buckets.recentlyClosed.length + buckets.olderClosedCount})
                     </CardTitle>
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   </button>
@@ -907,9 +999,9 @@ export default function MyDeskPage() {
                   ))}
                   {buckets.olderClosedCount > 0 && (
                     <p className="pt-1 text-xs text-muted-foreground">
-                      {buckets.olderClosedCount} older item
-                      {buckets.olderClosedCount === 1 ? '' : 's'} closed more than a
-                      month ago are not listed.
+                      {buckets.olderClosedCount === 1
+                        ? '1 older item closed more than a month ago is not listed.'
+                        : `${buckets.olderClosedCount} older items closed more than a month ago are not listed.`}
                     </p>
                   )}
                 </CardContent>

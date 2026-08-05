@@ -22,9 +22,11 @@ import {
   daysUntil,
   describeAudit,
   describeDue,
+  hasPermissionKeys,
   indexAudit,
   istToday,
   personName,
+  probeAnswered,
   readabilityVerdict,
   splitDesk,
   type AuditRow,
@@ -146,6 +148,21 @@ describe('accessIsLive', () => {
     for (const status of ['declined', 'done', 'revoked', 'expired', 'orphaned']) {
       expect(accessIsLive(handover({ id: 'h1', status }), TODAY)).toBe(false);
     }
+  });
+
+  it('is closed when the row names no permission — it would unlock nothing', () => {
+    expect(accessIsLive(handover({ id: 'h1', permission_keys: [] }), TODAY)).toBe(false);
+    expect(accessIsLive(handover({ id: 'h1', permission_keys: null }), TODAY)).toBe(false);
+    expect(hasPermissionKeys(handover({ id: 'h1', permission_keys: [] }))).toBe(false);
+    expect(hasPermissionKeys(handover({ id: 'h1' }))).toBe(true);
+  });
+
+  it('is closed — not "due today" — when the date cannot be read', () => {
+    // A zero-on-unparseable daysUntil would read as due today AND as an open
+    // door: an answer fabricated from a value nobody could parse.
+    expect(daysUntil('not-a-date', TODAY)).toBeNaN();
+    expect(describeDue('not-a-date', TODAY).label).toBe('no usable date');
+    expect(accessIsLive(handover({ id: 'h1', due_date: 'not-a-date' }), TODAY)).toBe(false);
   });
 });
 
@@ -303,7 +320,83 @@ describe('personName', () => {
 });
 
 // ---------------------------------------------------------------------------
+describe('probeAnswered', () => {
+  it('treats "checked: false" as no answer — that is the probe saying it could not identify me', () => {
+    expect(probeAnswered({ checked: false })).toBe(false);
+  });
+
+  it('treats a missing count as no answer', () => {
+    expect(probeAnswered({ checked: true })).toBe(false);
+    expect(probeAnswered(null)).toBe(false);
+    expect(probeAnswered(undefined)).toBe(false);
+  });
+
+  it('accepts a real count, including zero', () => {
+    expect(probeAnswered({ checked: true, total_count: 0 })).toBe(true);
+    expect(probeAnswered({ checked: true, total_count: 4 })).toBe(true);
+  });
+});
+
 describe('readabilityVerdict — the page may not claim what it did not read', () => {
+  it('NEVER calls the desk empty on an unidentified caller', () => {
+    // fn_my_desk_probe answers {checked:false} with no auth.uid(). If that were
+    // read as data, total_count would be absent-as-zero and an expired token
+    // would render "Nothing has been handed to you. We checked." — the one
+    // sentence this design exists to never get wrong.
+    const v = readabilityVerdict({
+      rowsFailed: false,
+      probeFailed: false,
+      probe: { checked: false },
+      visibleCount: 0,
+    });
+    expect(v.kind).toBe('unknown');
+    expect(v.kind).not.toBe('empty');
+  });
+
+  it('blames its OWN row limit, never a permission rule, when the list was capped', () => {
+    const v = readabilityVerdict({
+      rowsFailed: false,
+      probeFailed: false,
+      probe: { checked: true, total_count: 900 },
+      visibleCount: 500,
+      listCapped: true,
+    });
+    expect(v).toMatchObject({ kind: 'capped', expected: 900, visible: 500 });
+  });
+
+  it('still reports a real disagreement when the list was NOT capped', () => {
+    const v = readabilityVerdict({
+      rowsFailed: false,
+      probeFailed: false,
+      probe: { checked: true, total_count: 900 },
+      visibleCount: 500,
+      listCapped: false,
+    });
+    expect(v.kind).toBe('partial');
+  });
+
+  it('does not report "capped" when the cap was hit but the counts agree', () => {
+    const v = readabilityVerdict({
+      rowsFailed: false,
+      probeFailed: false,
+      probe: { checked: true, total_count: 500 },
+      visibleCount: 500,
+      listCapped: true,
+    });
+    expect(v.kind).toBe('ok');
+  });
+
+  it('will not vouch for a list the probe never checked, even with rows on screen', () => {
+    expect(
+      readabilityVerdict({
+        rowsFailed: false,
+        probeFailed: true,
+        probe: null,
+        visibleCount: 4,
+      }).kind,
+    ).toBe('unknown');
+  });
+
   it('claims nothing at all when neither read worked', () => {
     expect(
       readabilityVerdict({ rowsFailed: true, probeFailed: true, probe: null, visibleCount: 0 }),
@@ -386,16 +479,6 @@ describe('readabilityVerdict — the page may not claim what it did not read', (
     expect(v.kind).toBe('unknown');
   });
 
-  it('still shows the rows it has when only the probe failed', () => {
-    expect(
-      readabilityVerdict({
-        rowsFailed: false,
-        probeFailed: true,
-        probe: null,
-        visibleCount: 4,
-      }).kind,
-    ).toBe('ok');
-  });
 });
 
 describe('istToday', () => {

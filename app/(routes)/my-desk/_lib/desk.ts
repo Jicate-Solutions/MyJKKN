@@ -79,6 +79,18 @@ export const OPEN_STATUSES: readonly string[] = ['pending', 'accepted'];
 /** How far back "recently closed" reaches, in days. */
 export const RECENTLY_CLOSED_DAYS = 30;
 
+/**
+ * Hard ceiling on the list read.
+ *
+ * PostgREST silently truncates at its own max-rows and says so only in a header
+ * (feedback_postgrest_caps_at_10k_silently). An unbounded read that came back
+ * short would look exactly like rows being withheld, and this page would then
+ * blame a permission rule for its own truncation. Asking for an explicit limit
+ * makes the truncation OURS and therefore knowable: `rows.length >= this` is
+ * the signal.
+ */
+export const DESK_ROW_LIMIT = 500;
+
 // ---------------------------------------------------------------------------
 // Dates
 // ---------------------------------------------------------------------------
@@ -88,20 +100,28 @@ export const RECENTLY_CLOSED_DAYS = 30;
  * the date has passed. Parsed as UTC midnight on both sides so a viewer's local
  * timezone can never shift the answer by a day — the database compares the same
  * way, against the IST calendar date.
+ *
+ * Returns NaN — not 0 — for anything it cannot parse. Zero would read as "due
+ * today" and, through accessIsLive, as an open door: a fabricated answer from a
+ * value nobody could read.
  */
-export function daysUntil(dueDate: string, todayIso: string): number {
+export function daysUntil(dueDate: string | null | undefined, todayIso: string): number {
+  if (!dueDate) return Number.NaN;
   const due = Date.parse(`${dueDate}T00:00:00Z`);
   const today = Date.parse(`${todayIso}T00:00:00Z`);
-  if (Number.isNaN(due) || Number.isNaN(today)) return 0;
+  if (Number.isNaN(due) || Number.isNaN(today)) return Number.NaN;
   return Math.round((due - today) / 86_400_000);
 }
 
 /** Plain words for a due date, plus how alarmed to look about it. */
 export function describeDue(
-  dueDate: string,
+  dueDate: string | null | undefined,
   todayIso: string,
 ): { days: number; label: string; tone: 'past' | 'soon' | 'calm' } {
   const days = daysUntil(dueDate, todayIso);
+  if (Number.isNaN(days)) {
+    return { days, label: 'no usable date', tone: 'past' };
+  }
   if (days < 0) {
     const n = Math.abs(days);
     return { days, label: `${n} day${n === 1 ? '' : 's'} past the date`, tone: 'past' };
@@ -128,19 +148,34 @@ export function daysQuiet(lastActivityAt: string | null, nowIso: string): number
 // ---------------------------------------------------------------------------
 
 /**
+ * Does this handover name any permission at all?
+ *
+ * `fn_handover_grants_key` unlocks a key only if it is IN `permission_keys`, so
+ * a row with none unlocks nothing no matter how open its dates look. The table
+ * carries a CHECK that stops the create RPC writing one, but this page must not
+ * depend on a constraint it does not own to decide what to promise a person.
+ */
+export function hasPermissionKeys(row: HandoverRow): boolean {
+  return Array.isArray(row.permission_keys) && row.permission_keys.length > 0;
+}
+
+/**
  * Is the door actually open right now?
  *
- * Mirrors fn_handover_grants_key exactly: status still open, never revoked, and
- * the due date not yet past. It has to mirror it, because a row can sit at
- * status `accepted` with a due date three days gone — the nightly sweep has not
- * relabelled it yet, but the database already refuses the page. Showing a live
- * "Open the page" button there sends somebody into an access-denied panel with
- * no explanation.
+ * Mirrors fn_handover_grants_key: status still open, never revoked, the due
+ * date not yet past, and at least one key named. It has to mirror it, because a
+ * row can sit at status `accepted` with a due date three days gone — the nightly
+ * sweep has not relabelled it yet, but the database already refuses the page.
+ * Showing a live "Open the page" button there sends somebody into an
+ * access-denied panel with no explanation, which is the failure this whole
+ * feature exists to remove.
  */
 export function accessIsLive(row: HandoverRow, todayIso: string): boolean {
   if (!OPEN_STATUSES.includes(row.status)) return false;
   if (row.revoked_at) return false;
-  return daysUntil(row.due_date, todayIso) >= 0;
+  if (!hasPermissionKeys(row)) return false;
+  const days = daysUntil(row.due_date, todayIso);
+  return Number.isFinite(days) && days >= 0;
 }
 
 /** Access level in the words a colleague would use, not the enum. */
@@ -242,8 +277,10 @@ export function splitDesk(
   let olderClosedCount = 0;
   for (const { row, end } of withEnd) {
     const endDay = end ? end.slice(0, 10) : null;
-    const age = endDay ? -daysUntil(endDay, todayIso) : Number.POSITIVE_INFINITY;
-    if (age <= recentWindowDays) recentlyClosed.push(row);
+    // An unreadable end date counts as old rather than recent: better to say
+    // "N older items are not listed" than to date-stamp something we cannot read.
+    const age = -daysUntil(endDay, todayIso);
+    if (Number.isFinite(age) && age <= recentWindowDays) recentlyClosed.push(row);
     else olderClosedCount += 1;
   }
 
@@ -312,7 +349,13 @@ export function personName(
 // The honest empty state
 // ---------------------------------------------------------------------------
 
-export type DeskVerdictKind = 'ok' | 'empty' | 'partial' | 'unknown' | 'unavailable';
+export type DeskVerdictKind =
+  | 'ok'
+  | 'empty'
+  | 'capped'
+  | 'partial'
+  | 'unknown'
+  | 'unavailable';
 
 export interface DeskVerdict {
   kind: DeskVerdictKind;
@@ -320,6 +363,20 @@ export interface DeskVerdict {
   expected: number | null;
   /** How many the session read actually returned. */
   visible: number;
+}
+
+/**
+ * Did the probe actually answer?
+ *
+ * `checked: false` is the probe telling us it could not identify the caller —
+ * an answer that is not an answer. Treating it as data would let an expired JWT
+ * produce a confirmed-empty desk (the counts are all absent, so `total_count`
+ * would read as zero).
+ */
+export function probeAnswered(probe: DeskProbe | null | undefined): boolean {
+  if (!probe) return false;
+  if (probe.checked === false) return false;
+  return typeof probe.total_count === 'number' && Number.isFinite(probe.total_count);
 }
 
 /**
@@ -338,8 +395,12 @@ export interface DeskVerdict {
  * between them is the signal.
  *
  *   unavailable — neither read worked. We know nothing. Say nothing.
- *   unknown     — one read worked and cannot settle the question on its own.
- *   partial     — the probe counted more than the list shows. Rows are hidden.
+ *   unknown     — the probe did not answer, so completeness cannot be vouched
+ *                 for. This applies WITH rows on screen too: a list nobody
+ *                 checked is not a list we may call complete.
+ *   capped      — WE truncated the list. The gap is ours, not a denial, and
+ *                 must never be reported as one.
+ *   partial     — the two reads disagree and we did not cause it.
  *   empty       — the probe positively confirms there is nothing. Safe to say so.
  *   ok          — the list is complete.
  */
@@ -348,22 +409,29 @@ export function readabilityVerdict(input: {
   probeFailed: boolean;
   probe: DeskProbe | null | undefined;
   visibleCount: number;
+  /** True when the list read hit its own row limit — see DESK_ROW_LIMIT. */
+  listCapped?: boolean;
 }): DeskVerdict {
-  const { rowsFailed, probeFailed, probe, visibleCount } = input;
+  const { rowsFailed, probeFailed, probe, visibleCount, listCapped = false } = input;
 
-  const expectedRaw = probeFailed ? null : probe?.total_count;
-  const expected =
-    typeof expectedRaw === 'number' && Number.isFinite(expectedRaw) ? expectedRaw : null;
+  const answered = !probeFailed && probeAnswered(probe);
+  const expected = answered ? (probe?.total_count as number) : null;
 
-  if (rowsFailed && probeFailed) return { kind: 'unavailable', expected: null, visible: 0 };
+  if (rowsFailed && !answered) return { kind: 'unavailable', expected: null, visible: 0 };
 
   // The list failed. Even a good probe cannot put rows on the screen.
   if (rowsFailed) return { kind: 'unknown', expected, visible: 0 };
 
-  // The probe failed. With rows on screen that costs only the completeness
-  // assurance; with none it costs the right to call the desk empty.
-  if (probeFailed || expected === null) {
-    return { kind: visibleCount > 0 ? 'ok' : 'unknown', expected, visible: visibleCount };
+  // The probe did not answer. Rows on screen are still worth showing, but the
+  // page has no basis for claiming they are all of them.
+  if (!answered || expected === null) {
+    return { kind: 'unknown', expected, visible: visibleCount };
+  }
+
+  // OUR cap, not their policy. Reporting this as rows being "held back" would
+  // blame a permission rule for a limit this page imposed on itself.
+  if (listCapped && expected > visibleCount) {
+    return { kind: 'capped', expected, visible: visibleCount };
   }
 
   if (expected > visibleCount) return { kind: 'partial', expected, visible: visibleCount };

@@ -48,19 +48,31 @@ STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT jsonb_build_object(
-    'checked',      true,
-    -- pending and accepted are the two statuses that still grant access.
-    'open_count',   COUNT(*) FILTER (WHERE dh.status IN ('pending','accepted')),
-    'closed_count', COUNT(*) FILTER (WHERE dh.status NOT IN ('pending','accepted')),
-    'total_count',  COUNT(*)
-  )
-  FROM public.director_handovers dh
-  WHERE dh.grantee_user_id = (SELECT auth.uid());
+  SELECT CASE
+    -- NO IDENTITY, NO ANSWER. Without this branch an expired or malformed JWT
+    -- reaches the aggregate below, matches nothing, and returns
+    -- {checked: true, total_count: 0} — which the page would read as a
+    -- CONFIRMED empty desk and render as "Nothing has been handed to you. We
+    -- checked." That is precisely the sentence this whole design exists to
+    -- never get wrong, arrived at from a read that identified nobody.
+    WHEN (SELECT auth.uid()) IS NULL THEN jsonb_build_object('checked', false)
+
+    ELSE (
+      SELECT jsonb_build_object(
+        'checked',      true,
+        -- pending and accepted are the two statuses that still grant access.
+        'open_count',   COUNT(*) FILTER (WHERE dh.status IN ('pending','accepted')),
+        'closed_count', COUNT(*) FILTER (WHERE dh.status NOT IN ('pending','accepted')),
+        'total_count',  COUNT(*)
+      )
+      FROM public.director_handovers dh
+      WHERE dh.grantee_user_id = (SELECT auth.uid())
+    )
+  END;
 $$;
 
 COMMENT ON FUNCTION public.fn_my_desk_probe() IS
-  'Counts the caller''s own handovers bypassing RLS so /my-desk can tell "nothing was handed to you" apart from "we could not read your rows". Returns counts only — never row content.';
+  'Counts the caller''s own handovers bypassing RLS so /my-desk can tell "nothing was handed to you" apart from "we could not read your rows". Returns counts only — never row content. Answers {"checked": false} with no identity, so a missing auth.uid() can never surface as a verified empty desk.';
 
 -- ============================================================================
 -- 2. THE PEOPLE ALREADY NAMED ON THE CALLER'S OWN ROWS
