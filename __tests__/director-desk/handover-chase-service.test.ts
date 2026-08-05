@@ -35,6 +35,12 @@ type Row = Record<string, any>;
 let tables: Record<string, Row[]> = {};
 /** Unique indexes the fake enforces: table -> columns that must be unique when non-null. */
 const UNIQUE: Record<string, string[]> = { notifications: ['idempotency_key'] };
+/**
+ * Test seam for concurrency. Fires once, immediately AFTER a read of the named
+ * table resolves — which is how you write down "somebody else changed this row
+ * between the run loading it and the run acting on it" without any timing luck.
+ */
+let afterRead: Record<string, (() => void) | undefined> = {};
 
 let uuidSeq = 0;
 function uuid(): string {
@@ -87,7 +93,13 @@ function makeDb(): any {
         for (const r of hit) Object.assign(r, pending.patch);
         return { data: hit, error: null };
       }
-      return { data: matched(), error: null };
+      const data = matched();
+      const hook = afterRead[table];
+      if (hook) {
+        afterRead[table] = undefined;
+        hook();
+      }
+      return { data, error: null };
     };
 
     const self: any = {
@@ -250,6 +262,7 @@ const bellsTo = (id: string) =>
 
 beforeEach(() => {
   uuidSeq = 0;
+  afterRead = {};
   delete process.env.HANDOVER_CHASE_MAX_RECIPIENTS;
   seed();
 });
@@ -600,6 +613,32 @@ describe('runHandoverChase — the status sweep', () => {
     ).toHaveLength(1);
     expect(bellsTo(DIRECTOR)).toHaveLength(1);
     expect(bellsTo(person(1))).toHaveLength(0);
+  });
+
+  it('does not chase a handover that was closed while the run was thinking', async () => {
+    // The run loads its candidates, then resolves people, then sweeps. If the
+    // grantee marks it done in between, the conditional UPDATE matches no row —
+    // and without reading that back, the sweep would still write an audit entry,
+    // send a "past its date" notice, and 24h later book a meeting with the
+    // Director about work that was already finished.
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
+      ],
+    });
+    // The row IS loaded as 'accepted' and IS classified as expiring — the change
+    // lands the instant after the load returns, which is the only arrangement
+    // that actually exercises the guard rather than the load filter.
+    afterRead.director_handovers = () => {
+      tables.director_handovers[0].status = 'done';
+    };
+
+    const r = await runHandoverChase({ now: NOW });
+    expect(r.loaded).toBe(1); // it really was in the candidate set
+    expect(r.expired).toBe(0);
+    expect(tables.director_handover_audit).toHaveLength(0);
+    expect(tables.meeting_trigger_events).toHaveLength(0);
+    expect(tables.notifications).toHaveLength(0);
   });
 
   it('leaves declined / done / revoked handovers alone entirely', async () => {

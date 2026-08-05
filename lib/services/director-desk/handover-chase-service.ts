@@ -515,15 +515,21 @@ export async function runHandoverChase(
   // --- 4. orphan sweep (decision 7) ----------------------------------------
   for (const h of classified.orphaned) {
     try {
-      const { error } = await db
+      // .select() is not decoration here. Without it the update reports
+      // {data:null,error:null} whether it matched a row or none, and the sweep
+      // would go on to write an audit entry and a notice for a handover somebody
+      // finished, declined or revoked since this run loaded it.
+      const { data: swept, error } = await db
         .from('director_handovers')
         .update({ status: 'orphaned' })
         .eq('id', h.id)
-        .in('status', ['pending', 'accepted']);
+        .in('status', ['pending', 'accepted'])
+        .select('id');
       if (error) {
         result.errors.push(`orphan ${h.id}: ${error.message}`);
         continue;
       }
+      if ((swept ?? []).length === 0) continue; // closed while this run was thinking
       result.orphaned++;
 
       await db.from('director_handover_audit').insert({
@@ -572,15 +578,21 @@ export async function runHandoverChase(
   const rule = await loadHandoverRule(db);
   for (const h of classified.expired) {
     try {
-      const { error } = await db
+      // Same guard as the orphan sweep, and it matters more here: without it a
+      // handover marked done in the seconds since this run loaded would still
+      // get a "past its date" notice and, 24 hours later, a meeting with the
+      // Director about work that was already finished.
+      const { data: swept, error } = await db
         .from('director_handovers')
         .update({ status: 'expired' })
         .eq('id', h.id)
-        .in('status', ['pending', 'accepted']);
+        .in('status', ['pending', 'accepted'])
+        .select('id');
       if (error) {
         result.errors.push(`expire ${h.id}: ${error.message}`);
         continue;
       }
+      if ((swept ?? []).length === 0) continue; // closed while this run was thinking
       result.expired++;
 
       const overdueBy = daysPastDue(h.due_date, runDate);
