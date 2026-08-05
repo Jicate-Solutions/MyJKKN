@@ -107,6 +107,12 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
+// The single answer to "which MENU_PERMISSIONS values are not permission keys".
+// Imported rather than restated so the sidebar, the route guard
+// (isPageAccessible) and the SQL walls cannot drift into disagreeing about the
+// `super_admin` sentinel. permission-filter imports only a type from
+// ./navigation/types, so there is no import cycle back into this file.
+import { isSentinelPermission } from '@/lib/navigation/permission-filter';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -1604,6 +1610,11 @@ export const OWNERS_NAV_KEYS = [
  * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
  * by key existence: a role may carry a permission key set to an explicit
  * `false`, and an existence test reads that denial as a grant.
+ *
+ * Real super admins and admins never reach this function — GetRoleBasedPages
+ * returns their whole menu earlier — so anything that arrives here belongs to
+ * somebody who is not one. That is why the sentinel wall below is a flat `false`
+ * rather than a role test.
  */
 export function navPathAllowed(
   href: string,
@@ -1617,6 +1628,12 @@ export function navPathAllowed(
     return OWNERS_NAV_KEYS.some((key) => permissions[key] === true);
   }
   if (!requiredPermission) return false;
+  // A sentinel is not a permission key. MENU_PERMISSIONS gates 14 routes on the
+  // literal value `super_admin`, and Director's Desk ORs a handover's keys into
+  // this very map — so a handover of the ID-card printing policy page used to
+  // reveal the entire super-admin sidebar to its receiver. The database walls
+  // the key now; this is the layer that would have acted on it.
+  if (isSentinelPermission(requiredPermission)) return false;
   return permissions[requiredPermission] === true;
 }
 
@@ -3659,6 +3676,15 @@ export function GetRoleBasedPages(
             );
             return false;
           }
+
+          // A sentinel is not a permission key (see isSentinelPermission).
+          // `super_admin` marks 14 routes and real super admins already returned
+          // above; reaching here means the viewer is not one, so the link stays
+          // hidden no matter what the merged permission map contains under that
+          // name. Director's Desk can put arbitrary MENU_PERMISSIONS values into
+          // that map, which is how a handover of the ID-card printing policy page
+          // used to reveal the whole super-admin sidebar.
+          if (isSentinelPermission(requiredPermission)) return false;
 
           return userRole.permissions[requiredPermission] === true;
         })
