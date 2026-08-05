@@ -1,0 +1,114 @@
+name: Deploy Drift Guard
+
+# Fails loudly when `main` has commits that never reached production.
+#
+# This is a DETECTOR, not the deploy path. Production deploys come from the
+# Vercel git integration (see vercel.json -> git.deploymentEnabled). If that
+# ever silently stops again, this job turns "nobody noticed for 8 commits"
+# into a red run within 4 hours.
+#
+# `workflow_dispatch` with fire_hook=true is the break-glass manual ship path
+# for when the git integration is down and something urgent must go live.
+
+on:
+  schedule:
+    # Off the hour on purpose — :00 is the busiest minute on the runner fleet.
+    - cron: '17 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      fire_hook:
+        description: 'Break glass: POST the Vercel deploy hook to ship main now'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: deploy-drift-guard
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main with full history
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Break glass — fire the Vercel deploy hook
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fire_hook }}
+        env:
+          HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          set -uo pipefail
+          if [ -z "${HOOK_URL}" ]; then
+            echo "::warning::Secret VERCEL_DEPLOY_HOOK_URL is not configured — nothing was fired."
+            echo "Add it under Settings -> Secrets and variables -> Actions to enable this path."
+            exit 0
+          fi
+          CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${HOOK_URL}")
+          echo "Deploy hook responded HTTP ${CODE}"
+          case "${CODE}" in
+            200|201) echo "Build queued. Watch it in the Vercel dashboard." ;;
+            404)     echo "::error::Deploy hook URL is gone (404). Create a fresh hook on branch main and update the secret."; exit 1 ;;
+            *)       echo "::error::Deploy hook failed with HTTP ${CODE}"; exit 1 ;;
+          esac
+
+      - name: Compare main HEAD against the last successful production deployment
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.fire_hook) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # Freshly merged work needs time to build before it counts as drift.
+          GRACE_MINUTES: '45'
+        run: |
+          set -uo pipefail
+
+          HEAD_SHA=$(git rev-parse HEAD)
+          echo "main HEAD: ${HEAD_SHA}"
+
+          DEPLOYED=""
+          for id in $(gh api "repos/${REPO}/deployments?per_page=30" \
+                        --jq '[.[] | select(.environment | startswith("Production"))][0:10][].id'); do
+            STATE=$(gh api "repos/${REPO}/deployments/${id}/statuses?per_page=1" --jq '.[0].state // empty')
+            if [ "${STATE}" = "success" ]; then
+              DEPLOYED=$(gh api "repos/${REPO}/deployments/${id}" --jq '.sha')
+              echo "last successful production deployment: ${DEPLOYED} (deployment ${id})"
+              break
+            fi
+          done
+
+          if [ -z "${DEPLOYED}" ]; then
+            echo "::error::No successful production deployment found in the last 30 GitHub deployments."
+            exit 1
+          fi
+
+          if ! git cat-file -e "${DEPLOYED}^{commit}" 2>/dev/null; then
+            echo "::warning::Deployed sha ${DEPLOYED} is not an ancestor commit in this checkout — cannot measure drift."
+            exit 0
+          fi
+
+          BEHIND=$(git rev-list --count "${DEPLOYED}..HEAD")
+          if [ "${BEHIND}" -eq 0 ]; then
+            echo "In sync — production is running main HEAD."
+            exit 0
+          fi
+
+          OLDEST_TS=$(git log --format=%ct "${DEPLOYED}..HEAD" | tail -1)
+          AGE_MIN=$(( ( $(date +%s) - OLDEST_TS ) / 60 ))
+          echo "${BEHIND} commit(s) on main are not in production; oldest is ${AGE_MIN} minute(s) old."
+
+          if [ "${AGE_MIN}" -lt "${GRACE_MINUTES}" ]; then
+            echo "Within the ${GRACE_MINUTES}-minute build grace window — not flagging yet."
+            exit 0
+          fi
+
+          echo "--- undeployed commits ---"
+          git log --oneline "${DEPLOYED}..HEAD"
+          echo "--------------------------"
+          echo "::error::main is ${BEHIND} commit(s) ahead of production and the oldest has waited ${AGE_MIN} minutes. Merging is not shipping. Check the Vercel git integration for jicate-solutions/my-jkkn, then re-run this workflow with fire_hook=true to ship manually."
+          exit 1
