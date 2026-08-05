@@ -134,17 +134,39 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || 'C:\\Users\\Admin\\.local\\bin\\cla
 // Strict-JSON contract. Every field may be null — a card that lacks a website
 // must not make the model invent one. `confidence` lets the review screen sort
 // the doubtful ones to the top; it never gates saving (a human confirms all).
+// ⚠️  PROMPT REVISED 2026-08-05 (Director decision) — the Windows box at
+//     ~/jkkn-max-lane/ MUST be updated with this version. The previous prompt
+//     said "the mobile goes in mobile, the landline/office in phone", which
+//     gave a card exactly TWO slots. A real card (Esstee Exports) printed
+//     THREE numbers; the third was dropped silently at confidence:"high", and
+//     `result.raw` was byte-identical to `fields`, so it was unrecoverable.
+//     That breaks Director decision 10 ("keep EVERY phone/email").
+//
+//     `phone` and `mobile` are DELIBERATELY KEPT so an un-updated box and an
+//     updated one both produce readable output; the arrays are additive.
 const PROMPT = (file) => `Read the business card image at ./${file}.
 Return ONLY valid JSON, no markdown fence, no commentary, matching exactly:
 {"name":null,"role":null,"organization":null,"email":null,"phone":null,"mobile":null,
- "website":null,"linkedin":null,"address":null,"city":null,"handwritten_note":null,
- "languages_seen":[],"confidence":"high|medium|low"}
+ "phones":[],"emails":[],
+ "website":null,"linkedin":null,"address":null,"city":null,"pincode":null,
+ "handwritten_note":null,"languages_seen":[],"confidence":"high|medium|low"}
 Rules:
 - Copy text EXACTLY as printed. Never guess, complete, or correct a value; use null if absent.
 - The card may be bilingual (Tamil + English are common here). Put the LATIN-SCRIPT form in the
   fields. List every script you saw in languages_seen (e.g. ["Tamil","English"]).
 - If someone has written on the card by hand, put that text in handwritten_note verbatim.
-- Multiple numbers: the mobile goes in "mobile", the landline/office in "phone".
+- KEEP EVERY NUMBER. "phones" must contain one entry per number printed on the card —
+  none may be omitted, even if the card prints four. Each entry is
+  {"number":"exactly as printed","label":"the words printed beside it, or null"}.
+  Example for a card printing three:
+    "phones":[{"number":"+91 98430 41971","label":null},
+              {"number":"91-421-6613666","label":"Direct"},
+              {"number":"91-421-6613600","label":"30 Lines"}]
+- KEEP EVERY EMAIL likewise in "emails" as a plain list of strings.
+- ALSO fill "mobile" (the personal/cell number) and "phone" (the main landline) as the two
+  primaries, for callers that read only those. They must also appear in "phones".
+- "city" is the CITY NAME ALONE — no pincode, no district, no country.
+  "Tirupur - 641 602. INDIA" is WRONG; city="Tirupur", pincode="641602".
 - confidence: "low" if the image is blurred, cropped, or you are unsure of any character.`;
 
 // fn_ai_claim returns a JSONB ENVELOPE, not the job row:

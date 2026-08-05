@@ -109,15 +109,21 @@ COMMENT ON TABLE public.contact_card_scans IS
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 2. Replace the borrowed seat gate with a real permission
 -- ═══════════════════════════════════════════════════════════════════════════
--- ⚠️  REVIEW THE ROLE LIST BELOW BEFORE APPLYING. This is the one judgement in
---     this file that is not mechanical.
+-- ROLE LIST — decided by Director interview, 2026-08-05.
 --
 -- Decision 1 says "everyone — counsellors, the whole team and leadership". Read
 -- literally against 86 active roles that would include `student`, `parent`,
 -- `guest`, `driver`, `mess_caterer` and external vendor roles, which is plainly
--- not what "the team" means. The list below is therefore an INTERPRETATION:
--- staff-side roles that meet external people at fairs, expos, industry visits
--- and campus events, plus leadership. Widen or narrow it deliberately.
+-- not what "the team" means. Two readings were put to the Director:
+--
+--   (a) outward-facing roles PLUS all `staff` and `faculty`  → 24 roles, ~800 people
+--   (b) outward-facing roles ONLY                            → 22 roles, far fewer
+--
+-- **The Director chose (b).** Card scanning goes to the people whose job is
+-- meeting outsiders. General `staff` and `faculty` are deliberately EXCLUDED:
+-- a facilitator who collects a card asks a colleague with the permission, or is
+-- granted it individually. Widening later is one UPDATE; un-ringing 800 people
+-- who can write to the shared contact book is not.
 --
 -- Ordering matters: the permission is granted to roles BEFORE allow_rule is
 -- switched, so there is never a moment where nobody can scan.
@@ -139,18 +145,33 @@ UPDATE public.custom_roles
      -- Institutional leadership
      'ceo', 'coo', 'cbo', 'cao', 'board',
      -- Administration
-     'administrator', 'system_admin', 'super_admin', 'executive_admin_officer',
-     -- The wider team
-     'staff', 'faculty'
+     'administrator', 'system_admin', 'super_admin', 'executive_admin_officer'
+     -- NOT 'staff', NOT 'faculty' — Director decision 2026-08-05 (reading b).
    );
 
 -- Now point the job type at that permission. fn_ai_enqueue's
 -- `allow_rule LIKE 'permission:%'` branch calls user_has_permission() on the
 -- substring, which honours multi-role OR-merging and the super-admin bypass —
 -- unlike 'seat_owner', which honours neither.
+--
+-- NOTE ON BLAST RADIUS: 49 job types currently carry allow_rule='seat_owner',
+-- i.e. almost the whole Max-lane estate is gated on ai_query.natural_language's
+-- one-user seat list. Most are unaffected in practice because crons and routines
+-- enqueue via fn_ai_enqueue_system, which bypasses allow_rule entirely — the gate
+-- only bites features a HUMAN starts. contacts.card_extract is the first of those
+-- to move off the shared seat. This changes ONLY that row; the other 48 are
+-- untouched and should be reviewed separately.
+--
+-- max_inflight 4 → 10 (Director decision 2026-08-05): rapid-fire capture means a
+-- counsellor snaps ten cards in under a minute. At 4, cards 5-10 queue client-side
+-- and retry — nothing is lost, but the reader idles while photos wait. At 10 a
+-- whole handful goes at once. The Windows box also serves bug triage, NAAC
+-- drafting and PDE scoring; those run on DIFFERENT lanes ('max', 'max-pde'), and
+-- fn_ai_claim filters by lane, so cards on 'max-cards' cannot starve them.
 UPDATE public.ai_job_types
-   SET allow_rule = 'permission:meetings.contacts.scan',
-       updated_at = now()
+   SET allow_rule   = 'permission:meetings.contacts.scan',
+       max_inflight = 10,
+       updated_at   = now()
  WHERE job_type = 'contacts.card_extract';
 
 COMMIT;
@@ -159,7 +180,7 @@ COMMIT;
 -- ROLLBACK
 -- ═══════════════════════════════════════════════════════════════════════════
 -- BEGIN;
---   UPDATE public.ai_job_types SET allow_rule = 'seat_owner'
+--   UPDATE public.ai_job_types SET allow_rule = 'seat_owner', max_inflight = 4
 --    WHERE job_type = 'contacts.card_extract';
 --   UPDATE public.custom_roles
 --      SET permissions = permissions - 'meetings.contacts.scan'
