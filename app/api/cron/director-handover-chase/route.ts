@@ -6,12 +6,17 @@
 //   * relabel handovers whose owner has left  -> orphaned, and tell the Director
 //     it is back on his desk (decision 7). Nothing else on the platform writes
 //     this status;
-//   * relabel handovers past their due date   -> expired (decision 4), and open
-//     the 24h explain-or-meet valve on each one (decision 11);
+//   * open the 24h explain-or-meet valve on handovers past their due date
+//     (decision 11), and relabel them -> expired (decision 4) WHEN THAT WINDOW
+//     RESOLVES, not before. Order matters: fn_director_handover_progress refuses
+//     any status outside pending/accepted, so relabelling first made the
+//     explanation being asked for impossible to write and escalated everybody to
+//     a meeting regardless of how they answered;
 //   * nudge the holder of every live handover, once, every day (decision 10);
-//   * reconcile anything already in the valve — an explanation goes to the
-//     Director and stops the escalation, silence hands the event to the existing
-//     booking pass, which books the Director/grantee meeting.
+//   * reconcile anything already in the valve — an answer (a progress note, or
+//     marking it done, or handing it back) goes to the Director and stops the
+//     escalation, silence hands the event to the existing booking pass, which
+//     books the Director/grantee meeting.
 //
 // LIVE FROM NIGHT ONE — Director decision 9, a recorded override of the
 // recommendation to run silent for a week. The volume fuse in the service is

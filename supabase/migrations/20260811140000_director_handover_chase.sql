@@ -84,10 +84,18 @@ COMMENT ON COLUMN public.meeting_trigger_events.subject_type IS
 --    observed_value on a handover event is DAYS PAST DUE, so threshold 1 means
 --    "the day after the due date has arrived and the item is still open" —
 --    which is exactly decision 11's trigger. cooldown_days is 0 because the
---    valve is opened at most once per handover by construction: the same run
---    that opens it relabels the handover to 'expired', and an expired handover
---    is no longer in the engine's candidate set. The partial unique index
---    (rule_id, breach_date, subject_id) is the second guard.
+--    service opens the valve at most once per handover: it looks for an existing
+--    'handover' event on that subject_id before opening another, and relabels
+--    the handover to 'expired' only once that window RESOLVES. The relabel is
+--    deliberately NOT done up front — fn_director_handover_progress refuses any
+--    status outside pending/accepted, so expiring first made the explanation
+--    this rule asks for impossible to write and escalated every handover to a
+--    meeting no matter how diligently the person answered.
+--
+--    The partial unique index (rule_id, breach_date, subject_id) is a second
+--    guard but NOT a sufficient one on its own: breach_date moves every night,
+--    so it does not stop a second window opening on night two for a handover
+--    that is still deliberately labelled 'accepted'. The subject lookup does.
 --
 --    notify_role documents the resolution source, as with the project rules:
 --    'grantee' = the person the handover names, resolved per-row rather than by
@@ -112,7 +120,9 @@ SELECT 'handover_overdue', NULL, 'gte', 1, 0, 7, 'grantee', true,
        || 'valve off — access ends at the due date (decision 4), so a handover is '
        || 'already labelled expired by day 2 and never comes back round for a '
        || 'day-3 pass. To stop the chasing, switch `active` off; do not raise '
-       || 'this number.'
+       || 'this number. THRESHOLD > 1 also skips the explanation window '
+       || 'entirely, so the handover is relabelled expired immediately rather '
+       || 'than after a window that will never open.'
 WHERE NOT EXISTS (
   SELECT 1 FROM public.meeting_trigger_rules
   WHERE metric_key = 'handover_overdue' AND institution_id IS NULL

@@ -33,6 +33,31 @@
 // to a meeting no matter how diligently the person had answered.
 //
 // ---------------------------------------------------------------------------
+// THE RELABEL COMES AFTER THE WINDOW, NOT BEFORE IT (defect E1)
+// ---------------------------------------------------------------------------
+// The first version of this file set the handover to 'expired' and THEN opened
+// the 24h valve on it. That made decision 11 unsatisfiable, not merely awkward:
+// `fn_director_handover_progress` — the ONLY writer of the audit row this
+// reconciler looks for — raises 22023 "This handover is closed" on any status
+// outside ('pending','accepted'). So the grantee was told "post a short note
+// within 24 hours", the button threw, no `action='progress'` row could exist,
+// and 24 hours later everybody was escalated to a meeting regardless of how
+// diligently they answered.
+//
+// So the order is inverted. A handover past its due date keeps its
+// pending/accepted LABEL for exactly as long as its explanation window is open,
+// and the relabel to 'expired' happens when that window resolves — answered,
+// escalated, or closed out. This costs nothing in access terms and is not a
+// softening of decision 4: the door is shut by `fn_handover_grants_key`, which
+// tests `due_date >= today` directly and never reads the label. What the label
+// controls is the grantee's ability to ANSWER, and taking that away before
+// asking the question is the defect.
+//
+// When no window will open at all (the rule is switched off, or its threshold
+// puts the valve out of reach) there is nothing to protect, and the relabel
+// happens immediately — the original behaviour, kept.
+//
+// ---------------------------------------------------------------------------
 // THE VOLUME FUSE
 // ---------------------------------------------------------------------------
 // Decision 9 is a recorded Director override: live from night one, daily, over
@@ -55,6 +80,13 @@
 // check). `expired` and `orphaned` are the LABEL and the TELLING; the door is
 // already shut without them.
 //
+// The people who receive the ALERT are deliberately NOT counted toward the fuse
+// (defect E2). They are written to only on the night the fuse blows, and on that
+// night nothing else is sent — so counting them made the ceiling mean something
+// other than what it says. With a Director population of zero (the live state
+// today) the old arithmetic silently turned a stated ceiling of 50 grantees into
+// an actual one of 40.
+//
 // Every run is written to `director_handover_chase_runs`, fuse blown or not.
 // ============================================================================
 
@@ -75,6 +107,24 @@ export const HANDOVER_METRIC = 'handover_overdue';
 export const HANDOVER_SUBJECT = 'handover';
 /** Decision 11: the grantee gets a day to say what happened. */
 export const EXPLANATION_WINDOW_HOURS = 24;
+/**
+ * The permission key `fn_can_hand_over()` reads when deciding whether somebody
+ * is a Director. Duplicated here because that function answers only for
+ * `auth.uid()` and cannot enumerate.
+ */
+export const HANDOVER_CREATE_KEY = 'director.handover.create';
+/** The role key `fn_can_hand_over()` matches, on both the legacy and the canonical path. */
+export const DIRECTOR_ROLE_KEY = 'director';
+/**
+ * Every audit action that counts as ANSWERING the explain-in-24h question.
+ *
+ * Not just 'progress'. Once the relabel was moved to after the window (defect
+ * E1) the grantee can also reach `fn_director_handover_complete` and
+ * `fn_director_handover_respond` inside the window — finishing the work, or
+ * handing it back with a reason, are both answers, and escalating either of them
+ * to a meeting would be the same bug wearing a different hat.
+ */
+export const ANSWER_ACTIONS = ['progress', 'done', 'declined'] as const;
 /** Default blast-radius ceiling; override with HANDOVER_CHASE_MAX_RECIPIENTS. */
 export const DEFAULT_MAX_RECIPIENTS = 50;
 /**
@@ -118,10 +168,26 @@ export interface GranteeProfile {
 export interface Classification {
   /** status pending|accepted, grantee active, due date not yet passed. */
   live: HandoverRow[];
-  /** due date passed while still open — relabel + open the 24h valve. */
+  /** due date passed while still open — open the 24h valve, relabel after it. */
   expired: HandoverRow[];
   /** grantee's profile is gone or inactive — relabel + tell the Director. */
   orphaned: HandoverRow[];
+}
+
+/**
+ * Who "the Director" is, and — just as important — how that was worked out.
+ * `source` exists so a run that could not find one says so in the ledger instead
+ * of quietly fanning a cross-college alert out to super admins (defect E2).
+ */
+export interface DirectorResolution {
+  ids: string[];
+  source: 'director' | 'super_admin_fallback' | 'none';
+  /** How many ids each of `fn_can_hand_over`'s three paths produced. */
+  by_path: {
+    legacy_profile_role: number;
+    user_roles_assignment: number;
+    profile_role_permission: number;
+  };
 }
 
 export interface HandoverChaseResult {
@@ -136,15 +202,24 @@ export interface HandoverChaseResult {
   expired: number;
   orphaned: number;
   overdue_opened: number;
+  /** Past due with an explanation window still open — deliberately NOT relabelled yet. */
+  awaiting_explanation: number;
   explained: number;
   escalated: number;
+  /** Windows closed without a meeting because the handover was finished/handed back. */
+  dismissed: number;
   director_notices: number;
+  director_resolution: DirectorResolution['source'];
   errors: string[];
 }
 
 export interface HandoverReconcileResult {
   explained: number;
   escalated: number;
+  /** Resolved without a meeting: the handover was closed before the window ended. */
+  dismissed: number;
+  /** Handovers actually relabelled to 'expired' as their window closed. */
+  relabelled: number;
   errors: string[];
 }
 
@@ -218,28 +293,81 @@ export function classifyHandovers(
 }
 
 /**
- * Everyone this run intends to write to, deduped. This is what the fuse
- * measures, and it is computed BEFORE anything is sent — measuring after the
- * first batch went out would defeat the entire point.
+ * Everyone this run intends to write to IF IT PROCEEDS, deduped. This is what
+ * the fuse measures, and it is computed BEFORE anything is sent — measuring
+ * after the first batch went out would defeat the entire point.
  *
- * Director ids are included because they are genuine recipients (orphan notices
- * and escalations land on them). They are a handful of people, so they never
- * move the number materially — but leaving them out would make the fuse
- * describe something other than the run.
+ * The run-level alert audience is deliberately absent (defect E2). Those people
+ * are written to only when the fuse BLOWS, and on that night this list is not
+ * sent to at all — so including them measured a population the run would never
+ * write to, and shrank the real ceiling on grantees by however many of them
+ * there happened to be. With zero Directors live today the fallback is up to ten
+ * super admins, which turned a stated ceiling of 50 into an actual 40.
+ *
+ * Directors DO appear here when they are genuine per-handover recipients: every
+ * `granted_by` on an expired or orphaned item is written to by name.
  */
-export function resolveRunRecipients(
-  c: Classification,
-  directorIds: string[]
-): string[] {
+export function resolveRunRecipients(c: Classification): string[] {
   const set = new Set<string>();
   for (const h of c.live) set.add(h.grantee_user_id);
   for (const h of c.expired) set.add(h.grantee_user_id);
-  // Orphaned grantees are deliberately NOT nudged — they have left. Their
-  // Director is, which the loop below covers.
+  // Orphaned grantees are deliberately NOT nudged — they have left. The person
+  // who handed the item over is, which the two lines below cover.
   for (const h of c.orphaned) set.add(h.granted_by);
   for (const h of c.expired) set.add(h.granted_by);
-  for (const id of directorIds) set.add(id);
   return [...set].filter(Boolean).sort();
+}
+
+/**
+ * What the expiry sweep does with one past-due handover.
+ *
+ * Pure, and separated out, because this is the exact decision defect E1 got
+ * backwards: relabelling BEFORE the explanation window makes the explanation
+ * impossible to give (`fn_director_handover_progress` refuses any status outside
+ * pending/accepted), so everyone gets a meeting no matter how they answer.
+ *
+ *   open_window     no window yet and the rule will open one — leave the label
+ *                   alone so the grantee can actually answer;
+ *   wait_for_window a window is open — the reconciler owns this row now;
+ *   close_out       a window opened and has already resolved — relabel;
+ *   expire_now      no window will ever open (rule off, or its threshold puts
+ *                   the valve out of reach), so there is nothing to protect.
+ */
+export type ExpirySweepAction =
+  | 'open_window'
+  | 'wait_for_window'
+  | 'close_out'
+  | 'expire_now';
+
+export function decideExpiryAction(opts: {
+  /** Status of an existing 'handover' breach row for this handover, or null. */
+  existingEventStatus: string | null;
+  ruleActive: boolean;
+  overdueBy: number;
+  threshold: number;
+}): ExpirySweepAction {
+  if (opts.existingEventStatus != null) {
+    return opts.existingEventStatus === 'notified' ? 'wait_for_window' : 'close_out';
+  }
+  if (!opts.ruleActive) return 'expire_now';
+  if (opts.overdueBy < opts.threshold) return 'expire_now';
+  return 'open_window';
+}
+
+/**
+ * The text that goes to the Director as "what they said". Pure so the wording
+ * for each kind of answer is pinned by a test rather than by reading the code.
+ */
+export function explanationFromAudit(row: {
+  action?: string | null;
+  detail?: Record<string, any> | null;
+}): string {
+  const note = String(row.detail?.note ?? row.detail?.reason ?? '').trim();
+  if (row.action === 'done') return note || 'Marked it done.';
+  if (row.action === 'declined') {
+    return note ? `Handed it back: ${note}` : 'Handed it back.';
+  }
+  return note;
 }
 
 const UUID_RE =
@@ -327,28 +455,145 @@ export function nudgeCopy(
 // ---------------------------------------------------------------------------
 
 /**
+ * Mirrors `(cr.permissions->>'director.handover.create')::boolean = true`.
+ *
+ * `->>` yields TEXT, so `::boolean` accepts JSON `true` AND the string `"true"`.
+ * Both spellings occur in `custom_roles.permissions` on this platform, and a
+ * strict `=== true` in TypeScript would silently disagree with the SQL for the
+ * second one — the "works for some people" shape this repo has hit before.
+ */
+function grantsHandoverCreate(permissions: unknown): boolean {
+  const v = (permissions as Record<string, unknown> | null | undefined)?.[
+    HANDOVER_CREATE_KEY
+  ];
+  return v === true || v === 'true';
+}
+
+/**
  * Who "the Director" is for a run-level notice (the blown fuse).
  *
- * Resolved BY ROLE, mirroring `fn_can_hand_over()`, so it survives the person
- * changing. Falls back to super-admins when nobody holds the role, because a
- * blown fuse that nobody is told about is strictly worse than telling a few
- * extra admins.
+ * MIRRORS `fn_can_hand_over()` EXACTLY — all three of its paths, not just the
+ * first (defect E2). It cannot simply CALL that function: `fn_can_hand_over` is
+ * a yes/no about `auth.uid()`, and a cron holding the service-role key has no
+ * `auth.uid()` and needs an enumeration, not an answer. So the predicate is
+ * restated here, once, with each path named:
+ *
+ *   1. `profiles.role = 'director'`                      — the legacy string;
+ *   2. `user_roles -> custom_roles` where the role key is 'director' OR the role
+ *      carries `director.handover.create`                — the canonical path;
+ *   3. `custom_roles.role_key = profiles.role` where that role carries
+ *      `director.handover.create`                        — the legacy role's
+ *      permissions, which `user_has_permission()` has always honoured.
+ *
+ * Verified live 2026-08-05: ALL THREE populations are currently ZERO — there is
+ * no `director` role in production yet. Path 1 alone (what this used to be) was
+ * therefore not a narrower version of the right query, it was a query that
+ * ALWAYS returned nothing, so every run-level notice fell through to super
+ * admins and the Director was never told. Paths 2 and 3 exist so the day the
+ * role is created this starts working without another deploy.
+ *
+ * Falls back to super admins only when all three come up empty, because a blown
+ * fuse nobody is told about is worse than telling a few extra admins — but the
+ * fallback is recorded in `source` and shouted into the run log rather than
+ * being indistinguishable from success.
  *
  * For a PER-HANDOVER notice this is NOT used: those go to `granted_by`, the
  * individual who actually handed that item over and onto whose desk decision 7
  * puts it back.
  */
-export async function resolveDirectorIds(db: SupabaseClient): Promise<string[]> {
-  const { data } = await db
+export async function resolveDirectors(
+  db: SupabaseClient
+): Promise<DirectorResolution> {
+  const by_path = {
+    legacy_profile_role: 0,
+    user_roles_assignment: 0,
+    profile_role_permission: 0
+  };
+  const found = new Map<string, { id: string; created_at: string | null }>();
+
+  const add = (rows: any[] | null | undefined, bucket: keyof typeof by_path) => {
+    let n = 0;
+    for (const r of rows ?? []) {
+      if (!r?.id) continue;
+      n++;
+      if (!found.has(r.id)) found.set(r.id, { id: r.id, created_at: r.created_at ?? null });
+    }
+    by_path[bucket] = n;
+  };
+
+  // --- path 1: the legacy profiles.role string ------------------------------
+  const { data: legacy } = await db
     .from('profiles')
-    .select('id')
-    .eq('role', 'director')
-    .eq('is_active', true)
-    .order('created_at', { ascending: true })
-    .order('id', { ascending: true });
-  const ids = ((data ?? []) as any[]).map((r) => r.id).filter(Boolean);
-  if (ids.length > 0) return ids;
-  return getSuperAdminIds(db);
+    .select('id, created_at')
+    .eq('role', DIRECTOR_ROLE_KEY)
+    .eq('is_active', true);
+  add(legacy as any[], 'legacy_profile_role');
+
+  // Both remaining paths start from custom_roles.
+  const { data: roles } = await db
+    .from('custom_roles')
+    .select('id, role_key, permissions');
+
+  const roleRows = (roles ?? []) as any[];
+  const assignableRoleIds = roleRows
+    .filter((r) => r.role_key === DIRECTOR_ROLE_KEY || grantsHandoverCreate(r.permissions))
+    .map((r) => r.id)
+    .filter(Boolean);
+  const permissionRoleKeys = roleRows
+    .filter((r) => grantsHandoverCreate(r.permissions))
+    .map((r) => r.role_key)
+    .filter(Boolean);
+
+  // --- path 2: a user_roles assignment to such a role -----------------------
+  if (assignableRoleIds.length > 0) {
+    const { data: assignments } = await db
+      .from('user_roles')
+      .select('user_id')
+      .in('role_id', assignableRoleIds);
+    const userIds = [
+      ...new Set(((assignments ?? []) as any[]).map((a) => a.user_id).filter(Boolean))
+    ];
+    if (userIds.length > 0) {
+      const { data: assigned } = await db
+        .from('profiles')
+        .select('id, created_at')
+        .in('id', userIds)
+        .eq('is_active', true);
+      add(assigned as any[], 'user_roles_assignment');
+    }
+  }
+
+  // --- path 3: profiles.role names a role that carries the permission -------
+  if (permissionRoleKeys.length > 0) {
+    const { data: viaRoleKey } = await db
+      .from('profiles')
+      .select('id, created_at')
+      .in('role', permissionRoleKeys)
+      .eq('is_active', true);
+    add(viaRoleKey as any[], 'profile_role_permission');
+  }
+
+  if (found.size > 0) {
+    // Same deterministic ordering as getSuperAdminIds: oldest account first,
+    // id as the tie-break, so `[0]` (the notification's created_by) is stable
+    // run to run.
+    const ids = [...found.values()]
+      .sort((a, b) => {
+        const x = a.created_at ?? '';
+        const y = b.created_at ?? '';
+        if (x !== y) return x < y ? -1 : 1;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      })
+      .map((r) => r.id);
+    return { ids, source: 'director', by_path };
+  }
+
+  const admins = await getSuperAdminIds(db);
+  return {
+    ids: admins,
+    source: admins.length > 0 ? 'super_admin_fallback' : 'none',
+    by_path
+  };
 }
 
 /** Send a bell, but only after the targeting payload has been checked. */
@@ -397,9 +642,12 @@ export async function runHandoverChase(
     expired: 0,
     orphaned: 0,
     overdue_opened: 0,
+    awaiting_explanation: 0,
     explained: 0,
     escalated: 0,
+    dismissed: 0,
     director_notices: 0,
+    director_resolution: 'none',
     errors: []
   };
 
@@ -459,8 +707,23 @@ export async function runHandoverChase(
   const classified = classifyHandovers(handovers, profilesById, runDate);
   result.live_handovers = classified.live.length;
 
-  const directorIds = await resolveDirectorIds(db);
-  const recipients = resolveRunRecipients(classified, directorIds);
+  const director = await resolveDirectors(db);
+  const directorIds = director.ids;
+  result.director_resolution = director.source;
+  if (director.source !== 'director') {
+    // Loud, not silent (defect E2). "Nobody holds the Director role" and
+    // "the query was wrong" produce the same empty array, and the old code
+    // treated both as an ordinary fan-out to super admins — across every
+    // college, with no Director in the audience at all.
+    const msg =
+      director.source === 'none'
+        ? 'no Director and no super admin could be resolved — a run-level notice has nowhere to go'
+        : `no Director found on any of the three paths (profiles.role, user_roles -> custom_roles.role_key, ${HANDOVER_CREATE_KEY}) — run-level notices fall back to ${directorIds.length} super admin(s)`;
+    result.errors.push(msg);
+    logger.error(MODULE, msg, director.by_path);
+  }
+
+  const recipients = resolveRunRecipients(classified);
   result.recipients_resolved = recipients.length;
 
   // --- 3. THE FUSE ---------------------------------------------------------
@@ -472,6 +735,9 @@ export async function runHandoverChase(
       run_date: runDate
     });
 
+    // The forensic record. `recipient_ids` belongs HERE and only here:
+    // director_handover_chase_runs is service-role write, admin-only read, and
+    // is the row somebody reconstructs the night from.
     const detail = {
       resolved: recipients.length,
       limit: fuseLimit,
@@ -479,7 +745,8 @@ export async function runHandoverChase(
       live: classified.live.length,
       expired: classified.expired.length,
       orphaned: classified.orphaned.length,
-      loaded: handovers.length
+      loaded: handovers.length,
+      director_resolution: director
     };
 
     if (directorIds.length > 0) {
@@ -501,7 +768,23 @@ export async function runHandoverChase(
             `Nobody was messaged and no handover changed.`,
           url: DIRECTOR_DESK_URL,
           category: 'director:handover-chase-halted',
-          metadata: { ...detail, source: 'cron:director-handover-chase' }
+          // COUNTS ONLY — never the list (defect E2). This alert falls back to
+          // super admins when no Director can be resolved, which is the live
+          // state today, so the list would be a cross-college roster of who
+          // holds what handed to ten people who were not party to any of it.
+          // The list is in director_handover_chase_runs.detail for whoever is
+          // actually debugging.
+          metadata: {
+            resolved: recipients.length,
+            limit: fuseLimit,
+            live: classified.live.length,
+            expired: classified.expired.length,
+            orphaned: classified.orphaned.length,
+            loaded: handovers.length,
+            run_date: runDate,
+            recipient_ids_recorded_in: 'director_handover_chase_runs.detail',
+            source: 'cron:director-handover-chase'
+          }
         },
         result.errors
       );
@@ -574,57 +857,111 @@ export async function runHandoverChase(
     }
   }
 
-  // --- 5. expiry sweep + open the 24h valve (decisions 4 + 11) --------------
+  // --- 5. open the 24h valve, THEN relabel (decisions 4 + 11) ---------------
+  //
+  // Order is the fix for defect E1. See the header: relabelling to 'expired'
+  // first made `fn_director_handover_progress` raise 22023, so the explanation
+  // the grantee was being asked for could not physically be written, and the
+  // reconciler escalated every single one to a meeting 24 hours later.
   const rule = await loadHandoverRule(db);
-  for (const h of classified.expired) {
-    try {
-      // Same guard as the orphan sweep, and it matters more here: without it a
-      // handover marked done in the seconds since this run loaded would still
-      // get a "past its date" notice and, 24 hours later, a meeting with the
-      // Director about work that was already finished.
-      const { data: swept, error } = await db
-        .from('director_handovers')
-        .update({ status: 'expired' })
-        .eq('id', h.id)
-        .in('status', ['pending', 'accepted'])
-        .select('id');
-      if (error) {
-        result.errors.push(`expire ${h.id}: ${error.message}`);
-        continue;
-      }
-      if ((swept ?? []).length === 0) continue; // closed while this run was thinking
-      result.expired++;
 
-      const overdueBy = daysPastDue(h.due_date, runDate);
-      await db.from('director_handover_audit').insert({
-        handover_id: h.id,
-        action: 'expired',
-        actor_user_id: null,
-        detail: {
-          previous_status: h.status,
-          due_date: h.due_date,
-          days_past_due: overdueBy,
-          source: 'cron:director-handover-chase',
-          run_date: runDate
+  // Has a window already been opened for any of these? The unique index on
+  // meeting_trigger_events is (rule_id, breach_date, subject_id) — breach_date
+  // moves every night, so it does NOT stop a second window opening on night two
+  // for a handover that is deliberately still labelled 'accepted'. This lookup
+  // does, and it is also what tells the sweep when a window has RESOLVED and the
+  // label is finally safe to write.
+  const expiredIds = classified.expired.map((h) => h.id);
+  const windowBySubject = new Map<string, { status: string }>();
+  let windowsReadable = true;
+  if (expiredIds.length > 0) {
+    const { data: evs, error: evLoadErr } = await db
+      .from('meeting_trigger_events')
+      .select('id, subject_id, status')
+      .eq('subject_type', HANDOVER_SUBJECT)
+      .in('subject_id', expiredIds);
+    if (evLoadErr) {
+      // Fail CLOSED. "No window exists" and "I could not look" produce the same
+      // empty map, and acting on the first when it was really the second opens a
+      // duplicate window every night
+      // (feedback_empty_response_from_failclosed_producer_means_unknown).
+      windowsReadable = false;
+      result.errors.push(`load handover windows: ${evLoadErr.message}`);
+    } else {
+      for (const e of (evs ?? []) as any[]) {
+        const prev = windowBySubject.get(e.subject_id);
+        // An open window wins over a resolved one: if any row is still
+        // 'notified' the grantee still has time on the clock.
+        if (!prev || e.status === 'notified') {
+          windowBySubject.set(e.subject_id, { status: e.status });
         }
+      }
+    }
+  }
+
+  for (const h of windowsReadable ? classified.expired : []) {
+    try {
+      const overdueBy = daysPastDue(h.due_date, runDate);
+      const action = decideExpiryAction({
+        existingEventStatus: windowBySubject.get(h.id)?.status ?? null,
+        // The rule's on/off switch in /meetings/triggers has to mean something.
+        ruleActive: !!rule,
+        overdueBy,
+        // The threshold on that same screen too. Seeded at 1 = "the day after
+        // the due date". Raising it switches the valve off rather than buying a
+        // grace period — the rule's own `notes` says so — and then there is no
+        // window to protect, so the label goes on immediately.
+        threshold: Number(rule?.threshold ?? 1)
       });
 
-      // The valve only opens if the rule is active. Decision 9 seeds it active,
-      // but somebody may have switched it off in /meetings/triggers, and that
-      // switch has to mean something.
-      if (!rule) continue;
+      if (action === 'wait_for_window') {
+        // THE LOAD-BEARING BRANCH. The handover keeps its pending/accepted
+        // label while the clock runs, which is the only state in which
+        // fn_director_handover_progress will accept the note we asked for.
+        result.awaiting_explanation++;
+        continue;
+      }
 
-      // So does the threshold on that same screen. It is seeded at 1 — "the day
-      // after the due date" — and at 1 this is always true, because a handover
-      // only reaches this loop once it is at least a day past due. It is checked
-      // anyway so the number on the admin screen is not decoration.
-      //
-      // Raising it above 1 switches the valve OFF rather than adding a grace
-      // period, and that is not a bug to fix here: access itself ends at the due
-      // date (decision 4), so by day 2 the handover is already labelled expired
-      // and is no longer in this engine's candidate set. There is no day-3 pass
-      // for it to be caught by. The rule's `notes` says so.
-      if (overdueBy < Number(rule.threshold ?? 1)) continue;
+      if (action === 'close_out' || action === 'expire_now') {
+        const did = await markHandoverExpired(
+          db,
+          h.id,
+          {
+            previous_status: h.status,
+            due_date: h.due_date,
+            days_past_due: overdueBy,
+            reason:
+              action === 'close_out'
+                ? 'the explanation window has closed'
+                : 'no explanation window is open (the handover_overdue rule is off or out of reach)',
+            source: 'cron:director-handover-chase',
+            run_date: runDate
+          },
+          result.errors
+        );
+        if (did) result.expired++;
+        continue;
+      }
+
+      // --- open_window ------------------------------------------------------
+      // The run loaded its candidates, resolved people, then swept. Re-read
+      // before writing anything: without this, a handover marked done in the
+      // seconds since the load would still get a "past its date" notice and, 24
+      // hours later, a meeting with the Director about finished work. The old
+      // code got this guard for free from its conditional UPDATE; there is no
+      // UPDATE here any more, so it is explicit.
+      const { data: fresh, error: freshErr } = await db
+        .from('director_handovers')
+        .select('id')
+        .eq('id', h.id)
+        .in('status', ['pending', 'accepted'])
+        .is('revoked_at', null)
+        .limit(1);
+      if (freshErr) {
+        result.errors.push(`recheck ${h.id}: ${freshErr.message}`);
+        continue;
+      }
+      if ((fresh ?? []).length === 0) continue; // closed while this run was thinking
 
       const deadline = new Date(
         now.getTime() + EXPLANATION_WINDOW_HOURS * 60 * 60 * 1000
@@ -633,11 +970,11 @@ export async function runHandoverChase(
       const { data: ev, error: evErr } = await db
         .from('meeting_trigger_events')
         .insert({
-          rule_id: rule.id,
+          rule_id: rule!.id,
           institution_id: h.institution_id,
           metric_key: HANDOVER_METRIC,
           observed_value: overdueBy,
-          threshold: rule.threshold,
+          threshold: rule!.threshold,
           breach_date: runDate,
           status: 'notified',
           subject_type: HANDOVER_SUBJECT,
@@ -661,6 +998,30 @@ export async function runHandoverChase(
         continue;
       }
       result.overdue_opened++;
+      result.awaiting_explanation++;
+
+      // The audit action is 'overdue', not 'expired'. The handover is NOT
+      // expired yet — that word is now written once, when the window resolves,
+      // and having two rows claiming it would make the trail lie about which
+      // moment shut the door.
+      await db.from('director_handover_audit').insert({
+        handover_id: h.id,
+        action: 'overdue',
+        actor_user_id: null,
+        detail: {
+          previous_status: h.status,
+          due_date: h.due_date,
+          days_past_due: overdueBy,
+          event_id: (ev as any).id,
+          explanation_deadline: deadline,
+          note:
+            'Access ended on the due date (fn_handover_grants_key tests the date, ' +
+            'not the label). The row stays open only so the grantee can post the ' +
+            'explanation decision 11 asks them for.',
+          source: 'cron:director-handover-chase',
+          run_date: runDate
+        }
+      });
 
       const notificationId = await sendChecked(
         db,
@@ -670,10 +1031,12 @@ export async function runHandoverChase(
           title: `Past its date — ${h.title}`,
           body:
             `"${h.title}" was due ${h.due_date} and is still open, so your ` +
-            `access to that page has ended. Post a short note on what happened ` +
-            `and where it stands within ${EXPLANATION_WINDOW_HOURS} hours and ` +
-            `it goes straight to the Director. If nothing comes, a short ` +
-            `meeting with him gets put in both your calendars.`,
+            `access to that page has ended. You can still post an update from ` +
+            `your desk: say what happened and where it stands within ` +
+            `${EXPLANATION_WINDOW_HOURS} hours and it goes straight to the ` +
+            `Director. Marking it done or handing it back counts too. If ` +
+            `nothing comes, a short meeting with him gets put in both your ` +
+            `calendars.`,
           url: GRANTEE_DESK_URL,
           category: 'director:handover-overdue',
           metadata: {
@@ -732,12 +1095,23 @@ export async function runHandoverChase(
   const rec = await reconcileHandoverExplanations({ now, client: db });
   result.explained = rec.explained;
   result.escalated = rec.escalated;
+  result.dismissed = rec.dismissed;
   result.errors.push(...rec.errors);
+  // Closing a window is what finally writes the 'expired' label this sweep held
+  // back, so the reconciler's relabels belong in this run's count. Counted from
+  // rows actually updated, not from resolutions — a handover the grantee marked
+  // done inside the window is already closed and is not relabelled.
+  result.expired += rec.relabelled;
+  result.awaiting_explanation = Math.max(
+    0,
+    result.awaiting_explanation - (rec.explained + rec.escalated + rec.dismissed)
+  );
 
   await recordRun(db, result, 'sent', {
     live: classified.live.length,
-    expired: classified.expired.length,
-    orphaned: classified.orphaned.length
+    past_due: classified.expired.length,
+    orphaned: classified.orphaned.length,
+    director_resolution: director
   });
 
   return result;
@@ -749,11 +1123,20 @@ export async function runHandoverChase(
 
 /**
  * For every open handover breach:
- *   - a progress note posted since the breach → route it to the Director and
- *     STOP escalating (decision 11 step 2);
+ *   - an ANSWER posted since the breach → route it to the Director and STOP
+ *     escalating (decision 11 step 2). An answer is a progress note, marking it
+ *     done, or handing it back — see ANSWER_ACTIONS;
+ *   - the handover already closed some other way (revoked, or closed before
+ *     this reconcile got to it) → dismiss the event, no meeting;
  *   - the 24h window closed with nothing → hand the event to the existing
  *     booking pass, which puts a short Director/grantee meeting on the soonest
  *     slot they are both free (step 3).
+ *
+ * Whichever way a window resolves, THIS is where the handover is finally
+ * relabelled 'expired' (defect E1). The sweep deliberately leaves the label
+ * alone while the clock runs, because `fn_director_handover_progress` refuses
+ * any status outside pending/accepted and would otherwise make the answer
+ * physically unwritable.
  *
  * Runs on the nightly chase AND on the existing hourly meeting-trigger-reconcile
  * cron. Hourly matters: "within 24h" enforced once a night would in practice be
@@ -767,7 +1150,13 @@ export async function reconcileHandoverExplanations(
   const db = opts.client ?? createServiceRoleClient();
   const now = opts.now ?? new Date();
   const nowISO = now.toISOString();
-  const result: HandoverReconcileResult = { explained: 0, escalated: 0, errors: [] };
+  const result: HandoverReconcileResult = {
+    explained: 0,
+    escalated: 0,
+    dismissed: 0,
+    relabelled: 0,
+    errors: []
+  };
 
   const { data: events, error } = await db
     .from('meeting_trigger_events')
@@ -784,20 +1173,42 @@ export async function reconcileHandoverExplanations(
     return result;
   }
 
-  for (const ev of (events ?? []) as any[]) {
+  const eventRows = (events ?? []) as any[];
+
+  // The handovers behind those events, in one read. Needed for two things: to
+  // know whether the label still has to be written, and to catch the grantee who
+  // ANSWERED BY FINISHING — a handover the run cannot see as closed would be
+  // escalated to a meeting about work that is done.
+  const statusById = new Map<string, string>();
+  if (eventRows.length > 0) {
+    const subjectIds = [...new Set(eventRows.map((e) => e.subject_id).filter(Boolean))];
+    const { data: hs, error: hErr } = await db
+      .from('director_handovers')
+      .select('id, status')
+      .in('id', subjectIds);
+    if (hErr) {
+      // Fail closed for the whole pass rather than escalate on a guess: an
+      // unreadable handover table and an empty one look identical from here.
+      result.errors.push(`load handovers for events: ${hErr.message}`);
+      return result;
+    }
+    for (const h of (hs ?? []) as any[]) statusById.set(h.id, h.status);
+  }
+
+  for (const ev of eventRows) {
     try {
       const judge: string[] = ev.judge_profile_id ? [ev.judge_profile_id] : [];
 
-      // 1. Did they explain? The answer lives in the audit trail, written by
-      //    fn_director_handover_progress — NOT in action_responses, which is
-      //    where the project path looks. Anchored at the event's own created_at
-      //    so a progress note from before the due date cannot be mistaken for an
-      //    answer to a question that had not been asked yet.
+      // 1. Did they answer? The answer lives in the audit trail, written by the
+      //    handover RPCs — NOT in action_responses, which is where the project
+      //    path looks. Anchored at the event's own created_at so a note from
+      //    before the due date cannot be mistaken for an answer to a question
+      //    that had not been asked yet.
       const { data: notes, error: noteErr } = await db
         .from('director_handover_audit')
-        .select('detail, actor_user_id, created_at')
+        .select('action, detail, actor_user_id, created_at')
         .eq('handover_id', ev.subject_id)
-        .eq('action', 'progress')
+        .in('action', ANSWER_ACTIONS as unknown as string[])
         .gte('created_at', ev.created_at)
         .order('created_at', { ascending: true })
         .limit(1);
@@ -809,7 +1220,7 @@ export async function reconcileHandoverExplanations(
 
       const note = (notes ?? [])[0] as any;
       if (note) {
-        const text = String(note.detail?.note ?? '').trim();
+        const text = explanationFromAudit(note);
         await db
           .from('meeting_trigger_events')
           .update({
@@ -820,6 +1231,23 @@ export async function reconcileHandoverExplanations(
           })
           .eq('id', ev.id)
           .eq('status', 'notified');
+
+        // The window is closed, so the label the sweep held back goes on now.
+        if (
+          await markHandoverExpired(
+            db,
+            ev.subject_id,
+            {
+              reason: 'the grantee answered inside the 24h window',
+              answer_action: note.action,
+              event_id: ev.id,
+              source: 'cron:director-handover-chase'
+            },
+            result.errors
+          )
+        ) {
+          result.relabelled++;
+        }
 
         if (judge.length > 0) {
           await sendChecked(
@@ -848,7 +1276,31 @@ export async function reconcileHandoverExplanations(
         continue;
       }
 
-      // 2. Window closed with nothing said → hand it to the booking pass.
+      // 2. The handover is closed but nothing in the audit trail says the
+      //    grantee did it (revoked by the Director, or closed before this
+      //    reconcile ran). There is no work left to meet about, so the event is
+      //    dismissed rather than escalated. No notification: whoever closed it
+      //    already knows.
+      const handoverStatus = statusById.get(ev.subject_id);
+      if (handoverStatus == null || !['pending', 'accepted'].includes(handoverStatus)) {
+        const { error: dErr } = await db
+          .from('meeting_trigger_events')
+          .update({
+            status: 'dismissed',
+            explanation_text: `The handover was closed (${handoverStatus ?? 'row gone'}) before the window ended — no meeting needed.`,
+            explained_at: nowISO
+          })
+          .eq('id', ev.id)
+          .eq('status', 'notified');
+        if (dErr) {
+          result.errors.push(`dismiss ${ev.id}: ${dErr.message}`);
+          continue;
+        }
+        result.dismissed++;
+        continue;
+      }
+
+      // 3. Window closed with nothing said → hand it to the booking pass.
       if (ev.explanation_deadline && nowISO > ev.explanation_deadline) {
         const { error: upErr } = await db
           .from('meeting_trigger_events')
@@ -858,6 +1310,22 @@ export async function reconcileHandoverExplanations(
         if (upErr) {
           result.errors.push(`escalate ${ev.id}: ${upErr.message}`);
           continue;
+        }
+
+        // Window closed — write the label the sweep held back.
+        if (
+          await markHandoverExpired(
+            db,
+            ev.subject_id,
+            {
+              reason: 'the 24h explanation window closed with no answer',
+              event_id: ev.id,
+              source: 'cron:director-handover-chase'
+            },
+            result.errors
+          )
+        ) {
+          result.relabelled++;
         }
 
         if (judge.length > 0) {
@@ -902,6 +1370,49 @@ interface HandoverRule {
   threshold: number;
 }
 
+/**
+ * Write the 'expired' label, once, and only onto a handover that is still open.
+ *
+ * The `.in(status)` predicate plus reading the UPDATE back is not decoration:
+ * without it PostgREST returns {data:null,error:null} whether it matched a row
+ * or none, and the caller would go on to write an audit row claiming a
+ * transition that never happened — for a handover somebody had finished,
+ * declined or revoked in the meantime.
+ *
+ * Returns true only when a row really changed.
+ */
+async function markHandoverExpired(
+  db: SupabaseClient,
+  handoverId: string,
+  detail: Record<string, unknown>,
+  errors: string[]
+): Promise<boolean> {
+  try {
+    const { data: swept, error } = await db
+      .from('director_handovers')
+      .update({ status: 'expired' })
+      .eq('id', handoverId)
+      .in('status', ['pending', 'accepted'])
+      .select('id');
+    if (error) {
+      errors.push(`expire ${handoverId}: ${error.message}`);
+      return false;
+    }
+    if ((swept ?? []).length === 0) return false;
+
+    await db.from('director_handover_audit').insert({
+      handover_id: handoverId,
+      action: 'expired',
+      actor_user_id: null,
+      detail
+    });
+    return true;
+  } catch (e: any) {
+    errors.push(`expire ${handoverId}: ${e?.message ?? String(e)}`);
+    return false;
+  }
+}
+
 /** The single active global handover rule, or null when it has been switched off. */
 async function loadHandoverRule(db: SupabaseClient): Promise<HandoverRule | null> {
   const { data } = await db
@@ -936,7 +1447,13 @@ async function recordRun(
       overdue_opened: r.overdue_opened,
       explained: r.explained,
       escalated: r.escalated,
-      detail: { ...detail, loaded: r.loaded, already_nudged: r.already_nudged },
+      detail: {
+        ...detail,
+        loaded: r.loaded,
+        already_nudged: r.already_nudged,
+        awaiting_explanation: r.awaiting_explanation,
+        dismissed: r.dismissed
+      },
       errors: r.errors.slice(0, 50)
     });
   } catch (e: any) {

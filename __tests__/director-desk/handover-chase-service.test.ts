@@ -41,6 +41,13 @@ const UNIQUE: Record<string, string[]> = { notifications: ['idempotency_key'] };
  * between the run loading it and the run acting on it" without any timing luck.
  */
 let afterRead: Record<string, (() => void) | undefined> = {};
+/**
+ * Test seam for a failing read. Fires once, on the next SELECT of the named
+ * table, and returns the given PostgREST error instead of rows — which is how
+ * you write down "I could not look", the state that is indistinguishable from
+ * "there was nothing there" unless the code fails closed.
+ */
+let failReadOnce: Record<string, { code: string; message: string } | undefined> = {};
 
 let uuidSeq = 0;
 function uuid(): string {
@@ -92,6 +99,11 @@ function makeDb(): any {
         const hit = matched();
         for (const r of hit) Object.assign(r, pending.patch);
         return { data: hit, error: null };
+      }
+      const boom = failReadOnce[table];
+      if (boom) {
+        failReadOnce[table] = undefined;
+        return { data: [], error: boom };
       }
       const data = matched();
       const hook = afterRead[table];
@@ -175,6 +187,9 @@ import {
   daysPastDue,
   classifyHandovers,
   resolveRunRecipients,
+  decideExpiryAction,
+  explanationFromAudit,
+  resolveDirectors,
   validateTargeting,
   nudgeIdempotencyKey,
   nudgeCopy,
@@ -260,9 +275,55 @@ const nudges = () =>
 const bellsTo = (id: string) =>
   tables.user_notifications.filter((u) => u.user_id === id);
 
+/**
+ * Post an update the way the grantee actually can — THROUGH the status gate.
+ *
+ * This is the whole of defect E1 in four lines. `fn_director_handover_progress`
+ * (migration 20260811100200, PR1) opens with:
+ *
+ *     IF v_row.status NOT IN ('pending','accepted') THEN
+ *       RAISE EXCEPTION 'This handover is closed' USING ERRCODE = '22023';
+ *
+ * so an audit row with action='progress' CANNOT exist against a handover the
+ * sweep has already marked 'expired'. The first version of this test file
+ * pushed such a row straight into `tables.director_handover_audit` and never
+ * touched the handover's status — it fabricated a precondition production
+ * cannot produce, and certified the escalation-for-everyone bug as fixed.
+ *
+ * Every test below that needs an explanation goes through here instead. If the
+ * sweep ever closes the handover before the window again, these throw.
+ */
+function postAnswer(
+  handoverId: string,
+  action: 'progress' | 'done' | 'declined',
+  detail: Record<string, unknown>,
+  actor: string,
+  at: string
+) {
+  const h = tables.director_handovers.find((r) => r.id === handoverId);
+  if (!h) throw new Error(`No such handover (42501)`);
+  if (!['pending', 'accepted'].includes(h.status)) {
+    throw new Error(`This handover is closed (22023) — status is '${h.status}'`);
+  }
+  if (action === 'done') h.status = 'done';
+  if (action === 'declined') h.status = 'declined';
+  h.last_activity_at = at;
+  tables.director_handover_audit.push({
+    id: uuid(),
+    handover_id: handoverId,
+    action,
+    actor_user_id: actor,
+    detail,
+    created_at: at,
+  });
+}
+
+const events = () => tables.meeting_trigger_events;
+
 beforeEach(() => {
   uuidSeq = 0;
   afterRead = {};
+  failReadOnce = {};
   delete process.env.HANDOVER_CHASE_MAX_RECIPIENTS;
   seed();
 });
@@ -360,15 +421,83 @@ describe('resolveRunRecipients', () => {
   it('counts each person once even when they hold several handovers', () => {
     const a = handover({ id: 'a', grantee_user_id: person(1) });
     const b = handover({ id: 'b', grantee_user_id: person(1) });
-    const r = resolveRunRecipients({ live: [a, b], expired: [], orphaned: [] }, [DIRECTOR]);
-    expect(r).toEqual([DIRECTOR, person(1)].sort());
+    const r = resolveRunRecipients({ live: [a, b], expired: [], orphaned: [] });
+    expect(r).toEqual([person(1)]);
   });
 
-  it('does NOT write to a grantee who has left — only their Director', () => {
+  it('does NOT write to a grantee who has left — only the person who handed it over', () => {
     const gone = handover({ id: 'a', grantee_user_id: person(9), granted_by: DIRECTOR });
-    const r = resolveRunRecipients({ live: [], expired: [], orphaned: [gone] }, []);
+    const r = resolveRunRecipients({ live: [], expired: [], orphaned: [gone] });
     expect(r).toEqual([DIRECTOR]);
     expect(r).not.toContain(person(9));
+  });
+
+  it('excludes the run-level alert audience — the fuse must mean 50 grantees', () => {
+    // Defect E2. The alert audience was unioned in unconditionally, and with no
+    // Director role live it resolves to up to TEN super admins — so a stated
+    // ceiling of 50 was an actual ceiling of 40, and ten of the "recipients"
+    // were people the run never writes to unless it halts.
+    const live = Array.from({ length: 3 }, (_, i) =>
+      handover({ id: `h${i}`, grantee_user_id: person(500 + i) })
+    );
+    const r = resolveRunRecipients({ live, expired: [], orphaned: [] });
+    expect(r).toEqual([person(500), person(501), person(502)]);
+    expect(r).not.toContain(DIRECTOR);
+    // The signature no longer even accepts a director list, so no future edit
+    // can quietly put them back.
+    expect(resolveRunRecipients.length).toBe(1);
+  });
+});
+
+describe('decideExpiryAction — the ordering that defect E1 got backwards', () => {
+  const base = { existingEventStatus: null, ruleActive: true, overdueBy: 1, threshold: 1 };
+
+  it('opens the window first and does NOT relabel', () => {
+    expect(decideExpiryAction(base)).toBe('open_window');
+  });
+
+  it('leaves a handover alone while its window is still open', () => {
+    // The load-bearing case: relabelling here is what made
+    // fn_director_handover_progress raise 22023 and escalated everyone.
+    expect(decideExpiryAction({ ...base, existingEventStatus: 'notified' })).toBe(
+      'wait_for_window'
+    );
+  });
+
+  it('relabels once the window has resolved, whichever way it went', () => {
+    for (const s of ['explained', 'meeting_pending', 'booked', 'dismissed', 'expired']) {
+      expect(decideExpiryAction({ ...base, existingEventStatus: s })).toBe('close_out');
+    }
+  });
+
+  it('relabels immediately when no window will ever open', () => {
+    // Nothing to protect: the rule is off, or its threshold puts the valve out
+    // of reach. The grantee is not being asked anything, so keeping the row open
+    // would buy them nothing and only delay the label.
+    expect(decideExpiryAction({ ...base, ruleActive: false })).toBe('expire_now');
+    expect(decideExpiryAction({ ...base, threshold: 3, overdueBy: 1 })).toBe('expire_now');
+  });
+});
+
+describe('explanationFromAudit', () => {
+  it('passes a progress note through verbatim', () => {
+    expect(
+      explanationFromAudit({ action: 'progress', detail: { note: '  Vendor quote Friday. ' } })
+    ).toBe('Vendor quote Friday.');
+  });
+
+  it('says something useful when the answer was "I finished it"', () => {
+    expect(explanationFromAudit({ action: 'done', detail: {} })).toBe('Marked it done.');
+    expect(explanationFromAudit({ action: 'done', detail: { note: 'Submitted.' } })).toBe(
+      'Submitted.'
+    );
+  });
+
+  it('reads a decline reason out of `reason`, which is where the RPC puts it', () => {
+    expect(
+      explanationFromAudit({ action: 'declined', detail: { reason: 'not my area' } })
+    ).toBe('Handed it back: not my area');
+    expect(explanationFromAudit({ action: 'declined', detail: {} })).toBe('Handed it back.');
   });
 });
 
@@ -431,8 +560,10 @@ describe('nudgeCopy', () => {
 describe('runHandoverChase — the volume fuse', () => {
   it('sends NOTHING and tells the Director alone when the list exceeds the limit', async () => {
     process.env.HANDOVER_CHASE_MAX_RECIPIENTS = '5';
-    // 6 live handovers held by 6 different people. Plus the Director, the
-    // resolved list is 7 — over the limit of 5.
+    // 6 live handovers held by 6 different people = 6 recipients, over the
+    // limit of 5. The Director is NOT among them (defect E2): he is written to
+    // only because the fuse blew, and counting the alert audience toward the
+    // ceiling made the ceiling describe something other than the run.
     const hs = Array.from({ length: 6 }, (_, i) =>
       handover({ id: `h${i}`, grantee_user_id: person(100 + i) })
     );
@@ -441,7 +572,7 @@ describe('runHandoverChase — the volume fuse', () => {
     const r = await runHandoverChase({ now: NOW });
 
     expect(r.fuse_blown).toBe(true);
-    expect(r.recipients_resolved).toBe(7);
+    expect(r.recipients_resolved).toBe(6);
     expect(r.nudged).toBe(0);
     // Not one grantee heard anything.
     for (let i = 0; i < 6; i++) expect(bellsTo(person(100 + i))).toHaveLength(0);
@@ -474,9 +605,14 @@ describe('runHandoverChase — the volume fuse', () => {
     expect(tables.meeting_trigger_events).toHaveLength(0);
   });
 
-  it('records the refusal, with the list it computed', async () => {
+  it('records the refusal, with the list it computed — in the LEDGER, not the alert', async () => {
     process.env.HANDOVER_CHASE_MAX_RECIPIENTS = '1';
-    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(300) })] });
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(300) }),
+        handover({ id: 'h1', grantee_user_id: person(301) }),
+      ],
+    });
 
     await runHandoverChase({ now: NOW });
 
@@ -485,7 +621,58 @@ describe('runHandoverChase — the volume fuse', () => {
     expect(run.outcome).toBe('halted_volume_fuse');
     expect(run.fuse_blown).toBe(true);
     expect(run.fuse_limit).toBe(1);
-    expect(run.detail.recipient_ids).toEqual([DIRECTOR, person(300)].sort());
+    expect(run.detail.recipient_ids).toEqual([person(300), person(301)]);
+
+    // Defect E2: the list must NOT ride along on the notification. That alert
+    // falls back to up to ten super admins when no Director can be resolved —
+    // which is the live state today — so the list would be a cross-college
+    // roster of who is holding what, handed to people not party to any of it.
+    const alert = tables.notifications.find(
+      (n) => n.category === 'director:handover-chase-halted'
+    );
+    expect(alert).toBeTruthy();
+    expect(JSON.stringify(alert.metadata)).not.toContain(person(300));
+    expect(JSON.stringify(alert.metadata)).not.toContain(person(301));
+    expect(alert.body).not.toContain(person(300));
+    expect(alert.metadata.resolved).toBe(2);
+    expect(alert.metadata.recipient_ids_recorded_in).toBe(
+      'director_handover_chase_runs.detail'
+    );
+  });
+
+  it('45 grantees do NOT blow a ceiling of 50 — the alert audience is not counted', async () => {
+    // Defect E2's second-order effect, in live numbers. Verified against
+    // production 2026-08-05: profiles.role='director' -> 0 rows,
+    // custom_roles.role_key='director' -> 0 of 85, director.handover.create ->
+    // 0 of 85. So the alert audience ALWAYS resolved to super admins, and
+    // getSuperAdminIds caps at SUPER_ADMIN_FANOUT_CAP = 10 of the 14 live ones.
+    //
+    // Unioning those 10 into the count meant 41 grantees already exceeded 50:
+    // the run would have sent NOTHING to anyone and reported a "recipient
+    // resolution bug" that was really just a busy desk. 45 must pass.
+    const hs = Array.from({ length: 45 }, (_, i) =>
+      handover({ id: `h${i}`, grantee_user_id: person(600 + i) })
+    );
+    seed({ handovers: hs });
+    // Ten super admins, the live fallback audience.
+    for (let i = 0; i < 10; i++) {
+      tables.profiles.push({
+        id: person(700 + i),
+        role: 'admin',
+        is_active: true,
+        is_super_admin: true,
+        created_at: `2019-01-${String(i + 1).padStart(2, '0')}`,
+      });
+    }
+    // No Director exists — the production reality.
+    tables.profiles = tables.profiles.filter((p) => p.id !== DIRECTOR);
+
+    const r = await runHandoverChase({ now: NOW });
+
+    expect(r.recipients_resolved).toBe(45);
+    expect(r.fuse_blown).toBe(false);
+    expect(r.nudged).toBe(45);
+    expect(r.director_resolution).toBe('super_admin_fallback');
   });
 
   it('records a run that did NOT blow the fuse too', async () => {
@@ -533,7 +720,7 @@ describe('runHandoverChase — the daily nudge (decision 10)', () => {
 });
 
 describe('runHandoverChase — the status sweep', () => {
-  it('expires a handover past its date and opens the 24h valve on it', async () => {
+  it('opens the 24h valve on a past-due handover and leaves it ANSWERABLE', async () => {
     seed({
       handovers: [
         handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
@@ -542,19 +729,36 @@ describe('runHandoverChase — the status sweep', () => {
 
     const r = await runHandoverChase({ now: NOW });
 
-    expect(r.expired).toBe(1);
-    expect(tables.director_handovers[0].status).toBe('expired');
+    // DEFECT E1. The status is deliberately NOT 'expired' yet.
+    // fn_director_handover_progress raises 22023 on anything outside
+    // ('pending','accepted'), so relabelling here made the explanation the very
+    // next notification asks for physically impossible to write — and 24 hours
+    // later everybody was escalated to a meeting regardless.
+    expect(tables.director_handovers[0].status).toBe('accepted');
+    expect(r.expired).toBe(0);
+    expect(r.overdue_opened).toBe(1);
+    expect(r.awaiting_explanation).toBe(1);
+    // Proven, not asserted: the grantee's button works right now.
+    expect(() =>
+      postAnswer('h0', 'progress', { note: 'x' }, person(1), '2026-08-10T07:00:00.000Z')
+    ).not.toThrow();
 
-    const audit = tables.director_handover_audit.filter((a) => a.action === 'expired');
+    // The trail says 'overdue', not 'expired' — the door shut on the due date
+    // (fn_handover_grants_key tests the date, not the label) but the row is not
+    // closed yet, and two rows claiming 'expired' would make the trail lie.
+    const audit = tables.director_handover_audit.filter((a) => a.action === 'overdue');
     expect(audit).toHaveLength(1);
     expect(audit[0].detail.days_past_due).toBe(3);
+    expect(
+      tables.director_handover_audit.filter((a) => a.action === 'expired')
+    ).toHaveLength(0);
 
     // The valve row is what makes decision 11's meeting happen, and it happens
     // through the EXISTING booking pass: judge -> host, notified[0] -> attendee.
     // If these two fields are wrong the meeting is booked between the wrong
     // people, silently.
-    expect(tables.meeting_trigger_events).toHaveLength(1);
-    const ev = tables.meeting_trigger_events[0];
+    expect(events()).toHaveLength(1);
+    const ev = events()[0];
     expect(ev.subject_type).toBe('handover');
     expect(ev.subject_id).toBe('h0');
     expect(ev.judge_profile_id).toBe(DIRECTOR);
@@ -568,8 +772,69 @@ describe('runHandoverChase — the status sweep', () => {
     expect(
       tables.notifications.filter((n) => n.category === 'director:handover-overdue')
     ).toHaveLength(1);
-    // An expired handover is not also nudged — it is no longer live.
+    // A past-due handover is not also nudged — it is no longer live.
     expect(nudges()).toHaveLength(0);
+  });
+
+  it('does not open a SECOND window the next night while the first is running', async () => {
+    // The unique index is (rule_id, breach_date, subject_id) and breach_date
+    // moves every night, so it does not stop this on its own — the subject
+    // lookup does. Without it the grantee is asked again every 24h and the
+    // deadline resets forever.
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
+      ],
+    });
+    await runHandoverChase({ now: NOW });
+    const second = await runHandoverChase({ now: new Date('2026-08-11T06:00:00.000Z') });
+
+    expect(second.overdue_opened).toBe(0);
+    expect(second.awaiting_explanation).toBe(1);
+    expect(events()).toHaveLength(1);
+    expect(tables.director_handovers[0].status).toBe('accepted');
+  });
+
+  it('writes the label once the window has closed, not before', async () => {
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
+      ],
+    });
+    await runHandoverChase({ now: NOW });
+    // 25 hours later: nobody said anything, so the window closes, the event goes
+    // to the booking pass, and NOW the handover is relabelled.
+    const r = await runHandoverChase({ now: new Date('2026-08-11T07:00:00.000Z') });
+
+    expect(r.escalated).toBe(1);
+    expect(r.expired).toBe(1);
+    expect(tables.director_handovers[0].status).toBe('expired');
+    expect(
+      tables.director_handover_audit.filter((a) => a.action === 'expired')
+    ).toHaveLength(1);
+    expect(events()[0].status).toBe('meeting_pending');
+  });
+
+  it('a run whose window lookup FAILS sweeps nothing rather than guessing', async () => {
+    // "No window exists" and "I could not look" produce the same empty map.
+    // Acting on the first when it was the second opens a duplicate window every
+    // night and resets the grantee's clock forever.
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
+      ],
+    });
+    await runHandoverChase({ now: NOW });
+    tables.meeting_trigger_events = [];
+    // Second night, with the window lookup broken.
+    failReadOnce.meeting_trigger_events = { code: '57014', message: 'statement timeout' };
+    const r = await runHandoverChase({ now: new Date('2026-08-11T06:00:00.000Z') });
+
+    expect(r.overdue_opened).toBe(0);
+    expect(r.expired).toBe(0);
+    expect(events()).toHaveLength(0);
+    expect(r.errors.join(' ')).toMatch(/load handover windows/);
+    expect(tables.director_handovers[0].status).toBe('accepted');
   });
 
   it('does not open the valve when the rule threshold has been raised past reach', async () => {
@@ -580,8 +845,11 @@ describe('runHandoverChase — the status sweep', () => {
     seed({ handovers: [handover({ id: 'h0', due_date: '2026-08-09' })] });
     tables.meeting_trigger_rules[0].threshold = 3;
     const r = await runHandoverChase({ now: NOW });
+    // No window will ever open, so there is nothing to keep the row open FOR —
+    // the label goes on straight away, as it always did.
     expect(r.expired).toBe(1);
-    expect(tables.meeting_trigger_events).toHaveLength(0);
+    expect(tables.director_handovers[0].status).toBe('expired');
+    expect(events()).toHaveLength(0);
   });
 
   it('does not open the valve when the rule has been switched off', async () => {
@@ -593,7 +861,8 @@ describe('runHandoverChase — the status sweep', () => {
     // The sweep still runs — the label and the audit trail are not the rule's
     // to withhold. Only the chasing stops.
     expect(r.expired).toBe(1);
-    expect(tables.meeting_trigger_events).toHaveLength(0);
+    expect(tables.director_handovers[0].status).toBe('expired');
+    expect(events()).toHaveLength(0);
   });
 
   it('orphans a handover whose holder has left and puts it back on the Director', async () => {
@@ -652,32 +921,40 @@ describe('runHandoverChase — the status sweep', () => {
 });
 
 describe('reconcileHandoverExplanations — decision 11 steps 2 and 3', () => {
-  function openValve(deadline: string) {
-    tables.meeting_trigger_events.push({
-      id: 'ev1',
-      rule_id: RULE_ID,
-      subject_type: 'handover',
-      subject_id: 'h0',
-      subject_label: 'NAAC criterion 3',
-      status: 'notified',
-      judge_profile_id: DIRECTOR,
-      notified_profile_ids: [person(1)],
-      explanation_deadline: deadline,
-      created_at: '2026-08-10T06:00:00.000Z',
+  /**
+   * Open the valve the way the ENGINE opens it — by running the sweep — rather
+   * than by pushing a row in by hand.
+   *
+   * The first version of these tests hand-built both the event AND the
+   * `action:'progress'` audit row, against a handover the fake had never marked
+   * expired. Production cannot reach that state: the sweep set 'expired' before
+   * opening the valve, and fn_director_handover_progress raises 22023 on any
+   * status outside pending/accepted. So the test fabricated its own precondition
+   * and went green over a bug that escalated every grantee to a meeting.
+   */
+  async function openValveByRunning() {
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
+      ],
     });
+    await runHandoverChase({ now: NOW });
+    expect(events()).toHaveLength(1);
+    expect(events()[0].explanation_deadline).toBe('2026-08-11T06:00:00.000Z');
+    return events()[0];
   }
 
   it('routes an explanation to the Director and STOPS escalating', async () => {
-    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(1) })] });
-    openValve('2026-08-11T06:00:00.000Z');
-    tables.director_handover_audit.push({
-      id: 'a1',
-      handover_id: 'h0',
-      action: 'progress',
-      actor_user_id: person(1),
-      detail: { note: 'Waiting on the vendor quote, due Friday.' },
-      created_at: '2026-08-10T09:00:00.000Z',
-    });
+    await openValveByRunning();
+    // Three hours into the window, posted THROUGH the same status gate the RPC
+    // enforces. If the sweep had closed the handover first this line throws.
+    postAnswer(
+      'h0',
+      'progress',
+      { note: 'Waiting on the vendor quote, due Friday.' },
+      person(1),
+      '2026-08-10T09:00:00.000Z'
+    );
 
     const r = await reconcileHandoverExplanations({ now: new Date('2026-08-12T06:00:00Z') });
 
@@ -686,51 +963,122 @@ describe('reconcileHandoverExplanations — decision 11 steps 2 and 3', () => {
     // runs late.
     expect(r.explained).toBe(1);
     expect(r.escalated).toBe(0);
-    const ev = tables.meeting_trigger_events[0];
+    const ev = events()[0];
     expect(ev.status).toBe('explained');
     expect(ev.explanation_text).toBe('Waiting on the vendor quote, due Friday.');
     expect(ev.explained_by).toBe(person(1));
     expect(
       tables.notifications.filter((n) => n.category === 'director:handover-explained')
     ).toHaveLength(1);
+    // No meeting is pending for anyone.
+    expect(events().filter((e) => e.status === 'meeting_pending')).toHaveLength(0);
+    // And the label the sweep held back is written now that the window is shut.
+    expect(tables.director_handovers[0].status).toBe('expired');
+    expect(r.relabelled).toBe(1);
+  });
+
+  it('DEFECT E1 END TO END — answer inside 24h, and no meeting is ever booked', async () => {
+    // The full trace from the defect report, run forward: handover accepted,
+    // due 2026-08-07. The 08-10 sweep opens the window and tells the grantee to
+    // "post a short note within 24 hours". They do, at hour 3. Then the hourly
+    // reconcile runs at hour 4, and again at hour 25 and hour 49 — well past
+    // the deadline — and the answer must hold every time.
+    await openValveByRunning();
+
+    expect(tables.director_handovers[0].status).toBe('accepted'); // answerable
+    postAnswer(
+      'h0',
+      'progress',
+      { note: 'Two of five sections drafted; the rest by Friday.' },
+      person(1),
+      '2026-08-10T09:00:00.000Z'
+    );
+
+    const atHour4 = await reconcileHandoverExplanations({
+      now: new Date('2026-08-10T10:00:00Z'),
+    });
+    expect(atHour4).toMatchObject({ explained: 1, escalated: 0, dismissed: 0 });
+
+    for (const t of ['2026-08-11T07:00:00Z', '2026-08-12T07:00:00Z']) {
+      const later = await reconcileHandoverExplanations({ now: new Date(t) });
+      expect(later).toMatchObject({ explained: 0, escalated: 0 });
+    }
+
+    // Nothing anywhere is waiting to be booked.
+    expect(events().filter((e) => e.status === 'meeting_pending')).toHaveLength(0);
+    expect(events()[0].status).toBe('explained');
+    expect(
+      tables.notifications.filter((n) => n.category === 'director:handover-escalated')
+    ).toHaveLength(0);
+    expect(
+      tables.notifications.filter((n) => n.category === 'director:handover-explained')
+    ).toHaveLength(1);
+  });
+
+  it('marking it DONE inside the window is an answer too', async () => {
+    // Once the relabel moved after the window, "I finished it" became reachable
+    // — and escalating that to a meeting about finished work would be the same
+    // bug wearing a different hat.
+    await openValveByRunning();
+    postAnswer('h0', 'done', { note: 'Submitted on Monday.' }, person(1), '2026-08-10T12:00:00.000Z');
+
+    const r = await reconcileHandoverExplanations({ now: new Date('2026-08-11T07:00:00Z') });
+    expect(r).toMatchObject({ explained: 1, escalated: 0 });
+    expect(events()[0].explanation_text).toBe('Submitted on Monday.');
+    // Already 'done' — the reconciler must not overwrite that with 'expired'.
+    expect(tables.director_handovers[0].status).toBe('done');
+    expect(r.relabelled).toBe(0);
+  });
+
+  it('handing it BACK inside the window is an answer too', async () => {
+    await openValveByRunning();
+    postAnswer(
+      'h0',
+      'declined',
+      { reason: 'this sits with the IQAC office' },
+      person(1),
+      '2026-08-10T12:00:00.000Z'
+    );
+
+    const r = await reconcileHandoverExplanations({ now: new Date('2026-08-11T07:00:00Z') });
+    expect(r).toMatchObject({ explained: 1, escalated: 0 });
+    expect(events()[0].explanation_text).toBe('Handed it back: this sits with the IQAC office');
+    expect(events()[0].status).toBe('explained');
   });
 
   it('ignores a progress note written BEFORE the item went overdue', async () => {
     // Otherwise a note posted a week earlier answers a question that had not
     // been asked, and the valve closes on nothing.
-    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(1) })] });
-    openValve('2026-08-11T06:00:00.000Z');
-    tables.director_handover_audit.push({
-      id: 'a1',
-      handover_id: 'h0',
-      action: 'progress',
-      actor_user_id: person(1),
-      detail: { note: 'Started on this.' },
-      created_at: '2026-08-01T09:00:00.000Z',
+    seed({
+      handovers: [
+        handover({ id: 'h0', grantee_user_id: person(1), due_date: '2026-08-07' }),
+      ],
     });
+    postAnswer('h0', 'progress', { note: 'Started on this.' }, person(1), '2026-08-01T09:00:00.000Z');
+    await runHandoverChase({ now: NOW });
 
     const r = await reconcileHandoverExplanations({ now: new Date('2026-08-12T06:00:00Z') });
     expect(r.explained).toBe(0);
     expect(r.escalated).toBe(1);
-    expect(tables.meeting_trigger_events[0].status).toBe('meeting_pending');
+    expect(events()[0].status).toBe('meeting_pending');
   });
 
   it('does nothing while the window is still open', async () => {
-    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(1) })] });
-    openValve('2026-08-11T06:00:00.000Z');
+    await openValveByRunning();
     const r = await reconcileHandoverExplanations({ now: new Date('2026-08-10T18:00:00Z') });
-    expect(r).toMatchObject({ explained: 0, escalated: 0 });
-    expect(tables.meeting_trigger_events[0].status).toBe('notified');
+    expect(r).toMatchObject({ explained: 0, escalated: 0, dismissed: 0 });
+    expect(events()[0].status).toBe('notified');
+    // Crucially, the handover is STILL answerable while the clock runs.
+    expect(tables.director_handovers[0].status).toBe('accepted');
   });
 
   it('escalates to meeting_pending on silence, which is what books the meeting', async () => {
-    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(1) })] });
-    openValve('2026-08-11T06:00:00.000Z');
+    await openValveByRunning();
 
     const r = await reconcileHandoverExplanations({ now: new Date('2026-08-11T07:00:00Z') });
 
     expect(r.escalated).toBe(1);
-    const ev = tables.meeting_trigger_events[0];
+    const ev = events()[0];
     // bookPendingMeetings() reads exactly this: status + a null booking_id.
     expect(ev.status).toBe('meeting_pending');
     expect(ev.judge_profile_id).toBe(DIRECTOR);
@@ -738,16 +1086,182 @@ describe('reconcileHandoverExplanations — decision 11 steps 2 and 3', () => {
     expect(
       tables.notifications.filter((n) => n.category === 'director:handover-escalated')
     ).toHaveLength(1);
+    expect(tables.director_handovers[0].status).toBe('expired');
+  });
+
+  it('dismisses rather than escalates when the Director took the item back', async () => {
+    await openValveByRunning();
+    tables.director_handovers[0].status = 'revoked';
+
+    const r = await reconcileHandoverExplanations({ now: new Date('2026-08-11T07:00:00Z') });
+    expect(r).toMatchObject({ escalated: 0, dismissed: 1 });
+    expect(events()[0].status).toBe('dismissed');
+    expect(
+      tables.notifications.filter((n) => n.category === 'director:handover-escalated')
+    ).toHaveLength(0);
+  });
+
+  it('escalates nothing when it cannot read the handovers at all', async () => {
+    // An unreadable table and an empty one look identical from here. Guessing
+    // "empty" books meetings about work nobody can see.
+    await openValveByRunning();
+    failReadOnce.director_handovers = { code: '57014', message: 'statement timeout' };
+    const r = await reconcileHandoverExplanations({ now: new Date('2026-08-11T07:00:00Z') });
+    expect(r).toMatchObject({ explained: 0, escalated: 0, dismissed: 0 });
+    expect(r.errors.join(' ')).toMatch(/load handovers for events/);
+    expect(events()[0].status).toBe('notified');
   });
 
   it('is safe to run repeatedly — the second pass is a no-op', async () => {
-    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(1) })] });
-    openValve('2026-08-11T06:00:00.000Z');
+    await openValveByRunning();
     await reconcileHandoverExplanations({ now: new Date('2026-08-11T07:00:00Z') });
     const again = await reconcileHandoverExplanations({ now: new Date('2026-08-11T08:00:00Z') });
-    expect(again).toMatchObject({ explained: 0, escalated: 0 });
+    expect(again).toMatchObject({ explained: 0, escalated: 0, dismissed: 0 });
     expect(
       tables.notifications.filter((n) => n.category === 'director:handover-escalated')
     ).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// 3. Who "the Director" is (defect E2)
+// ===========================================================================
+
+describe('resolveDirectors — all three of fn_can_hand_over()\'s paths', () => {
+  const CR_DIRECTOR = '00000000-0000-4000-9000-0000000000c1';
+  const CR_DEAN = '00000000-0000-4000-9000-0000000000c2';
+
+  function blankSeed() {
+    seed();
+    tables.profiles = [];
+    tables.custom_roles = [];
+    tables.user_roles = [];
+  }
+
+  function profile(id: string, role: string, extra: Record<string, unknown> = {}) {
+    tables.profiles.push({
+      id,
+      role,
+      is_active: true,
+      is_super_admin: false,
+      created_at: '2021-01-01',
+      ...extra,
+    });
+  }
+
+  it('path 1 — the legacy profiles.role string', async () => {
+    blankSeed();
+    profile(person(11), 'director');
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(11)]);
+    expect(r.source).toBe('director');
+    expect(r.by_path.legacy_profile_role).toBe(1);
+  });
+
+  it('path 2 — a user_roles assignment to the director role', async () => {
+    // The CANONICAL path, and the one the old query missed entirely. It matched
+    // only profiles.role='director', so a Director assigned the role properly —
+    // through Role Management, which writes user_roles — was invisible.
+    blankSeed();
+    profile(person(12), 'hod');
+    tables.custom_roles.push({ id: CR_DIRECTOR, role_key: 'director', permissions: {} });
+    tables.user_roles.push({ user_id: person(12), role_id: CR_DIRECTOR });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(12)]);
+    expect(r.by_path.user_roles_assignment).toBe(1);
+  });
+
+  it('path 2 — a user_roles assignment to ANY role carrying director.handover.create', async () => {
+    blankSeed();
+    profile(person(13), 'principal');
+    tables.custom_roles.push({
+      id: CR_DEAN,
+      role_key: 'dean',
+      permissions: { 'director.handover.create': true },
+    });
+    tables.user_roles.push({ user_id: person(13), role_id: CR_DEAN });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(13)]);
+  });
+
+  it('path 3 — profiles.role names a role that carries the permission', async () => {
+    blankSeed();
+    profile(person(14), 'dean');
+    tables.custom_roles.push({
+      id: CR_DEAN,
+      role_key: 'dean',
+      permissions: { 'director.handover.create': true },
+    });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(14)]);
+    expect(r.by_path.profile_role_permission).toBe(1);
+  });
+
+  it('reads the permission the way the SQL does — "true" as well as true', async () => {
+    // (cr.permissions->>'key')::boolean accepts the STRING "true"; a strict
+    // === true in TypeScript would disagree with every RLS check on the
+    // platform for exactly those rows.
+    blankSeed();
+    profile(person(15), 'dean');
+    tables.custom_roles.push({
+      id: CR_DEAN,
+      role_key: 'dean',
+      permissions: { 'director.handover.create': 'true' },
+    });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(15)]);
+  });
+
+  it('does not count a role whose permission is false, or an inactive person', async () => {
+    blankSeed();
+    profile(person(16), 'dean');
+    profile(person(17), 'director', { is_active: false });
+    tables.custom_roles.push({
+      id: CR_DEAN,
+      role_key: 'dean',
+      permissions: { 'director.handover.create': false },
+    });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([]);
+    expect(r.source).toBe('none');
+  });
+
+  it('falls back to super admins but SAYS SO — the live state today', async () => {
+    // Verified live 2026-08-05: profiles.role='director' -> 0 rows,
+    // custom_roles.role_key='director' -> 0 of 85, director.handover.create ->
+    // 0 of 85 roles. So this is not a hypothetical branch, it is every run
+    // until the role is created — and the old code could not tell it apart
+    // from success.
+    blankSeed();
+    profile(person(18), 'admin', { is_super_admin: true, created_at: '2019-01-01' });
+    const r = await resolveDirectors(makeDb());
+    expect(r.ids).toEqual([person(18)]);
+    expect(r.source).toBe('super_admin_fallback');
+    expect(r.by_path).toEqual({
+      legacy_profile_role: 0,
+      user_roles_assignment: 0,
+      profile_role_permission: 0,
+    });
+  });
+
+  it('the run SHOUTS when it fell back, instead of fanning out quietly', async () => {
+    seed({ handovers: [handover({ id: 'h0', grantee_user_id: person(1) })] });
+    // Take the Director away — the production reality this feature ships into.
+    tables.profiles = tables.profiles.filter((p) => p.id !== DIRECTOR);
+    tables.profiles.push({
+      id: person(90),
+      role: 'admin',
+      is_active: true,
+      is_super_admin: true,
+      created_at: '2019-01-01',
+    });
+
+    const r = await runHandoverChase({ now: NOW });
+    expect(r.director_resolution).toBe('super_admin_fallback');
+    expect(r.errors.join(' ')).toMatch(/no Director found on any of the three paths/);
+    const run = tables.director_handover_chase_runs[0];
+    expect(run.detail.director_resolution.source).toBe('super_admin_fallback');
+    // The grantee is still nudged: a missing Director must not stop the work.
+    expect(r.nudged).toBe(1);
   });
 });
