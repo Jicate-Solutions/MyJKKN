@@ -4132,8 +4132,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/hr/admin/shift-templates",
-            "label": "Shift Templates",
+            "path": "/hr/admin/shift-timings",
+            "label": "Shift Timings",
             "iconName": "FileText",
             "children": []
           },
@@ -4411,25 +4411,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/submit",
             "label": "Submit",
             "iconName": "UserSearch",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/hr/shifts",
-        "label": "Shifts",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/hr/shifts/approvals",
-            "label": "Approvals",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/hr/shifts/my",
-            "label": "My",
-            "iconName": "FileText",
             "children": []
           }
         ]

@@ -47,8 +47,8 @@ export type DashboardKPIName =
   // Director: Trend
   | 'leave_applications_12mo'
   // T8.6 — multi-role KPI refinements (2026-05-10)
-  | 'documents_pending_verification'   // HR Officer
-  | 'active_shifts_today';             // Director
+  | 'documents_pending_verification';  // HR Officer
+// 'active_shifts_today' (Director) removed 2026-08-06 with the shift module.
 
 export interface DashboardKPI {
   /** Stable machine name (audit-log safe). */

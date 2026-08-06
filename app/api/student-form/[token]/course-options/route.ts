@@ -176,7 +176,7 @@ export async function POST(
 
       case 'sections': {
         // Sections under one semester. Added 2026-07-27 so the wizard can
-        // resolve section "A" of the Freshers semester for FIRST YEAR admits.
+        // resolve section "A" of the initial semester for FIRST YEAR admits.
         // The student never picks from this list — the client matches 'A' and
         // renders it read-only — but returning the full set keeps the endpoint
         // shaped like the other cascading kinds.

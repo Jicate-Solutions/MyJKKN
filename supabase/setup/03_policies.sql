@@ -8514,3 +8514,58 @@ DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_delete_settings_edit" ON publ
 CREATE POLICY "hostel_room_elig_rule_rooms_delete_settings_edit" ON public.hostel_room_eligibility_rule_rooms
     FOR DELETE TO authenticated
     USING ((SELECT user_has_permission('campus_living.settings.edit')));
+
+
+-- =====================================================================
+-- hr_shift_timings — row level security
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+ALTER TABLE public.hr_shift_timings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_shift_timings_select ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_select ON public.hr_shift_timings
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_shift_timings_insert ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_insert ON public.hr_shift_timings
+  FOR INSERT WITH CHECK (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_shift_timings_update ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_update ON public.hr_shift_timings
+  FOR UPDATE USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_shift_timings_delete ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_delete ON public.hr_shift_timings
+  FOR DELETE USING (
+       (SELECT public.is_super_admin())
+    OR ((SELECT public.is_admin())
+        AND (SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );

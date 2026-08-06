@@ -268,6 +268,9 @@ export interface CreateEventDto {
   tagline?: string;
   event_date?: string;
   start_time?: string;
+  /** Pairs with start_time. Both are `time` columns — the hours the event runs
+   *  on each of its days, and the hours the room is held for. */
+  end_time?: string;
   venue?: string;
   venue_address?: string;
   year?: number;
@@ -296,12 +299,6 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   status?: EventStatus;
   registration_open_date?: string;
   registration_close_date?: string;
-  /**
-   * On the `events` table and on Event, but absent from CreateEventDto — so it
-   * was unsettable until the full edit dialog needed it. start_time has always
-   * been creatable; this is its missing pair.
-   */
-  end_time?: string;
   hero_image_url?: string;
   hero_video_url?: string;
   route_config?: Record<string, unknown>;
