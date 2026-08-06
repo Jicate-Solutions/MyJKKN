@@ -401,6 +401,19 @@ export interface ProjectTaskComment {
   created_by: string | null;
 }
 
+export interface ProjectTaskCommentAuthor {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+}
+
+/** A comment with its author profile joined. author is null for pre-existing
+ *  rows written before author_id was populated, and for deleted profiles. */
+export interface ProjectTaskCommentWithAuthor extends ProjectTaskComment {
+  author: ProjectTaskCommentAuthor | null;
+}
+
 export interface ProjectTaskSubtask {
   id: string;
   task_id: string;
