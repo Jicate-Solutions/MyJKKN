@@ -132,7 +132,8 @@ export function scopeSentence(
   if (scope.bodies.length === 0) {
     return `No awarding body is recorded for ${who}.`;
   }
-  return `Showing the ${scope.bodies.length} awarding ${
-    scope.bodies.length === 1 ? 'body' : 'bodies'
-  } that apply to ${who}: ${scope.bodies.join(', ')}.`;
+  const one = scope.bodies.length === 1;
+  return `Showing the ${scope.bodies.length} awarding ${one ? 'body' : 'bodies'} that ${
+    one ? 'applies' : 'apply'
+  } to ${who}: ${scope.bodies.join(', ')}.`;
 }
