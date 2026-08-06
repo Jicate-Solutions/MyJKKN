@@ -24,8 +24,10 @@ export type CompOffEffectiveStatus = CompOffCreditStatus | 'expired';
  * - `claim`      team member asserts a worked date, an approver confirms
  * - `hr_grant`   HR creates it directly
  * - `attendance` auto-created from approved attendance on a holiday/week-off.
- *                Defined but dormant: hr_attendance_records, hr_public_holidays
- *                and hr_shift_templates are all empty, so nothing writes it yet.
+ *                Defined but dormant: hr_attendance_records and
+ *                hr_public_holidays are both empty, so nothing writes it yet.
+ *                (hr_shift_templates was removed 2026-08-06; shift config now
+ *                lives in hr_shift_timings, which IS populated.)
  */
 export type CompOffCreditSource = 'claim' | 'hr_grant' | 'attendance';
 

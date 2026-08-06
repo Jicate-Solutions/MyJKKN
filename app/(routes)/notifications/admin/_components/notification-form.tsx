@@ -73,6 +73,11 @@ const notificationSchema = z.object({
   category: z.string().min(1, 'Category is required'),
   expires_at: z.string().optional(),
   // Targeting fields
+  // Multi-select (2026-08-04): one send can target several institutions, e.g.
+  // Dental + Pharmacy learners. `institution_id` is kept only as the DERIVED
+  // single value that the Department→Program→Semester→Section hierarchy needs
+  // (those levels belong to exactly one institution).
+  institution_ids: z.array(z.string()).optional(),
   institution_id: z.string().optional(),
   department_id: z.string().optional(),
   program_id: z.string().optional(),
@@ -108,9 +113,20 @@ const ALLOWED_FILE_TYPES = [
   'video/mp4',
   'audio/mpeg',
   'audio/mp3',
+  // Images (added 2026-08-04): the picker previously greyed images out and the
+  // validator rejected them, so an announcement could never carry a poster,
+  // circular scan, or screenshot. The storage bucket's allowed_mime_types was
+  // missing them too — both layers had to change (see the companion migration
+  // 20260804170000_notification_attachments_allow_images.sql).
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/gif',
+  'image/webp',
 ];
 
-const ALLOWED_EXTENSIONS = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3';
+const ALLOWED_EXTENSIONS =
+  '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.mp4,.mp3,.png,.jpg,.jpeg,.gif,.webp';
 const MAX_FILE_SIZE_MB = 25;
 const MAX_ATTACHMENTS = 5;
 
@@ -122,6 +138,8 @@ interface AttachmentFile {
 }
 
 function getFileIcon(type: string) {
+  // Checked first: 'image/*' must not fall through to the generic document icon.
+  if (type.startsWith('image/')) return <FileImage className='h-4 w-4 text-sky-500' />;
   if (type.includes('pdf')) return <FileText className='h-4 w-4 text-red-500' />;
   if (type.includes('word') || type.includes('document')) return <FileText className='h-4 w-4 text-blue-500' />;
   if (type.includes('excel') || type.includes('spreadsheet')) return <FileSpreadsheet className='h-4 w-4 text-green-500' />;
@@ -170,6 +188,7 @@ export function NotificationForm() {
       priority: (searchParams.get('priority') as any) || 'normal',
       category: searchParams.get('category') || undefined,
       expires_at: '',
+      institution_ids: [],
       institution_id: undefined,
       department_id: undefined,
       program_id: undefined,
@@ -188,7 +207,12 @@ export function NotificationForm() {
 
   // Watch form values for hierarchical dependencies
   const watchedValues = form.watch();
-  const selectedInstitutionId = watchedValues.institution_id;
+  const selectedInstitutionIds = watchedValues.institution_ids || [];
+  // The Department→Program→Semester→Section chain is only meaningful inside ONE
+  // institution, so it stays enabled for a single selection and is disabled
+  // (with an explanation in the UI) when 0 or 2+ institutions are picked.
+  const selectedInstitutionId =
+    selectedInstitutionIds.length === 1 ? selectedInstitutionIds[0] : undefined;
   const selectedDepartmentId = watchedValues.department_id;
   const selectedProgramId = watchedValues.program_id;
   const selectedSemesterId = watchedValues.semester_id;
@@ -269,10 +293,19 @@ export function NotificationForm() {
   );
   const selectedDegreeId = selectedDepartment?.degree_id;
 
-  // Reset child fields when parent changes
-  const handleInstitutionChange = (value: string) => {
-    form.setValue('institution_id', value);
-    // Reset all child fields
+  // Reset child fields when parent changes.
+  // Toggling ANY institution invalidates the deeper hierarchy (a department id
+  // belongs to one institution), so the child levels are always cleared.
+  // Unchecking every institution returns targeting to "All institutions" —
+  // before 2026-08-04 this was a dead end: the dropdown listed only
+  // institutions, so once one was picked the only way back was "Clear All",
+  // which also wiped roles and audiences.
+  const handleInstitutionToggle = (institutionId: string, checked: boolean) => {
+    const current = form.getValues('institution_ids') || [];
+    const next = checked
+      ? [...current, institutionId]
+      : current.filter((id: string) => id !== institutionId);
+    form.setValue('institution_ids', next, { shouldValidate: true });
     form.setValue('department_id', undefined);
     form.setValue('program_id', undefined);
     form.setValue('semester_id', undefined);
@@ -305,6 +338,7 @@ export function NotificationForm() {
   };
 
   const clearAllTargeting = () => {
+    form.setValue('institution_ids', []);
     form.setValue('institution_id', undefined);
     form.setValue('department_id', undefined);
     form.setValue('program_id', undefined);
@@ -320,7 +354,7 @@ export function NotificationForm() {
 
       // Check if trying to send to all users without permission
       const isTargetingAll =
-        !data.institution_id &&
+        !(data.institution_ids && data.institution_ids.length > 0) &&
         !data.department_id &&
         !data.program_id &&
         !data.semester_id &&
@@ -368,7 +402,17 @@ export function NotificationForm() {
         expires_at: data.expires_at || undefined,
         metadata: attachmentUrls.length > 0 ? { attachments: attachmentUrls } : undefined,
         targeting: {
-          institution_id: data.institution_id || undefined,
+          institution_ids:
+            data.institution_ids && data.institution_ids.length > 0
+              ? data.institution_ids
+              : undefined,
+          // Kept for backward compatibility: older consumers (and the deeper
+          // hierarchy branches) still read the single id. Only set when exactly
+          // one institution is selected, so it can never disagree with the list.
+          institution_id:
+            data.institution_ids && data.institution_ids.length === 1
+              ? data.institution_ids[0]
+              : undefined,
           department_id: data.department_id || undefined,
           program_id: data.program_id || undefined,
           semester_id: data.semester_id || undefined,
@@ -471,11 +515,14 @@ export function NotificationForm() {
   const getTargetSummary = () => {
     const targets: string[] = [];
 
-    if (watchedValues.institution_id) {
-      const institution = institutions.find(
-        (i: any) => i.id === watchedValues.institution_id
+    if (selectedInstitutionIds.length > 0) {
+      const names = selectedInstitutionIds.map((id: string) => {
+        const institution = institutions.find((i: any) => i.id === id);
+        return institution?.name || 'Selected';
+      });
+      targets.push(
+        `${names.length === 1 ? 'Institution' : `Institutions (${names.length})`}: ${names.join(', ')}`
       );
-      targets.push(`Institution: ${institution?.name || 'Selected'}`);
     }
 
     if (watchedValues.department_id) {
@@ -714,31 +761,63 @@ export function NotificationForm() {
               <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
                 <FormField
                   control={form.control}
-                  name='institution_id'
+                  name='institution_ids'
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Institution</FormLabel>
-                      <Select
-                        onValueChange={handleInstitutionChange}
-                        value={field.value || ''}
-                        key={`inst-${field.value || 'cleared'}`}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder='All institutions' />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {institutions.map((institution: any) => (
-                            <SelectItem
-                              key={institution.id}
-                              value={institution.id}
+                    <FormItem className='md:col-span-2'>
+                      <div className='flex items-center justify-between'>
+                        <FormLabel>Institutions</FormLabel>
+                        {selectedInstitutionIds.length > 0 && (
+                          <Button
+                            type='button'
+                            variant='ghost'
+                            size='sm'
+                            className='h-auto py-0 text-xs'
+                            onClick={() => {
+                              form.setValue('institution_ids', []);
+                              form.setValue('department_id', undefined);
+                              form.setValue('program_id', undefined);
+                              form.setValue('semester_id', undefined);
+                              form.setValue('section_id', undefined);
+                            }}
+                          >
+                            Clear ({selectedInstitutionIds.length})
+                          </Button>
+                        )}
+                      </div>
+                      <p className='text-xs text-muted-foreground mb-2'>
+                        {selectedInstitutionIds.length === 0
+                          ? 'None selected = all institutions. Tick one or more to narrow (e.g. Dental + Pharmacy).'
+                          : selectedInstitutionIds.length === 1
+                            ? 'One institution selected — you can narrow further by department below.'
+                            : `${selectedInstitutionIds.length} institutions selected. Department and below are unavailable across multiple institutions — combine with Role targeting instead (e.g. Learner).`}
+                      </p>
+                      <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1'>
+                        {institutions.map((institution: any) => (
+                          <div
+                            key={institution.id}
+                            className='flex items-start gap-2 p-2 border rounded-lg hover:bg-muted/50'
+                          >
+                            <Checkbox
+                              id={`inst-${institution.id}`}
+                              checked={
+                                field.value?.includes(institution.id) || false
+                              }
+                              onCheckedChange={(checked) =>
+                                handleInstitutionToggle(
+                                  institution.id,
+                                  checked === true
+                                )
+                              }
+                            />
+                            <label
+                              htmlFor={`inst-${institution.id}`}
+                              className='text-sm font-medium cursor-pointer leading-tight'
                             >
                               {institution.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
                       <FormMessage />
                     </FormItem>
                   )}

@@ -71,6 +71,8 @@ export function drawInstitutionBanner(
 	doc: jsPDF,
 	data: {
 		institution_name?: string
+		/** Optional line under the name (e.g. CET "( An Autonomous Institution )"). */
+		institution_subtitle?: string
 		institution_accreditation?: string
 		institution_address?: string
 		logoImage?: string
@@ -80,6 +82,10 @@ export function drawInstitutionBanner(
 	y: number,
 ): number {
 	const logoSize = 18
+	const hasSubtitle = !!data.institution_subtitle
+	// Four-line CET-style banners need a slightly taller band than the classic
+	// name / accreditation / address layout.
+	const bandH = hasSubtitle ? 22 : logoSize
 
 	if (data.logoImage) {
 		try { doc.addImage(data.logoImage, detectImageFormat(data.logoImage), MARGIN, y, logoSize, logoSize) } catch {}
@@ -88,31 +94,172 @@ export function drawInstitutionBanner(
 		try { doc.addImage(data.rightLogoImage, detectImageFormat(data.rightLogoImage), pageWidth - MARGIN - logoSize, y, logoSize, logoSize) } catch {}
 	}
 
-	// Pack all three lines (name / accreditation / address) inside the 18mm logo
-	// band.  Because logos occupy only the left and right margins, centred text
-	// never overlaps them â€” so we can use fixed offsets rather than advancing y
-	// past the full logo height between each line.
-	const hasExtra = !!(data.institution_accreditation || data.institution_address)
-	const nameY = hasExtra ? y + 4 : y + 9
+	// Pack centred text inside the logo band. Logos sit only in the side
+	// margins, so fixed offsets keep lines from colliding with the marks.
+	const hasExtra = !!(data.institution_accreditation || data.institution_address || hasSubtitle)
+	const nameY = hasExtra ? y + (hasSubtitle ? 3.5 : 4) : y + 9
 	doc.setFont('times', 'bold')
-	doc.setFontSize(13)
+	doc.setFontSize(hasSubtitle ? 11 : 13)
 	doc.setTextColor(0, 0, 0)
 	doc.text(data.institution_name ?? '', pageWidth / 2, nameY, { align: 'center' })
+
+	if (data.institution_subtitle) {
+		doc.setFont('times', 'bold')
+		doc.setFontSize(8)
+		doc.text(data.institution_subtitle, pageWidth / 2, y + 8, { align: 'center' })
+	}
 
 	if (data.institution_accreditation) {
 		doc.setFont('times', 'normal')
 		doc.setFontSize(8)
-		doc.text(data.institution_accreditation, pageWidth / 2, y + 9.5, { align: 'center' })
+		doc.text(
+			data.institution_accreditation,
+			pageWidth / 2,
+			hasSubtitle ? y + 12.5 : y + 9.5,
+			{ align: 'center' },
+		)
 	}
 
 	if (data.institution_address) {
 		doc.setFont('times', 'bold')
 		doc.setFontSize(9)
-		doc.text(data.institution_address, pageWidth / 2, y + 14.5, { align: 'center' })
+		doc.text(
+			data.institution_address,
+			pageWidth / 2,
+			hasSubtitle ? y + 17 : y + 14.5,
+			{ align: 'center' },
+		)
 	}
 
-	// Advance y past the logo area for subsequent content
-	return y + logoSize + (data.institution_address ? 6 : 2)
+	// Advance y past the logo / text band for subsequent content
+	return y + bandH + (data.institution_address ? 4 : 2)
+}
+
+// --- CET printed-stationery letterhead (jsPDF port) --------------------------
+// The engineering college's BoS paperwork is printed on its own stationery:
+// green college name + "( An Autonomous Institution )", magenta trust /
+// approval / NAAC / address lines, engineering mark at the left, and a pink
+// double rule. The minutes and the call letter already render it
+// (lib/utils/bos/meeting-minutes-html-pdf.ts, lib/pdf/bos-meeting-notice.ts);
+// the TA/DA claim form was still printing the plain black banner, so the same
+// member received two documents disagreeing about the college's own name.
+//
+// Text is transcribed verbatim from those renderers -- including the "NATTRAJA"
+// double-T and "Kumarapalayam" spellings of the printed sheet, which differ
+// from institution-header.ts on purpose. Do not "fix" them here in isolation.
+//
+// Those renderers are HTML/Puppeteer and server-only, so the strings are
+// re-declared rather than imported: pulling meeting-minutes-html-pdf.ts into
+// this client-side module would drag Puppeteer into the browser bundle.
+const CET_LETTERHEAD = {
+	name: 'J.K.K.NATTRAJA COLLEGE OF ENGINEERING & TECHNOLOGY',
+	autonomous: '( An Autonomous Institution )',
+	trust: '( MANAGED BY J.K.K.RANGAMMAL CHARITABLE TRUST )',
+	lines: [
+		'(Approved by AICTE - New Delhi & Affiliated to Anna University, Chennai)',
+		'Recognized by UGC Under Section 2(f) & Accredited by NAAC',
+		'Natarajapuram, Kumarapalayam - 638 183, Namakkal Dt., Tamil Nadu.',
+	],
+}
+
+// Same institution test the minutes and call letter use, so the three documents
+// switch stationery together. Matches counselling_code "CET" / short names as
+// well as free-text "engineering|technology".
+export function isCetInstitution(name?: string | null): boolean {
+	const s = name ?? ''
+	return /\bcet\b|jkkncet|engineering|technology/i.test(s)
+}
+
+/**
+ * Draw the CET letterhead and return the y to continue at.
+ *
+ * The logo sits at the left margin while the text block stays centred on the
+ * FULL page width (mirroring the absolutely-positioned logo in the HTML
+ * version) -- that is what keeps the college name and the address each on a
+ * single line. The name is auto-shrunk if it would ever reach the logo.
+ */
+export function drawCetLetterhead(
+	doc: jsPDF,
+	data: { logoImage?: string; rightLogoImage?: string },
+	pageWidth: number,
+	y: number,
+): number {
+	// The engineering mark is loaded into rightLogoImage by the callers; the
+	// generic trust logo is the fallback.
+	const logo = data.rightLogoImage || data.logoImage
+	const logoW = 26
+	const logoH = 19
+	const centerX = pageWidth / 2
+
+	if (logo) {
+		try {
+			doc.addImage(logo, detectImageFormat(logo), MARGIN, y + 3.5, logoW, logoH)
+		} catch {}
+	}
+
+	// College name -- green, bold. Shrink only if it would collide with the logo.
+	const nameMaxW = pageWidth - 2 * (MARGIN + logoW + 3)
+	doc.setFont('times', 'bold')
+	let nameSize = 15
+	doc.setFontSize(nameSize)
+	while (nameSize > 10 && doc.getTextWidth(CET_LETTERHEAD.name) > nameMaxW) {
+		nameSize -= 0.5
+		doc.setFontSize(nameSize)
+	}
+	doc.setTextColor(26, 122, 61)
+	doc.text(CET_LETTERHEAD.name, centerX, y + 5, { align: 'center' })
+
+	doc.setFontSize(9.5)
+	doc.text(CET_LETTERHEAD.autonomous, centerX, y + 10, { align: 'center' })
+
+	doc.setFont('times', 'normal')
+	doc.setFontSize(9)
+	doc.setTextColor(194, 24, 91)
+	doc.text(CET_LETTERHEAD.trust, centerX, y + 14.5, { align: 'center' })
+
+	doc.setFont('times', 'bold')
+	doc.setFontSize(9)
+	doc.setTextColor(176, 19, 92)
+	CET_LETTERHEAD.lines.forEach((line, i) => {
+		doc.text(line, centerX, y + 19 + i * 4, { align: 'center' })
+	})
+
+	// Pink double rule closing the letterhead.
+	const ruleY = y + 19 + CET_LETTERHEAD.lines.length * 4 - 1
+	doc.setDrawColor(224, 64, 127)
+	doc.setLineWidth(0.8)
+	doc.line(MARGIN, ruleY, pageWidth - MARGIN, ruleY)
+	doc.setLineWidth(0.3)
+	doc.line(MARGIN, ruleY + 1.4, pageWidth - MARGIN, ruleY + 1.4)
+
+	// Restore the defaults the rest of the document draws with -- jsPDF state is
+	// global, and leaving pink/green set here bleeds into the tables below.
+	doc.setTextColor(0, 0, 0)
+	doc.setDrawColor(0, 0, 0)
+	doc.setLineWidth(0.2)
+
+	return ruleY + 5
+}
+
+/**
+ * Header for the BoS TA/DA claim form: CET's printed stationery for the
+ * engineering college, the shared plain banner for every other institution.
+ */
+export function drawBosClaimHeader(
+	doc: jsPDF,
+	data: {
+		institution_name?: string
+		institution_accreditation?: string
+		institution_address?: string
+		logoImage?: string
+		rightLogoImage?: string
+	},
+	pageWidth: number,
+	y: number,
+): number {
+	return isCetInstitution(data.institution_name)
+		? drawCetLetterhead(doc, data, pageWidth, y)
+		: drawInstitutionBanner(doc, data, pageWidth, y)
 }
 
 /**
@@ -553,7 +700,7 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 	let currentY = MARGIN
 
 	// â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-	currentY = drawInstitutionBanner(doc, data, pageWidth, currentY)
+	currentY = drawBosClaimHeader(doc, data, pageWidth, currentY)
 
 	// â”€â”€ Form title line â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 	currentY += 2
@@ -571,6 +718,13 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 	currentY += 7
 
 	// â”€â”€ Particulars table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+	// CET's printed claim form calls the fixed per-meeting component a "Sitting
+	// Fee"; the other colleges' forms say "Honorarium". Label only -- the amount,
+	// the field it reads from, and the total are unchanged.
+	const honorariumLabel = isCetInstitution(data.institution_name)
+		? 'Amount: Sitting Fee'
+		: 'Amount: Honorarium'
+
 	const particulars: [string, string][] = [
 		['Name of the BOS Member', data.member_name],
 		['Designation', data.designation ?? ''],
@@ -578,7 +732,7 @@ export function generateBosClaimPDF(data: BosClaimPDFData): string {
 		[`Position in ${councilName}`, data.position_in_bos ?? ''],
 		['Mobile No', data.mobile ?? ''],
 		['Mail id', data.email ?? ''],
-		['Amount: Honorarium', `Rs.${data.honorarium.toFixed(2)}`],
+		[honorariumLabel, `Rs.${data.honorarium.toFixed(2)}`],
 		['Amount: TA', `Rs.${data.ta_amount.toFixed(2)}`],
 		['Amount: Total', `Rs.${data.total.toFixed(2)}`],
 		['Total Amount in Words', amountToWords(data.total)],
@@ -929,6 +1083,8 @@ export function generateCourseSchemeReportPDF(data: CourseSchemeReportData): str
 
 export interface BosAttendanceCertificateData {
 	institution_name: string
+	/** Line under the name — CET uses "( An Autonomous Institution )". */
+	institution_subtitle?: string
 	institution_address?: string
 	institution_accreditation?: string
 	logoImage?: string

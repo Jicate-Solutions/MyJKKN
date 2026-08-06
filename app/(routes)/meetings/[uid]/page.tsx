@@ -34,6 +34,7 @@ import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 import { CancelBookingButton } from './_components/cancel-booking-button';
+import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
@@ -312,11 +313,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Actions</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              <RescheduleBookingButton uid={booking.uid} />
               <CancelBookingButton uid={booking.uid} />
-              <p className="mt-2 text-xs text-muted-foreground">
-                To reschedule, cancel this booking and share your booking link again.
-              </p>
             </CardContent>
           </Card>
         ) : null}

@@ -46,6 +46,16 @@
 // for every write. A permissive row policy would have been the wrong fix: RLS
 // restricts rows and cannot restrict columns, so it would also have let an owner
 // rewrite owner_user_id and hand their accountability to somebody else.
+//
+// Accept/Decline must exist at BOTH levels. The first version rendered them only
+// in the body-owner table, so every metric-level exception — and every row the
+// "assign a whole category" control writes — landed as pending with no button
+// anywhere to answer it: the same unreachable-button dead end one level down.
+// The pair therefore also renders on an EXPLICIT metric row addressed to the
+// signed-in person, and never on an inherited one (whose row is the body row,
+// already answerable above). "Assigned to me" exists for the same reason — a
+// pending row counts as owned and so vanishes from the 'unassigned' view the
+// page opens on.
 // ============================================================================
 
 'use client';
@@ -97,6 +107,9 @@ import {
   categoriesForBody,
   bodyCodes as listBodyCodes,
   ownerSourceLabel,
+  canAnswerAssignment,
+  isAssignedTo,
+  shouldSkipAssign,
   type OwnerRow,
   type FrameworkMetric,
   type ResolvedOwner,
@@ -193,9 +206,32 @@ function useInstitutions() {
     queryKey: ['institutions', 'owner-desk'],
     queryFn: async (): Promise<InstitutionRow[]> => {
       const sb = createClientSupabaseClient() as any;
+
+      // `institutions` carries a blanket `institutions_select USING (true)`
+      // policy, so reading the table directly offers EVERY campus to everyone —
+      // including a strictly own-scoped HOD. That is not a data leak (the owner
+      // rows themselves are correctly scoped by accred_metric_owners_select),
+      // and that is exactly what makes it dangerous: picking another campus
+      // returns 0 rows silently, so the page renders "nobody named" about a
+      // college that may have every owner assigned. A denied read must never
+      // render as a factual claim.
+      //
+      // `_user_accessible_institutions()` is the existing helper for this —
+      // STABLE SECURITY DEFINER, takes no argument so the caller is derived
+      // from auth.uid() rather than supplied, and returns exactly the ids where
+      // role_has_institution_access() holds.
+      const { data: allowedIds, error: allowedError } = await sb.rpc(
+        '_user_accessible_institutions',
+      );
+      if (allowedError) throw allowedError;
+
+      const ids = (allowedIds ?? []) as string[];
+      if (ids.length === 0) return [];
+
       const { data, error } = await sb
         .from('institutions')
         .select('id, name')
+        .in('id', ids)
         .order('name');
       if (error) throw error;
       return (data ?? []) as InstitutionRow[];
@@ -376,12 +412,24 @@ export default function AccreditationOwnersPage() {
   const canManage = isSuperAdmin || can('accreditation.naac.narrative.manage');
   const canView = canManage || can('accreditation.naac.narrative.view');
 
+  // profiles.id IS auth.users.id, so this is the same identity the RPC derives
+  // from auth.uid() and the same one accreditation_metric_owners.owner_user_id
+  // stores. Compared here because RLS cannot express "the row's own owner" for
+  // rendering purposes — only the function enforces it on the write.
+  const currentUserId = (userProfile?.id as string | undefined) ?? null;
+
   const [institutionId, setInstitutionId] = useState<string | null>(null);
   const [bodyFilter, setBodyFilter] = useState<string>('all');
   // 107 of 107 are unowned, so the gap IS the page — open on it.
-  const [showFilter, setShowFilter] = useState<'unassigned' | 'all' | 'assigned'>(
-    'unassigned',
-  );
+  //
+  // 'mine' exists because the default hides the rows that most need answering.
+  // A metric-level assignment lands as PENDING, and pending counts as owned, so
+  // it drops straight out of the 'unassigned' view the page opens on. Without a
+  // way to ask "what is addressed to me", the named owner would have to switch
+  // to 'assigned' and scan 107 rows for their own name.
+  const [showFilter, setShowFilter] = useState<
+    'unassigned' | 'all' | 'assigned' | 'mine'
+  >('unassigned');
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const { data: institutions } = useInstitutions();
@@ -393,6 +441,19 @@ export default function AccreditationOwnersPage() {
     (userProfile as any)?.institution_id ??
     institutions?.[0]?.id ??
     null;
+
+  // Second half of the same guard. The picker above now only offers campuses
+  // this viewer may read, but `institutionId` also arrives from state a user
+  // can reach directly. If the selected campus is not one they may read, the
+  // owner query returns 0 rows with error === null (RLS denial is silent), and
+  // the page would state "nobody named" about a college it cannot actually see.
+  // Say so instead. `institutions === undefined` means still loading — not a
+  // denial — so only judge once the list has resolved.
+  const campusOutOfScope =
+    Array.isArray(institutions) &&
+    institutions.length > 0 &&
+    activeInstitution != null &&
+    !institutions.some((i) => i.id === activeInstitution);
 
   const { data: ownerRows, isLoading: ownersLoading } =
     useOwnerRows(activeInstitution);
@@ -474,7 +535,10 @@ export default function AccreditationOwnersPage() {
         r.metric_code === metricCode &&
         r.programme_id === null,
     );
-    if (existing?.owner_user_id === nextOwnerId) return;
+    if (shouldSkipAssign(existing, nextOwnerId)) return;
+    // Past the guard, this is only true for a DECLINED row being re-sent to the
+    // same person — a re-ask, not a move.
+    const sameOwner = existing?.owner_user_id === nextOwnerId;
 
     setSavingKey(key);
     try {
@@ -491,8 +555,17 @@ export default function AccreditationOwnersPage() {
             assignment_status: 'pending',
             acknowledged_at: null,
             acknowledged_by: null,
-            previous_owner_user_id: existing?.owner_user_id ?? null,
-            owner_changed_at: existing ? new Date().toISOString() : null,
+            // History records a MOVE. Re-sending a declined assignment to the
+            // same person is not one, and stamping it would render
+            // "moved from <the person who still holds it>".
+            previous_owner_user_id: sameOwner
+              ? (existing?.previous_owner_user_id ?? null)
+              : (existing?.owner_user_id ?? null),
+            owner_changed_at: sameOwner
+              ? (existing?.owner_changed_at ?? null)
+              : existing
+                ? new Date().toISOString()
+                : null,
             created_by: userProfile?.id ?? null,
           },
           { onConflict: ON_CONFLICT },
@@ -678,9 +751,13 @@ export default function AccreditationOwnersPage() {
         if (!owner) return false;
         if (showFilter === 'unassigned') return !owner.isOwned;
         if (showFilter === 'assigned') return owner.isOwned;
+        // Everything the signed-in person is named on, inherited included — a
+        // declined row stays in view because it is still addressed to them and
+        // is exactly the thing they may want to revisit.
+        if (showFilter === 'mine') return isAssignedTo(owner, currentUserId);
         return true;
       });
-  }, [metrics, resolved, bodyFilter, showFilter]);
+  }, [metrics, resolved, bodyFilter, showFilter, currentUserId]);
 
   /** Categories offered for bulk assignment, only for a single chosen body. */
   const bulkCategories = useMemo(
@@ -747,6 +824,20 @@ export default function AccreditationOwnersPage() {
               />
             </div>
 
+            {campusOutOfScope ? (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
+                <div className="font-medium">
+                  This campus is outside your access
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  You can only read accreditation ownership for the campuses
+                  your role covers, so nothing is shown here. This is not a
+                  statement that the campus has no owners — it means this page
+                  cannot see them. Ask a super admin for access to this campus
+                  if you need it.
+                </p>
+              </div>
+            ) : (
             <div className="rounded-lg border bg-card p-4">
               <div className="text-sm text-muted-foreground">Owners set</div>
               <div className="text-3xl font-bold">
@@ -767,10 +858,11 @@ export default function AccreditationOwnersPage() {
                 </span>
               </div>
             </div>
+            )}
 
             {/* Per-body breakdown */}
             <div className="flex flex-wrap gap-2">
-              {byBody.map((b) => (
+              {(campusOutOfScope ? [] : byBody).map((b) => (
                 <Badge
                   key={b.bodyCode}
                   variant="outline"
@@ -988,6 +1080,7 @@ export default function AccreditationOwnersPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Nobody named</SelectItem>
+                  <SelectItem value="mine">Assigned to me</SelectItem>
                   <SelectItem value="assigned">Has an owner</SelectItem>
                   <SelectItem value="all">All metrics</SelectItem>
                 </SelectContent>
@@ -1067,7 +1160,9 @@ export default function AccreditationOwnersPage() {
                 <p className="text-sm">
                   {showFilter === 'unassigned'
                     ? 'Every metric in view has someone accountable.'
-                    : 'No metrics match these filters.'}
+                    : showFilter === 'mine'
+                      ? 'No metric in view is assigned to you.'
+                      : 'No metrics match these filters.'}
                 </p>
               </div>
             ) : (
@@ -1091,6 +1186,11 @@ export default function AccreditationOwnersPage() {
                         ownerOptions={ownerOptions}
                         personLabel={personLabel}
                         canManage={canManage}
+                        currentUserId={currentUserId}
+                        ackBusy={
+                          !!owner?.row && savingKey === `ack::${owner.row.id}`
+                        }
+                        onAcknowledge={acknowledge}
                         busy={
                           savingKey === `${metric.metric_type}::${metric.metric_code}`
                         }
@@ -1134,6 +1234,9 @@ function MetricRow({
   personLabel,
   busy,
   canManage,
+  currentUserId,
+  ackBusy,
+  onAcknowledge,
   onAssign,
 }: {
   metric: FrameworkMetric;
@@ -1142,9 +1245,16 @@ function MetricRow({
   personLabel: (id: string | null) => string;
   busy: boolean;
   canManage: boolean;
+  currentUserId: string | null;
+  ackBusy: boolean;
+  onAcknowledge: (row: OwnerRow, decision: 'confirmed' | 'declined') => void;
   onAssign: (value: string) => void;
 }) {
   const inherited = owner.source === 'inherited';
+  // The same rule the body table applies, one level down. See
+  // canAnswerAssignment for why inherited rows are deliberately excluded.
+  const canAnswer = canAnswerAssignment(owner, currentUserId);
+
   return (
     <TableRow className="hover:bg-muted/40">
       <TableCell>
@@ -1173,7 +1283,33 @@ function MetricRow({
         )}
       </TableCell>
       <TableCell>
-        <StatusBadge status={owner.status} />
+        <div className="flex flex-col items-start gap-1.5">
+          <StatusBadge status={owner.status} />
+          {canAnswer && (
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 px-2"
+                disabled={ackBusy}
+                onClick={() => onAcknowledge(owner.row!, 'confirmed')}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Accept
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1 px-2"
+                disabled={ackBusy}
+                onClick={() => onAcknowledge(owner.row!, 'declined')}
+              >
+                <X className="h-3.5 w-3.5" />
+                Decline
+              </Button>
+            </div>
+          )}
+        </div>
       </TableCell>
       <TableCell>
         <div className="flex items-center gap-2">

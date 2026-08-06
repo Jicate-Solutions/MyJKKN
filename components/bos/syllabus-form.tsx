@@ -44,8 +44,14 @@ import {
   PharmacyInternshipCard,
 } from '@/components/bos/syllabus-pharmacy-tabs';
 import {
+  NursingWorkloadCard,
+  NursingClinicalOutlineCard,
+  NursingCompetencyMappingCard,
+} from '@/components/bos/syllabus-nursing-tabs';
+import {
   resolveAcademicModel,
   isPharmacyModel,
+  isNursingModel,
   modelHasOutcomes,
 } from '@/lib/services/bos/academic-model';
 import type { AcademicModel } from '@/types/bos';
@@ -349,6 +355,10 @@ export function SyllabusForm({
   const isPharmacy = isPharmacyModel(academicModel);
   const isBPharm = academicModel === 'pci_pharm';
   const isPharmD = academicModel === 'mgr_pharmd';
+  // Nursing (INC B.Sc Nursing): competency-based, no CO-PO/PSO/Bloom. Keeps a
+  // "Competencies" tab (the CLO editor, relabelled) but replaces PO Mappings +
+  // Pedagogy + Objectives with Clinical Outline + Competency Mapping.
+  const isNursing = isNursingModel(academicModel);
   // Pharmacy models carry no CO/PO/PSO/Bloom — hide those tabs entirely.
   const showOutcomeTabs = modelHasOutcomes(academicModel);
 
@@ -360,6 +370,19 @@ export function SyllabusForm({
       setActiveTab('content');
     }
   }, [isPharmacy, activeTab]);
+
+  // Nursing hides objectives/pedagogy/mappings; bounce off them if parked there.
+  useEffect(() => {
+    if (isNursing && ['objectives', 'pedagogy', 'mappings'].includes(activeTab)) {
+      setActiveTab('content');
+    }
+  }, [isNursing, activeTab]);
+
+  // CO ids for the competency-mapping tab (from the Competencies/CLO list).
+  const nursingCoIds = useMemo(() => {
+    const clos = (formData.course_learning_outcomes as { clos?: { clo_number: number }[] } | undefined)?.clos ?? [];
+    return clos.map((c) => `CO${c.clo_number}`);
+  }, [formData.course_learning_outcomes]);
 
   // Update mutation's ID when we get one from creation
   const currentSyllabusId = syllabusId || formData.id;
@@ -1044,19 +1067,27 @@ export function SyllabusForm({
         {!compact && (
           <TabsList
             className={`grid w-full ${
-              isPharmacy ? 'grid-cols-6' : isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'
+              isNursing ? 'grid-cols-6' : isPharmacy ? 'grid-cols-6' : isFinksBoard ? 'grid-cols-9' : 'grid-cols-7'
             }`}
           >
             <TabsTrigger value="basic">Basic Info</TabsTrigger>
             {/* B.Pharm carries a "Scope" paragraph before Objectives. */}
             {isBPharm && <TabsTrigger value="scope">Scope</TabsTrigger>}
-            <TabsTrigger value="objectives">Objectives</TabsTrigger>
-            {/* Outcome tabs (CO/PO/PSO, Pedagogy) — Anna models only; pharmacy has none. */}
-            {showOutcomeTabs && <TabsTrigger value="clo">Course Outcomes</TabsTrigger>}
+            {/* Nursing folds the DESCRIPTION into Basic Info — no Objectives tab. */}
+            {!isNursing && <TabsTrigger value="objectives">Objectives</TabsTrigger>}
+            {/* Outcome tabs (CO/PO/PSO, Pedagogy) — Anna models only; pharmacy has none.
+                Nursing keeps the CLO editor, relabelled "Competencies". */}
+            {(showOutcomeTabs || isNursing) && (
+              <TabsTrigger value="clo">{isNursing ? 'Competencies' : 'Course Outcomes'}</TabsTrigger>
+            )}
             <TabsTrigger value="content">{isPharmD ? 'Lecture Topics' : 'Content'}</TabsTrigger>
+            {/* Nursing clinical outline + skill-lab practicum. */}
+            {isNursing && <TabsTrigger value="clinical">Clinical</TabsTrigger>}
             <TabsTrigger value="resources">Resources</TabsTrigger>
             {showOutcomeTabs && <TabsTrigger value="pedagogy">Pedagogy</TabsTrigger>}
             {showOutcomeTabs && <TabsTrigger value="mappings">PO Mappings</TabsTrigger>}
+            {/* Nursing maps outcomes to the 10 INC core competencies (no PO/PSO). */}
+            {isNursing && <TabsTrigger value="competency">Competency Map</TabsTrigger>}
             {/* Pharmacy exam scheme (PCI / Dr. MGR) replaces the outcome mapping. */}
             {isPharmacy && <TabsTrigger value="exam">Exam Scheme</TabsTrigger>}
             {/* Pharm.D 6th-year internship postings. */}
@@ -1130,6 +1161,25 @@ export function SyllabusForm({
             <PharmacyInternshipCard
               value={formData.internship_postings}
               onChange={(v) => updateField('internship_postings', v)}
+            />
+          </TabsContent>
+        )}
+
+        {/* ── Nursing (CNR / INC B.Sc Nursing) tabs ── */}
+        {isNursing && (
+          <TabsContent value="clinical" className="space-y-4">
+            <NursingClinicalOutlineCard
+              value={formData.clinical_outline}
+              onChange={(v) => updateField('clinical_outline', v)}
+            />
+          </TabsContent>
+        )}
+        {isNursing && (
+          <TabsContent value="competency" className="space-y-4">
+            <NursingCompetencyMappingCard
+              value={formData.competency_mappings}
+              onChange={(v) => updateField('competency_mappings', v)}
+              coIds={nursingCoIds}
             />
           </TabsContent>
         )}
@@ -1462,6 +1512,24 @@ export function SyllabusForm({
                   placeholder="e.g., Engineering, Pharmacy"
                 />
               </div>
+              {/* Nursing (INC): DESCRIPTION paragraph + Theory/Lab/Clinical workload. */}
+              {isNursing && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Description</label>
+                    <Textarea
+                      value={formData.course_description || ''}
+                      onChange={(e) => updateField('course_description', e.target.value)}
+                      placeholder="The course is designed to…"
+                      rows={4}
+                    />
+                  </div>
+                  <NursingWorkloadCard
+                    value={formData.nursing_workload}
+                    onChange={(v) => updateField('nursing_workload', v)}
+                  />
+                </>
+              )}
               {/* NAAC-2024 coverage tags — counted live for metrics 1.4 / 1.6 */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">

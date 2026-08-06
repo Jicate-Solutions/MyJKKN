@@ -22,9 +22,16 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
-/** Columns a requester may propose. Mirrors the SET list in the SQL function. */
+/**
+ * Columns a requester may propose. Mirrors the SET list in the SQL function.
+ *
+ * `code` is NOT here: since 20260804120000 item codes are generated from the
+ * institution's sequence and are immutable. It was removed from the RPC's SET
+ * list in the same migration — both were needed, because dropping it only here
+ * would still let a request crafted by hand rewrite a generated code.
+ */
 export const PROPOSABLE_ITEM_FIELDS = [
-  'code', 'name', 'description', 'company_name', 'brand',
+  'name', 'description', 'company_name', 'brand',
   'category_id', 'item_type',
   'base_unit_id', 'purchase_unit_id', 'sale_unit_id', 'indent_unit_id',
   'cost_price', 'mrp', 'selling_price', 'gst_rate', 'hsn_code',
@@ -36,7 +43,12 @@ export const PROPOSABLE_ITEM_FIELDS = [
 
 export type ProposableItemField = (typeof PROPOSABLE_ITEM_FIELDS)[number];
 
-/** Human labels for the approver's diff. */
+/**
+ * Human labels for the approver's diff. Keyed by column, not by
+ * PROPOSABLE_ITEM_FIELDS — `code` stays listed so a request raised before
+ * 20260804120000 still renders a readable label instead of a bare column name.
+ * The RPC will no longer apply it.
+ */
 export const ITEM_FIELD_LABELS: Record<string, string> = {
   code: 'Item code',
   name: 'Name',
