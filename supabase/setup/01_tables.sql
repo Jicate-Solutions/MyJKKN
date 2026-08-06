@@ -3457,7 +3457,12 @@ CREATE TABLE IF NOT EXISTS public.events (
   venue_coordinates JSONB,  -- {lat, lng}
 
   -- Audit
-  created_by UUID REFERENCES public.profiles(id),
+  -- created_by is also the OWNER: the only non-super-admin who may edit the row
+  -- (events_auth_update). The default is what makes that model work — there are
+  -- four insert paths (wizard, tournament, marathon, induction) and none of them
+  -- set it explicitly. NULL on pre-2026-08-06 rows and on service-role inserts,
+  -- both of which fall back to the old same-institution rule.
+  created_by UUID REFERENCES public.profiles(id) DEFAULT auth.uid(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

@@ -27147,3 +27147,104 @@ COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jso
 
 REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
+
+-- ============================================================================
+-- Events Hub — delete gate (2026-08-06)
+-- See supabase/migrations/20260806_events_delete_permission_gate.sql
+-- ============================================================================
+
+-- What deleting an event would cascade away. SECURITY DEFINER because both
+-- child tables are RLS-gated: a caller who cannot see the registrations would
+-- otherwise count 0 and be told the delete is safe — a false negative on the
+-- one check that exists to prevent data loss. Self-authorizes for the same
+-- reason: callable by `authenticated` is not the same as authorized.
+CREATE OR REPLACE FUNCTION public.fn_event_delete_blockers(p_event_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_institution_id uuid;
+  v_found          boolean;
+  v_registrations  integer;
+  v_payments       integer;
+BEGIN
+  SELECT e.institution_id, true
+    INTO v_institution_id, v_found
+    FROM public.events e
+   WHERE e.id = p_event_id;
+
+  IF NOT COALESCE(v_found, false) THEN
+    RAISE EXCEPTION 'Event % not found', p_event_id USING ERRCODE = 'P0002';
+  END IF;
+
+  IF NOT (
+    public.user_has_permission('events.delete')
+    AND public.role_has_institution_access(v_institution_id)
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to delete this event' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT count(*) INTO v_registrations
+    FROM public.events_registrations r WHERE r.event_id = p_event_id;
+
+  SELECT count(*) INTO v_payments
+    FROM public.event_payment_transactions t WHERE t.event_id = p_event_id;
+
+  RETURN jsonb_build_object(
+    'registrations', v_registrations,
+    'payments',      v_payments,
+    'blocked',       (v_registrations > 0 OR v_payments > 0)
+  );
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_event_delete_blockers(uuid) IS
+  'Events Hub delete pre-check. Returns {registrations, payments, blocked} past RLS; self-authorizes on events.delete + institution access.';
+
+REVOKE ALL ON FUNCTION public.fn_event_delete_blockers(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_event_delete_blockers(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_event_delete_blockers(uuid) TO authenticated;
+
+-- Trigger body for trg_events_block_delete_with_dependents (see 04_triggers.sql).
+-- SECURITY DEFINER for the same reason as above: an RLS-filtered count here
+-- would return 0 for the very callers this exists to stop, and the guard would
+-- pass while destroying rows it could not see.
+CREATE OR REPLACE FUNCTION public.fn_events_block_delete_with_dependents()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_registrations integer;
+  v_payments      integer;
+BEGIN
+  SELECT count(*) INTO v_registrations
+    FROM public.events_registrations r WHERE r.event_id = OLD.id;
+
+  SELECT count(*) INTO v_payments
+    FROM public.event_payment_transactions t WHERE t.event_id = OLD.id;
+
+  IF v_registrations > 0 OR v_payments > 0 THEN
+    RAISE EXCEPTION
+      'Cannot delete event "%": % registration(s) and % payment transaction(s) would be permanently destroyed by ON DELETE CASCADE. Remove or refund them first, or move the event to Draft to take it out of circulation.',
+      OLD.name, v_registrations, v_payments
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN OLD;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_events_block_delete_with_dependents() IS
+  'Refuses DELETE on an event holding registrations or payment transactions - those cascade away irreversibly. Enforced here so PostgREST cannot bypass it.';
+
+-- No EXECUTE grants: a trigger function must not be reachable at /rest/v1/rpc/.
+-- Postgres checks EXECUTE at CREATE TRIGGER time, not at fire time, so this does
+-- not disarm the guard.
+REVOKE ALL ON FUNCTION public.fn_events_block_delete_with_dependents() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_events_block_delete_with_dependents() FROM anon;
+REVOKE ALL ON FUNCTION public.fn_events_block_delete_with_dependents() FROM authenticated;
