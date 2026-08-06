@@ -385,7 +385,7 @@
     },
     {
       "path": "/api/cron/aipulse-domain-starter-notify?secret=${CRON_SECRET}",
-      "schedule": "0 15-23 * * 4"
+      "schedule": "0 14-23 * * 4"
     },
     {
       "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",
