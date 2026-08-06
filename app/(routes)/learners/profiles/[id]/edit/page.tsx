@@ -127,9 +127,10 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
               'accommodation-preferences',
             ]}
             // Existing learners: any department stays selectable and the stored
-            // semester is left alone. The first-year => Science & Humanities +
-            // Freshers rules belong to admission capture, and applying them here
-            // hid real departments and overwrote real semesters.
+            // semester is left alone. The first-year => Science & Humanities
+            // rule belongs to admission capture, and applying it here hid real
+            // departments and overwrote real semesters (it also forced the
+            // Freshers holding pen, removed entirely on 2026-08-05).
             enforceAdmissionRules={false}
             // Two explicit choices on every step, nothing else:
             //   "Save & Next"      — commit this step, advance to the next tab

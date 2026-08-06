@@ -5,7 +5,8 @@
  * Director's four decisions exist as enforceable rules rather than as prose in a
  * document. The tests below check the rules, not the rendering:
  *
- *   - the catalog still matches the source document (6 categories, 48 metrics);
+ *   - the catalog still matches the source document (6 categories, 48 CEO
+ *     metrics — a row JKKN adds must mark itself and cannot dilute that count);
  *   - nothing can quietly acquire a score, a weight or a total;
  *   - every metric states where its number comes from or why there is none;
  *   - the three institution groups keep every institution and lose none.
@@ -44,8 +45,23 @@ describe('CAC metric catalog — fidelity to the CEO document', () => {
     ]);
   });
 
-  it('carries 48 leaf metrics', () => {
-    expect(allMetrics()).toHaveLength(48);
+  it('carries the document\'s 48 leaf metrics, and counts them separately from anything JKKN adds', () => {
+    // The count that has to stay pinned is the CEO's, not the table's. A row
+    // JKKN adds is legitimate; a row that quietly passes as the CEO's is not.
+    const ceoMetrics = allMetrics().filter((m) => !m.addedBy);
+    expect(ceoMetrics).toHaveLength(48);
+    expect(allMetrics().length).toBeGreaterThanOrEqual(ceoMetrics.length);
+  });
+
+  it('gives every JKKN-added row a label the reader can see is not the CEO\'s', () => {
+    // `parent` is the only field printed beside the label, so it is where the
+    // distinction has to live — a marker visible only to this test would leave
+    // the screen still showing an invented quotation.
+    for (const metric of allMetrics().filter((m) => m.addedBy)) {
+      expect(metric.addedBy).toBe('jkkn');
+      expect(metric.parent, `${metric.id} must say on screen that it is not the CEO's`)
+        .toMatch(/JKKN/);
+    }
   });
 
   it('gives every category a stated objective', () => {
@@ -97,11 +113,13 @@ describe('CAC metric catalog — the Director decisions it has to enforce', () =
     }
   });
 
-  it('counts measured and not-captured metrics to exactly 48 between them', () => {
+  it('leaves no metric out of the measured / not-captured split', () => {
     const summary = summariseCatalog();
     expect(summary.categories).toBe(6);
-    expect(summary.metrics).toBe(48);
-    expect(summary.measured + summary.notCaptured).toBe(48);
+    // Every row lands on exactly one side of the split — the page prints this
+    // total, so a row escaping the tally would be a row printed under no state.
+    expect(summary.metrics).toBe(allMetrics().length);
+    expect(summary.measured + summary.notCaptured).toBe(allMetrics().length);
     // The working slice: a minority is wired, and that is the honest position.
     expect(summary.measured).toBeGreaterThan(0);
     expect(summary.measured).toBeLessThan(summary.metrics);
@@ -139,7 +157,7 @@ describe('holistic development — outbound learner participation', () => {
     // Broadening the evidence must not become "add a metric". The document has
     // 48 leaf metrics, these two carry the document's own wording, and the ids
     // are the keys fn_cac_measured_metrics returns — all three are fixed.
-    expect(allMetrics()).toHaveLength(48);
+    expect(allMetrics().filter((m) => !m.addedBy)).toHaveLength(48);
     expect(sports().ceoLabel).toBe('Sports');
     expect(cultural().ceoLabel).toBe('Cultural Activities');
     expect(sports().parent).toBe('Holistic Development');
@@ -201,6 +219,79 @@ describe('holistic development — outbound learner participation', () => {
     expect(cultural().substrate).toBe('measured');
     expect(sports().evidence).toContain('events_registrations');
     expect(cultural().evidence).toContain('events_registrations');
+  });
+});
+
+describe('interdisciplinary work — teaching and research are two different gaps', () => {
+  const bestPractices = () =>
+    allMetrics().filter((m) => m.parent === 'Best Practices');
+  const research = () =>
+    CAC_METRIC_CATALOG.find((c) => c.title === 'Research & Collaboration')!;
+  const researchInterdisciplinary = () =>
+    research().metrics.find((m) => m.id === 'research-interdisciplinary')!;
+
+  it('measures interdisciplinary work as a teaching practice exactly once', () => {
+    // The CEO's single line pairs "interdisciplinary" with "multidisciplinary".
+    // If a second Best Practices row ever picks up the same word the two would
+    // be reported as independent findings about one thing.
+    const named = bestPractices().filter((m) => /interdisciplin/i.test(m.ceoLabel));
+    expect(named).toHaveLength(1);
+    expect(named[0].id).toBe('bp-interdisciplinary');
+    expect(named[0].ceoLabel).toMatch(/multidisciplin/i);
+  });
+
+  it('says on that row that it is about teaching and not research', () => {
+    // The bug: a reader saw "Interdisciplinary & Multidisciplinary Learning"
+    // present in the catalog and concluded interdisciplinary work was covered.
+    // Nothing on the row said which half of it was meant.
+    const bp = allMetrics().find((m) => m.id === 'bp-interdisciplinary')!;
+    expect(bp.evidence).toMatch(/research/i);
+    expect(bp.parent).toBe('Best Practices');
+  });
+
+  it('measures interdisciplinary research under Research & Collaboration', () => {
+    // Filed by category membership, not by reading a label — this is the
+    // re-filing the fix exists to make, so the test has to check the location.
+    expect(researchInterdisciplinary()).toBeDefined();
+    expect(bestPractices().map((m) => m.id)).not.toContain('research-interdisciplinary');
+  });
+
+  it('does not call a derivable dimension unbuildable', () => {
+    // The whole point. `no-substrate` tells a reader they face an engineering
+    // gap; here the tables exist and are empty, which is a data-entry gap. The
+    // two demand different work from different people, and the second locked
+    // decision exists so the screen can tell them apart.
+    const metric = researchInterdisciplinary();
+    expect(metric.substrate).not.toBe('no-substrate');
+    expect(metric.substrate).toBe('awaiting-entry');
+    // Not `cluster-only` either: sh_publications carries institution_id, so a
+    // per-institution figure is possible once a row exists.
+    expect(metric.scope).toBe('college');
+  });
+
+  it('names the two tables the figure would be derived from', () => {
+    // An "awaiting-entry" claim is only checkable if the row says what it is
+    // waiting on. Without the table names a reader cannot confirm the substrate
+    // exists, and the state degrades into an unfalsifiable reassurance.
+    const evidence = researchInterdisciplinary().evidence;
+    expect(evidence).toContain('sh_publications');
+    expect(evidence).toContain('sh_publication_contributors');
+    // A dated observation, per the file's counting rule for empty tables.
+    expect(evidence).toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('keeps every id unique once the research row is added', () => {
+    const ids = allMetrics().map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('research-interdisciplinary');
+    expect(ids).toContain('bp-interdisciplinary');
+  });
+
+  it('carries no score on the added row either', () => {
+    // Decision 1 applies to a JKKN addition exactly as it does to a CEO line.
+    for (const key of ['weight', 'weightage', 'score', 'marks', 'ceiling']) {
+      expect(researchInterdisciplinary()).not.toHaveProperty(key);
+    }
   });
 });
 

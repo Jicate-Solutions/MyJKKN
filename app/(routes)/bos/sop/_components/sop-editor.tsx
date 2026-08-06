@@ -34,6 +34,7 @@ import Typography from '@tiptap/extension-typography';
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
 
 import type { SopDocContent } from '@/types/bos-sop';
+import { FontSize } from '@/lib/sop/font-size';
 import {
   tamil99Lookup,
   transliteratePhonetic,
@@ -84,6 +85,9 @@ export function SopEditor(props: SopEditorProps) {
       TextStyle,
       Color,
       FontFamily,
+      // Local extension — Tiptap ships no font-size package; without it the
+      // ribbon's size dropdown writes an attribute the schema would drop.
+      FontSize,
       Highlight.configure({ multicolor: true }),
       Image,
       Table.configure({ resizable: true }),

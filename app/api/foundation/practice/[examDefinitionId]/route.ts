@@ -24,8 +24,21 @@ const UUID_RE =
 
 const DEFAULT_QUESTION_COUNT = 10;
 
+/** Mirrors fn_fp_recompute_weakness's own fallback for the same policy key. */
+const DEFAULT_FLAG_THRESHOLD = 2;
+
+/** Fisher-Yates, returning a new array. */
+function shuffle<T>(input: T[]): T[] {
+  const out = [...input];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ examDefinitionId: string }> },
 ) {
   await connection();
@@ -46,16 +59,72 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Identity through RLS: fp_students only yields the caller's own row.
-    const { data: learner } = await (supabase as any)
-      .from('fp_students')
-      .select('id, status')
-      .eq('profile_id', user.id)
-      .maybeSingle();
+    // ---- Whose run is this? -------------------------------------------------
+    // Without ?forLearner, the caller is answering as themself and identity comes
+    // from RLS: fp_students only ever yields the row whose profile_id is the
+    // caller. That policy, not this code, is the boundary.
+    //
+    // With ?forLearner, somebody is running a session for a child who holds no
+    // account. The id in the query string is a CLAIM and is treated as one: it
+    // is checked against the database before it is used, using the same two
+    // predicates fn_fp_record_attempt itself will apply at submit time. Checking
+    // the identical pair matters — a looser check here would draw questions for
+    // a learner whose answers the RPC would then refuse to save, stranding the
+    // session at the last click.
+    // `new URL(request.url)` rather than `request.nextUrl`, matching the sibling
+    // results route: the query string is all that is needed and this works on a
+    // plain Request, which is what the tests construct.
+    const forLearner = new URL(request.url).searchParams.get('forLearner');
+    let learner: { id: string; status: string } | null = null;
+
+    if (forLearner) {
+      if (!UUID_RE.test(forLearner)) {
+        return NextResponse.json(
+          { error: 'forLearner must be a uuid' },
+          { status: 400 },
+        );
+      }
+
+      // Both RPCs resolve against auth.uid() internally, so a forged id cannot
+      // widen anything: fn_fp_teaches_student is
+      // fp_cohorts.resource_person_id = auth.uid() for a cohort THIS learner is
+      // enrolled in, and fn_fp_can_manage_student covers the school's owner.
+      const [{ data: teaches }, { data: manages }] = await Promise.all([
+        (supabase as any).rpc('fn_fp_teaches_student', { p_student_id: forLearner }),
+        (supabase as any).rpc('fn_fp_can_manage_student', { p_student_id: forLearner }),
+      ]);
+
+      if (teaches !== true && manages !== true) {
+        return NextResponse.json(
+          { error: 'You do not run a session for this learner.' },
+          { status: 403 },
+        );
+      }
+
+      // Read through the SESSION client even though authorisation has already
+      // passed, so RLS stays the last word rather than being bypassed here.
+      const { data: row } = await (supabase as any)
+        .from('fp_students')
+        .select('id, status')
+        .eq('id', forLearner)
+        .maybeSingle();
+      learner = row ?? null;
+    } else {
+      const { data: row } = await (supabase as any)
+        .from('fp_students')
+        .select('id, status')
+        .eq('profile_id', user.id)
+        .maybeSingle();
+      learner = row ?? null;
+    }
 
     if (!learner || learner.status !== 'active') {
       return NextResponse.json(
-        { error: 'You are not enrolled on the Foundation programme.' },
+        {
+          error: forLearner
+            ? 'That learner is not active on the Foundation programme.'
+            : 'You are not enrolled on the Foundation programme.',
+        },
         { status: 403 },
       );
     }
@@ -108,25 +177,91 @@ export async function GET(
       );
     }
 
-    // Fisher-Yates over the candidate set, then take the first N. Shuffling in
-    // the app rather than ORDER BY random() keeps this to one query, and the
-    // candidate set is small by construction (one exam's active bank).
-    const shuffled = [...items];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    const itemIds = items.map((it: any) => it.id);
+
+    // ---- Drop questions enough different people have reported --------------
+    // Same rule mastery scoring already applies (fn_fp_recompute_weakness reads
+    // the identical policy key and the identical count(DISTINCT flagged_by)
+    // predicate). Until now a reported question stopped counting toward mastery
+    // but kept being SERVED, so learners went on meeting a question already
+    // flagged as wrong. One threshold, one meaning, both places.
+    let threshold = DEFAULT_FLAG_THRESHOLD;
+    const { data: configuredThreshold } = await (admin as any).rpc(
+      'fn_get_policy_int',
+      {
+        p_key: 'foundation.item_flag.suppress_threshold',
+        p_default: DEFAULT_FLAG_THRESHOLD,
+      },
+    );
+    if (typeof configuredThreshold === 'number' && configuredThreshold > 0) {
+      threshold = configuredThreshold;
     }
+
+    const { data: openFlags } = await (admin as any)
+      .from('fp_item_flags')
+      .select('item_id, flagged_by')
+      .eq('status', 'open')
+      .in('item_id', itemIds);
+
+    const reportersByItem = new Map<string, Set<string>>();
+    for (const f of openFlags ?? []) {
+      if (!reportersByItem.has(f.item_id)) {
+        reportersByItem.set(f.item_id, new Set());
+      }
+      // DISTINCT people, not distinct reports — one person cannot suppress a
+      // question by reporting it repeatedly.
+      reportersByItem.get(f.item_id)!.add(f.flagged_by);
+    }
+
+    const usable = items.filter(
+      (it: any) => (reportersByItem.get(it.id)?.size ?? 0) < threshold,
+    );
+
+    if (usable.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            'Every question in this subject is waiting to be checked. Please try again later.',
+        },
+        { status: 404 },
+      );
+    }
+
+    // ---- Prefer questions this learner has not met before ------------------
+    // Drawing 10 at random from 116 with no memory repeats questions often
+    // enough to feel broken, and leaves parts of the syllabus unpractised.
+    // Unseen questions go first; within each group the order is still random,
+    // so nothing becomes predictable.
+    const { data: myAttempts } = await (admin as any)
+      .from('fp_attempts')
+      .select('id')
+      .eq('student_id', learner.id);
+
+    const attemptIds = (myAttempts ?? []).map((a: any) => a.id);
+    const { data: alreadyAnswered } = attemptIds.length
+      ? await (admin as any)
+          .from('fp_responses')
+          .select('item_id')
+          .in('attempt_id', attemptIds)
+      : { data: [] };
+
+    const seen = new Set((alreadyAnswered ?? []).map((r: any) => r.item_id));
+
+    const fresh = shuffle(usable.filter((it: any) => !seen.has(it.id)));
+    const repeats = shuffle(usable.filter((it: any) => seen.has(it.id)));
 
     return NextResponse.json({
       assessmentId: pool.id,
       learnerId: learner.id,
-      questions: shuffled.slice(0, questionCount).map((it: any) => ({
-        id: it.id,
-        stem: it.stem,
-        options: it.options,
-        difficulty: it.difficulty,
-        q_type: it.q_type,
-      })),
+      questions: [...fresh, ...repeats]
+        .slice(0, questionCount)
+        .map((it: any) => ({
+          id: it.id,
+          stem: it.stem,
+          options: it.options,
+          difficulty: it.difficulty,
+          q_type: it.q_type,
+        })),
     });
   } catch (err: any) {
     return NextResponse.json(
