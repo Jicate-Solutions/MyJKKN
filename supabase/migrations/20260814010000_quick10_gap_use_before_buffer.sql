@@ -40,7 +40,11 @@
 -- host list. Nothing else changes: not duration, not is_active, not is_public,
 -- not min_notice_min, not max_days_ahead.
 --
--- IDEMPOTENT. Skips rows already at 5, so a re-run updates nothing.
+-- IDEMPOTENT and WIDEN-ONLY. A re-run updates nothing, and a row deliberately
+-- tuned HIGHER later (say the CEO raised to 10) is left alone rather than being
+-- stomped back to 5. This file lives in supabase/migrations/, so `db reset`,
+-- preview branches and any future replay will execute it again; a flat
+-- "SET = 5" would silently undo later per-host tuning on every replay.
 
 -- SELF-CONTAINED ON PURPOSE. This file sets BOTH buffers rather than relying on
 -- 20260814000000 having run first. Apply here is manual and Director-gated, so
@@ -51,11 +55,11 @@
 -- statement of the intended end state.
 
 UPDATE public.meeting_types
-SET buffer_before_min = 5,
-    buffer_after_min = 5,
+SET buffer_before_min = GREATEST(COALESCE(buffer_before_min, 0), 5),
+    buffer_after_min  = GREATEST(COALESCE(buffer_after_min, 0), 5),
     updated_at = now()
 WHERE slug = 'quick-10'
-  AND (buffer_before_min IS DISTINCT FROM 5 OR buffer_after_min IS DISTINCT FROM 5)
+  AND (COALESCE(buffer_before_min, 0) < 5 OR COALESCE(buffer_after_min, 0) < 5)
   AND host_profile_id IN (
     '36442de9-e634-475c-a8a9-c29b6a9d839e',  -- gobinath-k
     '829c81ad-530c-43f2-9885-62b78f82caac',  -- mohanraj-v
@@ -63,50 +67,45 @@ WHERE slug = 'quick-10'
     '5ad97b8b-0edb-4857-886b-449d8d3df538'   -- rangarajan-r (CEO)
   );
 
--- Assert the END STATE, not the row count. A row-count assertion would fire on
--- every legitimate re-run (idempotent skip updates 0 rows); asserting the end
--- state stays idempotent while still failing loudly if the seed never ran, if a
--- host id drifted, or if someone re-pointed the slug.
+-- REPORT coverage. Deliberately a NOTICE, never an EXCEPTION.
 --
--- GATED ON THE HOST PROFILES EXISTING, deliberately. This file sits in
--- supabase/migrations/, which `db reset`, preview branches and any future
--- replay will execute. The four host ids below are PRODUCTION profile UUIDs; on
--- a fresh or preview database they simply do not exist, and an ungated
--- RAISE EXCEPTION there would turn a cosmetic config tweak into a hard failure
--- of the entire migration chain. So: if this database does not contain those
--- people, it is not the database this file is about — say so and move on. If it
--- DOES contain them, the seed was expected to have run, and a wrong end state is
--- a real fault worth aborting for.
+-- Two earlier drafts of this block tried to assert, and both were wrong:
+--
+--   1. "exactly 4 rows carry both buffers at 5" — aborts the whole migration
+--      transaction on entirely legitimate states, in a directory that
+--      `db reset`, preview branches and any future replay will execute: a
+--      fresh or partial database (0-3 of these production hosts present), a
+--      host legitimately archived or re-slugged, or a row deliberately tuned
+--      higher later. Short-circuiting on "zero hosts" does not save it —
+--      a partial snapshot or one offboarded host still lands in 1..3.
+--
+--   2. "no matching row is below 5" — safe, but VACUOUS. The UPDATE above and
+--      that check share the same predicate, so after the UPDATE no matching row
+--      can be below 5 and the exception is unreachable. A guard that cannot
+--      fire is worse than no guard: it reads as protection while providing
+--      none.
+--
+-- There is no post-condition here worth aborting a migration chain over. The
+-- UPDATE is idempotent and widen-only, so its own success is the guarantee.
+-- What is genuinely useful to an operator is how many rows this file actually
+-- governed on THIS database — 4 on production, 0 on a fresh one. So report it
+-- and never fail.
 DO $$
-DECLARE
-  host_ids uuid[] := ARRAY[
-    '36442de9-e634-475c-a8a9-c29b6a9d839e',  -- gobinath-k
-    '829c81ad-530c-43f2-9885-62b78f82caac',  -- mohanraj-v
-    'dfbe273b-0540-4c32-9bad-e9bfb19a6460',  -- mr-ravishankar-s
-    '5ad97b8b-0edb-4857-886b-449d8d3df538'   -- rangarajan-r (CEO)
-  ]::uuid[];
-  known_hosts integer;
-  ok_rows     integer;
+DECLARE governed integer;
 BEGIN
-  SELECT count(*) INTO known_hosts
-  FROM public.profiles WHERE id = ANY(host_ids);
-
-  IF known_hosts = 0 THEN
-    RAISE NOTICE
-      'quick-10 breathing gap: none of the four host profiles exist here, so this is not the production database this file targets. Nothing asserted.';
-    RETURN;
-  END IF;
-
-  SELECT count(*) INTO ok_rows
+  SELECT count(*) INTO governed
   FROM public.meeting_types
   WHERE slug = 'quick-10'
-    AND buffer_before_min = 5
-    AND buffer_after_min = 5
-    AND host_profile_id = ANY(host_ids);
+    AND host_profile_id IN (
+      '36442de9-e634-475c-a8a9-c29b6a9d839e',
+      '829c81ad-530c-43f2-9885-62b78f82caac',
+      'dfbe273b-0540-4c32-9bad-e9bfb19a6460',
+      '5ad97b8b-0edb-4857-886b-449d8d3df538'
+    )
+    AND COALESCE(buffer_before_min, 0) >= 5
+    AND COALESCE(buffer_after_min, 0) >= 5;
 
-  IF ok_rows <> 4 THEN
-    RAISE EXCEPTION
-      'quick-10 breathing gap is not in the expected end state: % of 4 rows carry both buffers at 5 (% of 4 host profiles present). Did the seed 20260813010000 run first?',
-      ok_rows, known_hosts;
-  END IF;
+  RAISE NOTICE
+    'quick-10 breathing gap: % of the four seeded booking types now carry at least 5 minutes on both sides (0 is expected on a database that does not hold these hosts).',
+    governed;
 END $$;

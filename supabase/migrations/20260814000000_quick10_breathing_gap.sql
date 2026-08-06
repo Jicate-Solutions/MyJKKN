@@ -1,12 +1,11 @@
 -- 20260814000000_quick10_breathing_gap.sql
 --
 -- ⚠️ SUPERSEDED BY 20260814010000. The "WHY NOT buffer_before_min" rationale at
--- the bottom of this header is FACTUALLY WRONG about the slot engine:
--- buffer_after alone does NOT stop a slot butting up against an earlier
--- meeting. Read 20260814010000 for the correct semantics and the live proof.
--- This file is kept only because it is already applied and recorded in the
--- ledger; do not treat its reasoning as guidance, and do not revert its
--- successor on the strength of it.
+-- the bottom of this header is factually wrong about the slot engine:
+-- buffer_after alone does not stop a slot butting up against an earlier
+-- meeting; buffer_before does. 20260814010000 carries the correct semantics and
+-- the live measurement. This file is retained only because it is already
+-- applied and recorded in the ledger.
 --
 -- FILE ONLY / NOT APPLIED BY CI. Apply is Director-gated and happens via the
 -- Supabase Management API, never `supabase db push`.
