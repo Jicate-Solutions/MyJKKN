@@ -115,6 +115,13 @@ import {
   type ResolvedOwner,
   type AssignmentStatus,
 } from './_lib/owner-inheritance';
+import {
+  filterMetricsToScope,
+  bodiesForScope,
+  appliesToNobody,
+  scopeSentence,
+} from '../../_lib/institution-body-scope';
+import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
 
 /**
  * The pool a coordinator picks from. Mirrors the narrative owner desk
@@ -460,8 +467,33 @@ export default function AccreditationOwnersPage() {
   const { data: candidates } = useCandidateOwners();
   const { data: committeeLeads } = useCommitteeLeads(activeInstitution);
 
-  const metrics = useMemo(() => framework ?? [], [framework]);
+  // Which awarding bodies this campus actually answers to (Director decisions,
+  // 2026-08-06). Until migration 20260814020000 is applied this resolves to
+  // `unprovisioned` and narrows nothing, so the page behaves exactly as it does
+  // today; the filter switches itself on when the mapping table appears.
+  const { scope: bodyScope, isLoading: scopeLoading } =
+    useInstitutionBodyScope(activeInstitution);
+
+  // 🔴 THE FILTER SITS HERE — between the read and the count, never between
+  // the count and the render. `tally`, `byBody` and `visibleMetrics` all derive
+  // from `metrics`, so narrowing it moves the DENOMINATOR with the list.
+  // Filtering only what is drawn would leave "of 107" in place, and the
+  // unreachable total IS the bug: 7 of the 107 metrics can never apply to an
+  // engineering college, so 107 is a target that college cannot hit.
+  // Engineering reads NAAC 69 + NIRF 17 + NBA 9 + AICTE 1 + ABET 0 = 96.
+  const metrics = useMemo(
+    () => filterMetricsToScope(framework ?? [], bodyScope),
+    [framework, bodyScope],
+  );
   const rows = useMemo(() => ownerRows ?? [], [ownerRows]);
+
+  // An entity that answers to nobody — Main Office, Jicate Solutions, the
+  // Incubation Forum, the Testing Institution. Say so; never a blank table and
+  // never a silent redirect. `appliesToNobody` is false for an unread scope, so
+  // a failed read is never rendered as "not accredited".
+  const noBodiesApply = appliesToNobody(bodyScope);
+  const activeInstitutionName =
+    institutions?.find((i) => i.id === activeInstitution)?.name ?? null;
 
   const resolved = useMemo(
     () =>
@@ -472,7 +504,13 @@ export default function AccreditationOwnersPage() {
   );
   const tally = useMemo(() => tallyOwnership(resolved), [resolved]);
   const byBody = useMemo(() => tallyByBody(resolved), [resolved]);
-  const bodies = useMemo(() => listBodyCodes(metrics), [metrics]);
+  // A mapped body with no metrics yet (all five added on 2026-08-06 are) still
+  // needs an accountable person, so the body list comes from the mapping rather
+  // than from whichever bodies happen to carry rows in the framework.
+  const bodies = useMemo(
+    () => bodiesForScope(bodyScope, listBodyCodes(metrics)),
+    [bodyScope, metrics],
+  );
 
   const assignedIds = useMemo(
     () => rows.map((r) => r.owner_user_id).filter(Boolean),
@@ -775,7 +813,9 @@ export default function AccreditationOwnersPage() {
   }
   if (!canView) return <AccessDenied />;
 
-  const loading = frameworkLoading || ownersLoading;
+  // The scope decides the denominator, so a count rendered before it resolves
+  // would be the wrong one shown as fact for a moment.
+  const loading = frameworkLoading || ownersLoading || scopeLoading;
 
   return (
     <ContentLayout title="Assign Metric Owners">
@@ -824,6 +864,26 @@ export default function AccreditationOwnersPage() {
               />
             </div>
 
+            {/* Which bodies this campus answers to, said out loud, so a
+                narrowed list is never mistaken for a short one. */}
+            {!campusOutOfScope && !loading && (
+              <p className="text-xs text-muted-foreground">
+                {scopeSentence(bodyScope, activeInstitutionName)}
+                {bodyScope.kind === 'unprovisioned' && (
+                  <>
+                    {' '}
+                    <Link
+                      href="/accreditation/manage/bodies"
+                      className="underline underline-offset-2"
+                    >
+                      Record them
+                    </Link>
+                    .
+                  </>
+                )}
+              </p>
+            )}
+
             {campusOutOfScope ? (
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
                 <div className="font-medium">
@@ -835,6 +895,32 @@ export default function AccreditationOwnersPage() {
                   statement that the campus has no owners — it means this page
                   cannot see them. Ask a super admin for access to this campus
                   if you need it.
+                </p>
+              </div>
+            ) : noBodiesApply ? (
+              /* Offices and companies are not accredited by anybody. An empty
+                 table would read as "107 metrics, none owned"; a redirect would
+                 read as a broken link. Say the true thing. */
+              <div className="rounded-lg border bg-card p-4">
+                <div className="font-medium">
+                  Accreditation does not apply to{' '}
+                  {activeInstitutionName ?? 'this entity'}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  No awarding body is recorded against it, so there are no
+                  metrics to own and nobody to name. Offices, companies and
+                  shared entities sit outside every accreditation framework —
+                  this is a recorded fact, not a gap to fill.
+                </p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  If that is wrong, add the bodies it answers to in{' '}
+                  <Link
+                    href="/accreditation/manage/bodies"
+                    className="underline underline-offset-2"
+                  >
+                    Awarding Bodies
+                  </Link>
+                  , and this page will follow.
                 </p>
               </div>
             ) : (
@@ -862,7 +948,7 @@ export default function AccreditationOwnersPage() {
 
             {/* Per-body breakdown */}
             <div className="flex flex-wrap gap-2">
-              {(campusOutOfScope ? [] : byBody).map((b) => (
+              {(campusOutOfScope || noBodiesApply ? [] : byBody).map((b) => (
                 <Badge
                   key={b.bodyCode}
                   variant="outline"
@@ -879,6 +965,13 @@ export default function AccreditationOwnersPage() {
           </CardContent>
         </Card>
 
+        {/* Everything below answers "who owns which metric". For an entity
+            that answers to no awarding body there are no metrics to own, and
+            the three tables would each render their own flavour of nothing —
+            an empty body list, and a "every metric has someone accountable"
+            message that is true only vacuously. */}
+        {!noBodiesApply && (
+        <>
         {/* ---------------------------------------------------------------- */}
         {/* Level 1 — one owner per body. The fastest win on this page.      */}
         <Card>
@@ -1216,6 +1309,8 @@ export default function AccreditationOwnersPage() {
             )}
           </CardContent>
         </Card>
+        </>
+        )}
       </div>
     </ContentLayout>
   );
