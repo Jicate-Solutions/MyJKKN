@@ -34,11 +34,18 @@
 -- just finished. A gap before would push the same wall one slot later without
 -- giving the person who just talked any room.
 
+-- WIDEN-ONLY, same as its successor. This file replays BEFORE 20260814010000 on
+-- every `db reset` / preview branch, so a flat `SET = 5` here would stomp a
+-- deliberately larger value (a CEO raised to 10) down to 5, and the widen-only
+-- logic in 20260814010000 would then only lift it back to 5 — never to 10.
+-- Shipping the guard and the hazard in the same directory. The predicate below
+-- is strictly narrowing and is a no-op on the already-applied production rows,
+-- so this edit does not diverge from what the ledger recorded.
 UPDATE public.meeting_types
-SET buffer_after_min = 5,
+SET buffer_after_min = GREATEST(COALESCE(buffer_after_min, 0), 5),
     updated_at = now()
 WHERE slug = 'quick-10'
-  AND buffer_after_min IS DISTINCT FROM 5
+  AND COALESCE(buffer_after_min, 0) < 5
   AND host_profile_id IN (
     '36442de9-e634-475c-a8a9-c29b6a9d839e',  -- gobinath-k
     '829c81ad-530c-43f2-9885-62b78f82caac',  -- mohanraj-v
