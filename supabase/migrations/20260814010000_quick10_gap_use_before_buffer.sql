@@ -42,14 +42,49 @@
 --
 -- IDEMPOTENT. Skips rows already at 5, so a re-run updates nothing.
 
+-- SELF-CONTAINED ON PURPOSE. This file sets BOTH buffers rather than relying on
+-- 20260814000000 having run first. Apply here is manual and Director-gated, so
+-- nothing guarantees file order: replayed out of order (or before the seed
+-- 20260813010000 exists) a before-only UPDATE would either leave one-sided
+-- protection or match zero rows and report success — the breathing gap silently
+-- absent while the run looks clean. Setting both makes this file the single
+-- statement of the intended end state.
+
 UPDATE public.meeting_types
 SET buffer_before_min = 5,
+    buffer_after_min = 5,
     updated_at = now()
 WHERE slug = 'quick-10'
-  AND buffer_before_min IS DISTINCT FROM 5
+  AND (buffer_before_min IS DISTINCT FROM 5 OR buffer_after_min IS DISTINCT FROM 5)
   AND host_profile_id IN (
     '36442de9-e634-475c-a8a9-c29b6a9d839e',  -- gobinath-k
     '829c81ad-530c-43f2-9885-62b78f82caac',  -- mohanraj-v
     'dfbe273b-0540-4c32-9bad-e9bfb19a6460',  -- mr-ravishankar-s
     '5ad97b8b-0edb-4857-886b-449d8d3df538'   -- rangarajan-r (CEO)
   );
+
+-- Assert the END STATE, not the row count. A row-count assertion would fire on
+-- every legitimate re-run (idempotent skip updates 0 rows); asserting the end
+-- state stays idempotent while still failing loudly if the seed never ran, if a
+-- host id drifted, or if someone re-pointed the slug.
+DO $$
+DECLARE ok_rows integer;
+BEGIN
+  SELECT count(*) INTO ok_rows
+  FROM public.meeting_types
+  WHERE slug = 'quick-10'
+    AND buffer_before_min = 5
+    AND buffer_after_min = 5
+    AND host_profile_id IN (
+      '36442de9-e634-475c-a8a9-c29b6a9d839e',
+      '829c81ad-530c-43f2-9885-62b78f82caac',
+      'dfbe273b-0540-4c32-9bad-e9bfb19a6460',
+      '5ad97b8b-0edb-4857-886b-449d8d3df538'
+    );
+
+  IF ok_rows <> 4 THEN
+    RAISE EXCEPTION
+      'quick-10 breathing gap is not in the expected end state: % of 4 rows carry both buffers at 5. Did the seed 20260813010000 run first?',
+      ok_rows;
+  END IF;
+END $$;
