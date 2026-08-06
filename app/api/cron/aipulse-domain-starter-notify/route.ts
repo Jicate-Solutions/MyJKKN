@@ -26,9 +26,15 @@
 //   created_by is the recipient themselves (per-user cron card, matching
 //   friday-reflection + the weekly digest).
 //
+//     3. one web push to that learner's active devices, so the announcement
+//        reaches the phone and not only the bell (2026-08-06).
+//
 // IDEMPOTENCY
 //   notifications.idempotency_key = ai_pulse_domain_starter_notify:<cycleId>:<userId>.
-//   Re-firing on the same cycle is a safe per-recipient no-op.
+//   Re-firing on the same cycle is a safe per-recipient no-op — for the phone
+//   push as much as for the bell, because the push is only reached on the
+//   sweep that actually inserts the rows. Load-bearing: this route sweeps
+//   repeatedly within its window.
 //
 // AUTH
 //   CRON_SECRET via Authorization: Bearer ... OR ?secret= — identical to
@@ -41,15 +47,37 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import webpush from 'web-push';
 
 const ENABLED_KEY = 'domain_starter_enabled';
 const MY_PULSE_URL = '/ai-pulse/my-pulse';
+
+// Web push uses the SAME cron-usable mechanism as
+// app/api/cron/sunday-wrap/route.ts: sign with VAPID here and post straight
+// to the endpoint. Deliberately NOT the DB trigger path
+// (trg_notify_push_on_queue_insert -> fn_trigger_push_send -> pg_net ->
+// /api/dashboard/push-send): that function returns early unless
+// app.push_send_endpoint + app.service_role_key are set as database settings,
+// and neither is configured on this project, so it is a silent no-op.
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:director@jkkn.ac.in',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
+}
 
 type Admin = ReturnType<typeof createServiceRoleClient>;
 
 type NotifyTarget = {
   profile_id: string;
   topic_label: string | null;
+};
+
+type PushSubRow = {
+  id: string;
+  subscription: { endpoint: string; keys?: { p256dh: string; auth: string } } | null;
+  failure_count: number | null;
 };
 
 // Fail-safe config read (mirrors the generation route's readPolicy).
@@ -66,6 +94,60 @@ async function readPolicy(admin: Admin, key: string): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+// Best-effort phone delivery for ONE recipient, called only after that
+// recipient's bell rows are already committed. Never throws: a push problem
+// must not cost a learner their in-app notification.
+//
+// Subscription hygiene follows app/api/dashboard/push-send/route.ts rather
+// than sunday-wrap: only is_active rows are pushed (is_active=false is how
+// app/api/dashboard/push-subscribe/route.ts records an UNSUBSCRIBE, so
+// ignoring it would buzz people who opted out), and a dead endpoint is
+// soft-deactivated instead of hard-deleted.
+async function sendStarterPush(
+  admin: Admin,
+  userId: string,
+  payload: { title: string; body: string; url: string; icon: string; data: Record<string, unknown> },
+): Promise<number> {
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return 0;
+
+  const { data: subs, error } = await admin
+    .from('push_subscriptions')
+    .select('id, subscription, failure_count')
+    .eq('user_id', userId)
+    .eq('is_active', true);
+
+  if (error || !subs?.length) return 0;
+
+  const serialized = JSON.stringify(payload);
+  let sent = 0;
+
+  await Promise.allSettled(
+    (subs as unknown as PushSubRow[]).map(async (row) => {
+      const sub = row.subscription;
+      if (!sub?.endpoint || !sub.keys) return;
+      try {
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, serialized);
+        sent++;
+      } catch (err) {
+        const statusCode = (err as { statusCode?: number })?.statusCode;
+        const now = new Date().toISOString();
+        // 404/410 => the browser dropped this subscription for good.
+        await admin
+          .from('push_subscriptions')
+          .update({
+            ...(statusCode === 404 || statusCode === 410 ? { is_active: false } : {}),
+            last_failed_at: now,
+            failure_count: (row.failure_count ?? 0) + 1,
+            updated_at: now,
+          } as never)
+          .eq('id', row.id);
+      }
+    }),
+  );
+
+  return sent;
 }
 
 export async function GET(request: NextRequest) {
@@ -126,6 +208,7 @@ export async function GET(request: NextRequest) {
 
   let notified = 0;
   let skipped = 0;
+  let pushed = 0;
   const errors: string[] = [];
 
   for (const [userId, topicLabel] of byProfile) {
@@ -189,6 +272,31 @@ export async function GET(request: NextRequest) {
     }
 
     notified++;
+
+    // Phone push. Deliberately AFTER the bell rows are committed and wrapped
+    // so nothing here can prevent or undo them.
+    //
+    // IDEMPOTENCY: this line is only reachable on the sweep that actually
+    // created the notification, because the idempotency_key lookup above
+    // `continue`s first for anyone already notified this cycle. So the push
+    // inherits the bell's guarantee exactly — a second sweep over the same
+    // cycle sends zero pushes. That matters now that this route sweeps
+    // hourly rather than once a week.
+    try {
+      pushed += await sendStarterPush(admin, userId, {
+        title: 'Your AI starter prompt is ready',
+        body,
+        url: MY_PULSE_URL,
+        icon: '/icons/icon-192x192.png',
+        data: {
+          notification_id: notification.id,
+          type: 'ai_pulse_domain_starter',
+          cycle_id: cycleId,
+        },
+      });
+    } catch (err) {
+      errors.push(`${userId} push: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   return NextResponse.json({
@@ -197,6 +305,7 @@ export async function GET(request: NextRequest) {
     cycle_id: cycleId,
     notified,
     skipped,
+    pushed,
     ...(errors.length ? { errors: errors.slice(0, 20) } : {}),
     elapsed_ms: Date.now() - started,
   });
