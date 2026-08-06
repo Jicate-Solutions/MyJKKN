@@ -83,6 +83,27 @@ export interface Destination {
 const phoneOf = (p: CardPerson) => p.mobile ?? p.phone ?? null;
 
 /**
+ * Split a printed name into the first/last pair `admission_leads` requires.
+ *
+ * That table's `full_name` is GENERATED ALWAYS AS (first_name || ' ' ||
+ * last_name) — writing to it raises "cannot insert a non-DEFAULT value into
+ * column full_name", so the card's single name string must be split. Caught by
+ * a rolled-back dry-run insert on production 2026-08-06; it would have failed
+ * EVERY Parent/student route, the busiest destination at 21,923 rows.
+ *
+ * Deliberately naive — last whitespace-separated token is the surname, the rest
+ * is the given name — because a card prints one string and any cleverer rule
+ * would be guessing. Indian cards commonly lead with initials
+ * ("N.THIRUKKUMARAN"), which has no space and so lands whole in first_name with
+ * last_name null. That is correct: inventing a surname would be worse.
+ */
+function splitName(full: string): { first_name: string; last_name: string | null } {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { first_name: full.trim(), last_name: null };
+  return { first_name: parts.slice(0, -1).join(' '), last_name: parts[parts.length - 1] };
+}
+
+/**
  * A stable, readable code derived from the company name plus a short hash of
  * the person, for the two tables that demand one. Deliberately deterministic:
  * re-running a save must not mint a second code for the same card.
@@ -109,11 +130,22 @@ export const DESTINATIONS: Record<string, Destination> = {
     requiresParent: null,
     softFields: ['email', 'phone'],
     build: (p, ctx) => ({
-      full_name: p.name,
+      // NOT full_name — that column is GENERATED ALWAYS. See splitName().
+      ...splitName(p.name),
       email: p.email ?? null,
       phone: phoneOf(p),
       institution_id: ctx.institutionId,
-      source: 'card_scan',
+      // `source` is the ENUM `lead_source`, NOT free text — enums do not show up
+      // as CHECK constraints, so a constraint sweep misses them entirely and
+      // 'card_scan' fails at INSERT time with "invalid input value for enum".
+      // Caught by a rolled-back dry-run insert on production, 2026-08-06.
+      // 'other' is the honest existing member: a scanned card is genuinely none
+      // of website/walk_in/referral/education_fair/etc. Adding a 'card_scan'
+      // member would read better in reporting but is a ONE-WAY DOOR — Postgres
+      // enum values cannot be cleanly removed — so it stays a deliberate
+      // decision rather than a side effect of this build. The provenance is not
+      // lost: the note carries "Scanned in MyJKKN by <user>" and the event.
+      source: 'other',
       notes: p.note ?? null,
     }),
   },
@@ -130,7 +162,17 @@ export const DESTINATIONS: Record<string, Destination> = {
       primary_contact_name: p.name,
       primary_contact_email: p.email ?? null,
       primary_contact_phone: phoneOf(p),
-      internal_institution_id: ctx.institutionId,
+      // `internal_institution_id` is deliberately NOT set. It does not mean
+      // "the institution that scanned this card" — it means "this recruiter IS
+      // one of our own institutions, hiring internally", and the table enforces
+      // that reading:
+      //   CHECK ((is_internal = false AND internal_institution_id IS NULL)
+      //       OR (is_internal = true  AND internal_institution_id IS NOT NULL))
+      // Setting it to the scanner's institution claimed every scanned recruiter
+      // was an internal JKKN entity, and the insert was rejected outright.
+      // Caught live on production 2026-08-06, not by CI. A recruiter met at a
+      // fair is external by definition, so is_internal keeps its `false`
+      // default and this column stays NULL.
       notes: p.note ?? null,
     }),
   },
@@ -198,6 +240,8 @@ export const DESTINATIONS: Record<string, Destination> = {
       phone: phoneOf(p),
       designation: p.role ?? null,
       organization: p.organization ?? null,
+      // ss_mentors.source is plain text (verified: no enum, no CHECK), so this
+      // one CAN carry the precise value.
       source: 'card_scan',
       institution_id: ctx.institutionId,
     }),
@@ -249,7 +293,10 @@ export const DESTINATIONS: Record<string, Destination> = {
       contact_person: p.name,
       contact_email: p.email ?? null,
       contact_phone: phoneOf(p),
-      source_type: 'card_scan',
+      // Also an enum (`sh_source_type`), same trap. 'direct' is not a fallback
+      // here — it is accurate: you met this person face to face and took their
+      // card, which is the most direct source this list has.
+      source_type: 'direct',
       source_detail: 'Business card scanned in MyJKKN',
       notes: p.note ?? null,
     }),
