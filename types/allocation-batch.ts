@@ -21,6 +21,8 @@ export interface AllocationBatch {
 /** Rooms used + beds filled for one room category within a batch. */
 export interface BatchCategoryBreakdown {
   category: string;
+  /** Comma-joined distinct floors this category touched within the batch (e.g. "2, 3"), or null. */
+  floors: string | null;
   rooms: number;
   beds: number;
 }
@@ -174,6 +176,13 @@ export interface AcademicYearOption {
   label: string;
 }
 
+/**
+ * Where the fee that drives the Category-Eligibility band came from:
+ *   matched        — the learner's admission-year academic bill (the normal case)
+ *   different_year — fell back to their earliest billed year (no admission-year bill)
+ *   untagged       — bills exist but none is usable (untagged, or the year totals ₹0)
+ *   none           — no academic bill at all
+ */
 export type BillState = 'matched' | 'different_year' | 'untagged' | 'none';
 export type CandidateStage = 'prerequisite' | 'eligibility' | 'ok';
 export type CandidateVerdict = 'in' | 'out';
@@ -192,11 +201,27 @@ export interface AllocationCandidate {
   not_allocated: boolean;
   physical_rule_ok: boolean;
   bed_available: boolean;
+  /**
+   * The block their first free eligible bed sits in — what auto-allocate would
+   * actually give them (same ordering as the generate RPC). The operator no
+   * longer picks a block, so the preview has to show it. null => no bed.
+   */
+  target_block_name: string | null;
+  /** The learner's profile academic year — display only; no verdict reads it. */
   academic_year_id: string | null;
   academic_year_name: string | null;
+  /** The academic year their admission year maps to, at their institution. */
+  admission_academic_year_id: string | null;
+  admission_academic_year_name: string | null;
+  /** The year the band fee was actually read from (admission year, or the fallback). */
+  band_academic_year_id: string | null;
+  band_academic_year_name: string | null;
+  /** The fee the Category-Eligibility band was matched against. NULL => skipped. */
+  band_fee: number | null;
   academic_bill_count: number;
   current_year_bill_count: number;
   bill_other_year_name: string | null;
+  /** Diagnostic only — what the old current-year rule would have read (exposes ₹0 placeholders). */
   current_year_fee: number | null;
   resolved_room_category_id: string | null;
   resolved_room_category_name: string | null;

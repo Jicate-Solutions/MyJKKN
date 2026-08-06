@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getErrorMessage } from '@/lib/utils';
 import { BulkEditBillsService } from '@/lib/services/billing/schedule/bulk-edit-bills-service';
 import { logActivity } from '@/lib/utils/activity-logger';
 import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
@@ -88,7 +89,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error('[billing/schedule/bills/bulk-edit/apply] Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    // Supabase errors are plain objects, not Error instances — an
+    // `instanceof Error` check swallows them as "Unknown error".
+    const message = getErrorMessage(error);
     return NextResponse.json({ error: 'Failed to apply changes', message }, { status: 500 });
   }
 }

@@ -35,6 +35,16 @@ export interface LinkRepoInput {
   linked_by: string;
 }
 
+/** Outcome buckets for a bulk link — each is a list of repo_full_name. */
+export interface BulkLinkReposResult {
+  /** repos newly linked to the solution in this call */
+  linked: string[];
+  /** valid repos that were already linked (ON CONFLICT DO NOTHING skipped them) */
+  skipped: string[];
+  /** names rejected by the "org/name" shape check — never sent to the DB */
+  invalid: string[];
+}
+
 const REPO_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 // ============================================
@@ -111,6 +121,66 @@ export class SolutionReposService extends BaseService {
     return data as SolutionRepo;
   }
 
+  /**
+   * Link MANY repos to a solution in one call. Mirrors linkRepo but is
+   * conflict-safe: already-linked repos are skipped via ON CONFLICT
+   * (solution_id, repo_full_name) DO NOTHING, so a bulk link NEVER throws just
+   * because one repo was already linked.
+   *
+   * The Supabase client is passed in explicitly (per spec): it is the caller's
+   * RLS-scoped, auth-context client — the same client runWithClient injects into
+   * the single-link path — so RLS is enforced identically here.
+   */
+  static async bulkLinkRepos(
+    supabase: any,
+    solutionId: string,
+    repoFullNames: string[],
+    linkedBy: string,
+  ): Promise<BulkLinkReposResult> {
+    const names = Array.isArray(repoFullNames) ? repoFullNames : [];
+
+    // Shape-validate each name with the SAME pattern the single-link path uses;
+    // the DB CHECK constraint is the backstop. Invalid names never reach the DB.
+    const invalid: string[] = [];
+    const seen = new Set<string>();
+    const uniqueValid: string[] = [];
+    for (const raw of names) {
+      const name = typeof raw === 'string' ? raw.trim() : '';
+      if (!REPO_FULL_NAME_PATTERN.test(name)) {
+        invalid.push(String(raw));
+        continue;
+      }
+      if (seen.has(name)) continue; // collapse duplicates within the input
+      seen.add(name);
+      uniqueValid.push(name);
+    }
+
+    if (uniqueValid.length === 0) {
+      return { linked: [], skipped: [], invalid };
+    }
+
+    const rows = uniqueValid.map((repo_full_name) => ({
+      solution_id: solutionId,
+      repo_full_name,
+      linked_by: linkedBy,
+    }));
+
+    // ignoreDuplicates === ON CONFLICT DO NOTHING. .select() returns ONLY the
+    // rows actually inserted; conflicting (already-linked) rows are omitted.
+    const { data: inserted, error } = await supabase
+      .from('sh_solution_repos')
+      .upsert(rows, { onConflict: 'solution_id,repo_full_name', ignoreDuplicates: true })
+      .select('repo_full_name');
+
+    if (error) throw error;
+
+    const linked = ((inserted ?? []) as { repo_full_name: string }[]).map((r) => r.repo_full_name);
+    const linkedSet = new Set(linked);
+    const skipped = uniqueValid.filter((n) => !linkedSet.has(n));
+
+    return { linked, skipped, invalid };
+  }
+
   /** Unlink a repo from a solution. The GitHub repo itself is never touched (decision 7). */
   static async unlinkRepo(id: string): Promise<void> {
     const { error } = await this.supabase
@@ -129,5 +199,6 @@ export class SolutionReposService extends BaseService {
 export const solutionReposService = {
   getRepos: SolutionReposService.getRepos.bind(SolutionReposService),
   linkRepo: SolutionReposService.linkRepo.bind(SolutionReposService),
+  bulkLinkRepos: SolutionReposService.bulkLinkRepos.bind(SolutionReposService),
   unlinkRepo: SolutionReposService.unlinkRepo.bind(SolutionReposService),
 };

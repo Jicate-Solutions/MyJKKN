@@ -824,19 +824,43 @@ CREATE TABLE IF NOT EXISTS public.timetable_slot_continuity (
 
 -- Billing Categories (flat, dynamic)
 -- Updated: 2026-04-15 - Consolidated 3-tier (parent/sub/item) hierarchy into a single flat table.
+-- Updated: 2026-04-28 - Dropped institution_id; categories are now GLOBAL across all institutions
+--                       (uniqueness is on category_name alone).
+-- Updated: 2026-06-22 - Added `kind` (fee head) — drives Razorpay account routing.
+-- Updated: 2026-08-01 - Added visible_to_learners + collection_type.
 CREATE TABLE IF NOT EXISTS public.billing_categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    institution_id UUID NOT NULL,
     category_name VARCHAR(150) NOT NULL,
     amount NUMERIC(15,2),
     frequency VARCHAR(20) NOT NULL,
+    -- Fee head. payment-gateway-service matches this against razorpay_accounts.fee_head,
+    -- so every category sharing a kind settles into the same institution MID.
+    kind billing_category_kind NOT NULL DEFAULT 'other',
     description TEXT,
     is_active BOOLEAN NOT NULL DEFAULT true,
+    -- FALSE = bills/receipt lines in this category are hidden from /learners/my-bills
+    -- and the parent portal. Management side is unaffected (still billable + payable).
+    visible_to_learners BOOLEAN NOT NULL DEFAULT true,
+    -- 'government' = collected on behalf of a government body; excluded from
+    -- management collection totals on the billing dashboards.
+    collection_type TEXT NOT NULL DEFAULT 'management',
+    -- TRUE = a learner may hold at most ONE live bill in this category, ever.
+    -- Enforced by trg_billing_bills_once_per_learner (04_triggers.sql), not in
+    -- application code: bills are written from ten paths, six of them RPCs.
+    -- Deliberately NOT the existing `frequency` column, which is already
+    -- 'one-time' on 22 of 23 categories and has never been enforced — flipping
+    -- that to a rule would block Transport Fee's legitimate Term 2 instalment
+    -- for 1,011 learners. Defaults false so enabling is always deliberate.
+    once_per_learner BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
     created_by UUID,
     updated_by UUID,
-    CONSTRAINT uq_billing_categories_name_per_institution UNIQUE (institution_id, category_name)
+    CONSTRAINT uq_billing_categories_name UNIQUE (category_name),
+    CONSTRAINT chk_billing_categories_frequency
+        CHECK (frequency IN ('monthly', 'quarterly', 'yearly', 'one-time')),
+    CONSTRAINT billing_categories_collection_type_chk
+        CHECK (collection_type IN ('management', 'government'))
 );
 
 -- Billing Student Bills
@@ -903,7 +927,8 @@ CREATE TABLE IF NOT EXISTS public.billing_receipts (
     receipt_date DATE NOT NULL,
     student_id UUID NOT NULL,
     institution_id UUID NOT NULL,
-    payment_mode VARCHAR(20) NOT NULL,
+    payment_mode VARCHAR(20) NOT NULL
+        CHECK (payment_mode IN ('cash', 'online', 'bank_transfer', 'dd', 'cheque', 'combined')),
     payment_reference_number VARCHAR(100),
     payment_amount NUMERIC(15,2) NOT NULL,
     payment_paid_date DATE NOT NULL,
@@ -2145,6 +2170,7 @@ ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 -- SECTION: ADMISSION SETTINGS - ADMISSION YEARS
 -- Added: 2026-04-21 - Per-program admission year tracking
 -- Updated: 2026-06-05 - Institution-wide admission year (program scope dropped); one row per (institution, year)
+-- Updated: 2026-07-25 - is_current flag (migration 20260725_admission_years_is_current_flag.sql)
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS public.admission_years (
@@ -2153,6 +2179,13 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
     admission_year_name VARCHAR(150) NOT NULL,
     year INTEGER NOT NULL CHECK (year BETWEEN 2000 AND 2100),
     is_active BOOLEAN NOT NULL DEFAULT true,
+    -- Added 2026-07-25. The cohort new leads/enquiries default to — exactly one
+    -- per institution. Distinct from is_active, which only controls dropdown
+    -- visibility and stays true for historical cohorts (every one of the 47 rows
+    -- was is_active=true, including 2002-2003) so legacy imports still resolve
+    -- them. Enforced by admission_years_one_current_per_institution (below) plus
+    -- trg_admission_years_single_current (04_triggers.sql).
+    is_current BOOLEAN NOT NULL DEFAULT false,
     created_by UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -2161,6 +2194,9 @@ CREATE TABLE IF NOT EXISTS public.admission_years (
 
 CREATE INDEX IF NOT EXISTS idx_admission_years_institution ON admission_years(institution_id);
 CREATE INDEX IF NOT EXISTS idx_admission_years_name ON admission_years(admission_year_name);
+CREATE UNIQUE INDEX IF NOT EXISTS admission_years_one_current_per_institution
+    ON public.admission_years (institution_id)
+    WHERE is_current;
 
 -- =====================================================
 -- SECTION: STARTUP STUDIO MODULE
@@ -3556,12 +3592,42 @@ CREATE INDEX IF NOT EXISTS idx_events_registrations_institution ON public.events
 -- tournament_divisions' pattern rather than requiring a 3-way join through
 -- form_id/section_id on every check. Submitted answers land in
 -- events_registrations.custom_fields, keyed by field_key.
+-- An event holds MANY registration forms — typically one per run of a recurring
+-- event. Each is addressed publicly by (event_id, slug) so a month's link
+-- resolves to its own form and an old link keeps pointing at the month it
+-- belonged to. There is deliberately NO unique on event_id.
 CREATE TABLE IF NOT EXISTS event_registration_forms (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id uuid NOT NULL UNIQUE REFERENCES events(id) ON DELETE CASCADE,
+  event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  name text NOT NULL DEFAULT 'Registration Form',
+  slug text NOT NULL,
+  description text,
   is_enabled boolean NOT NULL DEFAULT true,
+  display_order int NOT NULL DEFAULT 0,
+  -- Registration fee for THIS form: an event holds many forms and each monthly
+  -- run can charge a different amount. A fee is collected only when
+  -- fee_enabled AND fee_amount > 0 — the switch is separate from the price so a
+  -- fee can be turned off without destroying the amount.
+  -- No fee_head column on purpose — event fees resolve the HOST institution's
+  -- 'tuition' account, exactly as tournament entry fees do.
+  fee_enabled boolean NOT NULL DEFAULT false,
+  fee_amount numeric(10,2) NOT NULL DEFAULT 0,
+  fee_label text,
+  -- Active window. Openness is DERIVED at read time
+  -- (is_enabled AND now within [starts_at, ends_at]) rather than a job flipping
+  -- is_enabled when ends_at passes: a stored flag would leave an expired form
+  -- collecting registrations whenever the job failed, would not reopen when the
+  -- end date is extended, and would make "closed by hand" and "closed by time"
+  -- indistinguishable. See formRegistrationState() in types/tournament.ts.
+  starts_at timestamptz,
+  ends_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (event_id, slug),
+  CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  CONSTRAINT event_registration_forms_fee_amount_check CHECK (fee_amount >= 0),
+  CONSTRAINT event_registration_forms_window_check
+    CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at >= starts_at)
 );
 
 CREATE TABLE IF NOT EXISTS event_registration_form_sections (
@@ -3577,11 +3643,19 @@ CREATE TABLE IF NOT EXISTS event_registration_form_sections (
 CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   section_id uuid NOT NULL REFERENCES event_registration_form_sections(id) ON DELETE CASCADE,
+  -- Owning form. An event holds MANY forms (one per monthly run), so field_key
+  -- is unique per form, not per event.
+  form_id uuid NOT NULL REFERENCES event_registration_forms(id) ON DELETE CASCADE,
   event_id uuid NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   field_key text NOT NULL,
   field_label text NOT NULL,
+  -- 'file' and 'image' answers are stored in events_registrations.custom_fields
+  -- as an EventFormUpload OBJECT ({path,name,size,mime}), not a scalar — the
+  -- object lives in the PRIVATE `event-registration-uploads` bucket and is read
+  -- through short-lived signed URLs. 'image' differs from 'file' only in that
+  -- the UI previews it and the upload route refuses non-image MIME types.
   field_type text NOT NULL CHECK (field_type IN (
-    'text','number','phone','email','select','multi_select','date','textarea','file','checkbox','radio'
+    'text','number','phone','email','select','multi_select','date','textarea','file','image','checkbox','radio'
   )),
   is_required boolean NOT NULL DEFAULT false,
   display_order int NOT NULL DEFAULT 0,
@@ -3596,11 +3670,13 @@ CREATE TABLE IF NOT EXISTS event_registration_form_fields (
   condition jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (event_id, field_key)
+  UNIQUE (form_id, field_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_event_registration_form_sections_form ON event_registration_form_sections(form_id);
 CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_section ON event_registration_form_fields(section_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_form_fields_form_id ON event_registration_form_fields(form_id);
+CREATE INDEX IF NOT EXISTS idx_event_registration_forms_event_id ON event_registration_forms(event_id);
 
 -- Payment transactions for events (separate from billing payment_transactions)
 CREATE TABLE IF NOT EXISTS public.event_payment_transactions (
@@ -4150,8 +4226,8 @@ CREATE TABLE IF NOT EXISTS public.hr_recruitment_candidate_packages (
   candidate_id            uuid NOT NULL REFERENCES public.hr_recruitment_candidates(id) ON DELETE CASCADE,
   hr_organization_id      uuid,                                           -- mirrors parent for org-level queries
   proposed_by             uuid NOT NULL REFERENCES public.profiles(id),
-  proposed_ctc_amount     numeric NOT NULL,                               -- the CTC being proposed
-  proposed_ctc_breakdown  jsonb,                                          -- optional: basic/HRA/DA/PF structure
+  proposed_monthly_salary           numeric,                              -- the monthly salary being proposed (optional — may be decided later)
+  proposed_monthly_salary_breakdown jsonb,                                -- optional: basic/HRA/DA/PF structure
   currency                text NOT NULL DEFAULT 'INR',
   is_counter_offer        boolean NOT NULL DEFAULT false,                 -- true if Director counter to HR's proposal
   parent_package_id       uuid REFERENCES public.hr_recruitment_candidate_packages(id), -- for negotiation chain
@@ -4788,6 +4864,42 @@ CREATE TABLE IF NOT EXISTS public.hr_leave_types (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hlt_org_active ON public.hr_leave_types(hr_organization_id, is_active);
+
+-- Updated: 2026-07-31 - WHO PAYS each staff member (HR only)
+-- staff.institution_id means WHERE SOMEONE WORKS. The paying organisation is a
+-- separate, narrower fact that only HR may see, so it lives here rather than as
+-- a column on staff: Supabase RLS is row-level, so a column would be readable by
+-- everyone who can read the staff row (StaffService, /api/api-management/staff
+-- and the MCP server all select('*')).
+-- NO ROW = payer not yet recorded — a work queue for HR, never a silent default.
+-- is_payroll_entity is always true and exists only to carry the composite FK
+-- that stops a work-location-only organisation (JKKN Main Office) being a payer.
+CREATE TABLE IF NOT EXISTS public.hr_staff_payroll (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id           uuid NOT NULL UNIQUE REFERENCES public.staff(id) ON DELETE CASCADE,
+  hr_organization_id uuid NOT NULL REFERENCES public.hr_organizations(id),
+  is_payroll_entity  boolean NOT NULL DEFAULT true CHECK (is_payroll_entity),
+  notes              text,
+  created_at         timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  updated_at         timestamptz NOT NULL DEFAULT timezone('utc'::text, now()),
+  created_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  updated_by         uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  CONSTRAINT hr_staff_payroll_org_must_run_payroll
+    FOREIGN KEY (hr_organization_id, is_payroll_entity)
+    REFERENCES public.hr_organizations (id, is_payroll_entity)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hr_staff_payroll_organization
+  ON public.hr_staff_payroll (hr_organization_id);
+
+-- Which organisations actually run a payroll. A flag rather than a hardcoded
+-- name check, so a future non-paying entity is a data edit and not a patch.
+ALTER TABLE public.hr_organizations
+  ADD COLUMN IF NOT EXISTS is_payroll_entity boolean NOT NULL DEFAULT true;
+ALTER TABLE public.hr_organizations
+  DROP CONSTRAINT IF EXISTS hr_organizations_id_payroll_entity_key;
+ALTER TABLE public.hr_organizations
+  ADD CONSTRAINT hr_organizations_id_payroll_entity_key UNIQUE (id, is_payroll_entity);
 
 -- Updated: 2026-04-18 - Call Notes dialog enrichment
 -- Adds prospect_sentiment, primary_objection, and follow_up_at (timestamptz)
@@ -6155,6 +6267,40 @@ CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
 CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
   ON hr_recruitment_job_notes(job_id, created_at);
 
+-- =====================================================================================
+-- hr_recruitment_purge_log — PII-free tombstone for super-admin purges of a REJECTED
+-- applicant (migration 20260810170000). Deliberately stores NO name/email/phone/
+-- qualification/resume URL: the whole point of the purge is that those are gone.
+--
+-- No FKs — every id it holds points at a row that has been deleted by design.
+--
+-- drive_file_id is operational, not identifying (an opaque Drive handle that resolves
+-- only for the service account). It is kept ONLY until the resume is confirmed deleted,
+-- then nulled by fn_clear_recruitment_purge_drive_ref. A row still carrying one
+-- therefore means "orphaned resume, needs a Drive sweep".
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_purge_log (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id     uuid,
+  candidate_id       uuid,
+  job_id             uuid,
+  institution_id     uuid,
+  hr_organization_id uuid,
+  stage              text NOT NULL
+                       CHECK (stage IN ('screening_rejected', 'pipeline_rejected')),
+  had_resume         boolean NOT NULL DEFAULT false,
+  drive_file_id      text,
+  drive_cleared_at   timestamptz,
+  purged_by          uuid NOT NULL,
+  purged_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_purge_log_purged_at
+  ON hr_recruitment_purge_log (purged_at DESC);
+-- Orphan-resume sweep: purges whose Drive file was never confirmed gone.
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_purge_log_pending_drive
+  ON hr_recruitment_purge_log (purged_at DESC)
+  WHERE drive_file_id IS NOT NULL;
+
 -- ── Cohort Core — M7.2 experiments + M7.3 proposals (Phase 7 · THE MOAT) ─────
 -- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql (2026-07-06)
 -- cohort_experiments: one causal-lift result per cohort (control-group A/B).
@@ -6325,3 +6471,285 @@ CREATE TABLE IF NOT EXISTS public.bug_clusters (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat (migration
+-- 20260724045622_id_card_agent_status.sql). Singleton row (id=1) recording the
+-- last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs
+-- with a valid agent token; read by the print-queue UI "Print bridge online /
+-- silent" chip. Written via the service-role client only.
+CREATE TABLE IF NOT EXISTS public.id_card_agent_status (
+  id           SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  last_poll_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.id_card_agent_status IS
+  'Singleton heartbeat (id=1): last time the on-prem ID-card print bridge polled GET /api/id-cards/jobs. Updated via the service-role client; read by the print-queue UI bridge-status chip.';
+
+-- ---------------------------------------------------------------------------
+-- Payment security audit trail.
+-- Replaces the old (silently broken) use of user_activity_logs, whose user_id
+-- is NOT NULL FK -> profiles(id) while every payment event identifies the payer
+-- by learners_profiles.id — so every audit insert failed with 23503 and was
+-- swallowed. Payment events also originate from contexts with no user at all
+-- (Razorpay webhooks, the razorpay-late-auth cron), so this table deliberately
+-- carries NO foreign keys: an audit write must never be rejected.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.payment_audit_logs (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type        TEXT NOT NULL,
+  transaction_id    TEXT NOT NULL,
+  student_id        UUID,
+  institution_id    UUID,
+  expected_amount   NUMERIC,
+  actual_amount     NUMERIC,
+  client_status     TEXT,
+  server_status     TEXT,
+  description       TEXT,
+  ip_address        TEXT,
+  user_agent        TEXT,
+  metadata          JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS payment_audit_logs_transaction_id_idx ON public.payment_audit_logs(transaction_id);
+CREATE INDEX IF NOT EXISTS payment_audit_logs_created_at_idx ON public.payment_audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS payment_audit_logs_event_type_idx ON public.payment_audit_logs(event_type, created_at DESC);
+
+ALTER TABLE public.payment_audit_logs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.payment_audit_logs FROM anon, authenticated;
+
+COMMENT ON TABLE public.payment_audit_logs IS
+  'Payment security audit trail (verification, manipulation, replay, webhook, receipt). No FKs by design: an audit write must never fail.';
+
+-- Archive of voided billing receipts (mig 20260729_billing_receipt_void).
+-- A void MOVES the row here rather than flagging it in place: 26 functions read
+-- billing_receipts and ~20 sum payment_amount directly, so a `voided_at` flag
+-- would need filtering in every one of them and a single miss overstates
+-- collections. Safe only because generate_receipt_number() uses a sequence, not
+-- MAX(receipt_number), so a number can never be reused.
+CREATE TABLE IF NOT EXISTS public.billing_receipts_voided (
+  id                       uuid PRIMARY KEY,
+  receipt_number           text NOT NULL,
+  receipt_date             date,
+  student_id               uuid,
+  institution_id           uuid,
+  payment_mode             text,
+  payment_reference_number text,
+  payment_amount           numeric,
+  payment_paid_date        date,
+  payer_name               text,
+  payer_contact            text,
+  accountant_id            uuid,
+  payment_remarks          text,
+  created_by               uuid,
+  created_at               timestamptz,
+  updated_at               timestamptz,
+  items_snapshot           jsonb NOT NULL DEFAULT '[]'::jsonb,
+  voided_at                timestamptz NOT NULL DEFAULT now(),
+  voided_by                uuid,
+  void_reason              text NOT NULL
+);
+-- Supabase default-grants new public tables to anon; RLS is not a substitute.
+REVOKE ALL ON TABLE public.billing_receipts_voided FROM anon, PUBLIC;
+
+-- Receipt cancellation approval (mig 20260729_receipt_cancellation_approval).
+-- NOTE receipt_id has NO foreign key on purpose: approving a request DELETEs
+-- that receipt, and an FK (this repo defaults to NO ACTION) would make approval
+-- fail with 23503. receipt_snapshot preserves the receipt's identity instead.
+CREATE SEQUENCE IF NOT EXISTS public.billing_receipt_cancel_number_seq;
+
+CREATE TABLE IF NOT EXISTS public.billing_receipt_cancel_requests (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_number   text NOT NULL UNIQUE,
+  receipt_id       uuid NOT NULL,
+  institution_id   uuid,
+  student_id       uuid,
+  receipt_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  reason           text NOT NULL,
+  status           text NOT NULL DEFAULT 'pending_approval'
+                   CHECK (status IN ('pending_approval','approved','declined','withdrawn','failed')),
+  requested_by     uuid,
+  requested_at     timestamptz NOT NULL DEFAULT now(),
+  decided_by       uuid,
+  decided_at       timestamptz,
+  decision_notes   text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now()
+);
+
+-- At most ONE open request per receipt, so two people noticing the same
+-- duplicate cannot get it approved twice.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_open_per_receipt
+  ON public.billing_receipt_cancel_requests (receipt_id)
+  WHERE status = 'pending_approval';
+
+CREATE TABLE IF NOT EXISTS public.billing_receipt_cancel_request_actions (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id      uuid NOT NULL
+                  REFERENCES public.billing_receipt_cancel_requests(id) ON DELETE CASCADE,
+  action_type     text NOT NULL
+                  CHECK (action_type IN ('requested','approved','declined','withdrawn','failed')),
+  actor_id        uuid,
+  actor_role_name text,
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.billing_receipts_voided
+  ADD COLUMN IF NOT EXISTS cancel_request_id uuid;
+
+REVOKE ALL ON TABLE public.billing_receipt_cancel_requests FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_receipt_cancel_request_actions FROM anon, PUBLIC;
+REVOKE ALL ON SEQUENCE public.billing_receipt_cancel_number_seq FROM anon, PUBLIC;
+
+-- Identity SNAPSHOTS for receipt cancellation (mig 20260729_receipt_cancellation_
+-- super_admin_only). decided_by/requested_by are uuids, and a profile can be
+-- renamed, re-emailed or deactivated long after the decision -- so name / email /
+-- role / super-admin flag are captured AT DECISION TIME and never updated.
+ALTER TABLE public.billing_receipt_cancel_requests
+  ADD COLUMN IF NOT EXISTS requested_by_name       text,
+  ADD COLUMN IF NOT EXISTS requested_by_email      text,
+  ADD COLUMN IF NOT EXISTS requested_by_role       text,
+  ADD COLUMN IF NOT EXISTS decided_by_name         text,
+  ADD COLUMN IF NOT EXISTS decided_by_email        text,
+  ADD COLUMN IF NOT EXISTS decided_by_role         text,
+  ADD COLUMN IF NOT EXISTS decided_by_designation  text,
+  ADD COLUMN IF NOT EXISTS decided_by_is_super_admin boolean;
+
+ALTER TABLE public.billing_receipt_cancel_request_actions
+  ADD COLUMN IF NOT EXISTS actor_name           text,
+  ADD COLUMN IF NOT EXISTS actor_email          text,
+  ADD COLUMN IF NOT EXISTS actor_is_super_admin boolean;
+
+-- ── session_feedback: case-insensitive faculty-email expression index (2026-07-31) ──
+-- Migration: supabase/migrations/20260731220000_add_session_feedback_faculty_email_lower_index.sql
+-- ALREADY APPLIED TO PROD 2026-07-31 ~07:55 IST via the Management API as a
+-- single-statement CREATE INDEX CONCURRENTLY (outside any transaction); verified
+-- indisvalid=true and the lower(faculty_email) filter plan flipped Seq Scan → Bitmap
+-- Index Scan. Sits beside sibling idx_session_feedback_faculty (exact-case), which —
+-- like the session_feedback table itself — is declared in
+-- 20260615233000_session_feedback_substrate.sql, not in this file.
+CREATE INDEX IF NOT EXISTS idx_session_feedback_faculty_email_lower
+  ON public.session_feedback (lower(faculty_email), attendance_date);
+
+
+-- =====================================================================
+-- hr_shift_timings — table, constraints and indexes
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+
+  -- Most specific wins at resolution:
+  --   'category'     -> exact employment_category_id
+  --   'teaching'     -> employment_categories.is_teaching = true
+  --   'non_teaching' -> employment_categories.is_teaching = false
+  staff_scope text NOT NULL CHECK (staff_scope IN ('teaching','non_teaching','category')),
+  employment_category_id uuid NULL REFERENCES public.employment_categories(id) ON DELETE CASCADE,
+
+  -- ISO-8601: 1=Mon .. 7=Sun. Matches EXTRACT(ISODOW FROM date) exactly.
+  day_of_week smallint NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
+
+  is_working_day boolean NOT NULL DEFAULT true,
+
+  -- The two half-day session windows. They MAY overlap (09:00-13:00 / 12:30-16:30)
+  -- — that is the real JKKN pattern, and the reason lunch_start/lunch_end on
+  -- hr_work_schedules could not be reused: a lunch gap and a session overlap
+  -- are opposites.
+  first_half_start  time NULL,
+  first_half_end    time NULL,
+  second_half_start time NULL,
+  second_half_end   time NULL,
+
+  -- Applies to first_half_start ONLY. Confirmed requirement: morning punch only.
+  grace_minutes integer NOT NULL DEFAULT 0 CHECK (grace_minutes BETWEEN 0 AND 240),
+
+  -- 2nd Saturday of the month is non-working. Only meaningful when day_of_week = 6.
+  second_saturday_holiday boolean NOT NULL DEFAULT false,
+
+  effective_from date NOT NULL DEFAULT CURRENT_DATE,
+  effective_until date NULL,
+
+  notes text NULL,
+  is_active boolean NOT NULL DEFAULT true,
+
+  created_by uuid NULL REFERENCES public.profiles(id),
+  updated_by uuid NULL REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_shift_timings_scope_category_chk CHECK (
+    (staff_scope =  'category' AND employment_category_id IS NOT NULL) OR
+    (staff_scope <> 'category' AND employment_category_id IS NULL)
+  ),
+
+  CONSTRAINT hr_shift_timings_times_present_chk CHECK (
+    (is_working_day = false
+       AND first_half_start IS NULL AND first_half_end IS NULL
+       AND second_half_start IS NULL AND second_half_end IS NULL)
+    OR
+    (is_working_day = true
+       AND first_half_start IS NOT NULL AND first_half_end IS NOT NULL
+       AND second_half_start IS NOT NULL AND second_half_end IS NOT NULL)
+  ),
+
+  -- Overlap between the halves is ALLOWED; inversion is not.
+  CONSTRAINT hr_shift_timings_order_chk CHECK (
+    is_working_day = false OR (
+      first_half_end    >  first_half_start  AND
+      second_half_end   >  second_half_start AND
+      second_half_start >= first_half_start  AND
+      second_half_end   >= first_half_end
+    )
+  ),
+
+  CONSTRAINT hr_shift_timings_second_saturday_chk CHECK (
+    second_saturday_holiday = false OR day_of_week = 6
+  ),
+
+  CONSTRAINT hr_shift_timings_effective_chk CHECK (
+    effective_until IS NULL OR effective_until > effective_from
+  )
+);
+
+COMMENT ON TABLE public.hr_shift_timings IS
+  'Institution-wise shift timing config, grained on (institution, staff scope, weekday) and effective-dated. Two half-day session windows that may overlap; grace_minutes applies to first_half_start ONLY. Resolution is most-specific-wins: a staff_scope=category row beats teaching/non_teaching. Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md';
+
+COMMENT ON COLUMN public.hr_shift_timings.day_of_week IS 'ISO-8601 weekday: 1=Mon .. 7=Sun. Matches EXTRACT(ISODOW FROM date).';
+COMMENT ON COLUMN public.hr_shift_timings.grace_minutes IS 'Late allowance on first_half_start ONLY. Punching within grace is on time; beyond it is flagged late but the day still counts full.';
+COMMENT ON COLUMN public.hr_shift_timings.second_saturday_holiday IS 'When true and day_of_week=6, the 2nd Saturday of each month resolves as non-working.';
+
+-- One live row per (institution, scope, category, weekday).
+-- COALESCE is load-bearing: Postgres treats NULLs as DISTINCT in a plain UNIQUE
+-- index, which would allow unlimited duplicate 'teaching' rows through.
+-- Note none of hr_shift_templates / hr_shift_assignments / hr_work_schedules /
+-- hr_biometric_punches has any unique constraint at all — do not repeat that.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_shift_timings_current_uq
+  ON public.hr_shift_timings (
+    institution_id,
+    staff_scope,
+    COALESCE(employment_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    day_of_week
+  )
+  WHERE effective_until IS NULL AND is_active;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_lookup
+  ON public.hr_shift_timings (institution_id, day_of_week, effective_from DESC)
+  WHERE is_active;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_category
+  ON public.hr_shift_timings (employment_category_id)
+  WHERE employment_category_id IS NOT NULL;

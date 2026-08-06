@@ -38,6 +38,8 @@ import { HolidaysEditor } from './_components/holidays-editor';
 import { BookingPageCard } from './_components/booking-page-card';
 import { IntegrationPrefsCard } from './_components/integration-prefs-card';
 import { getIntegrationPrefs } from './_components/integration-prefs-actions';
+import { DelegatesCard } from './_components/delegates-card';
+import { getMyDelegates } from './_components/delegates-actions';
 
 // Cal.com reads/writes are user-specific and mutable — never statically cache.
 export const dynamic = 'force-dynamic';
@@ -152,6 +154,10 @@ export default async function MeetingsAvailabilityPage({
   // block the availability editor.
   const prefsState = await getIntegrationPrefs();
 
+  // Who the host has let manage their calendar (e.g. a PA). Degrades to simply
+  // not rendering the card on failure — it must never block the editor.
+  const delegatesState = await getMyDelegates();
+
   // Bookable meeting-type count — drives the "your link won't accept bookings
   // until you add a meeting type" warning on the booking-page card. A booking
   // link with zero meeting types renders the public "not accepting bookings"
@@ -176,6 +182,9 @@ export default async function MeetingsAvailabilityPage({
       )}
       {prefsState.success && prefsState.data && (
         <IntegrationPrefsCard initial={prefsState.data} />
+      )}
+      {delegatesState.success && delegatesState.data && (
+        <DelegatesCard initial={delegatesState.data} />
       )}
     </Shell>
   );

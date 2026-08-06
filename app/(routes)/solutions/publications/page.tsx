@@ -67,14 +67,14 @@ export default function PublicationsPage() {
         ]}
       />
       <div className="space-y-6 mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold py-1">Publications</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
               Research publications for NIRF/NAAC accreditation
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={handleExport} disabled={publications.length === 0}>
               <Download className="mr-2 h-4 w-4" />
               Export

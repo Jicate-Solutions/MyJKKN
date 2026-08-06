@@ -126,6 +126,30 @@ export async function uploadResumeToJobFolder(opts: ResumeUploadOptions): Promis
   };
 }
 
+/**
+ * Permanently delete a Drive file (skips the trash — a trashed resume is still a
+ * readable resume). Used by the super-admin purge of a rejected applicant.
+ *
+ * Returns false instead of throwing when the file is already gone (404) or Drive
+ * isn't configured, so a purge is never blocked by the storage side. The caller
+ * keeps the file id in hr_recruitment_purge_log until this returns true.
+ */
+export async function deleteDriveFile(fileId: string): Promise<boolean> {
+  if (!isDriveConfigured() || !fileId) return false;
+
+  try {
+    await createDriveClient().files.delete({ fileId, supportsAllDrives: true });
+    return true;
+  } catch (err) {
+    const status = (err as { code?: number; status?: number })?.code
+      ?? (err as { status?: number })?.status;
+    // Already deleted — the desired end state either way.
+    if (status === 404) return true;
+    console.error(`[drive] delete failed for file ${fileId}`, err);
+    return false;
+  }
+}
+
 export interface UploadOptions {
   feature: PPFeature;
   institutionName: string;
@@ -268,6 +292,52 @@ export async function uploadRefundAttachment(
     requestBody: { role: 'reader', type: 'anyone' },
     supportsAllDrives: true,
   });
+  return {
+    name: opts.file.name || storedName,
+    driveFileId: fileId,
+    url: created.data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view`,
+  };
+}
+
+export interface RoomConditionPhotoUploadOptions {
+  blockName: string;
+  roomNumber: string;
+  file: File;
+}
+
+export interface RoomConditionPhotoUploadResult {
+  name: string;
+  driveFileId: string;
+  url: string;
+}
+
+/**
+ * Upload a room condition-check photo to
+ *   <ROOT> / Campus Living / Room Condition Photos / <Block> / <Room>
+ * No anyone:reader permission — access is gated by hostel_room_condition_photos
+ * RLS plus the authenticated image proxy route, not public link-sharing.
+ * blockName/roomNumber (not an institution name) key the folder path since a
+ * block can serve multiple institutions via hostel_block_institutions.
+ */
+export async function uploadRoomConditionPhoto(
+  opts: RoomConditionPhotoUploadOptions
+): Promise<RoomConditionPhotoUploadResult> {
+  if (!isDriveConfigured()) throw new Error('Google Drive is not configured.');
+  const drive = createDriveClient();
+  const folderId = await ensureFolderPath(drive, [
+    'Campus Living', 'Room Condition Photos', opts.blockName, opts.roomNumber,
+  ]);
+  const buffer = Buffer.from(await opts.file.arrayBuffer());
+  const safeName = (opts.file.name || 'photo').replace(/[\r\n]/g, ' ').slice(0, 200);
+  const storedName = `${Date.now()}-${safeName}`;
+  const created = await drive.files.create({
+    requestBody: { name: storedName, parents: [folderId] },
+    media: { mimeType: opts.file.type || 'application/octet-stream', body: Readable.from(buffer) },
+    fields: 'id, webViewLink',
+    supportsAllDrives: true,
+  });
+  const fileId = created.data.id;
+  if (!fileId) throw new Error('Drive upload returned no file id.');
   return {
     name: opts.file.name || storedName,
     driveFileId: fileId,

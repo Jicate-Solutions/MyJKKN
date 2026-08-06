@@ -4,6 +4,15 @@ export const dynamic = 'force-dynamic';
 // GET  — list every AI job type (incl. disabled) via fn_ai_job_type_admin_list.
 // POST — create/update one job type from a JSON def via fn_ai_job_type_upsert.
 //
+// ⚠️ POST does NOT necessarily change the live prompt (2026-08-04). A prompt
+// EDIT on an existing job type is a champion–challenger, not an edit: the RPC
+// leaves ai_job_types.prompt_template alone and files the new text in
+// ai_prompt_versions as a challenger. Every other field still saves live. The
+// RPC's jsonb reply carries prompt_action / prompt_version / prompt_message,
+// passed straight through as `data` so the caller can TELL the admin their
+// prompt is a proposal awaiting approval instead of showing a bare success
+// toast for a save that did not go live.
+//
 // RBAC: super_admin only — checked server-side (mirrors /api/admin/ai-models).
 // The RPCs are SECURITY DEFINER with their own is_super_admin() gate as
 // defense-in-depth.

@@ -278,15 +278,15 @@ export function AIDebuggerTab() {
   return (
     <>
       <Card className="flex flex-col h-[calc(100vh-280px)] min-h-[500px]">
-        <CardHeader className="flex-shrink-0 flex flex-row items-center justify-between space-y-0 pb-4">
-          <div className="flex items-center gap-2">
+        <CardHeader className="flex-shrink-0 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-4">
+          <div className="flex flex-wrap items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-500" />
             <CardTitle className="text-lg">AI Permission Debugger</CardTitle>
             <Badge variant="secondary">Gemini 4</Badge>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <Select value={roleHint || '__auto__'} onValueChange={(v) => setRoleHint(v === '__auto__' ? '' : v)}>
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Auto-detect" />
               </SelectTrigger>
               <SelectContent>
@@ -313,7 +313,7 @@ export function AIDebuggerTab() {
           {/* Messages area */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full">
+              <div className="flex flex-col items-center justify-center min-h-full">
                 <div className="flex flex-col items-center gap-2 mb-8">
                   <Bot className="h-12 w-12 text-muted-foreground/50" />
                   <h3 className="text-lg font-semibold">

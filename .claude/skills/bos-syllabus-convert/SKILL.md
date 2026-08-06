@@ -78,3 +78,31 @@ Rules:
   synthesized units.
 - **course_credits is integer** — 1.5-credit labs → NULL, note it.
 - **Drop the trailing average row** (`CO`/`Avg`/`C`) from mapping tables.
+
+## Pharmacy (COP) syllabi — NO CO-PO/Bloom
+
+College of Pharmacy syllabi have **no Course Outcomes, no PO/PSO mapping, no Bloom's** — skip all
+CO/CLO/PO extraction. Set `academic_model` and populate the pharmacy columns instead. Full detail:
+`docs/plans/2026-07-24_bos_cop-pharmacy-course-syllabus-tech-spec.md`; column shapes in
+`types/bos.ts` (`BosExamScheme`, `BosInternshipPostings`, `BosAhsContent`).
+
+### B.Pharm — PCI CBCS (`academic_model = 'pci_pharm'`)
+- Body layout: **Scope** (paragraph) → **Objectives** (numbered) → **Course Content: Unit I–V**
+  (each with hours, e.g. "10 hours") → **Recommended Books** → **Reference Books**.
+- Map: `scope` ← Scope paragraph; `course_objectives` ← Objectives list; `course_content.units[]`
+  ← Unit I–V (capture `hours`); practicals use `is_practical:true, topics:[]` (flat experiment
+  list); `textbooks.primary` ← Recommended, `textbooks.references`/`web_resources` ← Reference.
+- `exam_scheme` ← Table X (Internal = Continuous + Sessional; End-Sem marks + duration) + the PCI
+  question-paper pattern (75/50/35 variants). Store `semester` (1–8). Leave CO/PO NULL.
+
+### Pharm.D — Dr. MGR (`academic_model = 'mgr_pharmd'`)
+- Body layout: **Introduction/Objectives** (a–f) → **Course Materials** (Text/Reference books) →
+  **Lecture-wise Program: Topics** (flat numbered list).
+- Map: `course_objectives` ← Introduction/Objectives; body → **flat topics** in
+  `course_content` (`is_practical:true, topics:[]`) OR the richer `ahs_content` tree
+  (year→subject→topics) for bulk; `textbooks` ← Course Materials. Store `academic_year` (1–5).
+- `exam_scheme` ← Theory 70 + IA 30 + Practical + Oral (3 h theory / 4 h practical).
+- 6th-year Internship → `internship_postings` (6 mo General Medicine + 2 mo ×3 specialties).
+
+The pharmacy PO-notation rule does **not** apply (no PO tables). One syllabus row = one course /
+subject (keeps the course→syllabus 1:1 linkage).

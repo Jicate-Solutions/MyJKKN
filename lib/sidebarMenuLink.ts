@@ -27,7 +27,9 @@ import {
   GraduationCap,
   BookOpen,
   ClipboardCheck,
+  Inbox,
   Gauge,
+  IdCard,
   Lock,
   LucideIcon,
   LayoutGrid,
@@ -106,6 +108,12 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
+// The single answer to "which MENU_PERMISSIONS values are not permission keys".
+// Imported rather than restated so the sidebar, the route guard
+// (isPageAccessible) and the SQL walls cannot drift into disagreeing about the
+// `super_admin` sentinel. permission-filter imports only a type from
+// ./navigation/types, so there is no import cycle back into this file.
+import { isSentinelPermission } from '@/lib/navigation/permission-filter';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -154,10 +162,61 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Foundation & Competitive-Exam Programme
   '/foundation': 'foundation.dashboard.view',
   '/foundation/console': 'foundation.cohorts.view',
+  // The learner surface. Most-specific match wins, so this reads
+  // foundation.practice.take rather than inheriting the operator key on
+  // '/foundation' — somebody sitting the programme has no reason to hold
+  // foundation.dashboard.view.
+  '/foundation/practice': 'foundation.practice.take',
+  // Same key as practising alone. Holding it is not enough to see anything
+  // here — the page also requires you to actually run a group, which is
+  // fp_cohorts.resource_person_id, not a permission.
+  '/foundation/practice/facilitate': 'foundation.practice.take',
 
   // Improvement Board (MBA teaching-enterprise)
   '/improvement-board': 'improvement.ideas.view',
+  '/improvement-board/dashboard': 'improvement.ideas.view',
   '/improvement-board/leaderboard': 'improvement.ideas.view',
+  // Gemba visits — the screen that records someone going to look. A posted
+  // associate holds improvement.ideas.view, and the RPC does the real gating
+  // (posted to that department, or an officer). NOTE: the database grants read
+  // on a UNION this one-key-per-route map cannot express — the CAO, Executive
+  // Administrative Officers and MBA Faculty reach it on
+  // improvement.area_role.assign / improvement.board.manage and hold no
+  // ideas.view at all. The submenu filter in GetRoleBasedPages carries that
+  // union; keep the two in step.
+  '/improvement-board/gemba': 'improvement.ideas.view',
+  '/ceo-rounds': 'ceo_rounds.log',
+  // MBA Analyst dashboard — an associate's own assigned-department analytics.
+  '/improvement-board/analytics': 'improvement.ideas.view',
+  // MBA case studies — the write-up of an improvement that was actually made.
+  // This entry is the WRITERS' key. It is not the whole gate: navPathAllowed()
+  // widens this path to a union of three keys, in BOTH filter sites below and
+  // in lib/navigation/permission-filter.ts. See CASE_STUDIES_NAV_PATH.
+  '/improvement-board/case-studies': 'improvement.ideas.view',
+  // MBA Analyst assignments — manager-only "who covers which department".
+  '/improvement-board/postings': 'improvement.board.manage',
+  // MBA Data Gaps — manager-only triage of gaps Associates reported.
+  '/improvement-board/data-gaps': 'improvement.board.manage',
+  // Manage boards — manager-only CRUD over the areas ideas are filed against.
+  '/improvement-board/manage-boards': 'improvement.board.manage',
+  // Department owners — names ONE accountable person per board. Two tiers:
+  // improvement.board.manage OR improvement.area_role.assign may SEE it, but
+  // only improvement.area_role.assign may CHANGE an owner (the RPC refuses
+  // everyone else). This map holds one key per route, so the broader SEE tier
+  // is declared here and the officer half of the union is carried at the two
+  // nav filter sites via OWNERS_UNION_PERMISSIONS below — an officer role that
+  // does not also hold board.manage would otherwise get a page it can use and
+  // no link to reach it.
+  '/improvement-board/owners': 'improvement.board.manage',
+  // MBA Team Rotation — the rota chart is viewable by associates; team-builder
+  // and cycle-setup are manager-only (improvement.board.manage).
+  '/improvement-board/rotation': 'improvement.ideas.view',
+  '/improvement-board/rotation/teams': 'improvement.board.manage',
+  '/improvement-board/rotation/config': 'improvement.board.manage',
+  // Teaching-enterprise cohorts — the config rows that decide WHO participates
+  // (programme + semester window) and WHAT they get (role + contribution mode).
+  // Manager-only (improvement.board.manage); super admins pass via that check.
+  '/admin/teaching-cohorts': 'improvement.board.manage',
 
   // Overview
   '/': 'view_dashboard', // Dashboard should have a permission too
@@ -167,6 +226,37 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
+
+  // ======================================================================
+  // Director's Desk (2026-08-05) — spec: specs/director-desk/SPEC.md
+  //
+  // /director-desk is the Director's own console: everything he has handed
+  // out, and which of it is not green. Genuinely restricted — it lists work
+  // assigned across the whole institution — so it carries a real key.
+  //
+  // /my-desk is the RECEIVER's side and must be reachable by someone who
+  // holds NO module permission at all: the entire point of a handover is that
+  // the receiver could not open the page before. Gating it on any real module
+  // key would defeat the feature.
+  //
+  // `view_profile` is this codebase's universal-authenticated idiom — it is
+  // hard-coded as always-true in isPageAccessible() and filterByPermissions()
+  // (lib/navigation/permission-filter.ts), which is what RoutePermissionGuard
+  // reads, and it is EXEMPT from the catalog gate for exactly this reason
+  // (scripts/check-permissions-catalog.mjs EXEMPT_KEYS). Same pattern already
+  // used by /profile and /ai-pulse.
+  //
+  // CAUTION, measured 2026-08-05 against production: `view_profile` is true on
+  // only 18 of 85 custom_roles. It is a baseline in DEFAULT_ROLE_PERMISSIONS
+  // but 67 live roles predate that and do not carry it — including principal,
+  // hod, faculty, staff, coo and ceo. isPageAccessible short-circuits the key
+  // so the PAGE opens for everyone; the SIDEBAR filter in GetRoleBasedPages
+  // does NOT short-circuit it and would have hidden the link from 79% of
+  // roles. That is why /my-desk also gets an explicit always-visible carve-out
+  // below, the same treatment as /guide and /my-induction-sessions.
+  // ======================================================================
+  '/director-desk': 'director.handover.view_all',
+  '/my-desk': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -244,6 +334,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/organizations/school-defaults': 'organizations.school-defaults.view',
   '/organizations/degrees': 'organizations.degrees.view',
   '/organizations/departments': 'organizations.departments.view',
+  // 2026-08-04 — College Leadership. New page; its own key.
+  '/organizations/leadership': 'organizations.leadership.manage',
+  // 2026-08-04 — HoD Assignment has existed and worked since 2026-05-07 but was
+  // never in the sidebar; it was reachable only from lib/organizations/guide/
+  // content.ts. That is why it sits at 7 departments of 89, all Pharmacy. The
+  // page itself gates on admin_or_super_admin (AdminPermissionGuard), so this
+  // maps to the nearest catalog key rather than inventing one.
+  '/organizations/departments/hod-assignment': 'organizations.departments.edit',
   '/organizations/programs': 'organizations.programs.view',
   '/organizations/courses': 'organizations.courses.view',
   '/organizations/semesters': 'organizations.semesters.view',
@@ -273,17 +371,60 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // from the catalog would only hide them from Role Management, not revoke.
   '/hr/employees': 'hr.employees.view',
   '/hr/employees/[id]': 'hr.employees.view',
+  // WHO PAYS each team member. This entry is load-bearing, not decorative:
+  // app/(routes)/hr/layout.tsx guards the subtree by LONGEST PREFIX, so without
+  // it this page would fall through to '/hr' → 'hr.view' — a key almost every
+  // role holds — and the paying organisation is HR-only by design.
+  '/hr/payroll/organisation': 'hr.payroll.institution.view',
+  // The hub at /hr/payroll only redirects to the page above, but it needs its
+  // own entry: without one the longest-prefix match falls through to '/hr' →
+  // 'hr.view', so anyone in HR could open it and be denied one redirect later.
+  // Gating it here denies at the hub and keeps the AutoTabNav chip's gate
+  // (MENU_PERMISSIONS[href]) in step with the route guard.
+  '/hr/payroll': 'hr.payroll.institution.view',
   '/hr/policies': 'hr.policies.view',
   '/hr/policies/[table]': 'hr.policies.view',
-  // HR Leave — parent + 6 submenus shown in sidebar
+  // HR Leave — parent + 6 submenus shown in sidebar.
+  // '/hr/leave' and '/hr/leave/calendar' are the SHARED/approver lens and keep
+  // the HR-tier 'hr.leave.view'. Everything an employee does with their OWN
+  // leave gates on a self-service key instead — see the block below.
   '/hr/leave': 'hr.leave.view',
   '/hr/leave/apply': 'hr.leave.apply',
-  '/hr/leave/my-applications': 'hr.leave.view',
   '/hr/leave/approve': 'hr.leave.approve',
   '/hr/leave/calendar': 'hr.leave.view',
   '/hr/leave/balance': 'hr.leave.balance.view',
   '/hr/leave/encashment': 'hr.leave.encashment.view',
-  '/hr/leave/[id]': 'hr.leave.view',
+  // ── Time Off self-service (2026-07-23) ──────────────────────────────────
+  // 'hr.leave.view' is DUAL-PURPOSE: besides gating these routes it is an
+  // org-wide read grant inside hla_select on hr_leave_applications
+  // (`user_has_permission('hr.leave.view') AND hr_organization_id IN
+  // fn_my_hr_organization_ids()`). Holding it at the 61-role self-service
+  // population meant every employee could read every colleague's leave in
+  // their HR organization. It is now an HR-tier key (7 roles).
+  //
+  // These routes therefore moved to 'hr.leave.apply'. Nothing is lost: hla_select
+  // already returns own rows through the IDENTITY clauses
+  // (`employee_id IN fn_my_staff_ids()` / `applied_by = auth.uid()`), so the
+  // route guard only has to let the applicant through — RLS still decides which
+  // rows they actually see.
+  //
+  // requests / compensatory-off / short-time-off / approvals had NO entry at all
+  // before today. They were gated purely by accident: the '[id]' line below
+  // inserts a '*' wildcard node in the route trie (lib/auth/route-matcher.ts:204),
+  // and they fell through to it. Deleting that one line would have left all four
+  // COMPLETELY ungated. They are declared explicitly now.
+  '/hr/leave/my-applications': 'hr.leave.apply',
+  '/hr/leave/requests': 'hr.leave.apply',
+  '/hr/leave/compensatory-off': 'hr.leave.apply',
+  '/hr/leave/short-time-off': 'hr.leave.apply',
+  // Approvals tab: visibility is a RUNTIME capability the static map cannot
+  // express — the page self-gates on hr_can_approve_leave() (which mirrors the
+  // hla_update policy) and renders a "not an approver" state otherwise. The
+  // static gate is deliberately the permissive self-service key so approvers
+  // whose authority comes from an approval flow rather than a permission key
+  // are not blocked at the route layer. See app/(routes)/hr/leave/approvals/page.tsx.
+  '/hr/leave/approvals': 'hr.leave.apply',
+  '/hr/leave/[id]': 'hr.leave.apply',
   // ── Employee Self Service (2026-07-21) ───────────────────────────────────
   // These entries are LOAD-BEARING beyond the sidebar. app/(routes)/hr/layout.tsx
   // wraps the whole /hr subtree in RoutePermissionGuard, and routeMatcher
@@ -295,7 +436,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // page.
   '/hr/attendance': 'hr.attendance.view_self',
   '/hr/attendance/regularize': 'hr.attendance.regularize_self',
-  '/hr/shifts/my': 'hr.shifts.view_own',
+  // Biometric punch import — an HR-ops surface, NOT self-service. Without this
+  // line it inherited '/hr/attendance' -> hr.attendance.view_self and rendered
+  // for all 61 self-service roles; the page is deliberately permissive and lets
+  // /api/hr/attendance/import return the 403, so every non-HR user who opened it
+  // got a dead-end upload dialog. hr.dashboard.view is the same core-HR gate the
+  // other 99 admin pages use, and it is already in the permission catalog
+  // (hr.attendance.view_all is NOT — 2 roles carry it undeclared).
+  '/hr/attendance/import': 'hr.dashboard.view',
   '/hr/my-assets': 'hr.assets.view_own',
   '/hr/memos/my': 'hr.memos.view_own',
   '/hr/performance-reviews': 'hr.performance_reviews.view_own',
@@ -335,11 +483,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
   '/hr/admin/recruitment-need': 'hr.dashboard.view',
   '/hr/admin/required-documents': 'hr.dashboard.view',
-  '/hr/admin/shift-templates': 'hr.dashboard.view',
+  // Gated on its own key, not the blanket hr.dashboard.view the neighbours use.
+  // The retired /hr/admin/shift-templates rode on hr.dashboard.view while its
+  // writes were hardcoded to is_admin(), which locked out custom roles such as
+  // HR Head that hold every other HR key. hr.shift_timings.manage is declared in
+  // the catalog and granted by 20260806090200_hr_shift_timings_permissions.sql.
+  '/hr/admin/shift-timings': 'hr.shift_timings.manage',
   '/hr/admin/terminations': 'hr.dashboard.view',
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
   // Spec: specs/counselor-taxonomy-spec.md. Role seed:
@@ -419,6 +573,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Admin lane of session feedback (D2 gate) — leadership-view key
   // (menu-visibility gap fix 2026-07-12)
   '/academic/session-feedback/admin': 'academic.session_feedback.leadership.view',
+  // SCF note-safety loop Phase 0 (2026-07-26): the named-reviewer queue for
+  // AI-drafted learner support notes. Its own key (note-safety spec §6.3),
+  // held by the scf_note_reviewer role; the review/pending RPCs enforce the
+  // same permission server-side. Separate surface from the super-admin
+  // /admin/learner-notes queue (same RPCs underneath).
+  '/academic/session-feedback/note-review': 'scf.notes.review',
 
   // Curriculum AI — faculty review of the AI-drafted lesson spine (Phase 2).
   // Same teaching-staff audience as the faculty session-feedback lane, so it
@@ -463,6 +623,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // AI Pulse Module (events-extension — weekly Pulse-to-Practice cycle)
   '/ai-pulse': 'ai_pulse.view',
   '/ai-pulse/my-pulse': 'aiPulse:view.self',
+  // Leaderboard is public to any authenticated learner (Director decision #6);
+  // gate the sidebar entry on the same key as the AI Pulse landing page.
+  '/ai-pulse/leaderboard': 'ai_pulse.view',
   // In-module tab (parent) routes — so AutoTabNav hides a tab when the person
   // lacks the permission its page enforces (each key = the gate on that tab's
   // page). '/ai-pulse/guide' is intentionally omitted (it redirects to the
@@ -477,8 +640,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ai-pulse/submit': 'aiPulse:submit.publication',
   '/ai-pulse/admin/cycles': 'aiPulse:cycles.manage',
   '/ai-pulse/admin/anomalies': 'aiPulse:anomaly.review',
+  // Champion review queue for REPORTED feed prompts (moderation #3). Same
+  // permission the page itself enforces, and the SAME key as the sibling
+  // champion console '/ai-pulse/admin/anomalies' directly above — the Director
+  // retargeted this surface to the designated-champion key (the purpose-built
+  // ai_pulse_champion role holds it; the Monday-Lab scoring key it used to
+  // carry is held by ~587 staff, who must not see reported prompts or the
+  // author names attached to them). Written plain, like its neighbour: this key
+  // has no segment the terminology delta gate matches, so no value split is
+  // needed here.
+  '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
-  '/ai-pulse/admin/starter-tamil-review': 'aiPulse:cycles.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
   // VAC (Value-Added Courses) Module
@@ -505,6 +677,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/loops': 'super_admin', // Super admin only - Loop Control Tower (live health of every self-improving/cadence/accountability loop)
   '/admin/learner-notes': 'super_admin', // Super admin only - Learner Notes approval queue (AI-drafted support notes reviewed before students see them)
   '/admin/page-metadata': 'super_admin', // Super admin only - Page Search Metadata
+
+  // ID Cards (nav wiring 2026-07-24) — keys from PERMISSION_CATEGORIES
+  // (lib/constants/permissions.ts, id_cards group). Hub redirects to policy.
+  '/admin/id-cards': 'id_cards.jobs.view',
+  '/admin/id-cards/template': 'id_cards.templates.view',
+  '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Batch print enqueues jobs, so it needs the manage key (not just view).
+  '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
+  // so the nav entry mirrors it — no id_cards.* policy-view key exists.
+  '/admin/id-cards/policy': 'super_admin',
 
   // Social Media module (added 2026-05-31 for Meta integration nav-bar
   // wiring; 2026-06-11 retrofit from hardcoded 'super_admin' to granular
@@ -571,8 +754,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/schedule': 'billing.schedule.view',
   '/billing/schedule/new': 'billing.schedule.create',
   '/billing/schedule/bulk-create': 'billing.schedule.create',
+  // Multi-step Excel upload reached from a button on bulk-create. Same key as
+  // its parent — it creates bills, it just reviews them first.
+  '/billing/schedule/bulk-create/upload': 'billing.schedule.create',
   '/billing/schedule/bulk-edit': 'billing.schedule.update',
-  '/billing/schedule/[id]': 'billing.schedule.view',
   '/billing/schedule/[id]/edit': 'billing.schedule.update',
   '/billing/schedule/students': 'billing.schedule.view',
   '/billing/schedule/students/[id]': 'billing.schedule.view',
@@ -588,6 +773,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/refunds': 'billing.refunds.view',
   '/billing/refunds/[id]': 'billing.refunds.view',
   '/billing/refund-approvals': 'billing.refunds.configure',
+  // Gated on the REQUEST key so accounts staff can watch their own requests;
+  // approve/decline inside is gated separately and re-checked by the RPC.
+  '/billing/receipt-cancellations': 'billing.receipts.cancel.request',
   '/billing/apportionment': 'billing.apportionment.view',
   '/billing/apportionment/rules': 'billing.apportionment.view',
   '/billing/invoices': 'billing.invoices.view',
@@ -599,6 +787,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/transport': 'billing.transport.view',
   '/billing/onboarding': 'billing.onboarding.view',
   '/billing/activities': 'billing.activities.view',
+  '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
 
   // Resource Management
@@ -683,6 +872,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/[id]/edit': 'admission.consultants.edit',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
@@ -790,6 +981,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/solve-for-100/mentor': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/programs': 'startup_studio.analytics.view',
   '/startup-studio/solve-for-100/admin': 'startup_studio.analytics.view',
+  // School of Influence — programme settings (S2, 2026-07-31). Deliberately
+  // gated on its OWN key rather than startup_studio.analytics.view: the page
+  // guard uses the same key, so the chip is visible to exactly the people the
+  // page admits (plus super admins, who bypass both). Mapping it to a broad
+  // .view key would surface a chip that then denies — the sidebar-shows /
+  // page-denies anti-pattern.
+  '/startup-studio/school-of-influence/admin/settings': 'startup_studio.school_of_influence.configure',
   '/startup-studio/events': 'startup_studio.events.view',
   '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
@@ -809,6 +1007,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/solve-for-100/weekly': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/icp': 'startup_studio.events.view',
   '/startup-studio/events/[id]/solve-for-100/mentor': 'startup_studio.evaluations.manage',
+
+  // School of Influence — coordinator register + completion (spec §7 S6).
+  // MUST stay declared: RoutePermissionGuard treats a route with NO entry here as
+  // visible to every authenticated user, so without this line any learner could
+  // open the staff tick-list by typing the URL. 'cohort.manage' is the same
+  // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
+  // and the database cannot disagree about who belongs here.
+  '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -844,7 +1050,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/matlab': 'solutions.matlab.view',
   '/solutions/paradigm-shift': 'solutions.paradigm_shift.view',
   '/solutions/ai-solution-compliance': 'solutions.compliance.view',
-  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift
+  // '/solutions/departments' retired April 2026 — replaced by paradigm-shift.
+  // Reinstated 2026-08-01 as the capability register only (the nomination /
+  // approval workflow stays retired). Reached from the Solutions Hub tab bar.
+  '/solutions/departments': 'solutions.departments.view',
 
   // Learners Council
   '/learners-council': 'learners_council.dashboard.view',
@@ -933,13 +1142,27 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Compliance Unification Program — Accreditation routes
   '/accreditation': 'accreditation.view',                       // PR-A7 landing
+  // Per-owner worklist. Gated on the landing key rather than a new one so the
+  // people already trusted with accreditation can reach it — a key not present
+  // in lib/constants/permissions.ts would be ungrantable and the page would be
+  // reachable by nobody but super-admins.
+  '/accreditation/my-gaps': 'accreditation.view',               // per-owner worklist
   '/accreditation/coverage': 'accreditation.coverage.view',     // PR-A7 coverage dashboard
+  // IQAC reads the 107-row master framework (sh_accreditation_metrics) whole.
+  // Gated on the EXISTING metrics-catalog key rather than a new one: a key that
+  // is not in lib/constants/permissions.ts is ungrantable and never appears as
+  // a toggle in the role dialog.
+  '/accreditation/iqac': 'accreditation.metrics.view',          // IQAC master framework dashboard
   '/accreditation/naac': 'accreditation.naac.view',             // PR-A8 c1 NAAC IQAC dashboard
   '/accreditation/naac/committees': 'accreditation.naac.committees.view',         // PR-A8 c2
   '/accreditation/naac/committees/[id]': 'accreditation.naac.committees.view',    // PR-A8 c2
   '/accreditation/naac/dcf-export': 'accreditation.naac.dcf_export',              // PR-A8 c2 (super-admin)
   '/accreditation/naac/surveys/consent': 'accreditation.naac.surveys.consent.submit',  // PR-A8 c2
   '/accreditation/naac/surveys/8.4-export': 'accreditation.naac.surveys.export', // PR-A8 c2
+  '/accreditation/naac/surveys/stakeholders': 'accreditation.naac.surveys.stakeholder.view', // employer + alumni half of NAAC 1.2
+  '/accreditation/naac/narratives': 'accreditation.naac.narrative.view',         // AI narrative drafter (list)
+  '/accreditation/naac/narratives/owners': 'accreditation.naac.narrative.manage', // IQAC owner-assignment desk
+  '/accreditation/naac/narratives/[id]': 'accreditation.naac.narrative.view',    // AI narrative drafter (detail)
   '/accreditation/nirf': 'accreditation.nirf.view',             // PR-A9
   '/accreditation/nba': 'accreditation.nba.view',               // PR-A10
   '/accreditation/qs': 'accreditation.qs.view',                 // PR-A11 placeholder
@@ -949,6 +1172,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/accreditation/ncte': 'accreditation.ncte.view',             // PR-A15
   '/accreditation/aicte': 'accreditation.aicte.view',           // PR-A15
   '/accreditation/ugc': 'accreditation.ugc.view',               // PR-A15
+  '/accreditation/cac': 'accreditation.cac.view',               // Cluster Academic Council — JKKN's own body, not a regulator
+  // Assigning accountability writes accreditation_metric_owners, whose live RLS
+  // gates writes on accreditation.naac.narrative.manage — so the page gate uses
+  // the same key rather than a second one that could drift away from the table.
+  '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1033,6 +1261,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // super-admins bypass the nav filter. No entry here would make the link
   // visible to ALL authenticated users, so this line is load-bearing.
   '/bos/academic-council': 'academic.bos-academic-council.manage',
+  // Governing Body — institution-level body, super-admin + principal only.
+  // The grant (20260724120000) gives principals 'academic.bos-governing-body.manage';
+  // super-admins bypass the nav filter. Modelled "all as same" as Academic Council.
+  '/bos/governing-body': 'academic.bos-governing-body.manage',
   '/bos/reports': 'bos.reports.view',
   '/bos/ta-da': 'bos.ta_da.view',
   // Remaining BoS tab pages. These live only in the in-page tab bar (not the
@@ -1142,6 +1374,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/health/profile': 'health.profile.view',
   '/health/leaderboard': 'health.leaderboard.view',
   '/health/sports': 'health.sports.view',
+  // Approver inbox (2026-07-30). Gated on .approve, NOT .view — the Principal
+  // decides tournament permission but is not a sports-profile viewer
+  // (health.sports.view is false for that role), so reusing .view would hide
+  // the inbox from the only person who can act on it.
+  '/health/sports/approvals': 'health.sports.approve',
+  // Filing desk (2026-07-30). Separate route from the inbox because the two
+  // parties hold DIFFERENT keys — one route can carry only one permission here,
+  // and merging them would hide whichever surface the viewer is not gated for.
+  '/health/sports/squad-requests': 'health.sports.file_request',
   '/health/fitness': 'health.fitness.view',
   '/health/training': 'health.training.view',
   '/health/achievements': 'health.achievements.view',
@@ -1185,6 +1426,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/workflows': 'meetings.workflows.view',
   '/meetings/polls': 'meetings.polls.view',
   '/meetings/contacts': 'meetings.contacts.view',
+  '/meetings/contacts/scan': 'meetings.contacts.scan',
+  '/meetings/contacts/scan/saved': 'meetings.contacts.scan',
   '/meetings/analytics': 'meetings.analytics.view',
   '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
@@ -1296,6 +1539,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/indents': 'ims.indents.view',
   '/ims/indents/new': 'ims.indents.create',
   '/ims/indents/pending': 'ims.indents.approve',
+  // Phase D: HOD queue — gated on view (queue itself is scoped by
+  // departments.head_of_department_id, so non-HODs just see an empty state)
+  '/ims/indents/hod-approvals': 'ims.indents.view',
   '/ims/indents/[id]': 'ims.indents.view',
   '/ims/indents/[id]/edit': 'ims.indents.edit',
   // Inventory
@@ -1309,6 +1555,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/ims/reports/sales': 'ims.reports.view',
   '/ims/reports/stock': 'ims.reports.view',
   '/ims/reports/upi': 'ims.reports.view',
+  '/ims/reports/gateway-payments': 'ims.reports.view',
   // Sales (POS, history, receipt)
   '/ims/sales': 'ims.sales.view',
   '/ims/sales/history': 'ims.sales.view',
@@ -1356,6 +1603,76 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // access to non-admin roles (e.g. dedicated feedback reviewers).
   '/feedback': 'feedback.view',
 };
+
+/**
+ * The case-study screen carries TWO populations that are reached by DIFFERENT
+ * permission keys: the people who write the cases hold `improvement.ideas.view`,
+ * and the people who grade them hold `improvement.board.manage`. Holding one is
+ * no guarantee of holding the other, so a single-key mapping would hide the
+ * link from one population or the other.
+ *
+ * Which role_key holds which of these is a live value in `custom_roles.
+ * permissions` — read it there, not here. This file is not a copy of the role
+ * table and must not be maintained as one.
+ *
+ * The union is applied at BOTH nav filter sites below — the submenu filter AND
+ * the parent-menu filter — because the parent row is shown only when at least
+ * one child passes, and a role whose sole reachable child is this one would
+ * otherwise lose the whole Improvement Board row.
+ *
+ * Mirrors the identical treatment `/improvement-board/analytics` already gets
+ * in lib/navigation/permission-filter.ts.
+ */
+export const CASE_STUDIES_NAV_PATH = '/improvement-board/case-studies';
+export const CASE_STUDIES_NAV_KEYS = [
+  'improvement.ideas.view',
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
+ * /improvement-board/owners — a board manager may SEE who owns each department;
+ * an officer (improvement.area_role.assign) is the only one who may CHANGE it,
+ * and is the screen's real audience. Declaring only the officer key would hide
+ * it from managers; declaring only the manager key would hide it from an
+ * officer role that does not also hold board.manage. Both are listed.
+ */
+export const OWNERS_NAV_PATH = '/improvement-board/owners';
+export const OWNERS_NAV_KEYS = [
+  'improvement.board.manage',
+  'improvement.area_role.assign',
+] as const;
+
+/**
+ * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
+ * by key existence: a role may carry a permission key set to an explicit
+ * `false`, and an existence test reads that denial as a grant.
+ *
+ * Real super admins and admins never reach this function — GetRoleBasedPages
+ * returns their whole menu earlier — so anything that arrives here belongs to
+ * somebody who is not one. That is why the sentinel wall below is a flat `false`
+ * rather than a role test.
+ */
+export function navPathAllowed(
+  href: string,
+  permissions: Record<string, boolean>,
+  requiredPermission: string | undefined
+): boolean {
+  if (href === CASE_STUDIES_NAV_PATH) {
+    return CASE_STUDIES_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (href === OWNERS_NAV_PATH) {
+    return OWNERS_NAV_KEYS.some((key) => permissions[key] === true);
+  }
+  if (!requiredPermission) return false;
+  // A sentinel is not a permission key. MENU_PERMISSIONS gates 14 routes on the
+  // literal value `super_admin`, and Director's Desk ORs a handover's keys into
+  // this very map — so a handover of the ID-card printing policy page used to
+  // reveal the entire super-admin sidebar to its receiver. The database walls
+  // the key now; this is the layer that would have acted on it.
+  if (isSentinelPermission(requiredPermission)) return false;
+  return permissions[requiredPermission] === true;
+}
 
 /**
  * GetPages — sidebar tree builder.
@@ -1434,8 +1751,69 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: Lightbulb,
           submenus: [
             { href: '/improvement-board', label: 'Board', active: pathname === '/improvement-board' },
-            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' }
+            { href: '/improvement-board/dashboard', label: 'My Dashboard', active: pathname === '/improvement-board/dashboard' },
+            { href: '/improvement-board/leaderboard', label: 'Impact Leaderboard', active: pathname === '/improvement-board/leaderboard' },
+            // Gemba visits — records that somebody went and looked, which is the
+            // only thing that makes a department playbook official (improvement.ideas.view).
+            { href: '/improvement-board/gemba', label: 'Gemba Visits', active: pathname === '/improvement-board/gemba' },
+            // MBA Analyst — an associate's own department analytics (improvement.ideas.view).
+            { href: '/improvement-board/analytics', label: 'My Analytics', active: pathname === '/improvement-board/analytics' },
+            // MBA case studies — associates write them (improvement.ideas.view),
+            // board managers grade them (improvement.board.manage). Reached via
+            // navPathAllowed's union so neither population loses the link.
+            { href: '/improvement-board/case-studies', label: 'Case Studies', active: pathname === '/improvement-board/case-studies' },
+            // MBA Analyst assignments — manager-only; hidden from associates via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/postings', label: 'Analyst Assignments', active: pathname === '/improvement-board/postings' },
+            // MBA Data Gaps — manager-only triage of gaps Associates reported (improvement.board.manage).
+            { href: '/improvement-board/data-gaps', label: 'Data Gaps', active: pathname === '/improvement-board/data-gaps' },
+            // MBA Team Rotation — rota chart (associates + managers); team-builder
+            // and setup are manager-only via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/improvement-board/rotation', label: 'Team Rotation', active: pathname === '/improvement-board/rotation' },
+            { href: '/improvement-board/rotation/teams', label: 'Rotation Teams', active: pathname === '/improvement-board/rotation/teams' },
+            { href: '/improvement-board/rotation/config', label: 'Rotation Setup', active: pathname === '/improvement-board/rotation/config' },
+            // Manage boards — manager-only CRUD over the areas ideas are filed
+            // against (improvement.board.manage).
+            { href: '/improvement-board/manage-boards', label: 'Manage Boards', active: pathname === '/improvement-board/manage-boards' },
+            // Department owners — who is accountable for each board. Visible to
+            // board managers AND to the officers who assign holders; see
+            // OWNERS_UNION_PERMISSIONS for why that union is not in MENU_PERMISSIONS.
+            { href: '/improvement-board/owners', label: 'Department Owners', active: pathname === '/improvement-board/owners' },
+            // Teaching-enterprise cohort config — manager-only, hidden from
+            // participants via MENU_PERMISSIONS (improvement.board.manage).
+            { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
           ]
+        },
+        {
+          // Director's Desk — the red/green master view of every job handed
+          // out (spec: specs/director-desk/SPEC.md). Gated by
+          // director.handover.view_all via MENU_PERMISSIONS.
+          href: '/director-desk',
+          label: "Director's Desk",
+          active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // My Desk — the receiving side of a handover. Deliberately visible to
+          // EVERY authenticated user (explicit carve-out in GetRoleBasedPages
+          // below): a handover exists precisely because the receiver holds no
+          // permission for the work, so gating its inbox on a module key would
+          // make the feature undiscoverable to the only people who need it.
+          href: '/my-desk',
+          label: 'My Desk',
+          active: pathname === '/my-desk' || pathname.startsWith('/my-desk/'),
+          icon: Inbox,
+          submenus: []
+        },
+        {
+          // CEO Rounds — the daily rounds log (participation-graded attendance,
+          // rotating-associate summary, Rounds-task → Board link). Gated by
+          // ceo_rounds.log via MENU_PERMISSIONS.
+          href: '/ceo-rounds',
+          label: 'CEO Rounds',
+          active: pathname === '/ceo-rounds' || pathname.startsWith('/ceo-rounds/'),
+          icon: ClipboardList,
+          submenus: []
         }
       ]
     },
@@ -1500,7 +1878,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/organizations/dashboard', label: 'Dashboard', active: pathname.startsWith('/organizations/dashboard') },
             { href: '/organizations/institutions', label: 'Institutions', active: pathname.startsWith('/organizations/institutions') },
             { href: '/organizations/degrees', label: 'Degrees', active: pathname.startsWith('/organizations/degrees') },
-            { href: '/organizations/departments', label: 'Departments', active: pathname.startsWith('/organizations/departments') },
+            { href: '/organizations/departments', label: 'Departments', active: pathname === '/organizations/departments' },
+            // Both entries added 2026-08-04. Leadership is new; HoD Assignment
+            // already worked but had no sidebar entry, which is why 82 of 89
+            // departments still have no Head.
+            { href: '/organizations/leadership', label: 'College Leadership', active: pathname.startsWith('/organizations/leadership') },
+            { href: '/organizations/departments/hod-assignment', label: 'HoD Assignment', active: pathname.startsWith('/organizations/departments/hod-assignment') },
             { href: '/organizations/programs', label: 'Programs', active: pathname.startsWith('/organizations/programs') },
             { href: '/organizations/semesters', label: 'Semesters', active: pathname.startsWith('/organizations/semesters') },
             { href: '/organizations/sections', label: 'Sections', active: pathname.startsWith('/organizations/sections') },
@@ -1539,6 +1922,30 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Foundation Programme',
           active: pathname === '/foundation' || pathname.startsWith('/foundation/'),
           icon: Target,
+          submenus: []
+        },
+        {
+          // The learner's own door into the same programme. Separate entry
+          // rather than a submenu because the audience is disjoint: whoever
+          // sits the programme holds foundation.practice.take and none of the
+          // operator keys, so '/foundation' above never renders for them.
+          href: '/foundation/practice',
+          label: 'Foundation Practice',
+          // Exact, so that running a session for somebody else does not also
+          // light up "practise on my own" — they are different acts.
+          active: pathname === '/foundation/practice',
+          icon: Target,
+          submenus: []
+        },
+        {
+          // Running the programme FOR a group, as opposed to sitting it.
+          // Gated on the same permission, but only ever populated for whoever
+          // is named as a cohort's resource person — most holders of the key
+          // will correctly see "you are not running any groups yet".
+          href: '/foundation/practice/facilitate',
+          label: 'Run a Practice Session',
+          active: pathname.startsWith('/foundation/practice/facilitate'),
+          icon: Users,
           submenus: []
         },
         {
@@ -1625,6 +2032,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Session Escalations',
           active: pathname.startsWith('/academic/session-feedback/principal'),
           icon: Activity,
+          submenus: []
+        },
+        {
+          // SCF note-safety loop Phase 0 (2026-07-26): the named reviewer's
+          // queue for AI-drafted learner support notes. Visible only to
+          // holders of scf.notes.review (via MENU_PERMISSIONS) — today the
+          // scf_note_reviewer role — plus the super-admin bypass. The page's
+          // RPCs re-enforce the same permission server-side.
+          href: '/academic/session-feedback/note-review',
+          label: 'Learner Note Review',
+          active: pathname.startsWith('/academic/session-feedback/note-review'),
+          icon: ClipboardCheck,
           submenus: []
         },
         {
@@ -1780,6 +2199,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/commissions',
               label: 'Commissions',
               active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/referral-rates',
+              label: 'Rates & Generate',
+              active: pathname === '/admission/consultants/referral-rates'
+            },
+            {
+              href: '/admission/consultants/import',
+              label: 'Import Referrals',
+              active: pathname === '/admission/consultants/import'
             },
             {
               href: '/admission/consultants/payouts',
@@ -2043,7 +2472,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             || pathname.startsWith('/hr/leave/balance')
             || pathname.startsWith('/hr/leave/encashment')
             || pathname.startsWith('/hr/attendance')
-            || pathname.startsWith('/hr/shifts/my')
             || pathname.startsWith('/hr/performance-reviews')
             || pathname.startsWith('/hr/training')
             || pathname.startsWith('/hr/fdp')
@@ -2059,7 +2487,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
             { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
-            { href: '/hr/shifts/my', label: 'My Shifts', active: pathname.startsWith('/hr/shifts/my') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -2090,6 +2517,10 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave', label: 'Leave Overview', active: pathname === '/hr/leave' },
             { href: '/hr/leave/approve', label: 'Leave · Approve Inbox', active: pathname === '/hr/leave/approve' },
             { href: '/hr/leave/calendar', label: 'Leave · Calendar', active: pathname === '/hr/leave/calendar' },
+            // Gates on hr.payroll.institution.view, held by hr_admin / hr_head /
+            // hr_manager only — so this row is invisible to the rest of the HR
+            // group rather than visible-and-denied.
+            { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
           ]
         },
         {
@@ -2167,11 +2598,12 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
             { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
             { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
-            { href: '/hr/admin/shift-templates', label: 'Shift Templates', active: pathname.startsWith('/hr/admin/shift-templates') },
+            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
       ]
@@ -2338,11 +2770,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
+            { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
             { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
+            { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
@@ -2378,6 +2812,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ims/indents', label: 'Indents', active: pathname === '/ims/indents' },
             { href: '/ims/indents/new', label: 'Indents · New', active: pathname === '/ims/indents/new' },
             { href: '/ims/indents/pending', label: 'Indents · Pending Approval', active: pathname === '/ims/indents/pending' },
+            { href: '/ims/indents/hod-approvals', label: 'Indents · HOD Approvals', active: pathname === '/ims/indents/hod-approvals' },
             { href: '/ims/transfers', label: 'Transfers', active: pathname.startsWith('/ims/transfers') },
             { href: '/ims/sales', label: 'Sales (POS)', active: pathname === '/ims/sales' },
             { href: '/ims/sales/history', label: 'Sales · History', active: pathname === '/ims/sales/history' },
@@ -2486,6 +2921,20 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/admin/page-metadata', label: 'Page Metadata', active: pathname.startsWith('/admin/page-metadata') },
             { href: '/admin/ai-models', label: 'AI Models', active: pathname.startsWith('/admin/ai-models') },
           ]
+        },
+        {
+          // ID Cards (nav wiring 2026-07-24) — print queue, template editor
+          // and printer policy for the on-prem card-print bridge.
+          href: '/admin/id-cards',
+          label: 'ID Cards',
+          active: pathname.startsWith('/admin/id-cards'),
+          icon: IdCard,
+          submenus: [
+            { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
+            { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
+            { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
+          ]
         }
       ]
     },
@@ -2551,10 +3000,11 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/ai-pulse', label: 'Home', active: pathname === '/ai-pulse' },
             { href: '/ai-pulse/my-pulse', label: 'My AI Pulse', active: pathname.startsWith('/ai-pulse/my-pulse') },
+            { href: '/ai-pulse/leaderboard', label: 'Leaderboard', active: pathname.startsWith('/ai-pulse/leaderboard') },
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
+            { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
-            { href: '/ai-pulse/admin/starter-tamil-review', label: 'Admin · AI Starters', active: pathname.startsWith('/ai-pulse/admin/starter-tamil-review') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
         }
@@ -2582,7 +3032,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/routing-forms', label: 'Routing Forms', active: pathname.startsWith('/meetings/routing-forms') },
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
-            { href: '/meetings/contacts', label: 'Contacts', active: pathname.startsWith('/meetings/contacts') },
+            { href: '/meetings/contacts', label: 'Contacts', active: pathname === '/meetings/contacts' },
+            { href: '/meetings/contacts/scan', label: 'Scan a Card', active: pathname === '/meetings/contacts/scan' },
+            { href: '/meetings/contacts/scan/saved', label: 'Scanned Contacts', active: pathname.startsWith('/meetings/contacts/scan/saved') },
             { href: '/meetings/analytics', label: 'Analytics', active: pathname.startsWith('/meetings/analytics') },
             { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
@@ -2665,6 +3117,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/health/profile', label: 'My Health Profile', active: pathname === '/health/profile' },
             { href: '/health/leaderboard', label: 'Leaderboard', active: pathname === '/health/leaderboard' },
             { href: '/health/sports', label: 'Sports Profile', active: pathname === '/health/sports' },
+            { href: '/health/sports/squad-requests', label: 'Squad Requests', active: pathname === '/health/sports/squad-requests' },
+            { href: '/health/sports/approvals', label: 'Tournament Permissions', active: pathname === '/health/sports/approvals' },
             { href: '/health/fitness', label: 'Fitness Tests', active: pathname === '/health/fitness' || pathname.startsWith('/health/fitness/') },
             { href: '/health/training', label: 'Training Log', active: pathname === '/health/training' },
             { href: '/health/achievements', label: 'Achievements', active: pathname === '/health/achievements' },
@@ -2694,6 +3148,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/events' || pathname.startsWith('/events/'),
           icon: Calendar,
           submenus: [
+            // The parent "Events" row is a PURE ACCORDION TOGGLE at runtime
+            // (components/Navbar/menu.tsx: `e.preventDefault(); toggleModule(...)`),
+            // so its own href was never clickable and /events had no sidebar path
+            // at all — the hub's General Events list (the only surface listing
+            // wizard-created lectures/cultural/convocation events) was reachable
+            // only via Ctrl+K or a typed URL. check:reachability did NOT catch
+            // this: it seeds from every literal href in this file and assumes
+            // sidebar links are reachable, which the accordion parent is not.
+            // Same parent-href-as-leaf fix as '/users' → "All Users" and
+            // '/procurement' → "Overview". Also restores the chip gateway to
+            // /events/proposals, which AutoTabNav only renders from /events.
+            { href: '/events', label: 'All Events', active: pathname === '/events' },
             // Events Platform Promotion PR9 (2026-06-23): one create flow asks format + home
             { href: '/events/create', label: 'Create an Event', active: pathname === '/events/create' },
             { href: '/events/presets', label: 'Event Presets', active: pathname === '/events/presets' },
@@ -3084,6 +3550,7 @@ export function filterToInductionOnlyMenu(groups: MenuGroup[]): MenuGroup[] {
     .filter((group) => group.menus.length > 0);
 }
 
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
@@ -3206,6 +3673,18 @@ export function GetRoleBasedPages(
           // Platform Guide is always visible for all users (universal in-app help)
           if (menu.href === '/guide') return true;
 
+          // My Desk is always visible for all users. A handover exists BECAUSE
+          // the receiver holds no permission for the work — so the inbox where
+          // they accept or decline it cannot itself be permission-gated, or the
+          // only people it is for can never find it. Its MENU_PERMISSIONS entry
+          // maps to view_profile, which isPageAccessible() treats as universal
+          // and so opens the page; this line is the sidebar half, because the
+          // filter below does NOT short-circuit view_profile and that key is
+          // true on only 18 of 85 live roles (measured 2026-08-05 — principal,
+          // hod, faculty, staff, coo and ceo are all missing it). Same
+          // treatment as /guide and /my-induction-sessions.
+          if (menu.href === '/my-desk') return true;
+
           // "My Induction Sessions" is SELF-SCOPED: its RPCs gate on speakership
           // (event_session_speakers.profile_id = auth.uid()); non-presenters just
           // see an empty state. It deliberately has no MENU_PERMISSIONS entry, but
@@ -3228,12 +3707,31 @@ export function GetRoleBasedPages(
 
           // Special handling for parent menus with submenus
           if (menu.submenus.length > 0) {
-            // Show parent if any submenu is accessible
+            // Improvement Board — the oversight read (HOD / principal). They
+            // hold improvement.ideas.view_scoped and NOT one of the keys any
+            // submenu below declares, so the .some() would hide the whole
+            // parent and the rows the RLS branch hands them stay unreachable
+            // except by typing the URL. MENU_PERMISSIONS is one key per route
+            // and cannot express the union, so the union is carried here — the
+            // same idiom the submenu filter below already uses for several
+            // routes. The matching submenu case opens the board itself ONLY.
+            if (
+              menu.href === '/improvement-board' &&
+              userRole.permissions['improvement.ideas.view_scoped'] === true
+            ) {
+              return true;
+            }
+
+            // Show parent if any submenu is accessible. Routed through
+            // navPathAllowed so a path whose access is a UNION of keys (see
+            // CASE_STUDIES_NAV_PATH) can still be the child that keeps the
+            // parent row visible.
             return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
-              return (
-                requiredPermission &&
-                userRole.permissions[requiredPermission] === true
+              const route = normalizeRoute(submenu.href);
+              return navPathAllowed(
+                route,
+                userRole.permissions,
+                MENU_PERMISSIONS[route]
               );
             });
           }
@@ -3248,6 +3746,15 @@ export function GetRoleBasedPages(
             );
             return false;
           }
+
+          // A sentinel is not a permission key (see isSentinelPermission).
+          // `super_admin` marks 14 routes and real super admins already returned
+          // above; reaching here means the viewer is not one, so the link stays
+          // hidden no matter what the merged permission map contains under that
+          // name. Director's Desk can put arbitrary MENU_PERMISSIONS values into
+          // that map, which is how a handover of the ID-card printing policy page
+          // used to reveal the whole super-admin sidebar.
+          if (isSentinelPermission(requiredPermission)) return false;
 
           return userRole.permissions[requiredPermission] === true;
         })
@@ -3274,6 +3781,26 @@ export function GetRoleBasedPages(
             // But All Bug Reports (admin page) requires permission
             if (submenu.href === '/my-bug-reports' || submenu.href === '/bug-leaderboard') {
               return true;
+            }
+
+            // Improvement Board — the oversight read. A HOD / principal holding
+            // improvement.ideas.view_scoped reads open ideas raised inside their
+            // own institution (the branch this PR adds to improvement_ideas_select),
+            // but MENU_PERMISSIONS is one key per route and can only name
+            // improvement.ideas.view. Without this case the rows arrive and the
+            // link does not, so the board is reachable only by typing the URL.
+            //
+            // DELIBERATELY the board itself and nothing else. My Dashboard,
+            // Team Rotation and My Analytics are cohort-management surfaces
+            // (an associate's own contribution, the rota, the analyst views);
+            // an oversight reader has no use for them and opening them would
+            // hand a HOD the associate-management surface nobody asked for.
+            // They stay on improvement.ideas.view.
+            if (submenu.href === '/improvement-board') {
+              return (
+                userRole.permissions['improvement.ideas.view'] === true ||
+                userRole.permissions['improvement.ideas.view_scoped'] === true
+              );
             }
 
             // Student-portal links (My Attendance / My Profile / My Marks /
@@ -3306,7 +3833,23 @@ export function GetRoleBasedPages(
               return false;
             }
 
-            const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
+            // Gemba visits — the database grants read on a union MENU_PERMISSIONS
+            // (one key per route) cannot express. `gemba_observations_read` allows
+            // improvement.area_role.assign OR improvement.board.manage as well as
+            // a posting, because — as that migration records — the CAO and
+            // Executive Administrative Officers hold no improvement.ideas.view at
+            // all. Without this the link is hidden from the very officers the
+            // RPC's officer lane exists for.
+            if (submenu.href === '/improvement-board/gemba') {
+              return (
+                userRole.permissions['improvement.ideas.view'] === true ||
+                userRole.permissions['improvement.area_role.assign'] === true ||
+                userRole.permissions['improvement.board.manage'] === true
+              );
+            }
+
+            const submenuRoute = normalizeRoute(submenu.href);
+            const requiredPermission = MENU_PERMISSIONS[submenuRoute];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
             // Hide "Student Search" submenu for students
@@ -3319,7 +3862,11 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            return userRole.permissions[requiredPermission] === true;
+            return navPathAllowed(
+              submenuRoute,
+              userRole.permissions,
+              requiredPermission
+            );
           }).map((submenu) => {
             // Change submenu labels for students
             if (isStudent) {

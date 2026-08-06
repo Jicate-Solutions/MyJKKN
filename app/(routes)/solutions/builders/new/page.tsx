@@ -604,7 +604,7 @@ export default function NewBuilderPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="flex items-end gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                       <div className="flex-1 space-y-2">
                         <Label htmlFor="newSkillName">Skill Name</Label>
                         <Input
@@ -615,7 +615,7 @@ export default function NewBuilderPage() {
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSkillEntry(); } }}
                         />
                       </div>
-                      <div className="w-40 space-y-2">
+                      <div className="w-full sm:w-40 space-y-2">
                         <Label>Proficiency (1-5)</Label>
                         <Select value={String(newSkillLevel)} onValueChange={(val) => setNewSkillLevel(Number(val))}>
                           <SelectTrigger><SelectValue /></SelectTrigger>

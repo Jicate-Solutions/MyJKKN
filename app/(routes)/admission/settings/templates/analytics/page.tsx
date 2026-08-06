@@ -321,14 +321,14 @@ function TemplateAnalyticsContent() {
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
-            className="w-[150px]"
+            className="min-w-0 flex-1 sm:w-[150px] sm:flex-none"
           />
           <span className="text-muted-foreground">to</span>
           <Input
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
-            className="w-[150px]"
+            className="min-w-0 flex-1 sm:w-[150px] sm:flex-none"
           />
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="h-4 w-4" />

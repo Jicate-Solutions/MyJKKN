@@ -9,9 +9,15 @@
 // human-facing surface, leadership included.
 //
 // Bands mirror the AI generators' own thresholds (understandingBandWord in the
-// SCF routes): < 3 Low · < 4.5 Mixed · >= 4.5 Strong — so what a teacher SEES and
-// what the AI SAYS use one vocabulary. The backend still records the numeric
-// average for the loop's own measurement; only the DISPLAY is qualitative.
+// SCF routes): < 3 Low · < 4.0 Mixed · >= 4.0 Strong — so what a teacher SEES and
+// what the AI SAYS use one vocabulary.
+//   Recalibrated 2026-07-24 (Director interview): Strong was >= 4.5, but per-session
+//   avg is 4.12 and 83% of individual answers are 4-5, so >= 4.5 mislabelled ~84% of
+//   genuinely-fine sessions as "Mixed". Strong now starts at 4.0. This is a display
+//   band ONLY — the cron's separate STANDOUT_THRESHOLD (4.5), which gates success-vs-
+//   improvement note generation, is deliberately NOT moved.
+// The backend still records the numeric average for the loop's own measurement; only
+// the DISPLAY is qualitative.
 // ---------------------------------------------------------------------------
 import { Badge } from '@/components/ui/badge';
 
@@ -22,7 +28,7 @@ export function understandingLevel(avg: number | null | undefined): Understandin
   if (avg === null || avg === undefined || Number.isNaN(Number(avg))) return 'none';
   const a = Number(avg);
   if (a < 3) return 'low';
-  if (a < 4.5) return 'mixed';
+  if (a < 4.0) return 'mixed';
   return 'strong';
 }
 

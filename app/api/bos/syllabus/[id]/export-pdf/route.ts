@@ -4,6 +4,8 @@ import { resolveBosBoardScope, applyInstitutionScope, readableInstitutionIds, ha
 import { courseDisplayFor } from '@/lib/utils/bos/coe-course-display';
 import { generateV35SyllabusHtml } from '@/lib/utils/bos/course-syllabus-html';
 import { BosCourseSyllabus } from '@/types/bos';
+import { isPharmacyModel, modelUniversityHeader } from '@/lib/services/bos/academic-model';
+import { generatePharmacyFormat } from '@/lib/utils/bos/pharmacy-syllabus-html';
 
 /**
  * GET /api/bos/syllabus/[id]/export-pdf
@@ -178,20 +180,33 @@ function generatePdfHtml(
       <body>
   `;
 
-  // Header
+  // Header — pharmacy (COP) models show the university/regulator and
+  // semester/year placement instead of the generic Stream line.
+  const pharmacy = isPharmacyModel(syllabus.academic_model);
+  const placement = pharmacy
+    ? syllabus.academic_model === 'pci_pharm'
+      ? (syllabus.semester ? `Semester ${syllabus.semester}` : '')
+      : (syllabus.academic_year ? `Year ${syllabus.academic_year}` : '')
+    : '';
   html += `
     <h1>${syllabus.course_code}: ${syllabus.course_name}</h1>
     <div class="metadata">
+      ${pharmacy ? `<p><strong>Regulation:</strong> ${modelUniversityHeader(syllabus.academic_model)}</p>` : ''}
+      ${pharmacy && placement ? `<p><strong>Placement:</strong> ${placement}</p>` : ''}
       <p><strong>Course Credits:</strong> ${syllabus.course_credits || 'N/A'}</p>
-      <p><strong>Stream:</strong> ${syllabus.stream || 'General'}</p>
+      ${pharmacy ? '' : `<p><strong>Stream:</strong> ${syllabus.stream || 'General'}</p>`}
       <p><strong>Version:</strong> ${syllabus.version_number}</p>
       <p><strong>Status:</strong> ${syllabus.is_latest ? 'Latest' : 'Archived'}</p>
       <p><strong>Last Modified:</strong> ${new Date(syllabus.last_modified_at).toLocaleDateString()}</p>
     </div>
   `;
 
-  // Format-specific content
-  if (format === 'official') {
+  // Format-specific content. Pharmacy (COP) models have no CO-PO/Bloom — they
+  // use a dedicated layout (Scope + Objectives + Content + Books + Exam Scheme
+  // + Internship) regardless of the requested `format`.
+  if (pharmacy) {
+    html += generatePharmacyFormat(syllabus, options);
+  } else if (format === 'official') {
     html += generateOfficalFormat(syllabus, cloData, contentData, textbooksData, resourcesData, pedagogyData, mappingsData, options);
   } else if (format === 'meeting_summary') {
     html += generateMeetingSummaryFormat(syllabus, mappingsData);

@@ -1,6 +1,9 @@
 // lib/id-cards/auth.ts
 // Phase 1C — auth helpers for the id-card subsystem.
 //
+// AGENT_PRINT_TOKEN was provisioned in Vercel production on 2026-07-23; this
+// comment exists to carry that env change into a build (env-only changes are
+// skipped by ignoreCommand).
 // Two distinct auth paths:
 //   1. requireUser(roles) — Supabase session + role check (super_admin / registrar / admission).
 //   2. requireAgentToken() — `Authorization: Bearer ${AGENT_PRINT_TOKEN}` header. Fail-closed if env unset.

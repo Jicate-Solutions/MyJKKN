@@ -346,7 +346,15 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
     total: number;
   } | null>(null);
 
-  const canEdit = isSuperAdmin || canAccess('academic.bos-meetings', 'edit');
+  // Board meetings use academic.bos-meetings.edit. Council-family meetings
+  // (Academic Council / Governing Body) are convened by principals who hold
+  // the dedicated *.manage keys instead — include those so Edit Schedule &
+  // Venue is visible to the people who can open those list pages.
+  const canEdit =
+    isSuperAdmin ||
+    canAccess('academic.bos-meetings', 'edit') ||
+    canAccess('academic.bos-academic-council', 'manage') ||
+    canAccess('academic.bos-governing-body', 'manage');
 
   // Open dialog for transitions that need extra metadata; fire directly otherwise
   const handleTransition = async () => {
@@ -476,7 +484,13 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
     );
   }
 
-  const isAcMeeting = meeting.meeting_type === 'academic_council';
+  // Council-family meetings (Academic Council + Governing Body) share the shorter
+  // principal-driven flow, labels, and status order. They differ only in their
+  // display label and dedicated edit sub-route.
+  const isGbMeeting = meeting.meeting_type === 'governing_body';
+  const isAcMeeting = meeting.meeting_type === 'academic_council' || isGbMeeting;
+  const councilLabel = isGbMeeting ? 'Governing Body' : 'Academic Council';
+  const councilEditBase = isGbMeeting ? '/bos/governing-body' : '/bos/academic-council';
   const nextStatus = meetingNextStatusMap(meeting.meeting_type)[meeting.status];
   const transitionLabels = isAcMeeting ? AC_TRANSITION_LABELS : TRANSITION_LABELS;
   const isDraft = meeting.status === 'draft';
@@ -551,13 +565,13 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
         title={meeting.meeting_title ?? `Meeting #${meeting.meeting_number}/${meeting.academic_year}`}
         description={
           isAcMeeting
-            ? `Academic Council · ${meeting.academic_year}`
+            ? `${councilLabel} · ${meeting.academic_year}`
             : board
               ? `${board.board_name} · ${BOS_MEETING_TYPE_LABELS[meeting.meeting_type]}`
               : ''
         }
       >
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           {canEdit && (isDraft || meeting.status === 'principal_approved') && (
             <Button
               size='sm'
@@ -565,7 +579,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
               onClick={() =>
                 router.push(
                   isAcMeeting
-                    ? `/bos/academic-council/${meetingId}/edit`
+                    ? `${councilEditBase}/${meetingId}/edit`
                     : `/bos/meetings/${meetingId}/edit`,
                 )
               }
@@ -732,7 +746,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
       <Card>
         <CardContent className='p-4'>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className='mb-4'>
+            <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='agenda' className='gap-1.5'>
                 Agenda
                 {(meeting.agenda_item_count ?? 0) > 0 && (
@@ -769,6 +783,7 @@ function MeetingDetailPageInner({ params }: MeetingDetailPageProps) {
                 canEdit={canEdit}
                 meetingStatus={meeting.status}
                 committeeId={meeting.committee_id}
+                meetingType={meeting.meeting_type}
               />
             </TabsContent>
 

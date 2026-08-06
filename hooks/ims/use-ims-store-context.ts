@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useStore } from '@/hooks/use-store';
 import { useImsActiveStore } from './use-ims-active-store';
 import { useImsStore, useImsStoreByInstitution } from './use-ims-stores';
+import { useImsCartStore } from '@/lib/stores/ims-cart-store';
 import { usePermissions } from '@/hooks/use-permissions';
 
 /**
@@ -23,8 +25,16 @@ export function useImsStoreContext() {
   const storeId = useStore(useImsActiveStore, (s) => s.storeId);
   const institutionId = useStore(useImsActiveStore, (s) => s.institutionId);
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
+  const reconciledAssignedStoreId = useStore(
+    useImsActiveStore,
+    (s) => s.reconciledAssignedStoreId
+  );
   const setActiveStore = useImsActiveStore((s) => s.setActiveStore);
   const clearActiveStore = useImsActiveStore((s) => s.clearActiveStore);
+
+  const queryClient = useQueryClient();
+  const clearCart = useImsCartStore((s) => s.clearCart);
+  const setCartStoreScope = useImsCartStore((s) => s.setStoreScope);
 
   // Validate the persisted storeId against the current DB. If it no longer
   // exists (e.g. stale UUID from a different Supabase project), clear it so
@@ -64,11 +74,55 @@ export function useImsStoreContext() {
   // ── Priority 2: DB-assigned store (written during role allocation) ──────────
   // If the admin explicitly assigned a store to this user when granting store_admin,
   // skip the institution first-match fallback and go directly to the correct store.
-  const assignedStoreId = (userProfile?.assigned_store_id as string | null | undefined) ?? null;
+  const assignedStoreId = userProfile?.assigned_store_id ?? null;
   const shouldUseAssigned = !storeId && !isSuperAdmin && !!assignedStoreId;
+
+  // ── Priority 1.5: reconcile a NEW allocation against a persisted choice ────
+  // Priority 1 (localStorage) outranks the DB assignment, so without this an
+  // admin re-allocating a user's store would have no effect until that user
+  // cleared their site data. We only override when the assignment differs from
+  // what this browser last reconciled against — so a store admin who then
+  // deliberately switches stores is not snapped back on every render.
+  const needsReconcile =
+    !!storeId &&
+    !!assignedStoreId &&
+    !isSuperAdmin &&
+    storeId !== assignedStoreId &&
+    reconciledAssignedStoreId !== assignedStoreId;
+
   const { data: assignedStore, isLoading: isAssignedLoading } = useImsStore(
-    shouldUseAssigned ? assignedStoreId! : ''
+    shouldUseAssigned || needsReconcile ? assignedStoreId! : ''
   );
+
+  // Force the new allocation exactly once, then mark it reconciled.
+  useEffect(() => {
+    if (!needsReconcile || !assignedStore) return;
+
+    // Store scope is changing under the user — a cart built against the old
+    // store would post lines to the wrong inventory.
+    clearCart();
+    setCartStoreScope(assignedStore.id);
+    setActiveStore(
+      assignedStore.id,
+      assignedStore.institution_id ?? '',
+      assignedStore.name,
+      assignedStoreId
+    );
+    queryClient.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === 'string' && key.startsWith('ims-');
+      },
+    });
+  }, [
+    needsReconcile,
+    assignedStore,
+    assignedStoreId,
+    setActiveStore,
+    clearCart,
+    setCartStoreScope,
+    queryClient,
+  ]);
 
   // ── Priority 3: Institution first-match fallback (original behaviour) ───────
   // Only fires when no explicit store assignment exists.
@@ -85,7 +139,8 @@ export function useImsStoreContext() {
       setActiveStore(
         assignedStore.id,
         assignedStore.institution_id ?? '',
-        assignedStore.name
+        assignedStore.name,
+        assignedStoreId
       );
     } else if (shouldAutoResolve && autoStore) {
       setActiveStore(
@@ -94,7 +149,14 @@ export function useImsStoreContext() {
         autoStore.name
       );
     }
-  }, [shouldUseAssigned, assignedStore, shouldAutoResolve, autoStore, setActiveStore]);
+  }, [
+    shouldUseAssigned,
+    assignedStore,
+    assignedStoreId,
+    shouldAutoResolve,
+    autoStore,
+    setActiveStore,
+  ]);
 
   const isStoreSelected = !!storeId;
 
@@ -105,7 +167,7 @@ export function useImsStoreContext() {
     isStoreSelected,
     isResolving:
       (!!storeId && isValidatingStore) ||
-      (shouldUseAssigned && isAssignedLoading) ||
+      ((shouldUseAssigned || needsReconcile) && isAssignedLoading) ||
       (shouldAutoResolve && isAutoResolving),
     isSuperAdmin,
     isStoreAdmin,

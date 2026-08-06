@@ -288,7 +288,7 @@ export default function GrievanceCategoriesPage() {
         />
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-lg">Grievance Categories</CardTitle>
                 <p className="text-sm text-muted-foreground">
@@ -296,7 +296,7 @@ export default function GrievanceCategoriesPage() {
                   are protected from deletion but can be relabeled or reconfigured.
                 </p>
               </div>
-              <div className="flex items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2">
                 {isSuperAdmin && (
                   <div className="w-64">
                     <Label className="text-xs">Institution</Label>

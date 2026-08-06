@@ -6,6 +6,8 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
+import { getErrorMessage } from '@/lib/utils';
+import { purgeRejectedApplicant } from '../../_lib/purge-rejected-applicant';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -55,6 +57,40 @@ export async function PATCH(
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Unknown error' },
       { status: 400 }
+    );
+  }
+}
+
+/**
+ * Permanently erase a REJECTED applicant — super admins only.
+ *
+ * Removes the application row, the promoted candidate row (its interviews,
+ * scorecards, packages and comments cascade) and the resume file in Google Drive.
+ * Authorization and the rejected-only guard both live in the SECURITY DEFINER RPC,
+ * so this handler cannot be tricked by a forged client. Irreversible.
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await connection();
+  try {
+    const { id } = await params;
+    const supabase = await getClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const result = await purgeRejectedApplicant(supabase, { applicationId: id });
+    return NextResponse.json({ data: result });
+  } catch (err) {
+    console.error('[hr/recruitment/applications/:id] DELETE error', err);
+    // The RPC's guard messages are what the user sees, and a PostgrestError is a
+    // plain object — `err instanceof Error` would swallow them as "Unknown error".
+    // 42501 = "not a super admin" / "not rejected"; P0002 = already deleted.
+    const code = (err as { code?: string })?.code;
+    return NextResponse.json(
+      { error: getErrorMessage(err) },
+      { status: code === '42501' ? 403 : code === 'P0002' ? 404 : 400 }
     );
   }
 }

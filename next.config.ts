@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
     // the PDF call letter. Keep externalised — never remove.
     '@sparticuz/chromium',
     'puppeteer-core',
+    // Full `puppeteer` is only ever imported lazily, in the local-dev branch of
+    // the PDF launchers. Bundling it crashed the Next dev render worker on the
+    // BoS minutes-pdf route ("Jest worker encountered 2 child process
+    // exceptions") — the route 500'd before its own try/catch could run.
+    'puppeteer',
     // `pg` (node-postgres) does dynamic require()s for optional native bindings +
     // connection internals that webpack/turbopack cannot bundle. Without this it
     // fails to bundle (dev: "can't resolve 'pg'") and can fail at runtime in prod.
@@ -69,6 +74,9 @@ const nextConfig: NextConfig = {
       './node_modules/@sparticuz/chromium/**/*',
     ],
     '/api/bos/meetings/*/preview-pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+    ],
+    '/api/bos/meetings/*/minutes-pdf': [
       './node_modules/@sparticuz/chromium/**/*',
     ],
   },

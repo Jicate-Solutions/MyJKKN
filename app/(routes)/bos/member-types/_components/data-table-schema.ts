@@ -11,7 +11,8 @@ export const memberTypeSearchParamsSchema = z.object({
   baseType: z
     .enum([
       'principal', 'chairman', 'hod', 'facilitator', 'university_nominee',
-      'subject_expert', 'internal_member', 'industry_expert', 'alumni', 'startup',
+      'subject_expert', 'academic_expert', 'internal_member', 'industry_expert',
+      'alumni', 'startup', 'member_secretary', 'student', 'faculty_member',
     ])
     .optional(),
   is_active: z.enum(['true', 'false']).optional(),

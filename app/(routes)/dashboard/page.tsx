@@ -29,14 +29,17 @@ import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-serv
 import { AccountsHeroStrip } from '@/components/dashboard/accounts-hero-strip';
 import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-service';
 import { getDashboardPersona, resolvePersona } from '@/lib/services/dashboard/dashboard-role-service';
-import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-service';
+import {
+  getRoleWidgetMap,
+  pickWidgetsForRole
+} from '@/lib/services/dashboard/widget-config-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { LiveAgencyCard } from '@/components/dashboard/live-agency-card';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
 import { UdyogStudentCard } from '@/components/dashboard/udyog-student-card';
 import { DeptIgFeedCard } from '@/components/dashboard/dept-ig-feed-card';
 import { DeptMomentumCard } from '@/components/dashboard/dept-momentum-card';
-import HodHeroStrip from '@/components/dashboard/hod-hero-strip';
+import { HodZones } from '@/components/dashboard/hod-zones';
 import { WorkSignalsCard } from '@/components/work-signals/work-signals-card';
 import { DashboardBreadcrumb } from '@/components/dashboard/dashboard-breadcrumb';
 import { DecisionQueue } from '@/components/dashboard/decision-queue';
@@ -147,9 +150,18 @@ async function LiveStudentHero() {
   return <StudentHeroStrip metrics={metrics} cluster={cluster} />;
 }
 
-// HOD hero strip: dept attendance / marking compliance / grievances / leave approvals (48 active HODs)
-function LiveHodHero() {
-  return <HodHeroStrip />;
+// HOD dashboard — job-shaped zones (redesign 2026-07-23, supersedes #2276).
+// Fetches the teaching side here (FacultyMetrics + private percentile); HodZones
+// fetches the department side client-side. Replaces the old LiveHodHero +
+// "Your teaching" + LiveFacultyHero trio and renders AI Agency exactly once.
+async function LiveHodZones() {
+  const [facultyMetrics, facultyCluster] = await Promise.all([
+    getFacultyMetrics(),
+    getClusterRankPrivate('faculty')
+  ]);
+  return (
+    <HodZones facultyMetrics={facultyMetrics} facultyCluster={facultyCluster} />
+  );
 }
 // Accounts hero strip: collection vs plan / overdue / recon gap / refunds (11 users)
 async function LiveAccountsHero() {
@@ -277,7 +289,18 @@ export default async function DashboardV2Page({
   // Role-aware persona resolution (spec §5). Limited = safe default for roles without a
   // specific dashboard yet — prevents director's cross-institution aggregates from leaking to
   // faculty/hod/warden/accounts/student/parent.
-  const personaResolution = await resolvePersona();
+  //
+  // Perf (2026-08-01, dashboard TTFB): the role→widgets map is GLOBAL config —
+  // it does not depend on who the viewer is; only the final key lookup does.
+  // Fetching it in parallel with persona resolution removes one sequential
+  // Supabase round-trip from the shell critical path (these two awaits are the
+  // only data work that blocks first byte — everything below is Suspense'd).
+  // Same rows fetched, same selection logic (pickWidgetsForRole is the exact
+  // body getWidgetsForRole used), identical output.
+  const [personaResolution, roleWidgetMap] = await Promise.all([
+    resolvePersona(),
+    getRoleWidgetMap()
+  ]);
   const persona = personaResolution.persona;
 
   // T8.6 — per-role widget config. The map is curated by Director via
@@ -286,7 +309,10 @@ export default async function DashboardV2Page({
   // gate (cosmetic — Director-controlled trim). Widget-config alone never
   // *adds* access; it can only hide something the persona would otherwise see.
   const allowedWidgets = new Set(
-    await getWidgetsForRole((personaResolution.role ?? '').toLowerCase() || null)
+    pickWidgetsForRole(
+      roleWidgetMap,
+      (personaResolution.role ?? '').toLowerCase() || null
+    )
   );
   const showsWidget = (id: string) => allowedWidgets.has(id);
 
@@ -390,21 +416,10 @@ export default async function DashboardV2Page({
               {isDirector && <LiveHeroStrip />}
               {isCounselor && <LiveCounselorHero />}
               {isFaculty && <LiveFacultyHero />}
-              {/* HODs see BOTH: their department cards AND their own teaching
-                  cards (most HODs still teach). Department strip first — it is
-                  their primary lane. LiveFacultyHero degrades to empty tiles if
-                  the HOD has no staff timetable. */}
-              {isHod && (
-                <div className='space-y-4'>
-                  <LiveHodHero />
-                  <div className='space-y-2'>
-                    <h3 className='text-xs font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400'>
-                      Your teaching
-                    </h3>
-                    <LiveFacultyHero />
-                  </div>
-                </div>
-              )}
+              {/* HODs get the job-shaped zones: NEEDS YOU (act) + HOW YOU'RE
+                  DOING (one scored panel, department + own teaching merged, AI
+                  Agency once). My Pulse follows below as zone 3. */}
+              {isHod && <LiveHodZones />}
               {isPrincipal && <LivePrincipalHero />}
               {isAccounts && <LiveAccountsHero />}
               {isStudent && <LiveStudentHero />}

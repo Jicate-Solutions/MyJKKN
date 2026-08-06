@@ -12,7 +12,9 @@ import { AcknowledgmentGate } from '@/components/notifications/acknowledgment-ga
 import { AutoTabNav } from '@/components/navigation/auto-tab-nav';
 import { AutoBreadcrumbs } from '@/components/navigation/auto-breadcrumbs';
 import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
+import { UsageBeacon } from '@/components/analytics/usage-beacon';
 import { Navbar } from '@/components/Navbar/Navbar';
+import { HandoverLauncher } from '@/components/director-desk/handover-launcher';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -46,6 +48,16 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
           without keys.
          */}
         <SentryUserSync key='sentry-user-sync' />
+        {/*
+          UsageBeacon: posts each in-app page view to
+          POST /api/analytics/usage/events, which maps it to a module and
+          writes usage_events. Renders null. Mounted here so every current and
+          future page under the authenticated shell is covered without any
+          per-route wiring. Dark until platform_policies
+          'analytics.usage_beacon.enabled' is flipped true — the endpoint, not
+          this component, enforces that.
+         */}
+        <UsageBeacon key='usage-beacon' />
         <Navbar key='global-navbar' />
         <div key='auto-breadcrumbs' className='px-4 md:px-8 pt-3'>
           <AutoBreadcrumbs />
@@ -71,6 +83,13 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
         />
         <BugReporterWidget key='bug-reporter' />
         <WorkPulseFab key='work-pulse' />
+        {/*
+          HandoverLauncher: the Director's "hand this page over" control.
+          Renders null for everyone else — visibility is fn_can_hand_over(),
+          a server answer, not a CSS class. Mounted here so it reaches every
+          current and future authenticated page with no per-route wiring.
+         */}
+        <HandoverLauncher key='director-handover' />
       </AdminPanelLayout>
       </AcknowledgmentGate>
     </QueryClientProvider>

@@ -27,7 +27,7 @@ import { Input } from '@/components/ui/input';
 import { BosMeetingStatus, BosResolutionStatus, BOS_MEETING_STATUS_LABELS } from '@/types/bos';
 import type { BosMeetingAttendee } from '@/types/bos';
 import { useBosMeetings } from '@/hooks/bos/use-bos-meetings';
-import { useInstitutionContext } from '@/hooks/use-institution-context';
+import { useInstitutionContext, useInstitutionContextById } from '@/hooks/use-institution-context';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
 import type { BosPdfHeader } from '@/lib/utils/bos/bos-pdf-generator';
 import {
@@ -90,7 +90,7 @@ function MeetingRegisterTab({ institutionsId }: { institutionsId: string }) {
       ) : meetings.length === 0 ? (
         <p className='text-sm text-muted-foreground text-center py-8'>No meetings found.</p>
       ) : (
-        <div className='rounded-lg border overflow-hidden'>
+        <div className='rounded-lg border overflow-x-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50'>
               <tr>
@@ -154,7 +154,7 @@ function ResolutionComplianceTab({ institutionsId }: { institutionsId: string })
           />
         </div>
         {items.length > 0 && (
-          <div className='flex gap-3 ml-4 text-sm'>
+          <div className='flex flex-wrap gap-3 ml-4 text-sm'>
             <span className='text-green-700 font-medium'>{completedCount} Completed</span>
             <span className='text-yellow-700 font-medium'>{pendingCount} Pending</span>
           </div>
@@ -245,7 +245,7 @@ function CompositionReportTab({ institutionsId }: { institutionsId: string }) {
             </p>
           </div>
 
-          <div className='rounded-lg border overflow-hidden'>
+          <div className='rounded-lg border overflow-x-auto'>
             <table className='w-full text-sm'>
               <thead className='bg-muted/50'>
                 <tr>
@@ -302,6 +302,15 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
   const meetings = meetingsData?.data ?? [];
   const selectedMeeting = meetings.find((m) => m.id === meetingId) as any;
 
+  // Brand from the meeting's own institution — not the logged-in user's
+  // context. Super-admins have no institutionCtx (falls back to Arts), and
+  // CET is identified by counselling_code "CET", not the free-text name.
+  const meetingInstitutionsId: string | undefined =
+    selectedMeeting?.institutions_id
+    ?? institutionCtx?.myjkkn_id
+    ?? (institutionsId || undefined);
+  const { data: meetingInstCtx } = useInstitutionContextById(meetingInstitutionsId);
+
   const { data: attendeesRaw = [], isLoading: attendeesLoading } = useQuery<BosMeetingAttendee[]>({
     queryKey: ['bos-attendance-cert', meetingId],
     queryFn: async () => {
@@ -328,7 +337,36 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
   const ugPgLabel = inferBoardUgPg(boardType, boardCode, boardName);
 
   async function buildHeaderImages() {
-    const header = getInstitutionHeader(institutionCtx?.name);
+    // Resolve branding from the meeting's institution at download time so we
+    // never race the context query or fall back to Arts for CET meetings.
+    let ctx = meetingInstCtx ?? institutionCtx;
+    const resolveId =
+      selectedMeeting?.institutions_id
+      ?? institutionCtx?.myjkkn_id
+      ?? (institutionsId || undefined);
+    if (resolveId && (!ctx || ctx.myjkkn_id !== resolveId)) {
+      try {
+        const res = await fetch(`/api/institutions/resolve?institutionId=${resolveId}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) ctx = json.data;
+        }
+      } catch {
+        // Keep whatever context we already have
+      }
+    }
+    const header = getInstitutionHeader(
+      ctx?.name ?? ctx?.display_name,
+      ctx?.counselling_code ?? ctx?.institution_code,
+    );
+    // CET: single engineering mark on the left (no right logo).
+    // Arts/other: trust mark left + institution mark right.
+    const isCet = header.ref_prefix === 'JKKNCET';
+    if (isCet) {
+      const cetLogoPath = header.logoImage ?? header.rightLogoImage;
+      const logoImage = cetLogoPath ? await toBase64(cetLogoPath) : undefined;
+      return { header, logoImage, rightLogoImage: undefined };
+    }
     const [logoImage, rightLogoImage] = await Promise.all([
       toBase64('/logo.png'),
       toBase64(header.rightLogoImage),
@@ -362,6 +400,8 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
 
     return {
       institution_name: header.institution_name,
+      // CET banner_lines[0] is "( An Autonomous Institution )"
+      institution_subtitle: header.banner_lines?.[0],
       institution_address: header.institution_address,
       institution_accreditation: header.institution_accreditation,
       logoImage,
@@ -469,7 +509,7 @@ function AttendanceCertificatesTab({ institutionsId }: { institutionsId: string 
       ) : presentAttendees.length === 0 ? (
         <p className='text-sm text-muted-foreground text-center py-8'>No present attendees recorded for this meeting.</p>
       ) : (
-        <div className='rounded-lg border overflow-hidden'>
+        <div className='rounded-lg border overflow-x-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50'>
               <tr>
@@ -804,7 +844,7 @@ function MinutesOfMeetingTab({ institutionsId }: { institutionsId: string }) {
       ) : meetings.length === 0 ? (
         <p className='text-sm text-muted-foreground text-center py-8'>No meetings found.</p>
       ) : (
-        <div className='rounded-lg border overflow-hidden'>
+        <div className='rounded-lg border overflow-x-auto'>
           <table className='w-full text-sm'>
             <thead className='bg-muted/50'>
               <tr>
@@ -895,7 +935,7 @@ function ReportsPageInner() {
       <Card>
         <CardContent className='p-4'>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className='mb-4'>
+            <TabsList className='mb-4 flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
               <TabsTrigger value='meeting-register'>Meeting Register</TabsTrigger>
               <TabsTrigger value='minutes-of-meeting'>Minutes of Meeting</TabsTrigger>
               <TabsTrigger value='resolution-compliance'>Resolution Compliance</TabsTrigger>

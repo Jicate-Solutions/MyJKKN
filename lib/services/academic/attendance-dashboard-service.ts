@@ -1,4 +1,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  CycleCalculationService,
+  type CycleDateMap
+} from '@/lib/services/academic/cycle-calculation-service';
 import { cache } from 'react';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { TimetableData } from '@/types/academics';
@@ -7,7 +11,9 @@ import type {
   PendingAttendancePeriod,
   PendingAttendanceResponse,
   DashboardFilters,
-  AttendanceTrendData
+  AttendanceTrendData,
+  IntakeReadinessRow,
+  IntakeReadinessInstitutionSummary
 } from '@/types/attendance-dashboard';
 import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
@@ -35,6 +41,29 @@ export interface ConfirmationSplitResult {
   error?: string;
 }
 
+/**
+ * Org-hierarchy narrowing from the Statistics tab's "Attendance Filters" bar,
+ * below institution + academic year:
+ *   Degree > Department > Programme > Semester > Section.
+ *
+ * Grouped into one object rather than five more positional parameters: the
+ * callers below already take four, and five consecutive optional strings is
+ * exactly how an argument-order slip turns into a silent wrong-scope result.
+ */
+export interface AttendanceHierarchyFilter {
+  degreeId?: string;
+  departmentId?: string;
+  programId?: string;
+  semesterId?: string;
+  sectionId?: string;
+  /** Narrow to first-year learners only — those admitted in their institution's
+   *  CURRENT intake (admission_years.is_current). Resolves per-institution, so it
+   *  stays correct in the all-institutions view (each college's own newest batch).
+   *  Chosen over a semester-based rule because semester data isn't reliably
+   *  advanced (e.g. Dental showed 597/600 by semester vs ~56 by admission year). */
+  firstYearOnly?: boolean;
+}
+
 export class AttendanceDashboardService {
   private static supabase = createClientSupabaseClient();
 
@@ -47,7 +76,8 @@ export class AttendanceDashboardService {
   static async getConfirmationSplit(
     fromDate: string,
     toDate: string,
-    institutionId?: string
+    institutionId?: string,
+    hierarchy: AttendanceHierarchyFilter = {}
   ): Promise<ConfirmationSplitResult> {
     // A failed policy read must not surface an error card for a feature that may
     // well be 'off'. getPolicy* already fail-soft on the RPC's error field, but a
@@ -77,14 +107,17 @@ export class AttendanceDashboardService {
       return { gateMode, windowHours, split: null };
     }
 
-    // Institution + date scoped, matching the sibling attendance stat cards.
-    // The RPC also accepts p_program_id/p_department_id/p_section_id, but the
-    // attendance dashboard's Statistics section (DashboardFilterState) exposes
-    // no program/department/section filter — only institution + academic year —
-    // so there is nothing narrower to forward here. academic_year is redundant
-    // for a single date (a day maps to one academic year), so it is not passed.
-    // If a finer dashboard filter is added later, thread it through to these
-    // already-present RPC params.
+    // Institution + date scoped, matching the sibling attendance stat cards, and
+    // now narrowed by the dashboard's hierarchy filters through the RPC's
+    // already-present p_program_id/p_department_id/p_section_id params.
+    // academic_year is redundant for a single date (a day maps to one academic
+    // year), so it is not passed.
+    //
+    // NOTE — this rollup has no p_degree_id/p_semester_id. A Degree- or
+    // Semester-only selection therefore narrows the attendance stat cards above
+    // but NOT this split, which stays at the next-widest scope it can express.
+    // `?? null`, never `|| null`: '' would flow through as a real uuid and match
+    // zero rows.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await (this.supabase as any).rpc(
       'fn_scf_confirmation_rollup',
@@ -92,6 +125,9 @@ export class AttendanceDashboardService {
         p_from: fromDate,
         p_to: toDate,
         p_institution_id: institutionId ?? null,
+        p_program_id: hierarchy.programId ?? null,
+        p_department_id: hierarchy.departmentId ?? null,
+        p_section_id: hierarchy.sectionId ?? null,
         p_window_hours: windowHours
       }
     );
@@ -137,7 +173,8 @@ export class AttendanceDashboardService {
       userInstitutionId?: string,
       canViewAllInstitutions: boolean = false,
       dateString?: string,
-      academicYearId?: string
+      academicYearId?: string,
+      hierarchy: AttendanceHierarchyFilter = {}
     ): Promise<AttendanceStats[]> => {
       try {
         const today = dateString || new Date().toISOString().split('T')[0];
@@ -157,7 +194,16 @@ export class AttendanceDashboardService {
             // `?? null`, never `|| null`: '' would flow through as a real uuid
             // parameter and match zero rows (breaking "All Institutions").
             p_institution_id: userInstitutionId ?? null,
-            p_academic_year_id: academicYearId ?? null
+            p_academic_year_id: academicYearId ?? null,
+            p_degree_id: hierarchy.degreeId ?? null,
+            p_department_id: hierarchy.departmentId ?? null,
+            p_program_id: hierarchy.programId ?? null,
+            p_semester_id: hierarchy.semesterId ?? null,
+            p_section_id: hierarchy.sectionId ?? null,
+            // First-year-only narrowing (default false → unchanged for every
+            // existing caller). The RPC resolves "first year" as admitted in the
+            // institution's is_current admission year.
+            p_first_year_only: hierarchy.firstYearOnly ?? false
           }
         );
 
@@ -358,6 +404,7 @@ export class AttendanceDashboardService {
           semester_id,
           section_id,
           timetable_data,
+          timetable_format,
           periods,
           attendance_mode,
           class_incharge_id,
@@ -486,10 +533,38 @@ export class AttendanceDashboardService {
       }, {} as Record<string, any>);
 
       // Step 3: Extract scheduled periods for each date in range
+
+      // Added: 2026-08-05 - Cycle-format timetables key timetable_data by "cycle-N",
+      // not by weekday, so the weekday key below never matched and their periods were
+      // invisible to this surface entirely. Resolve each cycle timetable's date->cycle
+      // map up front (one RPC per timetable for the whole range) via the same
+      // CycleCalculationService the Mark Attendance page uses, so the two cannot drift.
+      const cycleMaps: Record<string, CycleDateMap> = {};
+      const cycleTimetables = (filteredTimetablesData ?? []).filter(
+        (t: any) => t.timetable_format === 'cycle'
+      );
+      if (cycleTimetables.length > 0 && filteredWorkingDates.length > 0) {
+        const rangeStart = filteredWorkingDates[0];
+        const rangeEnd = filteredWorkingDates[filteredWorkingDates.length - 1];
+        await Promise.all(
+          cycleTimetables.map(async (t: any) => {
+            cycleMaps[t.id] = await CycleCalculationService.getCycleMap(
+              t.id,
+              rangeStart,
+              rangeEnd
+            );
+          })
+        );
+      }
+
       const allScheduledPeriods = new Map<string, PendingAttendancePeriod>();
 
       filteredWorkingDates.forEach((date) => {
-        const dateObj = new Date(date);
+        // Updated: 2026-08-05 - Parse as local midnight, matching the sibling at
+        // line 382. `new Date("YYYY-MM-DD")` is UTC midnight, so at a negative UTC
+        // offset the weekday resolves one day early and the timetable_data day key
+        // never matches. No-op in IST; hygiene only.
+        const dateObj = new Date(date + 'T00:00:00');
         const dayOfWeek = dateObj
           .toLocaleDateString('en-US', { weekday: 'long' })
           .toUpperCase();
@@ -554,8 +629,22 @@ export class AttendanceDashboardService {
             return;
           }
 
-          if (timetableData && timetableData[dayOfWeek]) {
-            Object.entries(timetableData[dayOfWeek]).forEach(
+          // Updated: 2026-08-05 - Format-aware key: cycle timetables are keyed
+          // "cycle-N" (see the cycleMaps note above), everything else by weekday.
+          // A null cycle means that date has no classes (Sunday/holiday).
+          const cycleNum =
+            timetable.timetable_format === 'cycle'
+              ? cycleMaps[timetable.id]?.[date] ?? null
+              : null;
+          const dayKey =
+            timetable.timetable_format === 'cycle'
+              ? cycleNum !== null
+                ? `cycle-${cycleNum}`
+                : null
+              : dayOfWeek;
+
+          if (dayKey && timetableData && timetableData[dayKey]) {
+            Object.entries(timetableData[dayKey]).forEach(
               ([periodId, slot]) => {
                 if (slot && !slot.is_break_slot && slot.course_id) {
                   const periodInfo = Array.isArray(periods)
@@ -941,5 +1030,106 @@ export class AttendanceDashboardService {
       logger.error('academic/attendance-dashboard', 'Error in getAttendanceTrend', error);
       throw error;
     }
+  }
+
+  /**
+   * Current-intake attendance readiness, one row per section holding
+   * current-intake learners.
+   *
+   * DELIBERATELY NOT DERIVED FROM TIMETABLES. getPendingAttendance() above opens
+   * with `.from('timetables')`, so its rows are scheduled periods — and a section
+   * with no timetable produces no periods, therefore no pending rows, therefore
+   * reads as perfectly healthy. This call starts from the LEARNERS instead, so a
+   * section can never vanish by having nothing scheduled.
+   *
+   * The RPC is SECURITY DEFINER and self-authorizes on
+   * academic.attendance.dashboard.view, then bounds rows by
+   * role_has_institution_access — so a scope='own' caller reads only its own
+   * institution even if it passes another institution's id.
+   */
+  static async getIntakeReadiness(
+    windowDays: number = 21,
+    institutionId?: string,
+    departmentId?: string
+  ): Promise<IntakeReadinessRow[]> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_attendance_fresher_readiness',
+        {
+          p_window_days: windowDays,
+          // `?? null`, never `|| null`: '' would flow through as a real uuid
+          // parameter and match zero rows (breaking "All Institutions").
+          p_institution_id: institutionId ?? null,
+          p_department_id: departmentId ?? null
+        }
+      );
+
+      if (error) {
+        logger.error(
+          'academic/attendance',
+          'fn_attendance_fresher_readiness failed',
+          error
+        );
+        throw error;
+      }
+
+      return (data ?? []) as IntakeReadinessRow[];
+    } catch (error) {
+      logger.error(
+        'academic/attendance',
+        'Error in getIntakeReadiness',
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Roll section rows up per institution. Kept next to the fetch so the two
+   * cannot drift: every counter here is derived from readiness_status, the same
+   * field the table renders, so a card can never disagree with the rows beneath it.
+   */
+  static summariseIntakeReadiness(
+    rows: IntakeReadinessRow[]
+  ): IntakeReadinessInstitutionSummary[] {
+    const byInstitution = new Map<string, IntakeReadinessInstitutionSummary>();
+
+    rows.forEach((row) => {
+      let entry = byInstitution.get(row.institution_id);
+      if (!entry) {
+        entry = {
+          institution_id: row.institution_id,
+          institution_name: row.institution_name,
+          sections: 0,
+          ok: 0,
+          notStarted: 0,
+          blocked: 0,
+          learners: 0,
+          learnersBlocked: 0
+        };
+        byInstitution.set(row.institution_id, entry);
+      }
+
+      entry.sections += 1;
+      entry.learners += row.learner_count;
+
+      if (row.readiness_status === 'blocked') {
+        entry.blocked += 1;
+        entry.learnersBlocked += row.learner_count;
+      } else if (row.readiness_status === 'not_started') {
+        entry.notStarted += 1;
+      } else {
+        entry.ok += 1;
+      }
+    });
+
+    // Worst first: the institutions with the most unreachable learners are the
+    // ones an administrator has to act on today.
+    return Array.from(byInstitution.values()).sort(
+      (a, b) =>
+        b.learnersBlocked - a.learnersBlocked ||
+        b.blocked - a.blocked ||
+        b.sections - a.sections
+    );
   }
 }

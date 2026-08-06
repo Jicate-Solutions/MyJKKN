@@ -48,8 +48,17 @@ import { GUIDES as RESOURCES_GUIDES, REQUIRES as RESOURCES_REQUIRES } from "../r
 import { GUIDES as VAC_GUIDES, REQUIRES as VAC_REQUIRES } from "../vac/guide/content";
 import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/content";
 import { GUIDES as SCHOOLS_NETWORK_GUIDES, REQUIRES as SCHOOLS_NETWORK_REQUIRES } from "../admission/schools-network/guide/content";
-import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES } from "../foundation/guide/content";
+import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES, SESSION_LEADER_SECTIONS as FOUNDATION_SESSION_LEADER_SECTIONS } from "../foundation/guide/content";
 import { GUIDES as AUDIT_GUIDES, REQUIRES as AUDIT_REQUIRES } from "../audit/guide/content";
+import { GUIDES as IMPROVEMENT_GUIDES, REQUIRES as IMPROVEMENT_REQUIRES } from "../improvement/guide/content";
+import { GUIDES as CEO_ROUNDS_GUIDES, REQUIRES as CEO_ROUNDS_REQUIRES } from "../ceo-rounds/guide/content";
+import {
+  GUIDES as ID_CARDS_GUIDES,
+  REQUIRES as ID_CARDS_REQUIRES,
+  entrySections as ID_CARDS_ENTRY_SECTIONS,
+  setupSections as ID_CARDS_SETUP_SECTIONS,
+  printSections as ID_CARDS_PRINT_SECTIONS,
+} from "../id-cards/guide/content";
 
 /* ────────────────────────────────────────────────────────────────────────
  * PERSONA ACCESS — which permission keys grant each canonical persona (OR'd
@@ -68,8 +77,8 @@ export const PERSONA_REQUIRES: Record<CanonicalPersona, string[]> = {
   facilitator: [AI_PULSE_REQUIRES.faculty, PDE_REQUIRES.faculty, ACADEMIC_REQUIRES.faculty, STARTUP_REQUIRES.mentor, STARTUP_REQUIRES.evaluator, SOLUTIONS_REQUIRES.delivery_team, IMS_REQUIRES.cashier, BOS_REQUIRES.member, FOUNDATION_REQUIRES.facilitator],
   "unit-lead": [AI_PULSE_REQUIRES.champion, CAMPUS_REQUIRES.warden, CAMPUS_REQUIRES.mess, IMS_REQUIRES.storekeeper, BOS_REQUIRES.chairman, LEARNERS_COUNCIL_REQUIRES.member, EVENTS_REQUIRES.organiser],
   coordinator: [AI_PULSE_REQUIRES.incharge, ADMISSION_REQUIRES.counsellor, BILLING_REQUIRES["finance-officer"], ACADEMIC_REQUIRES.coordinator, STARTUP_REQUIRES.coordinator, SOLUTIONS_REQUIRES.sales_lead, ORGANIZATIONS_REQUIRES.viewer, IMS_REQUIRES.requester, MEETINGS_REQUIRES.host, LEARNERS_COUNCIL_REQUIRES.coordinator, EVENTS_REQUIRES.proposer, RESOURCES_REQUIRES.requester, OKR_REQUIRES.contributor, SCHOOLS_NETWORK_REQUIRES.coordinator, FOUNDATION_REQUIRES.coordinator],
-  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, ACADEMIC_REQUIRES.registrar, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager, AUDIT_REQUIRES.auditor],
-  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin],
+  supervisor: [AI_PULSE_REQUIRES.hod, HR_REQUIRES.manager, ACADEMIC_REQUIRES.hod, ACADEMIC_REQUIRES.principal, ACADEMIC_REQUIRES.registrar, SOLUTIONS_REQUIRES.finance_officer, IMS_REQUIRES.approver, BOS_REQUIRES.principal, LEARNERS_REQUIRES.advisor, RESOURCES_REQUIRES.approver, OKR_REQUIRES.manager, AUDIT_REQUIRES.auditor, IMPROVEMENT_REQUIRES.manage, CEO_ROUNDS_REQUIRES.log],
+  "module-admin": [AI_PULSE_REQUIRES.admin, CAMPUS_REQUIRES.admin, PDE_REQUIRES.admin, HR_REQUIRES["hr-admin"], ADMISSION_REQUIRES.admin, BILLING_REQUIRES["finance-admin"], STARTUP_REQUIRES.admin, SOLUTIONS_REQUIRES.module_admin, ORGANIZATIONS_REQUIRES["registry-admin"], IMS_REQUIRES.admin, BOS_REQUIRES.coordinator, MEETINGS_REQUIRES.admin, LEARNERS_REQUIRES.staff, RESOURCES_REQUIRES.admin, VAC_REQUIRES.admin, OKR_REQUIRES.admin, SCHOOLS_NETWORK_REQUIRES.admin, ID_CARDS_REQUIRES.templates, ID_CARDS_REQUIRES.operator],
   "platform-admin": [],
   parent: [],
   external: [],
@@ -984,7 +993,18 @@ export const foundationGuide: ModuleGuide = {
       tagline: FOUNDATION_GUIDES.lanes.coordinator.tagline,
     },
     facilitator: {
-      sections: withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+      // TWO gates in one lane, on purpose. Reviewing a learner's diagnostic and
+      // RUNNING a practice session for a group are different jobs held by
+      // different people: the review sections need foundation.students.view,
+      // while running a session needs foundation.practice.take — and the one
+      // role that actually runs sessions (school_faculty) holds the second and
+      // not the first. Stamping the lane with a single key would have hidden the
+      // session steps from the only person who needs them. Same shape as
+      // auditGuide below: a cross-cutting job scoped by its own key.
+      sections: [
+        ...withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+        ...withRequires(FOUNDATION_SESSION_LEADER_SECTIONS, FOUNDATION_REQUIRES.session_leader),
+      ],
       startHere: FOUNDATION_GUIDES.lanes.facilitator.startHere,
       title: FOUNDATION_GUIDES.lanes.facilitator.title,
       tagline: FOUNDATION_GUIDES.lanes.facilitator.tagline,
@@ -1023,7 +1043,108 @@ export const auditGuide: ModuleGuide = {
   ],
 };
 
-export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide];
+/* ── Improvement Board (MBA teaching-enterprise business-case pipeline) ───────
+ * associate → learner (the MBA Associate who files ideas + tracks them + climbs
+ * the leaderboard, AND the view-only reader). Its sections carry their OWN
+ * per-section requires in content.ts (read-the-board + leaderboard →
+ * improvement.ideas.view; file + track → improvement.ideas.create), so they are
+ * passed THROUGH verbatim rather than uniformly re-gated with withRequires —
+ * which would clobber the create-gated sections down to view. The learner lane is
+ * OPEN (PERSONA_REQUIRES.learner = []), so a non-MBA learner simply sees NONE of
+ * these sections in their getting-started baseline (all are gated; they hold
+ * neither key) — improvement content never leaks into the open learner floor.
+ * reviewer (Senior Learner / CEO) → supervisor, uniformly gated improvement.board.manage
+ * (fail-closed, matching HR/OKR manager→supervisor).
+ * NOTE: /ceo-rounds now has its OWN guide module (ceoRoundsGuide, below) — the
+ * daily-round log is a sibling route, not part of /improvement-board.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const improvementGuide: ModuleGuide = {
+  module: "improvement",
+  basePath: "/improvement-board",
+  lanes: {
+    learner: {
+      // Sections already carry per-section requires (view/create) from content.ts;
+      // pass them verbatim so the mixed gating survives (do NOT withRequires — it
+      // would rewrite every section's requires to a single key).
+      sections: IMPROVEMENT_GUIDES.lanes.learner.sections,
+      startHere: IMPROVEMENT_GUIDES.lanes.learner.startHere,
+      title: IMPROVEMENT_GUIDES.lanes.learner.title,
+      tagline: IMPROVEMENT_GUIDES.lanes.learner.tagline,
+    },
+    supervisor: {
+      sections: withRequires(IMPROVEMENT_GUIDES.lanes.supervisor.sections, IMPROVEMENT_REQUIRES.manage),
+      startHere: IMPROVEMENT_GUIDES.lanes.supervisor.startHere,
+      title: IMPROVEMENT_GUIDES.lanes.supervisor.title,
+      tagline: IMPROVEMENT_GUIDES.lanes.supervisor.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── CEO Rounds (MBA teaching-enterprise daily-round log) ─────────────────────
+ * rotating summary author → learner. Its sections carry their OWN per-section
+ * requires in content.ts (ceo_rounds.summary.write), so they are passed THROUGH
+ * verbatim rather than uniformly re-gated with withRequires. The learner lane is
+ * OPEN (PERSONA_REQUIRES.learner = []); every CEO Rounds learner section is
+ * gated, so a learner who is not an assigned summary author sees NONE of them —
+ * CEO Rounds content never leaks into the open learner floor (mirrors the
+ * Improvement Board learner lane above).
+ * Senior Learner / CEO → supervisor, uniformly gated ceo_rounds.log (fail-closed,
+ * matching HR/OKR manager→supervisor and Improvement Board).
+ * basePath /ceo-rounds — route→module map derives from it (route-map.ts).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const ceoRoundsGuide: ModuleGuide = {
+  module: "ceo-rounds",
+  basePath: "/ceo-rounds",
+  lanes: {
+    learner: {
+      // Sections already carry per-section requires (ceo_rounds.summary.write)
+      // from content.ts; pass them verbatim (do NOT withRequires — every learner
+      // section is gated, so nothing leaks into the open floor).
+      sections: CEO_ROUNDS_GUIDES.lanes.learner.sections,
+      startHere: CEO_ROUNDS_GUIDES.lanes.learner.startHere,
+      title: CEO_ROUNDS_GUIDES.lanes.learner.title,
+      tagline: CEO_ROUNDS_GUIDES.lanes.learner.tagline,
+    },
+    supervisor: {
+      sections: withRequires(CEO_ROUNDS_GUIDES.lanes.supervisor.sections, CEO_ROUNDS_REQUIRES.log),
+      startHere: CEO_ROUNDS_GUIDES.lanes.supervisor.startHere,
+      title: CEO_ROUNDS_GUIDES.lanes.supervisor.title,
+      tagline: CEO_ROUNDS_GUIDES.lanes.supervisor.tagline,
+    },
+  },
+  routes: [],
+};
+
+/* ── ID Cards (physical ID card printing — registrar / module admin) ─────────
+ * ONE registrar lane → module-admin. The lane COLLAPSES two permission groups:
+ * setup sections (card template + printer policy) gated by
+ * id_cards.templates.edit, and printing sections (enqueue + queue watching)
+ * gated by id_cards.jobs.manage — so a viewer who can print but not redesign
+ * the template still gets the printing steps, and vice versa (fail-closed).
+ * Section order follows the registrar's real workflow: find the module, set up
+ * the template, check the printer policy, then print and watch the queue.
+ * basePath /admin/id-cards is the module hub (policy / template / print-queue).
+ * ────────────────────────────────────────────────────────────────────────── */
+export const idCardsGuide: ModuleGuide = {
+  module: "id-cards",
+  basePath: "/admin/id-cards",
+  lanes: {
+    "module-admin": {
+      sections: [
+        ...withRequires(ID_CARDS_ENTRY_SECTIONS, ID_CARDS_REQUIRES.operator),
+        ...withRequires(ID_CARDS_SETUP_SECTIONS, ID_CARDS_REQUIRES.templates),
+        ...withRequires(ID_CARDS_PRINT_SECTIONS, ID_CARDS_REQUIRES.operator),
+      ],
+      startHere: ID_CARDS_GUIDES.lanes.registrar.startHere,
+      title: ID_CARDS_GUIDES.lanes.registrar.title,
+      tagline: ID_CARDS_GUIDES.lanes.registrar.tagline,
+    },
+  },
+  routes: [],
+};
+
+export const REGISTRY: ModuleGuide[] = [aiPulseGuide, campusLivingGuide, pdeGuide, hrGuide, admissionGuide, billingGuide, academicGuide, startupStudioGuide, solutionsGuide, organizationsGuide, imsGuide, bosGuide, meetingsGuide, learnersGuide, learnersCouncilGuide, eventsGuide, resourceManagementGuide, vacGuide, okrGuide, schoolsNetworkGuide, foundationGuide, auditGuide, improvementGuide, ceoRoundsGuide, idCardsGuide];
 
 /** Canonical personas at least one module contributes real sections to. A
  *  persona NOT in this set is sparse (composeLane returns the platform-overview
@@ -1062,6 +1183,8 @@ const MODULE_LABELS: Record<string, string> = {
   okr: "OKR",
   "schools-network": "Schools Network",
   foundation: "Foundation Programme",
+  improvement: "Improvement Board",
+  "ceo-rounds": "CEO Rounds",
 };
 
 /** Human label for a module namespace; falls back to the raw id if unknown. */
@@ -1104,6 +1227,8 @@ const MODULE_GLOSSARIES: Record<string, GlossaryTerm[]> = {
   okr: OKR_GUIDES.glossary ?? [],
   "schools-network": SCHOOLS_NETWORK_GUIDES.glossary ?? [],
   foundation: FOUNDATION_GUIDES.glossary ?? [],
+  improvement: IMPROVEMENT_GUIDES.glossary ?? [],
+  "ceo-rounds": CEO_ROUNDS_GUIDES.glossary ?? [],
 };
 
 /** "Words to know" terms for one module; empty array if module unknown. */

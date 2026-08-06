@@ -34,7 +34,9 @@ export interface ImsSupplyShipment {
   updated_at: string;
   // Joined
   source_store?: { id: string; name: string; code: string } | null;
-  destination_institution?: { id: string; institution_name: string } | null;
+  // `institutions` has no `institution_name` column — only `name`. Selecting
+  // `institution_name` here 400s the whole shipment query.
+  destination_institution?: { id: string; name: string } | null;
   destination_store?: { id: string; name: string; code: string } | null;
   dispatched_by_profile?: { full_name: string } | null;
   items?: ImsSupplyShipmentItem[];

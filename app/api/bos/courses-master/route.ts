@@ -12,7 +12,8 @@ import {
   isBosReadAllObserver,
 } from '@/lib/utils/bos/bos-access';
 import { resolveBosInstitutionScope } from '@/lib/utils/bos/institution-scope';
-import { courseFormSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
+import { makeCourseFormSchema, toCoeCreatePayload } from '@/lib/services/bos/courses-schemas';
+import type { AcademicModel } from '@/types/bos';
 import type { BosCourseMaster, BosCourseListResponse } from '@/types/bos-courses';
 
 /**
@@ -414,7 +415,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const parsed = courseFormSchema.safeParse(body.form);
+    // Academic model (from the board) gates the schema strictness: year-based
+    // pharmacy/AHS courses (mgr_pharmd, mgr_ahs) carry no credits/hours/category,
+    // so the strict Anna schema would wrongly reject them.
+    const academic_model: AcademicModel = body.context?.academic_model ?? 'anna_univ';
+    const parsed = makeCourseFormSchema(academic_model).safeParse(body.form);
     if (!parsed.success) {
       return NextResponse.json(
         { error: 'Validation failed', details: parsed.error.issues },
@@ -470,6 +475,7 @@ export async function POST(request: NextRequest) {
       regulation_id,
       board_code,
       board_id,
+      academic_model,
     };
 
     // Pre-flight duplicate check — course_code must be unique per institution.

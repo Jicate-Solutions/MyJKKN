@@ -25,7 +25,8 @@ import { DataTableViewOptions } from './view-options';
 import { DataTableExport } from './data-export';
 import type {
   DataTransformFunction,
-  ExportableData
+  ExportableData,
+  PdfExportOptions
 } from './utils/export-utils';
 import { resetUrlState } from './utils/deep-utils';
 import { parseDateFromUrl } from './utils/url-state';
@@ -88,6 +89,7 @@ interface DataTableToolbarProps<TData extends ExportableData> {
   columnWidths?: Array<{ wch: number }>;
   headers?: string[];
   transformFunction?: DataTransformFunction<TData>;
+  pdfOptions?: PdfExportOptions;
   customToolbarComponent?: React.ReactNode;
 }
 
@@ -107,6 +109,7 @@ export function DataTableToolbar<TData extends ExportableData>({
   columnWidths,
   headers,
   transformFunction,
+  pdfOptions,
   customToolbarComponent
 }: DataTableToolbarProps<TData>) {
   // Get router and pathname for URL state reset
@@ -437,6 +440,7 @@ export function DataTableToolbar<TData extends ExportableData>({
             columnWidths={columnWidths}
             headers={headers}
             transformFunction={transformFunction}
+            pdfOptions={pdfOptions}
             size={config.size}
             config={config}
           />

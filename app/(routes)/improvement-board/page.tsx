@@ -6,6 +6,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
+import { ContentLayout } from '@/components/layout/content-layout';
 import { ImprovementBoardClient } from './_components/improvement-board-client';
 import type {
   ImprovementArea,
@@ -60,22 +61,28 @@ export default async function ImprovementBoardPage() {
 
   const ideaRows = (rawIdeas || []) as any[];
 
-  // Enrich with area labels + author names via batched lookups.
+  // Enrich with area labels + finder/fixer names via batched lookups.
   const areaList = (areas || []) as ImprovementArea[];
   const areaById = new Map(areaList.map((a) => [a.id, a]));
 
-  const authorIds = Array.from(
-    new Set(ideaRows.map((i) => i.author_id).filter(Boolean))
+  // Authors (finders) AND resolvers (fixers) resolve in ONE batched lookup.
+  const personIds = Array.from(
+    new Set(
+      [
+        ...ideaRows.map((i) => i.author_id),
+        ...ideaRows.map((i) => i.resolved_by)
+      ].filter(Boolean)
+    )
   ) as string[];
 
-  const authorNameById = new Map<string, string | null>();
-  if (authorIds.length > 0) {
-    const { data: authors } = await supabase
+  const nameById = new Map<string, string | null>();
+  if (personIds.length > 0) {
+    const { data: people } = await supabase
       .from('profiles')
       .select('id, full_name')
-      .in('id', authorIds);
-    for (const a of (authors || []) as { id: string; full_name: string | null }[]) {
-      authorNameById.set(a.id, a.full_name);
+      .in('id', personIds);
+    for (const a of (people || []) as { id: string; full_name: string | null }[]) {
+      nameById.set(a.id, a.full_name);
     }
   }
 
@@ -85,17 +92,20 @@ export default async function ImprovementBoardPage() {
       ...i,
       area_label: area?.label ?? null,
       area_key: area?.key ?? null,
-      author_name: i.author_id ? authorNameById.get(i.author_id) ?? null : null
+      author_name: i.author_id ? nameById.get(i.author_id) ?? null : null,
+      resolver_name: i.resolved_by ? nameById.get(i.resolved_by) ?? null : null
     };
   });
 
   return (
-    <ImprovementBoardClient
-      userId={profile.id}
-      userName={profile.full_name || 'You'}
-      institutionId={profile.institution_id || ''}
-      initialAreas={areaList}
-      initialIdeas={ideas}
-    />
+    <ContentLayout title="Improvement Board">
+      <ImprovementBoardClient
+        userId={profile.id}
+        userName={profile.full_name || 'You'}
+        institutionId={profile.institution_id || ''}
+        initialAreas={areaList}
+        initialIdeas={ideas}
+      />
+    </ContentLayout>
   );
 }

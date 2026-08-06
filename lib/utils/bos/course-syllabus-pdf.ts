@@ -594,8 +594,20 @@ export interface CourseSyllabusPDFData {
 	 * total is then distributed evenly across the units.
 	 */
 	total_periods?: { theory: number; tut: number }
+	/**
+	 * The Content tab's free-text "Total Hours" box (`course_content.total_hours`)
+	 * exactly as typed — "30 + 30" for a theory+tutorial split, or a plain "45".
+	 * The CET renderer prints it verbatim as "TOTAL: <value> PERIODS", so the
+	 * document always shows the author's own total rather than a sum that can
+	 * only be derived when every unit carries a period marker.
+	 */
+	content_total_hours?: string
 
 	// Syllabus content
+	/** PCI/pharmacy "Scope" paragraph, printed above Course Objectives. */
+	scope?: string
+	/** Hide the Course Designer / BoS Chairman signature block (COP temporary). */
+	hideSignature?: boolean
 	objectives?: BosCourseObjective[]
 	clos?: BosCourseLearnOutcome[]
 	/** K-code → description map from regulation taxonomy; falls back to Bloom's defaults */
@@ -737,6 +749,19 @@ export function renderCourseSyllabusPDF(
 			cell(data.credits != null ? String(data.credits) : '–', { halign: 'center' }),
 		],
 	], { 0: { cellWidth: c0 }, 1: { cellWidth: c1 }, 2: { cellWidth: c2 }, 3: { cellWidth: c3 } })
+
+	// ── SECTION 2.5: Scope (pharmacy/COP) — printed above Course Objectives ────
+	// PCI B.Pharm syllabi open with a "Scope" paragraph. Only rendered when the
+	// syllabus carries one (pharmacy models); other syllabi skip it entirely.
+	if (data.scope && data.scope.trim()) {
+		y = table(doc, y, [
+			[cell(''), bold('Scope')],
+			[cell(''), cell(sanitize(data.scope.trim()))],
+		], {
+			0: { cellWidth: LABEL_W },
+			1: { cellWidth: TABLE_W - LABEL_W },
+		})
+	}
 
 	// ── SECTION 3: Course Objectives ──────────────────────────────────────────
 	if (data.objectives && data.objectives.length > 0) {
@@ -941,13 +966,14 @@ export function renderCourseSyllabusPDF(
 					const subs = (ch.subtopics ?? [])
 						.map(s => sanitize(s.title || '').trim().replace(/[,;]+$/, ''))
 						.filter(Boolean)
-					return { title, subs }
+					// `sections` carries the chapter's detail text (PCI/Anna body) or a
+					// section reference ("1.1, 1.2"). Rendered per-chapter below (not
+					// pooled at the unit end) so each heading sits directly above its
+					// own detail — matching the source syllabus layout.
+					const sections = sanitize(ch.sections || '').trim()
+					return { title, subs, sections }
 				})
-				.filter(c => c.title || c.subs.length > 0)
-
-			const sectionRefs = [...new Set(unit.chapters.map(ch => ch.sections).filter(Boolean))]
-				.map(sanitize)
-				.join('\n')
+				.filter(c => c.title || c.subs.length > 0 || c.sections)
 
 			// Build the flat list of mixed-style lines for this unit's content cell.
 			const allLines: BosMixedLine[] = []
@@ -958,38 +984,33 @@ export function renderCourseSyllabusPDF(
 				allLines.push(...wrapBoldPrefixRest(doc, unitTitle, '', contentMaxTextW))
 			}
 
-			for (const ch of chapterEntries) {
-				// Strip trailing colon/whitespace from the title — we append our own
-				// ": " separator, so a stored "Database Concepts:" would otherwise
-				// render as "Database Concepts:: ".
-				const cleanTitle = ch.title.replace(/[:\s]+$/, '')
-				const subsText = ch.subs.length > 0 ? `${ch.subs.join(', ')}.` : ''
-
-				if (cleanTitle && subsText) {
-					// wrapBoldPrefixRest returns fully-styled lines (bold-prefix
-					// wrapping, mixed transition line, justified-except-last).
-					allLines.push(...wrapBoldPrefixRest(doc, `${cleanTitle}: `, subsText, contentMaxTextW))
-				} else if (cleanTitle) {
-					allLines.push(...wrapBoldPrefixRest(doc, cleanTitle, '', contentMaxTextW))
-				} else if (subsText) {
-					doc.setFont('times', 'normal')
-					doc.setFontSize(FONT_SIZE)
-					const wrapped = doc.splitTextToSize(subsText, contentMaxTextW) as string[]
-					wrapped.forEach((l, idx) =>
-						allLines.push({
-							text: l,
-							prefixEnd: 0,
-							justify: idx < wrapped.length - 1,
-						}),
-					)
-				}
-			}
-
-			if (sectionRefs) {
+			// Normal-weight wrapped detail lines (used for the per-chapter body).
+			const pushDetail = (text: string) => {
 				doc.setFont('times', 'normal')
 				doc.setFontSize(FONT_SIZE)
-				const wrapped = doc.splitTextToSize(sectionRefs, contentMaxTextW) as string[]
-				wrapped.forEach(l => allLines.push({ text: l, prefixEnd: 0 }))
+				const wrapped = doc.splitTextToSize(text, contentMaxTextW) as string[]
+				wrapped.forEach((l, idx) =>
+					allLines.push({ text: l, prefixEnd: 0, justify: idx < wrapped.length - 1 }),
+				)
+			}
+
+			for (const ch of chapterEntries) {
+				// Strip trailing colon/whitespace from the title.
+				const cleanTitle = ch.title.replace(/[:\s]+$/, '')
+				// Detail sits directly BELOW its bold heading (source syllabus layout),
+				// drawn from the chapter's sub-topics and/or its `sections` detail —
+				// whichever the data carries. Sub-topics join with ", "; a `sections`
+				// paragraph follows.
+				const detailBits: string[] = []
+				if (ch.subs.length > 0) detailBits.push(`${ch.subs.join(', ')}.`)
+				if (ch.sections) detailBits.push(ch.sections)
+				const detailText = detailBits.join(' ')
+
+				if (cleanTitle) {
+					// Bold chapter heading on its own line.
+					allLines.push(...wrapBoldPrefixRest(doc, cleanTitle, '', contentMaxTextW))
+				}
+				if (detailText) pushDetail(detailText)
 			}
 
 			if (allLines.length === 0) allLines.push({ text: '', prefixEnd: 0 })
@@ -1427,6 +1448,8 @@ export function renderCourseSyllabusPDF(
 	// ── SECTION 11: Signature row — end of document, after the LLC block ─────
 	// (Moved from its pre-mapping position to match the v3.5 documents, where
 	// Course Designer / BoS Chairman sign off below the full assessment spec.)
+	// Hidden for COP (pharmacy) syllabi on request (temporary).
+	if (data.hideSignature) return
 	if (y + 40 > A4_H - 15) { doc.addPage(); y = MARGIN } else { y += 8 }
 	y = table(doc, y, [
 		[

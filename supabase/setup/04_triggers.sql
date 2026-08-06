@@ -974,6 +974,40 @@ CREATE TRIGGER trg_validate_learner_admission_year_scope
   FOR EACH ROW
   EXECUTE FUNCTION public.validate_learner_admission_year_scope();
 
+-- =====================================================
+-- learners_profiles academic-scope validator — Added 2026-07-30
+-- Fires BEFORE INSERT/UPDATE (all columns, so an institution_id move is caught
+-- alongside the FK columns). Calls validate_learner_semester_year_scope()
+-- (02_functions.sql), which rejects a degree_id / department_id / semester_id /
+-- academic_year_id belonging to another institution.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_validate_learner_semester_year_scope
+  ON public.learners_profiles;
+
+CREATE TRIGGER trg_validate_learner_semester_year_scope
+  BEFORE INSERT OR UPDATE
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.validate_learner_semester_year_scope();
+
+-- =====================================================
+-- admission_years single-current enforcement — Added 2026-07-25
+-- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
+-- Calls admission_years_enforce_single_current() (02_functions.sql), which
+-- demotes the institution's previous is_current row and clears is_current on
+-- any cohort being deactivated. Runs BEFORE the partial unique index
+-- admission_years_one_current_per_institution is evaluated, so promoting a
+-- cohort is a single toggle instead of a 23505 the client has to work around.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_admission_years_single_current
+  ON public.admission_years;
+
+CREATE TRIGGER trg_admission_years_single_current
+  BEFORE INSERT OR UPDATE OF is_current, is_active
+  ON public.admission_years
+  FOR EACH ROW
+  EXECUTE FUNCTION public.admission_years_enforce_single_current();
+
 -- =====================================================================
 -- Updated: 2026-04-24 - Auto-assign counselor on admission_leads INSERT
 -- Pairs with fn_auto_assign_counselor() in 02_functions.sql.
@@ -1546,3 +1580,73 @@ DROP TRIGGER IF EXISTS trg_sync_event_registration_form_field_event_id ON public
 CREATE TRIGGER trg_sync_event_registration_form_field_event_id
   BEFORE INSERT OR UPDATE ON public.event_registration_form_fields
   FOR EACH ROW EXECUTE FUNCTION public.sync_event_registration_form_field_event_id();
+
+-- Bill Coverage (2026-07-25): stamp academic_year_id on every new bill.
+DROP TRIGGER IF EXISTS trg_billing_bill_default_academic_year
+  ON public.billing_student_bills;
+
+CREATE TRIGGER trg_billing_bill_default_academic_year
+BEFORE INSERT ON public.billing_student_bills
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
+
+-- REMOVED 2026-08-05 (mig 20260805112640_freshers_drop_seed_trigger): the
+-- default "Freshers" semester + section A holding pen was retired. New programs
+-- no longer get a semester_order = 0 placeholder; first-year admits go straight
+-- to the program's first real term, which is now identified by initial_semester
+-- on every active program (mig 20260805112546).
+DROP TRIGGER IF EXISTS programs_seed_freshers ON public.programs;
+
+-- ---------------------------------------------------------------------------
+-- Billing: "Once per learner" duplicate guard
+-- ---------------------------------------------------------------------------
+-- Rejects a second live bill for a learner when the bill's billing category
+-- has once_per_learner = true. Lives in the database because bills are written
+-- from ten independent paths — student-bill-service (single + recurring),
+-- onboarding-service, the bills/import route, and six SECURITY DEFINER RPCs
+-- (admission_account_transition_with_bills, admission_approve_fee_change_event,
+-- admission_fix_fee_mismatch_2026, campus_living_generate_hostel_year_bills,
+-- _cl_apply_category_bill_change, _cl_apply_upgrade_fee_bill) plus the feesync
+-- cron. A service-layer guard would be bypassed by most of them, which is
+-- exactly how the 336 duplicate tuition bills were created.
+--
+-- Cancelled/superseded bills never count, so correcting a mistake cannot
+-- permanently lock a learner out of a category. Raises SQLSTATE BL001 so
+-- callers can render a friendly message (lib/utils/billing-duplicate-error.ts).
+-- Function body: see supabase/migrations/20260727120000_billing_category_once_per_learner.sql
+DROP TRIGGER IF EXISTS trg_billing_bills_once_per_learner ON public.billing_student_bills;
+
+CREATE TRIGGER trg_billing_bills_once_per_learner
+  BEFORE INSERT OR UPDATE ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public.billing_enforce_once_per_learner();
+
+
+-- =====================================================================
+-- hr_shift_timings — updated_at trigger
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+DROP TRIGGER IF EXISTS hr_shift_timings_updated_at ON public.hr_shift_timings;
+CREATE TRIGGER hr_shift_timings_updated_at
+  BEFORE UPDATE ON public.hr_shift_timings
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ---------------------------------------------------------------------
+-- RLS. Mirrors the hr_attendance_status_types idiom. The (SELECT fn())
+-- wrapping is load-bearing: it forces once-per-query evaluation and is the
+-- fix for the 57014 statement-timeout class of bug.
+--
+-- Contrast with hr_shift_templates, whose write policies gate on
+-- is_super_admin() OR is_admin() with NO permission key — which locks out
+-- custom roles such as HR Head that hold every other HR key.
+-- ---------------------------------------------------------------------

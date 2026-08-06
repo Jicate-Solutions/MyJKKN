@@ -20,7 +20,15 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { Lightbulb, Plus, Filter, Zap, Lock, Trophy } from 'lucide-react';
+import {
+  Lightbulb,
+  Plus,
+  Filter,
+  Zap,
+  Lock,
+  Trophy,
+  SlidersHorizontal
+} from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   ImprovementService,
@@ -37,6 +45,35 @@ interface ImprovementBoardClientProps {
   institutionId: string;
   initialAreas: ImprovementArea[];
   initialIdeas: ImprovementIdeaEnriched[];
+}
+
+/**
+ * Board ordering = "AI ranks, humans adjust" (spec decision 3):
+ *   1. a human-set `score` wins (facilitators + CEO adjust priority) — higher first
+ *   2. else the latest AI rank (1 = highest priority)
+ *   3. else newest first.
+ * Ideas a facilitator has scored float above unscored ones, so a human override
+ * is always visible over the AI's suggestion.
+ */
+function byPriority(
+  a: ImprovementIdeaEnriched,
+  b: ImprovementIdeaEnriched
+): number {
+  const as = a.score;
+  const bs = b.score;
+  if (as != null || bs != null) {
+    if (as == null) return 1;
+    if (bs == null) return -1;
+    if (bs !== as) return bs - as;
+  }
+  const ar = a.ai_rank;
+  const br = b.ai_rank;
+  if (ar != null || br != null) {
+    if (ar == null) return 1;
+    if (br == null) return -1;
+    if (ar !== br) return ar - br;
+  }
+  return (b.created_at || '').localeCompare(a.created_at || '');
 }
 
 export function ImprovementBoardClient({
@@ -81,7 +118,10 @@ export function ImprovementBoardClient({
     () =>
       BOARD_COLUMNS.map((col) => ({
         ...col,
-        items: visibleIdeas.filter((i) => i.status === col.status)
+        items: visibleIdeas
+          .filter((i) => i.status === col.status)
+          .slice()
+          .sort(byPriority)
       })),
     [visibleIdeas]
   );
@@ -104,13 +144,21 @@ export function ImprovementBoardClient({
             Turn everyday problems into business cases the institution can act on.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" asChild>
             <Link href="/improvement-board/leaderboard">
               <Trophy className="mr-2 h-4 w-4" />
               Impact Leaderboard
             </Link>
           </Button>
+          {canManage && (
+            <Button variant="outline" asChild>
+              <Link href="/improvement-board/manage-boards">
+                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                Manage boards
+              </Link>
+            </Button>
+          )}
           {canCreate && (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
@@ -121,10 +169,10 @@ export function ImprovementBoardClient({
       </div>
 
       {/* Filter */}
-      <div className="flex items-center gap-3">
-        <Filter className="text-muted-foreground h-4 w-4" />
+      <div className="flex flex-wrap items-center gap-3">
+        <Filter className="text-muted-foreground h-4 w-4 shrink-0" />
         <Select value={areaFilter} onValueChange={handleAreaFilter}>
-          <SelectTrigger className="w-64">
+          <SelectTrigger className="min-w-0 flex-1 sm:w-64 sm:flex-none">
             <SelectValue placeholder="Filter by area…" />
           </SelectTrigger>
           <SelectContent>
@@ -137,7 +185,7 @@ export function ImprovementBoardClient({
           </SelectContent>
         </Select>
         {areaFilter !== 'all' && (
-          <Badge variant="secondary">{areaLabelForSelect(areaFilter)}</Badge>
+          <Badge variant="secondary" className="shrink-0">{areaLabelForSelect(areaFilter)}</Badge>
         )}
       </div>
 
@@ -217,6 +265,22 @@ export function ImprovementBoardClient({
                             <Badge variant="outline" className="text-xs">
                               {idea.area_label}
                             </Badge>
+                          )}
+
+                          {idea.ai_rank != null && (
+                            <div className="space-y-1">
+                              <Badge
+                                variant="outline"
+                                className="border-primary/25 bg-primary/10 text-primary text-xs"
+                              >
+                                AI priority #{idea.ai_rank}
+                              </Badge>
+                              {idea.ai_rank_reason && (
+                                <p className="text-muted-foreground line-clamp-2 text-xs italic">
+                                  {idea.ai_rank_reason}
+                                </p>
+                              )}
+                            </div>
                           )}
 
                           <div className="flex items-center justify-between pt-1">

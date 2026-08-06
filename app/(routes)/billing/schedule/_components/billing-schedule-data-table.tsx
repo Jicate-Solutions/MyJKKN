@@ -94,8 +94,13 @@ export function BillingScheduleDataTable({
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Bulk create needs BOTH keys: bulk_create opens the flow, create is what the
+  // RLS INSERT policy on billing_student_bills actually checks. Requiring only
+  // bulk_create would show the button and fail every insert with an RLS denial.
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
   const canCancelBills =
     isSuperAdmin || canAccess('billing.schedule', 'update');
 
@@ -107,6 +112,7 @@ export function BillingScheduleDataTable({
       institution_id: search.institution_id || undefined,
       student_id: search.student_id || undefined,
       item_category_id: search.item_category_id || undefined,
+      collection_type: search.collection_type || undefined,
       status: search.status || undefined,
       lifecycle_status: search.lifecycle_status || undefined,
       is_recurring:
@@ -133,6 +139,7 @@ export function BillingScheduleDataTable({
       search.institution_id,
       search.student_id,
       search.item_category_id,
+      search.collection_type,
       search.status,
       search.lifecycle_status,
       search.is_recurring,
@@ -389,7 +396,7 @@ export function BillingScheduleDataTable({
       ).length;
 
       return (
-        <div className='flex items-center gap-2'>
+        <div className='flex flex-wrap items-center gap-2'>
           {canCreateBills && (
             <Button
               onClick={() => router.push('/billing/schedule/bulk-create')}

@@ -93,7 +93,7 @@ export default function ApplicationDetailPage() {
           <CardContent>
             <ol className="space-y-2">
               {app.approval_chain.map((step, idx) => (
-                <li key={idx} className="flex items-center gap-3 text-sm">
+                <li key={idx} className="flex flex-wrap items-center gap-3 text-sm">
                   <span className={`h-2 w-2 rounded-full ${
                     step.status === 'approved' ? 'bg-green-500' :
                     step.status === 'rejected' ? 'bg-red-500' :

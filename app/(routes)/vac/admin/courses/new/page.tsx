@@ -57,6 +57,7 @@ export default function CreateCoursePage() {
   const [fee, setFee] = useState(0);
   const [nsqfLevel, setNsqfLevel] = useState<string>('');
   const [facultyEligible, setFacultyEligible] = useState(false);
+  const [isValueEducation, setIsValueEducation] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +83,7 @@ export default function CreateCoursePage() {
       weeks,
       fee,
       faculty_eligible: facultyEligible,
+      is_value_education: isValueEducation,
     };
 
     // Only add optional fields if they have values
@@ -270,6 +272,17 @@ export default function CreateCoursePage() {
                 />
                 <Label htmlFor="faculty_eligible">
                   Faculty eligible (professional development)
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="is_value_education"
+                  checked={isValueEducation}
+                  onCheckedChange={setIsValueEducation}
+                />
+                <Label htmlFor="is_value_education">
+                  Value-education course (NAAC 6.4)
                 </Label>
               </div>
             </CardContent>

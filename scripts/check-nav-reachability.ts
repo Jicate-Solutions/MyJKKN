@@ -129,6 +129,18 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/social/admin',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-07-31 — School of Influence (S2). Both of these are
+  // redirect-to-first-child landings whose ONLY reason to exist is
+  // that Next.js 404s a directory with no page.tsx (the "Hub Page
+  // Reachability" gate). Neither is a chip surface: the chip points
+  // straight at .../admin/settings, which IS chip-reachable from the
+  // Startup Studio nav-config group. Exactly the same class as
+  // '/admission/social/admin' directly above.
+  // ────────────────────────────────────────────────────────────
+  '/startup-studio/school-of-influence',
+  '/startup-studio/school-of-influence/admin',
+
+  // ────────────────────────────────────────────────────────────
   // 2026-06-11 admin-cluster relocation wave-2 — departments
   // (HoD assignment). Moved out of /admin/departments (auto-chip-
   // reachable via the filesystem-derived admin tree) into the
@@ -410,6 +422,29 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
   '/audit/care/coverage',
+  //  - /audit/care/voice          : sealed participant scoring door (learner-
+  //    gated by fn_carre_participant_context/score server-side). Unlisted by
+  //    design — the Director opens a cycle's lane deliberately and shares the
+  //    link; a sealed lane is not advertised platform-wide.
+  '/audit/care/voice',
+  //  - /audit/care/predict        : predict-then-see calibration mirror for
+  //    team members (fn_carre_predict_* gate server-side). Unlisted like the
+  //    voice door — shared per cycle with the team being audited.
+  '/audit/care/predict',
+
+  // Intentionally unlisted (Director decision 2026-07-24): the open Compliance &
+  // Tracking Board is reached by a shared direct link, deliberately NOT on any nav
+  // or chip surface. Open to all logged-in users; staff/faculty can write.
+  '/tracker',
+
+  // Button-invoked (2026-07-30): the multi-step Excel bulk-bill upload, reached
+  // from the "Upload Excel" button on the chip-reachable
+  // /billing/schedule/bulk-create. It is a review wizard (preview the sheet →
+  // read the validation → confirm), not a destination anyone should land on
+  // cold — arriving without a file in hand shows an empty dropzone. Same
+  // relationship /audit/care/new has to /audit/dashboard. Gated
+  // billing.schedule.create via MENU_PERMISSIONS + PermissionGuard.
+  '/billing/schedule/bulk-create/upload',
 
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']

@@ -1,10 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
-import { AttendanceDashboardService } from '@/lib/services/academic/attendance-dashboard-service';
+import {
+  AttendanceDashboardService,
+  type AttendanceHierarchyFilter
+} from '@/lib/services/academic/attendance-dashboard-service';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useState, useCallback } from 'react';
 import type { DashboardFilters } from '@/types/attendance-dashboard';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+
+/**
+ * Shared default for the optional hierarchy argument. A module-level constant,
+ * not an inline `= {}` default: the latter allocates a new object on every
+ * render, and these hooks put the value straight into a React Query key.
+ * Structural hashing would still match, but a stable reference keeps the
+ * dependency identity honest for callers that memoize on it.
+ */
+const EMPTY_HIERARCHY: AttendanceHierarchyFilter = {};
 
 /**
  * Hook for fetching attendance dashboard statistics
@@ -14,7 +26,8 @@ export function useAttendanceStats(
   canViewAllInstitutions: boolean = false,
   selectedDate: Date = new Date(),
   refreshTrigger: number = 0,
-  academicYearId?: string
+  academicYearId?: string,
+  hierarchy: AttendanceHierarchyFilter = EMPTY_HIERARCHY
 ) {
   const { profile } = useAuth();
 
@@ -52,6 +65,7 @@ export function useAttendanceStats(
       queryAllInstitutions,
       dateString,
       academicYearId,
+      hierarchy,
       refreshTrigger
     ],
     queryFn: () =>
@@ -59,7 +73,8 @@ export function useAttendanceStats(
         queryAllInstitutions ? undefined : queryInstitutionId,
         canViewAllInstitutions,
         dateString,
-        academicYearId
+        academicYearId,
+        hierarchy
       ),
     enabled: queryAllInstitutions || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA // Use dashboard config for stats
@@ -100,7 +115,11 @@ export function useConfirmationSplit(
   // this, the cards said "last 14 days" while "Responses" underneath was a 30-day
   // number, and the two looked contradictory. The Statistics tab keeps the 14-day
   // default, so this is a prop rather than a change to SPLIT_WINDOW_DAYS.
-  windowDays: number = SPLIT_WINDOW_DAYS
+  windowDays: number = SPLIT_WINDOW_DAYS,
+  // Narrowed by the same dashboard filter bar as the stat cards above. The
+  // rollup RPC has no degree/semester params, so a Degree- or Semester-only
+  // selection leaves this split at the next-widest scope it can express.
+  hierarchy: AttendanceHierarchyFilter = EMPTY_HIERARCHY
 ) {
   const { profile } = useAuth();
 
@@ -137,13 +156,15 @@ export function useConfirmationSplit(
       queryAllInstitutions,
       fromDate,
       toDate,
+      hierarchy,
       refreshTrigger
     ],
     queryFn: () =>
       AttendanceDashboardService.getConfirmationSplit(
         fromDate,
         toDate,
-        queryAllInstitutions ? undefined : queryInstitutionId
+        queryAllInstitutions ? undefined : queryInstitutionId,
+        hierarchy
       ),
     enabled: queryAllInstitutions || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA
@@ -241,6 +262,72 @@ export function useActiveInstitutions(enabled: boolean = true) {
     institutions: institutions || [],
     isLoading,
     error
+  };
+}
+
+/**
+ * Default trailing window (days) for the current-intake readiness check.
+ * A section that has not been marked once in three weeks is not "running late",
+ * it has never started — which is the distinction the panel is drawing.
+ */
+export const INTAKE_READINESS_DEFAULT_WINDOW_DAYS = 21;
+
+/**
+ * Hook for the current-intake attendance readiness check.
+ *
+ * Unlike usePendingAttendance, this is NOT date-scoped and NOT derived from
+ * timetables — it asks, for every section holding current-intake learners,
+ * whether attendance is even possible there. A section with no timetable is
+ * invisible to the pending surface and is exactly what this surfaces.
+ *
+ * Institution scoping mirrors the other dashboard hooks: an all-colleges viewer
+ * with no institution picked queries across all (the RPC bounds rows by
+ * role_has_institution_access); everyone else is pinned to their own.
+ */
+export function useIntakeReadiness(
+  institutionId?: string,
+  canViewAllInstitutions: boolean = false,
+  windowDays: number = INTAKE_READINESS_DEFAULT_WINDOW_DAYS,
+  departmentId?: string,
+  refreshTrigger: number = 0
+) {
+  const { profile } = useAuth();
+
+  const queryInstitutionId = canViewAllInstitutions
+    ? institutionId
+    : profile?.institution_id || undefined;
+
+  const queryAllInstitutions =
+    canViewAllInstitutions && institutionId === undefined;
+
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: [
+      'attendance-intake-readiness',
+      queryInstitutionId,
+      queryAllInstitutions,
+      windowDays,
+      departmentId,
+      refreshTrigger
+    ],
+    queryFn: () =>
+      AttendanceDashboardService.getIntakeReadiness(
+        windowDays,
+        queryAllInstitutions ? undefined : queryInstitutionId,
+        departmentId
+      ),
+    enabled: queryAllInstitutions || !!queryInstitutionId,
+    ...QUERY_CONFIG.DASHBOARD_DATA
+  });
+
+  const rows = data ?? [];
+
+  return {
+    rows,
+    summaries: AttendanceDashboardService.summariseIntakeReadiness(rows),
+    windowDays,
+    isLoading,
+    isError: !!error,
+    refetch
   };
 }
 

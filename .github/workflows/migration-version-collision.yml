@@ -1,0 +1,69 @@
+name: Migration version collision
+
+# One check: a PR may not introduce a NEW duplicate 14-digit migration version.
+#
+# WHY this is a CI guard and not a database constraint: the constraint already
+# exists and is the problem. `supabase db push` (see supabase-migration-apply.yml)
+# records applied files in supabase_migrations.schema_migrations keyed on the
+# filename's version token, and that column is the PRIMARY KEY. The second file to
+# arrive at a duplicate version is not rejected loudly — it is treated as ALREADY
+# APPLIED and skipped. The apply job goes green, the ledger reports success, and
+# the SQL never runs. The defect surfaces weeks later as a missing function.
+#
+# Measured on jicate/main 2026-08-01: four files shared 20260808110000, authored by
+# four different PRs that had each independently computed "one tick after the
+# newest version on main".
+#
+# 🛑 BASELINE-AWARE ON PURPOSE. main carries 283 duplicate version groups across
+# 2,177 migration files — 830 files, 38% of them, sit inside one, and the worst
+# single version (20260725) has 16. A full-repo duplicate check would fail EVERY
+# pull request from its first run — including PRs touching no SQL — and would be
+# reverted the same day, leaving the class of bug unguarded again. The script
+# therefore compares only what the PR adds against the base branch and is silent
+# about the historical backlog. `--all` audits the backlog on demand and is
+# deliberately NOT wired in here. Read the header of
+# scripts/ci/check-migration-version-collision.mjs before tightening this — in
+# particular, the version is the token before the first underscore, NOT the
+# leading 14 digits; 522 live migrations use the short YYYYMMDD_ form.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity that
+# branch protection matches on. If this check is ever made required, renaming
+# either string silently orphans the rule pointing at the old name.
+#
+# Sibling of .github/workflows/table-anon-revoke.yml and secdef-anon-revoke.yml.
+# Kept as a SEPARATE workflow on purpose so it reports as its own status check and
+# cannot change the pass/fail meaning of an existing one.
+#
+# Not covered here: two PRs open simultaneously, each adding the same brand-new
+# version. Neither branch contains the other's file, so both pass; the loser reds
+# only once its checks re-run against the updated main tip. "Require branches to be
+# up to date before merging" is what closes that window — this workflow cannot.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/ci/check-migration-version-collision.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: No new duplicate migration versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run guard
+        run: node scripts/ci/check-migration-version-collision.mjs --base "origin/${{ github.base_ref }}"

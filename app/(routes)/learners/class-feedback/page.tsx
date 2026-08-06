@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Sparkles,
   ChevronRight,
+  HelpCircle,
 } from 'lucide-react';
 import {
   usePendingSessions,
@@ -25,7 +26,9 @@ import type { PendingSession } from '@/types/session-feedback';
 import { FeedbackDialog } from './_components/feedback-dialog';
 import { MyVoiceReceipt } from './_components/my-voice-receipt';
 import { ClassPollBanner } from './_components/class-poll-banner';
+import { PreSessionMaterialsRow } from './_components/pre-session-materials-row';
 import { LoopClosureCard } from './_components/loop-closure-card';
+import { VoiceChangedTermly } from './_components/voice-changed-termly';
 import { StrugglingNoteCard } from './_components/struggling-note-card';
 import { MyConfirmedAttendanceCard } from '@/components/session-feedback/my-confirmed-attendance-card';
 
@@ -160,6 +163,49 @@ export default function LearnerSessionFeedbackPage() {
           )}
         </div>
 
+        {/* "How it works" — one consolidated, revisitable explainer so a learner
+            can understand the feature AND explain it to a peer. The page header +
+            in-dialog notes already say pieces of this; this collapses the full
+            purpose + who-sees-it + step-by-step how into one place they can reopen
+            anytime. Native <details> — no extra state, SSR-safe. Addresses the
+            "learners can't use/explain the feedback feature" concern (2026-07-24). */}
+        <details className="group rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-2 font-medium">
+            <span className="flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 shrink-0" style={{ color: BRAND }} />
+              How this works — and why it&apos;s worth 10 seconds
+            </span>
+            <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
+            <span className="hidden text-xs text-muted-foreground group-open:inline">Hide</span>
+          </summary>
+          <div className="mt-3 space-y-2.5 text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">What it is.</span> After a class you
+              attended, a 10-second check-in: how well you followed, and what happened in class.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Why it matters.</span> It confirms your
+              attendance for that class, and it tells MyJKKN — privately — where you need help before
+              the next one.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Who sees it.</span> Your facilitator sees
+              ratings only in groups of 3 or more, never with your name. MyJKKN uses your own answers
+              to support your learning.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">How to give it.</span> Open a pending
+              class → tap how clear it was (1–5) → tick what happened → add a note if you want →{' '}
+              <span className="font-medium text-foreground">Submit</span>. That confirms your
+              attendance.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Time limit.</span> Give it within{' '}
+              {windowHours} hours of the class — after that the window closes.
+            </p>
+          </div>
+        </details>
+
         {/* Your confirmed-attendance % + early warning (advisory; hidden when enforcement is off) */}
         <MyConfirmedAttendanceCard />
 
@@ -179,6 +225,12 @@ export default function LearnerSessionFeedbackPage() {
 
         {/* Receipt — your participation + whether flagged classes improved (hidden until you have history) */}
         <MyVoiceReceipt />
+
+        {/* The termly ledger — the whole history of changes your voice caused, by
+            academic year, with your own word on each. Collapsed by default and it
+            only fetches once opened, so it never competes with the pending list
+            above; the live card above stays the place the answer is ASKED for. */}
+        <VoiceChangedTermly />
 
         {/* Body */}
         <Card className="bg-[#fbfbee]/30 dark:bg-card">
@@ -278,6 +330,7 @@ export default function LearnerSessionFeedbackPage() {
                         )}
                         <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
                       </button>
+                      <PreSessionMaterialsRow session={s} />
                     </li>
                   );
                 })}

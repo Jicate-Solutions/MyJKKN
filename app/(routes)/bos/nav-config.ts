@@ -82,6 +82,12 @@ const config: ModuleNavConfig = {
       matchPaths: ['/bos/academic-council'],
     },
     {
+      label: 'Governing Body',
+      icon: 'Building2',
+      href: '/bos/governing-body',
+      matchPaths: ['/bos/governing-body'],
+    },
+    {
       label: 'TA/DA Claims',
       icon: 'Receipt',
       href: '/bos/ta-da',

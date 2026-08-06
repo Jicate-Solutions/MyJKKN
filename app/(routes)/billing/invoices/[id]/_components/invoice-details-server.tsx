@@ -154,7 +154,7 @@ export function InvoiceDetailsServer({ invoice }: InvoiceDetailsServerProps) {
               <h3 className='text-lg font-semibold text-gray-900 mb-4'>
                 Payment Details
               </h3>
-              <div className='border border-gray-200 rounded-lg overflow-hidden'>
+              <div className='border border-gray-200 rounded-lg overflow-x-auto'>
                 <table className='w-full'>
                   <thead className='bg-gray-50'>
                     <tr>

@@ -37,9 +37,14 @@ export type CourseLevel =
 
 export type EvaluationType = 'CIA' | 'ESE' | 'CIA + ESE';
 export type ResultType = 'Mark' | 'Status' | 'comment' | 'credit';
-// Free-form group code (COE column `course_mapping.course_group` is plain text).
-// Historically held labels like 'Elective - I'; now entered as a numeric code.
-export type CourseGroup = string;
+// COE `course_mapping.course_group` — constrained by
+// course_mapping_course_group_check to COURSE_GROUP_VALUES
+// ('General', 'Elective - I', …). Do not send bare numbers here;
+// the numeric banding key is `group_order`.
+export type CourseGroup =
+  | 'General'
+  | 'Elective - I' | 'Elective - II' | 'Elective - III'
+  | 'Elective - IV' | 'Elective - V' | 'Elective - VI';
 
 export interface BosCourseMaster {
   id: string;

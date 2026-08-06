@@ -190,6 +190,18 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      label: 'School of Influence',
+      icon: 'SlidersHorizontal',
+      // 2026-07-31 (S2): the programme's Director controls. The group href IS
+      // the settings page — the programme's other surfaces (batches, apply,
+      // review queue, attendance) ship in later sections and add their own
+      // children here. Chip visibility is gated by MENU_PERMISSIONS on
+      // startup_studio.school_of_influence.configure, the same key the page
+      // guard uses.
+      href: '/startup-studio/school-of-influence/admin/settings',
+      matchPaths: ['/startup-studio/school-of-influence'],
+    },
+    {
       label: 'NIF',
       icon: 'Sprout',
       href: '/startup-studio/nif',

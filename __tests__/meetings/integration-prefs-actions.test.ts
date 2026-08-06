@@ -9,6 +9,10 @@
 //   • the per-host identity is cleared for google and trimmed/normalised for
 //     zoom/teams before reaching the RPC.
 //   • getIntegrationPrefs defaults a missing row to 'google'.
+//   • the note-in-title opt-in survives a database where migration
+//     20260813000000 is not applied yet (42703 → the toggle is reported
+//     unsupported and the rest of the card still loads), is written only when
+//     the card actually offered it, and NEVER fails silently.
 //
 // supabase/server and the env-gated service modules are mocked so the actions
 // run without cookies, a database, or real credentials.
@@ -31,6 +35,8 @@ vi.mock('@/lib/services/integrations/teams-service', () => ({
 
 const rpcMock = vi.fn();
 const maybeSingleMock = vi.fn();
+const updateEqMock = vi.fn();
+const updateMock = vi.fn(() => ({ eq: updateEqMock }));
 
 function makeSupabase(userId: string | null) {
   return {
@@ -47,6 +53,7 @@ function makeSupabase(userId: string | null) {
           maybeSingle: maybeSingleMock,
         })),
       })),
+      update: updateMock,
     })),
   };
 }
@@ -72,6 +79,9 @@ beforeEach(() => {
   rpcMock.mockResolvedValue({ error: null });
   maybeSingleMock.mockReset();
   maybeSingleMock.mockResolvedValue({ data: null, error: null });
+  updateMock.mockClear();
+  updateEqMock.mockReset();
+  updateEqMock.mockResolvedValue({ error: null });
 });
 
 afterEach(() => {
@@ -184,5 +194,82 @@ describe('getIntegrationPrefs', () => {
     expect(res.data?.videoProvider).toBe('zoom');
     expect(res.data?.providerHostIdentity).toBe('host@jkkn.ac.in');
     expect(res.data?.availability.zoom).toBe(true);
+  });
+});
+
+describe('note in calendar title — opt-in, default off', () => {
+  it('reads the stored opt-in when the column exists', async () => {
+    maybeSingleMock.mockResolvedValue({
+      data: {
+        video_provider: 'google',
+        provider_host_identity: null,
+        show_note_in_title: true,
+      },
+      error: null,
+    });
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(true);
+    expect(res.data?.noteInTitleSupported).toBe(true);
+    expect(res.data?.showNoteInTitle).toBe(true);
+  });
+
+  it('defaults to off for a host with no prefs row', async () => {
+    maybeSingleMock.mockResolvedValue({ data: null, error: null });
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(true);
+    expect(res.data?.showNoteInTitle).toBe(false);
+  });
+
+  it('still loads the card when the migration is not applied (42703)', async () => {
+    // First select asks for show_note_in_title and the column is absent; the
+    // retry without it must succeed and keep the provider intact.
+    maybeSingleMock
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: '42703', message: 'column ... does not exist' },
+      })
+      .mockResolvedValueOnce({
+        data: { video_provider: 'zoom', provider_host_identity: 'host@jkkn.ac.in' },
+        error: null,
+      });
+    configured.zoom = true;
+
+    const res = await getIntegrationPrefs();
+    expect(res.success).toBe(true);
+    expect(res.data?.noteInTitleSupported).toBe(false);
+    expect(res.data?.showNoteInTitle).toBe(false);
+    expect(res.data?.videoProvider).toBe('zoom');
+    expect(res.data?.providerHostIdentity).toBe('host@jkkn.ac.in');
+  });
+
+  it('writes the opt-in on the host’s own row when the card sent it', async () => {
+    const res = await saveIntegrationPref({
+      videoProvider: 'google',
+      showNoteInTitle: true,
+    });
+    expect(res.success).toBe(true);
+    expect(updateMock).toHaveBeenCalledWith({ show_note_in_title: true });
+    expect(updateEqMock).toHaveBeenCalledWith('host_profile_id', 'host-1');
+    expect(res.data?.showNoteInTitle).toBe(true);
+  });
+
+  it('does not touch the column when the card omitted the toggle', async () => {
+    const res = await saveIntegrationPref({ videoProvider: 'google' });
+    expect(res.success).toBe(true);
+    expect(updateMock).not.toHaveBeenCalled();
+    expect(res.data?.noteInTitleSupported).toBe(false);
+    expect(res.data?.showNoteInTitle).toBe(false);
+  });
+
+  it('reports an explicit error rather than failing silently', async () => {
+    updateEqMock.mockResolvedValue({
+      error: { code: '42703', message: 'column ... does not exist' },
+    });
+    const res = await saveIntegrationPref({
+      videoProvider: 'google',
+      showNoteInTitle: true,
+    });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/calendar title/i);
   });
 });

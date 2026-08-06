@@ -24,7 +24,10 @@ import {
 import {
   PILLAR_LABELS as CARRE_PILLAR_LABELS,
   PILLAR_ORDER as CARRE_PILLAR_ORDER,
+  CLASSROOM_PILLAR_ORDER,
+  CLASSROOM_SCORE_ANCHORS,
   SCORE_ANCHORS,
+  classroomPillarFromCode,
   pillarFromCode as carrePillarFromCode,
 } from '@/lib/services/audit/carre-scoring-service';
 
@@ -49,6 +52,18 @@ export interface SheetValue {
   evidence_note?: string;
 }
 
+/**
+ * Live machine evidence for one item (fn_carre_item_evidence). `cap` is a
+ * DOCTRINE cap (e.g. 2 when the measured stream shows zero activity) — the
+ * sheet enforces it softly: scoring above the cap asks for a logged reason,
+ * which rides the score row's evidence note. The write RPCs are untouched;
+ * the human number stays sovereign.
+ */
+export interface LiveEvidence {
+  evidence: string;
+  cap: number | null;
+}
+
 const PILLAR_QUESTIONS: Record<AnyPillar, string> = {
   C: 'Does every participant know what this is, what success looks like, and why it matters?',
   A: 'Is effort acknowledged frequently, specifically, and informally — not just outcomes, formally?',
@@ -65,9 +80,9 @@ const PILLAR_COLORS: Record<AnyPillar, string> = {
   E: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
 };
 
-/** Strip either the `CARE-` or `CARRE-` prefix for the compact code label. */
+/** Strip the `CARE-`, `CARRE-`, or `CP-` prefix for the compact code label. */
 function shortCode(code: string): string {
-  return code.replace(/^CARR?E-/, '');
+  return code.replace(/^(?:CARR?E|CP)-/, '');
 }
 
 /** Pick the evidence anchor for this setting; fall back to the first anchor. */
@@ -90,6 +105,7 @@ export function CareScoreSheet({
   onScore,
   onNote,
   settingCode,
+  evidenceByCode,
   disabled = false,
 }: {
   parameters: ScoreSheetParameter[];
@@ -99,17 +115,32 @@ export function CareScoreSheet({
   onNote: (code: string, note: string) => void;
   /** CARRE only: the audit's setting (ACAD/CLIN/ADMIN/EVENT) — selects the anchor. */
   settingCode?: string;
+  /** CARRE owner view only: live evidence + doctrine caps per item code. */
+  evidenceByCode?: Record<string, LiveEvidence>;
   disabled?: boolean;
 }) {
-  // Framework auto-detection from the frozen catalog's code prefix.
-  const isCarre = parameters.some((p) => p.code.startsWith('CARRE-'));
-  const order: AnyPillar[] = isCarre
-    ? [...CARRE_PILLAR_ORDER]
-    : [...CARE_PILLAR_ORDER];
-  const labels = (isCarre ? CARRE_PILLAR_LABELS : CARE_PILLAR_LABELS) as Record<string, string>;
-  const pillarFromCode: (code: string) => AnyPillar | null = isCarre
-    ? carrePillarFromCode
-    : carePillarFromCode;
+  // Framework auto-detection from the frozen catalog's code prefix. Three
+  // catalogs share this sheet and their prefixes never collide:
+  //   CARE-*  (v1, 4 pillars, 20 items) · CARRE-* (v2, 5 pillars, 25 items)
+  //   CP-*    (Classroom Practice, 13 items, no Recognition pillar)
+  const isClassroom = parameters.some((p) => p.code.startsWith('CP-'));
+  const isCarre = !isClassroom && parameters.some((p) => p.code.startsWith('CARRE-'));
+  const order: AnyPillar[] = isClassroom
+    ? [...CLASSROOM_PILLAR_ORDER]
+    : isCarre
+      ? [...CARRE_PILLAR_ORDER]
+      : [...CARE_PILLAR_ORDER];
+  const labels = (isClassroom || isCarre
+    ? CARRE_PILLAR_LABELS
+    : CARE_PILLAR_LABELS) as Record<string, string>;
+  const pillarFromCode: (code: string) => AnyPillar | null = isClassroom
+    ? classroomPillarFromCode
+    : isCarre
+      ? carrePillarFromCode
+      : carePillarFromCode;
+  // Classroom Practice scores frequency (never→always); CARE/CARRE score
+  // maturity (absent→measured). The buttons must say which one is being asked.
+  const anchors = isClassroom ? CLASSROOM_SCORE_ANCHORS : SCORE_ANCHORS;
 
   const byPillar = order
     .map((pillar) => ({
@@ -135,7 +166,9 @@ export function CareScoreSheet({
                 {PILLAR_QUESTIONS[pillar]}
               </span>
               <span className="ml-auto text-xs font-medium tabular-nums">
-                {scored.length === items.length ? `${total}/20` : `${scored.length}/${items.length} scored`}
+                {scored.length === items.length
+                  ? `${total}/${items.length * 4}`
+                  : `${scored.length}/${items.length} scored`}
               </span>
             </div>
             <div className="rounded-md border divide-y">
@@ -145,6 +178,8 @@ export function CareScoreSheet({
                   item={item}
                   value={values[item.code]}
                   evidence={evidenceHint(item, settingCode)}
+                  live={evidenceByCode?.[item.code]}
+                  anchors={anchors}
                   onScore={(s) => onScore(item.code, s)}
                   onNote={(n) => onNote(item.code, n)}
                   disabled={disabled}
@@ -162,6 +197,8 @@ function ScoreItem({
   item,
   value,
   evidence,
+  live,
+  anchors,
   onScore,
   onNote,
   disabled,
@@ -169,12 +206,41 @@ function ScoreItem({
   item: ScoreSheetParameter;
   value: SheetValue | undefined;
   evidence: string | undefined;
+  live: LiveEvidence | undefined;
+  /** The 0–4 scale in play: frequency for Classroom Practice, maturity otherwise. */
+  anchors: Record<number, { label: string; hint: string }>;
   onScore: (score: number) => void;
   onNote: (note: string) => void;
   disabled: boolean;
 }) {
   const [note, setNote] = useState(value?.evidence_note ?? '');
   const [noteOpen, setNoteOpen] = useState(!!value?.evidence_note);
+  // Cap-override flow: the above-cap score being attempted, pending a reason.
+  const [overrideScore, setOverrideScore] = useState<number | null>(null);
+  const [overrideReason, setOverrideReason] = useState('');
+
+  const cap = live?.cap ?? null;
+
+  function attemptScore(s: number) {
+    if (cap !== null && s > cap) {
+      setOverrideScore(s);
+      return;
+    }
+    setOverrideScore(null);
+    onScore(s);
+  }
+
+  function confirmOverride() {
+    if (overrideScore === null || !overrideReason.trim()) return;
+    const overrideNote = `CAP OVERRIDE (scored ${overrideScore}, doctrine cap ${cap}): ${overrideReason.trim()}`;
+    const merged = note.trim() ? `${overrideNote}\n${note.trim()}` : overrideNote;
+    onScore(overrideScore);
+    onNote(merged);
+    setNote(merged);
+    setNoteOpen(true);
+    setOverrideScore(null);
+    setOverrideReason('');
+  }
 
   return (
     <div className="p-3 space-y-2" data-care-item={item.code}>
@@ -190,25 +256,45 @@ function ScoreItem({
               <span className="font-medium">Evidence to look for:</span> {evidence}
             </p>
           )}
+          {live && (
+            <p className="text-[11px] mt-1 rounded border border-sky-200 bg-sky-50 px-2 py-1 text-sky-900 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
+              <span className="font-medium">Live evidence:</span> {live.evidence}
+              {cap !== null && (
+                <Badge
+                  variant="outline"
+                  className="ml-2 text-[10px] border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                >
+                  Doctrine cap: {cap}
+                </Badge>
+              )}
+            </p>
+          )}
         </div>
       </div>
 
       <div className="flex flex-wrap gap-1.5 pl-16">
         {[0, 1, 2, 3, 4].map((s) => {
-          const anchor = SCORE_ANCHORS[s]!;
+          const anchor = anchors[s]!;
           const active = value?.score === s;
+          const aboveCap = cap !== null && s > cap;
           return (
             <button
               key={s}
               type="button"
               disabled={disabled}
-              title={anchor.hint}
-              onClick={() => onScore(s)}
+              title={
+                aboveCap
+                  ? `${anchor.hint} — above the doctrine cap (${cap}); scoring it will ask for a logged reason.`
+                  : anchor.hint
+              }
+              onClick={() => attemptScore(s)}
               className={cn(
                 'rounded-md border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 disabled:cursor-not-allowed',
                 active
                   ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-muted-foreground/30 text-muted-foreground hover:border-foreground/40 hover:text-foreground',
+                  : aboveCap
+                    ? 'border-dashed border-amber-400/70 text-muted-foreground hover:border-amber-500 hover:text-foreground'
+                    : 'border-muted-foreground/30 text-muted-foreground hover:border-foreground/40 hover:text-foreground',
               )}
             >
               <span className="tabular-nums font-semibold">{s}</span>
@@ -226,6 +312,49 @@ function ScoreItem({
           </button>
         )}
       </div>
+
+      {overrideScore !== null && !disabled && (
+        <div className="pl-16">
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 space-y-2 dark:border-amber-800 dark:bg-amber-950">
+            <p className="text-xs text-amber-900 dark:text-amber-200">
+              <span className="font-semibold">
+                Scoring {overrideScore} — above the doctrine cap of {cap}.
+              </span>{' '}
+              The measured evidence does not support this score. You can still
+              give it — the human number is sovereign — but record the observed,
+              nameable practice that justifies it. Your reason is logged with the
+              score.
+            </p>
+            <Textarea
+              value={overrideReason}
+              onChange={(e) => setOverrideReason(e.target.value)}
+              rows={2}
+              placeholder="What did you personally observe that the measured stream misses?"
+              className="text-xs bg-background"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={confirmOverride}
+                disabled={!overrideReason.trim()}
+                className="rounded-md border border-amber-500 bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900 transition hover:bg-amber-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
+              >
+                Score {overrideScore} with this reason
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOverrideScore(null);
+                  setOverrideReason('');
+                }}
+                className="rounded-md border px-2.5 py-1 text-xs text-muted-foreground transition hover:text-foreground"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {(noteOpen || (disabled && value?.evidence_note)) && (
         <div className="pl-16">

@@ -410,6 +410,14 @@ function NewLeadPageContent() {
       newErrors.institution = 'Institution is required';
     }
 
+    // Required since 2026-07-25 — a lead with no cohort cannot be matched to a
+    // fee structure, seat plan or admission-year report downstream. The picker
+    // pre-fills the institution's current cohort, so this only fires when the
+    // institution has no admission years configured or the user cleared it.
+    if (!formData.admission_year_id) {
+      newErrors.admission_year_id = 'Admission year is required';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -933,6 +941,8 @@ function NewLeadPageContent() {
                       value={formData.admission_year_id}
                       onChange={(value) => handleChange('admission_year_id', value)}
                       autoSelectCurrent
+                      required
+                      error={errors.admission_year_id}
                     />
                   </CardContent>
                 </Card>

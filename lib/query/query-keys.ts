@@ -51,9 +51,16 @@ export const queryKeys = {
       [...queryKeys.schoolMaster.all, 'list', filters] as const,
     detail: (id: string) => [...queryKeys.schoolMaster.all, 'detail', id] as const,
   },
+  academicTree: {
+    all: ['academic-tree'] as const,
+    byInstitution: (institutionId: string) =>
+      [...queryKeys.academicTree.all, institutionId] as const,
+  },
   calendar: {
     all: ['calendar'] as const,
     items: (query: unknown) => ['calendar', 'items', query] as const,
+    /** COE-backed feeds (coe_calendar / exam_schedule) — fetched over HTTP, not the RPC. */
+    coeItems: (feed: string, query: unknown) => ['calendar', 'coe', feed, query] as const,
     entries: (params: unknown) => ['calendar', 'entries', params] as const,
     categories: () => ['calendar', 'categories'] as const,
   },

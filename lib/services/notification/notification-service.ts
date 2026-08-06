@@ -24,6 +24,34 @@ import {
   NotificationStatus
 } from '@/types/notification';
 
+// ==================== NOTIFICATION EXPIRY ====================
+
+/**
+ * PostgREST `.or()` predicate that EXCLUDES expired notifications from a
+ * user-facing read: keep rows whose parent `notifications` row has no expiry,
+ * or an expiry still in the future.
+ *
+ * Applied on the embedded `notification` join (that alias is set in each select
+ * below) via `{ foreignTable: 'notification' }`, exactly like the existing
+ * title/body search filter. The `!inner` join makes it exclusionary — a
+ * user_notifications row whose notification has lapsed drops out entirely, so
+ * the bell badge, the inbox list, and the rollup counts all agree on which rows
+ * are still live.
+ *
+ * Before 2026-07-26 nothing in the read path honored expires_at, so
+ * self-obsoleting cron nudges (dashboard:scf_nudge, doctrines:friday-reflection,
+ * doctrines:sunday-wrap) accumulated unread forever (~170K rows). Computed per
+ * call so `now` is fresh; milliseconds are stripped to keep the value
+ * unambiguous in PostgREST's comma/period-delimited filter grammar.
+ *
+ * Scope: user-facing reads only (counts, list, rollups). Admin/manage/stats
+ * paths intentionally do NOT apply this — admins must still audit lapsed rows.
+ */
+export function liveNotificationOrFilter(): string {
+  const nowIso = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  return `expires_at.is.null,expires_at.gt.${nowIso}`;
+}
+
 // ==================== NOTIFICATION CRUD ====================
 
 /** Global (NOT page-scoped) tallies for a user's notification inbox. */
@@ -67,7 +95,9 @@ export async function getNotificationCounts(
         'notification:notifications!user_notifications_notification_id_fkey!inner(category)',
         { count: 'exact', head: true }
       )
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      // Exclude lapsed notifications so the badge counts only live rows.
+      .or(liveNotificationOrFilter(), { foreignTable: 'notification' });
 
   // Unread === read_at IS NULL. There is no archive concept on
   // user_notifications (no is_archived / archived_at column exists), so this
@@ -89,7 +119,9 @@ export async function getNotificationCounts(
     .select(
       'notification:notifications!user_notifications_notification_id_fkey!inner(category)'
     )
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    // Same expiry filter as the badge counts so per-category tallies agree.
+    .or(liveNotificationOrFilter(), { foreignTable: 'notification' });
 
   if (catError) throw catError;
 
@@ -207,6 +239,9 @@ export async function getNotificationEventRollups(
         )
         .eq('user_id', userId)
         .eq('notification.metadata->>event', event)
+        // Exclude lapsed rows so a rollup's distinct-entity count matches the
+        // live inbox list (same expiry filter as getNotifications).
+        .or(liveNotificationOrFilter(), { foreignTable: 'notification' })
         .order('id', { ascending: true })
         .range(start, start + ROLLUP_PAGE_SIZE - 1);
 
@@ -359,6 +394,12 @@ export async function getNotifications(
     query = query.eq('notification.metadata->>event', filters.event);
   }
 
+  // Drop lapsed notifications from the user-facing inbox list so it agrees with
+  // the badge count (see liveNotificationOrFilter). AND-combines with any search
+  // .or() below. Admin/manage paths do NOT call getNotifications(), so their
+  // audit view still shows expired rows.
+  query = query.or(liveNotificationOrFilter(), { foreignTable: 'notification' });
+
   if (filters.search) {
     // Search title or body. Embedded-table search uses foreignTable option.
     const term = filters.search.replace(/[%_]/g, '\\$&');
@@ -472,31 +513,66 @@ export async function getNotification(
 }
 
 export async function createNotification(
-  dto: CreateNotificationDto
+  dto: CreateNotificationDto,
+  actorId?: string,
+  client?: SupabaseClient
 ): Promise<Notification> {
-  const notificationData = {
-    ...dto,
-    priority: dto.priority || NotificationPriority.NORMAL,
-    channels: dto.channels || [NotificationChannel.IN_APP],
-    status: NotificationStatus.UNREAD,
-    is_read: false,
-    is_archived: false
-  };
+  // Server callers MUST pass their session-bound client. The module-level
+  // `supabase` here is the BROWSER singleton: imported into a route handler it
+  // carries no session, so every query runs as `anon` — the notifications RLS
+  // then rejects the write (INSERT needs is_super_admin()/is_admin(auth.uid()))
+  // and the trailing .select() calls fn_notification_is_for_user, which anon
+  // may not EXECUTE ("permission denied for function"). Same pattern as the
+  // other client-accepting helpers in this file.
+  const db = client ?? supabase;
+  // Map the legacy DTO onto the REAL public.notifications columns. The table
+  // has NO message/type/user_id/channels/status/is_read/is_archived columns —
+  // those belong to the per-recipient user_notifications table or to metadata.
+  // Writing them here throws at runtime (silently dropped when a caller wraps
+  // this in try/catch). See feedback_ai_rpc_send_notification_broken.
+  const channels = dto.channels || [NotificationChannel.IN_APP];
+  // created_by is NOT NULL with no default. Prefer the acting/authenticated
+  // user threaded from the caller; else fall back to the recipient id. Never
+  // null or a zero uuid.
+  const createdBy = actorId ?? dto.user_id;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('notifications')
-    .insert(notificationData as any)
+    .insert({
+      title: dto.title,
+      body: dto.message,
+      category: dto.category,
+      priority: dto.priority || NotificationPriority.NORMAL,
+      created_by: createdBy,
+      targeting: { type: 'user', user_ids: [dto.user_id] },
+      ...(dto.action_url ? { url: dto.action_url } : {}),
+      metadata: {
+        ...(dto.metadata ?? {}),
+        type: dto.type,
+        ...(dto.action_label ? { action_label: dto.action_label } : {})
+      }
+    } as any)
     .select()
     .single();
 
   if (error) throw error;
 
-  const notification = data as unknown as Notification;
+  // Re-attach the legacy UI-shaped fields the DB row does not carry, so the
+  // returned object stays compatible with callers and with sendToChannels().
+  const notification = {
+    ...(data as any),
+    user_id: dto.user_id,
+    message: dto.message,
+    type: dto.type,
+    action_url: dto.action_url,
+    action_label: dto.action_label,
+    channels
+  } as unknown as Notification;
 
   // Mirror into user_notifications so getNotifications() (which queries that
   // junction table) can surface this notification in the bell/inbox UI.
   if (dto.user_id) {
-    const { error: ujError } = await (supabase as any)
+    const { error: ujError } = await (db as any)
       .from('user_notifications')
       .insert({ user_id: dto.user_id, notification_id: notification.id });
     if (ujError) console.error('user_notifications insert failed:', ujError);

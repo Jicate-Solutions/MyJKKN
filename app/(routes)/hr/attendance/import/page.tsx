@@ -7,8 +7,9 @@
 // admin/super-admin gate and returns an explicit 403 (surfaced in the dialog).
 // ============================================================================
 
-import { useState } from 'react';
-import { Upload, FileSpreadsheet, Info } from 'lucide-react';
+import { useCallback, useState } from 'react';
+import { Upload, FileSpreadsheet, Info, Download, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +18,32 @@ import { BiometricImportDialog } from '../_components/biometric-import-dialog';
 
 export default function ImportBiometricPage() {
   const [open, setOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadTemplate = useCallback(async () => {
+    setDownloading(true);
+    try {
+      const res = await fetch('/api/hr/attendance/import/template');
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || body?.error || `Template download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'biometric-attendance-import-template.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Template downloaded');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Template download failed');
+    } finally {
+      setDownloading(false);
+    }
+  }, []);
 
   return (
     <ContentLayout title="Import Biometric Punches">
@@ -44,10 +71,28 @@ export default function ImportBiometricPage() {
               <li>• Only <strong>faculty</strong> and <strong>HOD</strong> are loaded; others are listed and skipped.</li>
               <li>• Biometric is the system of record — a real punch always wins over a reconciled day.</li>
             </ul>
-            <Button onClick={() => setOpen(true)}>
-              <Upload className="mr-2 h-4 w-4" />
-              Choose file &amp; import
-            </Button>
+
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => setOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" />
+                Choose file &amp; import
+              </Button>
+              <Button variant="outline" onClick={downloadTemplate} disabled={downloading}>
+                {downloading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 h-4 w-4" />
+                )}
+                Download template
+              </Button>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              The template carries the exact column layout plus a{' '}
+              <strong>Valid Employee Ids</strong> sheet listing every staff code the importer can
+              match — the commonest cause of a failed import is a device export whose Employee Id
+              does not match the one held in MyJKKN.
+            </p>
           </CardContent>
         </Card>
 

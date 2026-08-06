@@ -96,6 +96,21 @@ export interface CalendarFeedSetting {
   is_enabled: boolean;
 }
 
+/**
+ * Feed keys for the two COE-backed chips on /calendar.
+ *
+ * Deliberately kept OUT of `CALENDAR_FEEDS` below: that list drives
+ * `calendar_feed_settings` rows and the ICS token feed, both of which resolve
+ * entirely in SQL and have no way to reach COE's database. Registering these
+ * there would surface admin toggles that silently do nothing.
+ *
+ * They live in this shared type module (rather than beside the normalizers in
+ * lib/services/calendar/coe-feeds.ts) so the client can reference the keys
+ * without pulling the server-only audience mapping into the browser bundle.
+ */
+export const COE_CALENDAR_FEED = 'coe_calendar';
+export const EXAM_SCHEDULE_FEED = 'exam_schedule';
+
 export const CALENDAR_FEEDS: { key: string; label: string }[] = [
   { key: 'global_entries', label: 'Global Holidays & Events' },
   { key: 'academic_holidays', label: 'Academic Holidays' },

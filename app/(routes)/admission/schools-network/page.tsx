@@ -330,11 +330,11 @@ function SchoolsNetworkContent() {
 
       {/* Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2">
             <SchoolIcon className="h-5 w-5" /> Schools Network
           </CardTitle>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Link href="/admission/schools-network/partners">
               <Button variant="outline" size="sm">
                 <Handshake className="h-4 w-4 mr-2" />
@@ -482,7 +482,7 @@ function SchoolsNetworkContent() {
               </div>
 
               {totalPages > 1 && (
-                <div className="flex items-center justify-between mt-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mt-4">
                   <div className="text-sm text-muted-foreground">
                     Showing {(currentPage - 1) * PAGE_SIZE + 1} to{' '}
                     {Math.min(currentPage * PAGE_SIZE, total)} of {total}

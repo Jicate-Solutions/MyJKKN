@@ -34,6 +34,8 @@ import { useImsStoresForSelect } from '@/hooks/ims/use-ims-stores';
 import { useImsCartStore } from '@/lib/stores/ims-cart-store';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useStore } from '@/hooks/use-store';
+import { useImsHomeRoute } from '@/hooks/ims/use-ims-home-route';
+import { useRouter, usePathname } from 'next/navigation';
 
 export function StoreSwitcher() {
   const [open, setOpen] = useState(false);
@@ -44,6 +46,9 @@ export function StoreSwitcher() {
   } | null>(null);
   const queryClient = useQueryClient();
   const { isSuperAdmin, userProfile, isLoading: isPermissionsLoading } = usePermissions();
+  const { isTillOnly } = useImsHomeRoute();
+  const router = useRouter();
+  const pathname = usePathname();
 
   const storeId = useStore(useImsActiveStore, (s) => s.storeId);
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
@@ -87,7 +92,15 @@ export function StoreSwitcher() {
   const performSwitch = (selectedId: string, institutionId: string, name: string) => {
     clearCart();
     setCartStoreScope(selectedId);
-    setActiveStore(selectedId, institutionId, name);
+    // Mark the current allocation as reconciled: this switch is deliberate, so
+    // useImsStoreContext must not snap the user back to their assigned store.
+    // A *future* re-allocation will differ from this mark and still apply once.
+    setActiveStore(
+      selectedId,
+      institutionId,
+      name,
+      userProfile?.assigned_store_id ?? null
+    );
     setOpen(false);
     setConfirmStore(null);
 
@@ -97,6 +110,29 @@ export function StoreSwitcher() {
         return typeof key === 'string' && key.startsWith('ims-');
       },
     });
+
+    // Someone whose only job is the counter has picked a counter — take them to
+    // it. Without this the switch changes which store the page is showing but
+    // leaves them wherever they were (typically the item list), which reads as
+    // "I clicked my store and got the inventory".
+    //
+    // Only for till-only staff: a store admin switching stores is usually
+    // comparing stock or receiving goods, and yanking them to the till would
+    // interrupt exactly the work they switched to do.
+    // BOTH halves of the condition: a till person, AND a store that is a shop.
+    // The store they just picked is not necessarily the one the hook has resolved
+    // yet, so read the flag off the selection itself rather than from state that
+    // is still catching up.
+    const picked = stores.find((s) => s.id === selectedId);
+    const pickedIsCounter = picked ? picked.is_pos_store !== false : true;
+
+    if (isTillOnly && pickedIsCounter && pathname !== '/ims/sales') {
+      router.push('/ims/sales');
+    } else if (isTillOnly && !pickedIsCounter && pathname === '/ims/sales') {
+      // They were at a till and switched to a store that has no counter. Leaving
+      // them on the POS would let them build a cart the checkout will refuse.
+      router.push('/ims/dashboard');
+    }
   };
 
   const handleStoreSelect = (selectedId: string) => {

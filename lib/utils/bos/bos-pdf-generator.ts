@@ -2,6 +2,10 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BosMeeting, BosMember, BosAgendaItem, BosMeetingAttendee, BosMemberType } from '@/types/bos';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+import {
+  drawCetLetterhead,
+  isCetInstitution,
+} from '@/lib/utils/internal-marks/internal-marks-pdf';
 
 // Canonical order in which BoS members appear in attendance / signature
 // blocks. Per the academic protocol JKKN follows, the chairman leads, then
@@ -12,13 +16,17 @@ const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   chairman: 1,
   university_nominee: 2,
   subject_expert: 3,
-  industry_expert: 4,
-  alumni: 5,
-  internal_member: 6,
-  hod: 7,
-  startup: 8,
-  facilitator: 9,
-  principal: 10,
+  academic_expert: 4,
+  industry_expert: 5,
+  alumni: 6,
+  internal_member: 7,
+  faculty_member: 7,
+  hod: 8,
+  startup: 9,
+  facilitator: 10,
+  principal: 11,
+  member_secretary: 12,
+  student: 13,
 };
 
 function memberTypeRank(t: string | null | undefined): number {
@@ -355,9 +363,24 @@ export function buildMeetingNoticeDoc({
   chairmanName,
 }: MeetingNoticeParams): jsPDF {
   const doc = new jsPDF('portrait', 'mm', 'a4');
-  let y = drawBanner(doc, header, PAGE_W, MARGIN);
-  if (header.officials) y = drawOfficials(doc, header.officials, y);
-  y = divider(doc, y);
+
+  // The engineering college's BoS paperwork goes out on its own printed
+  // stationery — green "J.K.K.NATTRAJA … & TECHNOLOGY", "( An Autonomous
+  // Institution )", magenta trust/AICTE/NAAC/address lines, closed by a pink
+  // double rule. The minutes, the call letter and the TA/DA claim form already
+  // render it; the notice was still printing the plain black banner, so the
+  // same member received documents disagreeing about the college's own name.
+  // That renderer draws its own rule and carries the approvals inline, so the
+  // officials row + black divider are skipped for CET. Every other institution
+  // keeps the generic banner unchanged.
+  const cet = isCetInstitution(header.institution_name);
+  let y = cet
+    ? drawCetLetterhead(doc, header, PAGE_W, MARGIN)
+    : drawBanner(doc, header, PAGE_W, MARGIN);
+  if (!cet) {
+    if (header.officials) y = drawOfficials(doc, header.officials, y);
+    y = divider(doc, y);
+  }
 
   // Title — enhanced for better visual hierarchy
   doc.setFont('times', 'bold');

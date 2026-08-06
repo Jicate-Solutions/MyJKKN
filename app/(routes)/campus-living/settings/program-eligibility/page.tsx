@@ -110,12 +110,14 @@ function ProgramEligibilityPageInner() {
                 categories those students may use (with an institution-wide default
                 + per-program overrides), and reserve specific blocks / floors /
                 rooms for cohorts under Physical Rooms. Rules from every institution
-                are listed together — pick the institution when you add one.
+                are listed together — pick the institution when you add one. The fee
+                a student is matched on is the one billed for their <strong>admission
+                year</strong>, so a band decision holds for their whole course.
               </p>
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className='w-full'>
-              <TabsList>
+              <TabsList className='flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0'>
                 <TabsTrigger value='category'>Category Eligibility</TabsTrigger>
                 <TabsTrigger value='rooms'>Physical Rooms</TabsTrigger>
               </TabsList>
@@ -138,7 +140,7 @@ function ProgramEligibilityPageInner() {
                       onChange={setFilters}
                     />
                   </div>
-                  <div className='flex justify-end gap-2'>
+                  <div className='flex flex-wrap justify-end gap-2'>
                     <SyncCategoriesButton />
                     <Button onClick={() => setAddOpen(true)}>
                       <Plus className='h-4 w-4 mr-2' /> Add Rule

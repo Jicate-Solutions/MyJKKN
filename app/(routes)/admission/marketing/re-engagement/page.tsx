@@ -136,10 +136,10 @@ function CampaignCard({ campaign }: { campaign: any }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
             <div className={cn(
-              "p-2 rounded-lg",
+              "p-2 rounded-lg shrink-0",
               campaign.status === 'active' && "bg-green-100 dark:bg-green-900/30",
               campaign.status === 'paused' && "bg-amber-100 dark:bg-amber-900/30",
               campaign.status === 'completed' && "bg-blue-100 dark:bg-blue-900/30",
@@ -150,9 +150,9 @@ function CampaignCard({ campaign }: { campaign: any }) {
               {campaign.status === 'completed' && <CheckCircle className="h-5 w-5 text-blue-600" />}
               {campaign.status === 'draft' && <Clock className="h-5 w-5 text-gray-600" />}
             </div>
-            <div>
-              <CardTitle className="text-lg">{campaign.name || `Campaign ${campaign.id?.slice(0, 8)}`}</CardTitle>
-              <CardDescription className="flex items-center gap-2 mt-1">
+            <div className="min-w-0">
+              <CardTitle className="text-lg truncate">{campaign.name || `Campaign ${campaign.id?.slice(0, 8)}`}</CardTitle>
+              <CardDescription className="flex flex-wrap items-center gap-2 mt-1">
                 <Zap className="h-3 w-3" />
                 <span className="capitalize">{campaign.status}</span>
                 <span>•</span>
@@ -160,7 +160,7 @@ function CampaignCard({ campaign }: { campaign: any }) {
               </CardDescription>
             </div>
           </div>
-          <Badge variant={
+          <Badge className="shrink-0" variant={
             campaign.status === 'active' ? 'default' :
             campaign.status === 'completed' ? 'secondary' :
             'outline'
@@ -424,7 +424,7 @@ function FormAbandonsTab({ institutionId }: { institutionId: string }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-semibold">Form Abandons</h3>
           <p className="text-sm text-muted-foreground">
@@ -432,7 +432,7 @@ function FormAbandonsTab({ institutionId }: { institutionId: string }) {
             opted-in leads are auto-routed to the gentle re-engagement WhatsApp sequence.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Select value={windowChoice} onValueChange={(v: any) => setWindowChoice(v)}>
             <SelectTrigger className="w-[140px]">
               <SelectValue />
@@ -731,11 +731,11 @@ function WhatsAppSequencesTab({
               return (
                 <Card key={seq.id}>
                   <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-sm truncate min-w-0">
                         {seq.lead?.full_name || seq.lead_id?.slice(0, 8)}
                       </CardTitle>
-                      <Badge variant={seq.status === 'active' ? 'default' : 'secondary'}>
+                      <Badge className="shrink-0" variant={seq.status === 'active' ? 'default' : 'secondary'}>
                         {seq.status}
                       </Badge>
                     </div>
@@ -927,7 +927,7 @@ function ColdLeadReengagementPageContent() {
       <ContentLayout title="Cold Lead Re-engagement">
         <div className="space-y-6">
           {/* Breadcrumb */}
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -940,7 +940,7 @@ function ColdLeadReengagementPageContent() {
               </BreadcrumbList>
             </Breadcrumb>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap shrink-0">
               <Button variant="outline" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
@@ -1038,7 +1038,7 @@ function ColdLeadReengagementPageContent() {
 
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList>
+            <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
               <TabsTrigger value="leads">Cold Leads</TabsTrigger>
               <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
               <TabsTrigger value="wa-sequences">WhatsApp Sequences</TabsTrigger>

@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight, AlertTriangle, RefreshCw, MessageSquare } from 'lucide-react';
+import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight, AlertTriangle, RefreshCw, MessageSquare, ShieldAlert } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -31,6 +31,7 @@ import { PendingAttendanceDataTable } from './_components/pending-attendance-dat
 import { PendingAttendanceHierarchyFilters } from './_components/pending-attendance-hierarchy-filters';
 import { PendingStatisticsCards } from './_components/pending-statistics-cards';
 import { FeedbackConfirmationTab } from './_components/feedback-confirmation-tab';
+import { IntakeReadinessPanel } from './_components/intake-readiness-panel';
 import {
   DashboardFilters,
   type DashboardFilterState
@@ -39,7 +40,12 @@ import { useActiveInstitutions } from '@/hooks/academic/use-attendance-dashboard
 import { useTabParam } from '@/hooks/use-tab-param';
 import { format } from 'date-fns';
 
-const ATTENDANCE_DASHBOARD_TABS = ['statistics', 'pending', 'feedback'] as const;
+const ATTENDANCE_DASHBOARD_TABS = [
+  'statistics',
+  'pending',
+  'readiness',
+  'feedback'
+] as const;
 
 function AttendanceDashboardContent() {
   const { profile } = useAuth();
@@ -252,7 +258,7 @@ function AttendanceDashboardContent() {
 
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className='space-y-4'>
-          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-3 sm:gap-0 sm:overflow-visible'>
+          <TabsList className='flex w-full justify-start gap-1 overflow-x-auto sm:grid sm:grid-cols-4 sm:gap-0 sm:overflow-visible'>
             <TabsTrigger value='statistics' className='flex items-center gap-2'>
               <TrendingUp className='h-4 w-4' />
               {isHistoricalData
@@ -272,6 +278,17 @@ function AttendanceDashboardContent() {
                 </Badge>
               )}
             </TabsTrigger>
+            {/* Deliberately NOT disabled for historical dates. This check is a
+                trailing-window question about the current intake, not a
+                point-in-time reading, so it stays reachable whatever date the
+                filter bar is showing. */}
+            <TabsTrigger
+              value='readiness'
+              className='flex items-center gap-2'
+            >
+              <ShieldAlert className='h-4 w-4' />
+              Intake Readiness
+            </TabsTrigger>
             <TabsTrigger
               value='feedback'
               className='flex items-center gap-2'
@@ -290,6 +307,7 @@ function AttendanceDashboardContent() {
               onFiltersChange={handleFiltersChange}
               onRefresh={handleRefresh}
               isLoading={loading}
+              showHierarchy
             />
 
             {/* Information Alert for Non-Today Data */}
@@ -429,6 +447,39 @@ function AttendanceDashboardContent() {
             </div>
           </TabsContent>
 
+          <TabsContent value='readiness' className='space-y-4'>
+            <div>
+              <div className='flex items-center justify-between mb-4'>
+                <h2 className='text-xl font-semibold'>
+                  Current Intake Readiness
+                </h2>
+                <Badge variant='outline' className='flex items-center gap-1'>
+                  <Users className='h-3 w-3' />
+                  Current admission year
+                </Badge>
+              </div>
+              <p className='text-muted-foreground mb-6'>
+                Whether attendance can be recorded at all for the learners
+                admitted in this intake. The Pending Attendance tab lists periods
+                that were scheduled but not marked; this tab catches the case it
+                cannot see — learners placed in a section that has no timetable,
+                and so generates no periods to be pending in the first place.
+              </p>
+
+              <IntakeReadinessPanel
+                institutionId={
+                  filters.institutionId ||
+                  (canViewAllInstitutions
+                    ? undefined
+                    : profile?.institution_id || undefined)
+                }
+                canViewAllInstitutions={canViewAllInstitutions}
+                departmentId={filters.departmentId}
+                refreshTrigger={refreshTrigger}
+              />
+            </div>
+          </TabsContent>
+
           <TabsContent value='feedback' className='space-y-4'>
             {/* Same filter bar, same `filters` state as the Statistics tab — so
                 the chosen date/college survives a tab switch instead of silently
@@ -441,6 +492,7 @@ function AttendanceDashboardContent() {
               onFiltersChange={handleFiltersChange}
               onRefresh={handleRefresh}
               isLoading={loading}
+              showHierarchy
             />
             <FeedbackConfirmationTab
               userInstitutionId={
