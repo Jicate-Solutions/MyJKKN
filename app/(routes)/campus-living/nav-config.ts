@@ -30,7 +30,7 @@ const config: ModuleNavConfig = {
         { label: 'My Meals', icon: 'UtensilsCrossed', href: '/campus-living/my-hostel/my-meals', matchPaths: ['/campus-living/my-hostel/my-meals'] },
         { label: 'Guide', icon: 'BookText', href: '/campus-living/my-hostel/guide', matchPaths: ['/campus-living/my-hostel/guide'] },
         { label: 'Room Cleaning', icon: 'Brush', href: '/campus-living/my-hostel/housekeeping', matchPaths: ['/campus-living/my-hostel/housekeeping'] },
-        { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
+        { label: 'Premium Room', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
         { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
         { label: 'Invite Roommate', icon: 'UserPlus', href: '/campus-living/my-hostel/premium/invite-roommate', matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'] },
       ],
@@ -699,7 +699,7 @@ const config: ModuleNavConfig = {
           href: '/campus-living/settings/curfew',
           matchPaths: ['/campus-living/settings/curfew'],
         },
-        // ── Premium Stay (admin surfaces, now in-module) ────────────
+        // ── Premium Room (admin surfaces, now in-module) ────────────
         // Relocated 2026-06-01 from /admin/campus-living/* into the Campus
         // Living module so there's no separate admin module. Access is gated
         // at the page level via SuperAdminOnly + campus_living.premium.*
