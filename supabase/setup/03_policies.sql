@@ -8569,3 +8569,17 @@ CREATE POLICY hr_shift_timings_delete ON public.hr_shift_timings
         AND (SELECT public.user_has_permission('hr.shift_timings.manage'))
         AND public.role_has_institution_access(institution_id))
   );
+
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
+-- Read-only to admission-lead viewers; the table is written only by the
+-- SECURITY DEFINER trigger fn_audit_admission_lead_source (bypasses RLS),
+-- so there is no INSERT/UPDATE/DELETE policy by design.
+-- Table -> setup/01_tables.sql; fn -> setup/02_functions.sql.
+-- =====================================================================
+DROP POLICY IF EXISTS alsa_select ON public.admission_lead_source_audit;
+CREATE POLICY alsa_select ON public.admission_lead_source_audit
+FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('admission.leads.view'));

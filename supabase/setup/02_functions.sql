@@ -27147,3 +27147,44 @@ COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jso
 
 REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
+
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
+-- SECURITY DEFINER; only inserts an audit row when a watched field actually
+-- changes, so the trigger can never block a legitimate lead update.
+-- Table -> setup/01_tables.sql; trigger -> setup/04_triggers.sql.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION public.fn_audit_admission_lead_source()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  IF NEW.source IS DISTINCT FROM OLD.source THEN
+    INSERT INTO public.admission_lead_source_audit(lead_id,learner_profile_id,changed_field,old_value,new_value,changed_by)
+    VALUES (NEW.id,NEW.learner_profile_id,'source',OLD.source::text,NEW.source::text,auth.uid());
+  END IF;
+  IF NEW.source_detail IS DISTINCT FROM OLD.source_detail THEN
+    INSERT INTO public.admission_lead_source_audit(lead_id,learner_profile_id,changed_field,old_value,new_value,changed_by)
+    VALUES (NEW.id,NEW.learner_profile_id,'source_detail',OLD.source_detail,NEW.source_detail,auth.uid());
+  END IF;
+  IF NEW.referral_type IS DISTINCT FROM OLD.referral_type THEN
+    INSERT INTO public.admission_lead_source_audit(lead_id,learner_profile_id,changed_field,old_value,new_value,changed_by)
+    VALUES (NEW.id,NEW.learner_profile_id,'referral_type',OLD.referral_type,NEW.referral_type,auth.uid());
+  END IF;
+  IF NEW.referred_by_id IS DISTINCT FROM OLD.referred_by_id THEN
+    INSERT INTO public.admission_lead_source_audit(lead_id,learner_profile_id,changed_field,old_value,new_value,changed_by)
+    VALUES (NEW.id,NEW.learner_profile_id,'referred_by_id',OLD.referred_by_id::text,NEW.referred_by_id::text,auth.uid());
+  END IF;
+  IF NEW.referred_by_name IS DISTINCT FROM OLD.referred_by_name THEN
+    INSERT INTO public.admission_lead_source_audit(lead_id,learner_profile_id,changed_field,old_value,new_value,changed_by)
+    VALUES (NEW.id,NEW.learner_profile_id,'referred_by_name',OLD.referred_by_name,NEW.referred_by_name,auth.uid());
+  END IF;
+  RETURN NEW;
+END $function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_audit_admission_lead_source() FROM anon, PUBLIC;

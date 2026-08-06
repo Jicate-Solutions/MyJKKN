@@ -1650,3 +1650,18 @@ CREATE TRIGGER hr_shift_timings_updated_at
 -- is_super_admin() OR is_admin() with NO permission key — which locks out
 -- custom roles such as HR Head that hold every other HR key.
 -- ---------------------------------------------------------------------
+
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
+-- Fires only when one of the five watched source/referral columns changes,
+-- calling fn_audit_admission_lead_source (setup/02_functions.sql) to record
+-- who/when/old->new into admission_lead_source_audit (setup/01_tables.sql).
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_audit_admission_lead_source ON public.admission_leads;
+CREATE TRIGGER trg_audit_admission_lead_source
+AFTER UPDATE OF source, source_detail, referral_type, referred_by_id, referred_by_name
+ON public.admission_leads
+FOR EACH ROW EXECUTE FUNCTION public.fn_audit_admission_lead_source();
