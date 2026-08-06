@@ -67,24 +67,46 @@ WHERE slug = 'quick-10'
 -- every legitimate re-run (idempotent skip updates 0 rows); asserting the end
 -- state stays idempotent while still failing loudly if the seed never ran, if a
 -- host id drifted, or if someone re-pointed the slug.
+--
+-- GATED ON THE HOST PROFILES EXISTING, deliberately. This file sits in
+-- supabase/migrations/, which `db reset`, preview branches and any future
+-- replay will execute. The four host ids below are PRODUCTION profile UUIDs; on
+-- a fresh or preview database they simply do not exist, and an ungated
+-- RAISE EXCEPTION there would turn a cosmetic config tweak into a hard failure
+-- of the entire migration chain. So: if this database does not contain those
+-- people, it is not the database this file is about — say so and move on. If it
+-- DOES contain them, the seed was expected to have run, and a wrong end state is
+-- a real fault worth aborting for.
 DO $$
-DECLARE ok_rows integer;
+DECLARE
+  host_ids uuid[] := ARRAY[
+    '36442de9-e634-475c-a8a9-c29b6a9d839e',  -- gobinath-k
+    '829c81ad-530c-43f2-9885-62b78f82caac',  -- mohanraj-v
+    'dfbe273b-0540-4c32-9bad-e9bfb19a6460',  -- mr-ravishankar-s
+    '5ad97b8b-0edb-4857-886b-449d8d3df538'   -- rangarajan-r (CEO)
+  ]::uuid[];
+  known_hosts integer;
+  ok_rows     integer;
 BEGIN
+  SELECT count(*) INTO known_hosts
+  FROM public.profiles WHERE id = ANY(host_ids);
+
+  IF known_hosts = 0 THEN
+    RAISE NOTICE
+      'quick-10 breathing gap: none of the four host profiles exist here, so this is not the production database this file targets. Nothing asserted.';
+    RETURN;
+  END IF;
+
   SELECT count(*) INTO ok_rows
   FROM public.meeting_types
   WHERE slug = 'quick-10'
     AND buffer_before_min = 5
     AND buffer_after_min = 5
-    AND host_profile_id IN (
-      '36442de9-e634-475c-a8a9-c29b6a9d839e',
-      '829c81ad-530c-43f2-9885-62b78f82caac',
-      'dfbe273b-0540-4c32-9bad-e9bfb19a6460',
-      '5ad97b8b-0edb-4857-886b-449d8d3df538'
-    );
+    AND host_profile_id = ANY(host_ids);
 
   IF ok_rows <> 4 THEN
     RAISE EXCEPTION
-      'quick-10 breathing gap is not in the expected end state: % of 4 rows carry both buffers at 5. Did the seed 20260813010000 run first?',
-      ok_rows;
+      'quick-10 breathing gap is not in the expected end state: % of 4 rows carry both buffers at 5 (% of 4 host profiles present). Did the seed 20260813010000 run first?',
+      ok_rows, known_hosts;
   END IF;
 END $$;
