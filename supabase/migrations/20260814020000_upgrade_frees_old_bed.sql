@@ -289,6 +289,13 @@ CREATE TABLE IF NOT EXISTS public._bak_alloc_missing_checkout_20260814 (
   captured_at         timestamptz NOT NULL DEFAULT now()
 );
 
+-- A backup of learner bed history must never be readable by an unauthenticated
+-- client. CREATE TABLE never enables RLS, and Supabase's default privileges hand
+-- anon a grant on every new table, so both lines are required.
+REVOKE ALL ON TABLE public._bak_alloc_missing_checkout_20260814 FROM anon, PUBLIC;
+GRANT  SELECT ON TABLE public._bak_alloc_missing_checkout_20260814 TO service_role;
+ALTER  TABLE public._bak_alloc_missing_checkout_20260814 ENABLE ROW LEVEL SECURITY;
+
 INSERT INTO public._bak_alloc_missing_checkout_20260814
   (allocation_id, learner_id, room_id, bed_id, status,
    actual_vacate_date, old_check_out_date, new_check_out_date)
