@@ -5287,7 +5287,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/meetings/contacts/scan",
             "label": "Scan",
             "iconName": "FileText",
-            "children": []
+            "children": [
+              {
+                "path": "/meetings/contacts/scan/saved",
+                "label": "Saved",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
           }
         ]
       },
