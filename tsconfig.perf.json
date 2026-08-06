@@ -1,2 +1,0 @@
-{ "extends": "./tsconfig.json",
-  "include": ["app/api/cron/aipulse-domain-starter-notify/route.ts","next-env.d.ts","types/**/*.d.ts"] }
