@@ -1735,7 +1735,7 @@ export default function AttendanceMarkPage() {
           </Alert>
         )}
 
-        {/* The timetable's staff assignment can change after attendance was marked
+        {/* The timetable's team-member assignment can change after attendance was marked
             (e.g. a substitution); this lets the marker sync the record to match. */}
         {existingAttendance && periodId && (
           <FacultySyncIndicator
