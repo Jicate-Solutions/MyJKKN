@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { UpdatePrompt } from './update-prompt';
+import { armReloadOnControllerChange } from './sw-reload';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -86,10 +87,19 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
-    // Handle service worker updates
+    // Handle service worker updates.
+    // A page that loads with NO controlling SW receives its first
+    // `controllerchange` when the freshly-installed SW calls clients.claim()
+    // — that's the initial claim, not an update. Only a controller SWAP
+    // counts; without this gate every first visit flagged a phantom update.
+    let initialClaimPending = false;
     const handleSWUpdate = () => {
       // Don't set update available on auth pages to prevent refresh loops
       if (typeof window !== 'undefined' && window.location.pathname.startsWith('/auth/')) {
+        return;
+      }
+      if (initialClaimPending) {
+        initialClaimPending = false;
         return;
       }
       setUpdateAvailable(true);
@@ -122,8 +132,10 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     // /sw.js from a previous `next build` run keeps firing
     // `bad-precaching-response` for font hashes that no longer exist in the
     // current dev bundle. Scope the sweep to /sw.js only — other workers
-    // (e.g. /sw-dashboard.js for push) must not be unregistered or they
-    // race with their own registrations elsewhere in the tree.
+    // (e.g. /sw-dashboard.js for push at its dedicated narrow scope) must
+    // not be unregistered or they race with their own registrations
+    // elsewhere in the tree. (Root-scoped sw-dashboard.js leftovers are
+    // handled by the dedicated cleanup below.)
     if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'production') {
       navigator.serviceWorker.getRegistrations().then((regs) => {
         regs.forEach((r) => {
@@ -144,10 +156,48 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // One-time cleanup for browsers already affected by the sw-dashboard.js
+    // root-scope contention: it used to register without a scope option,
+    // defaulting to scope '/', where it could replace /sw.js and (via
+    // skipWaiting) steal page control / fire phantom update prompts. The push
+    // worker now lives at the dedicated scope '/sw-dashboard-scope/' (see
+    // components/dashboard/push-subscribe-button.tsx), so any leftover
+    // ROOT-scoped sw-dashboard.js registration must be unregistered before
+    // /sw.js (re)registers. Narrow-scoped registrations are left alone.
+    // Runs for everyone (dev and production).
+    let rootScopeCleanup: Promise<unknown> = Promise.resolve();
+    if ('serviceWorker' in navigator) {
+      rootScopeCleanup = navigator.serviceWorker
+        .getRegistrations()
+        .then((regs) => {
+          const rootScope = `${window.location.origin}/`;
+          return Promise.all(
+            regs.map((r) => {
+              const scriptURL =
+                r.active?.scriptURL ??
+                r.waiting?.scriptURL ??
+                r.installing?.scriptURL ??
+                '';
+              if (
+                scriptURL.endsWith('/sw-dashboard.js') &&
+                r.scope === rootScope
+              ) {
+                return r.unregister().catch(() => {});
+              }
+              return Promise.resolve();
+            })
+          );
+        })
+        .catch(() => {});
+    }
+
     // Service worker setup - skip in development (Serwist only generates sw.js in production)
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      // Check if SW is already registered to prevent multiple registrations
-      navigator.serviceWorker.getRegistration().then(existingRegistration => {
+      // Check if SW is already registered to prevent multiple registrations.
+      // Chained AFTER the root-scope cleanup so a leftover root-scoped
+      // sw-dashboard.js registration is neither mistaken for /sw.js nor
+      // blocking its (re)registration.
+      rootScopeCleanup.then(() => navigator.serviceWorker.getRegistration()).then(existingRegistration => {
         if (existingRegistration) {
           return existingRegistration;
         }
@@ -180,6 +230,7 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       }).catch((error) => {
       });
 
+      initialClaimPending = !navigator.serviceWorker.controller;
       navigator.serviceWorker.addEventListener(
         'controllerchange',
         handleSWUpdate
@@ -235,12 +286,15 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     try {
       const registration = await navigator.serviceWorker.ready;
       if (registration.waiting) {
-        // Listen for controller change BEFORE sending skip waiting
-        // to avoid race condition (reload before new SW activates)
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          window.location.reload();
-        });
+        // Arm the shared ONE-SHOT reload BEFORE sending skip waiting — the
+        // old inline listener here stacked a fresh anonymous listener on
+        // every call and never removed it.
+        armReloadOnControllerChange();
         registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        // Another tab already activated the new SW — a plain (still
+        // user-initiated) reload picks it up.
+        window.location.reload();
       }
     } catch (error) {
       window.location.reload();

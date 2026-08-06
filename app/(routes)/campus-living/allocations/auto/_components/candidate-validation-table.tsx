@@ -19,23 +19,29 @@ import { Check, X, Minus, Users, BedDouble, AlertTriangle, Filter, RotateCcw } f
 import type { AllocationCandidate, BillState } from '@/types/allocation-batch';
 
 const BILL_STATE_LABEL: Record<BillState, string> = {
-  matched: 'Matched',
-  different_year: 'Different year',
-  untagged: 'Untagged',
-  none: 'None',
+  matched: 'Admission year',
+  different_year: 'Fallback year',
+  untagged: 'No usable bill',
+  none: 'No bill',
 };
 
+// Shows the fee the Category-Eligibility band was matched against, and which
+// academic year it was read from. 'matched' = the learner's admission year (the
+// intended anchor); 'different_year' = no admission-year bill, so their earliest
+// billed year was used. Both are usable — only the red states are skipped.
 function BillBadge({ c }: { c: AllocationCandidate }) {
-  const fee =
-    c.current_year_fee != null ? ` (₹${Number(c.current_year_fee).toLocaleString('en-IN')})` : '';
+  const fee = c.band_fee != null ? `₹${Number(c.band_fee).toLocaleString('en-IN')}` : '—';
   const map: Record<BillState, { label: string; cls: string }> = {
-    matched: { label: `Matched${fee}`, cls: 'bg-green-100 text-green-800' },
+    matched: {
+      label: `${fee} · ${c.band_academic_year_name ?? 'admission yr'}`,
+      cls: 'bg-green-100 text-green-800',
+    },
     different_year: {
-      label: `Diff. year${c.bill_other_year_name ? ` (${c.bill_other_year_name})` : ''}`,
+      label: `${fee} · ${c.band_academic_year_name ?? 'fallback yr'}`,
       cls: 'bg-amber-100 text-amber-800',
     },
-    untagged: { label: 'Untagged', cls: 'bg-amber-100 text-amber-800' },
-    none: { label: 'None', cls: 'bg-red-100 text-red-700' },
+    untagged: { label: 'No usable bill', cls: 'bg-red-100 text-red-700' },
+    none: { label: 'No bill', cls: 'bg-red-100 text-red-700' },
   };
   const m = map[c.bill_state];
   return <span className={`inline-block rounded px-1.5 py-0.5 text-xs ${m.cls}`}>{m.label}</span>;
@@ -128,7 +134,11 @@ export function CandidateValidationTable({
   // Summary stats reflect the FULL candidate set (filters only narrow the table).
   const eligible = candidates.filter((c) => c.verdict === 'in').length;
   const excluded = candidates.length - eligible;
-  const billReady = candidates.filter((c) => c.current_year_bill_count > 0).length;
+  // A learner with no band_fee resolves no category and is skipped, whatever
+  // else is true of them — surfaced separately because it is fixed in Billing,
+  // not in Campus Living.
+  const feeResolved = candidates.filter((c) => c.band_fee != null).length;
+  const noFee = candidates.length - feeResolved;
   const willPlace = Math.min(eligible, availableBeds);
 
   // ── Advanced filters ──────────────────────────────────────────────
@@ -141,6 +151,9 @@ export function CandidateValidationTable({
   const [messCat, setMessCat] = useState(ALL);
   const [billState, setBillState] = useState(ALL);
   const [gender, setGender] = useState(ALL);
+  // The operator no longer picks a block, so let them slice the result by the
+  // block the rules are sending each learner to.
+  const [targetBlock, setTargetBlock] = useState(ALL);
 
   // Institution → Program → Semester cascade. The block can serve several
   // institutions (hostel_block_institutions); picking one narrows the program
@@ -178,6 +191,10 @@ export function CandidateValidationTable({
     [candidates]
   );
   const genderOpts = useMemo(() => distinct(candidates, (c) => c.gender), [candidates]);
+  const targetBlockOpts = useMemo(
+    () => distinct(candidates, (c) => c.target_block_name),
+    [candidates]
+  );
   const billStateOpts = useMemo(
     () => distinct(candidates, (c) => c.bill_state) as BillState[],
     [candidates]
@@ -197,7 +214,7 @@ export function CandidateValidationTable({
 
   const filtersActive =
     !!search ||
-    [verdict, institution, program, semester, roomCat, messCat, billState, gender].some(
+    [verdict, institution, program, semester, roomCat, messCat, billState, gender, targetBlock].some(
       (v) => v !== ALL
     );
 
@@ -211,6 +228,7 @@ export function CandidateValidationTable({
     setMessCat(ALL);
     setBillState(ALL);
     setGender(ALL);
+    setTargetBlock(ALL);
   };
 
   const filtered = useMemo(() => {
@@ -228,9 +246,10 @@ export function CandidateValidationTable({
       if (messCat !== ALL && c.resolved_mess_category_name !== messCat) return false;
       if (billState !== ALL && c.bill_state !== billState) return false;
       if (gender !== ALL && c.gender !== gender) return false;
+      if (targetBlock !== ALL && c.target_block_name !== targetBlock) return false;
       return true;
     });
-  }, [candidates, search, verdict, institution, program, semester, roomCat, messCat, billState, gender]);
+  }, [candidates, search, verdict, institution, program, semester, roomCat, messCat, billState, gender, targetBlock]);
 
   return (
     <div className="space-y-4">
@@ -239,24 +258,28 @@ export function CandidateValidationTable({
         <Stat icon={<BedDouble className="h-4 w-4" />} label="Available beds" value={availableBeds} />
         <Stat label="Will place" value={willPlace} />
         <Stat label="Excluded" value={excluded} muted />
-        <Stat label="Bill-ready" value={billReady} muted />
+        <Stat label="Fee resolved" value={feeResolved} muted />
       </div>
 
-      {candidates.length > 0 && billReady === 0 && (
+      {noFee > 0 && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>No hosteller has a current-year bill tagged</AlertTitle>
+          <AlertTitle>
+            {noFee} of {candidates.length} students have no usable academic fee
+          </AlertTitle>
           <AlertDescription>
-            Category Eligibility rules that depend on a current-year academic fee will not
-            resolve a category for any student — those students will be skipped. Generate
-            current-academic-year bills under{' '}
+            Category Eligibility bands are matched against the fee billed for the academic year
+            the student was <strong>admitted</strong> in — falling back to their earliest billed
+            year if there is no admission-year bill. A student with no academic bill, or whose
+            bills for every year total ₹0, resolves no room category and is skipped. Generate
+            real academic bills under{' '}
             <Link
               href="/campus-living/residents?tab=generate"
               className="font-medium underline underline-offset-2"
             >
               Campus Living → Residents → Generate
             </Link>{' '}
-            for these students first.
+            for these students, then re-run this preview.
           </AlertDescription>
         </Alert>
       )}
@@ -324,6 +347,13 @@ export function CandidateValidationTable({
                 options={semesterOpts.map((s) => ({ value: s, label: s }))}
               />
               <FilterSelect
+                label="Goes to block"
+                value={targetBlock}
+                onChange={setTargetBlock}
+                allLabel="All blocks"
+                options={targetBlockOpts.map((b) => ({ value: b, label: b }))}
+              />
+              <FilterSelect
                 label="Room category"
                 value={roomCat}
                 onChange={setRoomCat}
@@ -363,12 +393,13 @@ export function CandidateValidationTable({
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="py-2 pr-3">Student</th>
                 <th className="px-2">Semester</th>
-                <th className="px-2">Acad. year</th>
-                <th className="px-2 text-center">Bill (curr. yr)</th>
+                <th className="px-2">Admitted</th>
+                <th className="px-2 text-center">Fee basis</th>
                 <th className="px-2 text-center">Profile</th>
                 <th className="px-2 text-center">Gender</th>
                 <th className="px-2 text-center">Not alloc.</th>
                 <th className="px-2 text-center">Phys. access</th>
+                <th className="px-2">Goes to</th>
                 <th className="px-2">Room cat.</th>
                 <th className="px-2">Mess cat.</th>
                 <th className="px-2">Verdict</th>
@@ -390,10 +421,8 @@ export function CandidateValidationTable({
                       {c.semester_name ?? <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-2">
-                      {c.academic_year_id ? (
-                        c.academic_year_name ?? '—'
-                      ) : (
-                        <span className="text-red-600">Not set</span>
+                      {c.admission_academic_year_name ?? (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
                     <td className="px-2 text-center">
@@ -411,6 +440,9 @@ export function CandidateValidationTable({
                     <td className="px-2 text-center">
                       <YesNo ok={c.physical_rule_ok} na={prereqFail} />
                     </td>
+                    <td className="px-2 text-xs">
+                      {c.target_block_name ?? <span className="text-muted-foreground">—</span>}
+                    </td>
                     <td className="px-2 text-xs">{c.resolved_room_category_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-2 text-xs">{c.resolved_mess_category_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-2">
@@ -425,7 +457,7 @@ export function CandidateValidationTable({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-6 text-center text-sm text-muted-foreground">
+                  <td colSpan={12} className="py-6 text-center text-sm text-muted-foreground">
                     {candidates.length === 0
                       ? 'No candidates found for this block.'
                       : 'No students match the current filters.'}

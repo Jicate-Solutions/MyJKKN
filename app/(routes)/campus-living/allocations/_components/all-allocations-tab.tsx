@@ -27,6 +27,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
   useAllAllocations,
+  useResetAllocationsBulk,
   hostelAllocationKeys,
 } from '@/hooks/campus-living/use-hostel-allocations';
 import {
@@ -37,7 +38,19 @@ import { DataTable } from '@/components/data-table/data-table';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { toast } from 'react-hot-toast';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,6 +145,12 @@ export function AllAllocationsTab() {
   const [transferTarget, setTransferTarget] = useState<Alloc | null>(null);
   const [resetTarget, setResetTarget] = useState<Alloc | null>(null);
   const [allocateTarget, setAllocateTarget] = useState<UnallocatedCandidate | null>(null);
+  // Bulk reset: the rows to act on plus the table's own selection-clearing
+  // callback, captured together when the confirm dialog opens.
+  const [pendingBulk, setPendingBulk] = useState<
+    { rows: UnifiedRow[]; clearSelection: () => void } | null
+  >(null);
+  const bulkReset = useResetAllocationsBulk();
 
   // Active allocations only — the cascade filter options derive from these.
   const activeAllocations = useMemo(
@@ -204,13 +223,46 @@ export function AllAllocationsTab() {
     qc.invalidateQueries({ queryKey: ['hostel-beds'] });
   }, [qc]);
 
-  // Client-side feed for the DataTable: placement + cascade + search, then sort
-  // + paginate. Unplaced candidates are matched by institution + search only.
-  const fetchData = useCallback(
-    async (params: { page: number; limit: number; search: string; sort_by: string; sort_order: string }) => {
-      const q = (params.search ?? '').trim().toLowerCase();
+  const doBulkReset = async () => {
+    if (!pendingBulk) return;
+    const items = pendingBulk.rows.map((r) => ({
+      id: (r.raw as Alloc).id as string,
+      label: r.learnerName || 'Learner',
+    }));
+    try {
+      const failed = await bulkReset.mutateAsync(items);
+      const ok = items.length - failed.length;
+      if (ok > 0) {
+        toast.success(
+          `${ok} allocation${ok === 1 ? '' : 's'} reset — bed${ok === 1 ? '' : 's'} freed`
+        );
+      }
+      if (failed.length > 0) {
+        // Name the first failure: the RPC's own message says WHY (deposit,
+        // vacate request, wrong status), which a bare count would hide.
+        toast.error(
+          `${failed.length} not reset — ${failed[0].label}: ${failed[0].message}`,
+          { duration: 8000 }
+        );
+      }
+      invalidateFeeds();
+      pendingBulk.clearSelection();
+      setPendingBulk(null);
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : 'Failed to reset the selected allocations'
+      );
+    }
+  };
 
-      let rows = allRows.filter((r) => {
+  // Shared placement + cascade + search predicate. Extracted so the paged feed
+  // and the cross-page "select all" below can never drift apart — a select-all
+  // that matched a different set than the table shows would be dangerous here,
+  // since the bulk action deletes allocations.
+  const filterRows = useCallback(
+    (search: string) => {
+      const q = (search ?? '').trim().toLowerCase();
+      return allRows.filter((r) => {
         if (placement !== 'all' && r.placement !== placement) return false;
         if (r.placement === 'allocated') {
           if (!allocationMatchesCascade(r.raw, cascade)) return false;
@@ -226,6 +278,22 @@ export function AllAllocationsTab() {
         }
         return true;
       });
+    },
+    [allRows, placement, cascade]
+  );
+
+  // Every row matching the current filters, across all pages — powers the
+  // "Select all N" banner so clearing ~94 allocations doesn't mean paging
+  // through the table four times ticking boxes.
+  const fetchAllItems = useCallback(
+    async (params: { search: string }) => filterRows(params.search ?? ''),
+    [filterRows]
+  );
+
+  // Client-side feed for the DataTable: filter, then sort + paginate.
+  const fetchData = useCallback(
+    async (params: { page: number; limit: number; search: string; sort_by: string; sort_order: string }) => {
+      let rows = filterRows(params.search ?? '');
 
       const sortKey = params.sort_by;
       if (sortKey) {
@@ -250,7 +318,7 @@ export function AllAllocationsTab() {
         pagination: { page: params.page, limit, total_pages: Math.max(1, Math.ceil(total / limit)), total_items: total },
       };
     },
-    [allRows, placement, cascade]
+    [filterRows]
   );
 
   // Typed as ColumnDef<Alloc> (Alloc = any) to match the repo's DataTable idiom:
@@ -347,6 +415,45 @@ export function AllAllocationsTab() {
         size: 120,
       },
     ];
+
+    // Selection drives the bulk reset, which only makes sense for a row that
+    // HAS an allocation — so unplaced candidates render a disabled box rather
+    // than being silently absent, and select-all skips them (see the header).
+    if (canManage) {
+      cols.unshift({
+        id: 'select',
+        header: ({ table }) => {
+          const selectable = table
+            .getRowModel()
+            .rows.filter((r) => r.original.placement === 'allocated');
+          const allSelected =
+            selectable.length > 0 && selectable.every((r) => r.getIsSelected());
+          return (
+            <Checkbox
+              checked={allSelected}
+              disabled={selectable.length === 0}
+              onCheckedChange={(v) => selectable.forEach((r) => r.toggleSelected(!!v))}
+              aria-label="Select all allocated rows on this page"
+            />
+          );
+        },
+        cell: ({ row }) =>
+          row.original.placement === 'allocated' ? (
+            <Checkbox
+              checked={row.getIsSelected()}
+              onCheckedChange={(v) => row.toggleSelected(!!v)}
+              aria-label={`Select ${row.original.learnerName || 'allocation'}`}
+            />
+          ) : (
+            <Checkbox disabled aria-label="Unplaced learner — nothing to reset" />
+          ),
+        enableSorting: false,
+        enableHiding: false,
+        size: 40,
+        minSize: 40,
+        maxSize: 40,
+      });
+    }
 
     if (isSuperAdmin) {
       cols.push({
@@ -504,12 +611,87 @@ export function AllAllocationsTab() {
       <div className="pinned-actions-col">
         <DataTable
           fetchDataFn={fetchData}
+          fetchAllItemsFn={canManage ? fetchAllItems : undefined}
           getColumns={() => columns}
           idField="rowId"
           exportConfig={exportConfig}
-          config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
+          config={{
+            enableUrlState: false,
+            enableDateFilter: false,
+            enableExport: true,
+            enableRowSelection: canManage,
+          }}
+          renderToolbarContent={({ selectedRows, resetSelection }) => {
+            // "Select all across pages" can include unplaced candidates, so
+            // filter again here — the checkbox being disabled is a UI nicety,
+            // this is the guard that actually keeps them out of the mutation.
+            const resettable = (selectedRows as UnifiedRow[]).filter(
+              (r) => r?.placement === 'allocated'
+            );
+            if (!canManage || resettable.length === 0) return null;
+            return (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() =>
+                  setPendingBulk({ rows: resettable, clearSelection: resetSelection })
+                }
+                disabled={bulkReset.isPending}
+              >
+                {bulkReset.isPending ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                )}
+                Reset selected ({resettable.length})
+              </Button>
+            );
+          }}
         />
       </div>
+
+      <AlertDialog
+        open={!!pendingBulk}
+        onOpenChange={(o) => {
+          if (!o && !bulkReset.isPending) setPendingBulk(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Reset {pendingBulk?.rows.length ?? 0} allocation
+              {(pendingBulk?.rows.length ?? 0) === 1 ? '' : 's'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes {(pendingBulk?.rows.length ?? 0) === 1 ? 'the allocation' : 'these allocations'}{' '}
+              and frees the bed{(pendingBulk?.rows.length ?? 0) === 1 ? '' : 's'}, so the learner
+              {(pendingBulk?.rows.length ?? 0) === 1 ? '' : 's'} move back to Not Allocated and can
+              be allocated again. Room and mess categories are left untouched — use the per-row
+              Reset for those. Any allocation holding a deposit or a vacate request is refused and
+              stays put. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkReset.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                doBulkReset();
+              }}
+              disabled={bulkReset.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkReset.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Resetting…
+                </>
+              ) : (
+                'Reset & free beds'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Allocated-row actions — same dialogs as the dedicated Allocated tab. */}
       {transferTarget && (

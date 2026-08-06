@@ -37,11 +37,14 @@ import { ImsInventoryServiceServer } from '@/lib/services/ims/inventory-service.
 // ============================================================================
 
 const imsItemRowSchema = z.object({
+  // Optional since 20260804120000: a blank cell means "generate one". Sheets that
+  // already carry codes keep working — both historical imports supplied them —
+  // but the format rule still applies to anything actually typed.
   code: z
     .string()
-    .min(1, 'Code is required')
     .max(50, 'Code max 50 characters')
-    .regex(/^[A-Za-z0-9_-]+$/, 'Code: only letters, numbers, _ or -'),
+    .regex(/^[A-Za-z0-9_-]+$/, 'Code: only letters, numbers, _ or -')
+    .optional(),
   name: z.string().min(1, 'Name is required').max(255),
   description: z.string().max(1000).nullable(),
   category_name: z.string().nullable().default(null),
@@ -138,7 +141,8 @@ function parseRow(
 
     return {
       data: {
-        code:                     code.trim(),
+        // undefined, not '', so the Zod optional passes and the DB trigger fills it.
+        code:                     code.trim() || undefined,
         name:                     name.trim(),
         description,
         category_name:            categoryName || null,

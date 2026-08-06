@@ -8,7 +8,7 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { usePWA } from '@/components/pwa/pwa-provider';
 import { Button } from '@/components/ui/button';
 import { RoleService } from '@/lib/services/roles/role-service';
-import { UserRolesService } from '@/lib/services/users/user-roles-service';
+import { useUserRoles } from '@/hooks/use-user-roles';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -30,12 +30,22 @@ export function UserNav() {
   // single primary role only — the navbar must reflect the multi-role system
   // so users with extra roles (e.g. counselor + student, accounts + faculty)
   // see every role they actually carry.
-  const [userRoles, setUserRoles] = useState<UserRoleAssignment[]>([]);
+  //
+  // Fetched through the SHARED ['user-roles', userId] React Query entry
+  // (hooks/use-user-roles.ts) instead of a raw per-mount useEffect fetch —
+  // usePermissions resolves the same entry, so the navbar no longer fires its
+  // own duplicate rpc/get_user_roles_with_details on every mount.
+  const {
+    data: rolesData,
+    isLoading: rolesQueryLoading,
+    isError: rolesQueryError
+  } = useUserRoles(profile?.id);
+  const userRoles: UserRoleAssignment[] = rolesData ?? [];
+  const rolesLoading = !!profile?.id && rolesQueryLoading;
   // Legacy fallback: when the user has no user_roles entries (e.g. seeded
   // before the multi-role migration), look up the role name for profile.role
   // so we still show *something* sensible.
   const [legacyRoleName, setLegacyRoleName] = useState<string | null>(null);
-  const [rolesLoading, setRolesLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
 
   // Prevent hydration mismatch for theme
@@ -44,44 +54,37 @@ export function UserNav() {
   }, []);
 
   useEffect(() => {
-    if (!profile?.id) {
-      setRolesLoading(false);
+    if (!profile?.role) return;
+
+    // Roles query failed (network blip, RLS hiccup): degrade gracefully to the
+    // raw profile.role key. Kept as console-level noise only — see 2026-04-28
+    // note: a transient failure must not trigger the blocking error overlay.
+    if (rolesQueryError) {
+      setLegacyRoleName(profile.role);
       return;
     }
+
+    // Only resolve the legacy fallback name if user_roles came back empty.
+    if (!rolesData || rolesData.length > 0) return;
+
     let cancelled = false;
-
-    const fetchRoles = async () => {
-      setRolesLoading(true);
-      try {
-        const roles = await UserRolesService.getUserRoles(profile.id);
+    RoleService.getAssignableRoles()
+      .then((allRoles) => {
         if (cancelled) return;
-        setUserRoles(roles);
-        // Only resolve the legacy fallback name if user_roles came back empty.
-        if (roles.length === 0 && profile.role) {
-          const allRoles = await RoleService.getAssignableRoles();
-          if (cancelled) return;
-          const found = allRoles.find((r) => r.role_key === profile.role);
-          setLegacyRoleName(found?.role_name ?? profile.role);
-        }
-      } catch (err) {
-        // Demoted to console.warn (2026-04-28) because UserNav has a graceful
-        // fallback (sets legacyRoleName from profile.role below). A transient
-        // TypeError: Failed to fetch from a network blip should not trigger
-        // Next.js's blocking Console Error overlay on every page.
-        console.warn('[user-nav] Failed to load user roles (using legacy fallback):', err);
-        if (!cancelled && profile.role) {
-          setLegacyRoleName(profile.role);
-        }
-      } finally {
-        if (!cancelled) setRolesLoading(false);
-      }
-    };
-
-    fetchRoles();
+        const found = allRoles.find((r) => r.role_key === profile.role);
+        setLegacyRoleName(found?.role_name ?? profile.role);
+      })
+      .catch((err) => {
+        console.warn(
+          '[user-nav] Failed to load role names (using raw role key):',
+          err
+        );
+        if (!cancelled) setLegacyRoleName(profile.role);
+      });
     return () => {
       cancelled = true;
     };
-  }, [profile?.id, profile?.role]);
+  }, [rolesData, rolesQueryError, profile?.role]);
 
   const handleSignOut = async () => {
     await AuthService.signOut();

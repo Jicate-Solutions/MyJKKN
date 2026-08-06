@@ -17,6 +17,7 @@ import { generateAndUploadReceiptPdf } from '@/lib/utils/ims-receipt-pdf';
 import { PaymentModal } from '@/components/ims/payment-modal';
 import { GatewayPaymentReturn } from '@/components/ims/gateway-payment';
 import { useImsHomeRoute } from '@/hooks/ims/use-ims-home-route';
+import { useImsGatewayPaymentsReport } from '@/hooks/ims/use-ims-reports';
 import { ReceiptModal } from '@/components/ims/receipt-modal';
 import type {
   ImsSellableItem,
@@ -31,6 +32,7 @@ import { Input } from '@/components/ui/input';
 import {
   Search,
   ShoppingCart,
+  AlertTriangle,
   Plus,
   Minus,
   Trash2,
@@ -63,6 +65,39 @@ function PointOfSalePageInner() {
   const { isPosStore, isReady: storeCheckReady } = useImsHomeRoute();
   const { canAccess, isSuperAdmin } = usePermissions();
   const canCheckout = isSuperAdmin || canAccess('ims.sales', 'create');
+
+  // Money taken at this counter that never became a sale.
+  //
+  // Booking only happens when GET .../gateway/[id]/status is called, and the only
+  // caller is the payment screen. Close that tab before it resolves and a captured
+  // LIVE payment becomes invisible — it is not a sale, so it appears in no sales
+  // report, and nothing sweeps for it. This banner is how a cashier finds out.
+  //
+  // Wide date window on purpose: a payment stranded last Tuesday is still owed
+  // today. Cheap because the report query is already store-scoped and cached.
+  //
+  // useState initialiser, NOT useMemo: `new Date()` is impure, and React Compiler
+  // refuses to optimise a component whose useMemo it cannot prove stable — it was
+  // bailing out of this whole file and taking handleSaleComplete's memoization
+  // with it. A lazy initialiser runs once, which is exactly the semantics wanted
+  // anyway: the window must not shift identity on every render or the query key
+  // changes and refetches forever.
+  const [unsettledWindow] = useState(() => {
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 60);
+    return { from: from.toISOString(), to: to.toISOString() };
+  });
+  const { data: gatewayReport } = useImsGatewayPaymentsReport(
+    storeId || '',
+    unsettledWindow.from,
+    unsettledWindow.to,
+    institutionId,
+  );
+  const unsettledCount = gatewayReport?.summary?.needs_attention_count ?? 0;
+  const unsettledValue = (gatewayReport?.transactions ?? [])
+    .filter((t) => t.status === 'paid' && !t.sale_id)
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
   // Zustand-backed cart
   const {
@@ -232,7 +267,11 @@ function PointOfSalePageInner() {
       // Clear the Zustand cart
       clearCart();
     },
-    [storeId, clearCart]
+    // The three setters are stable by React's contract, so listing them changes
+    // nothing at runtime — but React Compiler will not optimise a callback whose
+    // inferred dependencies it cannot match against the written ones, and it was
+    // skipping this whole component over the omission.
+    [storeId, clearCart, setShowPayment, setReceiptData, setShowReceipt]
   );
 
   // Not a shop. Show why and where to go, instead of a till that cannot complete
@@ -275,6 +314,33 @@ function PointOfSalePageInner() {
             {itemCount} items in cart
           </Badge>
         </div>
+
+        {/* A customer paid at this counter and got no bill. Loud, because the
+            alternative is that nobody ever finds out. */}
+        {unsettledCount > 0 && (
+          <Card className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/20">
+            <CardContent className="flex flex-col sm:flex-row sm:items-center gap-3 py-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
+              <div className="flex-1 text-sm">
+                <p className="font-medium">
+                  {unsettledCount} payment{unsettledCount === 1 ? '' : 's'} received but not billed
+                  {unsettledValue > 0 && ` — ${formatCurrencyINR(unsettledValue)}`}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  The money is ours and no sale was recorded. Do not take payment again.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="self-start sm:self-auto"
+                onClick={() => router.push('/ims/reports/gateway-payments')}
+              >
+                Review
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main POS Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

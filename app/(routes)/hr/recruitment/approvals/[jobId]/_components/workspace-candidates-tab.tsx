@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   AlertCircle, AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Clock,
   ClipboardCheck, Eye, FileText, Inbox, Loader2, Mail, Phone, Settings, Star,
-  UserPlus, XCircle,
+  Trash2, UserPlus, XCircle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,9 @@ import {
   useApproveCandidate,
   useRejectCandidate,
   useInterviews,
+  usePurgeRejectedApplicant,
 } from '@/hooks/hr/use-recruitment';
+import { Input } from '@/components/ui/input';
 import { useCompleteInterview, useMarkNoShow } from '@/hooks/hr/use-recruitment-interviews';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
@@ -53,17 +55,22 @@ import { useStartOnboarding } from '@/hooks/hr/use-recruitment';
 import {
   CANDIDATE_STATUS_LABELS,
   INTERVIEW_MODE_LABELS,
-  type CandidateStatus,
   type HRJobApplication,
   type HRRecruitmentCandidate,
   type HRRecruitmentInterview,
 } from '@/types/hr-recruitment';
+import {
+  CHIP_ORDER,
+  STAGE_META,
+  applicationStage,
+  candidateStage,
+  stageMeta,
+  type StageKey,
+} from './stage-model';
 
 // ---- Unified stage model -------------------------------------------------------------
-
-type StageKey =
-  | 'pending' | 'reviewed' | 'shortlisted' | 'in_approval'
-  | 'approved' | 'joined' | 'rejected' | 'closed';
+// StageKey, STAGE_META and the two status mappers live in ./stage-model so the
+// mapping can be unit-tested without mounting this tab.
 
 interface UnifiedRow {
   key: string;
@@ -77,29 +84,6 @@ interface UnifiedRow {
   stage: StageKey;
   app: HRJobApplication | null;
   candidate: HRRecruitmentCandidate | null;
-}
-
-const STAGE_META: Record<StageKey, { label: string; badge: string }> = {
-  pending:     { label: 'Pending Review', badge: 'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300' },
-  reviewed:    { label: 'Reviewed',       badge: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-300' },
-  shortlisted: { label: 'Shortlisted',    badge: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-950/60 dark:text-amber-300' },
-  in_approval: { label: 'In Approval',    badge: 'border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300' },
-  approved:    { label: 'Approved',       badge: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' },
-  joined:      { label: 'Joined',         badge: 'border-emerald-300 bg-emerald-100 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200' },
-  rejected:    { label: 'Rejected',       badge: 'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/60 dark:text-red-300' },
-  closed:      { label: 'Closed',         badge: 'border-slate-300 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400' },
-};
-
-const CHIP_ORDER: (StageKey | 'all')[] = [
-  'all', 'pending', 'reviewed', 'shortlisted', 'in_approval', 'approved', 'joined', 'rejected', 'closed',
-];
-
-function candidateStage(status: CandidateStatus): StageKey {
-  if (status === 'submitted' || status === 'pending_approval') return 'in_approval';
-  if (status === 'approved' || status === 'package_fixed' || status === 'offer_issued') return 'approved';
-  if (status === 'joined') return 'joined';
-  if (status === 'rejected') return 'rejected';
-  return 'closed'; // withdrawn | offer_rescinded | no_show
 }
 
 const fmtExp = (months: number | null) => {
@@ -162,7 +146,9 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
         experienceMonths: a.experience_months,
         resumeUrl: a.resume_url,
         submittedAt: a.submitted_at,
-        stage: cand ? candidateStage(cand.status) : (a.status as StageKey),
+        // No cast here: application statuses are NOT a subset of StageKey
+        // ('promoted' has no StageKey), so this must go through the mapper.
+        stage: cand ? candidateStage(cand.status) : applicationStage(a.status),
         app: a,
         candidate: cand,
       };
@@ -301,7 +287,8 @@ function CandidateRow({
   alumniSignal: Parameters<typeof AlumniSignalLine>[0]['signal'];
 }) {
   const { app, candidate } = row;
-  const meta = STAGE_META[row.stage];
+  // Defence in depth: a bad stage must not take the whole page down.
+  const meta = stageMeta(row.stage);
   const exp = fmtExp(row.experienceMonths);
 
   return (
@@ -503,6 +490,7 @@ function RowActions({
   const rejectCandidate = useRejectCandidate();
   const completeInterview = useCompleteInterview();
   const markNoShow = useMarkNoShow();
+  const purge = usePurgeRejectedApplicant();
 
   // Dialog state
   const [rejectAppOpen, setRejectAppOpen] = useState(false);
@@ -517,6 +505,8 @@ function RowActions({
   const [outcomeOpen, setOutcomeOpen] = useState(false);
   const [outcomeSummary, setOutcomeSummary] = useState('');
   const [onboardOpen, setOnboardOpen] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState('');
 
   // ---- Screening actions (application not yet promoted) ----
   const screening = app && !candidate;
@@ -686,6 +676,32 @@ function RowActions({
     }
   };
 
+  // ---- Permanent delete (super admin, rejected rows only) ----
+  // Covers both rejections: a screening-rejected application and a candidate
+  // rejected inside the pipeline. The server follows the link between them, so
+  // sending either id erases the whole person. Server re-checks both conditions.
+  const canPurge = isSuperAdmin && row.stage === 'rejected';
+  const purgeArmed = purgeConfirm.trim().toUpperCase() === 'DELETE';
+
+  const handlePurge = async () => {
+    if (!purgeArmed) return;
+    try {
+      const result = await purge.mutateAsync(
+        app ? { applicationId: app.id } : { candidateId: candidate!.id },
+      );
+      toast.success(`${row.name} permanently deleted`, {
+        description:
+          result.resumes_failed > 0
+            ? 'All records removed, but the resume could not be deleted from Drive — it has been logged for cleanup.'
+            : 'Application, candidacy and resume have been erased.',
+      });
+      setPurgeOpen(false);
+      setPurgeConfirm('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
   return (
     <div className="flex flex-col items-stretch gap-1 shrink-0 w-full sm:w-auto sm:min-w-[130px]">
       {/* Screening stage */}
@@ -834,6 +850,19 @@ function RowActions({
         >
           <UserPlus className="h-3.5 w-3.5" />
           Onboard to Staff
+        </Button>
+      )}
+
+      {/* Rejected → super admin may erase the person entirely */}
+      {canPurge && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="w-full justify-start gap-1.5 text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+          onClick={() => { setPurgeConfirm(''); setPurgeOpen(true); }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete Permanently
         </Button>
       )}
 
@@ -1060,6 +1089,60 @@ function RowActions({
               onClick={handleRejectCandidate}
             >
               {rejectCandidate.isPending ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent delete — irreversible, so it asks for a typed confirmation */}
+      <Dialog open={purgeOpen} onOpenChange={(o) => { if (!o) { setPurgeOpen(false); setPurgeConfirm(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Delete {row.name} permanently
+            </DialogTitle>
+            <DialogDescription>
+              This erases every record of this person. It cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <span className="block font-medium">The following will be destroyed:</span>
+              <ul className="mt-1 list-disc pl-4 space-y-0.5 text-xs">
+                <li>Application details — name, email, phone, qualification, experience</li>
+                {candidate && <li>Candidacy and its full approval history</li>}
+                {candidate && <li>Interviews, scorecards, salary packages and comments</li>}
+                {row.resumeUrl && <li>The resume file in Google Drive</li>}
+              </ul>
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-1.5">
+            <Label htmlFor={`purge-confirm-${row.key}`}>
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm
+            </Label>
+            <Input
+              id={`purge-confirm-${row.key}`}
+              value={purgeConfirm}
+              onChange={(e) => setPurgeConfirm(e.target.value)}
+              placeholder="DELETE"
+              autoComplete="off"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPurgeOpen(false); setPurgeConfirm(''); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!purgeArmed || purge.isPending}
+              onClick={handlePurge}
+            >
+              {purge.isPending ? 'Deleting…' : 'Delete Permanently'}
             </Button>
           </DialogFooter>
         </DialogContent>

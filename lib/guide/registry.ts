@@ -48,7 +48,7 @@ import { GUIDES as RESOURCES_GUIDES, REQUIRES as RESOURCES_REQUIRES } from "../r
 import { GUIDES as VAC_GUIDES, REQUIRES as VAC_REQUIRES } from "../vac/guide/content";
 import { GUIDES as OKR_GUIDES, REQUIRES as OKR_REQUIRES } from "../okr/guide/content";
 import { GUIDES as SCHOOLS_NETWORK_GUIDES, REQUIRES as SCHOOLS_NETWORK_REQUIRES } from "../admission/schools-network/guide/content";
-import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES } from "../foundation/guide/content";
+import { GUIDES as FOUNDATION_GUIDES, REQUIRES as FOUNDATION_REQUIRES, SESSION_LEADER_SECTIONS as FOUNDATION_SESSION_LEADER_SECTIONS } from "../foundation/guide/content";
 import { GUIDES as AUDIT_GUIDES, REQUIRES as AUDIT_REQUIRES } from "../audit/guide/content";
 import { GUIDES as IMPROVEMENT_GUIDES, REQUIRES as IMPROVEMENT_REQUIRES } from "../improvement/guide/content";
 import { GUIDES as CEO_ROUNDS_GUIDES, REQUIRES as CEO_ROUNDS_REQUIRES } from "../ceo-rounds/guide/content";
@@ -993,7 +993,18 @@ export const foundationGuide: ModuleGuide = {
       tagline: FOUNDATION_GUIDES.lanes.coordinator.tagline,
     },
     facilitator: {
-      sections: withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+      // TWO gates in one lane, on purpose. Reviewing a learner's diagnostic and
+      // RUNNING a practice session for a group are different jobs held by
+      // different people: the review sections need foundation.students.view,
+      // while running a session needs foundation.practice.take — and the one
+      // role that actually runs sessions (school_faculty) holds the second and
+      // not the first. Stamping the lane with a single key would have hidden the
+      // session steps from the only person who needs them. Same shape as
+      // auditGuide below: a cross-cutting job scoped by its own key.
+      sections: [
+        ...withRequires(FOUNDATION_GUIDES.lanes.facilitator.sections, FOUNDATION_REQUIRES.facilitator),
+        ...withRequires(FOUNDATION_SESSION_LEADER_SECTIONS, FOUNDATION_REQUIRES.session_leader),
+      ],
       startHere: FOUNDATION_GUIDES.lanes.facilitator.startHere,
       title: FOUNDATION_GUIDES.lanes.facilitator.title,
       tagline: FOUNDATION_GUIDES.lanes.facilitator.tagline,
