@@ -917,6 +917,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
 
+      // ── Shift timings (2026-08-06) ────────────────────────────────────────
+      // Institution x staff-category x weekday working hours, with the
+      // first/second half windows and the morning grace period that biometric
+      // punch evaluation reads. Replaces the retired hr.shifts.* namespace,
+      // whose only key (hr.shifts.view_own) gated a per-employee roster module
+      // that was never used and is now removed.
+      { key: 'hr.shift_timings.view', label: 'View Shift Timing Configuration' },
+      { key: 'hr.shift_timings.manage', label: 'Configure Shift Timings' },
+
       // ── Training sessions & enrolments (2026-08-05) ───────────────────────
       // hr_training_sessions / hr_training_enrollments gate on these five and
       // they were registered nowhere, so the training back office was
@@ -928,7 +937,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.training.edit', label: 'Edit Training Sessions & Enrolments' },
       { key: 'hr.training.delete', label: 'Delete Training Sessions & Enrolments' },
       { key: 'hr.training.enroll', label: 'Enrol People into Training Sessions' },
-      { key: 'hr.shifts.view_own', label: 'View Own Shifts and Swap Requests' },
       { key: 'hr.assets.view_own', label: 'View Own Assigned Assets' },
       { key: 'hr.memos.view_own', label: 'View Own Memos' },
       { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },

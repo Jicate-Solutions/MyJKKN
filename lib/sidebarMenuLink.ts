@@ -444,7 +444,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // other 99 admin pages use, and it is already in the permission catalog
   // (hr.attendance.view_all is NOT — 2 roles carry it undeclared).
   '/hr/attendance/import': 'hr.dashboard.view',
-  '/hr/shifts/my': 'hr.shifts.view_own',
   '/hr/my-assets': 'hr.assets.view_own',
   '/hr/memos/my': 'hr.memos.view_own',
   '/hr/performance-reviews': 'hr.performance_reviews.view_own',
@@ -484,7 +483,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
   '/hr/admin/recruitment-need': 'hr.dashboard.view',
   '/hr/admin/required-documents': 'hr.dashboard.view',
-  '/hr/admin/shift-templates': 'hr.dashboard.view',
+  // Gated on its own key, not the blanket hr.dashboard.view the neighbours use.
+  // The retired /hr/admin/shift-templates rode on hr.dashboard.view while its
+  // writes were hardcoded to is_admin(), which locked out custom roles such as
+  // HR Head that hold every other HR key. hr.shift_timings.manage is declared in
+  // the catalog and granted by 20260806090200_hr_shift_timings_permissions.sql.
+  '/hr/admin/shift-timings': 'hr.shift_timings.manage',
   '/hr/admin/terminations': 'hr.dashboard.view',
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
@@ -2479,7 +2483,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             || pathname.startsWith('/hr/leave/balance')
             || pathname.startsWith('/hr/leave/encashment')
             || pathname.startsWith('/hr/attendance')
-            || pathname.startsWith('/hr/shifts/my')
             || pathname.startsWith('/hr/performance-reviews')
             || pathname.startsWith('/hr/training')
             || pathname.startsWith('/hr/fdp')
@@ -2495,7 +2498,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
             { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
-            { href: '/hr/shifts/my', label: 'My Shifts', active: pathname.startsWith('/hr/shifts/my') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -2607,7 +2609,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
             { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
             { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
-            { href: '/hr/admin/shift-templates', label: 'Shift Templates', active: pathname.startsWith('/hr/admin/shift-templates') },
+            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },

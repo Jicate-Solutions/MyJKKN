@@ -24114,89 +24114,11 @@ REVOKE ALL ON FUNCTION public.get_billing_coverage_learners(
 GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learners(
   uuid, uuid[], text[], uuid, text, boolean, text, integer, integer, uuid[], text, text, text, text) TO authenticated;
 
--- ── Default "Freshers" semester + section A (2026-07-27) ──
--- AFTER INSERT trigger on programs; trigger declaration lives in 04_triggers.sql.
--- Guarantees every program exposes at least one semester and one section, so the
--- modules hanging off them always have a valid target.
---
--- semester_order = 0 / initial_semester = false are load bearing. Both admission
--- course-selection flows auto-pick the FIRST YEAR semester via
--- `find(initial_semester) ?? sorted[0]` and probe `sorted[0].semester_name` with
--- /year/i to classify a program as year- vs semester-based. Claiming the flag --
--- or letting this row reach sorted[0] -- would silently re-route first-year
--- admits and mis-target lateral entry. The frontend filters it out of auto-pick;
--- see lib/constants/semesters.ts.
---
--- SECURITY DEFINER because the sections_insert_admin RLS policy gates on the
--- ACTOR's own institution, so a multi-institution admin creating a program in a
--- secondary institution would hit a silent "no error, just no row" reject.
--- Safe without grants: a function returning `trigger` cannot be called directly.
-CREATE OR REPLACE FUNCTION public.seed_freshers_semester_for_program()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, extensions
-AS $$
-DECLARE
-  v_semester_id uuid;
-BEGIN
-  -- semesters declares these NOT NULL but programs allows them null: no-op on a
-  -- partial hierarchy instead of failing the caller's INSERT with 23502.
-  IF NEW.institution_id IS NULL
-     OR NEW.degree_id IS NULL
-     OR NEW.department_id IS NULL THEN
-    RETURN NEW;
-  END IF;
-
-  -- Seeded regardless of is_active: a program created inactive and activated
-  -- later would otherwise be permanently missing its Freshers row.
-  -- semester_code is varchar(20) and program_id runs to 15 chars, so the
-  -- left(...,14) is load bearing -- without it one program overflows.
-  INSERT INTO semesters (
-    institution_id, degree_id, department_id, program_id,
-    semester_code, semester_name, semester_type,
-    semester_order, initial_semester, terminal_semester, is_active
-  )
-  VALUES (
-    NEW.institution_id, NEW.degree_id, NEW.department_id, NEW.id,
-    upper(left(btrim(NEW.program_id), 14)) || '-FRESH',
-    'Freshers', 'odd', 0, false, false, true
-  )
-  ON CONFLICT ON CONSTRAINT unique_semester_hierarchy DO NOTHING
-  RETURNING id INTO v_semester_id;
-
-  -- ON CONFLICT DO NOTHING suppresses RETURNING; re-read so section A is still
-  -- attached rather than silently skipped.
-  IF v_semester_id IS NULL THEN
-    SELECT id INTO v_semester_id
-    FROM semesters
-    WHERE program_id     = NEW.id
-      AND semester_name  = 'Freshers'
-      AND semester_order = 0;
-  END IF;
-
-  IF v_semester_id IS NULL THEN
-    RETURN NEW;
-  END IF;
-
-  INSERT INTO sections (
-    institution_id, degree_id, department_id, program_id,
-    semester_id, section_name, is_active
-  )
-  VALUES (
-    NEW.institution_id, NEW.degree_id, NEW.department_id, NEW.id,
-    v_semester_id, 'A', true
-  )
-  ON CONFLICT ON CONSTRAINT sections_unique_per_semester DO NOTHING;
-
-  RETURN NEW;
-END;
-$$;
-
-COMMENT ON FUNCTION public.seed_freshers_semester_for_program() IS
-  'AFTER INSERT trigger on programs: seeds the default "Freshers" semester (semester_order = 0, initial_semester = false) and its section "A". No-ops when the program hierarchy is incomplete. SECURITY DEFINER because sections_insert_admin binds to the actor''s own institution.';
-
-NOTIFY pgrst, 'reload schema';
+-- Default "Freshers" semester + section A (2026-07-27): REMOVED 2026-08-05
+-- (mig 20260805112640_freshers_drop_seed_trigger). The holding pen was retired --
+-- seed_freshers_semester_for_program() and its programs_seed_freshers trigger are
+-- dropped. First-year admits now go straight to the program first real term,
+-- identified by initial_semester on every active program (mig 20260805112546).
 
 -- Receipt void mechanics WITHOUT authorization (mig 20260729_receipt_
 -- cancellation_approval). Extracted so the direct-void RPC and the cancellation
@@ -26904,3 +26826,324 @@ END $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_auto_allocate_classic(text, uuid, boolean, uuid, uuid, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_auto_allocate_classic(text, uuid, boolean, uuid, uuid, uuid) TO authenticated, service_role;
+
+
+-- =====================================================================
+-- hr_shift_timings — resolver, coverage and atomic week-save RPCs
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_resolve_shift_timing(
+  p_staff_id uuid,
+  p_date     date
+)
+RETURNS TABLE (
+  timing_id uuid,
+  institution_id uuid,
+  staff_scope text,
+  employment_category_id uuid,
+  day_of_week smallint,
+  is_working_day boolean,
+  first_half_start time,
+  first_half_end time,
+  second_half_start time,
+  second_half_end time,
+  grace_minutes integer,
+  grace_deadline time,
+  matched_by text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_institution_id uuid;
+  v_category_id    uuid;
+  v_is_teaching    boolean;
+  v_dow            smallint;
+  v_second_sat     boolean;
+BEGIN
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR EXISTS (SELECT 1 FROM public.staff s
+                WHERE s.id = p_staff_id AND s.profile_id = auth.uid())
+    OR (public.user_has_permission('hr.shift_timings.view')
+        AND EXISTS (SELECT 1 FROM public.staff s
+                     WHERE s.id = p_staff_id
+                       AND public.role_has_institution_access(s.institution_id)))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to resolve shift timing for this staff member'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT s.institution_id, s.category_id, ec.is_teaching
+    INTO v_institution_id, v_category_id, v_is_teaching
+  FROM public.staff s
+  JOIN public.employment_categories ec ON ec.id = s.category_id
+  WHERE s.id = p_staff_id;
+
+  IF v_institution_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  v_dow := EXTRACT(ISODOW FROM p_date)::smallint;
+  -- Nth Saturday of a month = ceil(day_of_month / 7). The 2nd falls on days 8..14.
+  v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
+
+  RETURN QUERY
+  SELECT
+    t.id,
+    t.institution_id,
+    t.staff_scope,
+    t.employment_category_id,
+    t.day_of_week,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false ELSE t.is_working_day END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_start  END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_end    END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_start END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_end   END,
+    t.grace_minutes,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) OR NOT t.is_working_day THEN NULL
+         ELSE (t.first_half_start + make_interval(mins => t.grace_minutes))::time END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
+         ELSE t.staff_scope END
+  FROM public.hr_shift_timings t
+  WHERE t.institution_id = v_institution_id
+    AND t.day_of_week    = v_dow
+    AND t.is_active
+    AND t.effective_from <= p_date
+    AND (t.effective_until IS NULL OR t.effective_until > p_date)
+    AND (
+         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
+      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
+      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
+    )
+  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,  -- most specific wins
+           t.effective_from DESC
+  LIMIT 1;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_resolve_shift_timing(uuid, date) IS
+  'Resolve the applicable hr_shift_timings row for a staff member on a date. Most-specific-wins (category > teaching/non_teaching), effective-dated, and folds in the second-Saturday rule. Self-authorizing.';
+
+REVOKE ALL ON FUNCTION public.fn_resolve_shift_timing(uuid, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_resolve_shift_timing(uuid, date) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- fn_shift_timing_coverage(institution, date)
+-- One row per employment category actually present in that institution,
+-- with the timing it resolves to. A NULL resolved_timing_id means those
+-- staff have NO timing on that date.
+--
+-- Exists because the data is legitimately uneven — Main Office is 114/114
+-- non-teaching, both schools are 100% teaching — so the UI must be able to
+-- tell "correctly empty" from "misconfigured".
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_shift_timing_coverage(
+  p_institution_id uuid,
+  p_date           date
+)
+RETURNS TABLE (
+  employment_category_id uuid,
+  category_name text,
+  is_teaching boolean,
+  staff_count bigint,
+  resolved_timing_id uuid,
+  resolved_via text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_dow smallint;
+BEGIN
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR ((public.user_has_permission('hr.shift_timings.view')
+         OR public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(p_institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to view shift timing coverage for this institution'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_dow := EXTRACT(ISODOW FROM p_date)::smallint;
+
+  RETURN QUERY
+  WITH cats AS (
+    SELECT ec.id AS cat_id,
+           ec.category_name AS cat_name,
+           ec.is_teaching AS cat_is_teaching,
+           count(s.id) AS cat_staff_count
+    FROM public.staff s
+    JOIN public.employment_categories ec ON ec.id = s.category_id
+    WHERE s.institution_id = p_institution_id
+    GROUP BY ec.id, ec.category_name, ec.is_teaching
+  )
+  SELECT c.cat_id, c.cat_name, c.cat_is_teaching, c.cat_staff_count, t.id, t.staff_scope
+  FROM cats c
+  LEFT JOIN LATERAL (
+    SELECT tt.id, tt.staff_scope
+    FROM public.hr_shift_timings tt
+    WHERE tt.institution_id = p_institution_id
+      AND tt.day_of_week    = v_dow
+      AND tt.is_active
+      AND tt.effective_from <= p_date
+      AND (tt.effective_until IS NULL OR tt.effective_until > p_date)
+      AND (
+           (tt.staff_scope = 'category'     AND tt.employment_category_id = c.cat_id)
+        OR (tt.staff_scope = 'teaching'     AND c.cat_is_teaching)
+        OR (tt.staff_scope = 'non_teaching' AND NOT c.cat_is_teaching)
+      )
+    ORDER BY CASE tt.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
+             tt.effective_from DESC
+    LIMIT 1
+  ) t ON true
+  ORDER BY c.cat_staff_count DESC, c.cat_name;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_shift_timing_coverage(uuid, date) IS
+  'Per-employment-category shift timing coverage for an institution on a date. NULL resolved_timing_id = staff with no timing. Self-authorizing.';
+
+REVOKE ALL ON FUNCTION public.fn_shift_timing_coverage(uuid, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_shift_timing_coverage(uuid, date) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_save_shift_timing_week(
+  p_institution_id         uuid,
+  p_staff_scope            text,
+  p_employment_category_id uuid,
+  p_effective_from         date,
+  p_days                   jsonb
+)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_day      record;
+  v_current  public.hr_shift_timings%ROWTYPE;
+  v_written  integer := 0;
+  v_actor    uuid := auth.uid();
+BEGIN
+  IF NOT (
+       public.is_super_admin()
+    OR public.is_admin()
+    OR (public.user_has_permission('hr.shift_timings.manage')
+        AND public.role_has_institution_access(p_institution_id))
+  ) THEN
+    RAISE EXCEPTION 'Not authorized to configure shift timings for this institution'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_staff_scope NOT IN ('teaching','non_teaching','category') THEN
+    RAISE EXCEPTION 'Invalid staff_scope: %', p_staff_scope USING ERRCODE = '22023';
+  END IF;
+
+  IF (p_staff_scope = 'category') <> (p_employment_category_id IS NOT NULL) THEN
+    RAISE EXCEPTION 'staff_scope=category requires an employment_category_id, and vice versa'
+      USING ERRCODE = '22023';
+  END IF;
+
+  FOR v_day IN
+    SELECT *
+    FROM jsonb_to_recordset(p_days) AS d(
+      day_of_week smallint,
+      is_working_day boolean,
+      first_half_start time,
+      first_half_end time,
+      second_half_start time,
+      second_half_end time,
+      grace_minutes integer,
+      second_saturday_holiday boolean
+    )
+  LOOP
+    SELECT * INTO v_current
+    FROM public.hr_shift_timings t
+    WHERE t.institution_id = p_institution_id
+      AND t.staff_scope    = p_staff_scope
+      AND t.day_of_week    = v_day.day_of_week
+      AND t.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+      AND t.effective_until IS NULL
+      AND t.is_active;
+
+    IF NOT FOUND THEN
+      INSERT INTO public.hr_shift_timings (
+        institution_id, staff_scope, employment_category_id, day_of_week,
+        is_working_day, first_half_start, first_half_end,
+        second_half_start, second_half_end,
+        grace_minutes, second_saturday_holiday, effective_from,
+        created_by, updated_by
+      ) VALUES (
+        p_institution_id, p_staff_scope, p_employment_category_id, v_day.day_of_week,
+        v_day.is_working_day, v_day.first_half_start, v_day.first_half_end,
+        v_day.second_half_start, v_day.second_half_end,
+        COALESCE(v_day.grace_minutes, 0), COALESCE(v_day.second_saturday_holiday, false),
+        p_effective_from, v_actor, v_actor
+      );
+
+    ELSIF p_effective_from <= v_current.effective_from THEN
+      -- Correction: overwrite the live row, keep its effective_from.
+      UPDATE public.hr_shift_timings
+         SET is_working_day          = v_day.is_working_day,
+             first_half_start        = v_day.first_half_start,
+             first_half_end          = v_day.first_half_end,
+             second_half_start       = v_day.second_half_start,
+             second_half_end         = v_day.second_half_end,
+             grace_minutes           = COALESCE(v_day.grace_minutes, 0),
+             second_saturday_holiday = COALESCE(v_day.second_saturday_holiday, false),
+             updated_by              = v_actor
+       WHERE id = v_current.id;
+
+    ELSE
+      -- Scheduled change: close the live row, then insert its successor.
+      -- Order matters — the partial unique index forbids two live rows.
+      UPDATE public.hr_shift_timings
+         SET effective_until = p_effective_from,
+             updated_by      = v_actor
+       WHERE id = v_current.id;
+
+      INSERT INTO public.hr_shift_timings (
+        institution_id, staff_scope, employment_category_id, day_of_week,
+        is_working_day, first_half_start, first_half_end,
+        second_half_start, second_half_end,
+        grace_minutes, second_saturday_holiday, effective_from,
+        created_by, updated_by
+      ) VALUES (
+        p_institution_id, p_staff_scope, p_employment_category_id, v_day.day_of_week,
+        v_day.is_working_day, v_day.first_half_start, v_day.first_half_end,
+        v_day.second_half_start, v_day.second_half_end,
+        COALESCE(v_day.grace_minutes, 0), COALESCE(v_day.second_saturday_holiday, false),
+        p_effective_from, v_actor, v_actor
+      );
+    END IF;
+
+    v_written := v_written + 1;
+  END LOOP;
+
+  RETURN v_written;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) IS
+  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). Corrections update in place; a future effective_from closes the live rows and inserts successors. Self-authorizing on hr.shift_timings.manage.';
+
+REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
