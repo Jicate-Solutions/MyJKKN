@@ -55,9 +55,75 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const search = (searchParams.get('search') || '').trim();
+    const scope = searchParams.get('scope') || 'all';
+    const termId = searchParams.get('term_id') || '';
 
-    // Step 3: Service-role read (bypasses profiles RLS for this picker) ...
     const supabase = createServiceRoleClient();
+
+    // Step 3a: Executive seats are filled by ELECTION FROM the sitting council
+    // (ElectionType 'executive_rotation' — "Current LC members can self-nominate
+    // for executive positions", selection-service.ts). A learner becomes an LC
+    // member first, and only then is elected to one of the 4 executive seats.
+    // So when the caller is filling an executive seat we narrow the pool to the
+    // active members of that term rather than every learner.
+    if (scope === 'lc_members') {
+      if (!termId) {
+        return NextResponse.json({ options: [] }, { status: 200 });
+      }
+
+      const { data: memberRows, error: memberError } = await supabase
+        .from('lc_members')
+        .select('user_id, institution_id, user:profiles!user_id(id, full_name, email)')
+        .eq('status', 'active')
+        .eq('term_id', termId);
+
+      if (memberError) {
+        console.error(
+          '[learners-council/pickers/people] member query failed:',
+          memberError.message
+        );
+        return NextResponse.json({ error: 'Failed to load council members' }, { status: 500 });
+      }
+
+      const allowedInstitutions =
+        filter.isSuperAdmin || filter.institutionIds.length === 0
+          ? null
+          : new Set(filter.institutionIds);
+
+      const needle = search.toLowerCase();
+      const options = (memberRows || [])
+        .map((row) => {
+          const person = (row as unknown as { user: PeoplePickerRow | null }).user;
+          const institutionId = (row as unknown as { institution_id: string | null })
+            .institution_id;
+          return { person, institutionId };
+        })
+        .filter(({ person, institutionId }) => {
+          if (!person) return false;
+          // Re-impose the SAME institution scope used everywhere else.
+          if (allowedInstitutions && !allowedInstitutions.has(institutionId || '')) {
+            return false;
+          }
+          if (!needle) return true;
+          return (
+            (person.full_name || '').toLowerCase().includes(needle) ||
+            (person.email || '').toLowerCase().includes(needle)
+          );
+        })
+        .map(({ person }) => ({
+          value: person!.id,
+          label: (person!.full_name || person!.email || person!.id.slice(0, 8)).trim(),
+          sublabel: person!.full_name && person!.email ? person!.email : null,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+
+      return NextResponse.json(
+        { options },
+        { status: 200, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    // Step 3b: Default pool — every active person in the caller's scope.
     let query = supabase
       .from('profiles')
       .select('id, full_name, email, institution_id')
