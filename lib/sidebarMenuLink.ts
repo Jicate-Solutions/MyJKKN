@@ -789,6 +789,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -2784,6 +2785,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
             { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
           ]
         }
       ]

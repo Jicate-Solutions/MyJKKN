@@ -8569,3 +8569,54 @@ CREATE POLICY hr_shift_timings_delete ON public.hr_shift_timings
         AND (SELECT public.user_has_permission('hr.shift_timings.manage'))
         AND public.role_has_institution_access(institution_id))
   );
+
+-- BILLING_LATE_CHARGES TABLE (4 policies)
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql — FILE
+-- ONLY, apply is Director-gated). Platform-wide late-payment charge ledger;
+-- mechanism OFF by default (billing.late_charge.enabled = false).
+-- CREATE TABLE never enables RLS; do it explicitly, and close the anon door
+-- Supabase's default privileges opened.
+ALTER TABLE public.billing_late_charges ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.billing_late_charges FROM anon, PUBLIC;
+
+-- Admin read: permission + institution scope. Learner read: her own rows only,
+-- resolved the same two ways the live bills policies resolve a learner
+-- (profiles.learner_id linkage OR the email join).
+DROP POLICY IF EXISTS late_charges_select_scoped ON public.billing_late_charges;
+CREATE POLICY late_charges_select_scoped ON public.billing_late_charges
+    FOR SELECT USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('billing.late_charges.view')
+            AND role_has_institution_access(institution_id))
+        OR student_id IN (
+            SELECT lp.id
+            FROM learners_profiles lp
+            JOIN profiles p ON p.id = auth.uid()
+            WHERE lp.id = p.learner_id
+               OR p.email IN (lp.student_email, lp.college_email)
+        )
+    );
+
+DROP POLICY IF EXISTS late_charges_insert_admin ON public.billing_late_charges;
+CREATE POLICY late_charges_insert_admin ON public.billing_late_charges
+    FOR INSERT WITH CHECK (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('billing.late_charges.manage')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS late_charges_update_admin ON public.billing_late_charges;
+CREATE POLICY late_charges_update_admin ON public.billing_late_charges
+    FOR UPDATE USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('billing.late_charges.manage')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS late_charges_delete_admin ON public.billing_late_charges;
+CREATE POLICY late_charges_delete_admin ON public.billing_late_charges
+    FOR DELETE USING (
+        is_super_admin()
+        OR (user_has_permission('billing.late_charges.manage')
+            AND role_has_institution_access(institution_id))
+    );

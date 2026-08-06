@@ -27147,3 +27147,485 @@ COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jso
 
 REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
+
+-- =============================================================================
+-- LATE PAYMENT CHARGE MECHANISM (2026-08-07)
+-- Source: supabase/migrations/20260815010000_late_charge_mechanism.sql
+-- (FILE ONLY — apply is Director-gated). Four SECURITY DEFINER functions,
+-- byte-identical to the migration. The mechanism is OFF by default
+-- (billing.late_charge.enabled = false in platform_policies).
+-- =============================================================================
+-- -----------------------------------------------------------------------------
+-- 4a. fn_late_charge_preview — read-only, per-bill "what would be charged
+--     today". Powers the admin dry-run page AND the warning preview (who would
+--     be messaged). WRITES NOTHING; works while the master switch is OFF —
+--     that is the point of a preview.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_late_charge_preview()
+RETURNS TABLE (
+  bill_id uuid,
+  student_id uuid,
+  learner_name text,
+  institution_id uuid,
+  bill_description text,
+  due_date date,
+  months_overdue integer,
+  balance_amount numeric,
+  would_charge numeric,
+  total_would_owe numeric
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_is_admin boolean;
+  v_rate numeric;
+  v_compounding boolean;
+  v_grace integer;
+  v_factor numeric;
+BEGIN
+  v_is_admin := is_super_admin() OR is_admin();
+  IF NOT (v_is_admin OR user_has_permission('billing.late_charges.view')) THEN
+    RAISE EXCEPTION 'insufficient privilege: billing.late_charges.view required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- STABLE body: read policies through STABLE fn_get_policy (NOT the
+  -- instrumented fn_get_policy_bool, which is VOLATILE on production).
+  v_rate        := COALESCE((fn_get_policy('billing.late_charge.rate_percent_per_month'))::numeric, 10);
+  v_compounding := COALESCE((fn_get_policy('billing.late_charge.compounding'))::boolean, true);
+  v_grace       := COALESCE((fn_get_policy('billing.late_charge.grace_days'))::int, 0);
+  v_factor      := 1 + v_rate / 100.0;
+
+  RETURN QUERY
+  WITH eligible AS (
+    SELECT
+      b.id            AS e_bill_id,
+      b.student_id    AS e_student_id,
+      b.institution_id AS e_institution_id,
+      b.bill_description AS e_description,
+      b.due_date      AS e_due_date,
+      b.balance_amount AS e_balance,
+      -- First overdue day is the day AFTER due_date (+ grace). Month 1's charge
+      -- applies from that first day — "starts the day a bill goes overdue".
+      (b.due_date + v_grace + 1) AS e_overdue_start,
+      CASE
+        WHEN current_date < (b.due_date + v_grace + 1) THEN 0
+        ELSE 12 * EXTRACT(YEAR FROM age(current_date, (b.due_date + v_grace + 1)))::int
+           + EXTRACT(MONTH FROM age(current_date, (b.due_date + v_grace + 1)))::int
+           + 1
+      END AS e_months
+    FROM billing_student_bills b
+    WHERE b.status IN ('unpaid', 'partially_paid')
+      AND b.balance_amount > 0
+      AND b.due_date + v_grace < current_date
+      -- Never accrue on penalty bills themselves: the compounding formula
+      -- already carries month-on-month growth; charging the charge would
+      -- double-count it.
+      AND NOT EXISTS (
+        SELECT 1 FROM billing_categories bc
+        WHERE bc.id = b.item_category_id AND bc.kind = 'penalty'
+      )
+      AND (v_is_admin OR role_has_institution_access(b.institution_id))
+  )
+  SELECT
+    e.e_bill_id,
+    e.e_student_id,
+    TRIM(lp.first_name || ' ' || COALESCE(lp.last_name, '')),
+    e.e_institution_id,
+    e.e_description,
+    e.e_due_date,
+    e.e_months,
+    e.e_balance,
+    CASE WHEN v_compounding
+      THEN ROUND(e.e_balance * (POWER(v_factor, e.e_months) - 1), 2)
+      ELSE ROUND(e.e_balance * (v_rate / 100.0) * e.e_months, 2)
+    END,
+    CASE WHEN v_compounding
+      THEN ROUND(e.e_balance * POWER(v_factor, e.e_months), 2)
+      ELSE ROUND(e.e_balance * (1 + (v_rate / 100.0) * e.e_months), 2)
+    END
+  FROM eligible e
+  LEFT JOIN learners_profiles lp ON lp.id = e.e_student_id
+  WHERE e.e_months >= 1
+  ORDER BY 9 DESC;  -- largest would_charge first
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_late_charge_preview() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_late_charge_preview() TO authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 4b. fn_late_charge_derivation — the month-by-month explanation of ONE bill's
+--     late charge. Callable by admins (view permission + institution scope)
+--     AND by the learner who owns the bill.
+--
+--     Computed on the bill's CURRENT outstanding balance for ALL months —
+--     payments reduce every month's base, which is deliberately favourable to
+--     families: paying part of a bill shrinks the whole charge history, never
+--     just the months after the payment.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_late_charge_derivation(p_bill_id uuid)
+RETURNS TABLE (
+  month_number integer,
+  period_start date,
+  period_end date,
+  opening_base numeric,
+  rate_percent numeric,
+  month_charge numeric,
+  cumulative_charge numeric
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_is_admin boolean;
+  v_allowed boolean;
+  v_rate numeric;
+  v_compounding boolean;
+  v_grace integer;
+  v_factor numeric;
+  v_balance numeric;
+  v_overdue_start date;
+  v_months integer;
+BEGIN
+  v_is_admin := is_super_admin() OR is_admin();
+
+  SELECT b.balance_amount,
+         (v_is_admin
+          OR (user_has_permission('billing.late_charges.view')
+              AND role_has_institution_access(b.institution_id))
+          -- The learner who owns the bill — same two linkages as the live
+          -- bills RLS (profiles.learner_id OR the email join), and only for
+          -- categories the learner is allowed to see.
+          OR (
+            b.student_id IN (
+              SELECT lp.id
+              FROM learners_profiles lp
+              JOIN profiles p ON p.id = auth.uid()
+              WHERE lp.id = p.learner_id
+                 OR p.email IN (lp.student_email, lp.college_email)
+            )
+            AND (
+              b.item_category_id IS NULL
+              OR EXISTS (
+                SELECT 1 FROM billing_categories bc
+                WHERE bc.id = b.item_category_id AND bc.visible_to_learners
+              )
+            )
+          ))
+    INTO v_balance, v_allowed
+  FROM billing_student_bills b
+  WHERE b.id = p_bill_id
+    AND b.status IN ('unpaid', 'partially_paid')
+    AND b.balance_amount > 0
+    AND NOT EXISTS (
+      SELECT 1 FROM billing_categories bc
+      WHERE bc.id = b.item_category_id AND bc.kind = 'penalty'
+    );
+
+  -- Unknown bill, settled bill, penalty bill, or no right to see it:
+  -- return no rows rather than leaking that the bill exists.
+  IF v_balance IS NULL OR NOT COALESCE(v_allowed, false) THEN
+    RETURN;
+  END IF;
+
+  v_rate        := COALESCE((fn_get_policy('billing.late_charge.rate_percent_per_month'))::numeric, 10);
+  v_compounding := COALESCE((fn_get_policy('billing.late_charge.compounding'))::boolean, true);
+  v_grace       := COALESCE((fn_get_policy('billing.late_charge.grace_days'))::int, 0);
+  v_factor      := 1 + v_rate / 100.0;
+
+  SELECT b.due_date + v_grace + 1 INTO v_overdue_start
+  FROM billing_student_bills b WHERE b.id = p_bill_id;
+
+  IF current_date < v_overdue_start THEN
+    RETURN;  -- not overdue yet (grace window) — no months, no charge
+  END IF;
+
+  v_months := 12 * EXTRACT(YEAR FROM age(current_date, v_overdue_start))::int
+            + EXTRACT(MONTH FROM age(current_date, v_overdue_start))::int
+            + 1;
+
+  RETURN QUERY
+  SELECT
+    gs.k,
+    (v_overdue_start + make_interval(months => gs.k - 1))::date,
+    ((v_overdue_start + make_interval(months => gs.k))::date - 1),
+    CASE WHEN v_compounding
+      THEN ROUND(v_balance * POWER(v_factor, gs.k - 1), 2)
+      ELSE v_balance
+    END,
+    v_rate,
+    CASE WHEN v_compounding
+      THEN ROUND(v_balance * (POWER(v_factor, gs.k) - POWER(v_factor, gs.k - 1)), 2)
+      ELSE ROUND(v_balance * (v_rate / 100.0), 2)
+    END,
+    CASE WHEN v_compounding
+      THEN ROUND(v_balance * (POWER(v_factor, gs.k) - 1), 2)
+      ELSE ROUND(v_balance * (v_rate / 100.0) * gs.k, 2)
+    END
+  FROM generate_series(1, v_months) gs(k);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_late_charge_derivation(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_late_charge_derivation(uuid) TO authenticated;
+
+-- -----------------------------------------------------------------------------
+-- 4c. fn_late_charge_accrue — the ONLY writer. Idempotent on
+--     UNIQUE (bill_id, period_start). Dry-run by default; the live path is
+--     quadruple-gated: caller privilege + master switch + effective_from set
+--     + effective_from reached. Defense in depth — even a live call with the
+--     switch off RAISEs.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_late_charge_accrue(p_dry_run boolean DEFAULT true)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_rate numeric;
+  v_compounding boolean;
+  v_grace integer;
+  v_factor numeric;
+  v_effective_raw text;
+  v_effective date;
+  v_penalty_cat uuid;
+  v_bills bigint := 0;
+  v_rows bigint := 0;
+  v_total numeric := 0;
+  v_inserted bigint := 0;
+  v_penalty_bills bigint := 0;
+  r RECORD;
+  v_new_bill uuid;
+BEGIN
+  -- Caller gate: the cron route (service role), a super admin, or a holder of
+  -- billing.late_charges.manage. Inside SECURITY DEFINER current_user is the
+  -- owner for everyone, so the PostgREST end-user signal is auth.role() and the
+  -- direct-SQL signal (Director via Management API / psql) is session_user not
+  -- being the PostgREST 'authenticator' pool role.
+  IF NOT (
+    COALESCE(auth.role(), '') = 'service_role'
+    OR session_user <> 'authenticator'
+    OR is_super_admin()
+    OR user_has_permission('billing.late_charges.manage')
+  ) THEN
+    RAISE EXCEPTION 'insufficient privilege: billing.late_charges.manage required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Master switch — spec-mandated fn_get_policy_bool read (VOLATILE is fine
+  -- here, this function is VOLATILE).
+  IF NOT fn_get_policy_bool('billing.late_charge.enabled', false) THEN
+    RAISE EXCEPTION 'late-payment charge is disabled (billing.late_charge.enabled = false) — nothing accrued';
+  END IF;
+
+  v_effective_raw := NULLIF(TRIM(fn_get_policy_text('billing.late_charge.effective_from', '')), '');
+  IF v_effective_raw IS NULL THEN
+    RAISE EXCEPTION 'billing.late_charge.effective_from is not set — the Director must set the start date before any accrual';
+  END IF;
+  v_effective := v_effective_raw::date;
+  IF current_date < v_effective THEN
+    RAISE EXCEPTION 'late-payment charge takes effect % — refusing to accrue before then', v_effective;
+  END IF;
+
+  SELECT id INTO v_penalty_cat
+  FROM billing_categories
+  WHERE kind = 'penalty'::billing_category_kind AND is_active
+  ORDER BY created_at
+  LIMIT 1;
+  IF v_penalty_cat IS NULL THEN
+    RAISE EXCEPTION 'no active penalty billing category found';
+  END IF;
+
+  v_rate        := fn_get_policy_int('billing.late_charge.rate_percent_per_month', 10);
+  v_compounding := fn_get_policy_bool('billing.late_charge.compounding', true);
+  v_grace       := fn_get_policy_int('billing.late_charge.grace_days', 0);
+  v_factor      := 1 + v_rate / 100.0;
+
+  -- Everything that WOULD be inserted today: each eligible overdue bill ×
+  -- each monthly period since it went overdue, minus periods already ledgered.
+  -- DROP first: a dry-run and a live call in the SAME transaction would
+  -- otherwise collide on the temp table.
+  DROP TABLE IF EXISTS _late_charge_candidates;
+  CREATE TEMP TABLE _late_charge_candidates ON COMMIT DROP AS
+  WITH eligible AS (
+    SELECT
+      b.id AS bill_id,
+      b.student_id,
+      b.institution_id,
+      b.academic_year_id,
+      b.bill_description,
+      b.balance_amount,
+      (b.due_date + v_grace + 1) AS overdue_start,
+      12 * EXTRACT(YEAR FROM age(current_date, (b.due_date + v_grace + 1)))::int
+        + EXTRACT(MONTH FROM age(current_date, (b.due_date + v_grace + 1)))::int
+        + 1 AS months_overdue
+    FROM billing_student_bills b
+    WHERE b.status IN ('unpaid', 'partially_paid')
+      AND b.balance_amount > 0
+      AND b.due_date + v_grace < current_date
+      AND NOT EXISTS (
+        SELECT 1 FROM billing_categories bc
+        WHERE bc.id = b.item_category_id AND bc.kind = 'penalty'
+      )
+  ),
+  periods AS (
+    SELECT
+      e.*,
+      gs.k,
+      (e.overdue_start + make_interval(months => gs.k - 1))::date AS period_start,
+      ((e.overdue_start + make_interval(months => gs.k))::date - 1) AS period_end,
+      CASE WHEN v_compounding
+        THEN ROUND(e.balance_amount * POWER(v_factor, gs.k - 1), 2)
+        ELSE e.balance_amount
+      END AS base_amount,
+      CASE WHEN v_compounding
+        THEN ROUND(e.balance_amount * (POWER(v_factor, gs.k) - POWER(v_factor, gs.k - 1)), 2)
+        ELSE ROUND(e.balance_amount * (v_rate / 100.0), 2)
+      END AS charge_amount
+    FROM eligible e
+    CROSS JOIN LATERAL generate_series(1, e.months_overdue) gs(k)
+  )
+  SELECT p.*
+  FROM periods p
+  WHERE NOT EXISTS (
+    SELECT 1 FROM billing_late_charges c
+    WHERE c.bill_id = p.bill_id AND c.period_start = p.period_start
+  );
+
+  SELECT COUNT(DISTINCT bill_id), COUNT(*), COALESCE(SUM(charge_amount), 0)
+    INTO v_bills, v_rows, v_total
+  FROM _late_charge_candidates;
+
+  IF p_dry_run THEN
+    RETURN jsonb_build_object(
+      'dry_run', true,
+      'bills_examined', v_bills,
+      'charge_rows_would_insert', v_rows,
+      'total_charge', v_total
+    );
+  END IF;
+
+  -- LIVE PATH. Conflict target matches uq_billing_late_charges_bill_period
+  -- exactly (bill_id, period_start) — the idempotency contract.
+  INSERT INTO billing_late_charges
+    (bill_id, student_id, institution_id, period_start, period_end,
+     base_amount, charge_amount, status)
+  SELECT bill_id, student_id, institution_id, period_start, period_end,
+         base_amount, charge_amount, 'pending'
+  FROM _late_charge_candidates
+  ON CONFLICT (bill_id, period_start) DO NOTHING;
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+
+  -- Bill every pending, un-billed charge row through the penalty category.
+  FOR r IN
+    SELECT c.id, c.bill_id, c.student_id, c.institution_id, c.period_start,
+           c.period_end, c.charge_amount, b.bill_description, b.academic_year_id
+    FROM billing_late_charges c
+    JOIN billing_student_bills b ON b.id = c.bill_id
+    WHERE c.status = 'pending' AND c.penalty_bill_id IS NULL
+  LOOP
+    INSERT INTO billing_student_bills
+      (student_id, institution_id, item_category_id, bill_description, due_date,
+       quantity, unit_amount, total_amount, tax_amount, final_amount,
+       balance_amount, status, academic_year_id)
+    VALUES
+      (r.student_id, r.institution_id, v_penalty_cat,
+       'Late payment charge — ' || r.bill_description
+         || ' (' || to_char(r.period_start, 'DD Mon YYYY')
+         || ' to ' || to_char(r.period_end, 'DD Mon YYYY') || ')',
+       current_date, 1, r.charge_amount, r.charge_amount, 0, r.charge_amount,
+       r.charge_amount, 'unpaid', r.academic_year_id)
+    RETURNING id INTO v_new_bill;
+
+    UPDATE billing_late_charges
+       SET status = 'charged', penalty_bill_id = v_new_bill, updated_at = now()
+     WHERE id = r.id;
+
+    v_penalty_bills := v_penalty_bills + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'dry_run', false,
+    'bills_examined', v_bills,
+    'charge_rows_inserted', v_inserted,
+    'penalty_bills_created', v_penalty_bills,
+    'total_charge', v_total
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_late_charge_accrue(boolean) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_late_charge_accrue(boolean) TO authenticated, service_role;
+
+-- -----------------------------------------------------------------------------
+-- 4d. fn_late_charge_waive — Director-only in practice: requires
+--     billing.late_charges.waive, which this PR grants to NO role, so only the
+--     super-admin bypass (the Director) can call it today. Always records the
+--     approver and the reason; cancels the linked penalty bill if one exists.
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_late_charge_waive(p_late_charge_id uuid, p_reason text)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_row billing_late_charges%ROWTYPE;
+  v_penalty_cancelled boolean := false;
+BEGIN
+  IF NOT (is_super_admin() OR user_has_permission('billing.late_charges.waive')) THEN
+    RAISE EXCEPTION 'insufficient privilege: billing.late_charges.waive required'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NULLIF(TRIM(COALESCE(p_reason, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'a waiver reason is required — waivers are always recorded with who and why';
+  END IF;
+
+  UPDATE billing_late_charges
+     SET status = 'waived',
+         waived_by = auth.uid(),
+         waived_at = now(),
+         waiver_reason = TRIM(p_reason),
+         updated_at = now()
+   WHERE id = p_late_charge_id
+     AND status <> 'waived'
+  RETURNING * INTO v_row;
+
+  IF v_row.id IS NULL THEN
+    RAISE EXCEPTION 'late charge % not found or already waived', p_late_charge_id;
+  END IF;
+
+  -- Cancel the linked penalty bill unless it has already been fully paid —
+  -- a paid penalty needs a refund decision, which is a human call, not this
+  -- function's.
+  IF v_row.penalty_bill_id IS NOT NULL THEN
+    UPDATE billing_student_bills
+       SET status = 'cancelled', balance_amount = 0, updated_at = now()
+     WHERE id = v_row.penalty_bill_id
+       AND status IN ('unpaid', 'partially_paid');
+    v_penalty_cancelled := FOUND;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'waived', true,
+    'late_charge_id', v_row.id,
+    'waived_by', v_row.waived_by,
+    'waived_at', v_row.waived_at,
+    'penalty_bill_id', v_row.penalty_bill_id,
+    'penalty_bill_cancelled', v_penalty_cancelled
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_late_charge_waive(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_late_charge_waive(uuid, text) TO authenticated;
