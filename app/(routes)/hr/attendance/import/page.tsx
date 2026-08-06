@@ -65,11 +65,11 @@ export default function ImportBiometricPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <ul className="space-y-1.5 text-sm text-muted-foreground">
-              <li>• File type: <code className="rounded bg-muted px-1">.xlsx</code> (sheet &ldquo;Attendance Import&rdquo;).</li>
-              <li>• Columns: Employee&nbsp;Id · Employee&nbsp;Name · Biometric&nbsp;Integration&nbsp;Id · Date/Time.</li>
-              <li>• Each row is one punch; the earliest/latest per day become in/out.</li>
-              <li>• Only <strong>faculty</strong> and <strong>HOD</strong> are loaded; others are listed and skipped.</li>
-              <li>• Biometric is the system of record — a real punch always wins over a reconciled day.</li>
+              <li>• Upload the machine&rsquo;s <strong>Monthly Performance Report</strong> unchanged — <code className="rounded bg-muted px-1">.xls</code> or <code className="rounded bg-muted px-1">.xlsx</code>.</li>
+              <li>• The machine must be configured with <strong>Dept.&nbsp;Name</strong> = institution code and <strong>CompName</strong> = institution name.</li>
+              <li>• Unlinked enrolment codes are caught during the upload — the wizard offers a <strong>Link codes</strong> step so you never upload the file twice.</li>
+              <li>• Present / half day / absent is <strong>recomputed from IN and OUT</strong> against the configured shift timings; the machine&rsquo;s own P/A is stored beside it, never in place of it.</li>
+              <li>• Re-importing the same month overwrites cleanly — biometric is the system of record.</li>
             </ul>
 
             <div className="flex flex-wrap gap-2">
@@ -88,10 +88,9 @@ export default function ImportBiometricPage() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              The template carries the exact column layout plus a{' '}
-              <strong>Valid Employee Ids</strong> sheet listing every staff code the importer can
-              match — the commonest cause of a failed import is a device export whose Employee Id
-              does not match the one held in MyJKKN.
+              The sample shows the exact layout the parser expects, documents the two fields to set
+              on the machine, and lists every enrolment code currently linked to a staff member — so
+              a mismatch can be spotted before an import rather than after.
             </p>
           </CardContent>
         </Card>

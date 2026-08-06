@@ -3,66 +3,40 @@ export const dynamic = 'force-dynamic';
 // ============================================================================
 // GET /api/hr/attendance/import/template
 // ----------------------------------------------------------------------------
-// Downloadable .xlsx template for the biometric punch importer.
+// A worked sample of the format the importer reads — the machine's own
+// "Monthly Performance Report", not a shape we invented. HR should upload the
+// device file unchanged; this exists to show what "unchanged" must look like,
+// and to document the two fields that have to be configured on the machine.
+// Plan: docs/superpowers/plans/2026-08-06-biometric-attendance-ingestion.md
 //
-// Three sheets:
-//   1. "Attendance Import"  — the sheet the importer actually reads. Headers in
-//      the exact positions the parser expects, plus sample rows showing that one
-//      row = one punch (several punches per person per day is normal).
-//   2. "Instructions"       — column meanings and the rules that decide whether
-//      a row lands.
-//   3. "Valid Employee Ids" — every staff code the importer can match, with
-//      whether it will actually import. This sheet exists because the single
-//      biggest cause of a failed import is a device export whose Employee Id
-//      does not equal staff.staff_id — the only identity bridge there is.
-//
-// Same admin gate as the importer itself: the Employee-Id sheet is staff PII.
+// Sheet 3 lists the enrolment codes currently linked to staff, so a mismatch
+// between machine and MyJKKN can be spotted before an import rather than after.
+// That sheet is staff PII, hence the same admin gate as the importer.
 // ============================================================================
 
 import { NextResponse } from 'next/server';
 import ExcelJS from 'exceljs';
+
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { fetchProfileRoles } from '@/lib/hr/fetch-profile-roles';
 
-const SHEET_NAME = 'Attendance Import';
-const HEADERS = ['Employee Id', 'Employee Name', 'Biometric Integration Id', 'Date/Time'];
-
-const HEADER_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FF2563EB' },
-};
-const SAMPLE_FILL: ExcelJS.Fill = {
-  type: 'pattern',
-  pattern: 'solid',
-  fgColor: { argb: 'FFFFFBEB' },
-};
+const SHEET = 'Monthly_Performance_Report';
+const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+const SAMPLE_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
 
 export async function GET() {
   try {
     const session = await createClient();
-    const {
-      data: { user },
-      error: authErr,
-    } = await session.auth.getUser();
+    const { data: { user }, error: authErr } = await session.auth.getUser();
     if (authErr || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized', message: 'Sign in to download the template.' },
-        { status: 401 },
-      );
+      return NextResponse.json({ error: 'Unauthorized', message: 'Sign in to download the sample.' }, { status: 401 });
     }
-
-    const { data: isAdmin, error: gateErr } = await session.rpc('is_admin');
-    if (gateErr) {
-      console.error('[hr/attendance/import/template] admin gate error:', gateErr);
-      return NextResponse.json({ error: 'Authorization check failed' }, { status: 500 });
-    }
-    if (isAdmin !== true) {
+    const [{ data: isAdmin }, { data: canOverride }] = await Promise.all([
+      session.rpc('is_admin'),
+      session.rpc('user_has_permission', { permission_name: 'hr.attendance.override' }),
+    ]);
+    if (isAdmin !== true && canOverride !== true) {
       return NextResponse.json(
-        {
-          error: 'Forbidden',
-          message: 'Only HR administrators can download the biometric import template.',
-        },
+        { error: 'Forbidden', message: 'You need Override Attendance Records to download this.' },
         { status: 403 },
       );
     }
@@ -71,163 +45,136 @@ export async function GET() {
     wb.creator = 'MyJKKN';
     wb.created = new Date();
 
-    // ---- Sheet 1: the sheet the importer reads ------------------------------
-    const ws = wb.addWorksheet(SHEET_NAME);
-    ws.columns = [
-      { key: 'code', width: 18 },
-      { key: 'name', width: 30 },
-      { key: 'bio', width: 24 },
-      { key: 'dt', width: 24 },
-    ];
+    // ---- Sheet 1: the shape the parser reads --------------------------------
+    const ws = wb.addWorksheet(SHEET);
+    ws.getColumn(1).width = 14;
+    for (let c = 2; c <= 32; c++) ws.getColumn(c).width = 8;
 
-    const header = ws.addRow(HEADERS);
-    header.font = { bold: true, size: 11, name: 'Arial', color: { argb: 'FFFFFFFF' } };
-    header.fill = HEADER_FILL;
-    header.height = 22;
-    header.alignment = { vertical: 'middle' };
+    const blank = (n: number) => Array.from({ length: n }, () => '');
+    const days = Array.from({ length: 31 }, (_, i) => String(i + 1));
+    // 2026-07-01 was a Wednesday.
+    const DOW = ['Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon', 'Tue'];
+    const dows = Array.from({ length: 31 }, (_, i) => DOW[i % 7]);
 
-    // Two people, one with four punches on one day (in / lunch out / lunch in /
-    // out) and one with a single morning punch — both are valid shapes.
-    const samples: Array<[string, string, string, string]> = [
-      ['CET233', 'Manuneethi Arasu', '1042', '12/08/2026 09:03:14'],
-      ['CET233', 'Manuneethi Arasu', '1042', '12/08/2026 13:01:52'],
-      ['CET233', 'Manuneethi Arasu', '1042', '12/08/2026 13:58:07'],
-      ['CET233', 'Manuneethi Arasu', '1042', '12/08/2026 16:35:41'],
-      ['DCH110', 'Mullai T', '2087', '12/08/2026 08:57:02'],
-    ];
-    for (const s of samples) {
-      const r = ws.addRow(s);
-      r.font = { name: 'Arial', size: 10, color: { argb: 'FF1F2937' } };
-      r.fill = SAMPLE_FILL;
-      // Text format on Date/Time so Excel does not silently re-interpret it.
-      r.getCell(4).numFmt = '@';
-    }
+    const addBlock = (code: string, name: string, inT: string, outT: string, work: string) => {
+      const h = ws.addRow(['Dept. Name', '', 'MO', ...blank(8), 'CompName', ...blank(3),
+        'JKKN Main Office', ...blank(10), 'Report Month', '', '', 'July-2026']);
+      h.font = { name: 'Arial', size: 10, bold: true };
 
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: 'A1', to: 'D1' };
+      const m = ws.addRow(['Empcode', '', code, '', '', '', 'Name', '', name, ...blank(6),
+        'Present', '', '27', 'WO', '0', 'Absent', '', '4', 'Total Work', '', '', '212:30', '', 'Total OT', '', '20:50']);
+      m.font = { name: 'Arial', size: 10, bold: true };
 
-    // ---- Sheet 2: instructions ----------------------------------------------
+      ws.addRow(['', ...days]).font = { name: 'Arial', size: 9, bold: true };
+      ws.addRow(['', ...dows]).font = { name: 'Arial', size: 9 };
+
+      const mk = (label: string, val: (i: number) => string) => {
+        const r = ws.addRow(['', ...Array.from({ length: 31 }, (_, i) => val(i))]);
+        r.getCell(1).value = label;
+        r.font = { name: 'Arial', size: 9 };
+        r.fill = SAMPLE_FILL;
+        return r;
+      };
+      // Sundays (index 4, 11, 18, 25) carry no punch.
+      const isSun = (i: number) => dows[i] === 'Sun';
+      mk('IN', (i) => (isSun(i) ? '--:--' : inT));
+      mk('OUT', (i) => (isSun(i) ? '--:--' : outT));
+      mk('WORK', (i) => (isSun(i) ? '00:00' : work));
+      mk('Break', () => '00:00');
+      mk('OT', () => '00:00');
+      mk('Status', (i) => (isSun(i) ? 'A' : 'P'));
+    };
+
+    addBlock('00002', 'Gunasekaran S', '08:58', '17:32', '08:30');
+    addBlock('605', 'Saveetha K', '09:01', '17:30', '08:29');
+
+    ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 0 }];
+
+    // ---- Sheet 2: instructions ---------------------------------------------
     const info = wb.addWorksheet('Instructions');
-    info.columns = [{ width: 26 }, { width: 96 }];
-
-    const addInfo = (a: string, b: string, bold = false) => {
+    info.columns = [{ width: 30 }, { width: 100 }];
+    const title = info.addRow(['Biometric monthly report — how this file is read', '']);
+    title.font = { name: 'Arial', size: 13, bold: true };
+    info.addRow([]);
+    const add = (a: string, b: string, bold = false) => {
       const r = info.addRow([a, b]);
       r.font = { name: 'Arial', size: 10, bold };
       r.alignment = { vertical: 'top', wrapText: true };
-      return r;
     };
 
-    const title = info.addRow(['Biometric punch import — how this file is read', '']);
-    title.font = { name: 'Arial', size: 13, bold: true };
+    add('CONFIGURE THE MACHINE', '', true);
+    add('Dept. Name', 'Set to the institution CODE (MO, DCH, CET, COP, CAS, CNR, AHS, NV, MATRIC, COE, JS). This is how the file says which machine it came from.');
+    add('CompName', 'Set to the institution\'s full name. Used to break a tie when a code is shared — "CAS" belongs to both Arts and Science (Self) and (Aided).');
     info.addRow([]);
 
-    addInfo('Sheet name', `Data must be on a sheet named "${SHEET_NAME}". If absent, the first sheet is used.`);
-    addInfo('Row 1', 'Header row. Always skipped.');
-    addInfo('One row = one punch', 'Do NOT pre-aggregate. Import groups by (Employee Id, date) and keeps the earliest punch as IN and the latest as OUT.');
-    addInfo('File type / size', '.xlsx only. Maximum 10 MB.');
+    add('UPLOAD THE FILE UNCHANGED', '', true);
+    add('Format', 'Either .xls or .xlsx, exactly as the machine exports it. Do not reshape, unmerge or re-sort it.');
+    add('Layout', '10 rows per employee: a Dept. Name row, an Empcode row, a day-number row, a weekday row, then IN / OUT / WORK / Break / OT / Status.');
+    add('Sheet name', `"${SHEET}", or the first sheet if that name is absent.`);
+    add('No punch', 'Printed as --:-- and read as "no punch".');
     info.addRow([]);
 
-    const colHdr = addInfo('COLUMN', 'MEANING', true);
-    colHdr.font = { name: 'Arial', size: 10, bold: true };
-    addInfo('A — Employee Id', 'REQUIRED. Must equal the staff member\'s Employee Id in MyJKKN (staff.staff_id). Matched case-insensitively. A row whose code matches no staff member is reported as "unmatched" and not imported. See the "Valid Employee Ids" sheet.');
-    addInfo('B — Employee Name', 'Optional, display only. NEVER used for matching — device exports carry "Mr."/"Dr." prefixes that do not match MyJKKN records.');
-    addInfo('C — Biometric Integration Id', 'Optional. Currently NOT read by the importer; the column exists so raw device exports paste in unchanged. Matching is on column A only.');
-    addInfo('D — Date/Time', 'REQUIRED. Format DD/MM/YYYY HH:MM:SS, read as IST. A real Excel date cell also works. Rows with an unreadable value are reported and skipped.');
-    info.addRow([]);
+    add('WHAT MyJKKN DOES WITH IT', '', true);
+    add('Identity', 'Empcode is matched to a staff member using the links set on the Biometric Mapping page. Names are never matched — the machine drops the honorifics MyJKKN stores. An unlinked code imports nothing.');
+    add('The verdict is ours', 'Present / half day / absent is recomputed from IN and OUT against the configured shift timings. The machine\'s own P/A is stored beside it but never used in its place — the machines have no weekly off set and mark every Sunday Absent.');
+    add('Half days', 'A half counts only if the person was on site across the whole of it: in at or before its start (plus grace, morning only) and out at or after its end.');
+    add('Lateness', 'Recorded in minutes and flagged. It does not cost the day.');
+    add('Single punch', 'A day with only one punch cannot be judged and is raised as an attendance exception for regularization. The machine files a lone evening punch under IN, so it cannot be read as an arrival.');
+    add('Re-importing', 'Safe. The same month overwrites cleanly — the biometric record is the system of record.');
 
-    const rulesHdr = addInfo('WHAT GETS IMPORTED', '', true);
-    rulesHdr.font = { name: 'Arial', size: 10, bold: true };
-    addInfo('Only faculty and HOD', 'Staff whose MyJKKN profile role is not "faculty" or "hod" are listed in the report and SKIPPED. This currently excludes most non-teaching staff.');
-    addInfo('One row per person per day', 'Re-importing the same day overwrites it — biometric is the system of record.');
-    addInfo('Never removes attendance', 'Import only records present days. It never marks anyone absent and never deletes an existing day.');
-    addInfo('No lateness yet', 'This importer stamps PRESENT for any day with at least one punch. It does not yet compare punches against the configured shift timings, so late / half-day is not derived here.');
-
-    // ---- Sheet 3: valid employee ids ----------------------------------------
+    // ---- Sheet 3: enrolment codes currently linked ---------------------------
     const svc = createServiceRoleClient();
-    const { data: staffRows, error: staffErr } = await svc
-      .from('staff')
-      .select('staff_id, first_name, last_name, profile_id, institution_id')
-      .not('staff_id', 'is', null)
-      .limit(5000);
-
-    if (staffErr) {
-      console.error('[hr/attendance/import/template] staff lookup error:', staffErr);
-      return NextResponse.json(
-        { error: 'Staff lookup failed', message: staffErr.message },
-        { status: 500 },
-      );
-    }
-
-    // Chunked: a single .in() with all ~863 staff profile ids builds a ~32 KB
-    // query string and PostgREST answers a bare `{ message: 'Bad Request' }`.
-    const profileIds = [
-      ...new Set((staffRows ?? []).map((s) => s.profile_id).filter(Boolean)),
-    ] as string[];
-    let roleByProfile: Map<string, string | null>;
-    try {
-      roleByProfile = await fetchProfileRoles(svc, profileIds);
-    } catch (profErr) {
-      console.error('[hr/attendance/import/template] profile lookup error:', profErr);
-      return NextResponse.json(
-        {
-          error: 'Profile lookup failed',
-          message: profErr instanceof Error ? profErr.message : 'Could not load staff roles.',
-        },
-        { status: 500 },
-      );
-    }
-
-    const { data: institutions, error: instErr } = await svc
-      .from('institutions')
-      .select('id, name')
-      .limit(500);
-    if (instErr) {
-      console.error('[hr/attendance/import/template] institution lookup error:', instErr);
-      return NextResponse.json(
-        { error: 'Institution lookup failed', message: instErr.message },
-        { status: 500 },
-      );
-    }
-    const instName = new Map<string, string>();
-    for (const i of institutions ?? []) instName.set(i.id, i.name);
-
-    const ref = wb.addWorksheet('Valid Employee Ids');
-    ref.columns = [
-      { key: 'code', width: 18 },
-      { key: 'name', width: 32 },
-      { key: 'inst', width: 42 },
-      { key: 'role', width: 20 },
-      { key: 'imp', width: 18 },
-    ];
-    const refHeader = ref.addRow([
-      'Employee Id',
-      'Staff Name',
-      'Institution',
-      'Profile Role',
-      'Will import?',
+    const [{ data: staffRows, error: staffErr }, { data: insts, error: instErr }] = await Promise.all([
+      svc.from('staff')
+        .select('staff_id, first_name, last_name, biometric_id, biometric_institution_id, institution_id')
+        .not('biometric_id', 'is', null)
+        .limit(5000),
+      svc.from('institutions').select('id, name, counselling_code').limit(500),
     ]);
-    refHeader.font = { bold: true, size: 11, name: 'Arial', color: { argb: 'FFFFFFFF' } };
-    refHeader.fill = HEADER_FILL;
-    refHeader.height = 22;
+    if (staffErr) {
+      console.error('[import/template] staff lookup error:', staffErr);
+      return NextResponse.json({ error: 'Staff lookup failed', message: staffErr.message }, { status: 500 });
+    }
+    if (instErr) {
+      console.error('[import/template] institution lookup error:', instErr);
+      return NextResponse.json({ error: 'Institution lookup failed', message: instErr.message }, { status: 500 });
+    }
+    const instById = new Map<string, { name: string; code: string | null }>();
+    for (const i of (insts ?? []) as Array<{ id: string; name: string; counselling_code: string | null }>) {
+      instById.set(i.id, { name: i.name, code: i.counselling_code });
+    }
 
-    const FACULTY_ROLES = new Set(['faculty', 'hod']);
-    const sorted = (staffRows ?? [])
-      .filter((s) => String(s.staff_id ?? '').trim() !== '')
-      .sort((a, b) => String(a.staff_id).localeCompare(String(b.staff_id)));
+    const ref = wb.addWorksheet('Linked Codes');
+    ref.columns = [{ width: 16 }, { width: 14 }, { width: 34 }, { width: 18 }, { width: 40 }];
+    const rh = ref.addRow(['Machine (code)', 'Empcode', 'Staff Name', 'MyJKKN Staff Id', "Staff's Institution"]);
+    rh.font = { bold: true, size: 11, name: 'Arial', color: { argb: 'FFFFFFFF' } };
+    rh.fill = HEADER_FILL;
+    rh.height = 22;
 
-    for (const s of sorted) {
-      const role = s.profile_id ? (roleByProfile.get(s.profile_id) ?? null) : null;
-      const importable = role !== null && FACULTY_ROLES.has(role.toLowerCase());
-      const full = [s.first_name, s.last_name].filter(Boolean).join(' ').trim();
-      const r = ref.addRow([
-        s.staff_id,
-        full || '—',
-        (s.institution_id ? instName.get(s.institution_id) : null) ?? '—',
-        role ?? '—',
-        importable ? 'Yes' : 'No — role skipped',
-      ]);
-      r.font = { name: 'Arial', size: 10, color: { argb: 'FF374151' } };
-      if (!importable) r.getCell(5).font = { name: 'Arial', size: 10, color: { argb: 'FFB91C1C' } };
+    type SRow = {
+      staff_id: string | null; first_name: string | null; last_name: string | null;
+      biometric_id: string | null; biometric_institution_id: string | null; institution_id: string | null;
+    };
+    const linked = ((staffRows ?? []) as SRow[]).sort((a, b) =>
+      String(a.biometric_institution_id).localeCompare(String(b.biometric_institution_id)) ||
+      String(a.biometric_id).localeCompare(String(b.biometric_id)));
+
+    if (linked.length === 0) {
+      const r = ref.addRow(['—', '—', 'No enrolment codes linked yet. Use HR › Admin › Biometric Mapping.', '—', '—']);
+      r.font = { name: 'Arial', size: 10, italic: true, color: { argb: 'FFB91C1C' } };
+    } else {
+      for (const s of linked) {
+        const machine = s.biometric_institution_id ? instById.get(s.biometric_institution_id) : undefined;
+        const own = s.institution_id ? instById.get(s.institution_id) : undefined;
+        const r = ref.addRow([
+          machine?.code ?? machine?.name ?? '—',
+          s.biometric_id ?? '—',
+          [s.first_name, s.last_name].filter(Boolean).join(' ').trim() || '—',
+          s.staff_id ?? '—',
+          own?.name ?? '—',
+        ]);
+        r.font = { name: 'Arial', size: 10, color: { argb: 'FF374151' } };
+      }
     }
     ref.views = [{ state: 'frozen', ySplit: 1 }];
     ref.autoFilter = { from: 'A1', to: 'E1' };
@@ -237,12 +184,12 @@ export async function GET() {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': 'attachment; filename="biometric-attendance-import-template.xlsx"',
+        'Content-Disposition': 'attachment; filename="biometric-monthly-report-template.xlsx"',
         'Cache-Control': 'no-store',
       },
     });
   } catch (error) {
-    console.error('[hr/attendance/import/template] unexpected error:', error);
+    console.error('[import/template] unexpected error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ error: 'Template generation failed', message }, { status: 500 });
   }

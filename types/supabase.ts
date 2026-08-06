@@ -39727,6 +39727,15 @@ export type Database = {
       }
       hr_attendance_records: {
         Row: {
+          biometric_code: string | null
+          biometric_institution_id: string | null
+          break_minutes: number | null
+          device_status: string | null
+          first_half_attended: boolean | null
+          late_minutes: number | null
+          overtime_minutes: number | null
+          second_half_attended: boolean | null
+          shift_timing_id: string | null
           created_at: string | null
           day_calc: string | null
           employee_id: string
@@ -39749,6 +39758,15 @@ export type Database = {
           work_date: string
         }
         Insert: {
+          biometric_code?: string | null
+          biometric_institution_id?: string | null
+          break_minutes?: number | null
+          device_status?: string | null
+          first_half_attended?: boolean | null
+          late_minutes?: number | null
+          overtime_minutes?: number | null
+          second_half_attended?: boolean | null
+          shift_timing_id?: string | null
           created_at?: string | null
           day_calc?: string | null
           employee_id: string
@@ -39771,6 +39789,15 @@ export type Database = {
           work_date: string
         }
         Update: {
+          biometric_code?: string | null
+          biometric_institution_id?: string | null
+          break_minutes?: number | null
+          device_status?: string | null
+          first_half_attended?: boolean | null
+          late_minutes?: number | null
+          overtime_minutes?: number | null
+          second_half_attended?: boolean | null
+          shift_timing_id?: string | null
           created_at?: string | null
           day_calc?: string | null
           employee_id?: string
@@ -40181,161 +40208,6 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_biometric_devices: {
-        Row: {
-          config: Json | null
-          created_at: string | null
-          device_name: string
-          device_serial: string | null
-          device_token: string | null
-          gps_lat: number | null
-          gps_lng: number | null
-          hr_organization_id: string | null
-          id: string
-          institution_id: string | null
-          is_active: boolean | null
-          last_seen_at: string | null
-          location_label: string | null
-          updated_at: string | null
-          vendor: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Insert: {
-          config?: Json | null
-          created_at?: string | null
-          device_name: string
-          device_serial?: string | null
-          device_token?: string | null
-          gps_lat?: number | null
-          gps_lng?: number | null
-          hr_organization_id?: string | null
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean | null
-          last_seen_at?: string | null
-          location_label?: string | null
-          updated_at?: string | null
-          vendor: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Update: {
-          config?: Json | null
-          created_at?: string | null
-          device_name?: string
-          device_serial?: string | null
-          device_token?: string | null
-          gps_lat?: number | null
-          gps_lng?: number | null
-          hr_organization_id?: string | null
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean | null
-          last_seen_at?: string | null
-          location_label?: string | null
-          updated_at?: string | null
-          vendor?: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_biometric_devices_hr_organization_id_fkey"
-            columns: ["hr_organization_id"]
-            isOneToOne: false
-            referencedRelation: "hr_organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-        ]
-      }
-      hr_biometric_punches: {
-        Row: {
-          biometric_id: string | null
-          device_id: string | null
-          employee_id: string | null
-          id: string
-          ingested_at: string | null
-          punch_at: string
-          punch_kind: string | null
-          raw_payload: Json | null
-          reconciled_to_record_id: string | null
-        }
-        Insert: {
-          biometric_id?: string | null
-          device_id?: string | null
-          employee_id?: string | null
-          id?: string
-          ingested_at?: string | null
-          punch_at: string
-          punch_kind?: string | null
-          raw_payload?: Json | null
-          reconciled_to_record_id?: string | null
-        }
-        Update: {
-          biometric_id?: string | null
-          device_id?: string | null
-          employee_id?: string | null
-          id?: string
-          ingested_at?: string | null
-          punch_at?: string
-          punch_kind?: string | null
-          raw_payload?: Json | null
-          reconciled_to_record_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_biometric_punches_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "hr_biometric_devices"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_punches_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "hr_employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_punches_reconciled_to_record_id_fkey"
-            columns: ["reconciled_to_record_id"]
-            isOneToOne: false
-            referencedRelation: "hr_attendance_records"
             referencedColumns: ["id"]
           },
         ]
@@ -92508,6 +92380,8 @@ export type Database = {
       }
       staff: {
         Row: {
+          biometric_id: string | null
+          biometric_institution_id: string | null
           achievements: Json
           address: string | null
           awards: Json
@@ -92573,6 +92447,8 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          biometric_id?: string | null
+          biometric_institution_id?: string | null
           achievements?: Json
           address?: string | null
           awards?: Json
@@ -92638,6 +92514,8 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          biometric_id?: string | null
+          biometric_institution_id?: string | null
           achievements?: Json
           address?: string | null
           awards?: Json
