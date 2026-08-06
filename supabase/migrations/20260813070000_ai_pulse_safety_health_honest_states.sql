@@ -1,7 +1,11 @@
 -- ===========================================================================
 -- AI Pulse — the safety-check health read must tell FOUR states apart, and must
 -- stop counting builds that will never be checked as "waiting".
--- Created: 2026-08-13 (allocated slot). Replaces the reader shipped in
+-- Created: 2026-08-13 (allocated slot 20260813070000).
+-- Version 20260813030000 was NOT free: it is already claimed in the production
+-- ledger by 'fix_people_search_return_type', despite no file carrying it on
+-- main or in any open PR. Recording this migration under that version would
+-- have collided and made it look applied when it was not. Replaces the reader shipped in
 -- 20260805140000_ai_pulse_cron_heartbeat.sql.
 -- ===========================================================================
 --
