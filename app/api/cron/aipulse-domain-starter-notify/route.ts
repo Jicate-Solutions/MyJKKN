@@ -276,12 +276,18 @@ export async function GET(request: NextRequest) {
     // Phone push. Deliberately AFTER the bell rows are committed and wrapped
     // so nothing here can prevent or undo them.
     //
-    // IDEMPOTENCY: this line is only reachable on the sweep that actually
-    // created the notification, because the idempotency_key lookup above
-    // `continue`s first for anyone already notified this cycle. So the push
-    // inherits the bell's guarantee exactly — a second sweep over the same
-    // cycle sends zero pushes. That matters now that this route sweeps
-    // hourly rather than once a week.
+    // IDEMPOTENCY — the guarantee is EXACTLY-ONCE PER LEARNER PER CYCLE,
+    // which is what keeps an hourly sweep from buzzing anyone repeatedly.
+    // This line is only reachable on the sweep that actually created the
+    // notification: the idempotency_key lookup above `continue`s for anyone
+    // already notified this cycle, and a concurrent racer that slips past
+    // the lookup still fails the insert against the UNIQUE index
+    // idx_notifications_idempotency and `continue`s at the notifErr guard.
+    // Both exits happen before this point, so the push cannot double-fire.
+    //
+    // Note this is NOT "later sweeps send nothing" — a later sweep DOES push
+    // learners whose starter was generated in the meantime. That is the
+    // point of sweeping hourly. Those are first-time sends, never repeats.
     try {
       pushed += await sendStarterPush(admin, userId, {
         title: 'Your AI starter prompt is ready',
