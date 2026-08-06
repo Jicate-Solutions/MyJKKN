@@ -179,32 +179,10 @@ const config: ModuleNavConfig = {
         },
       ],
     },
-    {
-      label: 'Shifts',
-      icon: 'Clock',
-      href: '/hr/shifts',
-      matchPaths: ['/hr/shifts'],
-      children: [
-        {
-          label: 'Overview',
-          icon: 'Clock',
-          href: '/hr/shifts',
-          exact: true,
-        },
-        {
-          label: 'My Shifts',
-          icon: 'Clock',
-          href: '/hr/shifts/my',
-          matchPaths: ['/hr/shifts/my'],
-        },
-        {
-          label: 'Shift Approvals',
-          icon: 'ClipboardCheck',
-          href: '/hr/shifts/approvals',
-          matchPaths: ['/hr/shifts/approvals'],
-        },
-      ],
-    },
+    // The 'Shifts' group (/hr/shifts, /hr/shifts/my, /hr/shifts/approvals) was
+    // removed 2026-08-06 along with the per-employee roster module it pointed at.
+    // Shift configuration now lives at /hr/admin/shift-timings, reached from the
+    // HR Admin hub and the sidebar — it is admin config, not a self-service tab.
     {
       label: 'Documents',
       icon: 'FileText',
