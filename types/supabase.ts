@@ -38082,7 +38082,7 @@ export type Database = {
           is_active: boolean
           program_id: string | null
           rule_name: string | null
-          semester_id: string | null
+          semester_ids: string[]
           updated_at: string
           updated_by: string | null
         }
@@ -38098,7 +38098,7 @@ export type Database = {
           is_active?: boolean
           program_id?: string | null
           rule_name?: string | null
-          semester_id?: string | null
+          semester_ids?: string[]
           updated_at?: string
           updated_by?: string | null
         }
@@ -38114,7 +38114,7 @@ export type Database = {
           is_active?: boolean
           program_id?: string | null
           rule_name?: string | null
-          semester_id?: string | null
+          semester_ids?: string[]
           updated_at?: string
           updated_by?: string | null
         }
@@ -38145,13 +38145,6 @@ export type Database = {
             columns: ["program_id"]
             isOneToOne: false
             referencedRelation: "programs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_room_eligibility_rules_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
             referencedColumns: ["id"]
           },
         ]
@@ -45752,6 +45745,51 @@ export type Database = {
           },
         ]
       }
+      hr_recruitment_purge_log: {
+        Row: {
+          application_id: string | null
+          candidate_id: string | null
+          drive_cleared_at: string | null
+          drive_file_id: string | null
+          had_resume: boolean
+          hr_organization_id: string | null
+          id: string
+          institution_id: string | null
+          job_id: string | null
+          purged_at: string
+          purged_by: string
+          stage: string
+        }
+        Insert: {
+          application_id?: string | null
+          candidate_id?: string | null
+          drive_cleared_at?: string | null
+          drive_file_id?: string | null
+          had_resume?: boolean
+          hr_organization_id?: string | null
+          id?: string
+          institution_id?: string | null
+          job_id?: string | null
+          purged_at?: string
+          purged_by: string
+          stage: string
+        }
+        Update: {
+          application_id?: string | null
+          candidate_id?: string | null
+          drive_cleared_at?: string | null
+          drive_file_id?: string | null
+          had_resume?: boolean
+          hr_organization_id?: string | null
+          id?: string
+          institution_id?: string | null
+          job_id?: string | null
+          purged_at?: string
+          purged_by?: string
+          stage?: string
+        }
+        Relationships: []
+      }
       hr_recruitment_signal_cache: {
         Row: {
           blocked_inputs: string[] | null
@@ -46464,394 +46502,100 @@ export type Database = {
           },
         ]
       }
-      hr_shift_assignments: {
+      hr_shift_timings: {
         Row: {
           created_at: string
           created_by: string | null
+          day_of_week: number
           effective_from: string
           effective_until: string | null
-          end_time_override: string | null
+          employment_category_id: string | null
+          first_half_end: string | null
+          first_half_start: string | null
+          grace_minutes: number
           id: string
+          institution_id: string
+          is_active: boolean
+          is_working_day: boolean
           notes: string | null
-          rotation_pattern: Json | null
-          rotation_weeks: number
-          staff_id: string
-          start_time_override: string | null
-          template_id: string | null
+          second_half_end: string | null
+          second_half_start: string | null
+          second_saturday_holiday: boolean
+          staff_scope: string
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           created_at?: string
           created_by?: string | null
-          effective_from: string
-          effective_until?: string | null
-          end_time_override?: string | null
-          id?: string
-          notes?: string | null
-          rotation_pattern?: Json | null
-          rotation_weeks?: number
-          staff_id: string
-          start_time_override?: string | null
-          template_id?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
+          day_of_week: number
           effective_from?: string
           effective_until?: string | null
-          end_time_override?: string | null
+          employment_category_id?: string | null
+          first_half_end?: string | null
+          first_half_start?: string | null
+          grace_minutes?: number
           id?: string
+          institution_id: string
+          is_active?: boolean
+          is_working_day?: boolean
           notes?: string | null
-          rotation_pattern?: Json | null
-          rotation_weeks?: number
-          staff_id?: string
-          start_time_override?: string | null
-          template_id?: string | null
+          second_half_end?: string | null
+          second_half_start?: string | null
+          second_saturday_holiday?: boolean
+          staff_scope: string
           updated_at?: string
           updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_staff_id_fkey"
-            columns: ["staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_template_id_fkey"
-            columns: ["template_id"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_templates"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_shift_swap_requests: {
-        Row: {
-          counterparty_assignment_id: string | null
-          counterparty_consent_at: string | null
-          counterparty_staff_id: string | null
-          created_at: string
-          hr_approved_at: string | null
-          hr_approved_by: string | null
-          hr_review_notes: string | null
-          id: string
-          reason: string | null
-          requested_at: string
-          requester_assignment_id: string
-          requester_staff_id: string
-          status: string
-          swap_date: string
-          updated_at: string
-        }
-        Insert: {
-          counterparty_assignment_id?: string | null
-          counterparty_consent_at?: string | null
-          counterparty_staff_id?: string | null
-          created_at?: string
-          hr_approved_at?: string | null
-          hr_approved_by?: string | null
-          hr_review_notes?: string | null
-          id?: string
-          reason?: string | null
-          requested_at?: string
-          requester_assignment_id: string
-          requester_staff_id: string
-          status?: string
-          swap_date: string
-          updated_at?: string
         }
         Update: {
-          counterparty_assignment_id?: string | null
-          counterparty_consent_at?: string | null
-          counterparty_staff_id?: string | null
           created_at?: string
-          hr_approved_at?: string | null
-          hr_approved_by?: string | null
-          hr_review_notes?: string | null
+          created_by?: string | null
+          day_of_week?: number
+          effective_from?: string
+          effective_until?: string | null
+          employment_category_id?: string | null
+          first_half_end?: string | null
+          first_half_start?: string | null
+          grace_minutes?: number
           id?: string
-          reason?: string | null
-          requested_at?: string
-          requester_assignment_id?: string
-          requester_staff_id?: string
-          status?: string
-          swap_date?: string
+          institution_id?: string
+          is_active?: boolean
+          is_working_day?: boolean
+          notes?: string | null
+          second_half_end?: string | null
+          second_half_start?: string | null
+          second_saturday_holiday?: boolean
+          staff_scope?: string
           updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "hr_shift_swap_requests_counterparty_assignment_id_fkey"
-            columns: ["counterparty_assignment_id"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_assignments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_counterparty_staff_id_fkey"
-            columns: ["counterparty_staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_requester_assignment_id_fkey"
-            columns: ["requester_assignment_id"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_assignments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_requester_staff_id_fkey"
-            columns: ["requester_staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_shift_templates: {
-        Row: {
-          category: string | null
-          created_at: string
-          created_by: string | null
-          end_time: string
-          id: string
-          institution_id: string | null
-          is_active: boolean
-          is_global: boolean
-          notes: string | null
-          start_time: string
-          superseded_by: string | null
-          template_code: string
-          template_name: string
-          updated_at: string
-          updated_by: string | null
-          valid_from: string
-          valid_until: string | null
-        }
-        Insert: {
-          category?: string | null
-          created_at?: string
-          created_by?: string | null
-          end_time: string
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean
-          is_global?: boolean
-          notes?: string | null
-          start_time: string
-          superseded_by?: string | null
-          template_code: string
-          template_name: string
-          updated_at?: string
-          updated_by?: string | null
-          valid_from?: string
-          valid_until?: string | null
-        }
-        Update: {
-          category?: string | null
-          created_at?: string
-          created_by?: string | null
-          end_time?: string
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean
-          is_global?: boolean
-          notes?: string | null
-          start_time?: string
-          superseded_by?: string | null
-          template_code?: string
-          template_name?: string
-          updated_at?: string
-          updated_by?: string | null
-          valid_from?: string
-          valid_until?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
+            foreignKeyName: "hr_shift_timings_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
             referencedRelation: "institutions"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
+            foreignKeyName: "hr_shift_timings_employment_category_id_fkey"
+            columns: ["employment_category_id"]
             isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_superseded_by_fkey"
-            columns: ["superseded_by"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_templates"
+            referencedRelation: "employment_categories"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
-            columns: ["updated_by"]
+            foreignKeyName: "hr_shift_timings_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
+            foreignKeyName: "hr_shift_timings_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
-            referencedRelation: "users_profiles"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -106127,6 +105871,19 @@ export type Database = {
       hr_policy_restore: {
         Args: { p_table_name: string; p_user_id: string; p_version_id: string }
         Returns: string
+      }
+      hr_staff_payroll_directory: {
+        Args: never
+        Returns: {
+          payer_org_id: string
+          payer_org_name: string
+          person_name: string
+          role_title: string
+          staff_code: string
+          staff_uuid: string
+          works_at_id: string
+          works_at_name: string
+        }[]
       }
       hr_staff_without_payer: {
         Args: never

@@ -51,7 +51,13 @@ interface SessionResponse {
   razorpayKeyId: string;
   storeName: string;
   description: string;
-  customer: { name: string; phone: string };
+  /**
+   * What Razorpay's hosted page is prefilled with — resolved SERVER-SIDE, and not
+   * necessarily the customer. Razorpay refuses to show a payment method without a
+   * contact and an email, so a walk-in falls back to the cashier's own details;
+   * see the note in gateway-payment-service.ts. The browser only forwards this.
+   */
+  customer: { name: string; phone: string; email: string };
   expiresAt: string;
 }
 
@@ -64,6 +70,8 @@ export interface StatusResponse {
   expires_at: string;
   late_credit: boolean;
   finalize_error: string | null;
+  /** Booking failed for a reason retrying cannot fix — stop polling, say why. */
+  finalize_fatal?: boolean;
 }
 
 const POLL_MS = 3000;
@@ -150,7 +158,13 @@ export function GatewayPaymentLauncher({
         transactionId={session.id}
         merchantName={session.storeName}
         description={session.description}
-        customer={{ name: session.customer.name, phone: session.customer.phone }}
+        customer={{
+          name: session.customer.name,
+          phone: session.customer.phone,
+          // Sent so Razorpay skips its contact/email step and opens straight on the
+          // UPI QR — the whole point of the counter flow.
+          email: session.customer.email,
+        }}
         callbackPath="/api/ims/payment/gateway/callback"
         // Opens on UPI so the customer sees the QR immediately — the counter flow.
         prefillMethod="upi"
@@ -276,6 +290,16 @@ export function GatewayPaymentReturn({ paymentId, onPaid, onDismiss, abandoned }
         // and may sell the goods again or take payment twice.
         if (s.status === 'paid') {
           paidSinceRef.current ??= Date.now();
+
+          // Except when the server has already established that retrying is
+          // pointless — a store with no counter, an item not sold here, no stock.
+          // Polling on regardless is what produced a booking refused identically
+          // once a second for as long as the cashier was willing to watch.
+          if (s.finalize_fatal) {
+            setSettled(true);
+            return;
+          }
+
           if (Date.now() - paidSinceRef.current > BOOKING_PATIENCE_MS) {
             setBookingStalled(true);
           }
@@ -304,7 +328,45 @@ export function GatewayPaymentReturn({ paymentId, onPaid, onDismiss, abandoned }
 
   let body: ReactNode;
 
-  if (moneyIsIn && bookingStalled) {
+  if (moneyIsIn && s?.finalize_fatal) {
+    // Money in, sale refused, and retrying will not change that. Unlike the
+    // stalled case below there is no spinner and no "still trying" — the reason is
+    // shown, because it names something a person has to go and fix.
+    body = (
+      <>
+        <AlertTriangle className="h-10 w-10 text-amber-600" />
+        <p className="text-base font-medium text-green-600">Payment received</p>
+        <p className="text-sm font-medium">The sale could not be completed.</p>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          {s?.finalize_error || 'The sale was refused.'}
+        </p>
+        <p className="text-sm text-muted-foreground text-center max-w-md">
+          The customer has paid and the money is safe — do <strong>not</strong> take
+          payment again. Fix the cause above, then use Try again; the sale will be
+          booked without a second payment.
+        </p>
+        <p className="text-xs text-muted-foreground font-mono">Ref {s?.id?.slice(0, 8)}</p>
+        <div className="flex items-center gap-2">
+          {/* Resumes polling. The server never persisted the fatal verdict, so the
+              very next attempt succeeds once the cause is gone. */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              paidSinceRef.current = null;
+              setBookingStalled(false);
+              setSettled(false);
+            }}
+          >
+            Try again
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onDismiss}>
+            Back to the till
+          </Button>
+        </div>
+      </>
+    );
+  } else if (moneyIsIn && bookingStalled) {
     // The money is in and the sale is not. Say exactly that. Polling continues
     // underneath, so this can still resolve itself into a receipt.
     body = (

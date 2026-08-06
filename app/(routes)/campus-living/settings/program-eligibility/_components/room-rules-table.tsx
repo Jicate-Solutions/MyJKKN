@@ -44,10 +44,10 @@ const scopeLabel = (r: RoomEligibilityRuleRow) =>
       : `Floor ${r.floor}`
     : 'Whole block';
 
+// Semesters are rendered separately from these — they're an ordered list, and
+// that order is the auto-allocation fill priority worth surfacing.
 const predicateParts = (r: RoomEligibilityRuleRow) =>
-  [r.degree_name, r.department_name, r.program_name, r.semester_name].filter(
-    Boolean
-  ) as string[];
+  [r.degree_name, r.department_name, r.program_name].filter(Boolean) as string[];
 
 const floorLabel = (floor: number | null) =>
   floor == null ? 'Any' : floor === 0 ? 'Ground' : `Floor ${floor}`;
@@ -155,6 +155,7 @@ export function RoomRulesTable() {
         <TableBody>
           {filteredRows.map((r) => {
             const parts = predicateParts(r);
+            const semesters = r.semester_names ?? [];
             return (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">
@@ -177,13 +178,19 @@ export function RoomRulesTable() {
                   <Badge variant="outline">{scopeLabel(r)}</Badge>
                 </TableCell>
                 <TableCell>
-                  {parts.length === 0 ? (
+                  {parts.length === 0 && semesters.length === 0 ? (
                     <span className="text-muted-foreground">Any cohort</span>
                   ) : (
                     <div className="flex flex-wrap gap-1">
-                      {parts.map((p) => (
-                        <Badge key={p} variant="secondary" className="text-xs">
+                      {parts.map((p, i) => (
+                        <Badge key={`p-${i}`} variant="secondary" className="text-xs">
                           {p}
+                        </Badge>
+                      ))}
+                      {/* Numbered only when the order actually carries meaning. */}
+                      {semesters.map((name, i) => (
+                        <Badge key={`s-${i}`} variant="secondary" className="text-xs">
+                          {semesters.length > 1 ? `${i + 1}. ${name}` : name}
                         </Badge>
                       ))}
                     </div>

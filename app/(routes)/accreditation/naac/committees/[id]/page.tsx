@@ -73,6 +73,8 @@ import {
   useRemoveMember,
   useDeactivateNAACCommittee,
 } from '@/hooks/accreditation/use-naac-committees';
+import { useMyCommitteeRoster } from '@/hooks/accreditation/use-my-committee-roster';
+import { decideCommitteeDetailAccess, isSeatCurrent } from '../_lib/committee-access';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CommitteeMemberRole } from '@/lib/services/accreditation/accreditation-committee-service';
 import { MeetingsSection } from './_components/meetings-section';
@@ -160,7 +162,25 @@ export default function NAACCommitteeDetailPage({
   const { id } = use(params);
   const { isSuperAdmin, can, isLoading: permsLoading } = usePermissions();
 
-  const canView = isSuperAdmin || can('accreditation.naac.committees.view');
+  const hasViewPermission =
+    isSuperAdmin || can('accreditation.naac.committees.view');
+
+  // Director decision 8: being named on THIS committee's roster opens it, no
+  // matter what the viewer's job title is. Only read when the permission did
+  // not already answer the question.
+  const { data: mySeats, isLoading: rosterLoading } =
+    useMyCommitteeRoster({ enabled: !permsLoading && !hasViewPermission });
+
+  // Director decision 7: an expired seat is refused here, with the date, so
+  // the viewer never falls through to the notFound() below and is told this
+  // committee does not exist.
+  const access = decideCommitteeDetailAccess({
+    hasViewPermission,
+    seats: mySeats ?? [],
+    committeeId: id,
+  });
+  const canView = access.allowed;
+
   const canManageMembers =
     isSuperAdmin || can('accreditation.naac.committees.members.manage');
   const canManageMeetings =
@@ -181,7 +201,7 @@ export default function NAACCommitteeDetailPage({
   const profileIds = [...new Set([...memberUserIds, ...(chairId ? [chairId] : [])])];
   const { data: profiles } = useProfileLookup(profileIds);
 
-  if (permsLoading || cLoading) {
+  if (permsLoading || cLoading || rosterLoading) {
     return (
       <ContentLayout title="IQAC Committee">
         <Skeleton className="h-40 w-full" />
@@ -201,20 +221,32 @@ export default function NAACCommitteeDetailPage({
     );
   }
 
-  if (!committee) {
-    notFound();
-  }
-
+  // Refusal is decided BEFORE notFound(). RLS denial in this repo is silent —
+  // a denied read returns null with no error — so the previous order turned
+  // "you are not allowed" into a 404, which tells the viewer the committee does
+  // not exist. That is the same fabricated-absence failure the roster arm was
+  // written to end, so it is fixed here rather than left to bite the first real
+  // member. A genuine bad id still 404s, below.
   if (!canView) {
     return (
       <ContentLayout title="IQAC Committee">
         <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            You do not have permission to view this committee.
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="text-base font-semibold">{access.title}</p>
+            <p className="mx-auto max-w-xl text-sm text-muted-foreground">
+              {access.detail}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Who to ask: <span className="font-medium">{access.contact}</span>
+            </p>
           </CardContent>
         </Card>
       </ContentLayout>
     );
+  }
+
+  if (!committee) {
+    notFound();
   }
 
   return (
@@ -329,6 +361,11 @@ export default function NAACCommitteeDetailPage({
                     <TableHead>Role</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead>Joined</TableHead>
+                    {/* Director decision 7: access ends on this date, so the
+                        list has to show it. Without it a manager reads an
+                        expired member as a sitting one and cannot explain why
+                        that person says the page is shut. */}
+                    <TableHead>Term end</TableHead>
                     {canManageMembers && (
                       <TableHead className="text-right">Action</TableHead>
                     )}
@@ -373,6 +410,28 @@ export default function NAACCommitteeDetailPage({
                           )}
                         </TableCell>
                         <TableCell className="text-xs">{m.joined_at}</TableCell>
+                        <TableCell className="text-xs">
+                          {m.term_end ? (
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              {m.term_end}
+                              {!isSeatCurrent({
+                                committeeId: m.committee_id,
+                                termEnd: m.term_end,
+                              }) && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
+                                >
+                                  Term ended
+                                </Badge>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              No end date
+                            </span>
+                          )}
+                        </TableCell>
                         {canManageMembers && (
                           <TableCell className="text-right">
                             <RemoveMemberButton
@@ -521,10 +580,29 @@ function ClusterScopeCard({
 // Add member dialog — two tabs: Internal (search profiles) / External (name+org+email)
 // ----------------------------------------------------------------------------
 
+/**
+ * Default term end offered in the dialog: the 31 March on or after today — the
+ * Indian academic year end, and the same date the database default uses for
+ * machine write paths. Prefilled so the field is one click rather than a
+ * chore, but still a real editable choice the appointer makes.
+ *
+ * Built from local calendar fields, never `new Date('YYYY-MM-DD')`, which
+ * parses as UTC midnight and shifts the date for anyone behind Greenwich.
+ */
+function defaultTermEnd(now: Date = new Date()): string {
+  const yearEnd = `${now.getFullYear()}-03-31`;
+  const mm = `${now.getMonth() + 1}`.padStart(2, '0');
+  const dd = `${now.getDate()}`.padStart(2, '0');
+  const today = `${now.getFullYear()}-${mm}-${dd}`;
+  return today <= yearEnd ? yearEnd : `${now.getFullYear() + 1}-03-31`;
+}
+
 function AddMemberDialog({ committeeId }: { committeeId: string }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'internal' | 'external'>('internal');
   const [role, setRole] = useState<CommitteeMemberRole>('member');
+  // Director decision 7: required, not optional. Access ends on this date.
+  const [termEnd, setTermEnd] = useState<string>(defaultTermEnd());
 
   // Internal state
   const [userSearch, setUserSearch] = useState('');
@@ -566,11 +644,20 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
     setExternalOrg('');
     setExternalEmail('');
     setRole('member');
+    setTermEnd(defaultTermEnd());
     setTab('internal');
   };
 
   const handleSubmit = async () => {
     try {
+      // Checked before either branch: the term end date is what ends this
+      // person's access, so adding a member without one is not a thing the
+      // dialog can do. The column is NOT NULL as well — this check exists so
+      // the appointer is told in words rather than shown a raw 23502.
+      if (!termEnd) {
+        toast.error('A term end date is required — access ends on this date');
+        return;
+      }
       if (tab === 'internal') {
         if (!selectedUser) {
           toast.error('Select a user first');
@@ -580,6 +667,7 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
           committee_id: committeeId,
           user_id: selectedUser.id,
           role,
+          term_end: termEnd,
         });
       } else {
         if (!externalName.trim()) {
@@ -592,6 +680,7 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
           external_name: externalName.trim(),
           external_org: externalOrg.trim() || null,
           external_email: externalEmail.trim() || null,
+          term_end: termEnd,
         });
       }
       toast.success('Member added');
@@ -706,6 +795,23 @@ function AddMemberDialog({ committeeId }: { committeeId: string }) {
             </div>
           </TabsContent>
         </Tabs>
+
+        <div className="space-y-1.5 pt-2">
+          <Label htmlFor="member-term-end">
+            Term end <span className="text-red-600">*</span>
+          </Label>
+          <Input
+            id="member-term-end"
+            type="date"
+            required
+            value={termEnd}
+            onChange={(e) => setTermEnd(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            The last day of their term. Their access to this committee — its
+            roster, meetings and resolutions — ends automatically the day after.
+          </p>
+        </div>
 
         <div className="space-y-1.5 pt-2">
           <Label>Role</Label>

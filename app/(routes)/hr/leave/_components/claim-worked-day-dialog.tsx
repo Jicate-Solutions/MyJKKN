@@ -4,9 +4,10 @@
  * Claim a worked holiday / week-off as a compensatory off credit.
  *
  * This is the earning path that works today. The attendance-driven path is
- * defined in the schema but dormant — hr_attendance_records,
- * hr_public_holidays and hr_shift_templates are all empty, so nothing would
- * be detected to credit.
+ * defined in the schema but dormant — hr_attendance_records and
+ * hr_public_holidays are both empty, so nothing would be detected to credit.
+ * (hr_shift_templates was removed 2026-08-06; shift config is now
+ * hr_shift_timings, which is populated but not yet wired to attendance.)
  *
  * Policy: 1 full day earned per day worked, expiring 90 days later. Both are
  * enforced in the database (credit_days default, expiry trigger) rather than
