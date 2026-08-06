@@ -373,9 +373,9 @@ export default function ChannelDetailPage({
       <div className="mt-4 flex flex-col h-[calc(100vh-14rem)]">
         {/* Channel Header */}
         <div className="flex items-center gap-3 pb-3">
-          <Hash className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-xl font-bold">{channel.name}</h1>
-          <Badge variant="outline" className="capitalize text-xs">
+          <Hash className="h-5 w-5 text-muted-foreground shrink-0" />
+          <h1 className="text-xl font-bold truncate min-w-0">{channel.name}</h1>
+          <Badge variant="outline" className="capitalize text-xs shrink-0">
             {channel.channel_type}
           </Badge>
         </div>

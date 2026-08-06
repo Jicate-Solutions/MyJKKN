@@ -29,12 +29,12 @@ import { QuotaMultiSelect } from './quota-multi-select';
 const INSTITUTION_DEFAULT = '__default__';
 const NO_CATEGORY = '__none__';
 
-// Live "₹4,00,000"-style preview for the rupee fee inputs.
+// Live "₹4,00,000"-style preview for the rupee fee inputs. Tolerant of any
+// separators the user types ("3,00,000" / "3.00.000") — fees are whole rupees,
+// so only the digits matter.
 const formatINR = (s: string) => {
-  const n = parseFloat(s);
-  return s.trim() !== '' && !Number.isNaN(n)
-    ? `₹${Math.round(n).toLocaleString('en-IN')}`
-    : null;
+  const digits = s.replace(/[^\d]/g, '');
+  return digits !== '' ? `₹${Number(digits).toLocaleString('en-IN')}` : null;
 };
 
 interface FormDialogProps {
@@ -172,14 +172,18 @@ export function ProgramEligibilityFormDialog({
       const quotaIdsToSend = quotaIds.length ? quotaIds : null;
       const effective = effectiveFrom.trim() || null;
       // Inputs are full rupee amounts (fee_min / fee_max are stored in rupees).
+      // Strip any separators the user typed ("3,00,000" / "3.00.000") — fees are
+      // whole rupees, so only the digits matter.
       const toRupees = (s: string) => {
-        const n = parseFloat(s);
-        return s.trim() !== '' && !Number.isNaN(n) ? Math.round(n) : null;
+        const digits = s.replace(/[^\d]/g, '');
+        return digits !== '' ? Number(digits) : null;
       };
       const feeMin = toRupees(feeMinRs);
       const feeMax = toRupees(feeMaxRs);
-      if (feeMin != null && feeMax != null && feeMin >= feeMax) {
-        toast.error('Fee "min" must be less than "max"');
+      // The band is inclusive [min, max], so min == max (a single-fee band) is
+      // valid; only reject min strictly greater than max.
+      if (feeMin != null && feeMax != null && feeMin > feeMax) {
+        toast.error('Fee "min" cannot be greater than "max"');
         setSubmitting(false);
         return;
       }
@@ -231,8 +235,8 @@ export function ProgramEligibilityFormDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? 'Update the scope, quota, fee band, categories or status. Institution is fixed — delete & recreate to move it.'
-              : 'Map a program + quota + fee band to the room and mess categories those students may use.'}
+              ? 'Update the scope, quota, fee band, categories or status. Institution is fixed — delete & recreate to move it. Learners are matched on their admission-year academic fee.'
+              : 'Map a program + quota + fee band to the room and mess categories those students may use. Learners are matched on their admission-year academic fee.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -278,9 +282,9 @@ export function ProgramEligibilityFormDialog({
           <div className='space-y-2 sm:col-span-2'>
             <Label>Academic Fee Band (₹) <span className='text-muted-foreground font-normal'>(Optional)</span></Label>
             <div className='grid grid-cols-[1fr_auto_1fr] items-center gap-2'>
-              <Input type='number' inputMode='numeric' step='1' min='0' placeholder='Min — e.g. 400000' value={feeMinRs} onChange={(e) => setFeeMinRs(e.target.value)} />
+              <Input type='text' inputMode='numeric' placeholder='Min — e.g. 400000' value={feeMinRs} onChange={(e) => setFeeMinRs(e.target.value)} />
               <span className='text-muted-foreground text-sm'>to</span>
-              <Input type='number' inputMode='numeric' step='1' min='0' placeholder='Max — e.g. 600000' value={feeMaxRs} onChange={(e) => setFeeMaxRs(e.target.value)} />
+              <Input type='text' inputMode='numeric' placeholder='Max — e.g. 600000' value={feeMaxRs} onChange={(e) => setFeeMaxRs(e.target.value)} />
             </div>
             {(formatINR(feeMinRs) || formatINR(feeMaxRs)) && (
               <div className='grid grid-cols-[1fr_auto_1fr] gap-2 text-xs tabular-nums text-muted-foreground'>

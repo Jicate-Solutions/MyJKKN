@@ -23,6 +23,9 @@ export interface StaffNotificationPayload {
   userIds: string[];
   eventType: StaffEventType;
   metadata?: Record<string, unknown>;
+  /** Deep-link the bell click navigates to (e.g. /hr/leave/<id>). Falls back to
+   *  the notifications inbox when omitted. */
+  url?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,17 +44,30 @@ export class StaffNotificationService {
     supabase: SupabaseClient,
     payload: StaffNotificationPayload
   ): Promise<number> {
-    const { title, message, userIds, eventType, metadata = {} } = payload;
+    const { title, message, userIds, eventType, metadata = {}, url } = payload;
 
     if (userIds.length === 0) return 0;
 
-    // 1. Insert notification row
+    // 1. Insert notification row.
+    // The notifications table has NO `type`/`message` columns: the body column
+    // is `body`, and `created_by` + `targeting` are NOT NULL. The prior shape
+    // (type + message, no created_by/targeting) threw on EVERY call, so staff
+    // notifications silently produced zero rows — leave submit/approve/reject
+    // never reached anyone (only the 48h escalation cron did). Fixed 2026-07-27.
+    // `created_by` is set to a recipient (these are system-authored; mirrors the
+    // cron COALESCE-to-recipient pattern for the NOT NULL column), and
+    // `kind:'work_item'` keeps them out of the announcements admin page while the
+    // bell (which reads user_notifications) still surfaces them.
     const { data: notification, error: insertErr } = await supabase
       .from('notifications')
       .insert({
-        type: 'staff',
         title,
-        message,
+        body: message,
+        created_by: userIds[0],
+        targeting: { type: 'user', user_ids: userIds },
+        category: 'staff',
+        kind: 'work_item',
+        url: url ?? null,
         metadata: {
           source: 'staff_notify',
           event_type: eventType,
@@ -109,6 +125,7 @@ export class StaffNotificationService {
       message: `${staffName} has submitted a ${leaveTypeName} request for ${dateRange}. Please review and decide.`,
       userIds: approverUserIds,
       eventType: 'leave_submitted',
+      url: `/hr/leave/${applicationId}`,
       metadata: { reference_id: applicationId, staff_name: staffName, leave_type: leaveTypeName },
     });
   }
@@ -130,6 +147,7 @@ export class StaffNotificationService {
       message: `Your ${leaveTypeName} request for ${dateRange} has been approved${by}.`,
       userIds: [applicantUserId],
       eventType: 'leave_approved',
+      url: `/hr/leave/${applicationId}`,
       metadata: { reference_id: applicationId, leave_type: leaveTypeName },
     });
   }
@@ -151,6 +169,7 @@ export class StaffNotificationService {
       message: `Your ${leaveTypeName} request for ${dateRange} has been rejected.${reason}`,
       userIds: [applicantUserId],
       eventType: 'leave_rejected',
+      url: `/hr/leave/${applicationId}`,
       metadata: {
         reference_id: applicationId,
         leave_type: leaveTypeName,

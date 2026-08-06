@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createSyllabusColumns } from './columns';
+import { BulkSyllabiDownloadButton } from './bulk-syllabi-download';
 import { SyllabusSearchParams } from './data-table-schema';
 import type { InstitutionOption } from '../../_components/institution-picker';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -67,6 +68,38 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
         .flatMap((i) => i.myjkkn_institution_ids)
     ),
     [institutions]
+  );
+
+  // All MyJKKN UUIDs belonging to CET (College of Engineering & Technology),
+  // via the same COE institution_code = MyJKKN counselling_code bridge. Every
+  // syllabus hosted under CET renders the Engineering (Anna University) PDF
+  // format — course_code/stream heuristics alone miss codes like "CP25C22".
+  const cetInstitutionIds = useMemo(
+    () => new Set(
+      institutions
+        .filter((i) => (i.institution_code ?? '').toUpperCase() === 'CET')
+        .flatMap((i) => i.myjkkn_institution_ids)
+    ),
+    [institutions]
+  );
+
+  // Regulation title for the bulk-download filename ("Syllabi_R-2024_….zip").
+  // Same endpoint the filter bar uses, so React Query serves it from cache.
+  const { data: regulations = [] } = useQuery<{ id: string; title?: string }[]>({
+    queryKey: ['bos', 'regulations', scopedInstitutionsId],
+    queryFn: async () => {
+      const url = new URL('/api/bos/regulations', window.location.origin);
+      if (scopedInstitutionsId) url.searchParams.set('institutionId', scopedInstitutionsId);
+      const r = await fetch(url.toString());
+      if (!r.ok) throw new Error('Failed to load regulations');
+      return (await r.json()).data ?? [];
+    },
+    enabled: !!search.regulationId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const regulationLabel = useMemo(
+    () => regulations.find((r) => r.id === search.regulationId)?.title,
+    [regulations, search.regulationId],
   );
 
   // Board membership IS the authorization here — see the same comment in
@@ -170,7 +203,7 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => createSyllabusColumns(institutionName, casInstitutionIds)}
+        getColumns={() => createSyllabusColumns(institutionName, casInstitutionIds, cetInstitutionIds)}
         exportConfig={{
           entityName: 'syllabi',
           columnMapping: {},
@@ -192,6 +225,16 @@ export function SyllabusDataTable({ search }: SyllabusDataTableProps) {
         refetchKey={refetchKey}
         renderToolbarContent={({ selectedRows, allSelectedIds, totalSelectedCount }) => (
           <div className='flex gap-2'>
+            <BulkSyllabiDownloadButton
+              institutionsId={scopedInstitutionsId}
+              regulationId={search.regulationId}
+              regulationLabel={regulationLabel}
+              boardId={search.boardId}
+              stream={search.stream}
+              institutions={institutions}
+              casInstitutionIds={casInstitutionIds}
+              cetInstitutionIds={cetInstitutionIds}
+            />
             {canCreate && (
               <Button
                 size='sm'

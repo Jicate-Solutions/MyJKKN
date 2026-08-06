@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/prune-turbo-cache.mjs",
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev --webpack",
     "dev:sentry": "cross-env LOCAL_SENTRY=1 next dev --turbopack",
@@ -14,7 +15,7 @@
     "typecheck": "tsc --noEmit --pretty",
     "typecheck:report": "tsc --noEmit --pretty > type-errors.txt 2>&1 || echo 'Type errors saved to type-errors.txt'",
     "typecheck:watch": "tsc --noEmit --watch",
-    "clean": "rimraf .next/cache node_modules/.cache .tsbuildinfo",
+    "clean": "rimraf .next/dev/cache .next/cache node_modules/.cache .tsbuildinfo",
     "clean:all": "rimraf .next node_modules/.cache .tsbuildinfo",
     "clear-cache": "node scripts/clear-cache.bat",
     "check:permissions": "node scripts/check-permissions-catalog.mjs",
@@ -39,7 +40,8 @@
     "seed:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts",
     "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list",
     "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
-    "gen:guide-load": "tsx scripts/load-profile.ts"
+    "gen:guide-load": "tsx scripts/load-profile.ts",
+    "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",

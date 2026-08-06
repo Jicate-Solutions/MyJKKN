@@ -109,7 +109,7 @@ export function JsonImportTab({ onApply }: Props) {
         />
       </div>
 
-      <div className="flex justify-between gap-3">
+      <div className="flex flex-wrap justify-between gap-3">
         <Button
           type="button"
           variant="outline"

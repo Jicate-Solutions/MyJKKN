@@ -68,7 +68,12 @@ export async function verifyParentSession(
 ): Promise<ParentJwtClaims | null> {
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, getSecret());
+    // Pin verification to the one algorithm we sign with (see signParentSession).
+    // Without an explicit allowlist, the verifier accepts any algorithm the
+    // library supports for this key type — the door for algorithm-confusion.
+    const { payload } = await jwtVerify(token, getSecret(), {
+      algorithms: ['HS256'],
+    });
     if (!payload.sub || typeof payload.learnerProfileId !== 'string') return null;
     return payload as ParentJwtClaims;
   } catch {

@@ -179,7 +179,7 @@ function ConsultantsPageContent() {
   const filters: ConsultantFilters = {
     institution_id: institutionId || '',
     status: searchParams.get('status') as ConsultantFilters['status'] || undefined,
-    consultant_type: searchParams.get('type') as ConsultantFilters['consultant_type'] || undefined,
+    consultant_type: searchParams.get('consultant_type') as ConsultantFilters['consultant_type'] || undefined,
     search: searchParams.get('search') || undefined,
     sort_by: sortBy,
     sort_order: sortOrder,
@@ -259,7 +259,7 @@ function ConsultantsPageContent() {
       : <ArrowDown className="h-3 w-3 ml-1 inline-block" />;
   };
 
-  const hasFilters = searchParams.get('search') || searchParams.get('status') || searchParams.get('type');
+  const hasFilters = searchParams.get('search') || searchParams.get('status') || searchParams.get('consultant_type');
 
   // Show skeleton while institutions are loading, consultants are fetching, or data hasn't arrived yet
   // (the !data guard covers the one-render gap when enabled flips false→true before fetch starts)
@@ -386,7 +386,7 @@ function ConsultantsPageContent() {
               </SelectContent>
             </Select>
             <Select
-              value={searchParams.get('type') || 'all'}
+              value={searchParams.get('consultant_type') || 'all'}
               onValueChange={(value) => updateFilters({ consultant_type: value as ConsultantFilters['consultant_type'] })}
             >
               <SelectTrigger className="w-[160px]">
@@ -428,7 +428,7 @@ function ConsultantsPageContent() {
 
       {/* Consultants Table */}
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="flex items-center gap-2">
             <Handshake className="h-5 w-5" />
             Education Consultants

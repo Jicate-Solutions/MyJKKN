@@ -12,8 +12,9 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, ArrowRight, ArrowUpDown, DownloadIcon } from 'lucide-react';
+import { TrashIcon, ArrowRight, ArrowUpDown, DownloadIcon, Printer } from 'lucide-react';
 import Link from 'next/link';
+import { BulkPrintDialog, type BulkPrintLearner } from '@/components/id-cards/bulk-print-dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,7 +55,7 @@ interface ProfilesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  statusFilter?: 'all' | 'active' | 'inactive' | 'exited';
 }
 
 /**
@@ -84,8 +85,17 @@ export function ProfilesTableServer({
 
   const [showExportDialog, setShowExportDialog] = useState(false);
 
+  // Phase 2 — bulk ID-card printing for selected learners
+  const [showBulkPrintDialog, setShowBulkPrintDialog] = useState(false);
+  const [learnersToPrint, setLearnersToPrint] = useState<BulkPrintLearner[]>([]);
+
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // 'all' is a TAB value, not a lifecycle_status enum label. The export dialog
+  // feeds this straight into `.eq('lifecycle_status', …)`, where 'all' would
+  // raise 22P02 and export nothing — so it becomes "no status filter" here.
+  const exportStatusFilter = statusFilter === 'all' ? undefined : statusFilter;
 
   const currentFilters: ProfilesSearchParams = {
     page: Number(searchParams.get('page')) || 1,
@@ -104,7 +114,17 @@ export function ProfilesTableServer({
   };
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission
-  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const {
+    isSuperAdmin,
+    isAdmissionGlobalUser,
+    canAccess,
+    isLoading: permissionsLoading
+  } = usePermissions();
+
+  // Phase 2 — bulk ID-card printing. Branch on the loading state FIRST so an
+  // unknown permission never flash-denies or flash-allows the button.
+  const canPrintIdCards =
+    !permissionsLoading && (isSuperAdmin || canAccess('id_cards.jobs', 'manage'));
 
   // Derive current sort selection from URL params (server-side sort keys)
   const currentSortBy = searchParams.get('sort_by') || 'first_name';
@@ -293,6 +313,27 @@ export function ProfilesTableServer({
                 Promote Selected ({props.selectedRows.length})
               </Link>
             </Button>
+            {canPrintIdCards && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => {
+                  const rows = props.selectedRows as LearnerProfile[];
+                  setLearnersToPrint(
+                    rows.map((row) => ({
+                      learnerId: row.id,
+                      name: `${row.first_name} ${row.last_name ?? ''}`.trim(),
+                      rollNumber: row.roll_number ?? null
+                    }))
+                  );
+                  setShowBulkPrintDialog(true);
+                }}
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                Print ID Cards ({props.selectedRows.length})
+              </Button>
+            )}
             {canDeleteLearners && (
               <Button
                 onClick={() =>
@@ -339,7 +380,14 @@ export function ProfilesTableServer({
         open={showExportDialog}
         onOpenChange={setShowExportDialog}
         filters={currentFilters}
-        statusFilter={statusFilter}
+        statusFilter={exportStatusFilter}
+      />
+
+      {/* Bulk ID-card Print Dialog (Phase 2) */}
+      <BulkPrintDialog
+        open={showBulkPrintDialog}
+        onOpenChange={setShowBulkPrintDialog}
+        learners={learnersToPrint}
       />
 
       {/* Bulk Delete Confirmation Dialog */}

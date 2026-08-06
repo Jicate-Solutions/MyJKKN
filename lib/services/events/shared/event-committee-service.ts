@@ -230,6 +230,17 @@ export class EventCommitteeService {
         throw error;
       }
       const updated = Array.isArray(data) ? data[0] : data;
+      // An RLS denial on UPDATE is NOT an error — Postgres filters the row, so
+      // `error` stays null and `data` comes back []. Without this check the hook
+      // fires onSuccess, invalidates, and the checkbox silently snaps back with
+      // no toast and nothing in the console. event_tasks only lets a plain
+      // committee member update tasks where assigned_to = auth.uid().
+      if (!updated) {
+        logger.warn(MOD, 'Task update matched no rows (RLS denied or task deleted)', { id });
+        throw new Error(
+          'You can only update tasks assigned to you. Ask the organizer to assign this task to you.'
+        );
+      }
       return updated as unknown as MarathonTask;
     } catch (error) {
       logger.error(MOD, 'Unexpected error in updateTask', error);

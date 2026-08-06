@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { CoeRestClient, CoeApiError } from '@/lib/services/coe/coe-rest-client';
-import { resolveBosBoardScope, resolveCoeInstitutionCode, resolveCoeInstitutionById, hasBosPermission, isBosReadAllObserver } from '@/lib/utils/bos/bos-access';
+import { resolveBosBoardScope, resolveCoeInstitutionCode, resolveCoeInstitutionById, hasAnyBosPermission, isBosReadAllObserver, BOS_LOOKUP_VIEW_KEYS } from '@/lib/utils/bos/bos-access';
 
 interface CoeBoard {
   id: string;
@@ -26,11 +26,11 @@ export async function GET(request: NextRequest) {
     }
 
     const scope = await resolveBosBoardScope(user.id);
-    // Read-only observer: a role holding academic.bos-courses.view but on no
-    // board (not a principal, member of nothing) may read any institution's
+    // Read-only observer: a role holding ANY BoS lookup view grant (courses/
+    // scheme/syllabus — see BOS_LOOKUP_VIEW_KEYS) may read any institution's
     // boards, like a super-admin. VIEW ONLY — only the scope gate is relaxed;
     // the COE/MyJKKN id resolution below is untouched.
-    const hasView = await hasBosPermission(user.id, 'academic.bos-courses.view');
+    const hasView = await hasAnyBosPermission(user.id, BOS_LOOKUP_VIEW_KEYS);
     const canReadAllBos = isBosReadAllObserver(scope, hasView);
     const seeAll = scope.isSuperAdmin || canReadAllBos;
     const { searchParams } = new URL(request.url);

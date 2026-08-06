@@ -16,6 +16,9 @@ export const profilesSearchParamsSchema = z.object({
   page: z.coerce.number().catch(1),
   pageSize: z.coerce.number().catch(50),
 
+  // Selected lifecycle tab — drives which (single) tab the server fetches
+  tab: z.enum(['active', 'inactive', 'exited']).optional().catch(undefined),
+
   // Search
   search: z.string().optional().catch(undefined),
   search_case_sensitive: z.string().optional().catch(undefined),
@@ -31,6 +34,9 @@ export const profilesSearchParamsSchema = z.object({
   section_id: z.string().uuid().optional().catch(undefined),
   academic_year_id: z.string().uuid().optional().catch(undefined),
   lifecycle_status: z.string().optional().catch(undefined),
+  // Which lifecycle tab is open. Separate from `lifecycle_status`, which the
+  // export dialog uses as an explicit filter value.
+  status: z.string().optional().catch(undefined),
   gender: z.string().optional().catch(undefined),
   is_profile_complete: z.string().optional().catch(undefined),
 

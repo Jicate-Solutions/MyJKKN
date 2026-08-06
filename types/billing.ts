@@ -23,7 +23,17 @@ export type BillingCategoryKind =
   | 'library'
   | 'other'
   | 'university_fee'
+  | 'mess'
   | 'establishment';
+
+/**
+ * Who the money ultimately belongs to.
+ *
+ * 'government' fees are collected ON BEHALF OF a government body — the cash passes
+ * through the institution but is not management revenue, so the billing dashboards
+ * report it as its own bucket. See `billing_categories.collection_type`.
+ */
+export type BillingCollectionType = 'management' | 'government';
 
 export interface BillingCategory {
   id: string;
@@ -33,6 +43,26 @@ export interface BillingCategory {
   kind: BillingCategoryKind;
   description: string | null;
   is_active: boolean;
+  /**
+   * false = this category's bills and receipt lines are hidden from the learner
+   * side (/learners/my-bills + parent portal). It stays fully billable, payable
+   * and visible to Accounts — this is a learner-presentation gate only.
+   */
+  visible_to_learners: boolean;
+  /**
+   * true = a learner may hold at most ONE live bill for this category, ever.
+   *
+   * Enforced in Postgres by trg_billing_bills_once_per_learner, NOT in the
+   * service layer — bills reach billing_student_bills from ten paths (four in
+   * TypeScript, six SECURITY DEFINER RPCs plus the feesync cron), so an
+   * application-level guard would be bypassed by most of them.
+   *
+   * Distinct from `frequency`, which is descriptive metadata only and is
+   * already 'one-time' on nearly every category. Defaults false so enabling is
+   * always deliberate.
+   */
+  once_per_learner: boolean;
+  collection_type: BillingCollectionType;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -49,6 +79,13 @@ export interface CreateBillingCategoryDto {
   kind: BillingCategoryKind;
   description?: string | null;
   is_active?: boolean;
+  /** Defaults to true (visible) when omitted. */
+  visible_to_learners?: boolean;
+  /** Defaults to false (unrestricted) when omitted. */
+  once_per_learner?: boolean;
+  // Required so a fee collected for a government body is never silently booked
+  // as management revenue — same reasoning as `kind` above.
+  collection_type: BillingCollectionType;
 }
 
 export interface UpdateBillingCategoryDto
@@ -58,6 +95,8 @@ export interface BillingCategoryFilters {
   search?: string;
   frequency?: BillingCategoryFrequency;
   isActive?: boolean;
+  collectionType?: BillingCollectionType;
+  visibleToLearners?: boolean;
   page?: number;
   limit?: number;
   // Server-side sort (consumed by the advanced DataTable's sortable column headers).

@@ -28,6 +28,10 @@ export function SchemePageClient() {
   const { canAccess, isSuperAdmin, userProfile } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
   const canEdit = isSuperAdmin || canAccess('academic.bos-scheme', 'edit');
+  // Read-all observer tier: ANY holder of the module's view grant may browse
+  // every institution read-only (see isBosReadAllObserver server-side). Drives
+  // the InstitutionPicker below, which used to render for super-admins only.
+  const canBrowseInstitutions = isSuperAdmin || canAccess('academic.bos-scheme', 'view');
 
   const [institutionId, setInstitutionId] = useState<string | undefined>(undefined);
   const [institutionCode, setInstitutionCode] = useState('');
@@ -58,6 +62,16 @@ export function SchemePageClient() {
   // Layer 2 when COE returns rich data; no-op otherwise.
   useEffect(() => {
     if (isSuperAdmin || !institutionCtx) return;
+    // Observer picked a DIFFERENT institution via the picker — don't clobber
+    // that choice with the user's own-institution context. Only enrich while
+    // the selection is (a CAS sibling of) their own institution.
+    if (
+      institutionId &&
+      institutionId !== institutionCtx.myjkkn_id &&
+      !institutionCtx.myjkkn_institution_ids.includes(institutionId)
+    ) {
+      return;
+    }
     setInstitutionCode(institutionCtx.institution_code);
     setInstitutionName(institutionCtx.display_name || institutionCtx.name);
     setMyjkknInstitutionIds(institutionCtx.myjkkn_institution_ids);
@@ -188,6 +202,10 @@ export function SchemePageClient() {
             internal_max_mark: m.course.internal_max_mark ?? 0,
             external_max_mark: m.course.external_max_mark ?? 0,
             total_max_mark: m.course.total_max_mark ?? 0,
+            // Drives "count the group once" in the semester totals — without
+            // this the PDF would sum every elective option (see the report's
+            // totals row) while the on-screen table collapses them.
+            group_order: m.group_order,
           };
         }),
       })),
@@ -219,20 +237,35 @@ export function SchemePageClient() {
       );
       if (!regulation) throw new Error('Regulation not found in options');
 
-      // Fetch every published syllabus for this regulation in one call.
+      // Fetch every published syllabus for this regulation, PAGE BY PAGE.
       // We over-fetch (any program in this regulation) and filter down to the
       // courses we actually have on screen — cheaper than one request per course.
-      const params = new URLSearchParams({
-        regulationId: regulation.id,
-        isLatest: 'true',
-        limit: '500',
-      });
-      if (institutionId) params.set('institutionsId', institutionId);
+      //
+      // This MUST drain all pages: a single limit=500 call used to be the whole
+      // fetch, so once a regulation grew past 500 syllabi (CAS R-2024 has 836)
+      // every course sorting after the cutoff silently fell out of the ZIP while
+      // the download still reported success. Loop until we've seen metadata.total.
+      const PAGE_SIZE = 500;
+      const MAX_PAGES = 40; // runaway guard — 20k syllabi
+      const syllabi: BosCourseSyllabus[] = [];
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const params = new URLSearchParams({
+          regulationId: regulation.id,
+          isLatest: 'true',
+          limit: String(PAGE_SIZE),
+          page: String(page),
+        });
+        if (institutionId) params.set('institutionsId', institutionId);
 
-      const syllabiRes = await fetch(`/api/bos/syllabus?${params}`);
-      if (!syllabiRes.ok) throw new Error('Failed to fetch syllabi');
-      const syllabiJson = await syllabiRes.json();
-      const syllabi: BosCourseSyllabus[] = syllabiJson.data ?? [];
+        const syllabiRes = await fetch(`/api/bos/syllabus?${params}`);
+        if (!syllabiRes.ok) throw new Error('Failed to fetch syllabi');
+        const syllabiJson = await syllabiRes.json();
+        const rows: BosCourseSyllabus[] = syllabiJson.data ?? [];
+        syllabi.push(...rows);
+
+        const total = syllabiJson.metadata?.total ?? syllabi.length;
+        if (rows.length === 0 || syllabi.length >= total) break;
+      }
 
       const syllabusByCourseCode = new Map<string, BosCourseSyllabus>();
       syllabi.forEach((s) => syllabusByCourseCode.set(s.course_code, s));
@@ -405,10 +438,13 @@ export function SchemePageClient() {
     <div className='space-y-6'>
       <div className='flex items-end justify-between gap-3 flex-wrap'>
         <div className='flex gap-3 flex-wrap items-end'>
-          {isSuperAdmin && (
+          {canBrowseInstitutions && (
             <InstitutionPicker
               value={institutionId}
               showAllOption={isSuperAdmin}
+              // View-grant observers browse all institutions read-only; their
+              // own institution stays preselected via the profile seed above.
+              allowAllInstitutions={!isSuperAdmin}
               onChange={(id) => {
                 setInstitutionId(id);
                 setFilters(null);
@@ -427,7 +463,7 @@ export function SchemePageClient() {
             />
           )}
         </div>
-        <div className='flex gap-2'>
+        <div className='flex flex-wrap gap-2'>
           {filters && !isLoading && allSemesters.length > 0 && (
             <Button variant='outline' size='sm' onClick={handleDownloadReport}>
               <FileDown className='mr-2 h-4 w-4' />

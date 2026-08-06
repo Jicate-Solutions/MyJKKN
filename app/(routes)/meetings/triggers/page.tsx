@@ -87,7 +87,7 @@ export default async function MeetingTriggersPage() {
       <div className="space-y-6 mt-4">
         <PageHeader
           title="Auto-Meeting Triggers"
-          description="Accountability thresholds for attendance (per college) and projects (overdue tasks + at-risk projects). When a line is crossed, the accountable person is asked to explain within 24h — or a short meeting with their reporting head is scheduled."
+          description="Accountability thresholds for attendance (per college) and projects (overdue tasks + at-risk projects). When a line is crossed, the accountable person is asked to explain within 24h — otherwise it is escalated to their reporting head for a review meeting."
         />
         <TriggersConsole initialRules={rules} initialEvents={events} />
       </div>

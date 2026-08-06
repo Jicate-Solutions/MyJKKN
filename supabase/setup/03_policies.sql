@@ -241,6 +241,22 @@ CREATE POLICY "degrees_select_by_role" ON degrees
         OR user_has_permission('admission.settings.seats.manage')
     );
 
+-- Additive read for campus-living settings admins (Chief Warden), scoped to the
+-- colleges a hostel block serves. The "Add Room Eligibility Rule" modal offers a
+-- cross-institution Institution list (hostel_block_institutions), so the policy
+-- above -- own-institution scope or an organizations.*.view key -- left the
+-- Degree/Department/Program/Semester dropdowns silently empty for wardens.
+-- Granting organizations.*.view instead was rejected: those keys drive sidebar
+-- entries in lib/sidebarMenuLink.ts. Mirrors the four policies added in
+-- 20260804092425_campus_living_chief_warden_academic_cascade_rls.sql; the
+-- department/program/semester twins live beside their own policies below.
+DROP POLICY IF EXISTS "degrees_select_campus_living_settings" ON degrees;
+CREATE POLICY "degrees_select_campus_living_settings" ON degrees
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
+    );
+
 DROP POLICY IF EXISTS "degrees_insert_by_role" ON degrees;
 CREATE POLICY "degrees_insert_by_role" ON degrees
     FOR INSERT WITH CHECK (
@@ -281,6 +297,15 @@ CREATE POLICY "departments_select_by_role" ON departments
         OR user_has_permission('organizations.departments.view')
         OR user_has_permission('admission.settings.seats.view')
         OR user_has_permission('admission.settings.seats.manage')
+    );
+
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "departments_select_campus_living_settings" ON departments;
+CREATE POLICY "departments_select_campus_living_settings" ON departments
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
     );
 
 DROP POLICY IF EXISTS "departments_insert_by_role" ON departments;
@@ -328,6 +353,15 @@ CREATE POLICY "programs_select_by_role" ON programs
         OR user_has_permission('admission.settings.seats.manage')
     );
 
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "programs_select_campus_living_settings" ON programs;
+CREATE POLICY "programs_select_campus_living_settings" ON programs
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
+    );
+
 DROP POLICY IF EXISTS "programs_insert_by_role" ON programs;
 CREATE POLICY "programs_insert_by_role" ON programs
     FOR INSERT WITH CHECK (
@@ -365,6 +399,15 @@ CREATE POLICY "semesters_select_admission_role" ON semesters
         is_super_admin() OR is_admin()
         OR institution_id = get_current_user_institution_id()
         OR user_has_permission('organizations.semesters.view')
+    );
+
+-- Additive campus-living read — see degrees_select_campus_living_settings above
+-- for the full rationale.
+DROP POLICY IF EXISTS "semesters_select_campus_living_settings" ON semesters;
+CREATE POLICY "semesters_select_campus_living_settings" ON semesters
+    FOR SELECT TO authenticated USING (
+        (SELECT user_has_permission('campus_living.settings.view'))
+        AND institution_id IN (SELECT institution_id FROM hostel_block_institutions)
     );
 
 CREATE POLICY "semesters_insert_by_role" ON semesters
@@ -1397,6 +1440,10 @@ ALTER TABLE billing_student_bills ENABLE ROW LEVEL SECURITY;
 -- user_has_permission() calls over ~10k rows cost ~4s and blew the 8s
 -- statement timeout (57014) for all-institution non-admin users on
 -- /billing/schedule. Visible-row set unchanged.
+-- Updated: 2026-08-01 - the SELF branch now also hides categories flagged
+-- visible_to_learners = false. Staff/admin branches are untouched, so Accounts
+-- still sees every fee. `IN (SELECT ...)` (not `= ANY(fn())`) so the var-free
+-- sub-select is evaluated once per query, not once per row.
 CREATE POLICY "bills_select_scoped" ON billing_student_bills
     FOR SELECT USING (
         (SELECT is_super_admin() OR is_admin())
@@ -1405,11 +1452,39 @@ CREATE POLICY "bills_select_scoped" ON billing_student_bills
             WHERE user_has_permission('billing.bills.view')
                OR user_has_permission('billing.schedule.view')
         )
-        OR student_id IN (
+        OR (
+            student_id IN (
+                SELECT lp.id
+                FROM learners_profiles lp
+                JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
+                WHERE p.id = auth.uid()
+            )
+            AND (
+                item_category_id IS NULL
+                OR item_category_id IN (
+                    SELECT id FROM billing_categories WHERE visible_to_learners
+                )
+            )
+        )
+    );
+
+-- Reconciled: 2026-08-01 - lives in the DB since the my-bills build (2026-06-22)
+-- but was never mirrored here. Second permissive SELECT policy exposing bills to
+-- a learner; permissive policies are OR'd, so it carries the same
+-- visible_to_learners clause as the self branch above or hidden rows leak here.
+CREATE POLICY "Students can view their own bills" ON billing_student_bills
+    FOR SELECT TO authenticated USING (
+        student_id IN (
             SELECT lp.id
             FROM learners_profiles lp
             JOIN profiles p ON (p.email = lp.student_email OR p.email = lp.college_email)
-            WHERE p.id = auth.uid()
+            WHERE p.id = auth.uid() AND p.role = 'student'
+        )
+        AND (
+            item_category_id IS NULL
+            OR item_category_id IN (
+                SELECT id FROM billing_categories WHERE visible_to_learners
+            )
         )
     );
 
@@ -1425,11 +1500,13 @@ CREATE POLICY "bills_update_admin" ON billing_student_bills
         OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.edit'))
     );
 
-CREATE POLICY "bills_delete_admin" ON billing_student_bills
-    FOR DELETE USING (
-        is_super_admin() OR is_admin()
-        OR (role_has_institution_access(institution_id) AND user_has_permission('billing.bills.delete'))
-    );
+DROP POLICY IF EXISTS bills_delete_admin ON public.billing_student_bills;
+CREATE POLICY bills_delete_admin
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.bills.delete') AND role_has_institution_access(institution_id))
+  );
 
 CREATE POLICY "bills_select_student" ON billing_student_bills
     FOR SELECT USING (
@@ -1438,6 +1515,26 @@ CREATE POLICY "bills_select_student" ON billing_student_bills
             WHERE email = (SELECT email FROM profiles WHERE id = auth.uid())
         )
     );
+
+-- Updated 2026-08-01 (migration 20260801120000): the billing.schedule.* family
+-- of policies. This INSERT policy previously gated on the permission key ALONE
+-- while its UPDATE/DELETE siblings ANDed in role_has_institution_access — so an
+-- institution-scoped role could create a bill against any institution and then
+-- be unable to edit it. Now symmetric.
+-- The (SELECT fn()) wrappers are deliberate: those calls reference no column,
+-- so the subquery forces once-per-statement evaluation. role_has_institution_access
+-- DOES reference a column and must stay unwrapped (per-row).
+DROP POLICY IF EXISTS billing_bills_insert_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_insert_permission
+  ON public.billing_student_bills FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.schedule.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
 
 -- BILLING_RECEIPTS TABLE (8 policies)
 ALTER TABLE billing_receipts ENABLE ROW LEVEL SECURITY;
@@ -1474,6 +1571,26 @@ CREATE POLICY "receipts_select_student" ON billing_receipts
             WHERE email = (SELECT email FROM profiles WHERE id = auth.uid())
         )
     );
+
+-- Updated 2026-08-01 (migration 20260801120000): same asymmetry fix as
+-- billing_bills_insert_permission above. Note this uses
+-- role_has_institution_access(institution_id) rather than the older
+-- `institution_id = get_current_user_institution_id()` form used by the
+-- receipts_*_admin policies — the function additionally honours
+-- custom_roles.institution_scope='all', CAS sibling institutions, and
+-- user_institution_access grants, so scope='all' finance roles keep working
+-- even when their profiles.institution_id is NULL.
+DROP POLICY IF EXISTS billing_receipts_insert_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_insert_permission
+  ON public.billing_receipts FOR INSERT
+  WITH CHECK (
+    (SELECT is_super_admin())
+    OR (SELECT is_admin())
+    OR (
+      (SELECT user_has_permission('billing.receipts.create'::text))
+      AND role_has_institution_access(institution_id)
+    )
+  );
 
 CREATE POLICY "receipts_select_accountant" ON billing_receipts
     FOR SELECT USING (accountant_id = auth.uid());
@@ -5199,11 +5316,35 @@ CREATE POLICY "hr_recruitment_candidates_update_permission"
         AND role_has_institution_access(institution_id))
   );
 
+-- Narrowed 2026-08-05 (20260810170000_hr_recruitment_purge_rejected_applicant.sql):
+-- deleting a candidate destroys a person's whole record, so it is super-admin only.
+-- It previously also allowed is_admin() and every holder of 'hr.recruitment.delete'
+-- (hr_head / ceo / coo / hr_admin), which would have let those roles bypass
+-- fn_purge_rejected_recruitment_applicant and delete without the audit trail or the
+-- Google Drive resume cleanup. Nothing in the app deleted candidates before that date.
 CREATE POLICY "hr_recruitment_candidates_delete_permission"
   ON public.hr_recruitment_candidates FOR DELETE USING (
-    is_super_admin() OR is_admin()
-    OR user_has_permission('hr.recruitment.delete')
+    (SELECT is_super_admin())
   );
+
+-- ---- hr_recruitment_purge_log -----------------------------------------
+-- PII-free tombstone of super-admin purges. Read-only to super admins; ALL writes
+-- go through the SECURITY DEFINER functions, so no write policy exists by design.
+
+ALTER TABLE public.hr_recruitment_purge_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "hr_recruitment_purge_log_select_super_admin"
+  ON public.hr_recruitment_purge_log FOR SELECT USING (
+    (SELECT is_super_admin())
+  );
+
+REVOKE ALL ON public.hr_recruitment_purge_log FROM anon;
+GRANT SELECT ON public.hr_recruitment_purge_log TO authenticated;
+
+-- NOTE: hr_job_applications deliberately has NO DELETE policy. Deletes happen only
+-- inside fn_purge_rejected_recruitment_applicant (SECURITY DEFINER, self-authorizing
+-- on is_super_admin()). Adding a delete policy here would widen the surface —
+-- with none, PostgREST denies by default.
 
 -- ---- hr_recruitment_candidate_packages --------------------------------
 -- STRICTER RLS per Learning #8:
@@ -7408,6 +7549,27 @@ CREATE POLICY events_induction_speaker_read ON public.events
   FOR SELECT TO authenticated
   USING (public.fn_induction_is_event_speaker(id));
 
+-- ── Tournament per-event organizer reads (2026-07-22) ──
+-- Migration: supabase/migrations/20260722130000_events_tournament_role_read_rls.sql
+-- The tournament counterpart of the induction policy above. In-charges, committee
+-- members and checked-in volunteers are authorized per event by the module's RPCs,
+-- but `events` itself is read client-side (EventBaseService.getEvent), and its only
+-- SELECT paths were institution-match or is_public+non-draft. A cross-institution
+-- student committee member therefore got PGRST116 -> null -> "Tournament not found".
+-- All three fn_* are SECURITY DEFINER and hard-code auth.uid(), so no recursion and
+-- each caller only ever learns their own role. Additive SELECT-only.
+DROP POLICY IF EXISTS events_tournament_role_read ON public.events;
+CREATE POLICY events_tournament_role_read ON public.events
+  FOR SELECT TO authenticated
+  USING (
+    event_type = 'sports_tournament'
+    AND (
+      public.fn_is_event_incharge(id)
+      OR public.fn_is_event_committee_member(id)
+      OR public.fn_is_event_volunteer(id)
+    )
+  );
+
 DROP POLICY IF EXISTS induction_programs_speaker_view ON public.induction_programs;
 CREATE POLICY induction_programs_speaker_view ON public.induction_programs
   FOR SELECT TO authenticated
@@ -7755,16 +7917,44 @@ CREATE POLICY cohort_proposals_delete_permission ON public.cohort_adjustment_pro
 -- policies untouched. Helpers are SECURITY DEFINER (see 02_functions.sql).
 -- ============================================================================
 
+-- `staff` (856 rows) is read unbounded by the analytics dashboard, list pages, pickers
+-- and exports. The per-row form below caused a multi-second "Loading Dashboard..." hang
+-- (1245 ms / 33,766 buffers for one scan as an own_institution user). Both staff SELECT
+-- policies now use the once-evaluated forms -- see
+-- supabase/migrations/optimize_staff_select_rls_dashboard_perf.sql for the measurements
+-- and the 11-user equivalence proof. Keep these two policies in sync with that migration;
+-- the pre-optimisation shapes live in 20260511_staff_module_scope_lockdown.sql and in the
+-- Cross-institution teaching migration and must NOT be restored.
+DROP POLICY IF EXISTS "staff_select_scope_aware" ON public.staff;
+CREATE POLICY "staff_select_scope_aware" ON public.staff
+FOR SELECT USING (
+  (SELECT is_super_admin())
+  OR (
+    (SELECT user_has_permission('staff.view'))
+    AND (
+      CASE (SELECT get_user_module_scope('staff'))
+        WHEN 'all_institutions' THEN TRUE
+        WHEN 'own_institution'  THEN (
+          staff.institution_id IS NULL
+          OR staff.institution_id IN (SELECT unnest(public._user_accessible_institutions()))
+        )
+        WHEN 'own_records'      THEN staff.profile_id = (SELECT auth.uid())
+        ELSE FALSE
+      END
+    )
+  )
+);
+
 DROP POLICY IF EXISTS "staff_select_visiting_teacher" ON public.staff;
 CREATE POLICY "staff_select_visiting_teacher" ON public.staff
 FOR SELECT USING (
   (
-    user_has_permission('academic.staff.planning.view')
-    OR user_has_permission('academic.timetables.view')
-    OR user_has_permission('academic.attendance.mark')
-    OR user_has_permission('academic.attendance.view')
+    (SELECT user_has_permission('academic.staff.planning.view'))
+    OR (SELECT user_has_permission('academic.timetables.view'))
+    OR (SELECT user_has_permission('academic.attendance.mark'))
+    OR (SELECT user_has_permission('academic.attendance.view'))
   )
-  AND staff_is_visiting_in_accessible_institution(staff.id)
+  AND staff.id IN (SELECT unnest(public.staff_ids_visiting_accessible_institutions()))
 );
 
 -- Visiting teachers can read the academic structure of institutions they teach in.
@@ -8097,3 +8287,285 @@ CREATE POLICY hostel_attendance_select_permission ON public.hostel_attendance
         OR (user_has_permission('campus_living.attendance.view')
             AND (role_has_institution_access(institution_id) OR role_has_block_access(block_id)))
     );
+
+-- hr_leave_types (migration 20260721120000_hr_leave_types_split.sql) — staff
+-- leave-type catalog, split out of the shared leave_types table. Reads are
+-- gated on org membership (own hr_organization_id) or the manage permission;
+-- writes require the manage permission outright.
+ALTER TABLE public.hr_leave_types ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hlt_select ON public.hr_leave_types
+  FOR SELECT TO authenticated
+  USING (
+    hr_organization_id IN (
+      SELECT o.id FROM public.hr_organizations o
+      JOIN public.staff s ON s.institution_id = o.institution_id
+      WHERE s.profile_id = auth.uid()
+    )
+    OR public.user_has_permission('hr.leave.types.manage')
+  );
+
+CREATE POLICY hlt_write ON public.hr_leave_types
+  FOR ALL TO authenticated
+  USING      (public.user_has_permission('hr.leave.types.manage'))
+  WITH CHECK (public.user_has_permission('hr.leave.types.manage'));
+
+-- Updated: 2026-07-31 - hr_staff_payroll: WHO PAYS each staff member.
+-- HR only. These policies are the ONLY thing keeping the paying organisation off
+-- everyone else's screen, which is why the fact lives in its own table rather
+-- than as a column on staff (row-level RLS cannot hide a column).
+-- Gated on permission KEYS, never on role names — the sibling hr_payslips
+-- policies still hardcode role_key IN ('hr_officer','hr_admin',...); that
+-- pattern is deliberately not copied here.
+-- Each check is wrapped in (SELECT ...) so Postgres evaluates it ONCE per query
+-- instead of once per row (the variable-free-check rule behind the 57014
+-- timeouts on this database).
+ALTER TABLE public.hr_staff_payroll ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_staff_payroll_select ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_select ON public.hr_staff_payroll
+  FOR SELECT TO authenticated
+  USING ((SELECT public.user_has_permission('hr.payroll.institution.view')));
+
+DROP POLICY IF EXISTS hr_staff_payroll_write ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_write ON public.hr_staff_payroll
+  FOR ALL TO authenticated
+  USING      ((SELECT public.user_has_permission('hr.payroll.institution.manage')))
+  WITH CHECK ((SELECT public.user_has_permission('hr.payroll.institution.manage')));
+
+DROP POLICY IF EXISTS hr_staff_payroll_service_role ON public.hr_staff_payroll;
+CREATE POLICY hr_staff_payroll_service_role ON public.hr_staff_payroll
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Anon must never see payroll data. REVOKE FROM anon (not FROM public — that
+-- would also strip authenticated and service_role).
+REVOKE ALL ON public.hr_staff_payroll FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_staff_payroll TO authenticated;
+
+-- Updated: 2026-07-24 - ID Card bridge heartbeat policies (migration
+-- 20260724045622_id_card_agent_status.sql). Reads mirror
+-- id_card_print_jobs_admin_view (queue viewers + admins); writes are
+-- service-role only (the jobs route heartbeat).
+ALTER TABLE public.id_card_agent_status ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "id_card_agent_status_view" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_view"
+  ON public.id_card_agent_status FOR SELECT TO authenticated
+  USING (
+    public.is_super_admin() OR public.is_admin()
+    OR public.user_has_permission('id_cards.jobs.view')
+  );
+
+DROP POLICY IF EXISTS "id_card_agent_status_service_role_all" ON public.id_card_agent_status;
+CREATE POLICY "id_card_agent_status_service_role_all"
+  ON public.id_card_agent_status FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+-- Voided receipts are staff-only. Unlike billing_receipts_select_permission
+-- there is deliberately NO student self-view branch: a learner must not keep
+-- seeing a receipt that no longer settles anything.
+ALTER TABLE public.billing_receipts_voided ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS billing_receipts_voided_select_permission ON public.billing_receipts_voided;
+CREATE POLICY billing_receipts_voided_select_permission
+  ON public.billing_receipts_voided FOR SELECT
+  USING (
+    is_super_admin()
+    OR is_admin()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+-- No INSERT/UPDATE/DELETE policies: written only by fn_void_billing_receipt.
+
+-- Receipt cancellation requests: SELECT-only. Every write goes through the
+-- SECURITY DEFINER RPCs, so the audit trail cannot be edited by whoever it
+-- incriminates.
+ALTER TABLE public.billing_receipt_cancel_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.billing_receipt_cancel_request_actions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT
+  USING (
+    is_super_admin()
+    OR requested_by = auth.uid()
+    OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM public.billing_receipt_cancel_requests r
+    WHERE r.id = request_id
+      AND (
+        is_super_admin()
+        OR r.requested_by = auth.uid()
+        OR (user_has_permission('billing.receipts.view') AND role_has_institution_access(r.institution_id))
+      )
+  ));
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_receipts_delete_permission ON public.billing_receipts;
+CREATE POLICY billing_receipts_delete_permission
+  ON public.billing_receipts FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.receipts.delete') AND role_has_institution_access(institution_id))
+  );
+
+-- super-admin-only delete (mig 20260729_billing_delete_super_admin_only)
+DROP POLICY IF EXISTS billing_bills_delete_permission ON public.billing_student_bills;
+CREATE POLICY billing_bills_delete_permission
+  ON public.billing_student_bills FOR DELETE
+  USING (
+    is_super_admin()
+    OR (user_has_permission('billing.schedule.delete') AND role_has_institution_access(institution_id))
+  );
+
+-- ============================================================================
+-- 2026-08-01 — IQAC committee RLS realigned onto the GRANTABLE permission family
+-- (mig 20260808210000_accreditation_committee_rls_naac_permission_family)
+--
+-- These eight policies checked accreditation.committees.* (no `naac` segment) —
+-- keys that exist on ZERO roles and in ZERO lines of lib/constants/permissions.ts,
+-- so Role Management could never grant them and only is_super_admin()/is_admin()
+-- could reach the module. The UI, and the RLS on accreditation_committee_meetings
+-- and accreditation_committee_resolutions, already use accreditation.naac.committees.*
+-- — which IS registered and grantable. Only the key string changed; the policy
+-- shape and the role_has_institution_access(institution_id) conjunct are
+-- byte-identical to the live production expressions.
+-- ============================================================================
+ALTER POLICY "committees_select" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_insert" ON public.accreditation_committees WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.create'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_update" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+ALTER POLICY "committees_delete" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.delete'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+
+ALTER POLICY "members_select" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission)));
+ALTER POLICY "members_insert" ON public.accreditation_committee_members WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+ALTER POLICY "members_update" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+ALTER POLICY "members_delete" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+
+-- =====================================================
+-- PHYSICAL-ROOM ELIGIBILITY RULES (campus living)
+-- =====================================================
+-- These two tables had no entry in this reference file until 2026-08-04; the
+-- block below is the full live policy set, not just the newly added policies.
+--
+-- Reads are open (a rule is not sensitive data); writes were originally gated on
+-- hardcoded admin identity, which locked out Chief Wardens who hold
+-- campus_living.settings.edit. The *_settings_edit policies added in
+-- 20260804102100_campus_living_room_rule_writes_by_permission_key.sql are
+-- additive and gate on that key instead. hostel_blocks RLS independently limits
+-- which blocks a warden can see, so the Block picker stays scoped either way.
+
+ALTER TABLE public.hostel_room_eligibility_rules      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hostel_room_eligibility_rule_rooms ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_select" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_select" ON public.hostel_room_eligibility_rules
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_insert" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_insert" ON public.hostel_room_eligibility_rules
+    FOR INSERT WITH CHECK ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_update" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_update" ON public.hostel_room_eligibility_rules
+    FOR UPDATE USING ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_delete" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_delete" ON public.hostel_room_eligibility_rules
+    FOR DELETE USING ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_select" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_select" ON public.hostel_room_eligibility_rule_rooms
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_insert" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_insert" ON public.hostel_room_eligibility_rule_rooms
+    FOR INSERT WITH CHECK ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_delete" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_delete" ON public.hostel_room_eligibility_rule_rooms
+    FOR DELETE USING ((SELECT is_super_admin()) OR (SELECT is_admin()));
+
+-- Additive permission-key writes (2026-08-04) — see the migration for rationale.
+DROP POLICY IF EXISTS "hostel_room_elig_rules_insert_settings_edit" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_insert_settings_edit" ON public.hostel_room_eligibility_rules
+    FOR INSERT TO authenticated
+    WITH CHECK ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_update_settings_edit" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_update_settings_edit" ON public.hostel_room_eligibility_rules
+    FOR UPDATE TO authenticated
+    USING      ((SELECT user_has_permission('campus_living.settings.edit')))
+    WITH CHECK ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rules_delete_settings_edit" ON public.hostel_room_eligibility_rules;
+CREATE POLICY "hostel_room_elig_rules_delete_settings_edit" ON public.hostel_room_eligibility_rules
+    FOR DELETE TO authenticated
+    USING ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_insert_settings_edit" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_insert_settings_edit" ON public.hostel_room_eligibility_rule_rooms
+    FOR INSERT TO authenticated
+    WITH CHECK ((SELECT user_has_permission('campus_living.settings.edit')));
+
+DROP POLICY IF EXISTS "hostel_room_elig_rule_rooms_delete_settings_edit" ON public.hostel_room_eligibility_rule_rooms;
+CREATE POLICY "hostel_room_elig_rule_rooms_delete_settings_edit" ON public.hostel_room_eligibility_rule_rooms
+    FOR DELETE TO authenticated
+    USING ((SELECT user_has_permission('campus_living.settings.edit')));
+
+
+-- =====================================================================
+-- hr_shift_timings — row level security
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+ALTER TABLE public.hr_shift_timings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_shift_timings_select ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_select ON public.hr_shift_timings
+  FOR SELECT USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_shift_timings_insert ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_insert ON public.hr_shift_timings
+  FOR INSERT WITH CHECK (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_shift_timings_update ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_update ON public.hr_shift_timings
+  FOR UPDATE USING (
+       (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+DROP POLICY IF EXISTS hr_shift_timings_delete ON public.hr_shift_timings;
+CREATE POLICY hr_shift_timings_delete ON public.hr_shift_timings
+  FOR DELETE USING (
+       (SELECT public.is_super_admin())
+    OR ((SELECT public.is_admin())
+        AND (SELECT public.user_has_permission('hr.shift_timings.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );

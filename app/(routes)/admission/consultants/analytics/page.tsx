@@ -441,7 +441,7 @@ function ConsultantAnalyticsPageInner() {
         </Breadcrumb>
 
         {/* Header */}
-        <div className="flex items-center justify-between mt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-6">
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
               <BarChart3 className="h-6 w-6 text-primary" />
@@ -451,7 +451,7 @@ function ConsultantAnalyticsPageInner() {
               Performance metrics and insights for education consultants
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={dateRange} onValueChange={setDateRange}>
               <SelectTrigger className="w-[150px]">
                 <Calendar className="h-4 w-4 mr-2" />
@@ -508,7 +508,7 @@ function ConsultantAnalyticsPageInner() {
 
         {/* Tabs for different views */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
-          <TabsList>
+          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="performance">Performance</TabsTrigger>
             <TabsTrigger value="commissions">Commissions</TabsTrigger>

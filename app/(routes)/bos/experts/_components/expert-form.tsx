@@ -61,9 +61,13 @@ const expertFormSchema = z.object({
   category: z.enum([
     'university_nominee',
     'subject_expert',
+    'academic_expert',
     'industry_expert',
     'alumni',
     'startup',
+    'student',
+    'faculty_member',
+    'chairman',
   ]),
   specialization: z.string().optional(),
   qualifications: z.string().optional(),

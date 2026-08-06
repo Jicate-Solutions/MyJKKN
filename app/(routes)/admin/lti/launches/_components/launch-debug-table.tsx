@@ -270,7 +270,7 @@ export function LaunchDebugTable({ launches }: LaunchDebugTableProps) {
               {/* Basic Information */}
               <div>
                 <h3 className="text-sm font-semibold mb-3">Basic Information</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-muted-foreground">Launch ID:</span>
                     <div className="font-mono text-xs mt-1">
@@ -302,7 +302,7 @@ export function LaunchDebugTable({ launches }: LaunchDebugTableProps) {
               {/* User Information */}
               <div>
                 <h3 className="text-sm font-semibold mb-3">User Information</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-muted-foreground">User ID:</span>
                     <div className="font-mono text-xs mt-1">
@@ -413,7 +413,7 @@ export function LaunchDebugTable({ launches }: LaunchDebugTableProps) {
               {/* Session Information */}
               <div>
                 <h3 className="text-sm font-semibold mb-3">Session Information</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-muted-foreground">Launch Type:</span>
                     <div className="mt-1">{selectedLaunch.launch_type}</div>

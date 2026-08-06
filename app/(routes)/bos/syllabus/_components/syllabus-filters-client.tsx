@@ -14,8 +14,11 @@ interface SyllabusFiltersClientProps {
 export function SyllabusFiltersClient({ searchParams }: SyllabusFiltersClientProps) {
   const router = useRouter();
   const currentParams = useSearchParams();
-  const { isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const { data: institutionCtx } = useInstitutionContext();
+  // Read-all observer tier: any holder of the view grant may browse every
+  // institution read-only, so they get the Institution dropdown too.
+  const canPickInstitution = isSuperAdmin || canAccess('academic.bos-syllabus', 'view');
 
   // Auto-seed institutionsId for regular users once the institution context resolves.
   // Uses router.replace so the param is set without adding a browser history entry.
@@ -47,6 +50,7 @@ export function SyllabusFiltersClient({ searchParams }: SyllabusFiltersClientPro
       onFilterChange={handleFilterChange}
       onClearFilters={handleClearFilters}
       isSuperAdmin={isSuperAdmin}
+      canPickInstitution={canPickInstitution}
       currentValues={{
         search: searchParams.search,
         boardId: searchParams.boardId,

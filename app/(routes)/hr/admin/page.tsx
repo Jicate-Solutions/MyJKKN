@@ -101,11 +101,11 @@ const SECTIONS: Section[] = [
           'Step-by-step joining workflows assigned per role category.',
       },
       {
-        href: '/hr/admin/shift-templates',
+        href: '/hr/admin/shift-timings',
         icon: ClipboardList,
-        title: 'Shift Templates',
+        title: 'Shift Timings',
         description:
-          'Pre-defined working-hour patterns for attendance scheduling.',
+          'Working hours per institution, staff category and weekday — first/second half windows and morning grace.',
       },
       {
         href: '/hr/admin/automation-rules',
@@ -113,6 +113,13 @@ const SECTIONS: Section[] = [
         title: 'Automation Rules',
         description:
           'Triggered rules that move HR cases between stages without manual review.',
+      },
+      {
+        href: '/hr/admin/sanctioned-posts',
+        icon: Briefcase,
+        title: 'Sanctioned Posts',
+        description:
+          'Sanctioned Senior Learner posts per cadre and academic year — feeds NAAC 2.2.1 accreditation evidence.',
       },
     ],
   },

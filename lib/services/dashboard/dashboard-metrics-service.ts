@@ -8,6 +8,7 @@
  * Spec: specs/myjkkn-dashboard-v2-spec.md §7.1
  */
 
+import { cache } from 'react';
 import { createClient } from '@/lib/supabase/server';
 
 export type DashboardScope = {
@@ -76,11 +77,28 @@ const EMPTY_METRICS: DashboardMetrics = {
 export async function getDashboardMetrics(
   scope: DashboardScope = {}
 ): Promise<DashboardMetrics> {
+  // Perf (2026-08-01): route through a React cache()-memoized fetch keyed on
+  // NORMALIZED PRIMITIVE args (cache keys by Object.is, so object-literal
+  // scopes would never dedupe). Per-request memo only — the store lives inside
+  // one server render, so metrics are never shared across users/requests.
+  // Payoff: the director dashboard invokes this from both <LiveTodaysFocus>
+  // and <LiveHeroStrip> in the same request → one fn_dashboard_metrics RPC
+  // instead of two.
+  return fetchDashboardMetrics(
+    scope.institutionId ?? null,
+    scope.departmentId ?? null
+  );
+}
+
+const fetchDashboardMetrics = cache(async (
+  institutionId: string | null,
+  departmentId: string | null
+): Promise<DashboardMetrics> => {
   const supabase = await createClient();
 
   const { data, error } = await supabase.rpc('fn_dashboard_metrics', {
-    p_institution_id: scope.institutionId ?? null,
-    p_department_id: scope.departmentId ?? null
+    p_institution_id: institutionId,
+    p_department_id: departmentId
   });
 
   if (error) {
@@ -107,7 +125,7 @@ export async function getDashboardMetrics(
   }
 
   return (data as DashboardMetrics) ?? EMPTY_METRICS;
-}
+});
 
 /**
  * Formats Indian rupees with crore/lakh suffixes for compact display.

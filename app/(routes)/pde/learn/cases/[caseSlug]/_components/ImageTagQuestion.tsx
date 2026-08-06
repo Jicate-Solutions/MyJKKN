@@ -2,16 +2,15 @@
 
 /**
  * ImageTagQuestion — canvas with the patient/clinical image, capturing a
- * click point and shipping it to /api/pde/clinical-reasoning/score
- * (Agent E's endpoint) for Vision-style validation.
+ * click point and shipping it to /api/pde/clinical-reasoning/mark-image-tag
+ * for SERVER-SIDE scoring.
  *
- * If Agent E's endpoint is not yet available, we still record the click
- * with a local "near expected region" fallback score so the case can be
- * completed end-to-end in dev. The score gets recomputed server-side once
- * Agent E lands.
+ * The answer key (expected_regions) is never shipped to the browser —
+ * fn_pde_get_case_questions strips it, so scoring cannot happen client-side.
+ * The marking route reads expected_regions with the service-role client (after
+ * verifying the caller may attempt the case) and returns only the region score.
  *
- * Image source: question.question_media_url (or scenario.image_url fallback
- * if you wire it in; not done here to keep boundary clean).
+ * Image source: question.question_media_url.
  */
 
 import { useRef, useState } from 'react';
@@ -19,7 +18,6 @@ import type {
   ClinicalQuestion,
   ClinicalAnswerEnvelope,
   ImageTagClickPoint,
-  ImageTagRegion,
 } from '@/types/pde-clinical-reasoning';
 
 interface ImageTagQuestionProps {
@@ -27,39 +25,6 @@ interface ImageTagQuestionProps {
   onAnswered: (envelope: ClinicalAnswerEnvelope) => void;
   onContinue: () => void;
   isLastQuestion: boolean;
-}
-
-function localFallbackScore(
-  pt: ImageTagClickPoint,
-  regions: ImageTagRegion[] | null
-): { score: number; matched_label?: string } {
-  // Local fallback used until Agent E's server endpoint is live.
-  // Regions are authored as FRACTIONS of the natural image dimensions (0..1 —
-  // see ImageTagRegionAuthor); the click point arrives in natural pixels, so
-  // convert each region to pixels before comparing.
-  if (!regions || regions.length === 0) {
-    // No expected regions defined → award full credit (faculty must define).
-    return { score: 100 };
-  }
-  let best = 0;
-  let matched: string | undefined;
-  for (const r of regions) {
-    const rw = r.w * pt.imgWidth;
-    const rh = r.h * pt.imgHeight;
-    const cx = r.x * pt.imgWidth + rw / 2;
-    const cy = r.y * pt.imgHeight + rh / 2;
-    const dx = pt.x - cx;
-    const dy = pt.y - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    const tol = r.tolerance_px ?? Math.max(rw, rh) / 2;
-    // 100% at center, drops to 0% at 2×tolerance distance.
-    const s = Math.max(0, Math.min(100, (1 - dist / (tol * 2)) * 100));
-    if (s > best) {
-      best = s;
-      matched = r.label;
-    }
-  }
-  return { score: Math.round(best), matched_label: matched };
 }
 
 export function ImageTagQuestion({
@@ -73,6 +38,8 @@ export function ImageTagQuestion({
   const [score, setScore] = useState<number | null>(null);
   const [matchedLabel, setMatchedLabel] = useState<string | undefined>(undefined);
   const [submitted, setSubmitted] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
 
   const mediaUrl = question.question_media_url;
 
@@ -94,22 +61,40 @@ export function ImageTagQuestion({
     });
   }
 
-  function submit() {
-    if (!click) return;
-    // Local per-click validation against the question's expected_regions.
-    // The whole-attempt OSCE score is computed server-side by Agent E's
-    // /api/pde/clinical-reasoning/score after the attempt is saved.
-    const fb = localFallbackScore(click, question.expected_regions);
-    setScore(fb.score);
-    setMatchedLabel(fb.matched_label);
-    setSubmitted(true);
-    onAnswered({
-      question_id: question.id,
-      question_type: 'image_tag',
-      click_point: click,
-      region_score: fb.score,
-      submitted_at: new Date().toISOString(),
-    });
+  async function submit() {
+    if (!click || marking) return;
+    setMarking(true);
+    setMarkError(null);
+    try {
+      // Scoring is server-side: expected_regions never reaches the browser.
+      const res = await fetch('/api/pde/clinical-reasoning/mark-image-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question_id: question.id, click_point: click }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || `Scoring failed (${res.status})`);
+      }
+      const data = (await res.json()) as { region_score?: number; matched_label?: string | null };
+      const regionScore = typeof data.region_score === 'number' ? data.region_score : 0;
+      setScore(regionScore);
+      setMatchedLabel(data.matched_label ?? undefined);
+      setSubmitted(true);
+      onAnswered({
+        question_id: question.id,
+        question_type: 'image_tag',
+        click_point: click,
+        region_score: regionScore,
+        submitted_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      setMarkError(
+        e instanceof Error ? e.message : 'Could not score this click. Please try again.',
+      );
+    } finally {
+      setMarking(false);
+    }
   }
 
   return (
@@ -155,13 +140,17 @@ export function ImageTagQuestion({
           <button
             type="button"
             onClick={submit}
-            disabled={!click}
+            disabled={!click || marking}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
-            Submit click
+            {marking ? 'Scoring…' : 'Submit click'}
           </button>
           <span className="text-xs text-muted-foreground">
-            {click ? 'Point captured — submit to score' : 'Click on the image to mark your answer'}
+            {markError
+              ? <span className="text-red-600">{markError}</span>
+              : click
+                ? 'Point captured — submit to score'
+                : 'Click on the image to mark your answer'}
           </span>
         </div>
       ) : (

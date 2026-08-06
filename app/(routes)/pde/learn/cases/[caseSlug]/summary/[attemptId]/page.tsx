@@ -69,15 +69,19 @@ export default async function SummaryPage({ params }: SummaryPageProps) {
     .eq('id', submission.assessment_id)
     .maybeSingle();
 
-  const { data: qRows } = await sb
-    .from('pde_assessment_questions')
-    .select(
-      'id, assessment_id, question_type, question_text, question_media_url, options, correct_answer, order_index, metadata, expected_regions'
-    )
-    .eq('assessment_id', submission.assessment_id)
-    .order('order_index', { ascending: true });
-
-  const questions: ClinicalQuestion[] = (qRows ?? []) as ClinicalQuestion[];
+  // Post-attempt review renders the model answers / correct options, so it needs
+  // the answer key. The learner no longer holds SELECT on pde_assessment_questions
+  // (see the pde_questions_read RLS tighten); the key comes from the SECURITY
+  // DEFINER review RPC, which returns the full question rows ONLY to a learner
+  // with a completed submission for this case (ownership already checked above),
+  // or to staff/creator. This closes the direct-table read while preserving the
+  // legitimate post-attempt review.
+  const { data: qData } = await sb.rpc('fn_pde_get_answer_key_for_review', {
+    p_assessment_id: submission.assessment_id,
+  });
+  const questions: ClinicalQuestion[] = Array.isArray(qData)
+    ? (qData as ClinicalQuestion[])
+    : [];
 
   // Answers shape varies — pre-scoring it's ClinicalAnswerEnvelope[],
   // post-scoring (Agent E's /score write-back) it's wrapped as
@@ -93,7 +97,27 @@ export default async function SummaryPage({ params }: SummaryPageProps) {
     ? (rawAnswers as { osce_score?: { percentage?: number; domain_scores?: FinalizeAttemptDomainScore[] } }).osce_score
     : undefined;
 
-  const score = submission.final_score ?? submission.auto_score ?? osceScore?.percentage ?? null;
+  // The detailed OSCE rubric score is the score that counts: it is what feeds
+  // the learner's skill record, and it is the one that survives in
+  // answers.osce_score even when the write-back of final_score to
+  // pde_submissions does not land. final_score was tried FIRST here, so an
+  // attempt whose write-back was a no-op showed the naive client-side value
+  // (100% for an attempt that answered 2 of 7 questions) instead of the real 36%.
+  // final_score / auto_score stay the fallback for attempts with no rubric score,
+  // and this ordering is safe once the write-back is fixed — both then agree.
+  const rubricScore =
+    typeof osceScore?.percentage === 'number' && Number.isFinite(osceScore.percentage)
+      ? osceScore.percentage
+      : null;
+  const score = rubricScore ?? submission.final_score ?? submission.auto_score ?? null;
+
+  // Coverage signal: the score tile on its own gave no hint that most of the
+  // case was skipped. Counted exactly the way the per-question "No answer
+  // recorded" note below is decided, so the tile and the list always agree.
+  const totalQuestions = questions.length;
+  const answeredCount = questions.filter((q) =>
+    answers.some((a) => a.question_id === q.id)
+  ).length;
 
   const minutes = Math.round((submission.time_spent_seconds ?? 0) / 60);
 
@@ -131,6 +155,17 @@ export default async function SummaryPage({ params }: SummaryPageProps) {
               </div>
             ) : null}
           </div>
+
+          {totalQuestions > 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Answered{' '}
+              <strong className="font-medium text-foreground">
+                {answeredCount} of {totalQuestions}
+              </strong>{' '}
+              questions
+              {answeredCount < totalQuestions ? ' — the rest were left blank.' : '.'}
+            </p>
+          ) : null}
 
           {osceScore?.domain_scores && osceScore.domain_scores.length > 0 ? (
             <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">

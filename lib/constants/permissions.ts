@@ -141,6 +141,10 @@ export const PERMISSION_CATEGORIES = [
       { key: 'foundation.items.manage', label: 'Author Foundation Questions' },
       { key: 'foundation.assessments.view', label: 'View Foundation Assessments' },
       { key: 'foundation.assessments.manage', label: 'Build Foundation Assessments' },
+      // The learner-facing one. Everything above is an operator surface; this is
+      // the only key that opens /foundation/practice, where questions are
+      // actually answered. Grant it to the people sitting the programme.
+      { key: 'foundation.practice.take', label: 'Answer Foundation Practice Questions' },
     ]
   },
   {
@@ -159,6 +163,39 @@ export const PERMISSION_CATEGORIES = [
     key: 'projects',
     permissions: [
       { key: 'projects.view', label: 'View Projects Module' },
+    ]
+  },
+  {
+    // MBA teaching-enterprise: Management Associates file improvement ideas about
+    // JKKN's own operations; facilitators + CEO office review/approve; only staff
+    // (board.manage) can mark a fix applied/verified (propose-only enforced in DB).
+    name: 'Improvement Board',
+    key: 'improvement',
+    permissions: [
+      { key: 'improvement.ideas.view', label: 'View Improvement Board' },
+      // Oversight read for the HOD and the principal, held separately from
+      // improvement.ideas.view so the two populations stay independently
+      // grantable and revocable: ideas.view marks a board PARTICIPANT (files
+      // ideas, appears on the leaderboard), view_scoped marks a READER who
+      // oversees the department the finding lands on. Both branches of the
+      // RLS policy are institution-scoped, so a holder reads open ideas
+      // raised inside their own institution and nothing from the other
+      // colleges. Registered here because a key that is registered nowhere
+      // cannot be granted through Role Management.
+      { key: 'improvement.ideas.view_scoped', label: 'Read Improvement Ideas for Own Institution (HOD / Principal)' },
+      { key: 'improvement.ideas.create', label: 'File Improvement Ideas' },
+      { key: 'improvement.board.manage', label: 'Manage Improvement Board (review / approve / apply)' },
+      // Assigning a role holder writes hr_additional_roles — institution-wide org data,
+      // not a note on a playbook — so it is an officer action (CEO / CAO / EAO), held
+      // separately from board.manage. Board managers can SEE holders, not change them.
+      { key: 'improvement.area_role.assign', label: 'Assign Department Role Holders (CEO / CAO / EAO)' },
+      // A department policy is an official institution document. Board managers may
+      // draft one with AI and read it; only the CEO / CAO / EAO may UPLOAD the real
+      // document or sign a draft off. Registered here so Role Management can grant it
+      // — an unregistered key is ungrantable and silently becomes super-admin-only.
+      { key: 'improvement.area_policy.approve', label: 'Upload / Approve Department Policy (CEO / CAO / EAO)' },
+      { key: 'ceo_rounds.log', label: 'Log CEO Rounds' },
+      { key: 'ceo_rounds.summary.write', label: 'Write CEO Rounds Summary' },
     ]
   },
   {
@@ -295,7 +332,23 @@ export const PERMISSION_CATEGORIES = [
       { key: 'organizations.sections.view', label: 'View Sections' },
       { key: 'organizations.sections.create', label: 'Create Sections' },
       { key: 'organizations.sections.edit', label: 'Edit Sections' },
-      { key: 'organizations.sections.delete', label: 'Delete Sections' }
+      { key: 'organizations.sections.delete', label: 'Delete Sections' },
+      // 2026-08-04 — College Leadership (/organizations/leadership).
+      // The ONE key behind naming a Principal, Vice Principal, IQAC Chairman,
+      // IQAC Coordinator or Head of Department. It stands in for five keys the
+      // underlying tables would otherwise demand — including roles.create and
+      // roles.edit, which are NOT institution-scoped and would grant global
+      // role management to a college officer. The writes happen inside
+      // fn_set_college_leadership (SECURITY DEFINER) so this key grants nothing
+      // anywhere else.
+      //
+      // Registered but granted to NO role: an unregistered key can never be
+      // granted at all (this repo carries 77 such orphans), so it has to exist
+      // here first. Who holds it is the Director's decision.
+      {
+        key: 'organizations.leadership.manage',
+        label: 'Manage College Leadership (Principal, Vice Principal, IQAC, HoD)'
+      }
     ]
   },
   {
@@ -312,8 +365,34 @@ export const PERMISSION_CATEGORIES = [
       // Admin Features
       { key: 'learners.dashboard.view', label: 'View Learners Analytics Dashboard' },
       { key: 'learners.profiles.view', label: 'View Learner Profiles (Admin)' },
+      // 2026-08-05 — registered because learners_profiles' INSERT / UPDATE /
+      // DELETE policies already gate on these three keys and none of them
+      // existed here. They are deliberately NOT the same thing as
+      // learners.create / edit / delete above: those cover the Learners module
+      // screens, these are the row-level write rights on the profile table
+      // itself, which the bulk import, the admission conversion and the
+      // profile-sync paths all pass through.
+      { key: 'learners.profiles.create', label: 'Create Learner Profile Records' },
+      { key: 'learners.profiles.edit', label: 'Edit Learner Profile Records' },
+      { key: 'learners.profiles.delete', label: 'Delete Learner Profile Records' },
       { key: 'learners.alumni.view', label: 'View Alumni & Graduates (Admin)' },
       { key: 'learners.bug_reports.view', label: 'View Bug Reports & Leaderboard' },
+      // Gates the learner_contribution_scores RLS policy (lcs_admin_select), which
+      // already referenced this key before it was registered here — so it could not
+      // be granted from Role Management at all. Admin-only by Director decision
+      // (2026-07-30): the risk BAND is visible to faculty and the learner, the
+      // contribution/value RANKING is not.
+      { key: 'learners.contribution.view', label: 'View Learner Contribution Ranking (Admin)' },
+
+      // Learner 360 standing verdict (learner_360_verdicts).
+      // The admin_note key is DELIBERATELY separate and grants access to a
+      // DIFFERENT table (learner_360_verdicts_admin) holding the comparative
+      // ranking language. RLS is row-level and cannot hide columns, so the two
+      // audiences are split across two tables and two keys — granting
+      // learners.standing.view must never reveal where a learner ranks.
+      { key: 'learners.standing.view', label: 'View Learner Standing Verdicts (band, narrative, next steps)' },
+      { key: 'learners.standing.admin_note.view', label: 'View Learner Standing ADMIN Notes (contribution + relative rank — leadership only)' },
+      { key: 'learners.standing.override', label: 'Override a Learner Standing Verdict (human correction)' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
@@ -425,7 +504,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'staff.status_update', label: 'Update Employee Status' },
       { key: 'staff.class_incharges.view', label: 'View Class Incharges' },
       { key: 'staff.class_incharges.create', label: 'Assign Class Incharges' },
-      { key: 'staff.class_incharges.delete', label: 'Remove Class Incharges' }
+      { key: 'staff.class_incharges.delete', label: 'Remove Class Incharges' },
+      // 2026-08-05 — registered because staff_import_unmatched carries an ALL
+      // policy on this key and it existed nowhere here. That table is the
+      // reject pile of a bulk employee import: rows the importer could not
+      // match to an existing person, which somebody has to open and resolve
+      // by hand. Unregistered, the reject pile was super-admin-only.
+      { key: 'staff.manage_imports', label: 'Resolve Unmatched Employee Import Rows' }
     ]
   },
   {
@@ -459,6 +544,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.attendance.view', label: 'View Attendance' },
       { key: 'academic.attendance.mark', label: 'Mark Attendance' },
       { key: 'academic.attendance.edit', label: 'Edit Attendance' },
+      // 2026-08-05 — registered because the RLS already DEMANDED it. The DELETE
+      // policy on student_attendance calls user_has_permission on this key and
+      // it existed nowhere in this catalog, so no role could hold it and every
+      // non-admin delete was refused with no way to grant the right.
+      { key: 'academic.attendance.delete', label: 'Delete Attendance Records' },
       { key: 'academic.attendance.reports', label: 'View Attendance Reports' },
       {
         key: 'academic.attendance.reports.view',
@@ -503,6 +593,16 @@ export const PERMISSION_CATEGORIES = [
         key: 'academic.session_feedback.verdict.write',
         label: 'Set Loop-Note Verdicts (leadership override)'
       },
+      // 2026-07-26: SCF note-safety loop Phase 0 — opens the learner-note
+      // review queue to a named human reviewer (grantable via Role Management;
+      // seeded on the scf_note_reviewer role). The DB gate on
+      // fn_scf_learner_notes_review / _pending is is_super_admin() OR this
+      // key. Key name is fixed by the note-safety spec (§6.3). Mixed prefix in
+      // this category is deliberate precedent (see faculty.calendar.view above).
+      {
+        key: 'scf.notes.review',
+        label: 'Review AI-Drafted Learner Support Notes (note-safety Phase 0)'
+      },
       {
         key: 'academic.curriculum.lesson.manage',
         label: 'Manage Curriculum Lessons (leadership override: edit, approve/reject AI drafts)'
@@ -517,6 +617,16 @@ export const PERMISSION_CATEGORIES = [
       {
         key: 'academic.internal_marks.exam_audit.view',
         label: 'View Exam IA Audit (CIA provenance + eligibility cross-check)'
+      },
+      // 2026-07-27: gates EDITING the exam attendance eligibility thresholds
+      // (platform_policies academic.exam_eligibility.attendance_pct /
+      // .condonation_floor_pct). Previously any is_admin() role could move a
+      // regulatory threshold; setting it to 0 would make every learner eligible.
+      // Enforced in RLS by 20260727060000_exam_eligibility_manage_permission.sql —
+      // granting this key is what actually confers the ability.
+      {
+        key: 'academic.exam_eligibility.manage',
+        label: 'Change exam attendance eligibility thresholds (75% / 65%)'
       },
       {
         key: 'academic.attendance.consolidation.view',
@@ -618,11 +728,42 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
       { key: 'billing.schedule.delete', label: 'Delete Schedule' },
+      // Bulk bill creation: the "Bulk Create" button on /billing/schedule and
+      // the /billing/schedule/bulk-create flow (pick many learners, or upload
+      // an Excel of bills). Separate from billing.schedule.create so the bulk
+      // path can be revoked without removing single-bill creation.
+      //
+      // ADDITIVE, NOT A REPLACEMENT: every surface checks create AND
+      // bulk_create together, because the RLS INSERT policy on
+      // billing_student_bills still gates on billing.schedule.create. Granting
+      // bulk_create alone would render the button and then fail every insert
+      // with an RLS denial.
+      { key: 'billing.schedule.bulk_create', label: 'Bulk Create Bills' },
       { key: 'billing.receipts.view', label: 'View Receipts' },
       { key: 'billing.receipts.create', label: 'Create Receipts' },
       { key: 'billing.receipts.edit', label: 'Edit Receipts' },
-      { key: 'billing.receipts.delete', label: 'Delete Receipts' },
+      { key: 'billing.receipts.delete', label: 'Delete/Void Receipts Directly' },
       { key: 'billing.receipts.generate', label: 'Generate Receipts' },
+      // Bulk receipt generation from the Billing Schedule page: download a
+      // pre-filled Excel of outstanding bills, fill "Paid Amount", upload, and
+      // create one receipt per (student, paid date, payment mode) group — up to
+      // 5000 bills per batch. Deliberately a SEPARATE key from
+      // billing.receipts.create: the single-receipt key is held by 7 roles, and
+      // one mis-filled sheet here writes thousands of payment rows at once, so
+      // the bulk path is opted into per role rather than inherited.
+      // The three API routes behind it run on the service-role client (RLS is
+      // bypassed), so they check THIS key plus the caller's accessible
+      // institutions — see lib/auth/bulk-receipt-access.ts.
+      { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
+      // Cancelling a receipt reverses money, so it is split in two: staff RAISE
+      // a request, and only a SUPER ADMIN decides it. There is deliberately no
+      // "cancel.approve" key — approval is gated on is_super_admin() in
+      // fn_act_on_receipt_cancellation and cannot be delegated through Role
+      // Management. A key here would be a toggle that grants nothing.
+      // Anyone holding billing.receipts.delete can still void directly and
+      // bypass this, which is why it was revoked from the accounts roles and
+      // from Chief Accountant.
+      { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
       { key: 'billing.discounts.edit', label: 'Edit Discounts' },
@@ -645,8 +786,30 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.invoices.edit', label: 'Edit Invoices' },
       { key: 'billing.invoices.delete', label: 'Delete Invoices' },
       { key: 'billing.invoices.send', label: 'Send Invoices' },
+
+      // ── Learner bills (2026-08-05) ────────────────────────────────────────
+      // A SEPARATE family from billing.invoices.* by Director's ruling, not a
+      // rename of it. The two sound alike and are not the same object:
+      // billing_student_bills holds 10,900 rows (the per-learner fee ledger the
+      // whole schedule / receipt flow runs on) while billing_invoices holds 2.
+      // Do not remap these onto the invoice keys.
+      //
+      // billing_student_bills carries TWO parallel permissive policy sets — one
+      // naming billing.schedule.* (registered, and therefore the lane everyone
+      // actually uses) and one naming billing.bills.*, which was registered
+      // nowhere. Postgres ORs permissive policies, so the second set was not
+      // blocking anybody; it was simply a lock with no key ever cut for it.
+      // Registering makes that lane grantable so it can be used deliberately
+      // instead of being dead weight. It grants nothing to anyone today.
+      { key: 'billing.bills.view', label: 'View Learner Bills' },
+      { key: 'billing.bills.create', label: 'Create Learner Bills' },
+      { key: 'billing.bills.edit', label: 'Edit Learner Bills' },
+      { key: 'billing.bills.delete', label: 'Delete Learner Bills' },
+
       { key: 'billing.onboarding.view', label: 'View Learner Onboarding' },
       { key: 'billing.onboarding.approve', label: 'Approve Learner Onboarding' },
+      { key: 'billing.coverage.view', label: 'View Bill Coverage' },
+      { key: 'billing.coverage.export', label: 'Export Bill Coverage' },
       { key: 'billing.reports.view', label: 'View Billing Reports' },
       { key: 'billing.analytics.view', label: 'View Billing Analytics' },
       { key: 'billing.analytics.export', label: 'Export Billing Analytics' },
@@ -682,6 +845,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.recruitment.packages.view', label: 'View Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.propose', label: 'Propose Candidate CTC Packages' },
       { key: 'hr.recruitment.packages.approve', label: 'Approve Candidate CTC Packages' },
+      // 2026-08-02 — hr_recruitment_scorecards' SELECT policy demanded this key
+      // and it existed nowhere, so interview scorecards were super-admin-only.
+      // Kept as its OWN key rather than folded into hr.recruitment.view: a
+      // scorecard is an interviewer's private assessment of a person, and every
+      // recruiter who may list candidates should not automatically read it.
+      { key: 'hr.recruitment.scorecards.view', label: 'View Interview Scorecards' },
       // Leave (Sprint 2) — genuinely enforced in hr_leave_* RLS since
       // 20260801002600_hr_leave_rls_permission_retrofit. Before that migration
       // this comment was aspirational: the policies gated on user_hr_access +
@@ -695,6 +864,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.balance.view', label: 'View Leave Balances' },
       { key: 'hr.leave.encashment.view', label: 'View Leave Encashment Requests' },
       { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
+      { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
+      { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
+
+      // ── Payroll organisation (2026-07-31) ────────────────────────────────
+      // WHO PAYS a staff member, held in hr_staff_payroll. Deliberately a
+      // separate table and not a column on staff: Supabase RLS is row-level, so
+      // a column would be readable by everyone who can read the staff row —
+      // and StaffService, /api/api-management/staff and the MCP server all
+      // select('*'). These two keys are the ONLY thing that exposes it; they
+      // are genuinely enforced in hr_staff_payroll's RLS.
+      // staff.institution_id means WHERE SOMEONE WORKS and is unaffected.
+      { key: 'hr.payroll.institution.view', label: 'View Payroll Organisation' },
+      { key: 'hr.payroll.institution.manage', label: 'Manage Payroll Organisation' },
 
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
@@ -716,7 +898,45 @@ export const PERMISSION_CATEGORIES = [
       // not see them. Declaring them is a catalog fix, not a grant.
       { key: 'hr.attendance.view_self', label: 'View Own Attendance' },
       { key: 'hr.attendance.regularize_self', label: 'Request Own Attendance Regularization' },
-      { key: 'hr.shifts.view_own', label: 'View Own Shifts and Swap Requests' },
+
+      // ── Attendance — the officer side (2026-08-05) ───────────────────────
+      // Registered because the RLS already DEMANDED these six. The hr_attendance_*
+      // tables (audit log, exceptions, records, regularizations, status types,
+      // biometric devices, biometric punches, regularization reasons) name them
+      // and none of them existed here, so on every one of those tables the only
+      // permissive route was a key no role could hold: the whole biometric and
+      // regularization back office read as empty rather than as forbidden.
+      // Deliberately six keys and not one — marking your own punch, reading
+      // everybody's, approving your team's, deciding a regularization,
+      // overriding a record outright and exporting the tamper log are six
+      // different amounts of trust.
+      { key: 'hr.attendance.mark_self', label: 'Mark Own Attendance Punch' },
+      { key: 'hr.attendance.view_all', label: 'View Attendance for Everyone' },
+      { key: 'hr.attendance.approve_team', label: 'Approve Attendance for Own Team' },
+      { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
+      { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
+      { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
+
+      // ── Shift timings (2026-08-06) ────────────────────────────────────────
+      // Institution x staff-category x weekday working hours, with the
+      // first/second half windows and the morning grace period that biometric
+      // punch evaluation reads. Replaces the retired hr.shifts.* namespace,
+      // whose only key (hr.shifts.view_own) gated a per-employee roster module
+      // that was never used and is now removed.
+      { key: 'hr.shift_timings.view', label: 'View Shift Timing Configuration' },
+      { key: 'hr.shift_timings.manage', label: 'Configure Shift Timings' },
+
+      // ── Training sessions & enrolments (2026-08-05) ───────────────────────
+      // hr_training_sessions / hr_training_enrollments gate on these five and
+      // they were registered nowhere, so the training back office was
+      // super-admin-only. hr.training.view_own (below) is the self-service
+      // half and is unaffected: it reads a person's own enrolments, while
+      // these five run the programme.
+      { key: 'hr.training.view', label: 'View Training Sessions & Enrolments' },
+      { key: 'hr.training.create', label: 'Create Training Sessions' },
+      { key: 'hr.training.edit', label: 'Edit Training Sessions & Enrolments' },
+      { key: 'hr.training.delete', label: 'Delete Training Sessions & Enrolments' },
+      { key: 'hr.training.enroll', label: 'Enrol People into Training Sessions' },
       { key: 'hr.assets.view_own', label: 'View Own Assigned Assets' },
       { key: 'hr.memos.view_own', label: 'View Own Memos' },
       { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },
@@ -742,7 +962,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.onboarding.execute', label: 'Execute Onboarding Steps' },
       // Dashboard (Sprint 6) — HR Command Center
       { key: 'hr.dashboard.view', label: 'View HR Command Center' },
-      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' }
+      { key: 'hr.dashboard.manage', label: 'Configure HR Command Center Widgets' },
+      // Sanctioned faculty posts register (Wave 2A, 2026-07-26) —
+      // /hr/admin/sanctioned-posts. The nightly hr-naac-evidence refresh
+      // compares filled strength against this register to emit NAAC 2.2.1
+      // (cadre strength vs sanctioned posts) evidence.
+      { key: 'hr.sanctioned_posts.view', label: 'View Sanctioned Senior Learner Posts' },
+      { key: 'hr.sanctioned_posts.manage', label: 'Manage Sanctioned Senior Learner Posts' }
     ]
   },
   {
@@ -979,6 +1205,18 @@ export const PERMISSION_CATEGORIES = [
       { key: 'startup_studio.foundations.manage', label: 'Foundations — Manage cohorts, worksheets & enrolment' },
       { key: 'startup_studio.foundations.review', label: 'Foundations — Review submissions (mentor feedback)' },
 
+      // -----------------------------------------------------------------
+      // School of Influence — programme settings (S2)
+      // Spec: specs/school-of-influence-batches-2026-07-30.md §7
+      // Gates /startup-studio/school-of-influence/admin/settings, which edits
+      // the soi.* rows in platform_policies (who may apply, batch size, what
+      // happens when a batch is full, the inactivity thresholds). Registered
+      // here so Role Management can grant it — the same key is used by the
+      // page guard AND by MENU_PERMISSIONS, so the nav chip and the page never
+      // disagree. Super admins bypass both.
+      // -----------------------------------------------------------------
+      { key: 'startup_studio.school_of_influence.configure', label: 'School of Influence — Configure programme settings' },
+
       // NIF Pipeline (Nattraja Incubation Forum)
       { key: 'startup_studio.nif.view', label: 'NIF — View Pipeline' },
       { key: 'startup_studio.nif.manage', label: 'NIF — Manage Candidates' },
@@ -1064,6 +1302,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.enquiries.activities.create', label: 'Add notes / voice memos to Enquiry activities' },
       { key: 'admission.enquiries.checklist.view', label: 'View Checklist tab on Enquiry page' },
       { key: 'admission.enquiries.checklist.mark', label: 'Mark / unmark items on Enquiry checklist' },
+      // 2026-08-05 — learner_self_fill_tokens' SELECT policy names this key and
+      // nothing else, so nobody outside the super-admin bypass could read back
+      // a self-fill link once issued. The token is what lets a lead complete
+      // their own application form without an account, so issuing one is a
+      // separate right from editing the lead.
+      { key: 'admission.leads.student_form.generate', label: 'Issue Self-Fill Application Links to Leads' },
 
       // Application Management
       { key: 'admission.applications.view', label: 'View Applications' },
@@ -1078,6 +1322,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.counselors.edit', label: 'Edit Counselors' },
       { key: 'admission.counselors.delete', label: 'Delete Counselors' },
       { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+      // 2026-08-02 — admission_counselor_duty_log's SELECT policy demanded this
+      // key and it existed nowhere. Kept separate from performance.view: a duty
+      // log is an attendance-shaped record of an individual's working day.
+      { key: 'admission.counselors.duty_log.view', label: 'View Counselor Duty Log' },
+      // 2026-08-05 — registered because the RLS already DEMANDED them. The four
+      // tables that decide which counselor gets which enquiry
+      // (admission_counselor_institutions / _schedules / _sources and
+      // admission_lead_cascade_history) name these two keys and nothing else,
+      // so the whole routing setup was invisible and unchangeable outside the
+      // super-admin bypass. Split view / manage because reading who is on duty
+      // for which college is a far smaller thing than re-cutting the routing.
+      { key: 'admission.counselors.team.view', label: 'View Counselor Coverage (colleges, rosters, sources, cascade history)' },
+      { key: 'admission.counselors.team.manage', label: 'Manage Counselor Coverage (colleges, rosters, sources, cascade)' },
 
       // Consultant Management
       { key: 'admission.consultants.view', label: 'View Education Consultants' },
@@ -1134,6 +1391,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission.settings.statuses.manage', label: 'Manage admission statuses' },
       { key: 'admission.settings.checklists.view', label: 'View Programme Checklists module' },
       { key: 'admission.settings.checklists.manage', label: 'Create / Edit / Delete Programme Checklists' },
+      // 2026-08-05 — admission_forms, admission_form_submissions and
+      // admission_form_abandon_log all gate on these two and neither existed
+      // here, so the form builder AND everything captured through it — every
+      // submission, and the abandon log that says where applicants gave up —
+      // was unreadable to every role.
+      { key: 'admission.settings.forms.view', label: 'View Admission Forms, Submissions & Abandon Log' },
+      { key: 'admission.settings.forms.manage', label: 'Create / Edit / Delete Admission Forms' },
 
       // Gate Entry (2026-05-07) — kiosk capture flow for gate security
       { key: 'admission.gate_entry.create', label: 'Log Gate Entry (kiosk)' },
@@ -1143,7 +1407,16 @@ export const PERMISSION_CATEGORIES = [
       // Voice Memo (2026-05-09) — counselor records 30s English memo on call log;
       // Whisper cron analyzes for sentiment/summary/categories that flow into the
       // Lead Mood Digest (PR #779).
-      { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' }
+      { key: 'admission.voice_memo', label: 'Record Voice Memo on Call Log' },
+
+      // Admission documents (2026-08-05). Flat under `admission_documents.*`
+      // (not `admission.documents.*`) because that is the shape the RLS on
+      // learner_admission_documents and admission_account_transition_log
+      // already uses; renaming the key would mean rewriting live policies, and
+      // this PR only makes what exists grantable. It was registered nowhere, so
+      // an applicant's certificates and the record of their account being
+      // switched over to a learner account were both super-admin-only.
+      { key: 'admission_documents.manage', label: 'Manage Learner Admission Documents & Account Transitions' }
     ]
   },
   // Schools Network lives further down in this array (single canonical entry,
@@ -1191,6 +1464,25 @@ export const PERMISSION_CATEGORIES = [
       { key: 'dashboard.broadcast.initiate', label: 'Initiate Broadcast Rescue for cold leads' },
       { key: 'dashboard.broadcast.claim', label: 'Claim Broadcast Rescue leads' },
       { key: 'dashboard.anomaly.acknowledge', label: 'Acknowledge anomaly alerts' }
+    ]
+  },
+  // ======================================================================
+  // Director's Desk (2026-08-04) — hand over any page; the handover IS the grant
+  // Spec: specs/director-desk/SPEC.md
+  //
+  // These MUST be registered here even though they are never handed over — a key
+  // absent from this file is UNGRANTABLE, because Role Management can only offer
+  // what it can enumerate. fn_handover_key_is_blocked() permanently walls
+  // `director.handover.%` from being handed over, so a deliberate trip to Role
+  // Management is the ONLY way to obtain them. That is the intended friction:
+  // it is what stops the master key from propagating (decision 5).
+  // ======================================================================
+  {
+    name: "Director's Desk",
+    key: 'director',
+    permissions: [
+      { key: 'director.handover.create', label: 'Hand over a page or job to someone' },
+      { key: 'director.handover.view_all', label: "See every handover on the Director's desk" }
     ]
   },
   // ======================================================================
@@ -1325,6 +1617,22 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.naac.surveys.consent.submit', label: 'Submit DPDPA Consent' },
       { key: 'accreditation.naac.surveys.export', label: 'Export NAAC 8.4 Survey Data' },
 
+      // Employer + alumni course feedback — the EXTERNAL half of NAAC 1.2
+      // (bos_meetings supplies the internal half). view = see cycles, the chase
+      // list and the comments; manage = create/open/close a cycle, build the
+      // recipient list, remove a respondent on request.
+      { key: 'accreditation.naac.surveys.stakeholder.view', label: 'View Employer & Alumni Feedback' },
+      { key: 'accreditation.naac.surveys.stakeholder.manage', label: 'Run Employer & Alumni Feedback Cycles' },
+
+      // NAAC AI narrative drafter — grounded, human-verified per-metric narratives.
+      // view = see drafts; edit = owning Senior Learner edits + okays;
+      // approve = Principal approve / Director submit / request revision;
+      // manage = assign the owning Senior Learner for a metric.
+      { key: 'accreditation.naac.narrative.view', label: 'View AI Criteria Narratives' },
+      { key: 'accreditation.naac.narrative.edit', label: 'Edit & Okay AI Narrative (Owning Senior Learner)' },
+      { key: 'accreditation.naac.narrative.approve', label: 'Approve / Submit AI Narrative (Principal / Director)' },
+      { key: 'accreditation.naac.narrative.manage', label: 'Assign Narrative Owners (IQAC Coordinator)' },
+
       // Per-body dashboards (PR-A9 through PR-A15)
       { key: 'accreditation.nirf.view', label: 'View NIRF Dashboard' },
       { key: 'accreditation.nba.view', label: 'View NBA Dashboard' },
@@ -1336,12 +1644,31 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.aicte.view', label: 'View AICTE Dashboard' },
       { key: 'accreditation.ugc.view', label: 'View UGC Dashboard' },
 
+      // Cluster Academic Council — a peer tab in the same row, but JKKN's own
+      // governance body rather than an outside regulator, so it has no
+      // scorecard and nothing to submit. Read-only: forming a council and
+      // editing its roster stay on the committees hub under the
+      // accreditation.naac.committees.* keys.
+      { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
+
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
       { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
       { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
+
+      // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
+      // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
+      { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
+      { key: 'accreditation.collaborations.manage', label: 'Manage MoU & Grants Register (add/edit/delete records)' },
+
+      // Monthly utility meter register (Attribute 10, 2026-07-26) —
+      // /accreditation/manage/utility-readings. Readings auto-emit NAAC 10.2
+      // (water & waste) + 10.3 (net-zero progress); a campus with no readings
+      // emits nothing rather than a zero.
+      { key: 'accreditation.sustainability_readings.view', label: 'View Monthly Utility Readings' },
+      { key: 'accreditation.sustainability_readings.manage', label: 'Enter Monthly Utility Readings (per campus, per month)' },
 
       // IIQA — PR-IIQA-1 (2026-04-25). NAAC IIQA submission workflow.
       // accreditation_officer (existing system role) is the primary IIQA Coordinator;
@@ -1358,7 +1685,33 @@ export const PERMISSION_CATEGORIES = [
       // re-assignment control now") — releases HELD CO/PO rollups into the
       // evidence ledger by assigning the right college. Gates
       // fn_copo_restamp_rollup_institution (super admins bypass).
-      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' }
+      { key: 'accreditation.evidence.restamp', label: 'Re-assign Held CO/PO Results to a College' },
+
+      // 2026-08-05 — the evidence ledger itself. quality_evidence_mappings is
+      // the "collect once, report many" spine (11,624 rows: one captured fact
+      // mapped to every body that asks for it), and its SELECT / INSERT /
+      // UPDATE policies name these three keys exclusively. None of the three
+      // was registered, so the spine was readable and writable only through
+      // the super-admin bypass, and three per-source evidence tables
+      // (coe_naac_evidence, event_feedback_naac_evidence,
+      // facility_teaching_naac_evidence) were unreadable for the same reason.
+      { key: 'accreditation.evidence.view', label: 'View the Evidence Ledger (collect once, report many)' },
+      { key: 'accreditation.evidence.create', label: 'Map Evidence to Accreditation Metrics' },
+      { key: 'accreditation.evidence.manage', label: 'Edit & Re-map Existing Evidence' },
+
+      // 2026-08-02 — registered because the RLS already DEMANDED them.
+      // accreditation_survey_consents and accreditation_submissions carry
+      // policies calling user_has_permission() on these six keys, none of which
+      // existed here, so no role could ever hold one and every non-admin read
+      // and write against those two tables was denied with no way to grant it.
+      // Registering a key grants it to nobody — it only makes it assignable in
+      // Role Management, which is the missing half of the lock.
+      { key: 'accreditation.consents.view', label: 'View Accreditation Survey Consents' },
+      { key: 'accreditation.consents.create', label: 'Record Accreditation Survey Consent' },
+      { key: 'accreditation.consents.withdraw', label: 'Withdraw Accreditation Survey Consent' },
+      { key: 'accreditation.submissions.view', label: 'View Accreditation Submissions' },
+      { key: 'accreditation.submissions.create', label: 'Create Accreditation Submissions' },
+      { key: 'accreditation.submissions.manage', label: 'Manage Accreditation Submissions' }
     ]
   },
   {
@@ -1426,6 +1779,16 @@ export const PERMISSION_CATEGORIES = [
 
       // Compliance
       { key: 'solutions.compliance.view', label: 'View AI Solution Compliance' },
+
+      // Department capability register (2026-08-01). /solutions/departments was
+      // retired 2026-04-02 with its obsolete nomination workflow; the capability
+      // editor went with it, which is why all 44 activated departments still
+      // declare nothing. These keys gate the register that brings it back.
+      { key: 'solutions.departments.view', label: 'View Department Capabilities' },
+      {
+        key: 'solutions.departments.capabilities.edit',
+        label: 'Declare Department Capabilities',
+      },
 
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
@@ -1605,6 +1968,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.mess.menu.view', label: 'View Mess Menu' },
       { key: 'campus_living.mess.menu.publish', label: 'Publish Menu' },
       { key: 'campus_living.mess.menu.approve', label: 'Approve Menu' },
+      { key: 'campus_living.mess.menu.manage', label: 'Manage Menu Loop (recommendations + verdicts)' },
 
       // Mess — meals
       { key: 'campus_living.mess.meals.view', label: 'View Meal Records' },
@@ -1665,7 +2029,138 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.premium.pick_room', label: 'Premium Stay — Self-Pick Room (Learner)' },
       { key: 'campus_living.premium.invite_roommate', label: 'Premium Stay — Invite Roommate' },
       { key: 'campus_living.premium.override_pick', label: 'Premium Stay — Override Pick (Chief Warden)' },
-      { key: 'campus_living.premium.view_dashboard', label: 'Premium Stay — View Dashboard' }
+      { key: 'campus_living.premium.view_dashboard', label: 'Premium Stay — View Dashboard' },
+
+      // ══ The write half the catalog never had (2026-08-05) ════════════════
+      // Everything above was written as intent verbs — record, config,
+      // log_case, onboard, publish. The RLS on the hostel_* and mess_* tables
+      // was written as plain CRUD — create, edit, delete — and those 61 keys
+      // were registered nowhere. On 100+ table/command pairs the CRUD key is
+      // the ONLY permissive route, so a warden holding every key in the list
+      // above still could not delete an attendance row, edit a maintenance
+      // ticket or record a health case: the write was refused, and because an
+      // RLS denial returns zero rows with no error, the screen looked empty
+      // rather than forbidden. Registering them here makes them grantable. It
+      // grants them to nobody.
+      //
+      // Where a key below looks close to one above, they are not duplicates:
+      // campus_living.fees.config edits the fee POLICY screens, while
+      // campus_living.fees.edit is the row-level write on hostel_fee_config.
+      // Grant both to whoever is meant to do the job.
+
+      // Alerts — hostel_alert_rules + hostel_risk_alerts
+      { key: 'campus_living.alerts.create', label: 'Create Alert Rules & Risk Alerts' },
+      { key: 'campus_living.alerts.edit', label: 'Edit Alert Rules & Risk Alerts' },
+      { key: 'campus_living.alerts.delete', label: 'Delete Alert Rules & Risk Alerts' },
+
+      // Allocations — also covers the five tables that hang off an allocation
+      // (emergency contacts, onboarding checklists + templates, roommate
+      // preferences, waitlist), which all share this one delete key.
+      { key: 'campus_living.allocations.delete', label: 'Delete Allocations & Their Attached Records' },
+
+      // Attendance
+      { key: 'campus_living.attendance.delete', label: 'Delete Hostel Attendance Records' },
+
+      // Community config
+      { key: 'campus_living.community.create', label: 'Create Community Configuration' },
+      { key: 'campus_living.community.edit', label: 'Edit Community Configuration' },
+      { key: 'campus_living.community.delete', label: 'Delete Community Configuration' },
+
+      // Deposits
+      { key: 'campus_living.deposits.create', label: 'Create Deposit Records' },
+      { key: 'campus_living.deposits.edit', label: 'Edit Deposit Records' },
+      { key: 'campus_living.deposits.delete', label: 'Delete Deposit Records' },
+
+      // Fee configuration
+      { key: 'campus_living.fees.create', label: 'Create Hostel Fee Configuration' },
+      { key: 'campus_living.fees.edit', label: 'Edit Hostel Fee Configuration' },
+      { key: 'campus_living.fees.delete', label: 'Delete Hostel Fee Configuration' },
+
+      // Gate passes — also the gate access log
+      { key: 'campus_living.gate_passes.edit', label: 'Edit Gate Passes & Gate Access Log' },
+      { key: 'campus_living.gate_passes.delete', label: 'Delete Gate Passes & Gate Access Log Entries' },
+
+      // Health cases
+      { key: 'campus_living.health.create', label: 'Create Health Case Records' },
+      { key: 'campus_living.health.edit', label: 'Edit Health Case Records' },
+      { key: 'campus_living.health.delete', label: 'Delete Health Case Records' },
+
+      // Laundry — configuration and orders
+      { key: 'campus_living.laundry.create', label: 'Create Laundry Configuration & Orders' },
+      { key: 'campus_living.laundry.edit', label: 'Edit Laundry Configuration & Orders' },
+      { key: 'campus_living.laundry.delete', label: 'Delete Laundry Configuration & Orders' },
+
+      // Leave — requests, leave-type configuration and curfew exceptions
+      { key: 'campus_living.leave.create', label: 'Create Leave Requests, Leave Types & Curfew Exceptions' },
+      { key: 'campus_living.leave.edit', label: 'Edit Leave Requests, Leave Types & Curfew Exceptions' },
+      { key: 'campus_living.leave.delete', label: 'Delete Leave Requests, Leave Types & Curfew Exceptions' },
+
+      // Maintenance — tickets, SLA config, AMC contracts, preventive schedules
+      { key: 'campus_living.maintenance.edit', label: 'Edit Maintenance Tickets, SLAs, AMC Contracts & Preventive Schedules' },
+      { key: 'campus_living.maintenance.delete', label: 'Delete Maintenance Tickets, SLAs, AMC Contracts & Preventive Schedules' },
+
+      // Mess — billing periods and per-resident mess billing
+      { key: 'campus_living.mess.billing.create', label: 'Create Mess Billing Periods & Resident Bills' },
+      { key: 'campus_living.mess.billing.edit', label: 'Edit Mess Billing Periods & Resident Bills' },
+      { key: 'campus_living.mess.billing.delete', label: 'Delete Mess Billing Periods & Resident Bills' },
+
+      // Mess — caterers. create/edit/delete act on the caterer register;
+      // book/publish/cancel act on caterer BLOCKS, the periods a caterer is
+      // assigned to serve. The verbs come from the policy names, not from a
+      // booking screen — read them as add / amend / withdraw a block.
+      { key: 'campus_living.mess.caterers.create', label: 'Add Caterers to the Register' },
+      { key: 'campus_living.mess.caterers.edit', label: 'Edit Caterers on the Register' },
+      { key: 'campus_living.mess.caterers.delete', label: 'Remove Caterers from the Register' },
+      { key: 'campus_living.mess.caterers.book', label: 'Assign a Caterer to a Service Block' },
+      { key: 'campus_living.mess.caterers.publish', label: 'Amend a Caterer Service Block' },
+      { key: 'campus_living.mess.caterers.cancel', label: 'Withdraw a Caterer Service Block' },
+
+      // Mess — feedback rows. book / publish / cancel are again the policy
+      // verbs for insert / update / delete on mess_feedback.
+      { key: 'campus_living.mess.feedback.book', label: 'Record Mess Feedback' },
+      { key: 'campus_living.mess.feedback.publish', label: 'Amend Mess Feedback' },
+      { key: 'campus_living.mess.feedback.cancel', label: 'Delete Mess Feedback' },
+
+      // Mess — meal bookings and served-meal records
+      { key: 'campus_living.mess.meals.create', label: 'Create Meal Bookings & Meal Records' },
+      { key: 'campus_living.mess.meals.edit', label: 'Edit Meal Bookings & Meal Records' },
+      { key: 'campus_living.mess.meals.delete', label: 'Delete Meal Bookings & Meal Records' },
+
+      // Mess — menu rows (campus_living.mess.menu.publish above is the
+      // publish-the-menu action; these two are the row writes on mess_menus)
+      { key: 'campus_living.mess.menu.book', label: 'Add Menu Entries' },
+      { key: 'campus_living.mess.menu.cancel', label: 'Delete Menu Entries' },
+
+      // Mess — waste log
+      { key: 'campus_living.mess.waste.book', label: 'Record Mess Waste' },
+      { key: 'campus_living.mess.waste.publish', label: 'Amend Mess Waste Entries' },
+      { key: 'campus_living.mess.waste.cancel', label: 'Delete Mess Waste Entries' },
+
+      // Pulse surveys — configuration and responses
+      { key: 'campus_living.pulse.edit', label: 'Edit Pulse Survey Configuration & Responses' },
+      { key: 'campus_living.pulse.delete', label: 'Delete Pulse Survey Configuration & Responses' },
+
+      // Safety — incidents, the people named on them, inspections, equipment
+      { key: 'campus_living.safety.create', label: 'Create Safety Incidents, Inspections & Equipment Records' },
+      { key: 'campus_living.safety.edit', label: 'Edit Safety Incidents, Inspections & Equipment Records' },
+      { key: 'campus_living.safety.delete', label: 'Delete Safety Incidents, Inspections & Equipment Records' },
+
+      // Safety — anti-ragging affidavits (statutory, kept separate from the
+      // general safety keys so the affidavit file can be held by fewer people)
+      { key: 'campus_living.safety.anti_ragging.create', label: 'Create Anti-Ragging Affidavits' },
+      { key: 'campus_living.safety.anti_ragging.edit', label: 'Edit Anti-Ragging Affidavits' },
+      { key: 'campus_living.safety.anti_ragging.delete', label: 'Delete Anti-Ragging Affidavits' },
+
+      // Visitors — the visitor log and the known-visitor list
+      { key: 'campus_living.visitors.create', label: 'Create Visitor & Known-Visitor Records' },
+      { key: 'campus_living.visitors.edit', label: 'Edit Visitor & Known-Visitor Records' },
+      { key: 'campus_living.visitors.delete', label: 'Delete Visitor & Known-Visitor Records' },
+
+      // Wardens — the warden register itself (campus_living.wardens.assign
+      // above is the assign-to-a-block action)
+      { key: 'campus_living.wardens.create', label: 'Create Warden Records' },
+      { key: 'campus_living.wardens.edit', label: 'Edit Warden Records' },
+      { key: 'campus_living.wardens.delete', label: 'Delete Warden Records' }
     ]
   },
   {
@@ -1679,13 +2174,28 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
-    // Baseline-only: app/(routes)/learners-council/ exists but no
-    // learners_council.* keys are enforced in lib/sidebarMenuLink.ts or in
-    // route guards on this branch. Seeded `.view` pending enforcement PR.
+    // Updated 2026-07-31: registers every learners_council.* key enforced by
+    // MENU_PERMISSIONS in lib/sidebarMenuLink.ts (24 /learners-council/*
+    // routes resolve to the 8 distinct section keys below). Previously only
+    // `view` and `events.view` were registered, so the other enforced keys
+    // could not be granted through Role Management at all.
+    // `learners_council.view` is the module gate used by the in-app guide and
+    // stays registered.
     name: 'Learners Council',
     key: 'learners_council',
     permissions: [
-      { key: 'learners_council.view', label: 'View Learners Council' }
+      { key: 'learners_council.view', label: 'View Learners Council' },
+      { key: 'learners_council.dashboard.view', label: 'View Council Dashboard' },
+      { key: 'learners_council.structure.view', label: 'View Council Structure' },
+      {
+        key: 'learners_council.communication.view',
+        label: 'View Council Communication'
+      },
+      { key: 'learners_council.events.view', label: 'View Council Events' },
+      { key: 'learners_council.od.view', label: 'View Council OD Requests' },
+      { key: 'learners_council.selection.view', label: 'View Council Selection' },
+      { key: 'learners_council.issues.view', label: 'View Council Issues' },
+      { key: 'learners_council.settings.view', label: 'View Council Settings' }
     ]
   },
   {
@@ -1863,7 +2373,30 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.bos-sop.delete', label: 'Delete SOP Documents' },
       { key: 'academic.bos-sop.approve', label: 'Approve SOP Documents' },
       { key: 'academic.bos-sop.export', label: 'Export SOP Documents' },
-      { key: 'academic.bos-sop.comment', label: 'Comment on SOP Documents' }
+      { key: 'academic.bos-sop.comment', label: 'Comment on SOP Documents' },
+
+      // ── Legacy `bos.*` keys that RLS never stopped using (2026-08-05) ─────
+      // The catalog note at the top of this category says the legacy
+      // `bos.<X>.<action>` shape "never matched any read site". That is true of
+      // the page guards; it is NOT true of the database. Three tables still
+      // carry policies naming the legacy shape, and on all three it is the only
+      // permissive route:
+      //   bos_external_experts  -> bos.experts.view / create / edit / delete
+      //   bos_course_reviews    -> bos.meetings.view / edit
+      //   bos_documents         -> bos.meetings.view / edit
+      // So the 216 external experts on the register, plus every course review
+      // and meeting document, were readable only through the super-admin
+      // bypass, no matter how many academic.bos-experts.* keys a role held.
+      // Registered here so the right can actually be granted. The tidier fix is
+      // to repoint those six policies at the canonical academic.bos-* keys and
+      // retire these — that is a migration, and migrations are Director-gated,
+      // so it is deliberately not in this PR.
+      { key: 'bos.experts.view', label: 'View BoS External Expert Register (legacy key — enforced by RLS)' },
+      { key: 'bos.experts.create', label: 'Add BoS External Experts (legacy key — enforced by RLS)' },
+      { key: 'bos.experts.edit', label: 'Edit BoS External Experts (legacy key — enforced by RLS)' },
+      { key: 'bos.experts.delete', label: 'Delete BoS External Experts (legacy key — enforced by RLS)' },
+      { key: 'bos.meetings.view', label: 'View BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' },
+      { key: 'bos.meetings.edit', label: 'Edit BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515
@@ -1883,7 +2416,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.marathon.create', label: 'Create Marathon Events' },
       // Events Platform Promotion — shared logistics
       { key: 'events.budget.approve', label: 'Approve Event Budgets (finance sign-off)' },
-      { key: 'events.presets.manage', label: 'Publish Official Event Presets' }
+      { key: 'events.presets.manage', label: 'Publish Official Event Presets' },
+      // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
+      // (confirm/decline/supersede) a raised "please confirm a date" request via
+      // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
@@ -1904,7 +2441,19 @@ export const PERMISSION_CATEGORIES = [
       { key: 'health.assessments.view', label: 'View Mental Health Check-In' },
       { key: 'health.counselor.view', label: 'View Counselor Dashboard' },
       { key: 'health.programs.view', label: 'View Wellness Programs' },
-      { key: 'health.programs.manage', label: 'Manage Wellness Programs' }
+      { key: 'health.programs.manage', label: 'Manage Wellness Programs' },
+      // Added 2026-07-30 — tournament permission approver inbox. Gates
+      // /health/sports/approvals AND the health_tournament_permissions RLS
+      // policy, so the same key decides the page and the rows: granting it in
+      // Role Management is the whole switch. Director-locked path is two
+      // parties — the Physical Director files for the squad, the Principal
+      // decides — so this belongs to the Principal and NOT to the role that
+      // files, which would let one person approve their own request.
+      { key: 'health.sports.approve', label: 'Approve Tournament Permission Requests' },
+      // The other half of the two-party path. Grants FILING one request for a
+      // whole squad (and reading back only what you filed) — deliberately a
+      // different key from .approve so no single holder can do both.
+      { key: 'health.sports.file_request', label: 'File Tournament Permission for a Squad' }
     ]
   },
   // Added 2026-06-22 — Sports Tournament Conducting (PR1). A tournament is an
@@ -1957,6 +2506,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'ims.inventory.delete', label: 'Delete Inventory Items' },
       { key: 'ims.inventory.bulk_import', label: 'Bulk Import Inventory (Excel)' },
       { key: 'ims.inventory.categories.manage', label: 'Manage Item Categories' },
+      // Propose, don't apply. A role holding this (and NOT ims.inventory.edit)
+      // opens the item form as normal, but Save raises a change request for a
+      // super admin to approve — approving is what writes to the item.
+      { key: 'ims.inventory.propose_edit', label: 'Request Item Changes (needs approval)' },
+      { key: 'ims.inventory.approve_changes', label: 'Approve / Reject Item Change Requests' },
 
       // Stock (visibility + adjustments + GRN lifecycle)
       { key: 'ims.stock.view', label: 'View Stock (Summary, Batches, Department)' },
@@ -2195,6 +2749,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'meetings.polls.view', label: 'View Meeting Polls' },
       { key: 'meetings.polls.manage', label: 'Manage Meeting Polls' },
       { key: 'meetings.contacts.view', label: 'View Contacts' },
+      // Business-card scanner. Replaces the job type's original
+      // allow_rule = 'seat_owner', which resolved to the AI natural-language
+      // QUERY feature's seat list — one user — and so locked the whole team out
+      // of a feature Director decision 1 opens to everyone.
+      { key: 'meetings.contacts.scan', label: 'Scan Business Cards' },
       { key: 'meetings.embed.manage', label: 'Manage Embed & Theming' },
       { key: 'meetings.analytics.view', label: 'View Meeting Analytics' },
       { key: 'meetings.webhooks.view', label: 'View Webhooks' },
@@ -2399,19 +2958,62 @@ export const PERMISSION_CATEGORIES = [
       // social policy value into a plain-English consequence ("threshold = N
       // days → M handles flagged dormant"). Gated alongside social.view today;
       // its own key keeps future fine-grained control available.
-      { key: 'social.governance.view', label: "View Social Governance (Director's View)" }
+      { key: 'social.governance.view', label: "View Social Governance (Director's View)" },
+      // 2026-08-05 — social_loop_playbook's INSERT and UPDATE policies name
+      // this key and nothing else, so the playbook that records what the social
+      // loop learned from each cycle could only ever be written by a super
+      // admin. Kept as one broad key because the table is a single artefact
+      // that is either yours to keep or not.
+      { key: 'social.manage', label: 'Write the Social Loop Playbook' }
     ]
   },
   // Added 2026-06-15 — catalog-coverage fix. MENU_PERMISSIONS enforces
-  // rcltp.config.manage for /rcltp (EKSAQ reading-assessment module) but the
+  // rcltp.config.manage for /rcltp (MyJKKN reading-assessment module) but the
   // module had no PERMISSION_CATEGORIES entry, failing the repo-wide
   // permissions-catalog gate on every open PR and hiding the toggle from the
   // Role-Management Edit dialog.
+  // Added 2026-07-28 — grantability fix. Eight rcltp.* keys were already being
+  // enforced by page guards and RLS policies, but only rcltp.config.manage was
+  // registered here. Role Management builds its checkboxes from this list, so
+  // the other seven could never be granted through the UI (they had been seeded
+  // straight into custom_roles rows), and rcltp.question.approve — required by
+  // /rcltp/teacher/questions and by the rcltp_pbq_update_review policy — was
+  // held by zero of 81 roles, making question approval super-admin-only.
   {
     name: 'RCLTP',
     key: 'rcltp',
     permissions: [
-      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' }
+      { key: 'rcltp.config.manage', label: 'Manage RCLTP Config' },
+      { key: 'rcltp.question.approve', label: 'Approve RCLTP Comprehension Questions' },
+      { key: 'rcltp.review', label: 'Review & Approve RCLTP Remedial Plans' },
+      { key: 'rcltp.assessment.manage', label: 'Manage RCLTP Assessments' },
+      { key: 'rcltp.assessment.take', label: 'Take RCLTP Assessments' },
+      { key: 'rcltp.report.view_all', label: 'View All RCLTP Reports' },
+      { key: 'rcltp.report.view_class', label: 'View RCLTP Reports for a Section' },
+      { key: 'rcltp.report.view_child', label: 'View RCLTP Reports for Own Ward' },
+      { key: 'rcltp.report.view_own', label: 'View Own RCLTP Reports' },
+      // 2026-08-02 — rcltp_badges, rcltp_learner_badges and rcltp_streaks all
+      // gate on these two keys, neither of which existed here.
+      { key: 'rcltp.reward.view', label: 'View RCLTP Badges & Streaks' },
+      { key: 'rcltp.reward.config', label: 'Configure RCLTP Badges & Streak Rules' }
+    ]
+  },
+  {
+    // Attention Bar — 2026-08-02. The module had ZERO registered permission
+    // keys while six tables (quick_action_audit, quick_action_config,
+    // quick_action_rules, quick_action_state_queries,
+    // notification_generator_config and its audit table) already carried RLS
+    // policies calling user_has_permission() on these four. A key that is
+    // registered nowhere cannot be granted anywhere, so those policies could
+    // only ever pass for is_super_admin()/is_admin(). This registers them so
+    // the access is grantable; it grants nothing to anybody by itself.
+    name: 'Attention Bar',
+    key: 'attention_bar',
+    permissions: [
+      { key: 'attention_bar.rules.view', label: 'View Attention Bar Rules' },
+      { key: 'attention_bar.rules.manage', label: 'Manage Attention Bar Rules & Notification Generators' },
+      { key: 'attention_bar.config.manage', label: 'Manage Attention Bar Config' },
+      { key: 'attention_bar.audit.view', label: 'View Attention Bar Action Audit Trail' }
     ]
   },
   {
@@ -2420,6 +3022,10 @@ export const PERMISSION_CATEGORIES = [
     permissions: [
       { key: 'calendar.view', label: 'View Calendar' },
       { key: 'calendar.people_leave.view', label: 'View Person-Level Leave on Calendar' },
+      // Added 2026-08-05 with the COE-backed calendar chips. Granted to every
+      // staff role but NOT to learners (migration 20260805130000). The Exam
+      // Schedule chip has no key of its own — it rides on calendar.view.
+      { key: 'calendar.coe_calendar.view', label: 'View COE Academic Calendar on Calendar' },
       { key: 'calendar.holidays.manage', label: 'Manage Common Holidays & Events' },
       { key: 'calendar.config.manage', label: 'Manage Calendar Config (Feeds, Categories)' }
     ]
@@ -2474,13 +3080,117 @@ export const PERMISSION_CATEGORIES = [
     // migration 20260731040000_cohort_core_spine.sql). SELECT→cohort.view,
     // INSERT→cohort.create, UPDATE→cohort.edit, DELETE→cohort.manage. Grant
     // 'cohort.manage' to cohort coordinators; super_admin/admin bypass every policy.
+    //
+    // ⚠ THE FOUR KEYS ABOVE ARE PROGRAMME-BLIND. The spine's RLS is not scoped per
+    // cohort kind, so any of them reaches EVERY programme sharing these tables —
+    // sf100, foundations, cdc, trainer, mba_associate and school_of_influence
+    // alike — within the holder's institution scope. Grant them only to someone
+    // meant to run cohorts across the board.
+    //
+    // For a coordinator of ONE programme, use the programme-scoped keys below
+    // instead. Added 2026-08-01, migration
+    // 20260808220000_cohort_programme_scoped_permission_keys.sql. They are backed
+    // by additional policies that sit BESIDE the four broad ones (the broad ones
+    // are untouched), each pinned to kind='school_of_influence', and they open the
+    // same doors for that programme and no other. Same action→key mapping:
+    // SELECT→.view, INSERT→.create, UPDATE→.edit, DELETE→.manage; .manage also
+    // opens fn_soi_can_manage_batch and fn_soi_can_review_applications, which gate
+    // every School of Influence RPC.
+    //
+    // Grant a School of Influence coordinator ALL FOUR narrow keys together. The
+    // .view key is load-bearing on the write paths, not merely a read convenience:
+    // CohortService.createMembership does .insert().select().single(), so without
+    // the read-back the accept lands the row, returns nothing, throws, and leaves
+    // an orphan membership with the application still showing 'pending'.
     name: 'Cohort Core',
     key: 'cohort',
     permissions: [
-      { key: 'cohort.view', label: 'View Cohorts' },
-      { key: 'cohort.create', label: 'Create Cohorts' },
-      { key: 'cohort.edit', label: 'Edit Cohorts' },
-      { key: 'cohort.manage', label: 'Manage Cohorts (delete, remove members, admin)' }
+      { key: 'cohort.view', label: 'View Cohorts (ALL programmes)' },
+      { key: 'cohort.create', label: 'Create Cohorts (ALL programmes)' },
+      { key: 'cohort.edit', label: 'Edit Cohorts (ALL programmes)' },
+      { key: 'cohort.manage', label: 'Manage Cohorts (ALL programmes — delete, remove members, admin)' },
+      { key: 'cohort.school_of_influence.view', label: 'School of Influence — View batches and members' },
+      { key: 'cohort.school_of_influence.create', label: 'School of Influence — Create batches, accept applicants' },
+      { key: 'cohort.school_of_influence.edit', label: 'School of Influence — Edit batches and member status' },
+      { key: 'cohort.school_of_influence.manage', label: 'School of Influence — Run the programme (attendance, review queue, remove members)' }
+    ]
+  },
+  {
+    // Added 2026-07-23 — ID Card substrate (Phase 1A). Keys referenced by RLS
+    // on id_card_templates / id_card_print_jobs and the student-photos storage
+    // bucket (migration 20260507150000_id_card_substrate.sql). Seeded to
+    // registrar + admission (admin keys) and student (my-cards.view) in the
+    // same migration; super_admin/admin bypass every policy.
+    name: 'ID Cards',
+    key: 'id_cards',
+    permissions: [
+      { key: 'id_cards.templates.view', label: 'View ID Card Templates' },
+      { key: 'id_cards.templates.create', label: 'Create ID Card Templates' },
+      { key: 'id_cards.templates.edit', label: 'Edit ID Card Templates' },
+      { key: 'id_cards.templates.delete', label: 'Delete ID Card Templates' },
+      { key: 'id_cards.jobs.view', label: 'View All ID Card Print Jobs' },
+      { key: 'id_cards.jobs.manage', label: 'Enqueue Print Jobs + Resolve Failures' },
+      { key: 'id_cards.my-cards.view', label: 'View My Own ID Card Status' }
+    ]
+  },
+  {
+    // Added 2026-08-05 — Transport had NO category at all. Seventeen tms.* keys
+    // are enforced by RLS across tms_route / tms_route_stop /
+    // tms_route_possible_stop / tms_vehicle / tms_driver / tms_driver_mobile /
+    // tms_transport_vacate_request and the four gps_* tables, and not one of
+    // them existed in this catalog — so on 24 live routes, 35 vehicles and 31
+    // drivers, every write and almost every read was refused for every role
+    // except the super-admin bypass, silently and with an empty screen.
+    name: 'Transport',
+    key: 'tms',
+    permissions: [
+      // Routes — one key set covers the route, its stops, and the candidate
+      // stops considered when planning it; the RLS treats the three as one
+      // object because editing a route means editing its stop list.
+      { key: 'tms.routes.view', label: 'View Routes & Stops' },
+      { key: 'tms.routes.create', label: 'Create Routes & Stops' },
+      { key: 'tms.routes.edit', label: 'Edit Routes & Stops' },
+      { key: 'tms.routes.delete', label: 'Delete Routes & Stops' },
+
+      // Vehicles
+      { key: 'tms.vehicles.view', label: 'View Vehicles' },
+      { key: 'tms.vehicles.create', label: 'Add Vehicles' },
+      { key: 'tms.vehicles.edit', label: 'Edit Vehicles' },
+      { key: 'tms.vehicles.delete', label: 'Delete Vehicles' },
+
+      // Drivers. The register is view / manage; the mobile numbers are split
+      // into their own four keys because a driver's phone number is personal
+      // contact data and should be grantable separately from the roster.
+      { key: 'tms.drivers.view', label: 'View Drivers' },
+      { key: 'tms.drivers.manage', label: 'Add, Edit & Remove Drivers' },
+      { key: 'tms.driver_mobiles.view', label: 'View Driver Mobile Numbers' },
+      { key: 'tms.driver_mobiles.create', label: 'Add Driver Mobile Numbers' },
+      { key: 'tms.driver_mobiles.edit', label: 'Edit Driver Mobile Numbers' },
+      { key: 'tms.driver_mobiles.delete', label: 'Delete Driver Mobile Numbers' },
+
+      // GPS. tracking.view is read-only live position and alerts;
+      // settings.manage is the device register, sync jobs and location
+      // history — i.e. the ability to change or erase the tracking record.
+      { key: 'tms.tracking.view', label: 'View Live Vehicle Tracking & GPS Alerts' },
+      { key: 'tms.settings.manage', label: 'Manage GPS Devices, Sync Jobs & Location History' },
+
+      // Transport vacate requests (a learner stopping the bus service)
+      { key: 'tms.vacate.view', label: 'View Transport Vacate Requests' }
+    ]
+  },
+  {
+    // Added 2026-08-05 — Referrals had NO category either. All four keys are
+    // enforced by RLS on referral_categories, referral_category_eligibility,
+    // referral_form_definitions / _fields and the referrals inbox, and none
+    // was registered, so the referral programme could only be set up by a
+    // super admin.
+    name: 'Referrals',
+    key: 'referrals',
+    permissions: [
+      { key: 'referrals.inbox.view', label: 'View the Referral Inbox' },
+      { key: 'referrals.categories.manage', label: 'Manage Referral Categories' },
+      { key: 'referrals.eligibility.manage', label: 'Manage Referral Category Eligibility' },
+      { key: 'referrals.forms.manage', label: 'Manage Referral Forms & Fields' }
     ]
   }
 ];

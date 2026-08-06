@@ -14,10 +14,11 @@
  */
 
 import { redirect, notFound } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { CaseAttempt } from './_components/CaseAttempt';
+import { OverdueClosedState } from './_components/OverdueClosedState';
 import type {
   ClinicalCaseBundle,
   ClinicalCaseScenario,
@@ -33,16 +34,32 @@ export const metadata = {
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Policy reader — pulls lifetime_attempts_per_case via the RPC.
-// Defaults to 5 if RPC unavailable (matches platform_policies seed).
+// Attempt-cap resolution — two sources, the per-case number wins.
+//
+//   1. pde_assessments.max_attempts — the number the Senior Learner typed for
+//      THIS case. Authoritative whenever it is a positive whole number.
+//   2. platform policy clinical_reasoning.lifetime_attempts_per_case — the
+//      fallback for cases that set no per-case number.
+//   3. 5 — last-resort default (matches the platform_policies seed).
+//
+// Only (2) was read before, so a case capped at 3 still rendered "Attempt 1 of
+// 5 · 5 attempts remaining" and offered a learner attempts the Senior Learner
+// never granted. The resolved value is what flows into bundle.attemptsCap, so
+// the counter, the remaining-attempts text and the cap-reached screen all agree.
 // ──────────────────────────────────────────────────────────────────────────────
-async function readAttemptsCap(supabase: any): Promise<number> {
+async function readPolicyAttemptsCap(supabase: any): Promise<number> {
   const { data, error } = await supabase.rpc('fn_get_policy_clinical_reasoning', {
     p_key: 'lifetime_attempts_per_case',
   });
   if (error || data === null || data === undefined) return 5;
   const n = typeof data === 'number' ? data : Number(data);
   return Number.isFinite(n) && n > 0 ? n : 5;
+}
+
+/** null unless `value` is a positive whole number — 0, NULL and junk all fall back. */
+function positiveIntOrNull(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 interface CasePageProps {
@@ -66,12 +83,35 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
   const sb = supabase as any;
   const { data: assessment, error: aErr } = await sb
     .from('pde_assessments')
-    .select('id, title, description, course_id, lesson_id, version, time_limit_minutes, status, assessment_type')
+    .select('id, title, description, course_id, lesson_id, version, time_limit_minutes, max_attempts, status, assessment_type, visibility_mode')
     .eq('id', caseSlug)
     .eq('assessment_type', 'clinical_case')
     .maybeSingle();
 
   if (aErr || !assessment) {
+    // The row is hidden from this learner. Tell apart "locked to a class you're
+    // not in" from "doesn't exist" so we show a clear message, not a bare 404
+    // (CLAUDE.md rule #27 — permission failures must be explicit, never silent).
+    const svc = createServiceRoleClient();
+    const { data: exists } = await svc
+      .from('pde_assessments')
+      .select('id, status, visibility_mode')
+      .eq('id', caseSlug)
+      .eq('assessment_type', 'clinical_case')
+      .maybeSingle();
+    if (exists && exists.status === 'published' && exists.visibility_mode === 'class_only') {
+      return (
+        <ContentLayout>
+          <div className="mx-auto max-w-2xl py-12 px-4">
+            <h1 className="text-xl font-semibold">This case isn&apos;t assigned to you</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Your Senior Learner has limited this case to specific sections. If you think you
+              should have access, ask them to assign it to your section.
+            </p>
+          </div>
+        </ContentLayout>
+      );
+    }
     notFound();
   }
   if (assessment.status !== 'published') {
@@ -111,26 +151,22 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     );
   }
 
-  // ---- 3. Questions ----
-  const { data: qRows } = await sb
-    .from('pde_assessment_questions')
-    .select(
-      'id, assessment_id, question_type, question_text, question_media_url, options, correct_answer, order_index, metadata, expected_regions'
-    )
-    .eq('assessment_id', assessment.id)
-    .order('order_index', { ascending: true });
-
-  // The answer key must never reach the learner's browser. metadata carries
-  // ground_truth (the model answer the AI marks against) and correct_answer
-  // names the right MCQ option — shipping either in the page payload puts the
-  // answers one DevTools panel away during the attempt. Both are stripped here;
-  // marking happens server-side, which reads them from the database directly.
-  const questions: ClinicalQuestion[] = (qRows ?? [])
-    .filter((q: any) => ['free_text_socratic', 'mcq_warmup', 'image_tag'].includes(q.question_type))
-    .map((q: any) => {
-      const { ground_truth: _gt, ...safeMetadata } = q.metadata ?? {};
-      return { ...q, correct_answer: null, metadata: safeMetadata };
-    });
+  // ---- 3. Questions (server-projected: the answer key never leaves the DB) ----
+  // The learner no longer holds SELECT on pde_assessment_questions (see the
+  // pde_questions_read RLS policy). fn_pde_get_case_questions is a SECURITY
+  // DEFINER RPC that gates on published+enrolled (or staff/creator) and returns
+  // only the learner-safe projection: options with `is_correct` stripped,
+  // metadata with ground_truth/key_concepts removed, and NO correct_answer or
+  // expected_regions. This is the only learner path to a case's questions, so
+  // the key is structurally unreachable from the browser — not merely absent
+  // from this payload. Objective marking is server-side (fn_pde_mark_objective
+  // for MCQ; /api/pde/clinical-reasoning/mark-image-tag for image_tag).
+  const { data: qData } = await sb.rpc('fn_pde_get_case_questions', {
+    p_assessment_id: assessment.id,
+  });
+  const questions: ClinicalQuestion[] = Array.isArray(qData)
+    ? (qData as ClinicalQuestion[])
+    : [];
 
   if (questions.length === 0) {
     return (
@@ -155,7 +191,9 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
 
   const prior: ClinicalSubmissionSummary[] = priorRows ?? [];
   const attemptsUsed = prior.length;
-  const attemptsCap = await readAttemptsCap(supabase);
+  // Per-case number first; the policy RPC is only consulted when the case set none.
+  const perCaseCap = positiveIntOrNull(assessment.max_attempts);
+  const attemptsCap = perCaseCap ?? (await readPolicyAttemptsCap(supabase));
 
   const bestSubmission: ClinicalSubmissionSummary | null = prior.length
     ? prior.reduce<ClinicalSubmissionSummary | null>((best, cur) => {
@@ -165,9 +203,10 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
       }, null)
     : null;
 
-  // ---- 5. Snapshot roll_number for audit (decision 4) ----
+  // ---- 5. Snapshot roll_number for audit + learner's section for the overdue gate ----
   // Lookup is best-effort — null is fine if the learner row doesn't exist yet.
   let rollNumberSnapshot: string | null = null;
+  let learnerSectionId: string | null = null;
   {
     const { data: prof } = await sb
       .from('profiles')
@@ -177,11 +216,58 @@ export default async function CaseAttemptPage({ params }: CasePageProps) {
     if (prof?.learner_id) {
       const { data: lp } = await sb
         .from('learners_profiles')
-        .select('roll_number')
+        .select('roll_number, section_id')
         .eq('id', prof.learner_id)
         .maybeSingle();
       rollNumberSnapshot = lp?.roll_number ?? null;
+      learnerSectionId = lp?.section_id ?? null;
     }
+  }
+
+  // ---- 6. Overdue hard-block — LOCKED (class_only) cases only (Decision 3) ----
+  // When a class_only case's assignment deadline for the learner's section has
+  // passed, block a NEW attempt. Rationale + boundaries:
+  //   • open cases are never blocked — an assigned learner must not be MORE
+  //     restricted than any enrolled learner opening the same open case.
+  //   • mid-attempt is untouched: no submission row exists until the learner
+  //     finishes (see CaseAttempt.finalSubmit), and this guard only runs on page
+  //     load — a learner already answering can still complete and submit.
+  //   • completed work stays reviewable via the summary link below.
+  // A learner in a non-assigned section never reaches here (the class_only case
+  // is hidden by pde_assess_read → the "isn't assigned to you" branch above).
+  let overdueLocked = false;
+  if (assessment.visibility_mode === 'class_only' && learnerSectionId) {
+    // Unique(assessment_id, section_id) ⇒ at most one row; RLS lets a learner
+    // read their own section's assignment (pde_case_assign_read learner branch).
+    const { data: asg } = await sb
+      .from('pde_case_assignments')
+      .select('due_at')
+      .eq('assessment_id', assessment.id)
+      .eq('section_id', learnerSectionId)
+      .maybeSingle();
+    if (asg?.due_at && new Date(asg.due_at).getTime() < Date.now()) {
+      overdueLocked = true;
+    }
+  }
+
+  if (overdueLocked) {
+    return (
+      <ContentLayout>
+        <PageBreadcrumb
+          items={[
+            { label: 'Home', href: '/' },
+            { label: 'Learn', href: '/learn/quests' },
+            { label: 'Clinical Cases', href: '/pde/learn/cases' },
+            { label: assessment.title },
+          ]}
+        />
+        <OverdueClosedState
+          caseTitle={assessment.title}
+          caseSlug={assessment.id}
+          bestSubmission={bestSubmission}
+        />
+      </ContentLayout>
+    );
   }
 
   const bundle: ClinicalCaseBundle = {

@@ -569,7 +569,7 @@ function StepRow({
 
             {/* On Return: Restart From Step (sequential + step > 1 only) */}
             {isSequential && steps.length > 1 && (
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
                 <Label className="text-xs text-muted-foreground whitespace-nowrap">
                   On return, restart from:
                 </Label>
@@ -583,7 +583,7 @@ function StepRow({
                     onRestartFromChange(v === 'current' ? null : Number(v))
                   }
                 >
-                  <SelectTrigger className="w-[260px] h-8 text-xs">
+                  <SelectTrigger className="w-full sm:w-[260px] h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

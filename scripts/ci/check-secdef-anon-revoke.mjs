@@ -30,8 +30,17 @@
  *   (a) the same migration contains  REVOKE [EXECUTE] ON FUNCTION ...fn... FROM ... anon
  *       (PUBLIC alongside anon is recommended; a bare anon revoke still passes), OR
  *   (b) the same migration contains  GRANT EXECUTE ON FUNCTION ...fn... TO ... anon
- *       (intentional-public RPC — e.g. admission-landing community/caste reads,
- *       fn_get_policy* config lookups), OR
+ *       (intentional-public RPC — e.g. admission-landing community/caste reads),
+ *       OR
+ *
+ *       NOT an example of this: fn_get_policy*. It was listed here until
+ *       2026-07-31, and that listing is how a real leak got re-approved. Those
+ *       overloads can return ANY platform_policies value, including the Meta
+ *       webhook verify tokens, and they leaked those tokens to anonymous
+ *       callers twice. The two unauthenticated routes that read policy values
+ *       use service-role clients and never needed anon. Treat a config lookup
+ *       as intentional-public only if you can name the unauthenticated caller
+ *       AND confirm it is not using a service-role client. OR
  *   (c) the migration file carries the line-comment marker
  *           -- ci:allow-secdef-anon <reason>
  *       (whole-file escape hatch for legitimate edge cases; the reason is the
@@ -194,7 +203,9 @@ ${YELLOW}Fix:${RESET} in the SAME migration, add for each function:
   ${DIM}REVOKE EXECUTE ON FUNCTION public.${violations[0].fn}(...) FROM anon, PUBLIC;${RESET}
   ${DIM}GRANT  EXECUTE ON FUNCTION public.${violations[0].fn}(...) TO authenticated;${RESET}
 
-If the function is INTENTIONALLY public (e.g. admission-landing reads, fn_get_policy*):
+If the function is INTENTIONALLY public (e.g. admission-landing reads) — first
+confirm a real unauthenticated caller exists AND is not on a service-role client,
+because "a route calls it" is not the same as "a route needs anon" (see 2026-07-31):
   ${DIM}GRANT EXECUTE ON FUNCTION public.${violations[0].fn}(...) TO anon;  -- + a comment saying why${RESET}
 
 Whole-file escape hatch (rare, audited): add a line comment

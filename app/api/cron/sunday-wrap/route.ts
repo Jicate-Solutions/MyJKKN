@@ -65,6 +65,13 @@ export async function GET(request: NextRequest) {
 
   const serviceClient = createServiceRoleClient();
   const week = isoWeek(new Date());
+  // Self-obsoleting weekly wrap: expire in 7 days so it clears the day next
+  // Sunday's wrap arrives, instead of piling up unread forever. The notification
+  // read path honors expires_at as of 2026-07-26 (see
+  // lib/services/notification/notification-service.ts). 7d > the 7d cadence, so
+  // at most one wrap is ever live per user.
+  const WRAP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const expiresAt = new Date(Date.now() + WRAP_TTL_MS).toISOString();
   const results = {
     week,
     mv_refresh: null as Record<string, unknown> | null,
@@ -158,6 +165,7 @@ export async function GET(request: NextRequest) {
         priority: 'high',
         category: `doctrines:${SUNDAY_WRAP_ANCHOR.key}`,
         idempotency_key: idempKey,
+        expires_at: expiresAt,
         metadata: {
           role: user.role,
           score,

@@ -68,17 +68,26 @@ async function createNotification(
   title: string,
   body: string,
   userIds: string[],
-  metadata: Record<string, unknown> = {}
+  metadata: Record<string, unknown> = {},
+  createdBy?: string
 ): Promise<number> {
   if (userIds.length === 0) return 0;
+
+  // `notifications` has NO `type` column — that write threw at runtime and the
+  // notification was dropped. Fold the profile `type` tag into metadata, and
+  // supply the two required columns: created_by (NOT NULL, no default) and
+  // targeting (NOT NULL, no default). Attribute to the issuer when known, else
+  // the first recipient. Never null.
+  const actor = createdBy ?? userIds[0];
 
   const { data: notification } = await supabase
     .from('notifications')
     .insert({
-      type: 'profile',
       title,
       body,
-      metadata: { source: 'profile_notify', ...metadata },
+      created_by: actor,
+      targeting: { type: 'user', user_ids: userIds },
+      metadata: { source: 'profile_notify', type: 'profile', ...metadata },
     })
     .select('id')
     .single();
@@ -117,7 +126,9 @@ async function handleVerificationSubmitted(
       submitter_user_id: body.submitter_user_id,
       verification_type: vtype,
       reference_id: body.reference_id,
-    }
+    },
+    // Issuer = the submitter who triggered this review request.
+    body.submitter_user_id
   );
 
   return NextResponse.json({ type: 'verification_submitted', notified: count });
@@ -152,7 +163,10 @@ async function handleVerificationCompleted(
       verification_type: vtype,
       verifier_user_id: body.verifier_user_id,
       reason: body.reason,
-    }
+    },
+    // Issuer = the verifier who completed the review (may be absent → helper
+    // falls back to the recipient id).
+    body.verifier_user_id
   );
 
   return NextResponse.json({ type: 'verification_completed', notified: count });

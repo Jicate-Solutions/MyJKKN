@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { ColumnDef } from '@tanstack/react-table';
 import { DataTable } from '@/components/ui/data-table';
 import { usePendingApprovals, usePendingApprovalCount } from '@/hooks/service-requests/use-service-requests';
+import { useTablePagination } from '@/hooks/service-requests/use-table-pagination';
 import { RequestStatusBadge } from '../_components/request-status-badge';
 import { PriorityBadge } from '../_components/priority-badge';
 import { formatDistanceToNow } from 'date-fns';
@@ -26,7 +27,15 @@ import type { ServiceRequest } from '@/types/service-request';
 
 export default function ApprovalsPage() {
   const router = useRouter();
-  const { data: approvalsData, isLoading } = usePendingApprovals();
+
+  // Server-side paging. The queue runs to thousands of rows, so the table must
+  // ask the API for each page rather than paginating whatever a single fetch
+  // returned — that earlier shape hard-capped this page at the API's default
+  // 20 rows and made every older request unreachable.
+  const paging = useTablePagination();
+
+  const { data: approvalsData, isLoading, isFetching } =
+    usePendingApprovals(paging.queryParams);
   const { data: countData } = usePendingApprovalCount();
 
   // The API returns ServiceRequest[] directly (not wrapped ServiceRequestApproval
@@ -150,12 +159,22 @@ export default function ApprovalsPage() {
               <div className="flex justify-center items-center min-h-[200px]">
                 <p className="text-sm text-muted-foreground">Loading approvals...</p>
               </div>
-            ) : requests.length > 0 ? (
+            ) : requests.length > 0 || paging.search ? (
+              // Keep the table mounted while a search is active even when it
+              // returns nothing — otherwise the search box unmounts with it and
+              // the user is stranded in the empty state with no way to clear it.
               <DataTable
                 columns={columns}
                 data={requests}
                 filterColumn="request_number"
                 searchPlaceholder="Search by request number..."
+                onSearch={paging.handleSearch}
+                initialSearch={paging.search}
+                getRowId={(row) => row.id}
+                serverSidePagination={paging.buildPaginationProps(
+                  approvalsData?.metadata,
+                  isFetching
+                )}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-12">

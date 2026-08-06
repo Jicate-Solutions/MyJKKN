@@ -6,6 +6,22 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useRemoveMapping } from '@/hooks/bos/use-bos-course-scheme';
 import { type BosCourseMappingDetailed, isMappingLocked } from '@/types/bos-courses';
+import {
+  computeSchemeTotals,
+  groupKeyOf,
+  type SchemeTotalRow,
+} from '@/lib/utils/bos/course-scheme-totals';
+
+// Flattens a mapping row (course fields live under `.course`, the group order
+// at the top level) into the shape the shared totals helper expects.
+const toSchemeTotalRow = (m: BosCourseMappingDetailed): SchemeTotalRow => ({
+  group_order: m.group_order,
+  credit: m.course.credit,
+  theory_hours: m.course.theory_hours,
+  tutorial_hours: m.course.tutorial_hours,
+  practical_hours: m.course.practical_hours,
+  total_max_mark: m.course.total_max_mark,
+});
 
 export function SemesterTable({
   semester, mappings, editMode, onAddToSemester,
@@ -21,9 +37,11 @@ export function SemesterTable({
 }) {
   const remove = useRemoveMapping();
 
-  // Nest courses that share a Group Code (electives = "pick one"). Standalone
+  // Nest courses that share a Group Order (electives = "pick one"). Standalone
   // courses keep their place; grouped courses collect under one band at the
-  // group's first appearance. A group's credit counts ONCE toward the totals.
+  // group's first appearance. A group counts ONCE toward the totals (see below).
+  // group_order usually equals the row's own course order, so most "groups" are
+  // singletons — those render as plain rows; only 2+ members get an elective band.
   type Row = BosCourseMappingDetailed;
   type Block =
     | { kind: 'single'; row: Row }
@@ -32,7 +50,7 @@ export function SemesterTable({
   const blocks: Block[] = [];
   const groupAt = new Map<string, number>();
   for (const m of mappings) {
-    const g = (m.course_group ?? '').toString().trim();
+    const g = groupKeyOf({ group_order: m.group_order });
     if (!g) { blocks.push({ kind: 'single', row: m }); continue; }
     const at = groupAt.get(g);
     if (at === undefined) {
@@ -42,26 +60,15 @@ export function SemesterTable({
       (blocks[at] as Extract<Block, { kind: 'group' }>).rows.push(m);
     }
   }
-
-  const sumRows = (rows: Row[], pick: (c: Row['course']) => number) =>
-    rows.reduce((a, r) => a + (pick(r.course) || 0), 0);
-
-  const totals = blocks.reduce(
-    (acc, b) => {
-      const rows = b.kind === 'single' ? [b.row] : b.rows;
-      // Credit: a group contributes once (largest member credit); standalone
-      // courses contribute their own. Hours/marks still sum every row.
-      acc.credits += b.kind === 'single'
-        ? Number(b.row.course.credit ?? 0)
-        : Math.max(0, ...b.rows.map((r) => Number(r.course.credit ?? 0)));
-      acc.theory   += sumRows(rows, (c) => Number(c.theory_hours    ?? 0));
-      acc.tutorial += sumRows(rows, (c) => Number(c.tutorial_hours  ?? 0));
-      acc.practical += sumRows(rows, (c) => Number(c.practical_hours ?? 0));
-      acc.marks    += sumRows(rows, (c) => Number(c.total_max_mark   ?? 0));
-      return acc;
-    },
-    { credits: 0, theory: 0, tutorial: 0, practical: 0, marks: 0 },
+  // Collapse singleton groups back to plain rows so an ordinary course (whose
+  // group_order is just its own order number) doesn't get an elective band.
+  const displayBlocks: Block[] = blocks.map((b) =>
+    b.kind === 'group' && b.rows.length === 1 ? { kind: 'single', row: b.rows[0] } : b,
   );
+
+  // A group is "pick one", so it contributes a single course's worth to EVERY
+  // total — credits, L/T/P and marks. Shared with the Download Report PDF.
+  const totals = computeSchemeTotals(mappings.map(toSchemeTotalRow));
 
   const renderRow = (m: Row) => {
     const locked = isMappingLocked(m) || m.course.course_status?.toLowerCase() === 'locked';
@@ -82,6 +89,7 @@ export function SemesterTable({
         </td>
         <td className='p-2 text-right'>{m.course.exam_duration ?? '-'}</td>
         <td className='p-2 text-right'>{m.course_order ?? '-'}</td>
+        <td className='p-2 text-right'>{m.group_order ?? '-'}</td>
         <td className='p-2 text-right'>{m.course.credit != null ? Number(m.course.credit) : '-'}</td>
         <td className='p-2 text-right'>{m.course.theory_hours ?? '-'}</td>
         <td className='p-2 text-right'>{m.course.tutorial_hours ?? '-'}</td>
@@ -142,6 +150,7 @@ export function SemesterTable({
               <th className='p-2 text-left'>Title</th>
               <th className='p-2 text-right'>Exam</th>
               <th className='p-2 text-right'>Order</th>
+              <th className='p-2 text-right'>Group</th>
               <th className='p-2 text-right'>Credits</th>
               <th className='p-2 text-right'>L</th>
               <th className='p-2 text-right'>T</th>
@@ -154,17 +163,17 @@ export function SemesterTable({
             </tr>
           </thead>
           <tbody>
-            {blocks.map((b) =>
+            {displayBlocks.map((b) =>
               b.kind === 'single' ? (
                 renderRow(b.row)
               ) : (
                 <Fragment key={`grp-${b.code}`}>
                   <tr className='border-t bg-primary/5'>
                     <td
-                      colSpan={editMode ? 14 : 13}
+                      colSpan={editMode ? 15 : 14}
                       className='p-2 text-left font-medium text-muted-foreground'
                     >
-                      Group {b.code} · credit counted once
+                      Group {b.code} · choose one · counted once in the totals
                     </td>
                   </tr>
                   {b.rows.map(renderRow)}
@@ -172,12 +181,12 @@ export function SemesterTable({
               ),
             )}
             <tr className='border-t bg-muted/30 font-semibold'>
-              <td colSpan={5} className='p-2 text-right'>Totals</td>
+              <td colSpan={6} className='p-2 text-right'>Totals</td>
               <td className='p-2 text-right'>{totals.credits}</td>
               <td className='p-2 text-right'>{totals.theory}</td>
               <td className='p-2 text-right'>{totals.tutorial}</td>
               <td className='p-2 text-right'>{totals.practical}</td>
-              <td className='p-2 text-right'>{totals.theory + totals.tutorial + totals.practical}</td>
+              <td className='p-2 text-right'>{totals.hours}</td>
               <td colSpan={2} className='p-2 text-right'></td>
               <td className='p-2 text-right'>{totals.marks}</td>
               {editMode && <td></td>}

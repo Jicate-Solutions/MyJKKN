@@ -53,9 +53,22 @@ export class LeaveService {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // Embed the type so lists can show a name and be split across the Time Off
+    // tabs by request_category. LEFT join, not !inner: an inner join would drop
+    // any row whose type the caller cannot read under RLS, silently hiding
+    // their own applications rather than showing them with a blank label.
     let q = supabase
       .from('hr_leave_applications')
-      .select('*', { count: 'exact' })
+      .select(
+        `*,
+         hr_leave_types:leave_type_id (
+           leave_type_name,
+           leave_type_code,
+           request_category,
+           color_code
+         )`,
+        { count: 'exact' }
+      )
       .order('created_at', { ascending: false })
       .range(from, to);
 
@@ -206,12 +219,12 @@ export class LeaveService {
       department_id?: string | null;
     }
   ) {
-    // 1. Fetch leave_type (unified catalog; scope='staff' for HR leave)
+    // 1. Fetch leave type from the HR catalog. The table is staff-only by
+    //    construction, so the old .eq('scope','staff') filter is gone.
     const { data: leaveType, error: ltErr } = await supabase
-      .from('leave_types')
+      .from('hr_leave_types')
       .select('*')
       .eq('id', payload.leave_type_id)
-      .eq('scope', 'staff')
       .maybeSingle();
     if (ltErr) throw ltErr;
     if (!leaveType) throw new Error('Leave type not found');
@@ -299,9 +312,8 @@ export class LeaveService {
     if (balance) {
       const available = (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
       if (estimatedDays > available) {
-        // leave_types has no `name` column — it is `leave_type_name`. `name`
-        // exists only on the hr_leave_types compatibility VIEW, which this
-        // query does not use, so this message read
+        // hr_leave_types has no `name` column — it is `leave_type_name`.
+        // Reading `.name` here previously made this message read
         // "you have 3.0 undefined available".
         throw new Error(
           `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
@@ -371,13 +383,22 @@ export class LeaveService {
       throw new Error('You cannot decide on your own leave application.');
     }
 
-    // Once flows pin concrete approvers, honour the assignment. Chains built
-    // before that carry approver_user_id = null, so this is a no-op for them
-    // rather than a hard block.
+    // Honour a pinned approver. Chains built before flows named concrete people
+    // carry approver_user_id = null, so this is a no-op for them rather than a
+    // hard block.
     const step = app.approval_chain?.[app.current_step];
     if (step?.approver_user_id && step.approver_user_id !== approverId) {
       throw new Error('This approval step is assigned to a different approver.');
     }
+
+    // A step routed to a ROLE is deliberately NOT checked here. custom_roles and
+    // user_roles are not readable by an ordinary member of staff, so a
+    // client-side lookup would come back empty for exactly the people it is
+    // meant to admit and block them — the silent-false-negative failure this
+    // module has already shipped twice. trg_hla_approver_gate performs that
+    // check in the database, where the tables are readable, and raises a
+    // message naming the required role. Duplicating it here would add a second
+    // answer that can disagree with the enforced one.
   }
 
   static async approveApplication(
@@ -607,12 +628,16 @@ export class LeaveService {
       .from('hr_leave_balances')
       .select(`
         *,
-        leave_types:leave_type_id (
+        hr_leave_types:leave_type_id (
           leave_type_name,
           leave_type_code,
           duration_type,
           allow_half_day,
-          allow_hourly
+          allow_hourly,
+          request_category,
+          max_continuous_days,
+          min_advance_notice_days,
+          requires_documents
         )
       `)
       .eq('employee_id', employeeId)
@@ -620,13 +645,17 @@ export class LeaveService {
     if (error) throw error;
 
     return (data ?? []).map((row: Record<string, unknown>) => {
-      const lt = row.leave_types as {
+      const lt = row.hr_leave_types as {
         leave_type_name: string;
         leave_type_code: string;
         duration_type: string;
         allow_half_day: boolean;
         allow_hourly: boolean;
-      };
+        request_category: string;
+        max_continuous_days: number | null;
+        min_advance_notice_days: number;
+        requires_documents: boolean;
+      } | null;
       return {
         employee_id: row.employee_id as string,
         leave_type_id: row.leave_type_id as string,
@@ -637,11 +666,19 @@ export class LeaveService {
         carried_forward: Number(row.carried_forward),
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
+        // A null embed here means the caller cannot read hr_leave_types.
+        // That used to surface as a blank name in the UI rather than an
+        // error — see 20260722120000_fix_hr_leave_types_select_transitive_rls.
         leave_type_name: lt?.leave_type_name ?? '',
         leave_type_code: lt?.leave_type_code ?? '',
         duration_type: (lt?.duration_type ?? 'full') as HRLeaveBalanceWithType['duration_type'],
         allow_half_day: lt?.allow_half_day ?? false,
         allow_hourly: lt?.allow_hourly ?? false,
+        request_category:
+          (lt?.request_category ?? 'leave') as HRLeaveBalanceWithType['request_category'],
+        max_continuous_days: lt?.max_continuous_days ?? null,
+        min_advance_notice_days: lt?.min_advance_notice_days ?? 0,
+        requires_documents: lt?.requires_documents ?? false,
       };
     });
   }

@@ -580,7 +580,7 @@ function PinnedUserPicker({
         <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full min-w-[300px] rounded-md border border-border bg-popover shadow-md p-2 space-y-1.5">
+        <div className="absolute z-50 mt-1 w-full sm:min-w-[300px] rounded-md border border-border bg-popover shadow-md p-2 space-y-1.5">
           {/* Step 1 — role filter */}
           <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v)}>
             <SelectTrigger className="h-8 text-sm">

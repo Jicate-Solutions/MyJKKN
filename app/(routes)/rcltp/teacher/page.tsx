@@ -14,7 +14,7 @@
 // =============================================================================
 
 import Link from 'next/link';
-import { ClipboardList, Mic, ListChecks, Lock } from 'lucide-react';
+import { ClipboardList, Mic, ListChecks, Sparkles, Lock } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { usePermissions } from '@/hooks/use-permissions';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -56,7 +56,7 @@ const TEACHER_TOOLS: TeacherTool[] = [
     id: 'recordings',
     title: 'Recording review',
     description:
-      'Listen to learners’ Part A voice recordings and record your manual review. Auto voice-scoring is pending (EKSAQ) — you score by hand for now.',
+      'Listen to learners’ Part A voice recordings and record your manual review. Auto voice-scoring is pending (MyJKKN) — you score by hand for now.',
     href: '/rcltp/teacher/recordings',
     icon: Mic,
     permission: 'rcltp.review',
@@ -69,6 +69,15 @@ const TEACHER_TOOLS: TeacherTool[] = [
     href: '/rcltp/teacher/questions',
     icon: ListChecks,
     permission: 'rcltp.question.approve',
+  },
+  {
+    id: 'remedial-plans',
+    title: 'Remedial plans',
+    description:
+      'At-risk readers are flagged from their latest cycle. Request an AI-drafted remedial reading plan, then review, edit, and approve it — the AI drafts, you decide.',
+    href: '/rcltp/teacher/remedial-plans',
+    icon: Sparkles,
+    permission: 'rcltp.review',
   },
 ];
 

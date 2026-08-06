@@ -340,12 +340,14 @@ export class HRDashboardService {
     supabase: SupabaseClient,
     hrOrgId: string | null
   ): Promise<DashboardKPI[]> {
-    // Active leave types — unified catalog with scope='staff' (per PR #182 unification).
-    const { count: leaveTypeCount, error: ltErr } = await supabase
-      .from('leave_types')
+    // Active leave types — staff catalog lives in hr_leave_types (Task 1 split
+    // it out of the shared leave_types table; that table has no scope column).
+    let leaveTypes = supabase
+      .from('hr_leave_types')
       .select('id', { count: 'exact', head: true })
-      .eq('scope', 'staff')
       .eq('is_active', true);
+    if (hrOrgId) leaveTypes = leaveTypes.eq('hr_organization_id', hrOrgId);
+    const { count: leaveTypeCount, error: ltErr } = await leaveTypes;
     if (ltErr) throw ltErr;
 
     // Active approval flows
@@ -510,25 +512,13 @@ export class HRDashboardService {
     if (hrOrgId) encashments = encashments.eq('hr_organization_id', hrOrgId);
     const encashmentCount = await safeCount(() => encashments);
 
-    // T8.6 — active shift assignments today (Director view). Counts shift
-    // assignments where today falls within [effective_from, effective_until]
-    // (effective_until null = ongoing). Scoped via institution_id resolved
-    // from hr_organization_id (assignments table has no hr_organization_id).
-    let shiftsToday = supabase
-      .from('hr_shift_assignments')
-      .select('id', { count: 'exact', head: true })
-      .lte('effective_from', today)
-      .or(`effective_until.is.null,effective_until.gte.${today}`);
-    if (hrOrgId) {
-      const { data: org } = await supabase
-        .from('hr_organizations')
-        .select('institution_id')
-        .eq('id', hrOrgId)
-        .maybeSingle();
-      const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
-      if (instId) shiftsToday = shiftsToday.eq('institution_id', instId);
-    }
-    const shiftsTodayCount = await safeCount(() => shiftsToday);
+    // The "Active Shifts Today" KPI lived here until 2026-08-06. It counted rows
+    // in hr_shift_assignments, which the shift module replacement dropped along
+    // with the /hr/shifts route it drilled into. There is no equivalent count in
+    // hr_shift_timings: that table is working-hours CONFIG (institution x
+    // category x weekday), not a per-person assignment, so "how many staff are
+    // on shift today" is not a number it can answer. Reinstating the KPI needs a
+    // real source, not a renamed query.
 
     return [
       {
@@ -544,13 +534,6 @@ export class HRDashboardService {
         value: encashmentCount,
         drill_url: '/hr/leave/encashment?status=pending',
         icon: 'Wallet',
-      },
-      {
-        name: 'active_shifts_today',
-        label: 'Active Shifts Today',
-        value: shiftsTodayCount,
-        drill_url: '/hr/shifts',
-        icon: 'CalendarClock',
       },
     ];
   }

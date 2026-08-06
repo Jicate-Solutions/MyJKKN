@@ -72,34 +72,39 @@ const config: ModuleNavConfig = {
       ],
     },
     {
-      label: 'Leave',
+      // Time Off workspace. Leave / Compensatory Off / Short Time Off /
+      // Approvals are TABS within these routes, not separate nav entries —
+      // listing every tab here would duplicate the in-page tab bar. Approvals
+      // is intentionally absent: its visibility is a runtime capability
+      // (hr_can_approve_leave), which a static nav config cannot express.
+      label: 'Time Off',
       icon: 'CalendarDays',
-      href: '/hr/leave',
+      href: '/hr/leave/requests',
       matchPaths: ['/hr/leave'],
       children: [
         {
-          label: 'Overview',
-          icon: 'CalendarDays',
-          href: '/hr/leave',
-          exact: true,
-        },
-        {
-          label: 'Apply',
+          label: 'Leave',
           icon: 'FilePlus',
-          href: '/hr/leave/apply',
-          matchPaths: ['/hr/leave/apply'],
+          href: '/hr/leave/requests',
+          matchPaths: ['/hr/leave/requests', '/hr/leave/apply', '/hr/leave/my-applications', '/hr/leave/balance'],
         },
         {
-          label: 'Approve',
+          label: 'Compensatory Off',
+          icon: 'CalendarCheck',
+          href: '/hr/leave/compensatory-off',
+          matchPaths: ['/hr/leave/compensatory-off'],
+        },
+        {
+          label: 'Short Time Off',
+          icon: 'Timer',
+          href: '/hr/leave/short-time-off',
+          matchPaths: ['/hr/leave/short-time-off'],
+        },
+        {
+          label: 'Approvals',
           icon: 'ClipboardCheck',
-          href: '/hr/leave/approve',
-          matchPaths: ['/hr/leave/approve'],
-        },
-        {
-          label: 'Balance',
-          icon: 'Wallet',
-          href: '/hr/leave/balance',
-          matchPaths: ['/hr/leave/balance'],
+          href: '/hr/leave/approvals',
+          matchPaths: ['/hr/leave/approvals', '/hr/leave/approve'],
         },
         {
           label: 'Calendar',
@@ -112,12 +117,6 @@ const config: ModuleNavConfig = {
           icon: 'IndianRupee',
           href: '/hr/leave/encashment',
           matchPaths: ['/hr/leave/encashment'],
-        },
-        {
-          label: 'My Applications',
-          icon: 'ClipboardList',
-          href: '/hr/leave/my-applications',
-          matchPaths: ['/hr/leave/my-applications'],
         },
       ],
     },
@@ -172,34 +171,18 @@ const config: ModuleNavConfig = {
           href: '/hr/attendance/regularize/approvals',
           matchPaths: ['/hr/attendance/regularize/approvals'],
         },
-      ],
-    },
-    {
-      label: 'Shifts',
-      icon: 'Clock',
-      href: '/hr/shifts',
-      matchPaths: ['/hr/shifts'],
-      children: [
         {
-          label: 'Overview',
-          icon: 'Clock',
-          href: '/hr/shifts',
-          exact: true,
-        },
-        {
-          label: 'My Shifts',
-          icon: 'Clock',
-          href: '/hr/shifts/my',
-          matchPaths: ['/hr/shifts/my'],
-        },
-        {
-          label: 'Shift Approvals',
-          icon: 'ClipboardCheck',
-          href: '/hr/shifts/approvals',
-          matchPaths: ['/hr/shifts/approvals'],
+          label: 'Import Punches',
+          icon: 'Upload',
+          href: '/hr/attendance/import',
+          matchPaths: ['/hr/attendance/import'],
         },
       ],
     },
+    // The 'Shifts' group (/hr/shifts, /hr/shifts/my, /hr/shifts/approvals) was
+    // removed 2026-08-06 along with the per-employee roster module it pointed at.
+    // Shift configuration now lives at /hr/admin/shift-timings, reached from the
+    // HR Admin hub and the sidebar — it is admin config, not a self-service tab.
     {
       label: 'Documents',
       icon: 'FileText',
@@ -241,6 +224,34 @@ const config: ModuleNavConfig = {
       ],
     },
     {
+      // WHO PAYS each team member (2026-07-31, PR #2694). The sidebar entry
+      // shipped with that PR but this config did not, and a module with
+      // hasNavConfig renders ONLY the groups declared here — AutoTabNav stops
+      // auto-discovering manifest siblings — so the page had no chip and
+      // check-nav-reachability reported /hr/payroll as an orphan.
+      //
+      // Anchored on the /hr/payroll hub rather than the leaf because
+      // check-nav-reachability BFS-walks chips that actually RENDER and
+      // explicitly ignores matchPaths — a path only counts as covered when
+      // some chip links to it literally. That is safe only because
+      // MENU_PERMISSIONS now maps '/hr/payroll' to the same HR-only key as the
+      // leaf; chips inherit their gate from MENU_PERMISSIONS[href], so without
+      // that entry this would fall through to 'hr.view' and render a chip
+      // everyone in HR can see and nobody but HR can open.
+      label: 'Payroll',
+      icon: 'Wallet',
+      href: '/hr/payroll',
+      matchPaths: ['/hr/payroll'],
+      children: [
+        {
+          label: 'Payroll Organisation',
+          icon: 'Wallet',
+          href: '/hr/payroll/organisation',
+          matchPaths: ['/hr/payroll/organisation'],
+        },
+      ],
+    },
+    {
       label: 'Policies',
       icon: 'ShieldCheck',
       href: '/hr/policies',
@@ -254,7 +265,7 @@ const config: ModuleNavConfig = {
       label: 'Admin',
       icon: 'Settings',
       href: '/hr/admin',
-      matchPaths: ['/hr/admin'],
+      matchPaths: ['/hr/admin', '/hr/admin/leave-types', '/hr/admin/leave-balances', '/hr/admin/sanctioned-posts'],
     },
   ],
 };

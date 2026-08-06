@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
     // the PDF call letter. Keep externalised — never remove.
     '@sparticuz/chromium',
     'puppeteer-core',
+    // Full `puppeteer` is only ever imported lazily, in the local-dev branch of
+    // the PDF launchers. Bundling it crashed the Next dev render worker on the
+    // BoS minutes-pdf route ("Jest worker encountered 2 child process
+    // exceptions") — the route 500'd before its own try/catch could run.
+    'puppeteer',
     // `pg` (node-postgres) does dynamic require()s for optional native bindings +
     // connection internals that webpack/turbopack cannot bundle. Without this it
     // fails to bundle (dev: "can't resolve 'pg'") and can fail at runtime in prod.
@@ -71,6 +76,9 @@ const nextConfig: NextConfig = {
     '/api/bos/meetings/*/preview-pdf': [
       './node_modules/@sparticuz/chromium/**/*',
     ],
+    '/api/bos/meetings/*/minutes-pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+    ],
   },
 
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
@@ -87,6 +95,19 @@ const nextConfig: NextConfig = {
   transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
 
   experimental: {
+    // Hard ceiling on Turbopack's Rust allocator, in bytes (2026-07-22).
+    // Without it the dev server grows unbounded: measured +309 MB/min on a
+    // 16 GB laptop, reaching 17 GB private bytes before the process died and
+    // respawned — which paged out ~9 GB and thrashed the whole machine.
+    //
+    // NOTE: NODE_OPTIONS / --max-old-space-size (see the `build` script) does
+    // NOT bound this. Turbopack is Rust; its allocations live outside the V8
+    // heap, so only this option constrains them. Verified wired into the dev
+    // path at next/dist/server/dev/hot-reloader-turbopack.js.
+    //
+    // 4 GB suits a 16 GB machine. Raise to 8 GB on 32 GB+ devices.
+    turbopackMemoryLimit: 4 * 1024 * 1024 * 1024,
+
     // Optimize large barrel-file packages — tree-shake unused exports.
     // NOTE: Only list barrel-file packages here (ones with a large index.js
     // re-exporting many things). Native ESM packages like @supabase/* belong

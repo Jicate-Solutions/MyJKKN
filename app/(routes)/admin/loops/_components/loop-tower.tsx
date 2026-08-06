@@ -26,7 +26,7 @@
 // ============================================================================
 
 import Link from 'next/link';
-import type { LoopRegistryRow, LoopAuditRow, GateState } from './types';
+import type { LoopRegistryRow, LoopAuditRow, LoopConflictRow, GateState } from './types';
 import { isBadVerdict, isVerifiedVerdict } from '@/lib/ai-routines/loop-governance';
 
 /** One loop's 7-day closure: `den` iterations opened in the window, `num`
@@ -128,7 +128,7 @@ export interface LoopTowerStats {
 // which predates the correction and still parks the judge loops at tier 3).
 // Unknown/new registry keys default into PRODUCT, the ring for standing
 // improvement programs. ─────────────────────────────────────────────────────
-const SYSTEM_KEYS = new Set(['metaloop', 'iqac-meeting', 'institutional-audit', 'decisions']);
+const SYSTEM_KEYS = new Set(['metaloop', 'iqac-meeting', 'institutional-audit', 'decisions', 'carre-audit']);
 const OVERSIGHT_KEYS = new Set(['director']);
 
 const n = (v: number | null) => (v === null ? '—' : String(v));
@@ -214,6 +214,67 @@ const CLASS_TINT: Record<string, string> = {
   infrastructure: 'border-border bg-muted/40',
 };
 
+// ── Charter honesty badge (Director-adopted rule, 2026-07-26) ────────────────
+// A registry row earns the word "loop" only when all FIVE charter legs are
+// written — outcome metric, baseline window, intervention, verdict owner,
+// re-measure window — each recorded only with a receipt that it actually runs.
+// Any NULL/missing leg means the row is honestly a METER: it measures
+// something, but nothing provably closes. Receipt behind the rule: the mess
+// loop self-reported gates all-on while it had measured 0, ever. "Verified"
+// additionally requires the weekly known-delta regress to have measure-verified
+// the loop within the last 14 days. Derived per row from data — no loop names
+// hardcoded. This is an ADDITIONAL layer beside loop_class/gates, not a
+// replacement.
+const CHARTER_LEGS = [
+  { key: 'outcome_metric', missing: 'No outcome metric recorded' },
+  { key: 'baseline_window', missing: 'No baseline window recorded' },
+  { key: 'intervention', missing: 'No intervention recorded' },
+  { key: 'verdict_owner', missing: 'No verdict owner recorded' },
+  { key: 'remeasure_window', missing: 'No re-measure window recorded' },
+] as const;
+const CHARTER_VERIFIED_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+
+function CharterBadge({ row, simAudit }: { row: LoopRegistryRow; simAudit?: LoopAuditRow }) {
+  const missing = CHARTER_LEGS.filter(({ key }) => {
+    const v = row[key];
+    // Undefined (column not migrated yet) reads exactly like NULL — Meter.
+    return typeof v !== 'string' || v.trim() === '';
+  }).map((l) => l.missing);
+  const base =
+    'self-start rounded border px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-wider';
+  if (missing.length > 0) {
+    return (
+      <span
+        title={`Honestly a meter, not a loop — ${missing.join(' · ')}. A charter leg is written only with a receipt that it actually runs.`}
+        className={`${base} border-border bg-muted/60 text-muted-foreground`}
+      >
+        meter
+      </span>
+    );
+  }
+  const verified =
+    simAudit?.verdict === 'measure-verified' &&
+    Date.now() - new Date(simAudit.audited_at).getTime() <= CHARTER_VERIFIED_WINDOW_MS;
+  if (verified) {
+    return (
+      <span
+        title='All five charter legs receipted AND the weekly regress measure-verified this loop within the last 14 days.'
+        className={`${base} border-emerald-400/60 bg-emerald-50/60 text-emerald-800 dark:border-emerald-800/60 dark:bg-emerald-950/20 dark:text-emerald-300`}
+      >
+        loop · verified
+      </span>
+    );
+  }
+  return (
+    <span
+      title='All five charter legs receipted — awaiting a measure-verified weekly regress within 14 days to earn “verified”.'
+      className={`${base} border-emerald-500/50 bg-transparent text-emerald-700 dark:text-emerald-400`}
+    >
+      loop · chartered
+    </span>
+  );
+}
+
 function GateMiniDot({ g }: { g: GateState }) {
   const cls =
     g === 'on'
@@ -227,10 +288,15 @@ function GateMiniDot({ g }: { g: GateState }) {
 function RegistryChip({
   row,
   audit,
+  simAudit,
   closure,
 }: {
   row: LoopRegistryRow;
   audit?: LoopAuditRow;
+  /** Latest SIM-layer audit for this loop (may be older than `audit`) — the
+   *  charter badge's "verified" leg needs the sim row even when a newer
+   *  walk/full audit exists for the same loop. */
+  simAudit?: LoopAuditRow;
   /** PRODUCT-ring chips only: the loop's 7d closure, or the literal
    *  'not-instrumented' when no closure counter is derivable from existing
    *  tables. Omitted entirely for SYSTEM/OVERSIGHT chips. */
@@ -241,15 +307,29 @@ function RegistryChip({
   return (
     <a
       href={`#loop-${row.loop_key}`}
-      title={row.description ?? row.name}
+      title={`${row.description ?? row.name} · owner: ${row.owner_email ?? 'unowned'}`}
       className={`flex min-w-[152px] flex-col gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] leading-tight shadow-sm transition-colors hover:brightness-95 dark:hover:brightness-125 ${tint}`}
     >
       <span className='font-semibold text-foreground'>{name}</span>
+      <CharterBadge row={row} simAudit={simAudit} />
       <span className='flex items-center gap-1'>
         <GateMiniDot g={row.gates.g} />
         <GateMiniDot g={row.gates.a} />
         <GateMiniDot g={row.gates.m} />
         <GateMiniDot g={row.gates.f} />
+        {row.counter_metric ? (
+          <span
+            title={'PAIRED · ' + row.counter_metric}
+            className='ml-1 h-1.5 w-1.5 flex-none rounded-full border border-emerald-500 bg-emerald-500'
+            aria-hidden='true'
+          />
+        ) : (
+          <span
+            title='UNPAIRED — no counter-metric named yet'
+            className='ml-1 h-1.5 w-1.5 flex-none rounded-full border border-amber-500 bg-transparent'
+            aria-hidden='true'
+          />
+        )}
       </span>
       {closure !== undefined &&
         (closure === 'not-instrumented' ? (
@@ -276,6 +356,17 @@ function RegistryChip({
             {closure.label} 7d: {closure.num}/{closure.den}
           </span>
         ))}
+      {row.counter_metric && (
+        // "A metric never travels alone" — the paired counter-metric rides
+        // visibly beside the headline metric, not only inside the pairing
+        // dot's hover title (#2395 added the dot; this adds the words).
+        <span
+          title={`Counter-metric — watched so optimizing the headline number can't silently break this: ${row.counter_metric}`}
+          className='truncate font-mono text-[9.5px] text-muted-foreground/80'
+        >
+          counter: {row.counter_metric}
+        </span>
+      )}
       {audit &&
         // Failures FIRST — a failure string that mentions "verified" must
         // never render as healthy (review r2; isVerifiedVerdict is also
@@ -665,10 +756,54 @@ function ManagementStrip({ s }: { s: LoopTowerStats }) {
   );
 }
 
+// ── Open conflicts strip ─────────────────────────────────────────────────────
+// One amber card per OPEN loop_conflicts row — cross-loop conflicts awaiting an
+// arbiter's ruling. Renders nothing when no conflict is open; a resolved
+// conflict leaves the page rather than lingering as decoration.
+function OpenConflictsStrip({ conflicts }: { conflicts: LoopConflictRow[] }) {
+  if (conflicts.length === 0) return null;
+  return (
+    <div className='mb-4' aria-label='Open conflicts — loops pulling against each other'>
+      <h3 className='mb-1.5 text-sm font-semibold'>Open conflicts — loops pulling against each other</h3>
+      <div className='flex flex-col gap-2'>
+        {conflicts.map((c) => (
+          <div
+            key={c.conflict_key}
+            className='rounded-lg border border-amber-400/70 bg-amber-50/60 px-3.5 py-2.5 dark:border-amber-700/60 dark:bg-amber-950/30'
+          >
+            <div className='flex flex-wrap items-center gap-1.5'>
+              <span className='text-[13px] font-bold text-amber-900 dark:text-amber-200'>{c.title}</span>
+              {c.loops.map((k) => (
+                <span
+                  key={k}
+                  className='rounded border border-amber-500/40 bg-amber-100/70 px-1.5 py-0.5 font-mono text-[10px] text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/40 dark:text-amber-300'
+                >
+                  {k}
+                </span>
+              ))}
+            </div>
+            <p className='mt-1 line-clamp-2 text-[12px] leading-snug text-amber-800/90 dark:text-amber-300/90'>
+              {c.description}
+            </p>
+            <p className='mt-1 flex flex-wrap items-center gap-2 font-mono text-[10.5px] text-amber-700 dark:text-amber-400'>
+              arbiter: {c.arbiter_email}
+              <span className='rounded-full border border-amber-500/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider'>
+                {c.status}
+              </span>
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function LoopTower({
   stats,
   registry,
   latestAuditByKey,
+  latestSimByKey,
+  conflicts,
 }: {
   stats: LoopTowerStats;
   /** Active loop_registry rows — optional so this component still renders
@@ -676,6 +811,11 @@ export function LoopTower({
    *  banner shows instead of chips). */
   registry?: LoopRegistryRow[];
   latestAuditByKey?: Map<string, LoopAuditRow>;
+  /** Latest SIM-layer audit per loop — feeds the charter badge's "verified"
+   *  leg (a newer walk/full audit must not hide the weekly regress's sim row). */
+  latestSimByKey?: Map<string, LoopAuditRow>;
+  /** OPEN loop_conflicts rows — optional; absent/empty renders nothing. */
+  conflicts?: LoopConflictRow[];
 }) {
   const s = stats;
   const reg = registry ?? [];
@@ -691,6 +831,15 @@ export function LoopTower({
       : s.maxlaneDone7d + s.maxlaneError7d === 0
         ? 0
         : Math.round((s.maxlaneError7d / (s.maxlaneDone7d + s.maxlaneError7d)) * 100);
+
+  // Cadence honesty for the known-delta regress: it runs WEEKLY (Sundays
+  // 07:53 IST), so a 6-day-old date is healthy silence, not decay — but the
+  // chip used to show only the date, so healthy weekly silence read as dead.
+  // Past ~8 days (one cadence + grace) the silence becomes an amber "overdue"
+  // instead of staying silently stale.
+  const regressOverdue =
+    s.latestRegress !== null &&
+    Date.now() - new Date(s.latestRegress.auditedAt).getTime() > 8 * 24 * 60 * 60 * 1000;
 
   return (
     <section aria-label='Loop tower — four loops riding a two-ring engine, live'>
@@ -709,6 +858,8 @@ export function LoopTower({
         )}
       </div>
 
+      <OpenConflictsStrip conflicts={conflicts ?? []} />
+
       <Ring
         num='6 · Oversight'
         name='The Director'
@@ -719,7 +870,12 @@ export function LoopTower({
           oversightChips.length > 0 ? (
             <>
               {oversightChips.map((r) => (
-                <RegistryChip key={r.loop_key} row={r} audit={latestAuditByKey?.get(r.loop_key)} />
+                <RegistryChip
+                  key={r.loop_key}
+                  row={r}
+                  audit={latestAuditByKey?.get(r.loop_key)}
+                  simAudit={latestSimByKey?.get(r.loop_key)}
+                />
               ))}
             </>
           ) : undefined
@@ -743,17 +899,21 @@ export function LoopTower({
               <Chip label='registry (active loops)' value={n(s.registryActive)} />
               <Chip label='audits written 7d' value={n(s.audits7d)} />
               {s.latestRegress === null ? (
-                <Chip label='latest regress' value='—' />
+                <Chip label='latest regress · weekly, Sundays' value='—' />
               ) : (
                 <Chip
-                  label='latest regress'
-                  value={`${s.latestRegress.verdict ?? 'null'} · ${fmtAuditDate(s.latestRegress.auditedAt)}`}
+                  label='latest regress · weekly, Sundays'
+                  value={`${s.latestRegress.verdict ?? 'null'} · ${fmtAuditDate(s.latestRegress.auditedAt)}${
+                    regressOverdue ? ' · overdue' : ''
+                  }`}
                   tone={
                     isBadVerdict(s.latestRegress.verdict)
                       ? 'bad'
-                      : isVerifiedVerdict(s.latestRegress.verdict)
-                        ? 'good'
-                        : 'warn'
+                      : regressOverdue
+                        ? 'warn'
+                        : isVerifiedVerdict(s.latestRegress.verdict)
+                          ? 'good'
+                          : 'warn'
                   }
                 />
               )}
@@ -773,7 +933,12 @@ export function LoopTower({
           {systemChips.length > 0 && (
             <div className='mb-3 flex flex-wrap gap-1.5'>
               {systemChips.map((r) => (
-                <RegistryChip key={r.loop_key} row={r} audit={latestAuditByKey?.get(r.loop_key)} />
+                <RegistryChip
+                  key={r.loop_key}
+                  row={r}
+                  audit={latestAuditByKey?.get(r.loop_key)}
+                  simAudit={latestSimByKey?.get(r.loop_key)}
+                />
               ))}
             </div>
           )}
@@ -806,6 +971,7 @@ export function LoopTower({
                     key={r.loop_key}
                     row={r}
                     audit={latestAuditByKey?.get(r.loop_key)}
+                    simAudit={latestSimByKey?.get(r.loop_key)}
                     closure={s.productClosure7d[r.loop_key] ?? 'not-instrumented'}
                   />
                 ))}
@@ -904,7 +1070,7 @@ export function LoopTower({
                   exit='stop token'
                   tone='stone'
                   kind='engine'
-                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max subscription lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
+                  blurb='Sample, append, repeat until the stop token — a single note, spine, or classification. Max lane first (₹0); the paid API is the fallback lane. Iteration, not a loop: nothing here measures or feeds forward.'
                   chips={
                     <>
                       <Chip

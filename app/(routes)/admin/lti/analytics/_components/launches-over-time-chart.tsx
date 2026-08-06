@@ -70,7 +70,7 @@ export function LaunchesOverTimeChart({
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
         <div>
           <span className="font-medium">Total: </span>
           <span className="text-muted-foreground">
