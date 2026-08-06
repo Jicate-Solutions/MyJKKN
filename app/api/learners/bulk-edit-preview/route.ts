@@ -101,8 +101,13 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'bus_required': ['Bus Required', 'bus_required', 'Bus'],
   // SECTION 10: Reference Information
+  // The typed reference: Type + ID + Person resolve together into
+  // referral_type / referred_by_id / referred_by_name plus the legacy mirror.
+  // 'Reference Name' stays as an alias so templates downloaded before
+  // 2026-08-01 keep mapping to the same resolver.
   'reference_type': ['Reference Type', 'reference_type'],
-  'reference_name': ['Reference Name', 'reference_name'],
+  'referred_by_id': ['Reference ID', 'referred_by_id'],
+  'referred_by_name': ['Reference Person', 'Reference Name', 'referred_by_name', 'reference_name'],
   'reference_contact': ['Reference Contact', 'reference_contact'],
 
   // SECTION 11: Student Specific
@@ -137,6 +142,12 @@ interface PreviewRow {
   issueKind?: 'format' | 'record';
   /** Per-field format failures, mirroring what the write path enforces. */
   issues?: Array<{ field: string; message: string }>;
+  /** Present when the row changes the reference. Drives the validate-step buckets. */
+  reference?: {
+    outcome: 'linked' | 'name_only' | 'type_only';
+    nameOnly?: { type: 'consultant' | 'student' | 'faculty'; name: string };
+    attribution?: 'create' | 'replace';
+  };
 }
 
 /**
@@ -457,6 +468,16 @@ export async function POST(request: NextRequest) {
       if (mappedData.quota) sanitizedData.quota = sanitizeValue(mappedData.quota, 'text');
       if (mappedData.student_photo_url) sanitizedData.student_photo_url = mappedData.student_photo_url;
 
+      // SECTION 10: Reference. These were mapped but never sanitized here, so a
+      // reference edit showed NOTHING in preview while bulk-edit-exited applied
+      // it anyway — same defect the Accommodation Type block above documents.
+      // Reference ID passes through untouched: sanitizeValue upper-cases, which
+      // mangles a uuid.
+      if (mappedData.reference_type) sanitizedData.reference_type = String(mappedData.reference_type).trim();
+      if (mappedData.referred_by_id) sanitizedData.referred_by_id = String(mappedData.referred_by_id).trim();
+      if (mappedData.referred_by_name) sanitizedData.referred_by_name = sanitizeValue(mappedData.referred_by_name, 'text');
+      if (mappedData.reference_contact) sanitizedData.reference_contact = sanitizeValue(mappedData.reference_contact, 'mobile');
+
       const learnerId = sanitizedData.id;
 
       // Field-format rules, run with the SAME service the write path uses
@@ -547,9 +568,20 @@ export async function POST(request: NextRequest) {
         rowNumber: parsedRow.rowNumber,
         changes: validation.changes,
         status: 'valid',
-        warnings: validation.warnings
+        warnings: validation.warnings,
+        reference: validation.reference
       });
     }
+
+    // Reference roll-up. Two things the reviewer cannot get from the row list:
+    // which names will be stored WITHOUT a link (and whether each looks like a
+    // typo), and how many consultant attributions this upload will create —
+    // those feed the commission engine.
+    const nameOnlyEntries = previewRows
+      .map((r) => r.reference?.nameOnly)
+      .filter(Boolean) as Array<{ type: 'consultant' | 'student' | 'faculty'; name: string }>;
+    const nameOnlyHints = await BulkLearnerEditService.buildReferenceHints(nameOnlyEntries as any);
+    const withReference = previewRows.filter((r) => r.reference);
 
     // 6. Return preview result
     return NextResponse.json({
@@ -565,6 +597,14 @@ export async function POST(request: NextRequest) {
       // Rows carrying a label that matched no lookup row. Counted separately
       // from errors: the row still applies, just without that one field.
       warnings: previewRows.filter(r => (r.warnings?.length ?? 0) > 0).length,
+      reference_summary: {
+        linked: withReference.filter(r => r.reference!.outcome === 'linked').length,
+        name_only: withReference.filter(r => r.reference!.outcome === 'name_only').length,
+        type_only: withReference.filter(r => r.reference!.outcome === 'type_only').length,
+        attributions_created: withReference.filter(r => r.reference!.attribution === 'create').length,
+        attributions_replaced: withReference.filter(r => r.reference!.attribution === 'replace').length,
+        name_only_names: nameOnlyHints
+      },
       preview: previewRows
     });
 

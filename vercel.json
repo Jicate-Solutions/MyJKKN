@@ -112,6 +112,10 @@
       "schedule": "47 * * * *"
     },
     {
+      "path": "/api/cron/director-handover-chase?secret=${CRON_SECRET}",
+      "schedule": "53 19 * * *"
+    },
+    {
       "path": "/api/cron/meeting-calendar-watch-renew?secret=${CRON_SECRET}",
       "schedule": "41 */6 * * *"
     },
@@ -234,10 +238,6 @@
     {
       "path": "/api/cron/prospect-reminders?secret=${CRON_SECRET}",
       "schedule": "23 8 * * *"
-    },
-    {
-      "path": "/api/cron/jicate-booking-reconcile",
-      "schedule": "17 2 * * *"
     },
     {
       "path": "/api/cron/whatsapp-byow-health",
@@ -385,7 +385,7 @@
     },
     {
       "path": "/api/cron/aipulse-domain-starter-notify?secret=${CRON_SECRET}",
-      "schedule": "25 13 * * 4"
+      "schedule": "0 14-23 * * 4"
     },
     {
       "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",

@@ -268,6 +268,9 @@ export interface CreateEventDto {
   tagline?: string;
   event_date?: string;
   start_time?: string;
+  /** Pairs with start_time. Both are `time` columns — the hours the event runs
+   *  on each of its days, and the hours the room is held for. */
+  end_time?: string;
   venue?: string;
   venue_address?: string;
   year?: number;

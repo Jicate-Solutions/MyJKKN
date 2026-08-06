@@ -219,6 +219,7 @@ function feeOf(d?: DivisionLite) {
 
 export function RegisterForm({
   eventId,
+  formId,
   divisions,
   signedInName,
   isLearner,
@@ -226,6 +227,13 @@ export function RegisterForm({
   participantOrgType,
 }: {
   eventId: string;
+  /**
+   * Which of the event's registration forms these answers belong to. Sent with
+   * the submission so `custom_fields` stays interpretable once the event has
+   * more than one form, and so the server validates against THIS form's fields.
+   * Null when the event has no form at all.
+   */
+  formId: string | null;
   divisions: DivisionLite[];
   signedInName: string | null;
   isLearner: boolean;
@@ -293,6 +301,7 @@ export function RegisterForm({
           participant_phone: phone.trim() || null,
           participant_email: email.trim() || null,
           members: isTeam ? members.filter((m) => m.member_name.trim()) : undefined,
+          form_id: formId,
           custom_fields: customFields,
         }),
       });
@@ -524,6 +533,13 @@ export function RegisterForm({
                 key={f.id}
                 field={f}
                 value={customFields[f.field_key]}
+                // Tournaments share this control, so they get working uploads
+                // too. Without the context the file input renders disabled —
+                // correct for the builder preview, wrong for a live form.
+                // formId can be null on a tournament with no form row yet; the
+                // control degrades to the disabled state rather than posting an
+                // upload with no form to attach it to.
+                uploadContext={formId ? { eventId, formId } : undefined}
                 onChange={(v) => setCustomFields((prev) => ({ ...prev, [f.field_key]: v }))}
               />
             ))}

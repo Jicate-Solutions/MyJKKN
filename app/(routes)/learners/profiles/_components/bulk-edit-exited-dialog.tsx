@@ -80,6 +80,19 @@ interface PreviewResult {
   /** Blocking issues split by where the fix lives. */
   format_errors?: number;
   record_errors?: number;
+  /**
+   * What the reference columns will do. Two things the row list can't show:
+   * which names get stored with no link behind them, and how many consultant
+   * attributions this upload creates — those feed commission calculation.
+   */
+  reference_summary?: {
+    linked: number;
+    name_only: number;
+    type_only: number;
+    attributions_created: number;
+    attributions_replaced: number;
+    name_only_names: Array<{ type: string; name: string; hint: string | null }>;
+  };
   preview: PreviewRow[];
   error?: string; // Added for error responses from server
 }
@@ -1047,6 +1060,75 @@ export function BulkEditActiveDialog({ onSuccess }: { onSuccess?: () => void }) 
                   </AlertDescription>
                 </Alert>
               )}
+
+              {/* Reference roll-up. A name stored WITHOUT a link is a supported
+                  outcome (old staff, old learners), but it is indistinguishable
+                  from a typo unless we say so here — hence the "did you mean".
+                  The consultant count is separate because it moves money. */}
+              {previewData.reference_summary &&
+                previewData.reference_summary.name_only > 0 && (
+                  <Card className="border-sky-200">
+                    <CardHeader>
+                      <CardTitle className="text-sky-700 text-base">
+                        Stored as name only ({previewData.reference_summary.name_only})
+                      </CardTitle>
+                      <CardDescription>
+                        These references had no matching record, so the name is saved on its own
+                        with no link. That is expected for staff or learners who were never
+                        entered in the system — but check the suggestions below for typos first.
+                        {previewData.reference_summary.linked > 0 && (
+                          <> {previewData.reference_summary.linked} other rows linked cleanly.</>
+                        )}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ScrollArea className="max-h-[220px]">
+                        <ul className="space-y-1.5 text-xs">
+                          {previewData.reference_summary.name_only_names.map((entry, idx) => (
+                            <li key={idx} className="flex flex-wrap items-center gap-x-2">
+                              <span className="font-medium">{entry.name}</span>
+                              <span className="text-muted-foreground">({entry.type})</span>
+                              {entry.hint ? (
+                                <span className="text-amber-700">
+                                  — did you mean <strong>{entry.hint}</strong>?
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">— no near match</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </ScrollArea>
+                    </CardContent>
+                  </Card>
+                )}
+
+              {previewData.reference_summary &&
+                previewData.reference_summary.attributions_created +
+                  previewData.reference_summary.attributions_replaced >
+                  0 && (
+                  <Alert className="border-amber-200 bg-amber-50">
+                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                    <AlertTitle className="text-amber-800">
+                      {previewData.reference_summary.attributions_created +
+                        previewData.reference_summary.attributions_replaced}{' '}
+                      rows set a Consultant reference
+                    </AlertTitle>
+                    <AlertDescription className="text-amber-700 text-xs">
+                      This creates {previewData.reference_summary.attributions_created} consultant
+                      attribution
+                      {previewData.reference_summary.attributions_created === 1 ? '' : 's'} at
+                      primary / 100%, which feed commission calculation.
+                      {previewData.reference_summary.attributions_replaced > 0 && (
+                        <>
+                          {' '}
+                          {previewData.reference_summary.attributions_replaced} of them replace an
+                          existing auto-synced attribution.
+                        </>
+                      )}
+                    </AlertDescription>
+                  </Alert>
+                )}
 
               {/* Format issues — the uploader fixes these in the spreadsheet. */}
               {formatIssueRows.length > 0 && (

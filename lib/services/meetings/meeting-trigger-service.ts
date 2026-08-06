@@ -216,8 +216,14 @@ async function getInstitutionName(
  * Create an in-app bell notification the live way: insert `notifications` THEN
  * `user_notifications` rows (the bell reads the junction table). Returns the
  * notification id, or null on failure (logged, non-fatal).
+ *
+ * EXPORTED (2026-08-05, Director's Desk chase engine). The handover chase is a
+ * new SUBJECT TYPE on this same engine, not a second engine, so it must send
+ * down this exact path — the same `notifications` + `user_notifications` pair,
+ * the same idempotency index. A copy in another file is how two "identical"
+ * senders drift until one of them stops reaching the bell.
  */
-async function createBellNotification(
+export async function createBellNotification(
   db: SupabaseClient,
   opts: {
     recipientIds: string[];
@@ -756,7 +762,7 @@ export interface ReconcileResult {
  */
 const SUPER_ADMIN_FANOUT_CAP = 10;
 
-async function getSuperAdminIds(db: SupabaseClient): Promise<string[]> {
+export async function getSuperAdminIds(db: SupabaseClient): Promise<string[]> {
   const { data } = await db
     .from('profiles')
     .select('id')
@@ -1308,7 +1314,7 @@ export interface ProjectTriggerResult {
 }
 
 /** Today in campus time — project breaches are "as of now", not yesterday. */
-function todayIST(now: Date): string {
+export function todayIST(now: Date): string {
   const ist = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
   return `${ist.getFullYear()}-${String(ist.getMonth() + 1).padStart(2, '0')}-${String(
     ist.getDate()
@@ -1813,7 +1819,22 @@ export async function reconcileProjectExplanations(
       'id, subject_type, subject_id, subject_label, observed_value, threshold, breach_date, notification_id, explanation_deadline, status, judge_profile_id'
     )
     .eq('status', 'notified')
-    .not('subject_id', 'is', null);
+    .not('subject_id', 'is', null)
+    // 2026-08-05 — the Director's-Desk chase engine writes 'handover' events to
+    // this same ledger, and they are reconciled by
+    // reconcileHandoverExplanations() in handover-chase-service, NOT here.
+    // Two reasons this filter is load-bearing rather than tidy:
+    //   1. a handover explanation is a progress note in director_handover_audit
+    //      (fn_director_handover_progress), not an action_responses row, so this
+    //      function would never find one and would escalate every handover to a
+    //      meeting at the 24h mark no matter how diligently the person answered;
+    //   2. the copy here says "the Accountable person" and points at /projects,
+    //      which is wrong for someone who was handed a page.
+    // Written as an .or() rather than .neq() on purpose: `subject_type <>
+    // 'handover'` evaluates to NULL — i.e. excluded — for a row whose
+    // subject_type is NULL, which would silently drop legacy rows this function
+    // handles today.
+    .or('subject_type.is.null,subject_type.neq.handover');
   if (error) {
     result.errors.push(`load subject events: ${error.message}`);
     return result;
@@ -2181,7 +2202,7 @@ interface Interval {
  * refuses to put a time on an un-connected person's day). Used to keep the
  * notification copy honest — see review fix #7.
  */
-async function canAutoBookFor(
+export async function canAutoBookFor(
   db: SupabaseClient,
   profileIds: string[]
 ): Promise<boolean> {

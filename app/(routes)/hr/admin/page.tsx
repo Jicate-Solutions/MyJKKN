@@ -101,11 +101,11 @@ const SECTIONS: Section[] = [
           'Step-by-step joining workflows assigned per role category.',
       },
       {
-        href: '/hr/admin/shift-templates',
+        href: '/hr/admin/shift-timings',
         icon: ClipboardList,
-        title: 'Shift Templates',
+        title: 'Shift Timings',
         description:
-          'Pre-defined working-hour patterns for attendance scheduling.',
+          'Working hours per institution, staff category and weekday — first/second half windows and morning grace.',
       },
       {
         href: '/hr/admin/automation-rules',

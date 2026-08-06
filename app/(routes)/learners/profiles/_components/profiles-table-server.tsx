@@ -55,7 +55,7 @@ interface ProfilesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  statusFilter?: 'all' | 'active' | 'inactive' | 'exited';
 }
 
 /**
@@ -91,6 +91,11 @@ export function ProfilesTableServer({
 
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // 'all' is a TAB value, not a lifecycle_status enum label. The export dialog
+  // feeds this straight into `.eq('lifecycle_status', …)`, where 'all' would
+  // raise 22P02 and export nothing — so it becomes "no status filter" here.
+  const exportStatusFilter = statusFilter === 'all' ? undefined : statusFilter;
 
   const currentFilters: ProfilesSearchParams = {
     page: Number(searchParams.get('page')) || 1,
@@ -375,7 +380,7 @@ export function ProfilesTableServer({
         open={showExportDialog}
         onOpenChange={setShowExportDialog}
         filters={currentFilters}
-        statusFilter={statusFilter}
+        statusFilter={exportStatusFilter}
       />
 
       {/* Bulk ID-card Print Dialog (Phase 2) */}
