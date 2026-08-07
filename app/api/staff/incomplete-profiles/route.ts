@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
         district,
         pincode,
         blood_group,
-        institution:institutions(id, name),
+        institution:institutions!staff_institution_id_fkey(id, name),
         department:departments(id, department_name),
         category:employment_categories(id, category_name)
       `,

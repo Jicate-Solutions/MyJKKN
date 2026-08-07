@@ -645,7 +645,7 @@ export class StorageService {
           staff_id,
           first_name,
           last_name,
-          institution:institutions(name)
+          institution:institutions!staff_institution_id_fkey(name)
         `
         )
         .in('staff_id', validStaffIds);

@@ -106,6 +106,26 @@ export interface Staff {
   department_id: string | null;
   role_key: string;
 
+  // Columns that exist on `staff` but were missing here until 2026-08-07. The
+  // detail page could not render them at all: reading staff.employment_type off
+  // a type that lacked it is a TS2339, so the fields were quietly left out of
+  // the UI even though getStaffById selects '*' and returns them.
+  // Left as `string` rather than a union — the DB CHECK is the real vocabulary
+  // and a copied union here would drift from it.
+  employment_type: string;
+
+  // Biometric attendance. The machine is the institution that OWNS the device,
+  // which is often NOT this person's own institution. There is no FK on
+  // biometric_institution_id (dropped 2026-08-06), so it cannot be embedded via
+  // PostgREST — resolve the name with a separate lookup when one is needed.
+  biometric_id: string | null;
+  biometric_institution_id: string | null;
+
+  // Transport / bus pass
+  bus_required: boolean;
+  transport_route_id: string | null;
+  transport_stop_id: string | null;
+
   // Extended faculty profile fields (all required at type level — DB has defaults)
   has_extended_profile: boolean;
   slug: string | null;

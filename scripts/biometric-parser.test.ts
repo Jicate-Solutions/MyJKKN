@@ -15,6 +15,8 @@ import fs from 'node:fs';
 import { parseMonthlyReportFile } from '../lib/hr/biometric/parse-monthly-report';
 import { evaluateDay } from '../lib/hr/biometric/evaluate-day';
 import { normBiometricCode } from '../lib/hr/biometric/normalize-code';
+import { validateUpload, finaliseValidation, type ValidationStaffRow } from '../lib/hr/biometric/validate-upload';
+import type { BiometricEmployee } from '../lib/hr/biometric/parse-monthly-report';
 import type { ResolvedShiftTiming } from '../types/hr-shift-timings';
 
 let failures = 0;
@@ -198,6 +200,115 @@ if (!fs.existsSync(file)) {
   // Not asserted as a hard pass: a mismatch is a finding about the DATA, not a
   // parser bug. It is reported so a real discrepancy is visible rather than silent.
   check('reconciliation ran for every employee', agree + disagreements.length === report.employees.length);
+}
+
+// --- upload validation ----------------------------------------------------
+// Fixture mirrors the real July export's shapes: a code-linked person, a person
+// present in staff but unlinked, a duplicated name, and a device user who is
+// nobody. 'Mr. RADHA KRISHNAN T' vs 'Radhakrishnan T' is the real honorific case.
+console.log('');
+console.log('=== upload validation ===');
+{
+  const staff: ValidationStaffRow[] = [
+    { id: 'u1', staff_id: 'NOT100', first_name: 'Mr. RADHA KRISHNAN', last_name: 'T',
+      institution_id: 'inst-1', biometric_id: '00002', biometric_institution_id: 'mach-1' },
+    { id: 'u2', staff_id: 'CAS140', first_name: 'PRIYA', last_name: 'S',
+      institution_id: 'inst-1', biometric_id: null, biometric_institution_id: null },
+    // staff_id null AND institution with no HR organization -> both warnings
+    { id: 'u3', staff_id: null, first_name: 'ARUN', last_name: 'K',
+      institution_id: 'inst-2', biometric_id: '30', biometric_institution_id: 'mach-1' },
+    { id: 'u4', staff_id: 'M1', first_name: 'MOHAN', last_name: 'R',
+      institution_id: 'inst-1', biometric_id: null, biometric_institution_id: null },
+    { id: 'u5', staff_id: 'M2', first_name: 'MOHAN', last_name: 'R',
+      institution_id: 'inst-1', biometric_id: null, biometric_institution_id: null },
+  ];
+  const orgs = new Map<string, string>([['inst-1', 'org-1']]); // inst-2 deliberately absent
+
+  const emp = (code: string, name: string): BiometricEmployee => ({
+    code, name,
+    summary: { present: null, weeklyOff: null, absent: null,
+               totalWorkMinutes: null, totalOvertimeMinutes: null },
+    days: [],
+  });
+
+  const v = validateUpload({
+    employees: [
+      emp('002', 'Radhakrishnan T'),  // linked via code (00002 -> 2, 002 -> 2)
+      emp('0030', 'Arun K'),          // linked via code (30)
+      emp('77', 'Priya S'),           // unlinked_match — one name hit
+      emp('88', 'Mohan R'),           // ambiguous_match — two name hits
+      emp('99', 'Nobody Here'),       // absent
+    ],
+    staff, machineInstitutionId: 'mach-1', organisationByInstitution: orgs,
+  });
+
+  check('counts.total is 5', v.counts.total === 5, String(v.counts.total));
+  check('counts.importable is 2', v.counts.importable === 2, String(v.counts.importable));
+  check('counts.unlinked_match is 1', v.counts.unlinked_match === 1, String(v.counts.unlinked_match));
+  check('counts.ambiguous_match is 1', v.counts.ambiguous_match === 1, String(v.counts.ambiguous_match));
+  check('counts.absent is 1', v.counts.absent === 1, String(v.counts.absent));
+
+  const byCode = new Map(v.employees.map((e) => [e.code, e]));
+  check('002 linked to u1', byCode.get('002')?.match === 'linked' && byCode.get('002')?.staff_uuid === 'u1');
+  check('002 is importable', byCode.get('002')?.importable === true);
+  check('77 is unlinked_match', byCode.get('77')?.match === 'unlinked_match');
+  check('77 is NOT importable', byCode.get('77')?.importable === false);
+  check('88 is ambiguous with 2 candidates',
+    byCode.get('88')?.match === 'ambiguous_match' && byCode.get('88')?.candidate_count === 2);
+  check('99 is absent', byCode.get('99')?.match === 'absent');
+
+  const kinds = new Set(v.blocks.map((b) => b.kind));
+  check('unknown_staff_present raised', kinds.has('unknown_staff_present'));
+  check('unknown_staff_present counts 2 (ambiguous + absent)',
+    v.blocks.find((b) => b.kind === 'unknown_staff_present')?.count === 2);
+  check('unknown_staff_present is acknowledgeable',
+    v.blocks.find((b) => b.kind === 'unknown_staff_present')?.severity === 'acknowledgeable');
+  check('no hard block on the happy fixture', !v.blocks.some((b) => b.severity === 'hard'));
+
+  const warn = new Map(v.warnings.map((w) => [w.kind, w]));
+  check('missing_staff_code counts 1 (u3)', warn.get('missing_staff_code')?.count === 1);
+  check('missing_organisation counts 1 (u3, inst-2)', warn.get('missing_organisation')?.count === 1);
+
+  // phase 2 — no unreconciled employees
+  const clean = finaliseValidation(v, []);
+  check('can_import true when only acknowledgeable blocks', clean.can_import === true);
+  check('requires_acknowledgement true', clean.requires_acknowledgement === true);
+
+  // phase 2 — with unreconciled employees
+  const shaky = finaliseValidation(v, [{ code: '002', name: 'Radhakrishnan T' }]);
+  check('unreconciled_totals block appended',
+    shaky.blocks.some((b) => b.kind === 'unreconciled_totals' && b.severity === 'acknowledgeable'));
+  check('unreconciled does not make it a hard block', shaky.can_import === true);
+
+  // --- duplicate normalised codes -> HARD block ---------------------------
+  const dup = finaliseValidation(validateUpload({
+    employees: [emp('0017', 'Priya S'), emp('017', 'Priya Sundaram')],
+    staff, machineInstitutionId: 'mach-1', organisationByInstitution: orgs,
+  }), []);
+  check('0017 and 017 detected as one duplicated code',
+    dup.blocks.some((b) => b.kind === 'duplicate_code_in_file' && b.count === 1));
+  check('duplicate is a hard block',
+    dup.blocks.find((b) => b.kind === 'duplicate_code_in_file')?.severity === 'hard');
+  check('duplicate makes can_import false', dup.can_import === false);
+
+  // --- blank code -> HARD block -------------------------------------------
+  const blank = finaliseValidation(validateUpload({
+    employees: [emp('   ', 'Ghost User'), emp('002', 'Radhakrishnan T')],
+    staff, machineInstitutionId: 'mach-1', organisationByInstitution: orgs,
+  }), []);
+  check('blank code raises invalid_code_in_file',
+    blank.blocks.some((b) => b.kind === 'invalid_code_in_file' && b.severity === 'hard'));
+  check('blank code makes can_import false', blank.can_import === false);
+
+  // --- nothing linked -> HARD block (today's real state: 0 staff mapped) ---
+  const none = finaliseValidation(validateUpload({
+    employees: [emp('77', 'Priya S'), emp('99', 'Nobody Here')],
+    staff: staff.map((s) => ({ ...s, biometric_id: null, biometric_institution_id: null })),
+    machineInstitutionId: 'mach-1', organisationByInstitution: orgs,
+  }), []);
+  check('zero importable raises zero_importable',
+    none.blocks.some((b) => b.kind === 'zero_importable' && b.severity === 'hard'));
+  check('zero importable makes can_import false', none.can_import === false);
 }
 
 console.log('');
