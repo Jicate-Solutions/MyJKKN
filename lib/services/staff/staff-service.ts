@@ -524,6 +524,18 @@ export class StaffService {
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       // 'estimated' uses Postgres statistics instead of counting all rows
+      //
+      // The institutions embed is qualified with !staff_institution_id_fkey on
+      // purpose, here and at every other staff -> institutions embed in the app.
+      // PostgREST resolves embeds by RELATIONSHIP, not by column, so the moment
+      // `staff` holds a second FK to `institutions` the bare `institutions(...)`
+      // form becomes ambiguous and fails at query-planning time with PGRST201 —
+      // no rows, no build error, ~20 call sites at once. That happened on
+      // 2026-08-06 when staff.biometric_institution_id was added as an FK
+      // (see 20260806140000_staff_biometric_drop_institution_fk.sql). The
+      // constraint is gone, but the column is not, and the hint is what keeps
+      // this query correct whether or not a second FK ever comes back — and
+      // even while PostgREST is still serving a stale schema cache.
       let query = (this.supabase as any).from('staff').select(
         `
           *,
@@ -532,7 +544,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -733,7 +745,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -791,7 +803,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -919,7 +931,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -1152,7 +1164,7 @@ export class StaffService {
     'marital_status',
     'blood_group',
     // embedded display names
-    'institution:institutions(id, name)',
+    'institution:institutions!staff_institution_id_fkey(id, name)',
     'department:departments(id, department_name)',
     'category:employment_categories(id, category_name)'
   ].join(', ');
