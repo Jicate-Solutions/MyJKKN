@@ -77,18 +77,40 @@ export async function POST(
     };
     const checklistName = cadreMap[candidate.role_category] ?? 'Teaching Faculty Onboarding';
 
-    // Fetch the matching onboarding checklist
+    // Fetch the matching onboarding checklist.
+    //
+    // Added: 2026-08-05 - Scope explicitly by the CANDIDATE's org.
+    // hr_onboarding_checklists is per-tenant (hr_organization_id NOT NULL) and
+    // this lookup previously relied on the tenant-isolation RLS policy alone.
+    // That policy is `hr_organization_id = auth_hr_organization_id() OR
+    // is_super_admin()` — the super-admin arm does NOT confine rows, so once
+    // more than one org holds a checklist of the same name an unscoped
+    // maybeSingle() sees several rows and throws PGRST116 for exactly the
+    // people who run onboarding. Filtering on the candidate's own org also
+    // stops a Main Office checklist from being stamped onto a college hire.
+    //
+    // order+limit(1) guards the other direction: the table has no unique
+    // constraint on (hr_organization_id, checklist_name), so a duplicate
+    // active row would otherwise break maybeSingle() too. Newest wins.
     const { data: checklist, error: checklistErr } = await supabase
       .from('hr_onboarding_checklists')
       .select('*')
+      .eq('hr_organization_id', candidate.hr_organization_id)
       .eq('checklist_name', checklistName)
       .eq('is_active', true)
+      .order('valid_from', { ascending: false })
+      .limit(1)
       .maybeSingle();
     if (checklistErr) throw checklistErr;
 
     if (!checklist) {
       return NextResponse.json(
-        { error: `No active onboarding checklist found for '${checklistName}'. HR Admin must seed checklists first.` },
+        {
+          error:
+            `No active onboarding checklist named '${checklistName}' exists for this ` +
+            `organisation (${candidate.hr_organization_id}). Checklists are per-organisation — ` +
+            `add one under HR → Admin → Onboarding Checklists, or ask an HR Admin to seed it.`,
+        },
         { status: 400 }
       );
     }
