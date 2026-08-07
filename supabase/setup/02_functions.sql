@@ -29236,6 +29236,154 @@ BEGIN
    WHERE id = v_old.id;
   UPDATE hostel_beds SET status='available', current_occupant_id=NULL WHERE id = v_old.bed_id;
 
+-- Reserved-bed allocation guard (mig 20260815040001_reserved_bed_guard.sql —
+-- FILE ONLY, apply is Director-gated). Director's rule, 2026-08-07: a bed
+-- held for one learner's confirmed upgrade hold (hostel_beds.status=
+-- 'reserved', hostel_waitlist.held_bed_id) must never reach a different
+-- learner. SECURITY DEFINER is load-bearing — a plain trigger would run
+-- under the INSERTing learner's own RLS, which may hide every OTHER
+-- learner's hostel_waitlist row, and the guard would silently pass. See the
+-- migration file for the full 13-function audit this backstops.
+CREATE OR REPLACE FUNCTION public._on_allocation_guard_reserved_bed()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_bed_status   bed_status_enum;
+  v_hold_learner uuid;
+BEGIN
+  SELECT status INTO v_bed_status FROM hostel_beds WHERE id = NEW.bed_id;
+
+  IF v_bed_status = 'reserved' THEN
+    -- The learner whose ACTIVE waiting hold points at this exact bed
+    -- (entry_kind='upgrade' AND status='waiting'). The functions that
+    -- execute a hold flip this row to 'allocated' AFTER the INSERT into
+    -- hostel_allocations, so at this BEFORE-trigger's evaluation time the
+    -- holder's own row still reads 'waiting' — her own execution passes.
+    SELECT learner_id INTO v_hold_learner
+      FROM hostel_waitlist
+      WHERE held_bed_id = NEW.bed_id
+        AND entry_kind = 'upgrade'
+        AND status = 'waiting'
+      ORDER BY updated_at DESC
+      LIMIT 1;
+
+    -- No live hold at all (stale 'reserved') refuses too, for anyone —
+    -- v_hold_learner is NULL, and NULL IS DISTINCT FROM any learner_id.
+    IF v_hold_learner IS DISTINCT FROM NEW.learner_id THEN
+      RAISE EXCEPTION 'This bed is reserved for another learner''s confirmed upgrade'
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- No GRANT TO authenticated on purpose: no legitimate direct caller, only
+-- the trigger in 04_triggers.sql. Asserted anyway per the CLAUDE.md
+-- "every CREATE OR REPLACE of a SECDEF fn re-asserts REVOKE" rule.
+REVOKE EXECUTE ON FUNCTION public._on_allocation_guard_reserved_bed() FROM anon, PUBLIC;
+
+-- Updated: 2026-08-07 — fn_cl_admin_allocate_bed SUPERSEDES the earlier definition above.
+-- Source: supabase/migrations/20260815040001_reserved_bed_guard.sql. Adds the reserved-bed
+-- pre-check so the admin allocate RPC refuses a bed held for another learner with a plain
+-- message (the BEFORE INSERT trigger enforces the same invariant independently).
+
+-- ============ 2. fn_cl_admin_allocate_bed — close the one genuine gap ======
+-- Rebuilt VERBATIM from the live pg_get_functiondef dump (2026-08-07 ~09:40
+-- IST, 96 lines). Only the bed-status check block is new (+9 lines); every
+-- other line, including the authorization check, the fresh-only guard, the
+-- institution-access mirror and the tier-policy fallback, is unchanged.
+
+CREATE OR REPLACE FUNCTION public.fn_cl_admin_allocate_bed(p_learner_profile_id uuid, p_room_id uuid, p_bed_id uuid, p_mess_category_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_room       hostel_rooms%ROWTYPE;
+  v_bed        hostel_beds%ROWTYPE;
+  v_profile    uuid;
+  v_inst       uuid;
+  v_sem        uuid;
+  v_ay         uuid;
+  v_tier       uuid;
+  v_block      uuid;
+  v_mapped     boolean;
+  v_accessible boolean;
+  v_alloc_id   uuid;
+BEGIN
+  IF NOT (is_super_admin() OR user_has_permission('campus_living.upgrades.manage')) THEN
+    RAISE EXCEPTION 'Not authorized to allocate hostel rooms' USING ERRCODE = '42501';
+  END IF;
+
+  -- learners_profiles → institution / semester / academic year (mirror auto-allocate fallback)
+  SELECT lp.institution_id, lp.semester_id,
+         COALESCE(lp.academic_year_id,
+           (SELECT id FROM academic_years
+             WHERE institution_id = lp.institution_id AND is_active
+             ORDER BY start_date DESC LIMIT 1))
+    INTO v_inst, v_sem, v_ay
+  FROM learners_profiles lp WHERE lp.id = p_learner_profile_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'Learner % not found', p_learner_profile_id USING ERRCODE = 'P0002'; END IF;
+  IF v_ay IS NULL THEN RAISE EXCEPTION 'No academic year resolved for this learner' USING ERRCODE = 'P0001'; END IF;
+
+  -- bridge to the profiles.id key hostel_allocations uses
+  SELECT id INTO v_profile FROM profiles WHERE learner_id = p_learner_profile_id LIMIT 1;
+  IF v_profile IS NULL THEN RAISE EXCEPTION 'No profile bridges learner %', p_learner_profile_id USING ERRCODE = 'P0002'; END IF;
+
+  -- fresh-only
+  IF EXISTS (SELECT 1 FROM hostel_allocations a
+             WHERE a.learner_id = v_profile AND a.status IN ('active','pending_approval') AND a.check_out_date IS NULL) THEN
+    RAISE EXCEPTION 'Learner already has an active allocation — use Change room/bed instead' USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT * INTO v_room FROM hostel_rooms WHERE id = p_room_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Room % not found', p_room_id USING ERRCODE = 'P0002'; END IF;
+  SELECT * INTO v_bed FROM hostel_beds WHERE id = p_bed_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Bed % not found', p_bed_id USING ERRCODE = 'P0002'; END IF;
+  IF v_bed.room_id <> p_room_id THEN RAISE EXCEPTION 'Bed does not belong to the selected room' USING ERRCODE = 'P0001'; END IF;
+
+  -- 2026-08-15: a bed reserved for another learner's confirmed upgrade hold
+  -- must never be handed to a fresh allocation here. This path is
+  -- fresh-only (checked above), and a learner with zero prior allocations
+  -- cannot legitimately be the holder of a reserved bed's upgrade hold — so
+  -- requiring 'available' costs no real path. trg_allocation_guard_reserved_bed
+  -- on hostel_allocations is the backstop for every writer; this explicit
+  -- check exists only so the admin UI gets a clean refusal here instead of a
+  -- raw trigger exception.
+  IF v_bed.status = 'reserved' THEN
+    RAISE EXCEPTION 'This bed is reserved for another learner''s confirmed upgrade' USING ERRCODE = 'P0001';
+  END IF;
+
+  v_block := v_room.block_id;
+
+  -- institution access (mirror fn_cl_admin_transfer_allocation)
+  SELECT EXISTS (SELECT 1 FROM hostel_block_institutions WHERE block_id = v_block) INTO v_mapped;
+  IF v_mapped THEN
+    SELECT EXISTS (
+      SELECT 1 FROM hostel_block_institutions hbi
+      WHERE hbi.block_id = v_block
+        AND hbi.institution_id IN (SELECT institution_id FROM get_user_accessible_institutions(auth.uid()))
+    ) INTO v_accessible;
+    IF NOT v_accessible THEN RAISE EXCEPTION 'No access to the target block''s institution' USING ERRCODE = '42501'; END IF;
+  END IF;
+
+  -- bed must be free (dedup on allocation existence, matching auto-allocate)
+  IF EXISTS (SELECT 1 FROM hostel_allocations a
+             WHERE a.bed_id = p_bed_id AND a.status IN ('active','pending_approval') AND a.check_out_date IS NULL) THEN
+    RAISE EXCEPTION 'The selected bed is already occupied' USING ERRCODE = '23505';
+  END IF;
+
+  -- standard tier policy (mirror auto-allocate)
+  SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND institution_id IS NULL AND is_active LIMIT 1;
+  IF v_tier IS NULL THEN SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND is_active LIMIT 1; END IF;
+  IF v_tier IS NULL THEN RAISE EXCEPTION 'No standard tier policy found' USING ERRCODE = 'P0001'; END IF;
+
   INSERT INTO hostel_allocations (
     institution_id, learner_id, block_id, room_id, bed_id, academic_year_id, semester_id,
     allocation_type, allocation_date, status,
@@ -29465,3 +29613,26 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_late_charge_waive_bill(uuid, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_late_charge_waive_bill(uuid, text) TO authenticated;
+
+    tier_id, allocated_by
+  ) VALUES (
+    v_inst, v_profile, v_block, p_room_id, p_bed_id, v_ay, v_sem,
+    'fresh', CURRENT_DATE, 'active', '', '', '',
+    v_tier, auth.uid()
+  ) RETURNING id INTO v_alloc_id;
+
+  -- occupy the bed (immediate-active per design decision)
+  UPDATE hostel_beds SET status='occupied', current_occupant_id=v_profile, updated_at=now() WHERE id = p_bed_id;
+
+  -- room category is synced by trg_allocation_sync_learner_categories; honor an explicit mess pick
+  IF p_mess_category_id IS NOT NULL THEN
+    UPDATE learners_profiles SET mess_category_id = p_mess_category_id, updated_at = now() WHERE id = p_learner_profile_id;
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'allocation_id', v_alloc_id,
+                            'room_id', p_room_id, 'bed_id', p_bed_id, 'block_id', v_block);
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_cl_admin_allocate_bed(uuid,uuid,uuid,uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_cl_admin_allocate_bed(uuid,uuid,uuid,uuid) TO authenticated;
