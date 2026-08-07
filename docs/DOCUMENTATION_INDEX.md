@@ -41,6 +41,7 @@ See `docs/fixes/` for bug-fix writeups, organized by month (`YYYY-MM/`).
 ## Audits
 
 - [docs/audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md](audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md) — Director decision 12, area 1 of N: the closed `campus_living` permission keys grouped by area, with distinct real holders counted live on production. 215 keys; 0 ungrantable, 0 effective-but-invisible, 61 ungranted, 1 granted to an empty role. Includes the "open these first" shortlist and the keys that need a Director call.
+- [Test-pattern accounts and active academic years (2026-08-06)](audits/2026-08-06-AUDIT-test-accounts-and-active-academic-years.md) — read-only production audit, two sections. (A) 48 test-pattern accounts checked for real roles; revoking takes TWO layers because `is_admin()` (1,295 policies) reads `profiles.role`, which a `user_roles` delete never clears. (B) `academic_years.is_active` is true on 38 of 42 rows; the `ORDER BY start_date DESC LIMIT 1` idiom resolves 4 years wrong at Pharmacy and 2 at Dental, the enquiry importer throws PGRST116 and reports "not found", and ₹9.54 cr of deliberate forward bills means the extra years must NOT simply be deactivated.
 
 See `docs/audit/` and `docs/audits/` for earlier audit writeups.
 
