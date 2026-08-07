@@ -32382,12 +32382,14 @@ export type Database = {
       hostel_categories: {
         Row: {
           allocation_mode: string
+          allow_self_room_change: boolean
           created_at: string
           description: string | null
           id: string
           is_active: boolean
           name: string
           requires_explicit_upgrade: boolean
+          room_source_category_id: string | null
           sort_order: number
           type: string
           updated_at: string
@@ -32397,12 +32399,14 @@ export type Database = {
         }
         Insert: {
           allocation_mode?: string
+          allow_self_room_change?: boolean
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
           name: string
           requires_explicit_upgrade?: boolean
+          room_source_category_id?: string | null
           sort_order?: number
           type: string
           updated_at?: string
@@ -32412,12 +32416,14 @@ export type Database = {
         }
         Update: {
           allocation_mode?: string
+          allow_self_room_change?: boolean
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
           name?: string
           requires_explicit_upgrade?: boolean
+          room_source_category_id?: string | null
           sort_order?: number
           type?: string
           updated_at?: string
@@ -32432,11 +32438,15 @@ export type Database = {
           amount: number
           created_at: string
           created_by: string | null
+          discount_type: string
+          discount_value: number
           from_hostel_category_id: string | null
           from_mess_category_id: string | null
           hostel_year_id: string
           id: string
           is_active: boolean
+          net_amount: number | null
+          skip_room_eligibility: boolean
           to_hostel_category_id: string | null
           to_mess_category_id: string | null
           updated_at: string
@@ -32446,11 +32456,14 @@ export type Database = {
           amount: number
           created_at?: string
           created_by?: string | null
+          discount_type?: string
+          discount_value?: number
           from_hostel_category_id?: string | null
           from_mess_category_id?: string | null
           hostel_year_id: string
           id?: string
           is_active?: boolean
+          skip_room_eligibility?: boolean
           to_hostel_category_id?: string | null
           to_mess_category_id?: string | null
           updated_at?: string
@@ -32460,11 +32473,14 @@ export type Database = {
           amount?: number
           created_at?: string
           created_by?: string | null
+          discount_type?: string
+          discount_value?: number
           from_hostel_category_id?: string | null
           from_mess_category_id?: string | null
           hostel_year_id?: string
           id?: string
           is_active?: boolean
+          skip_room_eligibility?: boolean
           to_hostel_category_id?: string | null
           to_mess_category_id?: string | null
           updated_at?: string

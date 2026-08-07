@@ -5397,6 +5397,28 @@ ALTER TABLE public.hostel_categories
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS requires_explicit_upgrade boolean NOT NULL DEFAULT false;
 
+-- 20260807150000: a category may sell access to ANOTHER category's room stock.
+-- "Deluxe Plus" owns zero rooms — it is the self-pick tier over the Deluxe pool
+-- (pay the add-on, choose your own Deluxe room instead of being auto-allocated).
+-- Resolved ONE level via COALESCE(room_source_category_id, id) in fn_my_room_options,
+-- fn_my_upgrade_room_options and _cl_room_options. NULL = own rooms (all other
+-- categories), so behaviour elsewhere is unchanged. Must point at a category of the
+-- SAME type (gender) — not expressible as a CHECK, so seed it carefully.
+-- 20260807180000: residents of this category may self-change their room ONCE per
+-- academic year (same category, different room). For self-picked tiers where a wrong
+-- choice would otherwise need office intervention. The allowance is counted from the
+-- allocation audit trail (metadata->>'self_room_change'), not a separate flag.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS allow_self_room_change boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS room_source_category_id uuid REFERENCES public.hostel_categories(id);
+ALTER TABLE public.hostel_categories
+  DROP CONSTRAINT IF EXISTS chk_room_source_not_self;
+ALTER TABLE public.hostel_categories
+  ADD CONSTRAINT chk_room_source_not_self
+  CHECK (room_source_category_id IS NULL OR room_source_category_id <> id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   ON public.hostel_waitlist (learner_id, target_hostel_category_id)
   WHERE entry_kind = 'upgrade' AND status = 'waiting';
@@ -5422,9 +5444,14 @@ CREATE INDEX IF NOT EXISTS ix_accommodation_types_active
   ON public.accommodation_types (is_active, sort_order);
 
 -- ============================================================================
--- hostel_category_upgrade_fees (migration 20260610210000)
+-- hostel_category_upgrade_fees (migration 20260610210000;
+--   discount columns 20260807120000)
 -- Explicit from→to upgrade pricing (room OR mess), per hostel year. Drives the
 -- My Hostel upgrade options + flat-fee upgrade billing.
+--
+-- amount is the GROSS list price; net_amount is the GENERATED payable after any
+-- discount. All NINE plpgsql read sites bill/display net_amount — never amount —
+-- so the discount cannot drift between what a resident is shown and charged.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5434,6 +5461,24 @@ CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
   from_mess_category_id   uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
   to_mess_category_id     uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
   amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  discount_type  text          NOT NULL DEFAULT 'amount',
+  discount_value numeric(12,2) NOT NULL DEFAULT 0,
+  net_amount numeric(12,2) GENERATED ALWAYS AS (
+    GREATEST(0::numeric, round(
+      CASE WHEN discount_type = 'percent'
+           THEN amount - (amount * LEAST(discount_value, 100::numeric) / 100)
+           ELSE amount - discount_value
+      END, 2))
+  ) STORED,
+  -- 20260807170000: per-PAIR override — this upgrade ignores the physical-room
+  -- eligibility rules (hostel_room_eligibility_rules), so the resident may pick ANY
+  -- available room in the target pool. Those rules steer AUTO-ALLOCATION cohorts and
+  -- are the wrong constraint for a paid self-service move inside a tier the resident
+  -- already occupies (Deluxe -> Deluxe Plus, Premium -> Premium + AC). Institution
+  -- scoping, gender and bed availability remain enforced.
+  -- Read by fn_my_room_options / fn_my_upgrade_room_options / _cl_room_options —
+  -- ALL THREE must agree, or the picker offers rooms the bed validator rejects.
+  skip_room_eligibility boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -5449,6 +5494,14 @@ CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
   CONSTRAINT chk_upgrade_distinct CHECK (
     (from_hostel_category_id IS NULL OR from_hostel_category_id <> to_hostel_category_id)
     AND (from_mess_category_id IS NULL OR from_mess_category_id <> to_mess_category_id)
+  ),
+  CONSTRAINT chk_upgrade_discount_type CHECK (discount_type IN ('amount', 'percent')),
+  CONSTRAINT chk_upgrade_discount_bounds CHECK (
+    discount_value >= 0
+    AND CASE WHEN discount_type = 'percent'
+             THEN discount_value <= 100
+             ELSE discount_value <= amount
+        END
   )
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_upgrade_fee_pair ON public.hostel_category_upgrade_fees (

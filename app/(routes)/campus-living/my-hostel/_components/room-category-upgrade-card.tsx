@@ -96,6 +96,25 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                       )}
                       <span className="text-base">{opt.name}</span>
                     </p>
+                    {!isBook && (
+                      <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-sm">
+                        {(opt.upgrade_discount ?? 0) > 0 && (
+                          <span className="text-xs text-muted-foreground line-through">
+                            ₹{(opt.upgrade_fee_original ?? 0).toLocaleString('en-IN')}
+                          </span>
+                        )}
+                        <span className="font-semibold">
+                          {opt.upgrade_fee <= 0
+                            ? 'Free upgrade'
+                            : `₹${opt.upgrade_fee.toLocaleString('en-IN')}`}
+                        </span>
+                        {(opt.upgrade_discount ?? 0) > 0 && (
+                          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                            ₹{(opt.upgrade_discount ?? 0).toLocaleString('en-IN')} off
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
                   {locked ? (
                     <Badge variant="outline" className="w-fit text-muted-foreground">
@@ -260,6 +279,8 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           categoryName={picked.name}
           currentCategoryName={currentCategoryName}
           upgradeFee={picked.upgrade_fee}
+          upgradeFeeOriginal={picked.upgrade_fee_original}
+          upgradeDiscount={picked.upgrade_discount}
           thresholdPct={picked.threshold_pct}
           paidPct={picked.paid_pct}
           meetsThreshold={picked.meets_threshold}
