@@ -2704,18 +2704,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           },
           {
             "path": "/campus-living/my-hostel/premium",
-            "label": "Premium Stay — Opt-in",
+            "label": "Premium Room — Opt-in",
             "iconName": "Sparkles",
             "children": [
               {
                 "path": "/campus-living/my-hostel/premium/invite-roommate",
-                "label": "Premium Stay — Invite Roommate",
+                "label": "Premium Room — Invite Roommate",
                 "iconName": "Users",
                 "children": []
               },
               {
                 "path": "/campus-living/my-hostel/premium/pick-room",
-                "label": "Premium Stay — Pick Room",
+                "label": "Premium Room — Pick Room",
                 "iconName": "BedDouble",
                 "children": []
               }
@@ -2742,19 +2742,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           },
           {
             "path": "/campus-living/premium/audit-log",
-            "label": "Premium Stay — Audit Log",
+            "label": "Premium Room — Audit Log",
             "iconName": "History",
             "children": []
           },
           {
             "path": "/campus-living/premium/dashboard",
-            "label": "Premium Stay Dashboard",
+            "label": "Premium Room Dashboard",
             "iconName": "LayoutGrid",
             "children": []
           },
           {
             "path": "/campus-living/premium/override",
-            "label": "Premium Stay — Chief Warden Override",
+            "label": "Premium Room — Chief Warden Override",
             "iconName": "ShieldCheck",
             "children": []
           },

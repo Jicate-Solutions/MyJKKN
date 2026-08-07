@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — AUDIT LOG VIEWER (Super-Admin / Chief-Warden view)
+// PREMIUM ROOM — AUDIT LOG VIEWER (Super-Admin / Chief-Warden view)
 // ============================================================================
 // Created: 2026-05-19 (Phase 2)
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html (decision-#14 — Tab 3)
@@ -11,7 +11,7 @@
 // Companion service: lib/services/campus-living/hostel-premium-audit-service.ts
 // ============================================================================
 
-export const navMeta = { label: 'Premium Stay — Audit Log', icon: 'History' } as const;
+export const navMeta = { label: 'Premium Room — Audit Log', icon: 'History' } as const;
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -31,17 +31,17 @@ export default function PremiumStayAuditLogPage() {
     <AdminPermissionGuard
       adminRoles={VIEW_ROLES}
       fallback={
-        <ContentLayout title="Premium Stay — Audit Log">
+        <ContentLayout title="Premium Room — Audit Log">
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
             This page is restricted to chief wardens, wardens, and platform
             administrators. The audit log is the auditable backbone of the
-            Premium Stay SKU — every tier change, room move, and chief warden
+            Premium Room SKU — every tier change, room move, and chief warden
             override leaves a row here.
           </div>
         </ContentLayout>
       }
     >
-      <ContentLayout title="Premium Stay — Audit Log">
+      <ContentLayout title="Premium Room — Audit Log">
         <div className="mb-6 rounded-lg border border-border bg-muted/30 p-5">
           <h3 className="mb-2 text-sm font-semibold">What this shows</h3>
           <p className="text-sm text-muted-foreground">

@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 1 — Premium Allocation Service
+// Premium Room Phase 1 — Premium Allocation Service
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Companion: lib/services/campus-living/hostel-tier-service.ts (CRUD on table)
