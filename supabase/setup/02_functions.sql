@@ -29236,7 +29236,7 @@ BEGIN
    WHERE id = v_old.id;
   UPDATE hostel_beds SET status='available', current_occupant_id=NULL WHERE id = v_old.bed_id;
 
--- Reserved-bed allocation guard (mig 20260815040000_reserved_bed_guard.sql —
+-- Reserved-bed allocation guard (mig 20260815040001_reserved_bed_guard.sql —
 -- FILE ONLY, apply is Director-gated). Director's rule, 2026-08-07: a bed
 -- held for one learner's confirmed upgrade hold (hostel_beds.status=
 -- 'reserved', hostel_waitlist.held_bed_id) must never reach a different
@@ -29288,7 +29288,7 @@ $function$;
 REVOKE EXECUTE ON FUNCTION public._on_allocation_guard_reserved_bed() FROM anon, PUBLIC;
 
 -- Updated: 2026-08-07 — fn_cl_admin_allocate_bed SUPERSEDES the earlier definition above.
--- Source: supabase/migrations/20260815040000_reserved_bed_guard.sql. Adds the reserved-bed
+-- Source: supabase/migrations/20260815040001_reserved_bed_guard.sql. Adds the reserved-bed
 -- pre-check so the admin allocate RPC refuses a bed held for another learner with a plain
 -- message (the BEFORE INSERT trigger enforces the same invariant independently).
 
