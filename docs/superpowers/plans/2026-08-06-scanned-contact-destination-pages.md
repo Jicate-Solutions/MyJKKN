@@ -92,19 +92,48 @@ ims_suppliers: '/ims/settings/suppliers',
 ss_mentors:    '/startup-studio/mentors',
 ```
 
-Those three destinations stop rendering as `only_view_here: true` and start deep-linking to
-their real modules.
+…but **not for everybody**. That was the first attempt, and it was wrong.
 
-- **Files:** `app/api/contacts/card-scan/saved/route.ts` (one map)
-- **Check before shipping:** open each target as a role that holds its permission — the keys
-  are `solutions.pipeline.view`, `ims.settings.suppliers.manage` and
-  `startup_studio.analytics.view` (all three already registered in `MENU_PERMISSIONS`) — and
-  confirm it loads. A link to a page the viewer cannot open is worse than no link: it turns a
-  read-only screen into a dead end. Note that `ims.settings.suppliers.manage` is a *manage*
-  key, so a viewer who can only read scans may still be sent somewhere they cannot open —
-  worth checking rather than assuming.
-- **Done when:** a scan routed to Solutions prospect, Supplier or the startup mentor
-  destination shows a working link, and the other two still say "this page is the only view".
+#### The trap: the permission relation has a direction
+
+The obvious check is "can the people who hold this key scan a card?" — and for all three the answer
+was yes. That is `holders ⊆ scanners`, and it is the wrong way round. The link is rendered **to
+scanners**, so what has to hold is the reverse: `scanners ⊆ holders`.
+
+Measured live on 2026-08-07: **197 accounts can scan a card**; roughly **20** hold
+`solutions.pipeline.view` or `startup_studio.analytics.view`. So wiring those two unconditionally
+handed ~177 people a link into a `PermissionError` page — the exact dead end this phase exists to
+prevent.
+
+The same mistake also inverted the risk judgement. An earlier draft of this plan singled out
+`ims.settings.suppliers.manage` as the risky one, because it is a *manage* key. In fact suppliers is
+the **most** reachable of the three (105 of 197 scanners hold the broader `ims.view` that gates that
+layout); the two it recommended are the least reachable. The flagged target was the safest one.
+
+#### The fix: decide the href per viewer
+
+`app/api/contacts/card-scan/saved/route.ts` already authenticates the caller, so it can ask whether
+**this** viewer holds the destination's key and emit the href only then:
+
+```ts
+const { data } = await supabase.rpc('user_has_permission', { permission_name: key })
+```
+
+- Resolve the key from `MENU_PERMISSIONS`, keyed by the same href — one source of truth, so retuning
+  a route's permission cannot drift from a second hardcoded copy.
+- **Fail closed**: a lookup error emits no link. A missing link is safe; a link into a denial page is not.
+- One lookup per distinct key, not one per card.
+
+This dissolves the reachability question instead of arbitrating it: it stops being *"do most scanners
+hold this key"* and becomes *"does this scanner hold it"*. All three destinations become wireable,
+suppliers included, and no viewer is ever shown a link they cannot open.
+
+- **Files:** `app/api/contacts/card-scan/saved/route.ts`
+- **Done when:** for the same destination, a viewer holding its key sees a working link and a viewer
+  without it sees "this page is the only view" — and a test asserts exactly that pair. Beware the
+  tautology: `only_view_here === (href === null)` is computed from one expression on both sides and
+  can never fail.
+- Shipped as PR #2909.
 
 ### Phase 2 — internship site contacts  *(small, needs one read first)*
 
