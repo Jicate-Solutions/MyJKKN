@@ -103,7 +103,7 @@ UPDATE public.custom_roles
 SET permissions = COALESCE(permissions, '{}'::jsonb)
                   || jsonb_build_object('cdc.industry_partners.view', true),
     updated_at = now()
-WHERE role_key IN ('cdc_head', 'cdc_coordinator');
+WHERE role_key IN ('ceo', 'cdc_head', 'cdc_coordinator', 'managing_director');
 
 -- Verify only on roles that actually exist. A missing seeded role is outside
 -- this additive migration's scope and must not abort the apply.
