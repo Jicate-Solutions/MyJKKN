@@ -184,7 +184,7 @@ async function authorizeNotificationCreate(
     return {
       ok: false,
       error:
-        'Learners Council announcements can only be sent to learners, not to staff or other roles.'
+        'Learners Council announcements can only be sent to learners, not to team members or other roles.'
     };
   }
 
