@@ -16,7 +16,7 @@
 // other 399 HAD been written. `total_rows === undefined` is the only real failure signal.
 // ============================================
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   Dialog,
@@ -33,11 +33,23 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
+import { OrganizationService } from '@/lib/services/organization/organization-service';
+import { CategoryService } from '@/lib/services/staff/category-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
+import { getErrorMessage } from '@/lib/utils';
+import {
   AlertCircle,
   ArrowRight,
   CheckCircle,
   Download,
   FileSpreadsheet,
+  Filter,
   Info,
   Loader2,
   Pencil,
@@ -105,11 +117,73 @@ export function BulkEditStaffDialog() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
+  // Template scope. These narrow WHICH staff the downloaded sheet contains; they do not
+  // affect upload, which always matches on Institution Email regardless of any filter.
+  const [institutionId, setInstitutionId] = useState('');
+  const [departmentId, setDepartmentId] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [institutions, setInstitutions] = useState<Array<{ id: string; name: string }>>([]);
+  const [categories, setCategories] = useState<
+    Array<{ id: string; category_name: string; is_teaching?: boolean }>
+  >([]);
+  const [departments, setDepartments] = useState<Array<{ id: string; department_name: string }>>([]);
+
+  // Loaded on open rather than on mount — most users of this page never open the dialog.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [institutionsData, categoriesData] = await Promise.all([
+          // The third arg is the entity-type scope. Without 'all' the list silently
+          // omits institutions whose entity_type is not the default.
+          OrganizationService.getInstitutionNames(true, undefined, 'all'),
+          // getCategories defaults to limit=10 and silently truncates the dropdown once
+          // active categories grow past 10 — same fix already in staff-filters.tsx,
+          // staff-form.tsx, download-staff-template.tsx and bulk-upload-staff.tsx.
+          CategoryService.getCategories({ isActive: true, limit: 100 })
+        ]);
+        if (cancelled) return;
+        setInstitutions(institutionsData ?? []);
+        setCategories((categoriesData?.data ?? []) as any);
+      } catch (err) {
+        if (!cancelled) toast.error(getErrorMessage(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // Departments cascade from the chosen institution.
+  useEffect(() => {
+    if (!open) return;
+    if (!institutionId) {
+      setDepartments([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const deps = await DepartmentService.getDepartmentsByInstitution(institutionId);
+        if (!cancelled) setDepartments(deps ?? []);
+      } catch (err) {
+        if (!cancelled) toast.error(getErrorMessage(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, institutionId]);
+
   const reset = () => {
     setStep('select');
     setFile(null);
     setReport(null);
     setSkipInvalid(false);
+    setInstitutionId('');
+    setDepartmentId('');
+    setCategoryId('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -121,7 +195,15 @@ export function BulkEditStaffDialog() {
   async function downloadTemplate() {
     setDownloading(true);
     try {
-      const res = await fetch('/api/staff/bulk-edit/template');
+      // Only send the keys that are actually set — an empty string would reach the route
+      // as a real parameter and match zero rows.
+      const params = new URLSearchParams();
+      if (institutionId) params.set('institution_id', institutionId);
+      if (departmentId) params.set('department_id', departmentId);
+      if (categoryId) params.set('category_id', categoryId);
+      const qs = params.toString();
+
+      const res = await fetch(`/api/staff/bulk-edit/template${qs ? `?${qs}` : ''}`);
       if (!res.ok) {
         const json = await res.json().catch(() => null);
         toast.error(json?.error ?? 'Could not build the template.');
@@ -328,25 +410,99 @@ export function BulkEditStaffDialog() {
                 </AlertDescription>
               </Alert>
 
-              <div className='rounded-lg border-2 border-dashed p-6 text-center'>
-                <FileSpreadsheet className='mx-auto h-10 w-10 text-muted-foreground' />
-                <p className='mt-3 text-sm font-medium'>Start with the pre-filled sheet</p>
-                <p className='mt-1 text-xs text-muted-foreground'>
-                  Contains the staff you can access, with their current values.
-                </p>
-                <Button
-                  variant='outline'
-                  className='mt-4'
-                  onClick={downloadTemplate}
-                  disabled={downloading}
-                >
-                  {downloading ? (
-                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
-                  ) : (
-                    <Download className='mr-2 h-4 w-4' />
-                  )}
-                  Download template
-                </Button>
+              <div className='rounded-lg border-2 border-dashed p-6'>
+                <div className='text-center'>
+                  <FileSpreadsheet className='mx-auto h-10 w-10 text-muted-foreground' />
+                  <p className='mt-3 text-sm font-medium'>Start with the pre-filled sheet</p>
+                  <p className='mt-1 text-xs text-muted-foreground'>
+                    Contains the staff you can access, with their current values.
+                  </p>
+                </div>
+
+                <div className='mt-5 space-y-3'>
+                  <div className='flex items-center gap-2'>
+                    <Filter className='h-3.5 w-3.5 text-muted-foreground' />
+                    <span className='text-xs font-medium text-muted-foreground'>
+                      Narrow the sheet (optional)
+                    </span>
+                  </div>
+
+                  <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
+                    <Select
+                      value={institutionId || 'all'}
+                      onValueChange={value => {
+                        setInstitutionId(value === 'all' ? '' : value);
+                        // Department belongs to an institution, so it cannot survive the change.
+                        setDepartmentId('');
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Institution' />
+                      </SelectTrigger>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
+                        <SelectItem value='all'>All Institutions</SelectItem>
+                        {institutions.map(inst => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={departmentId || 'all'}
+                      onValueChange={value => setDepartmentId(value === 'all' ? '' : value)}
+                      disabled={!institutionId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Department' />
+                      </SelectTrigger>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
+                        <SelectItem value='all'>All Departments</SelectItem>
+                        {departments.map(dept => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.department_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select
+                      value={categoryId || 'all'}
+                      onValueChange={value => setCategoryId(value === 'all' ? '' : value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder='Category' />
+                      </SelectTrigger>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
+                        <SelectItem value='all'>All Categories</SelectItem>
+                        {categories.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.category_name}
+                            {typeof cat.is_teaching === 'boolean' &&
+                              (cat.is_teaching ? ' (Teaching)' : ' (Non-Teaching)')}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <p className='text-xs text-muted-foreground'>
+                    Filters change who is <em>in</em> the sheet. They do not affect the upload —
+                    every row is matched on Institution Email whatever the filter was.
+                  </p>
+
+                  <div className='text-center'>
+                    <Button variant='outline' onClick={downloadTemplate} disabled={downloading}>
+                      {downloading ? (
+                        <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                      ) : (
+                        <Download className='mr-2 h-4 w-4' />
+                      )}
+                      Download template
+                    </Button>
+                  </div>
+                </div>
               </div>
 
               <div className='rounded-lg border p-4'>
