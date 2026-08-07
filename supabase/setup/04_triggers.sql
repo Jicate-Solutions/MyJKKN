@@ -1657,3 +1657,15 @@ DROP TRIGGER IF EXISTS trg_billing_late_charges_updated_at ON public.billing_lat
 CREATE TRIGGER trg_billing_late_charges_updated_at
     BEFORE UPDATE ON public.billing_late_charges
     FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+
+-- Reserved-bed allocation guard — a bed held for one learner's confirmed
+-- upgrade hold must never reach another learner (Director decision,
+-- edge-case interview, 2026-08-07: "That situation should not occur.
+-- Prevent it."). Fires on every INSERT and on any UPDATE that moves an
+-- allocation's bed/room (fn_cl_admin_transfer_allocation).
+-- Added: 2026-08-07 (migration 20260815040000_reserved_bed_guard.sql — FILE ONLY, apply is Director-gated)
+DROP TRIGGER IF EXISTS trg_allocation_guard_reserved_bed ON public.hostel_allocations;
+CREATE TRIGGER trg_allocation_guard_reserved_bed
+  BEFORE INSERT OR UPDATE OF bed_id, room_id ON public.hostel_allocations
+  FOR EACH ROW
+  EXECUTE FUNCTION public._on_allocation_guard_reserved_bed();

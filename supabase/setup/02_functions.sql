@@ -27846,3 +27846,54 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_late_charge_waive(uuid, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_late_charge_waive(uuid, text) TO authenticated;
+
+-- Reserved-bed allocation guard (mig 20260815040000_reserved_bed_guard.sql —
+-- FILE ONLY, apply is Director-gated). Director's rule, 2026-08-07: a bed
+-- held for one learner's confirmed upgrade hold (hostel_beds.status=
+-- 'reserved', hostel_waitlist.held_bed_id) must never reach a different
+-- learner. SECURITY DEFINER is load-bearing — a plain trigger would run
+-- under the INSERTing learner's own RLS, which may hide every OTHER
+-- learner's hostel_waitlist row, and the guard would silently pass. See the
+-- migration file for the full 13-function audit this backstops.
+CREATE OR REPLACE FUNCTION public._on_allocation_guard_reserved_bed()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_bed_status   bed_status_enum;
+  v_hold_learner uuid;
+BEGIN
+  SELECT status INTO v_bed_status FROM hostel_beds WHERE id = NEW.bed_id;
+
+  IF v_bed_status = 'reserved' THEN
+    -- The learner whose ACTIVE waiting hold points at this exact bed
+    -- (entry_kind='upgrade' AND status='waiting'). The functions that
+    -- execute a hold flip this row to 'allocated' AFTER the INSERT into
+    -- hostel_allocations, so at this BEFORE-trigger's evaluation time the
+    -- holder's own row still reads 'waiting' — her own execution passes.
+    SELECT learner_id INTO v_hold_learner
+      FROM hostel_waitlist
+      WHERE held_bed_id = NEW.bed_id
+        AND entry_kind = 'upgrade'
+        AND status = 'waiting'
+      ORDER BY updated_at DESC
+      LIMIT 1;
+
+    -- No live hold at all (stale 'reserved') refuses too, for anyone —
+    -- v_hold_learner is NULL, and NULL IS DISTINCT FROM any learner_id.
+    IF v_hold_learner IS DISTINCT FROM NEW.learner_id THEN
+      RAISE EXCEPTION 'This bed is reserved for another learner''s confirmed upgrade'
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- No GRANT TO authenticated on purpose: no legitimate direct caller, only
+-- the trigger in 04_triggers.sql. Asserted anyway per the CLAUDE.md
+-- "every CREATE OR REPLACE of a SECDEF fn re-asserts REVOKE" rule.
+REVOKE EXECUTE ON FUNCTION public._on_allocation_guard_reserved_bed() FROM anon, PUBLIC;
