@@ -46,7 +46,13 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     // Machine names for the Biometric Machine column — ALL institutions, not just the
     // ones in this filtered result, because the machine's owning institution is often
     // NOT the staff member's own institution.
-    const { data: institutions } = await supabase.from('institutions').select('id, name').order('name');
+    const { data: institutions, error: instError } = await supabase
+      .from('institutions')
+      .select('id, name')
+      .order('name');
+    if (instError) {
+      return NextResponse.json({ error: getErrorMessage(instError) }, { status: 400 });
+    }
 
     const wb = new ExcelJS.Workbook();
 
