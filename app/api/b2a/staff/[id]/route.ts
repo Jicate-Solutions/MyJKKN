@@ -188,7 +188,7 @@ export async function GET(
         'role_type, role_key, is_active, facilitator_certification, outcome_metrics, created_at, updated_at, ' +
         // Embedded named entities — pair every *_id with its display label.
         'category:employment_categories(id, category_name, is_teaching, shows_extended_profile), ' +
-        'institution:institutions(id, name, counselling_code), ' +
+        'institution:institutions!staff_institution_id_fkey(id, name, counselling_code), ' +
         'department:departments(id, department_name), ' +
         'role:custom_roles!role_key(id, role_key, role_name, description, is_system_role), ' +
         // Extended faculty profile (29 columns) — see migration 20260503100001

@@ -110,6 +110,75 @@ export interface BiometricFieldTotals {
   expected_weekly_off_flips: number;
 }
 
+export type BiometricStaffMatchKind =
+  | 'linked' | 'unlinked_match' | 'ambiguous_match' | 'absent';
+
+export interface BiometricEmployeeValidation {
+  /** Verbatim, as the machine printed it. */
+  code: string;
+  /** normBiometricCode output — null when the code is blank/unreadable. */
+  normalised_code: string | null;
+  device_name: string;
+  match: BiometricStaffMatchKind;
+  staff_uuid: string | null;
+  staff_name: string | null;
+  /** staff.staff_id — may legitimately be null (198 of 864 staff have none). */
+  staff_code: string | null;
+  candidate_count: number;
+  importable: boolean;
+  reason: string | null;
+}
+
+export type BiometricBlockKind =
+  | 'duplicate_code_in_file' | 'invalid_code_in_file' | 'zero_importable'
+  | 'unknown_staff_present'  | 'unreconciled_totals';
+
+export type BiometricWarningKind = 'missing_staff_code' | 'missing_organisation';
+
+export interface BiometricBlock {
+  kind: BiometricBlockKind;
+  severity: 'hard' | 'acknowledgeable';
+  count: number;
+  message: string;
+  detail: string[];
+}
+
+export interface BiometricWarning {
+  kind: BiometricWarningKind;
+  count: number;
+  message: string;
+  detail: string[];
+}
+
+export interface BiometricUploadValidation {
+  employees: BiometricEmployeeValidation[];
+  counts: {
+    total: number; importable: number;
+    unlinked_match: number; ambiguous_match: number; absent: number;
+  };
+  blocks: BiometricBlock[];
+  warnings: BiometricWarning[];
+  /** No hard blocks. Set only by finaliseValidation. */
+  can_import: boolean;
+  /** Acknowledgeable blocks present; commit needs acknowledge=true. */
+  requires_acknowledgement: boolean;
+}
+
+export const BLOCK_LABEL: Record<BiometricBlockKind, string> = {
+  duplicate_code_in_file: 'Duplicate enrolment code in file',
+  invalid_code_in_file: 'Blank or unreadable enrolment code',
+  zero_importable: 'Nothing to import',
+  unknown_staff_present: 'People not in the staff table',
+  unreconciled_totals: 'Totals do not reconcile',
+};
+
+export const MATCH_LABEL: Record<BiometricStaffMatchKind, string> = {
+  linked: 'Linked',
+  unlinked_match: 'Needs linking',
+  ambiguous_match: 'Ambiguous name',
+  absent: 'Not in staff table',
+};
+
 export const ANOMALY_LABEL: Record<BiometricAnomalyKind, string> = {
   work_exceeds_span: 'Worked longer than the time between punches',
   work_zero_with_both_punches: 'Both punches present but zero worked time',
@@ -142,6 +211,7 @@ export interface BiometricImportReport {
   anomalies: BiometricAnomaly[];
   anomalies_total: number;
   field_totals: BiometricFieldTotals;
+  validation: BiometricUploadValidation;
   written: number;
   exceptions_written: number;
   message?: string;
