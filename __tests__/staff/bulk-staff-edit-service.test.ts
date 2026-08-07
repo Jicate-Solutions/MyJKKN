@@ -3,13 +3,13 @@ import { describe, it, expect, vi } from 'vitest';
 // BaseService builds its Supabase singleton in a module-level static initializer, which
 // runs the moment bulk-staff-edit-service.ts is imported — before any test in this file
 // runs, and with no real Supabase env vars available under Vitest. These tests only
-// exercise the two pure functions below (neither touches `this.supabase`), so a minimal
-// stub is enough to let the import succeed.
+// exercise pure functions (none touch `this.supabase`), so a minimal stub is enough to let
+// the import succeed.
 vi.mock('@/lib/supabase/client', () => ({
   createClientSupabaseClient: () => ({})
 }));
 
-import { summariseRows, claimUniqueValues } from '@/lib/services/staff/bulk-staff-edit-service';
+import { summariseRows, claimUniqueValues, scopesToInstitutions } from '@/lib/services/staff/bulk-staff-edit-service';
 import type { BulkEditRow } from '@/lib/services/staff/bulk-staff-edit-service';
 
 const mk = (status: BulkEditRow['status'], n: number): BulkEditRow[] =>
@@ -101,5 +101,20 @@ describe('claimUniqueValues', () => {
     expect(c.emailOwner.size).toBe(0);
     expect(c.staffIdOwner.size).toBe(0);
     expect(c.biometricOwner.size).toBe(0);
+  });
+});
+
+// createApiInstitutionFilter (lib/auth/api-institution-filter.ts) returns an EMPTY array
+// for super-admin / admission-global bypass, meaning "all institutions" — not "none". A
+// buildContext that filtered unconditionally would `.in('institution_id', [])`, matching
+// zero rows, and make the feature look completely broken for exactly those callers.
+describe('scopesToInstitutions', () => {
+  it('does not scope when the list is empty (super-admin / admission-global bypass)', () => {
+    expect(scopesToInstitutions([])).toBe(false);
+  });
+
+  it('scopes when the list is non-empty', () => {
+    expect(scopesToInstitutions(['inst-1'])).toBe(true);
+    expect(scopesToInstitutions(['inst-1', 'inst-2'])).toBe(true);
   });
 });

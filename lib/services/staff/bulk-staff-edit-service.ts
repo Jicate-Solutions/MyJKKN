@@ -94,7 +94,26 @@ function chunk<T>(items: T[], size = CHUNK): T[][] {
 // Bound them explicitly, generously above current scale.
 const LOOKUP_RANGE_END = 9999;
 
+/**
+ * Whether the staff lookup should be scoped to `accessibleInstitutionIds`.
+ *
+ * accessibleInstitutionIds: an EMPTY array means "all institutions" — the super-admin /
+ * admission-global bypass value returned by createApiInstitutionFilter
+ * (lib/auth/api-institution-filter.ts) — NOT "no institutions." `.in('institution_id', [])`
+ * matches zero rows, which would make every uploaded row report "not found" for exactly
+ * those callers. The house convention (see applyInstitutionFilterToQuery in the same file)
+ * is to skip the filter entirely when the list is empty, never to branch on an isSuperAdmin
+ * flag. Exported so the decision can be unit-tested without a database.
+ */
+export function scopesToInstitutions(accessibleInstitutionIds: string[]): boolean {
+  return accessibleInstitutionIds.length > 0;
+}
+
 export class BulkStaffEditService extends BaseService {
+  /**
+   * accessibleInstitutionIds: empty array = all institutions (super-admin / admission-global
+   * bypass), not none. See scopesToInstitutions().
+   */
   static async buildContext(
     emails: string[],
     accessibleInstitutionIds: string[]
@@ -111,12 +130,16 @@ export class BulkStaffEditService extends BaseService {
       ...EDITABLE_COLUMNS.map(c => c.field)
     ].join(', ');
 
+    const scoped = scopesToInstitutions(accessibleInstitutionIds);
     for (const part of chunk(keys)) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('staff')
         .select(selectCols)
-        .in('institution_email', part)
-        .in('institution_id', accessibleInstitutionIds);
+        .in('institution_email', part);
+      if (scoped) {
+        query = query.in('institution_id', accessibleInstitutionIds);
+      }
+      const { data, error } = await query;
       if (error) throw new Error(getErrorMessage(error));
       for (const row of data ?? []) {
         staffByEmail.set(String(row.institution_email).trim().toLowerCase(), row as StaffLookupRow);
@@ -196,6 +219,8 @@ export class BulkStaffEditService extends BaseService {
     };
   }
 
+  /** accessibleInstitutionIds: empty array = all institutions (super-admin / admission-global
+   *  bypass), not none. See scopesToInstitutions(). */
   static async evaluate(
     rows: ParsedStaffRow[],
     accessibleInstitutionIds: string[]
@@ -261,6 +286,8 @@ export class BulkStaffEditService extends BaseService {
     return { report, writes, ctx };
   }
 
+  /** accessibleInstitutionIds: empty array = all institutions (super-admin / admission-global
+   *  bypass), not none. See scopesToInstitutions(). */
   static async apply(
     rows: ParsedStaffRow[],
     accessibleInstitutionIds: string[],
