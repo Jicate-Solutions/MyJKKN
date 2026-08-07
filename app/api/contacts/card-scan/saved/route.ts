@@ -105,8 +105,79 @@ export const TABLE_HREF: Record<string, string> = {
   event_sponsors: '/events',
   internship_preceptors: '/internships/sites',
   sh_prospects: '/solutions/pipeline/list',
+  ims_suppliers: '/ims/settings/suppliers',
   ss_mentors: '/startup-studio/mentors',
 };
+
+/**
+ * Whether THIS viewer may open each destination's screen.
+ *
+ * The link is rendered TO the people who scan cards, so the property that has
+ * to hold is "every scanner who sees this link can open it" — not the reverse.
+ * Checking the reverse is what made the first attempt at this wrong: it
+ * confirmed that everyone holding `solutions.pipeline.view` could scan a card,
+ * which is true and irrelevant. Measured against production on 2026-08-07,
+ * 197 accounts can scan a card and about 20 hold that key, so ~177 people were
+ * being handed a link into a PermissionError page — the dead end this feature
+ * exists to prevent.
+ *
+ * Deciding it per viewer instead of once for everybody dissolves the problem
+ * and, incidentally, makes `ims_suppliers` wireable: the question stops being
+ * "do most scanners hold this key" and becomes "does THIS scanner hold it".
+ *
+ * The key comes from MENU_PERMISSIONS, keyed by the same href — one source of
+ * truth, so a route whose permission is retuned there cannot drift from this
+ * map. `route-matcher`, `manifest-pages` and the permissions-audit service
+ * already import it server-side, so this is a used path, not a new one.
+ *
+ * A destination whose href has NO MENU_PERMISSIONS entry is not gated by the
+ * route trie at all (`RouteMatcher.hasAccess` returns true for anything it
+ * cannot match), so the link is shown — that is the status quo, and silently
+ * removing a link that works today would be its own regression.
+ * `/cdc/admin/recruiters` is currently the one such route; that missing entry
+ * is the same class of gap `/system` had before #2887 and is worth closing
+ * separately.
+ */
+async function viewerCanOpen(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tables: string[],
+): Promise<Set<string>> {
+  const allowed = new Set<string>();
+
+  // One lookup per DISTINCT key, not per row.
+  const keyForTable = new Map<string, string>();
+  for (const table of tables) {
+    const href = TABLE_HREF[table];
+    if (!href) continue;
+    const key = MENU_PERMISSIONS[href];
+    if (!key) {
+      allowed.add(table); // ungated route — see docstring
+      continue;
+    }
+    keyForTable.set(table, key);
+  }
+
+  const distinct = [...new Set(keyForTable.values())];
+  const verdicts = new Map<string, boolean>();
+  await Promise.all(
+    distinct.map(async (key) => {
+      try {
+        const { data, error } = await supabase.rpc('user_has_permission', {
+          permission_name: key,
+        });
+        // Fail CLOSED. A missing link is safe; a link into a denial page is not.
+        verdicts.set(key, !error && data === true);
+      } catch {
+        verdicts.set(key, false);
+      }
+    }),
+  );
+
+  for (const [table, key] of keyForTable) {
+    if (verdicts.get(key)) allowed.add(table);
+  }
+  return allowed;
+}
 
 interface ScanRow {
   job_id: string;
