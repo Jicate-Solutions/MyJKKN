@@ -669,6 +669,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/vac/admin/case/readiness': 'vac.admin.case.readiness.view',
   '/vac/admin/settings': 'vac.admin.settings.view',
 
+  // `/system` is not a page — app/(routes)/system/route.ts answers with a 307 to
+  // /system/api-management. It takes that destination's key so the redirect is
+  // gated exactly like the page it lands on, instead of being an unmatched (and
+  // therefore unprotected) path in the route trie. Same shape as '/staff', which
+  // is the same route.ts-redirect class and carries 'staff.view'.
+  //
+  // This does NOT change who sees the System group in the sidebar: a menu with
+  // submenus is filtered by `menu.submenus.some(...)` and its own key is never
+  // read, so a learner holding only learners.bug_reports.view keeps the group
+  // (and My Bug Reports inside it) exactly as before.
+  '/system': 'system.api.view',
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
@@ -789,6 +800,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -2784,6 +2796,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
             { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
           ]
         }
       ]
