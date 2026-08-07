@@ -24,11 +24,15 @@ export const dynamic = 'force-dynamic';
 //   1. session auth is required;
 //   2. the caller must be the channel's OWN creator (created_by = auth.uid()) —
 //      you can only seed a channel you just made, never someone else's;
-//   3. the resolved people are re-filtered through the SAME institution scope
-//      every other API route uses (createApiInstitutionFilter), so an
-//      institution-scoped caller can never pull a person from another college
-//      into their channel. super_admin keeps its documented cross-institution
-//      bypass.
+//   3. for PER-INSTITUTION scopes (chapter, vertical) the resolved people are
+//      re-filtered through the SAME institution scope every other API route
+//      uses (createApiInstitutionFilter), so an institution-scoped caller can
+//      never pull a person from another college into their channel.
+//      super_admin keeps its documented cross-institution bypass.
+//      CLUSTER-WIDE scopes (executive, portfolio) are deliberately NOT
+//      institution-filtered — there is one Learners Council across all
+//      colleges, so filtering it to the creator's college resolves to zero
+//      members for most creators. See the note at Step 4.
 //
 // Idempotent: existing members are read first and only the missing rows are
 // inserted, so re-running adds nothing. It does not depend on a unique
