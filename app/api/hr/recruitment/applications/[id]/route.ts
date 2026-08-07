@@ -28,6 +28,37 @@ async function getClient() {
   );
 }
 
+/**
+ * One application, for the screening detail page.
+ *
+ * No explicit permission check here on purpose: the RLS policy
+ * "HR can view applications for their institution jobs" already gates this on
+ * hr.recruitment.view AND role_has_institution_access(institution_id), and the
+ * applicant themself is covered by "Applicant can view own application".
+ * A row the caller may not see comes back as null -> 404.
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  await connection();
+  try {
+    const { id } = await params;
+    const supabase = await getClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const application = await RecruitmentService.getJobApplication(supabase, id);
+    if (!application) {
+      return NextResponse.json({ error: 'Application not found' }, { status: 404 });
+    }
+    return NextResponse.json({ data: application });
+  } catch (err) {
+    console.error('[hr/recruitment/applications/:id] GET error', err);
+    return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
+  }
+}
+
 /** Screening decision: body { status: 'reviewed'|'shortlisted'|'rejected', review_notes? } */
 export async function PATCH(
   request: NextRequest,
