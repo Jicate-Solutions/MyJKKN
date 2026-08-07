@@ -2430,7 +2430,13 @@ export const PERMISSION_CATEGORIES = [
       // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
       // (confirm/decline/supersede) a raised "please confirm a date" request via
       // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
-      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' },
+      // Events Hub row delete (2026-08-06). Seeded to NO role — super admins
+      // pass via user_has_permission()'s bypass, everyone else is granted here
+      // from Role Management. The DELETE it unlocks cascades through 43 child
+      // tables (registrations, payment transactions, tournament matches …), so
+      // it is deliberately not bundled into any existing events key.
+      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree

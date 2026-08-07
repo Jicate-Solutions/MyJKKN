@@ -32382,12 +32382,14 @@ export type Database = {
       hostel_categories: {
         Row: {
           allocation_mode: string
+          allow_self_room_change: boolean
           created_at: string
           description: string | null
           id: string
           is_active: boolean
           name: string
           requires_explicit_upgrade: boolean
+          room_source_category_id: string | null
           sort_order: number
           type: string
           updated_at: string
@@ -32397,12 +32399,14 @@ export type Database = {
         }
         Insert: {
           allocation_mode?: string
+          allow_self_room_change?: boolean
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
           name: string
           requires_explicit_upgrade?: boolean
+          room_source_category_id?: string | null
           sort_order?: number
           type: string
           updated_at?: string
@@ -32412,12 +32416,14 @@ export type Database = {
         }
         Update: {
           allocation_mode?: string
+          allow_self_room_change?: boolean
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
           name?: string
           requires_explicit_upgrade?: boolean
+          room_source_category_id?: string | null
           sort_order?: number
           type?: string
           updated_at?: string
@@ -32432,11 +32438,15 @@ export type Database = {
           amount: number
           created_at: string
           created_by: string | null
+          discount_type: string
+          discount_value: number
           from_hostel_category_id: string | null
           from_mess_category_id: string | null
           hostel_year_id: string
           id: string
           is_active: boolean
+          net_amount: number | null
+          skip_room_eligibility: boolean
           to_hostel_category_id: string | null
           to_mess_category_id: string | null
           updated_at: string
@@ -32446,11 +32456,14 @@ export type Database = {
           amount: number
           created_at?: string
           created_by?: string | null
+          discount_type?: string
+          discount_value?: number
           from_hostel_category_id?: string | null
           from_mess_category_id?: string | null
           hostel_year_id: string
           id?: string
           is_active?: boolean
+          skip_room_eligibility?: boolean
           to_hostel_category_id?: string | null
           to_mess_category_id?: string | null
           updated_at?: string
@@ -32460,11 +32473,14 @@ export type Database = {
           amount?: number
           created_at?: string
           created_by?: string | null
+          discount_type?: string
+          discount_value?: number
           from_hostel_category_id?: string | null
           from_mess_category_id?: string | null
           hostel_year_id?: string
           id?: string
           is_active?: boolean
+          skip_room_eligibility?: boolean
           to_hostel_category_id?: string | null
           to_mess_category_id?: string | null
           updated_at?: string
@@ -39727,6 +39743,15 @@ export type Database = {
       }
       hr_attendance_records: {
         Row: {
+          biometric_code: string | null
+          biometric_institution_id: string | null
+          break_minutes: number | null
+          device_status: string | null
+          first_half_attended: boolean | null
+          late_minutes: number | null
+          overtime_minutes: number | null
+          second_half_attended: boolean | null
+          shift_timing_id: string | null
           created_at: string | null
           day_calc: string | null
           employee_id: string
@@ -39749,6 +39774,15 @@ export type Database = {
           work_date: string
         }
         Insert: {
+          biometric_code?: string | null
+          biometric_institution_id?: string | null
+          break_minutes?: number | null
+          device_status?: string | null
+          first_half_attended?: boolean | null
+          late_minutes?: number | null
+          overtime_minutes?: number | null
+          second_half_attended?: boolean | null
+          shift_timing_id?: string | null
           created_at?: string | null
           day_calc?: string | null
           employee_id: string
@@ -39771,6 +39805,15 @@ export type Database = {
           work_date: string
         }
         Update: {
+          biometric_code?: string | null
+          biometric_institution_id?: string | null
+          break_minutes?: number | null
+          device_status?: string | null
+          first_half_attended?: boolean | null
+          late_minutes?: number | null
+          overtime_minutes?: number | null
+          second_half_attended?: boolean | null
+          shift_timing_id?: string | null
           created_at?: string | null
           day_calc?: string | null
           employee_id?: string
@@ -40181,161 +40224,6 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_biometric_devices: {
-        Row: {
-          config: Json | null
-          created_at: string | null
-          device_name: string
-          device_serial: string | null
-          device_token: string | null
-          gps_lat: number | null
-          gps_lng: number | null
-          hr_organization_id: string | null
-          id: string
-          institution_id: string | null
-          is_active: boolean | null
-          last_seen_at: string | null
-          location_label: string | null
-          updated_at: string | null
-          vendor: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Insert: {
-          config?: Json | null
-          created_at?: string | null
-          device_name: string
-          device_serial?: string | null
-          device_token?: string | null
-          gps_lat?: number | null
-          gps_lng?: number | null
-          hr_organization_id?: string | null
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean | null
-          last_seen_at?: string | null
-          location_label?: string | null
-          updated_at?: string | null
-          vendor: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Update: {
-          config?: Json | null
-          created_at?: string | null
-          device_name?: string
-          device_serial?: string | null
-          device_token?: string | null
-          gps_lat?: number | null
-          gps_lng?: number | null
-          hr_organization_id?: string | null
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean | null
-          last_seen_at?: string | null
-          location_label?: string | null
-          updated_at?: string | null
-          vendor?: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_biometric_devices_hr_organization_id_fkey"
-            columns: ["hr_organization_id"]
-            isOneToOne: false
-            referencedRelation: "hr_organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-        ]
-      }
-      hr_biometric_punches: {
-        Row: {
-          biometric_id: string | null
-          device_id: string | null
-          employee_id: string | null
-          id: string
-          ingested_at: string | null
-          punch_at: string
-          punch_kind: string | null
-          raw_payload: Json | null
-          reconciled_to_record_id: string | null
-        }
-        Insert: {
-          biometric_id?: string | null
-          device_id?: string | null
-          employee_id?: string | null
-          id?: string
-          ingested_at?: string | null
-          punch_at: string
-          punch_kind?: string | null
-          raw_payload?: Json | null
-          reconciled_to_record_id?: string | null
-        }
-        Update: {
-          biometric_id?: string | null
-          device_id?: string | null
-          employee_id?: string | null
-          id?: string
-          ingested_at?: string | null
-          punch_at?: string
-          punch_kind?: string | null
-          raw_payload?: Json | null
-          reconciled_to_record_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_biometric_punches_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "hr_biometric_devices"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_punches_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "hr_employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_punches_reconciled_to_record_id_fkey"
-            columns: ["reconciled_to_record_id"]
-            isOneToOne: false
-            referencedRelation: "hr_attendance_records"
             referencedColumns: ["id"]
           },
         ]
@@ -59700,6 +59588,7 @@ export type Database = {
       learners_profiles: {
         Row: {
           aadhar_number: string | null
+          abc_id: string | null
           academic_year_id: string | null
           accommodation_type_id: string | null
           account_verification_notes: string | null
@@ -59730,6 +59619,7 @@ export type Database = {
           dayscholar_fee: number | null
           degree_id: string | null
           department_id: string | null
+          emis: string | null
           engineering_cutoff_marks: string | null
           enquiry_date: string | null
           entry_type: string
@@ -59741,6 +59631,7 @@ export type Database = {
           fees_confirmed: boolean
           first_graduate: boolean | null
           first_name: string
+          first_name_tamil: string | null
           gender: string
           hospital_training_fee: number | null
           hostel_category_id: string | null
@@ -59751,6 +59642,7 @@ export type Database = {
           institution_id: string | null
           is_profile_complete: boolean
           last_name: string | null
+          last_name_tamil: string | null
           last_school: string
           last_school_id: string | null
           learner_type: string | null
@@ -59802,6 +59694,7 @@ export type Database = {
           transport_stop_id: string | null
           tuition_fee: number | null
           twelfth_marks: Json
+          umis: string | null
           uniform_fee: number | null
           university_reg_fee: number | null
           updated_at: string
@@ -59809,6 +59702,7 @@ export type Database = {
         }
         Insert: {
           aadhar_number?: string | null
+          abc_id?: string | null
           academic_year_id?: string | null
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
@@ -59839,6 +59733,7 @@ export type Database = {
           dayscholar_fee?: number | null
           degree_id?: string | null
           department_id?: string | null
+          emis?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
           entry_type: string
@@ -59850,6 +59745,7 @@ export type Database = {
           fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name: string
+          first_name_tamil?: string | null
           gender: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
@@ -59860,6 +59756,7 @@ export type Database = {
           institution_id?: string | null
           is_profile_complete?: boolean
           last_name?: string | null
+          last_name_tamil?: string | null
           last_school: string
           last_school_id?: string | null
           learner_type?: string | null
@@ -59911,6 +59808,7 @@ export type Database = {
           transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks: Json
+          umis?: string | null
           uniform_fee?: number | null
           university_reg_fee?: number | null
           updated_at?: string
@@ -59918,6 +59816,7 @@ export type Database = {
         }
         Update: {
           aadhar_number?: string | null
+          abc_id?: string | null
           academic_year_id?: string | null
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
@@ -59948,6 +59847,7 @@ export type Database = {
           dayscholar_fee?: number | null
           degree_id?: string | null
           department_id?: string | null
+          emis?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
           entry_type?: string
@@ -59959,6 +59859,7 @@ export type Database = {
           fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name?: string
+          first_name_tamil?: string | null
           gender?: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
@@ -59969,6 +59870,7 @@ export type Database = {
           institution_id?: string | null
           is_profile_complete?: boolean
           last_name?: string | null
+          last_name_tamil?: string | null
           last_school?: string
           last_school_id?: string | null
           learner_type?: string | null
@@ -60020,6 +59922,7 @@ export type Database = {
           transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks?: Json
+          umis?: string | null
           uniform_fee?: number | null
           university_reg_fee?: number | null
           updated_at?: string
@@ -92508,6 +92411,8 @@ export type Database = {
       }
       staff: {
         Row: {
+          biometric_id: string | null
+          biometric_institution_id: string | null
           achievements: Json
           address: string | null
           awards: Json
@@ -92573,6 +92478,8 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          biometric_id?: string | null
+          biometric_institution_id?: string | null
           achievements?: Json
           address?: string | null
           awards?: Json
@@ -92638,6 +92545,8 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          biometric_id?: string | null
+          biometric_institution_id?: string | null
           achievements?: Json
           address?: string | null
           awards?: Json

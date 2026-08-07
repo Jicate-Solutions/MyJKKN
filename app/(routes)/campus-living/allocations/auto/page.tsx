@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -78,6 +78,20 @@ export default function AutoAllocatePage() {
   const { generate } = useAllocationBatchActions();
 
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
+
+  // Cohort selection in words, for the preview export header. Safe to read from
+  // live state: every one of these selects clears `candidates`, so the table
+  // (and its export) only exists while the selection still matches the preview.
+  const scopeLabels = useMemo(() => {
+    const out: string[] = [];
+    const inst = typeInstitutions.find((i) => i.id === institutionId)?.name;
+    const prog = programs.find((p) => p.id === programId)?.program_name;
+    const sem = semesters.find((s) => s.id === semesterId)?.semester_name;
+    if (inst) out.push(`Institution: ${inst}`);
+    if (prog) out.push(`Program: ${prog}`);
+    if (sem) out.push(`Semester: ${sem}`);
+    return out;
+  }, [typeInstitutions, institutionId, programs, programId, semesters, semesterId]);
 
   const runPreview = async () => {
     if (!genderType) return;
@@ -231,7 +245,13 @@ export default function AutoAllocatePage() {
         </div>
 
         {candidates && (
-          <CandidateValidationTable candidates={candidates} availableBeds={availableBeds} />
+          <CandidateValidationTable
+            candidates={candidates}
+            availableBeds={availableBeds}
+            hostelType={genderType}
+            strict={strict}
+            scope={scopeLabels}
+          />
         )}
       </div>
     </ContentLayout>

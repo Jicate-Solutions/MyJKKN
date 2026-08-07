@@ -719,109 +719,62 @@ export class LeaveOndutyService {
     // leave_onduty_approvals. Skip when sponsor pre-approval is required — the
     // academic chain is seeded after sponsor approves (see processSponsorApproval).
     if (!requiresSponsor) {
-      // Resolve the flow through the SAME RPC the approval path uses
-      // (leave-onduty-approval-service.ts:70 and :366). Do not reintroduce an
-      // inline query here — apply-time and approve-time MUST resolve the
-      // identical flow or applications seed against one and get judged against
-      // another.
+      // Seeding runs SERVER-SIDE, in fn_seed_application_approvals (SECURITY
+      // DEFINER). It must not be done from here.
       //
-      // The previous inline query filtered `.eq('category', data.category)`
-      // and `.eq('sub_category', data.sub_category)`, which could never match
-      // the 155 flows stored as category='all' with sub_category IS NULL. Two
-      // separate reasons it failed: 'onduty' != 'all', and PostgREST emits
-      // `sub_category=eq.null` for a null argument, which never matches SQL
-      // NULL (that needs `is.null`). Result: 54 of 60 live applications were
-      // seeded with zero approver rows and sat pending with nobody able to act
-      // — a silent failure, since a missing flow produced an empty steps array
-      // rather than an error. The RPC implements the specificity ladder and
-      // handles both the 'all' fallback and NULL sub_category correctly.
+      // WHY (2026-08-07, reported by a JKKNCET ECE learner whose OD kept failing
+      // with the "No approver is set up" message below): this whole method runs
+      // in the BROWSER — getSupabase() is createClientSupabaseClient() and
+      // application-form.tsx is a client component — so every statement carries
+      // the learner's own JWT and RLS applies to it. Two layers blocked the
+      // applicant, both reproduced by impersonating the reporter in SQL:
       //
-      // OVERLOAD WARNING: two overloads exist — this 5-arg one and a 7-arg
-      // variant adding degree/program. Both `RETURNS leave_onduty_approval_flows`
-      // (a composite row, so PostgREST yields a single object, not an array).
-      // The approval path calls the 5-arg overload; calling the 7-arg one here
-      // would resolve a *more specific* flow than approve-time and recreate the
-      // very mismatch this fix removes.
-      const { data: flow, error: flowError } = await supabase.rpc(
-        'get_applicable_approval_flow',
-        {
-          p_institution_id: institutionId,
-          p_department_id: learner.department_id,
-          p_semester_id: learner.semester_id,
-          p_category: data.category,
-          p_sub_category: data.sub_category,
-        }
+      //   1. get_applicable_approval_flow is SECURITY INVOKER, so RLS on
+      //      leave_onduty_approval_flows applied to it. That table's only SELECT
+      //      policy admits super_admin/admin/institution_admin/hod/principal/
+      //      faculty/staff — NOT 'student'. Every learner therefore resolved a
+      //      NULL flow, got an empty steps array, and was refused. It hit
+      //      cohorts WITH a perfectly good flow too, so it was never really
+      //      about missing configuration.
+      //   2. The client then inserted the approver rows itself, which
+      //      leave_onduty_approvals' INSERT policy rejects outright for a
+      //      learner naming their HOD/Principal (42501).
+      //
+      // Widening RLS to let learners insert approver rows would have let them
+      // name ANY approver — including themselves — so the write moved behind a
+      // definer function instead. The learner can only ask the database to seed
+      // an application that is already theirs; who approves is decided server-
+      // side from the flow, and the function refuses to seed an application that
+      // already has approver rows.
+      const { data: seededCount, error: seedError } = await supabase.rpc(
+        'fn_seed_application_approvals',
+        { p_application_id: application.id }
       );
 
-      if (flowError) {
-        // Don't fail the submission — the application is already inserted and
-        // an admin can seed approvals later. But never swallow this: an
-        // unlogged failure here is exactly how 54 applications went missing.
-        console.error(
-          '[leave-onduty] approval-flow resolution failed; application will have no approvers',
-          { applicationId: application.id, error: flowError }
-        );
+      if (seedError) {
+        // The application is already inserted; a chain we could not build means
+        // nobody can ever act on it, so roll it back rather than strand it.
+        await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
+        throw new Error(`Failed to seed approvers: ${seedError.message}`);
       }
 
-      const steps = (flow?.flow_steps as Array<{ step_order: number; approver_role: string; approver_id?: string | null }> | null) ?? [];
-
-      let seededApprovers = 0;
-      if (steps.length > 0) {
-        const approvalRows = await Promise.all(
-          steps.map(async (step) => {
-            let approverId = step.approver_id ?? null;
-            if (!approverId) {
-              let q = supabase
-                .from('profiles')
-                .select('id')
-                .eq('role', step.approver_role)
-                .eq('institution_id', institutionId);
-              if (step.approver_role === 'hod' || step.approver_role === 'faculty') {
-                q = q.eq('department_id', learner.department_id);
-              }
-              const { data: approverProfile } = await q
-                .order('created_at', { ascending: true })
-                .limit(1)
-                .maybeSingle();
-              approverId = approverProfile?.id ?? null;
-            }
-            return approverId
-              ? {
-                  application_id: application.id,
-                  approver_id: approverId,
-                  step_order: step.step_order,
-                  approver_role: step.approver_role,
-                  status: 'pending' as const,
-                }
-              : null;
-          })
-        );
-
-        const validRows = approvalRows.filter((r): r is NonNullable<typeof r> => r !== null);
-        if (validRows.length > 0) {
-          const { error: approvalsError } = await supabase
-            .from('leave_onduty_approvals')
-            .insert(validRows);
-
-          if (approvalsError) {
-            await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
-            throw new Error(`Failed to seed approvers: ${approvalsError.message}`);
-          }
-          seededApprovers = validRows.length;
-        }
-      }
+      const seededApprovers = typeof seededCount === 'number' ? seededCount : 0;
 
       // SAFEGUARD (P1 — silent-strand fix): if no approver row was created, the
       // application is invisible to every approver (they query
       // leave_onduty_approvals by approver_id) and would sit `pending` forever —
-      // the exact failure that stranded 54 of 60 applications. Two paths reach
-      // here: no approval flow is configured for this learner's
-      // college + department + semester (steps empty), or a flow exists but no
-      // eligible approver profile was found (validRows empty). Either way, refuse
+      // the exact failure that stranded 54 of 60 applications. A 0 from
+      // fn_seed_application_approvals means one of two things: no approval flow
+      // resolves for this learner's college + department + semester, or a flow
+      // resolves but no step yielded an eligible approver. Either way, refuse
       // the submission explicitly and roll back the just-created row rather than
       // silently accept a request that can never be approved. (Sponsor-gated
       // applications are excluded — they seed the academic chain after the
       // sponsor approves, so zero approvers at creation is expected for them.)
+      //
+      // This message is now a genuine configuration signal. Until 2026-08-07 it
+      // also fired for every learner whose flow was merely INVISIBLE to them
+      // under RLS, which is what the reporter was actually hitting.
       if (seededApprovers === 0) {
         await supabase.from('leave_onduty_applications').delete().eq('id', application.id);
         throw new Error(
@@ -1588,13 +1541,74 @@ export class LeaveOndutyService {
       timetableDataKeys: Object.keys(timetableData),
     });
 
-    // Extract periods for the specific day from timetable_data
-    // Structure: { [day]: { [periodSlotId]: slotData } }
+    // Extract periods for the specific day from timetable_data.
+    //
+    // 2026-08-06: timetable_data is keyed differently per timetable_format, and
+    // this function only ever understood the first of three:
+    //   regular → { "MONDAY":       { [periodId]: slot } }
+    //   batch   → { "2026-08-06":   { [periodId]: slot },
+    //               "RANGE:2026-07-22:2026-09-04": { ... } }   (CRRI postings)
+    //   cycle   → { "cycle-3":      { [periodId]: slot } }
+    // Batch and cycle both fell through to the BUG-003207 guard below, so every
+    // learner on one got "No classes scheduled for <DAY>" — which
+    // createApplication turns into a hard throw. That silently locked ~914
+    // active learners out of leave/OD entirely (all Dental CRRI and Nursing
+    // batch sections, plus every cycle section) even though their timetables
+    // were populated. student-timetable-service.ts and
+    // faculty-attendance-service.ts already resolve all three formats; this is
+    // the same resolution, in the order most-specific → least.
     let dayPeriods: Record<string, any> = {};
 
-    // Check if timetable_data is day-based structure
-    if (timetableData[dayOfWeek] && typeof timetableData[dayOfWeek] === 'object') {
-      dayPeriods = timetableData[dayOfWeek];
+    const asSlotMap = (value: any): Record<string, any> | null =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, any>)
+        : null;
+
+    // Compare as ISO strings — 'YYYY-MM-DD' sorts chronologically and avoids the
+    // timezone drift new Date('2026-08-06') introduces on a UTC+5:30 host.
+    const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+    const isoDate = ISO_DATE.test(date) ? date : date.slice(0, 10);
+    const rangeKeyForDate = ISO_DATE.test(isoDate)
+      ? Object.keys(timetableData).find((key) => {
+          if (!key.startsWith('RANGE:')) return false;
+          const [, from, to] = key.split(':');
+          return !!from && !!to && isoDate >= from && isoDate <= to;
+        })
+      : undefined;
+    const hasCycleKeys = Object.keys(timetableData).some((key) => /^cycle-\d+$/.test(key));
+
+    if (asSlotMap(timetableData[dayOfWeek])) {
+      // Regular: weekday keys.
+      dayPeriods = asSlotMap(timetableData[dayOfWeek])!;
+    } else if (asSlotMap(timetableData[isoDate])) {
+      // Batch: the date carries its own key.
+      dayPeriods = asSlotMap(timetableData[isoDate])!;
+    } else if (rangeKeyForDate && asSlotMap(timetableData[rangeKeyForDate])) {
+      // Batch: no per-date key, but the date sits inside a posting block.
+      dayPeriods = asSlotMap(timetableData[rangeKeyForDate])!;
+    } else if (hasCycleKeys) {
+      // Cycle: which cycle is live on this date is not derivable from the JSON —
+      // it advances only on working days and skips Sundays/holidays. Use the
+      // canonical Postgres function, same as the grid's "Today: Cycle N" badge.
+      const { data: cycleNum, error: cycleErr } = await supabase.rpc('get_cycle_for_date', {
+        p_timetable_id: timetable.id,
+        p_date: isoDate,
+      });
+
+      // A real RPC failure (e.g. statement timeout 57014) must NOT masquerade as
+      // an empty timetable — that is precisely how faculty attendance produced a
+      // false "No classes scheduled for today" whenever the DB was loaded.
+      if (cycleErr) {
+        console.error('[LeaveOndutyService.getPeriodsForDate] Cycle lookup failed:', cycleErr);
+        return {
+          valid: false,
+          periods: [],
+          error: 'Could not determine the timetable cycle for this date. Please try again or contact administrator.',
+        };
+      }
+
+      // null = Sunday or institution holiday → genuinely no classes.
+      dayPeriods = cycleNum ? asSlotMap(timetableData[`cycle-${cycleNum}`]) || {} : {};
     } else if (Array.isArray(timetableData)) {
       // Array format - filter by day
       timetableData.forEach((slot: any, index: number) => {
@@ -1732,35 +1746,38 @@ export class LeaveOndutyService {
         selectedPeriods = allPeriodIds;
         break;
 
+      // 2026-08-06: forenoon/afternoon match on OVERLAP with the half-day
+      // window, not on start_time alone. A CRRI clinical period runs 09:00–15:30
+      // and straddles the boundary: start-time matching filed it under forenoon
+      // only, so an *afternoon* application resolved to zero periods and was
+      // still saved (valid:true) — approved, but adjusting no attendance.
+      // Periods that lie wholly inside one half-day are unaffected; the strict
+      // inequalities keep a 13:15–14:00 period out of the 14:00–17:00 window.
       case 'forenoon':
-        selectedPeriods = allPeriodIds.filter((periodId) => {
-          const period = enrichedPeriods[periodId];
-          if (!period?.start_time) return false;
-          const startTime = this.parseTime(period.start_time);
-          const forenoonStart = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.forenoonStart
-          );
-          const forenoonEnd = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.forenoonEnd
-          );
-          return startTime >= forenoonStart && startTime <= forenoonEnd;
-        });
-        break;
+      case 'afternoon': {
+        const rules = DEFAULT_VALIDATION_RULES.periods;
+        const windowStart = this.parseTime(
+          periodType === 'forenoon' ? rules.forenoonStart : rules.afternoonStart
+        );
+        const windowEnd = this.parseTime(
+          periodType === 'forenoon' ? rules.forenoonEnd : rules.afternoonEnd
+        );
 
-      case 'afternoon':
         selectedPeriods = allPeriodIds.filter((periodId) => {
           const period = enrichedPeriods[periodId];
           if (!period?.start_time) return false;
           const startTime = this.parseTime(period.start_time);
-          const afternoonStart = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.afternoonStart
-          );
-          const afternoonEnd = this.parseTime(
-            DEFAULT_VALIDATION_RULES.periods.afternoonEnd
-          );
-          return startTime >= afternoonStart && startTime <= afternoonEnd;
+          if (Number.isNaN(startTime)) return false;
+
+          const endTime = this.parseTime(period.end_time || '');
+          if (Number.isNaN(endTime)) {
+            // No end time recorded — fall back to the point-in-window test.
+            return startTime >= windowStart && startTime <= windowEnd;
+          }
+          return startTime < windowEnd && endTime > windowStart;
         });
         break;
+      }
 
       case 'periodwise':
         // For periodwise, return all periods for manual selection

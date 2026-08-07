@@ -63,7 +63,7 @@ export function RoomRowActions({ room, blockId, blockType }: RoomRowActionsProps
       }}
       EditDialog={EditDialogAdapter}
       ViewDetailsRenderer={RoomDetails}
-      deleteImpactHint="Beds and any allocation history for this room will be removed. Active residents must be moved out first."
+      deleteImpactHint="Beds plus this room's past allocation, maintenance and cleaning history will be removed. Rooms with current residents, deposits, vacate requests or open maintenance can't be deleted."
     />
   );
 }

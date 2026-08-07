@@ -21,6 +21,7 @@ import type {
   StaffProfileAnalytics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/utils';
 import {
   buildStaffSearchConditions,
   resolveStaffFiltersForUser
@@ -523,6 +524,18 @@ export class StaffService {
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       // 'estimated' uses Postgres statistics instead of counting all rows
+      //
+      // The institutions embed is qualified with !staff_institution_id_fkey on
+      // purpose, here and at every other staff -> institutions embed in the app.
+      // PostgREST resolves embeds by RELATIONSHIP, not by column, so the moment
+      // `staff` holds a second FK to `institutions` the bare `institutions(...)`
+      // form becomes ambiguous and fails at query-planning time with PGRST201 —
+      // no rows, no build error, ~20 call sites at once. That happened on
+      // 2026-08-06 when staff.biometric_institution_id was added as an FK
+      // (see 20260806140000_staff_biometric_drop_institution_fk.sql). The
+      // constraint is gone, but the column is not, and the hint is what keeps
+      // this query correct whether or not a second FK ever comes back — and
+      // even while PostgREST is still serving a stale schema cache.
       let query = (this.supabase as any).from('staff').select(
         `
           *,
@@ -531,7 +544,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -639,7 +652,12 @@ export class StaffService {
         }
       };
     } catch (error) {
-      console.error('Error fetching staff:', error);
+      // Log the MESSAGE, not the object. A Supabase PostgrestError is a plain
+      // object and prints fine, but an Error instance (e.g. the 30s timeout
+      // reject above) has non-enumerable message/stack and console.error prints
+      // it as `{}` — which left the UI saying "check the console for details"
+      // when the console had none.
+      console.error('Error fetching staff:', getErrorMessage(error), error);
       throw error;
     }
   }
@@ -699,7 +717,11 @@ export class StaffService {
       // Use the existing getStaff method with enhanced filters
       return await this.getStaff(effectiveFilters);
     } catch (error) {
-      console.error('Error fetching staff with role-based filtering:', error);
+      console.error(
+        'Error fetching staff with role-based filtering:',
+        getErrorMessage(error),
+        error
+      );
       throw error;
     }
   }
@@ -723,7 +745,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -781,7 +803,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -909,7 +931,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -1142,7 +1164,7 @@ export class StaffService {
     'marital_status',
     'blood_group',
     // embedded display names
-    'institution:institutions(id, name)',
+    'institution:institutions!staff_institution_id_fkey(id, name)',
     'department:departments(id, department_name)',
     'category:employment_categories(id, category_name)'
   ].join(', ');
