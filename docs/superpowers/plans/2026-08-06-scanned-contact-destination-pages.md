@@ -1,6 +1,7 @@
 # Plan — the five scanned-card destinations that have no screen of their own
 
 **Date:** 2026-08-06
+**Amended:** 2026-08-07 — the sweep undercounted; see "Correction" below
 **Status:** plan only, no code written
 **Ranked as:** item 8 of the 2026-08-06 card-scanner brief
 **Supersedes the framing of:** "build five proper list pages (suppliers, industry partners, mentors, solutions prospects, internship site contacts)"
@@ -9,9 +10,9 @@
 
 ## The headline: it is not five pages
 
-The item was written as five greenfield modules. A production sweep says otherwise — **two of
-the five already have working pages**, and they are invisible on the Scanned Contacts screen
-for a one-line reason, not a missing-module reason.
+The item was written as five greenfield modules. A production sweep says otherwise — **three
+of the five already have working pages**, and they are invisible on the Scanned Contacts
+screen for a one-line reason, not a missing-module reason.
 
 `app/api/contacts/card-scan/saved/route.ts` decides "does this destination have a screen of
 its own" from a four-entry map:
@@ -36,22 +37,45 @@ the map is missing entries for pages that **exist on `main` today**.
 | Supplier | `ims_suppliers` | 4 | **List page with a real table** — `/ims/settings/suppliers` | **One `TABLE_HREF` line** |
 | Internship site contact | `internship_site_contacts` | 0 | Sites module exists; `/internships/sites/[id]` references contacts 8 times | **Confirm, then deep-link** to the parent site |
 | Industry partner | `industry_partners` | 1 | **None.** `/cdc/industry-mentors` looks like a match but reads a *different* table (`industry_mentors`). | Genuine build |
-| Student-support mentor | `ss_mentors` | 0 | **None found** | Genuine build |
+| `Student-support mentor` | `ss_mentors` | 0 | **Full module** — `/startup-studio/mentors` and `/startup-studio/mentors/[id]`, backed by `lib/services/startup-studio/mentor-service.ts` (13 `from('ss_mentors')` calls), 8 API routes and a hook. Already in `MENU_PERMISSIONS` under `startup_studio.analytics.view`. | **One `TABLE_HREF` line** |
 
-Row counts read from production on 2026-08-06. They are context for sizing, not a fixture —
-they will move.
+Row counts are a point-in-time reading taken from production on 2026-08-06 — context for
+sizing, not a fixture. Re-read them before acting on any sizing claim here; nine panes write
+this database and the scanner itself keeps adding rows.
+
+## Correction — why the first sweep said "None found" for `ss_mentors`
+
+The 2026-08-06 sweep searched the **human label**. `card-routing.ts` calls that destination
+`Student-support mentor`, so the sweep looked for a support/counselling module and found
+nothing. The prefix `ss` does not mean support — it means **Startup Studio**
+(`supabase/migrations/20260326000002_ss_mentor_ecosystem.sql`, "Mentor Ecosystem … Part of
+Incubation Management Enhancement Phase 2"). The mentors in that table are startup mentors
+matched to incubated ventures.
+
+**The lesson, worth carrying past this plan:** when checking whether a destination already
+has a screen, follow the **table name** into `lib/services`, not the human label. The label is
+authored for the person holding the card; the table name is what the code is organised
+around. One `git grep` for the table name would have found the module immediately —
+`git ls-tree jicate/main -r --name-only | grep ss_mentor` returns the migration, and
+`git grep -l ss_mentors -- lib/services` returns the service that owns it.
+
+That is also the shape of the miss: a plan can be right about every row count and still be
+wrong about what exists, because the counts were queried by table and the modules were
+searched by name.
 
 ## The question this raises, which the item did not ask
 
-Four of the five tables are **empty**, and the fifth holds a single row: the one industry
-partner created by the scanner two days ago. **The card scanner is currently the only writer
-to any of them.**
+At the 2026-08-06 reading, four of the five tables were **empty**, and the fifth held a
+single row: the one industry partner created by the scanner two days earlier. Three of those
+tables have a module that *can* write to them — but on that reading **the card scanner was
+the only writer that had actually produced a row.**
 
-So before building two new CRUD modules, the honest question is: *is a module page the right
-answer for a destination with no data and no second writer?* The Scanned Contacts screen
+The correction above narrows this question rather than removing it. It now applies to exactly
+one table, `industry_partners`, and it is sharper for that: *is a module page the right answer
+for a destination with one row and no second writer?* The Scanned Contacts screen
 already lists them and already flags what is missing. A full page earns its place when
-someone needs to find a row they did **not** scan — and today nobody can, because there are
-none.
+someone needs to find a row they did **not** scan — and today nobody can, because there is
+one row and it came from a scan.
 
 That is a Director call, not a technical one. It is put in front of you at the start of
 phase 3 rather than assumed either way.
@@ -60,23 +84,27 @@ phase 3 rather than assumed either way.
 
 ### Phase 1 — wire what already exists  *(small, no risk, do first)*
 
-Add the two missing entries:
+Add the three missing entries:
 
 ```ts
 sh_prospects:  '/solutions/pipeline/list',
 ims_suppliers: '/ims/settings/suppliers',
+ss_mentors:    '/startup-studio/mentors',
 ```
 
-Those two destinations stop rendering as `only_view_here: true` and start deep-linking to
+Those three destinations stop rendering as `only_view_here: true` and start deep-linking to
 their real modules.
 
 - **Files:** `app/api/contacts/card-scan/saved/route.ts` (one map)
-- **Check before shipping:** open each target as a role that holds its permission
-  (`solutions.prospects.view`, and whatever gates `/ims/settings/suppliers`) and confirm it
-  loads. A link to a page the viewer cannot open is worse than no link — it turns a
-  read-only screen into a dead end.
-- **Done when:** a scan routed to Solutions prospect or Supplier shows a working link, and
-  the other three still say "this page is the only view".
+- **Check before shipping:** open each target as a role that holds its permission — the keys
+  are `solutions.pipeline.view`, `ims.settings.suppliers.manage` and
+  `startup_studio.analytics.view` (all three already registered in `MENU_PERMISSIONS`) — and
+  confirm it loads. A link to a page the viewer cannot open is worse than no link: it turns a
+  read-only screen into a dead end. Note that `ims.settings.suppliers.manage` is a *manage*
+  key, so a viewer who can only read scans may still be sent somewhere they cannot open —
+  worth checking rather than assuming.
+- **Done when:** a scan routed to Solutions prospect, Supplier or the startup mentor
+  destination shows a working link, and the other two still say "this page is the only view".
 
 ### Phase 2 — internship site contacts  *(small, needs one read first)*
 
@@ -88,23 +116,25 @@ contacts are rendered there.
   link needs the row's `site_id` — so it becomes a per-row href, not a per-group one.
 - **If no:** it joins phase 3.
 
-### Phase 3 — the two genuinely missing modules  *(gated on the question above)*
+### Phase 3 — the one genuinely missing module  *(gated on the question above)*
 
-`industry_partners` and `ss_mentors`. Only start after the Director answers whether these
-warrant pages at all given zero data.
+`industry_partners`, and only that. `ss_mentors` moved to phase 1 once the correction landed,
+so there is no second module here and nothing to sequence — the "build them one at a time so
+the first sets the pattern" instruction in the original draft no longer applies.
 
-If yes, build them one at a time, not in parallel — they are the same shape, and the first
-sets the pattern the second copies:
+Only start after the Director answers whether this warrants a page at all given one row.
 
-1. **`industry_partners`** — 1 row. Columns already written by the scanner: `company_name`,
-   `company_website`, `contact_person`, `contact_designation`, `contact_email`,
-   `contact_phone`, `city`, `pincode`, `institution_id`.
-2. **`ss_mentors`** — 0 rows.
+If yes: **`industry_partners`** — 1 row at the 2026-08-06 reading. Columns already written by
+the scanner: `company_name`, `company_website`, `contact_person`, `contact_designation`,
+`contact_email`, `contact_phone`, `city`, `pincode`, `institution_id`. Before designing it,
+read `lib/services/pde-employer-briefing-service.ts` and
+`app/api/pde/placement-signals/route.ts` — both already read this table, so a list page is
+joining an existing reader, not introducing the first one.
 
-Per module: list page + detail, a `MENU_PERMISSIONS` entry, a permission key in
+The module needs: list page + detail, a `MENU_PERMISSIONS` entry, a permission key in
 `lib/constants/permissions.ts`, RLS following the standard
 `is_super_admin() OR is_admin() OR (user_has_permission(...) AND role_has_institution_access(institution_id))`
-pattern, and the `TABLE_HREF` entry. One PR each.
+pattern, and the `TABLE_HREF` entry. One PR.
 
 ## Constraints carried in
 
@@ -123,5 +153,9 @@ pattern, and the `TABLE_HREF` entry. One PR each.
 ## What this plan deliberately does not do
 
 It does not write code, and it does not assume all five destinations need the same treatment.
-Two are a one-line wire; one is a read away from being decided; two are real builds whose
-value depends on a judgement about empty tables that belongs to the Director.
+Three are a one-line wire; one is a read away from being decided; one is a real build whose
+value depends on a judgement about a near-empty table that belongs to the Director.
+
+It also no longer assumes its own sweep was complete. The `ss_mentors` correction is left in
+the document rather than edited away, because the next person sizing a "we need N new pages"
+item should see how a sweep by human label undercounted by a whole module.
