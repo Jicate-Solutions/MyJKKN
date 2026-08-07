@@ -10,17 +10,158 @@
  * decision taken elsewhere (Management API), not a button on this page.
  */
 
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Eye, ShieldOff, Percent } from 'lucide-react';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { AlertTriangle, Eye, ShieldOff, Percent, Eraser, Loader2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
+import { usePermissions } from '@/hooks/use-permissions';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   BillingLateChargeService,
   type LateChargePreviewRow,
 } from '@/lib/services/billing/late-charges/late-charge-service';
+
+/**
+ * "Waive whole bill" — the bigger brush next to the existing per-month
+ * fn_late_charge_waive. Same gate (billing.late_charges.waive or super
+ * admin), enforced by the RPC; the reason is required and recorded on every
+ * row it touches. Director's decision, 2026-08-07.
+ */
+function WaiveWholeBillCard() {
+  const { canAccess, isSuperAdmin } = usePermissions();
+  const queryClient = useQueryClient();
+  const [billId, setBillId] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [reason, setReason] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!isSuperAdmin && !canAccess('billing', 'late_charges.waive')) {
+    return null;
+  }
+
+  const canOpenConfirm = billId.trim().length > 0;
+
+  const handleConfirm = async () => {
+    if (!billId.trim() || !reason.trim()) return;
+    setIsSubmitting(true);
+    const { data, error } = await BillingLateChargeService.waiveBill(billId.trim(), reason.trim());
+    setIsSubmitting(false);
+    if (error) {
+      toast.error(`Could not waive this bill: ${error}`);
+      return;
+    }
+    toast.success(
+      `Waived ${data?.rows_waived ?? 0} late charge(s), cancelled ${
+        data?.penalty_bills_cancelled ?? 0
+      } penalty bill(s) — total waived ₹${Number(data?.total_amount_waived ?? 0).toLocaleString('en-IN')}.`
+    );
+    setShowConfirm(false);
+    setReason('');
+    setBillId('');
+    queryClient.invalidateQueries({ queryKey: ['late-charge-waived'] });
+  };
+
+  return (
+    <>
+      <Card>
+        <CardHeader className='pb-2'>
+          <CardTitle className='text-sm font-medium flex items-center gap-2'>
+            <Eraser className='h-4 w-4' /> Waive whole bill — forgive every late charge on one
+            bill in one action
+          </CardTitle>
+        </CardHeader>
+        <CardContent className='space-y-3'>
+          <p className='text-sm text-muted-foreground'>
+            Use this when a bill should carry no late charge at all. It forgives every unwaived
+            month on the bill at once — for a single month, use the waiver on that month instead.
+            Every waiver records who approved it and why.
+          </p>
+          <div className='flex flex-col gap-2 sm:flex-row sm:items-end'>
+            <div className='flex-1 space-y-1'>
+              <Label htmlFor='waive-bill-id'>Bill ID</Label>
+              <Input
+                id='waive-bill-id'
+                placeholder='Paste the bill’s ID'
+                value={billId}
+                onChange={(e) => setBillId(e.target.value)}
+              />
+            </div>
+            <Button
+              type='button'
+              variant='destructive'
+              disabled={!canOpenConfirm}
+              onClick={() => setShowConfirm(true)}
+            >
+              <Eraser className='mr-2 h-4 w-4' /> Waive whole bill
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog
+        open={showConfirm}
+        onOpenChange={(open) => {
+          if (!isSubmitting) setShowConfirm(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Waive every late charge on this bill?</DialogTitle>
+            <DialogDescription>
+              This forgives every not-yet-waived late charge on the bill and cancels the penalty
+              bill(s) it created, unless a penalty was already paid. This cannot be undone from
+              here. A reason is required and is recorded on every row.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='space-y-2'>
+            <Label htmlFor='waive-bill-reason'>Reason</Label>
+            <Textarea
+              id='waive-bill-reason'
+              placeholder='Why is the whole bill being waived?'
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setShowConfirm(false)} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant='destructive'
+              onClick={handleConfirm}
+              disabled={!reason.trim() || isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className='mr-2 h-4 w-4 animate-spin' /> Waiving…
+                </>
+              ) : (
+                'Waive whole bill'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
 
 const inr = (n: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -272,6 +413,9 @@ function LateChargesInner() {
             )}
           </CardContent>
         </Card>
+
+        {/* Waive whole bill — the bigger brush alongside the per-month waiver */}
+        <WaiveWholeBillCard />
 
         {/* Waived charges */}
         <Card>
