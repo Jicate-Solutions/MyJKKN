@@ -1189,6 +1189,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // gates writes on accreditation.naac.narrative.manage — so the page gate uses
   // the same key rather than a second one that could drift away from the table.
   '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
+  // Which bodies apply to which campus. Gated on VIEW, not manage: the page
+  // shows a college which bodies it answers to, and that is worth reading even
+  // to somebody who may not change it. The write policies on both tables are
+  // the actual guard.
+  '/accreditation/manage/bodies': 'accreditation.bodies.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',

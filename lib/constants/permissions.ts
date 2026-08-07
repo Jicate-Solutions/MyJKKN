@@ -1668,6 +1668,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
 
+      // Awarding-body registry + institution mapping (2026-08-06) —
+      // /accreditation/manage/bodies. Which bodies a college answers to decides
+      // its DENOMINATOR: before this existed, every institution was measured
+      // against all 107 metrics including seven that could never apply to it.
+      // `.manage` is deliberately not `.metrics.manage`: adding a metric to a
+      // rubric and deciding which rubrics a college answers to at all are
+      // different powers, and the second one changes every total on the screen.
+      { key: 'accreditation.bodies.view', label: 'View Awarding Bodies & Institution Mapping' },
+      { key: 'accreditation.bodies.manage', label: 'Manage Awarding Bodies & Institution Mapping' },
+
       // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
       // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
       { key: 'accreditation.collaborations.view', label: 'View MoU & Grants Register' },
