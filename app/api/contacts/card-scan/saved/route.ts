@@ -1,11 +1,17 @@
 /**
  * Business-card scanner — "where did my scans go?"
  *
- * Five of the nine destinations a scanned card can land in have NO screen of
+ * Five of the nine destinations a scanned card can land in had NO screen of
  * their own: sh_prospects, industry_partners, ss_mentors, ims_suppliers and
  * internship_site_contacts. Measured 2026-08-06 — `industry_partners` held
  * exactly one row, written by a card scanned from a phone, and there was
  * nowhere in the product to see it.
+ *
+ * Two of those five turned out to have a full module page all along and were
+ * invisible only because TABLE_HREF did not name them (2026-08-07):
+ * sh_prospects → /solutions/pipeline/list and ss_mentors →
+ * /startup-studio/mentors. See the map below for the three that stay
+ * link-less, and why each one does.
  *
  * Rather than five new module pages, this serves ONE screen (Director decision
  * 2026-08-06): every card you have saved, grouped by where it went, plus the
@@ -21,29 +27,158 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 
 export const dynamic = 'force-dynamic';
 
-/** Table name → what a human calls it. */
-const TABLE_LABEL: Record<string, string> = {
+/**
+ * Table name → what a human calls it.
+ *
+ * `ss_` is Startup Studio: every reference to `ss_mentors` in the codebase
+ * lives under `app/(routes)/startup-studio` / `lib/services/startup-studio`,
+ * and the mentor service queries that table thirteen times. The destination
+ * picker in `lib/services/contacts/card-routing.ts` labels it as a support
+ * mentor, which reads like a different module entirely — so the label here
+ * names Startup Studio, matching the page the link now opens. A label that
+ * disagrees with its own link is its own kind of dead end.
+ *
+ * Exported for the test that pins this map.
+ */
+export const TABLE_LABEL: Record<string, string> = {
   admission_leads: 'Admission leads',
   cdc_recruiters: 'Recruiters',
   sh_prospects: 'Solutions prospects',
   internship_site_contacts: 'Internship site contacts',
   internship_preceptors: 'Internship preceptors',
   industry_partners: 'Industry partners',
-  ss_mentors: 'Mentors',
+  ss_mentors: 'Startup Studio mentors',
   event_sponsors: 'Event sponsors',
   ims_suppliers: 'Suppliers',
 };
 
-/** Where a module actually has a screen, link to it. Five deliberately do not. */
-const TABLE_HREF: Record<string, string> = {
+/**
+ * Where a module has a screen the SCANNER can actually open, link to it.
+ *
+ * The bar is deliberately "openable by the people who scan cards", not "a page
+ * exists". A link to a page the viewer is denied turns this read-only screen
+ * into a dead end, which is worse than the honest "Only viewable here".
+ * Measured against production `custom_roles` / `user_roles` on 2026-08-07,
+ * against the 197 accounts that hold `meetings.contacts.scan` (or are one of
+ * the 14 super admins):
+ *
+ *   sh_prospects   → /solutions/pipeline/list
+ *       `solutions.pipeline.view`, 5 holders, ALL 5 can scan. The subtree is
+ *       wrapped in RoutePermissionGuard, so anyone else gets an explicit
+ *       permission page rather than a silent bounce. LINKED.
+ *
+ *   ss_mentors     → /startup-studio/mentors
+ *       `startup_studio.analytics.view`, 5 holders, ALL 5 can scan. Same
+ *       RoutePermissionGuard treatment. LINKED.
+ *
+ * Three stay deliberately link-less:
+ *
+ *   ims_suppliers  — /ims/settings/suppliers exists, but its declared
+ *       permission `ims.settings.suppliers.manage` has 3 holders and NOT ONE of
+ *       them can scan a card, so for every non-super-admin scanner this link
+ *       would point at a page they are not authorised to open. It happens to
+ *       render for the 105 scanners who hold the broader `ims.view`, because
+ *       the IMS layout gates on that key instead of the declared one — an
+ *       absent page-layer check is not a permission, and wiring a link on top
+ *       of it would break the moment that gate is tightened. On top of which,
+ *       only 3 of 14 institutions have an IMS store, so most of those 105 land
+ *       on "No Store Assigned" regardless.
+ *
+ *   internship_site_contacts — `internship_external_sites/[id]` mentions
+ *       "contact" eight times, but every one of them is the site's own
+ *       `emergency_contact_*` column; the page lists PRECEPTORS, not site
+ *       contacts. `useSiteContacts` exists in hooks/internships/useSites.ts and
+ *       has zero consumers app-wide, so these rows render nowhere. A deep link
+ *       would also have to be per-row (each contact's own `site_id`), which
+ *       this map cannot express — it is keyed by table alone.
+ *
+ *   industry_partners — no module screen of any kind.
+ *
+ * Exported for the test that pins this map.
+ */
+export const TABLE_HREF: Record<string, string> = {
   admission_leads: '/admission/leads',
   cdc_recruiters: '/cdc/admin/recruiters',
   event_sponsors: '/events',
   internship_preceptors: '/internships/sites',
+  sh_prospects: '/solutions/pipeline/list',
+  ims_suppliers: '/ims/settings/suppliers',
+  ss_mentors: '/startup-studio/mentors',
 };
+
+/**
+ * Whether THIS viewer may open each destination's screen.
+ *
+ * The link is rendered TO the people who scan cards, so the property that has
+ * to hold is "every scanner who sees this link can open it" — not the reverse.
+ * Checking the reverse is what made the first attempt at this wrong: it
+ * confirmed that everyone holding `solutions.pipeline.view` could scan a card,
+ * which is true and irrelevant. Measured against production on 2026-08-07,
+ * 197 accounts can scan a card and about 20 hold that key, so ~177 people were
+ * being handed a link into a PermissionError page — the dead end this feature
+ * exists to prevent.
+ *
+ * Deciding it per viewer instead of once for everybody dissolves the problem
+ * and, incidentally, makes `ims_suppliers` wireable: the question stops being
+ * "do most scanners hold this key" and becomes "does THIS scanner hold it".
+ *
+ * The key comes from MENU_PERMISSIONS, keyed by the same href — one source of
+ * truth, so a route whose permission is retuned there cannot drift from this
+ * map. `route-matcher`, `manifest-pages` and the permissions-audit service
+ * already import it server-side, so this is a used path, not a new one.
+ *
+ * A destination whose href has NO MENU_PERMISSIONS entry is not gated by the
+ * route trie at all (`RouteMatcher.hasAccess` returns true for anything it
+ * cannot match), so the link is shown — that is the status quo, and silently
+ * removing a link that works today would be its own regression.
+ * `/cdc/admin/recruiters` is currently the one such route; that missing entry
+ * is the same class of gap `/system` had before #2887 and is worth closing
+ * separately.
+ */
+async function viewerCanOpen(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tables: string[],
+): Promise<Set<string>> {
+  const allowed = new Set<string>();
+
+  // One lookup per DISTINCT key, not per row.
+  const keyForTable = new Map<string, string>();
+  for (const table of tables) {
+    const href = TABLE_HREF[table];
+    if (!href) continue;
+    const key = MENU_PERMISSIONS[href];
+    if (!key) {
+      allowed.add(table); // ungated route — see docstring
+      continue;
+    }
+    keyForTable.set(table, key);
+  }
+
+  const distinct = [...new Set(keyForTable.values())];
+  const verdicts = new Map<string, boolean>();
+  await Promise.all(
+    distinct.map(async (key) => {
+      try {
+        const { data, error } = await supabase.rpc('user_has_permission', {
+          permission_name: key,
+        });
+        // Fail CLOSED. A missing link is safe; a link into a denial page is not.
+        verdicts.set(key, !error && data === true);
+      } catch {
+        verdicts.set(key, false);
+      }
+    }),
+  );
+
+  for (const [table, key] of keyForTable) {
+    if (verdicts.get(key)) allowed.add(table);
+  }
+  return allowed;
+}
 
 interface ScanRow {
   job_id: string;
@@ -144,16 +279,23 @@ export async function GET() {
     byTable.set(r.routed_table, list);
   }
 
+  const openable = await viewerCanOpen(supabase, [...byTable.keys()]);
+
   const groups = [...byTable.entries()]
-    .map(([table, people]) => ({
-      table,
-      label: TABLE_LABEL[table] ?? table,
-      href: TABLE_HREF[table] ?? null,
-      /** No href = this list has no screen of its own; this page is the only view. */
-      only_view_here: !TABLE_HREF[table],
-      count: people.length,
-      people,
-    }))
+    .map(([table, people]) => {
+      // Both conditions must hold: the destination has a screen at all, AND
+      // this viewer may open it. Either way the answer below is true FOR THEM.
+      const href = TABLE_HREF[table] && openable.has(table) ? TABLE_HREF[table] : null;
+      return {
+        table,
+        label: TABLE_LABEL[table] ?? table,
+        href,
+        /** No href = there is no screen you can open; this page is your only view. */
+        only_view_here: href === null,
+        count: people.length,
+        people,
+      };
+    })
     .sort((a, b) => b.count - a.count);
 
   // Saved to the contact book but not routed anywhere ("Just a contact").
