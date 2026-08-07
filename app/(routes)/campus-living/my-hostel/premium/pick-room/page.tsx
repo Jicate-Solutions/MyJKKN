@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — PICK ROOM (learner-facing, Phase 2)
+// PREMIUM ROOM — PICK ROOM (learner-facing, Phase 2)
 // ============================================================================
 // Created: 2026-05-19
 //
@@ -18,7 +18,7 @@
 'use client';
 
 export const navMeta = {
-  label: 'Premium Stay — Pick Room',
+  label: 'Premium Room — Pick Room',
   icon: 'BedDouble',
   invokedFrom: '/campus-living/my-hostel/premium',
 } as const;
@@ -177,7 +177,7 @@ export default function PickRoomPage() {
 
   if (!tierId) {
     return (
-      <ContentLayout title='Premium Stay — Pick Room'>
+      <ContentLayout title='Premium Room — Pick Room'>
         <Card className='mt-6'>
           <CardContent className='p-8 text-center space-y-3'>
             <AlertCircle className='h-10 w-10 mx-auto text-amber-500' />
@@ -196,7 +196,7 @@ export default function PickRoomPage() {
 
   if (tierLoading || roomsLoading) {
     return (
-      <ContentLayout title='Premium Stay — Pick Room'>
+      <ContentLayout title='Premium Room — Pick Room'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
         </div>
@@ -205,13 +205,13 @@ export default function PickRoomPage() {
   }
 
   return (
-    <ContentLayout title='Premium Stay — Pick Room'>
+    <ContentLayout title='Premium Room — Pick Room'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'My Hostel', href: '/campus-living/my-hostel' },
-          { label: 'Premium Stay', href: '/campus-living/my-hostel/premium' },
+          { label: 'Premium Room', href: '/campus-living/my-hostel/premium' },
           { label: 'Pick Room' },
         ]}
       />
