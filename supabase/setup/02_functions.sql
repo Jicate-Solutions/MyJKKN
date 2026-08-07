@@ -29394,7 +29394,7 @@ REVOKE ALL   ON FUNCTION public.fn_delete_hostel_room(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_delete_hostel_room(uuid) TO authenticated;
 
 -- Updated: 2026-08-07 - Late-payment charge: "waive whole bill" in one action
--- Source: supabase/migrations/20260815030000_late_charge_waive_bill.sql
+-- Source: supabase/migrations/20260815030001_late_charge_waive_bill.sql
 -- NOT APPLIED — FILE ONLY, apply is Director-gated. Director decision
 -- (edge-case interview, 2026-08-07): a bigger brush alongside
 -- fn_late_charge_waive (kept untouched, unchanged above) — one action that
