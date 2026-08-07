@@ -38,6 +38,14 @@ See `docs/fixes/` for bug-fix writeups, organized by month (`YYYY-MM/`).
 
 ---
 
+## Audits
+
+- [docs/audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md](audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md) — Director decision 12, area 1 of N: the closed `campus_living` permission keys grouped by area, with distinct real holders counted live on production. 215 keys; 0 ungrantable, 0 effective-but-invisible, 61 ungranted, 1 granted to an empty role. Includes the "open these first" shortlist and the keys that need a Director call.
+
+See `docs/audit/` and `docs/audits/` for earlier audit writeups.
+
+---
+
 ## Guides
 
 - [Instagram Business Login — Setup & Connect (Track 3)](guides/2026-06-10-GUIDE-instagram-login-connect-setup.md) — Meta app config, env vars, app testers, per-account connect flow for Page-less dept IG insights

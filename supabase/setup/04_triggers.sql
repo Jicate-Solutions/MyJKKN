@@ -1651,6 +1651,12 @@ CREATE TRIGGER hr_shift_timings_updated_at
 -- custom roles such as HR Head that hold every other HR key.
 -- ---------------------------------------------------------------------
 
+-- Billing Late Charges updated_at
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql — FILE ONLY, apply is Director-gated)
+DROP TRIGGER IF EXISTS trg_billing_late_charges_updated_at ON public.billing_late_charges;
+CREATE TRIGGER trg_billing_late_charges_updated_at
+    BEFORE UPDATE ON public.billing_late_charges
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
 -- ============================================================================
 -- Events Hub — refuse a delete that would cascade registrations/payments away
 -- (2026-08-06). 46 FKs point at `events`, 43 of them ON DELETE CASCADE.

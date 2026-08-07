@@ -889,6 +889,33 @@ CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     academic_year_id uuid REFERENCES public.academic_years(id) ON DELETE SET NULL
 );
 
+-- Billing Late Charges (platform-wide late-payment charge ledger)
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql —
+-- FILE ONLY, apply is Director-gated). One row per (bill, monthly period) of
+-- accrued late charge; UNIQUE (bill_id, period_start) is the idempotency
+-- contract. The mechanism is OFF by default (billing.late_charge.enabled =
+-- false in platform_policies). billing_categories.kind gained the 'penalty'
+-- enum value in companion migration 20260815009000.
+CREATE TABLE IF NOT EXISTS public.billing_late_charges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bill_id UUID NOT NULL REFERENCES public.billing_student_bills(id),
+    student_id UUID NOT NULL,
+    institution_id UUID NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    base_amount NUMERIC(15,2) NOT NULL,
+    charge_amount NUMERIC(15,2) NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','charged','waived')),
+    penalty_bill_id UUID REFERENCES public.billing_student_bills(id),
+    waived_by UUID,
+    waived_at TIMESTAMPTZ,
+    waiver_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_billing_late_charges_bill_period UNIQUE (bill_id, period_start)
+);
+
 -- Billing Invoices
 CREATE TABLE IF NOT EXISTS public.billing_invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

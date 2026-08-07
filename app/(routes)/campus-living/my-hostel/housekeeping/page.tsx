@@ -246,7 +246,7 @@ export default function HousekeepingBookingPage() {
             <CardContent className='p-8 text-center space-y-3'>
               <Sparkles className='h-10 w-10 mx-auto text-amber-500' />
               <p className='font-medium text-amber-900'>
-                Personal room cleaning is a Premium Stay feature
+                Personal room cleaning is a Premium Room feature
               </p>
               <p className='text-sm text-amber-700 max-w-md mx-auto'>
                 Upgrade to Premium to book personal room-cleaning slots at a

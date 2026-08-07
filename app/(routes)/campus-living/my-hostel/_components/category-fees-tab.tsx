@@ -108,12 +108,12 @@ export function CategoryFeesTab() {
                 >
                   <CalendarClock className='mr-1 h-3 w-3' />
                   {provisionalHold.upgrade_bill_id && (provisionalHold.upgrade_fee_amount ?? 0) > 0
-                    ? `Provisional — pay ₹${Math.max(0, (provisionalHold.upgrade_fee_amount ?? 0) - (provisionalHold.upgrade_fee_paid ?? 0)).toLocaleString('en-IN')}`
-                    : 'Provisional upgrade — reserved'}
+                    ? `Upgrade billed — pay ₹${Math.max(0, (provisionalHold.upgrade_fee_amount ?? 0) - (provisionalHold.upgrade_fee_paid ?? 0)).toLocaleString('en-IN')}`
+                    : 'Upgraded — payment due'}
                   {provisionalHold.hold_expires_at
                     ? ` by ${new Date(provisionalHold.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                    : ''}{' '}
-                  to keep it
+                    : ''}
+                  ; unpaid amounts join your fee dues
                 </Badge>
               )}
             </div>

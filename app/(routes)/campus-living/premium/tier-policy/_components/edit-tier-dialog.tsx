@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay — Edit Tier Dialog
+// Premium Room — Edit Tier Dialog
 // ============================================================================
 // Created: 2026-05-16
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
