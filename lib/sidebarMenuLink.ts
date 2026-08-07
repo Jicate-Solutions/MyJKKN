@@ -669,6 +669,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/vac/admin/case/readiness': 'vac.admin.case.readiness.view',
   '/vac/admin/settings': 'vac.admin.settings.view',
 
+  // `/system` is not a page — app/(routes)/system/route.ts answers with a 307 to
+  // /system/api-management. It takes that destination's key so the redirect is
+  // gated exactly like the page it lands on, instead of being an unmatched (and
+  // therefore unprotected) path in the route trie. Same shape as '/staff', which
+  // is the same route.ts-redirect class and carries 'staff.view'.
+  //
+  // This does NOT change who sees the System group in the sidebar: a menu with
+  // submenus is filtered by `menu.submenus.some(...)` and its own key is never
+  // read, so a learner holding only learners.bug_reports.view keeps the group
+  // (and My Bug Reports inside it) exactly as before.
+  '/system': 'system.api.view',
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
