@@ -26,13 +26,19 @@ import { generateCourseSyllabusPDF, extractPOKeys, type CourseSyllabusPDFData } 
 import { generateCourseSyllabusDOCX } from '@/lib/utils/bos/course-syllabus-docx';
 import { exportSyllabusToXlsx } from './syllabus-actions';
 
-// Resolve the course's CURRENT code / name / part for the report, anchored on
-// the stable COE course_id when present. A course_code search would miss a
-// course COE has since renamed — the exact breakage course_id solves — so we
-// fetch by id first and fall back to a course_code search for rows not yet
+// Resolve the course's CURRENT code / part / category / workload for the report,
+// anchored on the stable COE course_id when present. A course_code search would
+// miss a course COE has since renamed — the exact breakage course_id solves — so
+// we fetch by id first and fall back to a course_code search for rows not yet
 // backfilled with a course_id. Returns the stored snapshot if COE is unreachable.
+//
+// course_name is deliberately NOT taken from COE: COE course masters bake the
+// category into the title ("SEC-II-Cosmetics and Personal Care Products"), which
+// the `coursePartLabel` prefix below then duplicates ("SEC-SEC-II-…"). The
+// syllabus author's own bos_course_syllabi.course_name is the title of record.
 async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
   course_code: string;
+  /** Always bos_course_syllabi.course_name — never the COE master's name. */
   course_name: string;
   coursePartLabel?: string;
   /** Course master category (e.g. "Theory", "Practical", "Theory + Practical") —
@@ -43,7 +49,7 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
   workload?: { theory?: number; tutorial?: number; practical?: number; credit?: number };
 }> {
   let course_code = syllabus.course_code;
-  let course_name = syllabus.course_name;
+  const course_name = syllabus.course_name;
   let coursePartLabel: string | undefined;
   let courseCategory: string | undefined;
   let workload: { theory?: number; tutorial?: number; practical?: number; credit?: number } | undefined;
@@ -72,8 +78,6 @@ async function resolveCourseForReport(syllabus: BosCourseSyllabus): Promise<{
     }
     if (match) {
       if (typeof match.course_code === 'string' && match.course_code) course_code = match.course_code;
-      const liveName = (match.course_name ?? match.course_title) as string | undefined;
-      if (liveName) course_name = liveName;
       const partOrType = (match.course_type ?? match.course_part_master ?? null) as string | null;
       const level = (match.course_level ?? null) as string | null;
       const composed = (match.course_type_code as string | undefined)
@@ -247,9 +251,9 @@ export async function buildSyllabusPdfData(
   const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
   const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
-  // Resolve live course code/name + part (Core-I / Allied-II) from COE,
-  // anchored on the stable course_id so a COE rename is reflected.
-  const { course_code: liveCode, course_name: liveName, coursePartLabel, courseCategory, workload } =
+  // Resolve live course code + part (Core-I / Allied-II) from COE, anchored on
+  // the stable course_id. The NAME comes from bos_course_syllabi.course_name.
+  const { course_code: liveCode, course_name: storedName, coursePartLabel, courseCategory, workload } =
     await (resolveCourse ? resolveCourse(syllabus) : resolveCourseForReport(syllabus));
   const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
@@ -260,10 +264,10 @@ export async function buildSyllabusPdfData(
   const isPharmacyDoc =
     syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
   const displayCourseName = variant === 'engineering' || isPharmacyDoc
-    ? liveName
+    ? storedName
     : coursePartLabel
-      ? `${coursePartLabel}-${liveName}`
-      : liveName;
+      ? `${coursePartLabel}-${storedName}`
+      : storedName;
 
   // LTPC isn't a structured column — the docx importer records it in notes
   // as "LTPC: 3 1 0 4". Parse it for the engineering header (unused by A&S).
@@ -526,7 +530,7 @@ export function SyllabusDocxDownloadButton({
       const objectivesContent = syllabus.course_objectives as BosCourseObjectivesContent | undefined;
       const outcomesContent = syllabus.course_learning_outcomes as BosCourseLearnOutcomesContent | undefined;
 
-      const { course_code: liveCode, course_name: liveName, coursePartLabel, courseCategory } =
+      const { course_code: liveCode, course_name: storedName, coursePartLabel, courseCategory } =
         await resolveCourseForReport(syllabus);
       const contentModes = resolveContentModes(courseCategory, syllabus.course_content);
 
@@ -535,8 +539,8 @@ export function SyllabusDocxDownloadButton({
       const isPharmacyDoc =
         syllabus.academic_model === 'pci_pharm' || syllabus.academic_model === 'mgr_pharmd';
       const displayCourseName = !isPharmacyDoc && coursePartLabel
-        ? `${coursePartLabel}-${liveName}`
-        : liveName;
+        ? `${coursePartLabel}-${storedName}`
+        : storedName;
 
       await generateCourseSyllabusDOCX({
         institution_name: header.institution_name,

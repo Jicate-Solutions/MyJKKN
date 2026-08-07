@@ -227,7 +227,6 @@ export function DocumentsTab({ meeting, compositionId }: DocumentsTabProps) {
     toast.success('Minutes (Word) downloaded');
   };
 
-
   if (isLoading) {
     return (
       <div className='space-y-3'>

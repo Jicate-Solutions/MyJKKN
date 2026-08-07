@@ -49,6 +49,8 @@ const EXPORT_COLUMN_GROUPS: ExportColumnGroup[] = [
     columns: [
       { key: 'first_name', header: 'First Name' },
       { key: 'last_name', header: 'Last Name' },
+      { key: 'first_name_tamil', header: 'First Name (Tamil)' },
+      { key: 'last_name_tamil', header: 'Last Name (Tamil)' },
       { key: 'date_of_birth', header: 'Date of Birth' },
       { key: 'gender', header: 'Gender' },
       { key: 'religion', header: 'Religion' },
@@ -56,6 +58,9 @@ const EXPORT_COLUMN_GROUPS: ExportColumnGroup[] = [
       { key: 'caste', header: 'Caste' },
       { key: 'aadhar_number', header: 'Aadhar Number' },
       { key: 'blood_group', header: 'Blood Group' },
+      { key: 'abc_id', header: 'ABC ID' },
+      { key: 'emis', header: 'EMIS Number' },
+      { key: 'umis', header: 'UMIS Number' },
     ],
   },
   {
@@ -145,6 +150,10 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     // Basic Details
     first_name: learner.first_name || '',
     last_name: learner.last_name || '',
+    // Nullable columns — '' rather than null so a blank cell exports blank
+    // instead of the literal string "null".
+    first_name_tamil: learner.first_name_tamil || '',
+    last_name_tamil: learner.last_name_tamil || '',
     date_of_birth: learner.date_of_birth || '',
     gender: learner.gender || '',
     religion: learner.religion || '',
@@ -152,6 +161,9 @@ function transformLearnerForExport(learner: any): Record<string, any> {
     caste: learner.caste_ref?.name || '',
     aadhar_number: learner.aadhar_number || '',
     blood_group: learner.blood_group || '',
+    abc_id: learner.abc_id || '',
+    emis: learner.emis || '',
+    umis: learner.umis || '',
     // Family
     father_name: learner.father_name || '',
     father_occupation: learner.father_occupation || '',

@@ -37,6 +37,7 @@ import {
   AlignmentType,
   BorderStyle,
   HeadingLevel,
+  HeightRule,
   LineRuleType,
   PageOrientation,
   ImageRun,
@@ -51,6 +52,7 @@ import type {
 } from '@/types/bos';
 import type { BosPdfHeader } from './bos-pdf-generator';
 import { stripHtml } from '@/components/ui/rich-text-editor';
+import { htmlToDocxBlocks, type DocxBlock } from './html-to-docx';
 
 // Canonical ordering for BoS members in attendance / signature tables.
 // Duplicated from bos-pdf-generator.ts because the PDF module pulls jsPDF
@@ -111,12 +113,33 @@ function sortAttendeesForDocx(attendees: BosMeetingAttendee[]): BosMeetingAttend
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const FONT = 'Times New Roman';
-const SIZE_BODY = 20;     // 10pt (docx units = half-points) — matched to PDF body text
-const SIZE_SMALL = 16;    // 8pt — for accreditation/contact lines
-const SIZE_HEADER = 26;   // 13pt — institution name header (matched to PDF)
-const SIZE_SECTION = 24;  // 12pt — section headers like "AGENDA", "MINUTES" (matched to PDF)
+
+/**
+ * The PDF stylesheet is written in px; Word measures characters in half-points.
+ * Converting (1px = 0.75pt) rather than picking round point sizes is what makes
+ * the two exports print at the same physical size — the sheets were previously
+ * set in 10pt Word against 10px PDF, a third larger, which is why columns that
+ * fit the PDF wrapped in Word.
+ */
+const px = (value: number) => Math.max(2, Math.round(value * 1.5));
+
+const SIZE_BODY = px(10);      // .meeting-details / .attendance-summary / .agenda-detail
+const SIZE_SMALL = 16;         // 8pt — letterhead accreditation/contact lines
+const SIZE_HEADER = 26;        // 13pt — institution name (letterhead is tuned separately)
+const SIZE_SECTION = px(12);   // .section-title
+const SIZE_BOARD = px(11);     // .board-info
+const SIZE_TABLE = px(12);     // table / th / td
+const SIZE_NARRATIVE = px(10); // .narrative
+
+// CET's minutes are signed in ink and photocopied for the file, so its sheets
+// use a larger scale. Mirrors the `${isCet ? ... }` block at the end of the
+// PDF stylesheet — keep the two in step.
+const SIZE_TABLE_CET = px(14);
+const SIZE_NARRATIVE_CET = px(13);
+const SIZE_AGENDA_CET = px(13);
+
 const PAGE_WIDTH_MM = 210;
-const PAGE_MARGIN_MM = 12; // Reduced from 15mm to match PDF
+const PAGE_MARGIN_MM = 12; // Matches the 12mm print margin the PDF renderer uses
 const CONTENT_WIDTH_DXA = convertMillimetersToTwip(PAGE_WIDTH_MM - PAGE_MARGIN_MM * 2);
 // 1.5 line spacing for body/narrative paragraphs (240 twips = single line, so
 // 360 = 1.5×). Applied to running text only — table cells stay single-spaced,
@@ -166,9 +189,23 @@ const ALL_BORDERS = {
   right: BORDER,
 };
 
+/** Header-row fill, matching the PDF's `th { background: #d3d3d3 }`. */
+const HEADER_FILL = 'D3D3D3';
+
+// docx ships AlignmentType as a const object rather than an enum, so the union
+// of its values is the type to annotate with.
+type DocxAlignment = (typeof AlignmentType)[keyof typeof AlignmentType];
+
 function cellText(
   text: string,
-  opts?: { bold?: boolean; size?: number; align?: AlignmentType; shading?: string; width?: number },
+  opts?: {
+    bold?: boolean;
+    size?: number;
+    align?: DocxAlignment;
+    shading?: string;
+    width?: number;
+    color?: string;
+  },
 ): TableCell {
   return new TableCell({
     // Explicit cell width is required for Word to honor column proportions under
@@ -182,8 +219,9 @@ function cellText(
           new TextRun({
             text,
             font: FONT,
-            size: opts?.size ?? SIZE_BODY,
+            size: opts?.size ?? SIZE_TABLE,
             bold: opts?.bold ?? false,
+            color: opts?.color,
           }),
         ],
       }),
@@ -193,12 +231,31 @@ function cellText(
   });
 }
 
+/**
+ * Printable member-type label — the Word twin of the same helper in
+ * meeting-minutes-html-pdf.ts. Since migration 20260710150000 `member_type`
+ * holds the selected catalog name ('University Nominee') and prints as-is;
+ * legacy rows still hold the coarse enum, for which the joined catalog row is
+ * the better name and an un-snaked enum the last resort.
+ */
+function memberTypeLabel(member?: {
+  member_type?: string | null;
+  member_type_rec?: { name?: string | null } | null;
+} | null): string {
+  const raw = (member?.member_type ?? '').trim();
+  if (raw && !raw.includes('_')) return raw;
+  const catalog = (member?.member_type_rec?.name ?? '').trim();
+  if (catalog) return catalog;
+  if (!raw) return '';
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function para(
   text: string,
   opts?: {
     bold?: boolean;
     size?: number;
-    align?: AlignmentType;
+    align?: DocxAlignment;
     spacingAfter?: number;
     spacingBefore?: number;
   },
@@ -559,7 +616,8 @@ function buildDetailsLine(meeting: BosMeeting, chairmanName: string): Paragraph 
   ];
 
   return new Paragraph({
-    alignment: AlignmentType.LEFT,
+    // Centred, like the PDF's `.meeting-details`.
+    alignment: AlignmentType.CENTER,
     spacing: { before: 80, after: 80, ...LINE_150 },
     children: [
       new TextRun({
@@ -571,42 +629,91 @@ function buildDetailsLine(meeting: BosMeeting, chairmanName: string): Paragraph 
   });
 }
 
-function buildAttendanceTable(attendees: BosMeetingAttendee[]): Table {
+/**
+ * Page 1's summary strip — the PDF's `.attendance-summary`, where each label is
+ * bold and its value plain, so the bold/plain alternation is built run by run.
+ */
+function buildAttendanceSummary(
+  meeting: BosMeeting,
+  presentCount: number,
+  total: number,
+): Paragraph {
+  const fields: Array<[string, string]> = [
+    ['Meeting No.:', ` ${meeting.meeting_number} / ${meeting.academic_year}`],
+    ['Date:', ` ${fmtDate(meeting.actual_date || meeting.scheduled_date)}`],
+    ['Venue:', ` ${meeting.venue || '—'}`],
+    ['Present:', ` ${presentCount} / ${total}`],
+  ];
+
+  const runs: TextRun[] = [];
+  fields.forEach(([label, value], i) => {
+    runs.push(new TextRun({ text: label, font: FONT, size: SIZE_BODY, bold: true }));
+    runs.push(new TextRun({ text: value, font: FONT, size: SIZE_BODY }));
+    if (i < fields.length - 1) {
+      runs.push(new TextRun({ text: ' | ', font: FONT, size: SIZE_BODY }));
+    }
+  });
+
+  return new Paragraph({
+    spacing: { before: 60, after: 100, ...LINE_150 },
+    children: runs,
+  });
+}
+
+function buildAttendanceTable(attendees: BosMeetingAttendee[], isCet: boolean): Table {
   // 5-column attendance table, mirroring the PDF's page-1 attendance sheet:
-  // S.No | Name | Designation | Status | Signature.
-  // Proportions: 5% | 28% | 28% | 12% | 27% (matching PDF redesign)
+  // S.No | Name | Designation | Status | Signature, at 5% | 28% | 28% | 12% | 27%.
   const pageWidth = CONTENT_WIDTH_DXA;
   const colWidths = [
     Math.round(pageWidth * 0.05),   // S.No — 5%
     Math.round(pageWidth * 0.28),   // Name — 28%
-    Math.round(pageWidth * 0.28),   // Designation — 28%
+    Math.round(pageWidth * 0.28),   // Designation / Member Type — 28%
     Math.round(pageWidth * 0.12),   // Status — 12%
     Math.round(pageWidth * 0.27),   // Signature — 27%
   ];
+  const size = isCet ? SIZE_TABLE_CET : SIZE_TABLE;
 
   const header = new TableRow({
     tableHeader: true,
     children: [
-      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[0] }),
-      cellText('Name', { bold: true, shading: 'E6E6E6', width: colWidths[1] }),
-      cellText('Designation', { bold: true, shading: 'E6E6E6', width: colWidths[2] }),
-      cellText('Status', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[3] }),
-      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[4] }),
+      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, width: colWidths[0], size }),
+      cellText('Name', { bold: true, shading: HEADER_FILL, width: colWidths[1], size }),
+      // CET's sheet identifies members by their role on the board rather than
+      // their job title; every other college prints the designation.
+      cellText(isCet ? 'Member Type' : 'Designation', { bold: true, shading: HEADER_FILL, width: colWidths[2], size }),
+      cellText('Status', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, width: colWidths[3], size }),
+      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, width: colWidths[4], size }),
     ],
   });
 
   // Sort canonically (chairman → external experts → internal members).
   const sorted = sortAttendeesForDocx(attendees);
   const body = sorted.map((a, i) => {
-    const m = (a as unknown as { member?: { display_name?: string; display_designation?: string } }).member;
+    const m = (a as unknown as {
+      member?: {
+        display_name?: string;
+        display_designation?: string;
+        member_type?: string | null;
+        member_type_rec?: { name?: string | null } | null;
+      };
+    }).member;
     const isPresent = a.attendance_status === 'present';
     return new TableRow({
+      // The PDF leaves a 40px-tall signature cell to sign in; 40px ≈ 10.6mm.
+      height: { value: convertMillimetersToTwip(10.6), rule: HeightRule.ATLEAST },
       children: [
-        cellText(String(i + 1), { align: AlignmentType.CENTER, width: colWidths[0] }),
-        cellText(m?.display_name ?? '—', { width: colWidths[1] }),
-        cellText(m?.display_designation ?? '', { width: colWidths[2] }),
-        cellText(isPresent ? 'Present' : 'Absent', { align: AlignmentType.CENTER, width: colWidths[3] }),
-        cellText('', { align: AlignmentType.CENTER, width: colWidths[4] }), // blank — signed in person
+        cellText(String(i + 1), { align: AlignmentType.CENTER, width: colWidths[0], size }),
+        cellText(m?.display_name ?? '—', { width: colWidths[1], size }),
+        cellText(isCet ? memberTypeLabel(m) : (m?.display_designation ?? ''), { width: colWidths[2], size }),
+        cellText(isPresent ? 'Present' : 'Absent', {
+          align: AlignmentType.CENTER,
+          width: colWidths[3],
+          size,
+          bold: true,
+          // .status-present / .status-absent in the PDF stylesheet.
+          color: isPresent ? '008000' : 'C00000',
+        }),
+        cellText('', { align: AlignmentType.CENTER, width: colWidths[4], size }), // blank — signed in person
       ],
     });
   });
@@ -639,7 +746,7 @@ function buildBoardLine(
       new TextRun({
         text: `Board: ${boardLabel}`,
         font: FONT,
-        size: SIZE_BODY,
+        size: SIZE_BOARD,
         bold: true,
       }),
     ],
@@ -650,12 +757,14 @@ function buildBoardLine(
 // the PDF's "S.No | Members | Signature" layout where the Members cell stacks
 // Name / Designation / Institution / Address. Only present members are
 // listed, in canonical sort order.
-function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
+function buildSignaturesTable(attendees: BosMeetingAttendee[], isCet: boolean): Table | null {
   type MemberRow = {
     display_name?: string;
     display_designation?: string;
     display_institution?: string;
     address?: string;
+    member_type?: string | null;
+    member_type_rec?: { name?: string | null } | null;
   };
 
   const presentRows = sortAttendeesForDocx(attendees)
@@ -664,13 +773,22 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
 
   if (presentRows.length === 0) return null;
 
-  // Proportions: 8% | 60% | 32% (matching PDF redesign)
+  // CET's sheet carries a Member Type column, so its proportions are
+  // 8 | 46 | 22 | 24; everyone else runs 8 | 60 | 32. Same split as the PDF.
   const pageWidth = CONTENT_WIDTH_DXA;
-  const colWidths = [
-    Math.round(pageWidth * 0.08),   // S.No — 8%
-    Math.round(pageWidth * 0.60),   // Members — 60% (stacks Name/Designation/Institution/Address)
-    Math.round(pageWidth * 0.32),   // Signature — 32%
-  ];
+  const size = isCet ? SIZE_TABLE_CET : SIZE_TABLE;
+  const colWidths = isCet
+    ? [
+        Math.round(pageWidth * 0.08),
+        Math.round(pageWidth * 0.46),
+        Math.round(pageWidth * 0.22),
+        Math.round(pageWidth * 0.24),
+      ]
+    : [
+        Math.round(pageWidth * 0.08),   // S.No — 8%
+        Math.round(pageWidth * 0.60),   // Members — 60% (stacks Name/Designation/Institution/Address)
+        Math.round(pageWidth * 0.32),   // Signature — 32%
+      ];
 
   // Compose the Members cell as one TableCell with multiple Paragraphs —
   // each Paragraph becomes a visible line inside the cell. Empty fields are
@@ -688,7 +806,7 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
       children: lines.map(
         (text) =>
           new Paragraph({
-            children: [new TextRun({ text, font: FONT, size: SIZE_BODY })],
+            children: [new TextRun({ text, font: FONT, size })],
           }),
       ),
     });
@@ -697,22 +815,34 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
   const header = new TableRow({
     tableHeader: true,
     children: [
-      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[0] }),
-      cellText('Members', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[1] }),
-      cellText('Signature', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', width: colWidths[2] }),
+      cellText('S.No', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, width: colWidths[0], size }),
+      cellText('Members', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, width: colWidths[1], size }),
+      ...(isCet
+        ? [cellText('Member Type', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, width: colWidths[2], size })]
+        : []),
+      cellText('Signature', {
+        bold: true,
+        align: AlignmentType.CENTER,
+        shading: HEADER_FILL,
+        width: colWidths[colWidths.length - 1],
+        size,
+      }),
     ],
   });
 
   const body = presentRows.map(
     (m, idx) =>
       new TableRow({
+        // The PDF leaves a 45px-tall signature cell; 45px ≈ 11.9mm.
+        height: { value: convertMillimetersToTwip(11.9), rule: HeightRule.ATLEAST },
         children: [
-          cellText(String(idx + 1), { align: AlignmentType.CENTER, width: colWidths[0] }),
+          cellText(String(idx + 1), { align: AlignmentType.CENTER, width: colWidths[0], size, bold: true }),
           memberCell(m),
+          ...(isCet ? [cellText(memberTypeLabel(m), { width: colWidths[2], size })] : []),
           // Blank signature cell — needs visible borders so the user can see
           // where to sign on a printed copy.
           new TableCell({
-            width: { size: colWidths[2], type: WidthType.DXA },
+            width: { size: colWidths[colWidths.length - 1], type: WidthType.DXA },
             borders: ALL_BORDERS,
             children: [new Paragraph({ children: [new TextRun({ text: '' })] })],
           }),
@@ -728,9 +858,22 @@ function buildSignaturesTable(attendees: BosMeetingAttendee[]): Table | null {
   });
 }
 
-function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
+function buildAgendaParagraphs(agendaItems: BosAgendaItem[], isCet: boolean): Paragraph[] {
   const sorted = [...agendaItems].sort((a, b) => a.sort_order - b.sort_order);
+  const size = isCet ? SIZE_AGENDA_CET : SIZE_BODY;
   const out: Paragraph[] = [];
+
+  // Details sit flush with their title, as `.agenda-detail { margin-left: 0 }`
+  // does in the PDF — the old 8mm Word indent was a visible difference between
+  // the two exports.
+  const detail = (label: string, text: string): Paragraph =>
+    new Paragraph({
+      spacing: { after: 40, ...LINE_150 },
+      children: [
+        new TextRun({ text: `${label} `, font: FONT, size, italics: true }),
+        new TextRun({ text, font: FONT, size }),
+      ],
+    });
 
   for (const item of sorted) {
     out.push(
@@ -740,78 +883,81 @@ function buildAgendaParagraphs(agendaItems: BosAgendaItem[]): Paragraph[] {
           new TextRun({
             text: `${item.item_number}. ${item.item_title}`,
             font: FONT,
-            size: SIZE_BODY,
+            size,
             bold: true,
           }),
         ],
       }),
     );
-    if (item.discussion_notes) {
-      out.push(
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          indent: { left: convertMillimetersToTwip(8) },
-          spacing: { after: 40, ...LINE_150 },
-          children: [
-            new TextRun({
-              text: 'Discussion: ',
-              font: FONT,
-              size: SIZE_BODY,
-              italics: true,
-            }),
-            new TextRun({
-              text: item.discussion_notes,
-              font: FONT,
-              size: SIZE_BODY,
-            }),
-          ],
-        }),
-      );
-    }
-    if (item.resolution_text) {
-      out.push(
-        new Paragraph({
-          alignment: AlignmentType.JUSTIFIED,
-          indent: { left: convertMillimetersToTwip(8) },
-          spacing: { after: 40, ...LINE_150 },
-          children: [
-            new TextRun({
-              text: 'Resolution: ',
-              font: FONT,
-              size: SIZE_BODY,
-              italics: true,
-            }),
-            new TextRun({
-              text: item.resolution_text,
-              font: FONT,
-              size: SIZE_BODY,
-            }),
-          ],
-        }),
-      );
-    }
+    if (item.discussion_notes) out.push(detail('Discussion:', item.discussion_notes));
+    if (item.resolution_text) out.push(detail('Resolution:', item.resolution_text));
   }
 
   return out;
 }
 
-function buildNarrativeParagraphs(narrativeHtml?: string): Paragraph[] {
-  const text = narrativeHtml ? stripHtml(narrativeHtml) : '';
+/**
+ * The narrative's bordered box.
+ *
+ * The PDF draws `.narrative` as a 1px black box with 6px/8px of padding around
+ * the content. Word has no block-level border that behaves the same way across
+ * a page break, so the box is a single-cell table — which is also what keeps
+ * the author's own tables from butting against the frame.
+ */
+function narrativeBox(children: DocxBlock[]): Table {
+  return new Table({
+    width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+    columnWidths: [CONTENT_WIDTH_DXA],
+    layout: TableLayoutType.FIXED,
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            width: { size: CONTENT_WIDTH_DXA, type: WidthType.DXA },
+            borders: ALL_BORDERS,
+            margins: {
+              top: convertMillimetersToTwip(1.6),
+              bottom: convertMillimetersToTwip(1.6),
+              left: convertMillimetersToTwip(2.1),
+              right: convertMillimetersToTwip(2.1),
+            },
+            children: children.length > 0 ? children : [new Paragraph({ children: [new TextRun({ text: '' })] })],
+          }),
+        ],
+      }),
+    ],
+  });
+}
+
+/**
+ * Editor HTML → the blocks that go inside the narrative box.
+ *
+ * The rich path (htmlToDocxBlocks) needs a DOM, which the browser callers have.
+ * On a server render it returns null and we fall back to the old flattened
+ * text so the export still succeeds, just without formatting.
+ */
+function buildNarrativeContent(narrativeHtml: string, isCet: boolean): DocxBlock[] {
+  const size = isCet ? SIZE_NARRATIVE_CET : SIZE_NARRATIVE;
+  const innerWidth = CONTENT_WIDTH_DXA - convertMillimetersToTwip(4.2);
+
+  const rich = htmlToDocxBlocks(narrativeHtml, {
+    font: FONT,
+    size,
+    contentWidthDxa: innerWidth,
+    line: LINE_150.line,
+  });
+  if (rich) return rich;
+
+  const text = stripHtml(narrativeHtml);
   if (!text) return [];
-  // Split on blank lines into paragraph blocks; preserve single-line breaks
-  // as `<br>` equivalents inside a paragraph using multiple TextRuns.
-  const blocks = text.split(/\n{2,}/);
-  return blocks.map(
+  return text.split(/\n{2,}/).map(
     (block) =>
       new Paragraph({
-        alignment: AlignmentType.JUSTIFIED,
         spacing: { after: 100, ...LINE_150 },
         children: block.split('\n').flatMap((line, idx, arr) => {
-          const runs: TextRun[] = [
-            new TextRun({ text: line, font: FONT, size: SIZE_BODY }),
-          ];
+          const runs: TextRun[] = [new TextRun({ text: line, font: FONT, size })];
           if (idx < arr.length - 1) {
-            runs.push(new TextRun({ text: '', font: FONT, size: SIZE_BODY, break: 1 }));
+            runs.push(new TextRun({ text: '', font: FONT, size, break: 1 }));
           }
           return runs;
         }),
@@ -828,30 +974,27 @@ function buildChangesLogTable(
     suggested_by_name?: string | string[] | null;
     suggestion_text?: string | null;
   }>,
+  isCet: boolean,
 ): Table {
-  const colWidths = [
-    convertMillimetersToTwip(10),
-    convertMillimetersToTwip(22),
-    convertMillimetersToTwip(28),
-    convertMillimetersToTwip(28),
-    convertMillimetersToTwip(28),
-    convertMillimetersToTwip(28),
-    convertMillimetersToTwip(36),
-  ];
+  // Proportional widths summing to exactly the content width — the previous
+  // fixed millimetre columns totalled 180mm inside a 186mm frame, so the table
+  // sat narrower than every other table on the page.
+  const share = [0.055, 0.12, 0.15, 0.15, 0.15, 0.15, 0.225];
+  const colWidths = share.map((f) => Math.round(CONTENT_WIDTH_DXA * f));
+  colWidths[colWidths.length - 1] += CONTENT_WIDTH_DXA - colWidths.reduce((a, b) => a + b, 0);
 
-  // Font size bumped from SIZE_SMALL (9pt) to SIZE_BODY (11pt) per UX
-  // request — the smaller font was hard to read on a printed copy. Mirrors
-  // the same bump applied to the PDF generator's Suggested Changes table.
+  const size = isCet ? SIZE_TABLE_CET : SIZE_TABLE;
+
   const header = new TableRow({
     tableHeader: true,
     children: [
-      cellText('#', { bold: true, align: AlignmentType.CENTER, shading: 'E6E6E6', size: SIZE_BODY }),
-      cellText('Course', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
-      cellText('Unit', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
-      cellText('Topics', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
-      cellText('Sub-topics', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
-      cellText('Suggested by', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
-      cellText('Change', { bold: true, shading: 'E6E6E6', size: SIZE_BODY }),
+      cellText('#', { bold: true, align: AlignmentType.CENTER, shading: HEADER_FILL, size, width: colWidths[0] }),
+      cellText('Course', { bold: true, shading: HEADER_FILL, size, width: colWidths[1] }),
+      cellText('Unit', { bold: true, shading: HEADER_FILL, size, width: colWidths[2] }),
+      cellText('Topics', { bold: true, shading: HEADER_FILL, size, width: colWidths[3] }),
+      cellText('Sub-topics', { bold: true, shading: HEADER_FILL, size, width: colWidths[4] }),
+      cellText('Suggested by', { bold: true, shading: HEADER_FILL, size, width: colWidths[5] }),
+      cellText('Change', { bold: true, shading: HEADER_FILL, size, width: colWidths[6] }),
     ],
   });
 
@@ -859,15 +1002,15 @@ function buildChangesLogTable(
     (row, idx) =>
       new TableRow({
         children: [
-          cellText(String(idx + 1), { align: AlignmentType.CENTER, size: SIZE_BODY }),
-          cellText(row.syllabus_code ?? '—', { size: SIZE_BODY }),
-          cellText(row.unit ?? '—', { size: SIZE_BODY }),
-          cellText(asArray(row.topic).join(' · ') || '—', { size: SIZE_BODY }),
-          cellText(asArray(row.sub_topic).join(' · ') || '—', { size: SIZE_BODY }),
+          cellText(String(idx + 1), { align: AlignmentType.CENTER, size, width: colWidths[0] }),
+          cellText(row.syllabus_code ?? '—', { size, width: colWidths[1] }),
+          cellText(row.unit ?? '—', { size, width: colWidths[2] }),
+          cellText(asArray(row.topic).join(' · ') || '—', { size, width: colWidths[3] }),
+          cellText(asArray(row.sub_topic).join(' · ') || '—', { size, width: colWidths[4] }),
           // Multi-suggestor support: join co-suggestor names with ', ' for
           // the Word table cell. Mirrors the PDF cell formatting.
-          cellText(asArray(row.suggested_by_name).join(', ') || '—', { size: SIZE_BODY }),
-          cellText(row.suggestion_text ?? '', { size: SIZE_BODY }),
+          cellText(asArray(row.suggested_by_name).join(', ') || '—', { size, width: colWidths[5] }),
+          cellText(row.suggestion_text ?? '', { size, width: colWidths[6] }),
         ],
       }),
   );
@@ -977,13 +1120,15 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
 
   const children: (Paragraph | Table)[] = [];
   const presentTotal = attendees.filter((a) => a.attendance_status === 'present').length;
+  // CET prints on its own stationery at a larger scale — same switch the PDF
+  // renderer makes, so both exports pick the same variant for a given board.
+  const isCet = isCetInstitution(header.institution_name);
 
   // ── Page 1: Attendance Sheet ───────────────────────────────────────────
   children.push(...renderLetterhead());
   children.push(buildBoardLine(meeting, boardName));
-  children.push(buildDetailsLine(meeting, chairmanName));
-  children.push(sectionHeading('ATTENDANCE'));
-  children.push(buildAttendanceTable(attendees));
+  children.push(buildAttendanceSummary(meeting, presentTotal, attendees.length));
+  children.push(buildAttendanceTable(attendees, isCet));
 
   // ── Page break — Word renders subsequent content from a fresh page ────
   children.push(
@@ -1015,31 +1160,49 @@ export function buildMinutesDocxDoc(params: MinutesDocxParams): Document {
   // Agenda
   if (agendaItems.length > 0) {
     children.push(sectionHeading('MEETING AGENDA'));
-    children.push(...buildAgendaParagraphs(agendaItems));
+    children.push(...buildAgendaParagraphs(agendaItems, isCet));
   }
 
-  // Minutes narrative
-  const narrativeParas = buildNarrativeParagraphs(meeting.minutes_content?.narrative_html);
-  if (narrativeParas.length > 0) {
-    children.push(sectionHeading('MINUTES NARRATIVE'));
-    children.push(...narrativeParas);
+  // Minutes narrative — authored HTML, rendered into the same bordered box the
+  // PDF draws.
+  const narrativeHtml = meeting.minutes_content?.narrative_html;
+  if (narrativeHtml) {
+    const narrativeBlocks = buildNarrativeContent(narrativeHtml, isCet);
+    if (narrativeBlocks.length > 0) {
+      children.push(sectionHeading('MINUTES NARRATIVE'));
+      children.push(narrativeBox(narrativeBlocks));
+    }
   }
 
-  // Suggested changes
+  // Legacy summary (for backwards-compat with rows saved before minutes_content).
+  // Boxed like the narrative, matching the PDF's second `.narrative` block.
+  if (meeting.minutes_summary) {
+    children.push(sectionHeading('SUMMARY'));
+    children.push(
+      narrativeBox([
+        new Paragraph({
+          spacing: { after: 0, ...LINE_150 },
+          children: [
+            new TextRun({
+              text: meeting.minutes_summary,
+              font: FONT,
+              size: isCet ? SIZE_NARRATIVE_CET : SIZE_NARRATIVE,
+            }),
+          ],
+        }),
+      ]),
+    );
+  }
+
+  // Suggested changes — last on the minutes page in both exports.
   const changesLog = meeting.minutes_content?.changes_log ?? [];
   if (changesLog.length > 0) {
     children.push(sectionHeading('SUGGESTED CHANGES'));
-    children.push(buildChangesLogTable(changesLog));
-  }
-
-  // Legacy summary (for backwards-compat with rows saved before minutes_content)
-  if (meeting.minutes_summary) {
-    children.push(sectionHeading('SUMMARY'));
-    children.push(para(meeting.minutes_summary));
+    children.push(buildChangesLogTable(changesLog, isCet));
   }
 
   // ── Page 3+: Signatures ────────────────────────────────────────────────
-  const sigTable = buildSignaturesTable(attendees);
+  const sigTable = buildSignaturesTable(attendees, isCet);
   if (sigTable) {
     children.push(
       new Paragraph({

@@ -131,6 +131,12 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
             // Freshers rules belong to admission capture, and applying them here
             // hid real departments and overwrote real semesters.
             enforceAdmissionRules={false}
+            // Tamil-script name inputs on Basic Details. Scoped to the Learner
+            // Profiles screens — the enquiry and student self-fill flows that
+            // share this form stay as they were.
+            showTamilNames
+            // ABC ID / EMIS / UMIS — same Profiles-only scoping.
+            showLearnerIdentifiers
             // Two explicit choices on every step, nothing else:
             //   "Save & Next"      — commit this step, advance to the next tab
             //   "Update & Finish"  — validate every tab, commit, redirect to

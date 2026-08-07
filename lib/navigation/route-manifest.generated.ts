@@ -4466,6 +4466,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/improvement-board/case-studies",
+        "label": "Case Studies",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/improvement-board/dashboard",
         "label": "Dashboard",
         "iconName": "LayoutGrid",
@@ -4478,6 +4484,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/improvement-board/gemba",
+        "label": "Gemba",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/improvement-board/leaderboard",
         "label": "Leaderboard",
         "iconName": "Trophy",
@@ -4486,6 +4498,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
       {
         "path": "/improvement-board/manage-boards",
         "label": "Manage Boards",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/improvement-board/owners",
+        "label": "Owners",
         "iconName": "FileText",
         "children": []
       },
