@@ -142,7 +142,7 @@ DECLARE
 BEGIN
   FOR r IN
     SELECT role_key FROM public.custom_roles
-    WHERE role_key IN ('cdc_head', 'cdc_coordinator')
+    WHERE role_key IN ('ceo', 'cdc_head', 'cdc_coordinator', 'managing_director')
   LOOP
     SELECT COALESCE((permissions->>'cdc.industry_partners.view')::boolean, false)
       INTO v_granted
