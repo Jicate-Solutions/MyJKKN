@@ -37,7 +37,7 @@ the map is missing entries for pages that **exist on `main` today**.
 | Supplier | `ims_suppliers` | 4 | **List page with a real table** — `/ims/settings/suppliers` | **One `TABLE_HREF` line** |
 | Internship site contact | `internship_site_contacts` | 0 | Sites module exists; `/internships/sites/[id]` references contacts 8 times | **Confirm, then deep-link** to the parent site |
 | Industry partner | `industry_partners` | 1 | **None.** `/cdc/industry-mentors` looks like a match but reads a *different* table (`industry_mentors`). | Genuine build |
-| `Student-support mentor` | `ss_mentors` | 0 | **Full module** — `/startup-studio/mentors` and `/startup-studio/mentors/[id]`, backed by `lib/services/startup-studio/mentor-service.ts` (13 `from('ss_mentors')` calls), 8 API routes and a hook. Already in `MENU_PERMISSIONS` under `startup_studio.analytics.view`. | **One `TABLE_HREF` line** |
+| `Student-support mentor` | `ss_mentors` | 0 | **Full module** — `/startup-studio/mentors` and `/startup-studio/mentors/[id]`, backed by `lib/services/startup-studio/mentor-service.ts` (13 `from('ss_mentors')` calls). Already in `MENU_PERMISSIONS` under `startup_studio.analytics.view`. | **One `TABLE_HREF` line** |
 
 Row counts are a point-in-time reading taken from production on 2026-08-06 — context for
 sizing, not a fixture. Re-read them before acting on any sizing claim here; nine panes write
