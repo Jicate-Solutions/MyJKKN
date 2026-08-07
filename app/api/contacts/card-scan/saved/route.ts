@@ -278,16 +278,23 @@ export async function GET() {
     byTable.set(r.routed_table, list);
   }
 
+  const openable = await viewerCanOpen(supabase, [...byTable.keys()]);
+
   const groups = [...byTable.entries()]
-    .map(([table, people]) => ({
-      table,
-      label: TABLE_LABEL[table] ?? table,
-      href: TABLE_HREF[table] ?? null,
-      /** No href = this list has no screen of its own; this page is the only view. */
-      only_view_here: !TABLE_HREF[table],
-      count: people.length,
-      people,
-    }))
+    .map(([table, people]) => {
+      // Both conditions must hold: the destination has a screen at all, AND
+      // this viewer may open it. Either way the answer below is true FOR THEM.
+      const href = TABLE_HREF[table] && openable.has(table) ? TABLE_HREF[table] : null;
+      return {
+        table,
+        label: TABLE_LABEL[table] ?? table,
+        href,
+        /** No href = there is no screen you can open; this page is your only view. */
+        only_view_here: href === null,
+        count: people.length,
+        people,
+      };
+    })
     .sort((a, b) => b.count - a.count);
 
   // Saved to the contact book but not routed anywhere ("Just a contact").
