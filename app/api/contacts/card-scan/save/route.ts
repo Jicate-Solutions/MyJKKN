@@ -67,16 +67,21 @@ function diffFields(ai: Fields, human: Fields): string[] {
 }
 
 /**
- * The Networker contact ids that are a legitimate enrich target for THIS card.
+ * The Networker contacts that are a legitimate enrich target for THIS card,
+ * keyed by id, carrying the note each one already holds.
  *
  * Re-derived server-side rather than trusted from the request body. `target_id`
  * arriving from the client is otherwise an unscoped fill-write into any contact
  * in the shared book — including ones the duplicate check never showed the user.
  * Cheap: the same searches /match already runs, against a 118-row book.
+ *
+ * The existing note comes back on the same search, so keeping it here costs
+ * nothing and saves the enrich path a second round-trip to find out what the
+ * contact's note already says.
  */
-async function matchableContactIds(f: Fields): Promise<Set<string>> {
-  const ids = new Set<string>();
-  if (!isNetworkerConfigured()) return ids;
+async function matchableContacts(f: Fields): Promise<Map<string, string | null>> {
+  const found = new Map<string, string | null>();
+  if (!isNetworkerConfigured()) return found;
 
   const digitsOnly = (s: string) => s.replace(/\D/g, '');
   const probes = [f.name, f.email, f.mobile, f.phone]
@@ -87,14 +92,46 @@ async function matchableContactIds(f: Fields): Promise<Set<string>> {
   for (const p of probes) {
     try {
       const res = await searchContacts(p, 10);
-      for (const c of res.data ?? []) ids.add(c.id);
+      for (const c of res.data ?? []) found.set(c.id, c.notes ?? null);
     } catch {
       // A search outage must not silently widen what may be written. Returning
       // what we have means an unverifiable target_id is refused, not accepted.
       break;
     }
   }
-  return ids;
+  return found;
+}
+
+/**
+ * The subset of `lines` the contact's note does not already carry.
+ *
+ * Networker's PATCH /api/contacts/ingest APPENDS what it is sent
+ * (`notes = existing + '\n\n' + incoming`) so that handwritten scribbles
+ * accumulate across cards — decision 7, and correct on its own terms. But this
+ * route rebuilds the WHOLE extra-lines block from scratch on every scan, so a
+ * second card from the same person re-sends lines the note already has: the
+ * routing line in particular ("Who: Supplier") reappears once per scan forever.
+ *
+ * Compared line by line rather than by substring: an entry may itself be
+ * multi-line (a handwritten note), and a substring test would let one phone
+ * number suppress a longer one that merely contains it.
+ */
+export function linesNotAlreadyInNote(lines: string[], existingNote: string | null): string[] {
+  const present = new Set(
+    (existingNote ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean),
+  );
+  if (present.size === 0) return lines;
+
+  return lines.filter((entry) => {
+    const own = entry
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    return !own.every((l) => present.has(l));
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -287,7 +324,7 @@ export async function POST(request: NextRequest) {
       // `target_id` must be a contact the duplicate check actually surfaced for
       // THIS card. Without it the body carries an unscoped fill-write primitive
       // into any contact id in the shared book, shown to the user or not.
-      const allowed = await matchableContactIds(human);
+      const allowed = await matchableContacts(human);
       if (!allowed.has(targetId)) {
         return NextResponse.json(
           {
@@ -298,7 +335,14 @@ export async function POST(request: NextRequest) {
           { status: 409 },
         );
       }
-      result = await enrichContact(targetId, payload);
+      // Send only what this contact's note does not already say. Networker
+      // appends whatever it receives, so re-sending the whole block would stack
+      // a fresh copy of every line each time this person is scanned again.
+      const freshLines = linesNotAlreadyInNote(extraLines, allowed.get(targetId) ?? null);
+      result = await enrichContact(targetId, {
+        ...payload,
+        notes: freshLines.length ? freshLines.join('\n') : undefined,
+      });
     } else {
       result = await ingestContact(payload);
     }
