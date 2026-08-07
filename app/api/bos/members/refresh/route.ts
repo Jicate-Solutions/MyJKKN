@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
         .from('staff')
         .select(
           `id, first_name, last_name, designation, email, institution_email, phone,
-           institution:institutions ( name ),
+           institution:institutions!staff_institution_id_fkey ( name ),
            department:departments ( department_name )`,
         )
         .in('id', staffIds);

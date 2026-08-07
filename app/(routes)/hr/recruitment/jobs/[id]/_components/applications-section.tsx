@@ -207,9 +207,12 @@ export function ApplicationsSection({ jobId }: { jobId: string }) {
                 <li key={app.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium text-foreground">
+                      <Link
+                        href={`/hr/recruitment/applications/${app.id}`}
+                        className="font-medium text-foreground hover:text-primary hover:underline"
+                      >
                         {app.first_name} {app.last_name}
-                      </span>
+                      </Link>
                       <Badge variant="outline" className={cn('text-[11px]', STATUS_BADGE[app.status])}>
                         {JOB_APPLICATION_STATUS_LABELS[app.status]}
                       </Badge>

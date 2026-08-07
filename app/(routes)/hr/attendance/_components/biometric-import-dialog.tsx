@@ -33,7 +33,7 @@ import {
   type BiometricAnomalyKind, type BiometricImportReport,
   type BiometricSuggestResponse, type ImportVerdict,
 } from '@/types/hr-biometric';
-import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useSuggestMappings } from '@/hooks/hr/use-biometric-mapping';
 import { LinkCodesStep } from './link-codes-step';
 
@@ -65,8 +65,11 @@ export function BiometricImportDialog({ open, onOpenChange, onImportComplete }: 
   const [downloading, setDownloading] = useState(false);
   const [suggestion, setSuggestion] = useState<BiometricSuggestResponse | null>(null);
 
-  const { hasPermission } = useAuth();
-  const canEditStaff = hasPermission('staff.edit');
+  // The wired useAuth() exposes only { profile, isLoading, error } — permission
+  // checks live in usePermissions(). can() already folds in super-admin and
+  // fails closed while the permission query loads.
+  const { can } = usePermissions();
+  const canEditStaff = can('staff.edit');
   const suggest = useSuggestMappings();
 
   const reset = useCallback(() => {
