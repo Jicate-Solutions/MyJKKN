@@ -250,6 +250,11 @@ export const ROUTE_PREFIX_TO_MODULE: ReadonlyArray<readonly [string, string]> = 
   ['/vac', 'VAC'],
   ['/bos', 'System'],
   ['/cdc', 'CDC'], // Career Development Centre — drives, placements, internships, idp, clubs, mentors, training, bulletin, exports, industry-mentors
+  // Industry Partners directory (public.industry_partners — the COMPANIES,
+  // distinct from /cdc/industry-mentors which reads industry_mentors). The
+  // route is top-level rather than under /cdc, but the module is CDC-owned and
+  // its permission key is cdc.industry_partners.view — so it rolls up to CDC.
+  ['/industry-partners', 'CDC'],
   ['/internships', 'Internship'], // Internship Module — operational cycles/sites/preceptors/vehicles routes (PR #1209)
   // Instagram monitoring substrate (Phase 1B, 2026-05-30): /social/instagram/*
   // sub-routes (accounts, posts, audits, dormant queue, alerts) all roll up
