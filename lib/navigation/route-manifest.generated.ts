@@ -1959,6 +1959,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/billing/late-charges",
+        "label": "Late Charges",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/onboarding",
         "label": "Onboarding",
         "iconName": "UserPlus",

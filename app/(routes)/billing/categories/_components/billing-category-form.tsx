@@ -56,7 +56,10 @@ export const KIND_OPTIONS: { value: BillingCategoryKind; label: string }[] = [
   { value: 'exam', label: 'Exam Fee' },
   { value: 'application_fee', label: 'Application Fee' },
   { value: 'library', label: 'Library Fee' },
-  { value: 'other', label: 'Other' }
+  { value: 'other', label: 'Other' },
+  // Late-payment charge head (2026-08-07). Listed so the badge/label renders;
+  // penalty bills are created only by fn_late_charge_accrue, never by hand.
+  { value: 'penalty', label: 'Late Payment Charge (penalty)' }
 ];
 
 const KIND_VALUES = KIND_OPTIONS.map((o) => o.value) as string[];

@@ -821,7 +821,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment_accounts.view', label: 'View Payment Gateway Accounts' },
       { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' },
       { key: 'billing.transport.view', label: 'View Transport Fees' },
-      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' }
+      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' },
+
+      // ── Late payment charge (2026-08-07) ──────────────────────────────────
+      // Platform-wide late-charge MECHANISM (Director's plan, rank 1). Built
+      // OFF at every layer: the billing.late_charge.enabled policy row is
+      // false, no schedule exists, and .waive is deliberately granted to NO
+      // role — only the Director (super-admin bypass) can waive. .manage gates
+      // the accrual RPC; nothing in this build calls it live.
+      { key: 'billing.late_charges.view', label: 'View Late Payment Charges (preview + derivation)' },
+      { key: 'billing.late_charges.manage', label: 'Run Late Charge Accrual' },
+      { key: 'billing.late_charges.waive', label: 'Waive Late Payment Charges (Director only)' }
     ]
   },
   {
