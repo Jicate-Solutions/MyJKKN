@@ -239,7 +239,7 @@ export class LCIssueService {
       // BUG-01: a CHECK violation (SQLSTATE 23514) is something the person can
       // fix themselves — refuse explicitly with wording they can act on instead
       // of leaking the raw constraint text.
-      const refusal = describeCheckConstraintViolation(error);
+      const refusal = describeCheckConstraintViolation(error, { description: data.description });
       if (refusal) {
         throw new Error(refusal.error);
       }

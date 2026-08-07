@@ -73,14 +73,29 @@ interface DatabaseErrorLike {
  * failures keep their existing handling. Any check constraint without specific
  * wording still gets a plain message — the raw constraint text is never
  * returned.
+ *
+ * `submitted` guards against drift. The constraint is not defined by any
+ * migration in this repo, so if the database rule ever moves away from the
+ * value mirrored here, repeating "at least 10 characters" to someone who
+ * already wrote more than that would be a dead end. In that case the general
+ * wording is used instead.
  */
 export function describeCheckConstraintViolation(
-  error: DatabaseErrorLike | null | undefined
+  error: DatabaseErrorLike | null | undefined,
+  submitted?: { description?: string }
 ): GrievanceRefusal | null {
   if (!error || error.code !== CHECK_CONSTRAINT_VIOLATION) return null;
 
+  const generic: GrievanceRefusal = { success: false, field: null, error: GENERIC_CHECK_REFUSAL };
+
   const haystack = `${error.message ?? ''} ${error.details ?? ''}`;
   const match = CHECK_CONSTRAINT_REFUSALS.find((c) => haystack.includes(c.constraint));
+  if (!match) return generic;
 
-  return match ? match.refusal : { success: false, field: null, error: GENERIC_CHECK_REFUSAL };
+  const alreadySatisfiesMirroredRule =
+    match.refusal.field === 'description' &&
+    typeof submitted?.description === 'string' &&
+    validateGrievanceDescription(submitted.description) === null;
+
+  return alreadySatisfiesMirroredRule ? generic : match.refusal;
 }
