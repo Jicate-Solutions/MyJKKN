@@ -1,13 +1,14 @@
 // Industry Partner types.
 //
-// Column layout taken from the generated `types/supabase.ts` definition of
-// `public.industry_partners` (34 columns) and confirmed against the live table
-// on 2026-08-07.
+// The row type is DERIVED from the generated `types/supabase.ts` definition of
+// `public.industry_partners`, not transcribed, so it cannot drift from the table.
 //
 // NOT to be confused with `industry_mentors` (see types/cdc/industry-mentors.ts)
 // — that is a directory of individual people who mentor learners. This table is
 // a directory of COMPANIES the institution partners with. Two different tables,
 // two different modules.
+
+import type { Database } from '@/types/supabase';
 
 /** Values of the `partnership_type` Postgres enum. */
 export const PARTNERSHIP_TYPES = [
@@ -32,55 +33,16 @@ export const PARTNERSHIP_TYPE_LABELS: Record<PartnershipType, string> = {
   training: 'Training',
 };
 
-export interface IndustryPartner {
-  id: string;
-  institution_id: string;
-
-  // Company identity
-  company_name: string;
-  company_website: string | null;
-  company_description: string | null;
-  company_logo_url: string | null;
-  company_size: string | null;
-  industry_sector: string | null;
-
-  // Primary contact (this is what the business-card scanner writes)
-  contact_person: string | null;
-  contact_designation: string | null;
-  contact_email: string | null;
-  contact_phone: string | null;
-
-  // Address
-  address_line1: string | null;
-  address_line2: string | null;
-  city: string | null;
-  state: string | null;
-  pincode: string | null;
-  country: string | null;
-
-  // Partnership terms
-  partnership_type: PartnershipType;
-  partnership_start_date: string | null;
-  partnership_end_date: string | null;
-  partnership_value: string | null;
-  mou_document_url: string | null;
-
-  // Engagement rollups
-  total_internships_offered: number | null;
-  total_placements: number | null;
-  total_projects_offered: number | null;
-  average_rating: number | null;
-
-  // Lifecycle
-  is_active: boolean;
-  is_verified: boolean | null;
-  verified_at: string | null;
-  verified_by: string | null;
-
-  created_at: string;
-  created_by: string | null;
-  updated_at: string;
-}
+/**
+ * The row shape, DERIVED from the generated schema rather than transcribed.
+ *
+ * This was 34 columns copied out by hand. A hand copy cannot fail when the
+ * table changes — it just silently disagrees with the database, and every
+ * consumer inherits the lie. Aliasing the generated Row means a column added,
+ * dropped or retyped in Postgres shows up as a type error at the call site the
+ * next time `types/supabase.ts` is regenerated.
+ */
+export type IndustryPartner = Database['public']['Tables']['industry_partners']['Row'];
 
 export interface IndustryPartnerListParams {
   /** Free-text match on company name, sector, contact person or city. */
