@@ -1,13 +1,34 @@
--- supabase/migrations/20260814020000_institution_accreditation_bodies.sql
+-- supabase/migrations/20260816010000_institution_accreditation_bodies.sql
 -- ===========================================================================
 -- Which awarding bodies apply to which institution — Director decisions,
 -- 2026-08-06 (artifacts/awarding-body-mapping-2026-08-06.md).
 --
--- 🛑 FILE ONLY / NOT APPLIED TO ANY DATABASE. Applying a migration is
--- Director-gated in this repository. This file is the reviewed proposal.
+-- RENAME-SAFE: 20260814020000 -> 20260816010000 — renumbered 2026-08-06 to
+-- clear a three-way version collision. While this PR was open, two other
+-- branches merged their own 20260814020000_* files to main
+-- (restore_user_has_permission_execute_grant, upgrade_frees_old_bed), so
+-- keeping this stamp would have put THREE files on one version.
+-- Being explicit, because the usual guidance is the opposite: this file HAS
+-- already run in production (applied by hand via the Management API on
+-- 2026-08-06, Director-approved, verified by catalog). It is renumbered
+-- rather than the other two because those are already merged to main and
+-- this one is not, and because re-running this file is a genuine no-op —
+-- both tables are CREATE TABLE IF NOT EXISTS, every policy is DROP POLICY
+-- IF EXISTS before CREATE, the index is CREATE INDEX IF NOT EXISTS, both
+-- seeds end in ON CONFLICT DO NOTHING, the CHECK-to-FK swap tests for the
+-- constraint before touching it, and the file contains zero DELETE,
+-- TRUNCATE or DROP TABLE statements. The hazard the rename guard exists to
+-- prevent — a re-apply rolling DROP + CREATE back over live data — has no
+-- statement here to act on.
+--
+-- ✅ APPLIED TO PRODUCTION 2026-08-06 (was FILE ONLY when first written).
+-- Rehearsed in BEGIN..ROLLBACK with residue verified 0 in a separate call,
+-- then applied and verified by catalog: 2 tables, 6 FKs, 0 hardcoded
+-- ten-value CHECK constraints left, 15 bodies, 35 mappings, and anon
+-- holding no grant on either new table.
 -- Every reader of the new tables treats their absence as "not provisioned"
 -- and falls back to today's behaviour, so the code half is safe to deploy
--- before this file is applied.
+-- independently of this file.
 --
 -- WHAT IS BROKEN
 -- ---------------------------------------------------------------------------

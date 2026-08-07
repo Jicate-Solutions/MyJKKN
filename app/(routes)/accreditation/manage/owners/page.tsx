@@ -468,7 +468,7 @@ export default function AccreditationOwnersPage() {
   const { data: committeeLeads } = useCommitteeLeads(activeInstitution);
 
   // Which awarding bodies this campus actually answers to (Director decisions,
-  // 2026-08-06). Until migration 20260814020000 is applied this resolves to
+  // 2026-08-06). Until migration 20260816010000 is applied this resolves to
   // `unprovisioned` and narrows nothing, so the page behaves exactly as it does
   // today; the filter switches itself on when the mapping table appears.
   const { scope: bodyScope, isLoading: scopeLoading } =

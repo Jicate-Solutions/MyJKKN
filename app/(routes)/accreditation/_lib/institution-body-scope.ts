@@ -21,10 +21,12 @@
 /**
  * What we know about one institution's awarding bodies.
  *
- * `unprovisioned` is the load-bearing state. `institution_accreditation_bodies`
- * is UNAPPLIED — the migration is Director-gated — so on production today the
- * table does not exist and the read fails. That is "we do not know which
- * bodies apply", and it is NOT the same fact as "no body applies".
+ * `unprovisioned` is the load-bearing state: the read failed, so we do not
+ * know which bodies apply — and that is NOT the same fact as "no body
+ * applies". It stays load-bearing even now that migration 20260816010000 is
+ * APPLIED (2026-08-06) and both tables exist on production, because a read
+ * can still fail for a viewer RLS denies, and that must not render as "this
+ * campus answers to nobody".
  *
  * Collapsing the two would be the worse bug in both directions: filtering to
  * nothing hides 96 real metrics from a college that has them, and it does it

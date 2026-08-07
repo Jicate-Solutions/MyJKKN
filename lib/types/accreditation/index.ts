@@ -52,7 +52,7 @@ export const EVIDENCE_CONFLICT_TARGET_LEGACY =
 /**
  * Display metadata for each compliance body — label, blurb, accent colour.
  *
- * ⚠️ NOT the list of bodies. From migration 20260814020000 that is the
+ * ⚠️ NOT the list of bodies. From migration 20260816010000 that is the
  * `accreditation_bodies` table, and which of them apply to a given college is
  * `institution_accreditation_bodies`. This array only decorates a code with
  * something readable, and a code missing from it renders as the code itself

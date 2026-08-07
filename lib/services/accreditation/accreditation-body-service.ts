@@ -2,9 +2,10 @@
 // ============================================================================
 // CRUD for the awarding-body registry and the institution↔body mapping.
 //
-// Both tables arrive with migration 20260814020000, which is UNAPPLIED. Every
-// call here therefore fails today, and the screen that uses it says the
-// register is not provisioned rather than rendering an empty list as fact.
+// Both tables arrive with migration 20260816010000, APPLIED to production
+// 2026-08-06, so these calls succeed. When one does fail — RLS denial, or an
+// environment without the migration — the screen says the register is not
+// provisioned rather than rendering an empty list as fact.
 //
 // Writes go through the session (browser) client, so RLS is the whole guard:
 //   accreditation_bodies                 — write needs accreditation.bodies.manage

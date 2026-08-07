@@ -16,9 +16,10 @@
 // One combined grid would invite editing the cluster registry while thinking
 // about one college.
 //
-// 🔴 Both tables arrive with migration 20260814020000, which is UNAPPLIED. The
-// page detects that and says the register is not provisioned yet, rather than
-// rendering an empty registry as "there are no awarding bodies".
+// Both tables arrive with migration 20260816010000, APPLIED to production
+// 2026-08-06. The not-provisioned branch below is kept rather than removed: if
+// the read ever fails, the page says the register is not provisioned yet
+// rather than rendering an empty registry as "there are no awarding bodies".
 // ============================================================================
 
 'use client';
@@ -429,7 +430,7 @@ export default function AwardingBodiesPage() {
               </div>
               <p className="text-muted-foreground">
                 Its tables ship with migration{' '}
-                <code>20260814020000_institution_accreditation_bodies.sql</code>,
+                <code>20260816010000_institution_accreditation_bodies.sql</code>,
                 which has not been applied. Until it is, every accreditation
                 screen shows all bodies to every institution, exactly as it does
                 today — nothing is hidden and nothing is broken. This page will

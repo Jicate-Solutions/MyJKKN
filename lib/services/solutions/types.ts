@@ -770,7 +770,7 @@ export interface PublicationContributor extends BaseEntity {
  * on five tables.
  *
  * ⚠️ THIS UNION IS A CONVENIENCE, NOT THE SOURCE OF TRUTH. From migration
- * 20260814020000 the authority is the `accreditation_bodies` table, and the
+ * 20260816010000 the authority is the `accreditation_bodies` table, and the
  * five `body_code` CHECK constraints that used to enumerate ten codes are
  * foreign keys to it — precisely so a sixteenth body is one INSERT rather than
  * a migration against five tables plus a deploy of this file. Code that reads

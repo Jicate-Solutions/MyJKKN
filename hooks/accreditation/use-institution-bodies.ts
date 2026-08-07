@@ -3,11 +3,12 @@
 // Reads `institution_accreditation_bodies` — which awarding bodies apply to
 // one institution — and the `accreditation_bodies` registry that names them.
 //
-// 🔴 BOTH TABLES ARE UNAPPLIED. Migration 20260814020000 is Director-gated, so
-// on production today neither table exists and every read below fails. That is
-// deliberate and handled: a failed read resolves to the `unprovisioned` scope,
-// which shows every body exactly as the page does now. The code half is safe
-// to deploy before the migration is applied, and starts filtering the moment
+// Migration 20260816010000 is APPLIED to production (2026-08-06), so both
+// tables exist and these reads succeed. The failure path below is still
+// load-bearing and must not be removed: a failed read — RLS denial, or an
+// environment where the migration has not run — resolves to the
+// `unprovisioned` scope, which shows every body exactly as the page did
+// before. The code half was safe to deploy before the migration, and filters
 // it is, with no second deploy.
 //
 // Failing OPEN is the correct direction and not laziness. A scope filter that
