@@ -99,6 +99,33 @@ COMMENT ON POLICY "industry_partners_select_permission" ON public.industry_partn
 --
 -- COALESCE guards a NULL permissions column (jsonb NULL || x = NULL would wipe
 -- every existing grant on the role).
+--
+-- WHICH ROLES, AND WHY THIS SET (decided 2026-08-07, after review):
+-- Exactly the four that hold every sibling CDC module key. Measured live on
+-- custom_roles the same day: cdc.mentors.view, cdc.industry_mentors.view and
+-- cdc.view are each held by ceo, cdc_head, cdc_coordinator, managing_director —
+-- the same four, no more, no less. This module takes that shape rather than
+-- inventing a different one, because a directory that answers "which companies
+-- do we partner with" belongs to the same audience as "which people mentor our
+-- learners".
+--
+-- It was put to review that this "ships dark" to the other 21 roles that can
+-- scan a business card and therefore CREATE rows here. That is true and it is
+-- deliberate: a scanner already sees every card they saved, and where it went,
+-- on /meetings/contacts/scan/saved. Contributing a row is not the same as
+-- owning the directory, and widening this key to all 23 scanner roles would
+-- make this the single most broadly-readable CDC surface in the product on the
+-- strength of an empty table.
+--
+-- KNOWN GAP, pre-existing and NOT introduced here: the `administrator` role is
+-- admitted by this table's RLS (via is_admin()) and by the sidebar (via
+-- ADMIN_BYPASS_ROLES in lib/navigation/permission-filter.ts), but NOT by
+-- PermissionGuard, which bypasses on isSuperAdmin alone — role === 'super_admin'
+-- or the is_super_admin flag. So an administrator sees the menu entry and the
+-- database returns their rows, while the page renders the fallback. Every other
+-- CDC module (/cdc/mentors, /cdc/industry-mentors) has the identical three-layer
+-- mismatch, so it is a platform-wide inconsistency to fix once, deliberately,
+-- rather than to paper over here with a grant shape no sibling module uses.
 UPDATE public.custom_roles
 SET permissions = COALESCE(permissions, '{}'::jsonb)
                   || jsonb_build_object('cdc.industry_partners.view', true),
