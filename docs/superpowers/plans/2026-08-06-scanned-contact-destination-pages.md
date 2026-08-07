@@ -33,7 +33,7 @@ the map is missing entries for pages that **exist on `main` today**.
 
 | Destination | Table | Rows today | Existing UI on `main` | Real gap |
 |---|---|---|---|---|
-| Solutions prospect | `sh_prospects` | 0 | **Full module** — `/solutions/pipeline/list`, `/solutions/pipeline/[id]`, `/[id]/edit`, `/analytics`, plus a board view. 8 API routes, a service and hooks. | **One `TABLE_HREF` line** |
+| Solutions prospect | `sh_prospects` | 0 | **Full module** — `/solutions/pipeline/list`, `/solutions/pipeline/[id]`, `/[id]/edit`, `/analytics`, plus a board view — 6 pages. 8 API routes under `app/api/solutions/prospects/`, a service, and 3 hooks (re-counted 2026-08-07). | **One `TABLE_HREF` line** |
 | Supplier | `ims_suppliers` | 4 | **List page with a real table** — `/ims/settings/suppliers` | **One `TABLE_HREF` line** |
 | Internship site contact | `internship_site_contacts` | 0 | Sites module exists; `/internships/sites/[id]` references contacts 8 times | **Confirm, then deep-link** to the parent site |
 | Industry partner | `industry_partners` | 1 | **None.** `/cdc/industry-mentors` looks like a match but reads a *different* table (`industry_mentors`). | Genuine build |
