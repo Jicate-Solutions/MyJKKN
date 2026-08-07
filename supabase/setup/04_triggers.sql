@@ -1657,3 +1657,15 @@ DROP TRIGGER IF EXISTS trg_billing_late_charges_updated_at ON public.billing_lat
 CREATE TRIGGER trg_billing_late_charges_updated_at
     BEFORE UPDATE ON public.billing_late_charges
     FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+-- ============================================================================
+-- Events Hub — refuse a delete that would cascade registrations/payments away
+-- (2026-08-06). 46 FKs point at `events`, 43 of them ON DELETE CASCADE.
+-- Body lives in 02_functions.sql.
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_events_block_delete_with_dependents ON public.events;
+
+CREATE TRIGGER trg_events_block_delete_with_dependents
+  BEFORE DELETE ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_events_block_delete_with_dependents();
