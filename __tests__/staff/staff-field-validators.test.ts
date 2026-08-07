@@ -67,4 +67,22 @@ describe('parseFlexibleDate', () => {
   it('falls back to MM/DD/YYYY when DD/MM is impossible', () => {
     expect(parseFlexibleDate('05/25/1990').convertedDate).toBe('1990-05-25');
   });
+
+  // Fix round 1: a plain mm/dd range check accepts calendar days that don't exist.
+  // The original validateDate rejected these via a Date round-trip; restored here.
+  it('rejects 30 February', () => {
+    expect(parseFlexibleDate('30/02/1990').isValid).toBe(false);
+  });
+  it('rejects 31 April (April has 30 days)', () => {
+    expect(parseFlexibleDate('31/04/1990').isValid).toBe(false);
+  });
+  it('rejects 29 February in a non-leap year', () => {
+    expect(parseFlexibleDate('29/02/1991').isValid).toBe(false);
+  });
+  it('accepts 29 February in a leap year', () => {
+    expect(parseFlexibleDate('29/02/1992').convertedDate).toBe('1992-02-29');
+  });
+  it('still accepts 31 December', () => {
+    expect(parseFlexibleDate('31/12/1990').convertedDate).toBe('1990-12-31');
+  });
 });

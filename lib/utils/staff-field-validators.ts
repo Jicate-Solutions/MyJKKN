@@ -4,6 +4,8 @@
  * Extracted from bulk-upload-staff.tsx on 2026-08-07 so the two flows cannot drift on
  * what counts as a valid phone number or a parseable date. The regexes are unchanged —
  * do not "tighten" them here without checking the upload path still accepts real data.
+ * Not format-for-format identical to the deleted code (e.g. the YYYY/MM/DD branch here
+ * also accepts a dash separator) — those are widenings, not lost formats.
  */
 
 export function validateEmail(email: string): boolean {
@@ -77,12 +79,27 @@ export function parseFlexibleDate(value: unknown): ParsedDate {
     const [, d, m, y] = dmy;
     const day = Number(d);
     const month = Number(m);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+    const year = Number(y);
+
+    // Range-checking mm/dd isn't enough — "30/02" and "31/04" pass a range check but
+    // aren't real calendar days. Round-trip through Date the same way the original
+    // validateDate did, so a typo'd day surfaces here instead of as a raw Postgres error.
+    const isRealCalendarDay = (mm: number, dd: number) => {
+      if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
+      const probe = new Date(Date.UTC(year, mm - 1, dd));
+      return (
+        probe.getUTCFullYear() === year &&
+        probe.getUTCMonth() === mm - 1 &&
+        probe.getUTCDate() === dd
+      );
+    };
+
+    if (isRealCalendarDay(month, day)) {
       return { isValid: true, convertedDate: `${y}-${pad(month)}-${pad(day)}` };
     }
     // Second segment can't be a month (e.g. "05/25/1990") — retry as MM/DD/YYYY.
     // Preserved from the original parser's US-format fallback.
-    if (day >= 1 && day <= 12 && month >= 1 && month <= 31) {
+    if (isRealCalendarDay(day, month)) {
       return { isValid: true, convertedDate: `${y}-${pad(day)}-${pad(month)}` };
     }
     return { isValid: false, convertedDate: '', error: `Out-of-range date: ${raw}` };
