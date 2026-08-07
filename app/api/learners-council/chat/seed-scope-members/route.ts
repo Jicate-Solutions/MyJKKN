@@ -385,10 +385,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
     }
 
-    // Step 4: re-impose the caller's institution scope. An institution-scoped
-    // caller never pulls a person from another college into their channel.
+    // Step 4: re-impose the caller's institution scope — but ONLY for scopes
+    // that are actually per-institution.
+    //
+    // A YUVA chapter and a vertical belong to one college, so filtering them to
+    // the caller's institutions is right: nobody pulls a person from another
+    // college into their channel.
+    //
+    // The council itself is NOT per-institution. There is ONE Learners Council
+    // across all colleges — today its President and Secretary sit in Dental and
+    // its Vice President in Pharmacy. Filtering an 'executive' or 'portfolio'
+    // channel to the creator's own college therefore resolves to ZERO council
+    // members for every creator outside those two colleges, which silently
+    // reproduces the exact bug this route exists to fix: the channel is created,
+    // seeding "succeeds", and still nobody but the creator can see it.
+    //
+    // These cluster-wide scopes resolve from council membership itself
+    // (lc_members / committee membership), which is already the authority on who
+    // belongs — an institution filter adds no safety there, only silent misses.
+    const CLUSTER_WIDE_SCOPES = new Set(['executive', 'portfolio']);
+    const scopeIsClusterWide = CLUSTER_WIDE_SCOPES.has(channelRow.type);
+
     const allowedInstitutions =
-      filter.isSuperAdmin || filter.institutionIds.length === 0
+      scopeIsClusterWide || filter.isSuperAdmin || filter.institutionIds.length === 0
         ? null
         : new Set(filter.institutionIds);
 
