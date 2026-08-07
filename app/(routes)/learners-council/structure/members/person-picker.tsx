@@ -35,9 +35,22 @@ interface PersonPickerProps {
   onChange: (userId: string) => void;
   id?: string;
   disabled?: boolean;
+  /**
+   * 'lc_members' narrows the pool to the sitting council for the given term —
+   * used for the 4 executive seats, which are elected FROM existing members.
+   */
+  scope?: 'all' | 'lc_members';
+  termId?: string;
 }
 
-export function PersonPicker({ value, onChange, id, disabled }: PersonPickerProps) {
+export function PersonPicker({
+  value,
+  onChange,
+  id,
+  disabled,
+  scope = 'all',
+  termId,
+}: PersonPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -54,10 +67,11 @@ export function PersonPicker({ value, onChange, id, disabled }: PersonPickerProp
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    fetch(
-      `/api/learners-council/pickers/people?search=${encodeURIComponent(debounced)}`,
-      { cache: 'no-store' }
-    )
+    const params = new URLSearchParams({ search: debounced, scope });
+    if (termId) params.set('term_id', termId);
+    fetch(`/api/learners-council/pickers/people?${params.toString()}`, {
+      cache: 'no-store',
+    })
       .then((r) => (r.ok ? r.json() : { options: [] }))
       .then((d) => {
         if (!cancelled) setOptions(d.options || []);
@@ -71,7 +85,7 @@ export function PersonPicker({ value, onChange, id, disabled }: PersonPickerProp
     return () => {
       cancelled = true;
     };
-  }, [debounced, open]);
+  }, [debounced, open, scope, termId]);
 
   const selected = useMemo(
     () => options.find((o) => o.value === value),

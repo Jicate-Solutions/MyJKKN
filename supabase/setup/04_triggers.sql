@@ -1590,18 +1590,12 @@ BEFORE INSERT ON public.billing_student_bills
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
 
--- Default "Freshers" semester + section A (2026-07-27): every new program gets
--- one semester and one section so downstream modules always have a valid target.
--- Function body (and the reasoning behind semester_order = 0 /
--- initial_semester = false) lives in 02_functions.sql.
--- AFTER INSERT only -- a program whose hierarchy is completed by a later UPDATE
--- is not retro-seeded.
+-- REMOVED 2026-08-05 (mig 20260805112640_freshers_drop_seed_trigger): the
+-- default "Freshers" semester + section A holding pen was retired. New programs
+-- no longer get a semester_order = 0 placeholder; first-year admits go straight
+-- to the program's first real term, which is now identified by initial_semester
+-- on every active program (mig 20260805112546).
 DROP TRIGGER IF EXISTS programs_seed_freshers ON public.programs;
-
-CREATE TRIGGER programs_seed_freshers
-  AFTER INSERT ON public.programs
-  FOR EACH ROW
-  EXECUTE FUNCTION public.seed_freshers_semester_for_program();
 
 -- ---------------------------------------------------------------------------
 -- Billing: "Once per learner" duplicate guard
@@ -1626,3 +1620,52 @@ CREATE TRIGGER trg_billing_bills_once_per_learner
   BEFORE INSERT OR UPDATE ON public.billing_student_bills
   FOR EACH ROW
   EXECUTE FUNCTION public.billing_enforce_once_per_learner();
+
+
+-- =====================================================================
+-- hr_shift_timings — updated_at trigger
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+DROP TRIGGER IF EXISTS hr_shift_timings_updated_at ON public.hr_shift_timings;
+CREATE TRIGGER hr_shift_timings_updated_at
+  BEFORE UPDATE ON public.hr_shift_timings
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ---------------------------------------------------------------------
+-- RLS. Mirrors the hr_attendance_status_types idiom. The (SELECT fn())
+-- wrapping is load-bearing: it forces once-per-query evaluation and is the
+-- fix for the 57014 statement-timeout class of bug.
+--
+-- Contrast with hr_shift_templates, whose write policies gate on
+-- is_super_admin() OR is_admin() with NO permission key — which locks out
+-- custom roles such as HR Head that hold every other HR key.
+-- ---------------------------------------------------------------------
+
+-- Billing Late Charges updated_at
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql — FILE ONLY, apply is Director-gated)
+DROP TRIGGER IF EXISTS trg_billing_late_charges_updated_at ON public.billing_late_charges;
+CREATE TRIGGER trg_billing_late_charges_updated_at
+    BEFORE UPDATE ON public.billing_late_charges
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+-- ============================================================================
+-- Events Hub — refuse a delete that would cascade registrations/payments away
+-- (2026-08-06). 46 FKs point at `events`, 43 of them ON DELETE CASCADE.
+-- Body lives in 02_functions.sql.
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_events_block_delete_with_dependents ON public.events;
+
+CREATE TRIGGER trg_events_block_delete_with_dependents
+  BEFORE DELETE ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_events_block_delete_with_dependents();

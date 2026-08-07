@@ -32,6 +32,13 @@ export const basicStaffSchema = z.object({
     .or(z.literal('')),
   phone: z.string().min(10, 'Phone number must be at least 10 characters'),
   staff_id: z.string().optional(),
+  // Biometric enrolment (2026-08-06). The code is the Empcode printed by the
+  // attendance machine; it is meaningless without knowing WHICH machine issued
+  // it, because each machine numbers its own enrolments from 1. The pairing is
+  // enforced by staff_biometric_scope_chk in the database and mirrored here so
+  // the user sees it before saving.
+  biometric_id: z.string().optional().nullable(),
+  biometric_institution_id: z.string().optional().nullable(),
   profile_picture: z.string().optional(),
   address: z.string().optional(),
   state: z.string().optional(),
@@ -166,6 +173,18 @@ export const fullStaffSchema = basicStaffSchema
         code: z.ZodIssueCode.custom,
         path: ['email'],
         message: 'Personal email is required for login-enabled staff'
+      });
+    }
+
+    // A biometric code without its machine has no namespace — 00002 on the
+    // Main Office machine and 00002 on the Dental machine are different people.
+    // Mirrors staff_biometric_scope_chk so the user is told here, not by a 23514.
+    const hasCode = Boolean(data.biometric_id && data.biometric_id.trim() !== '');
+    if (hasCode && !data.biometric_institution_id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['biometric_institution_id'],
+        message: 'Choose which machine issued this code'
       });
     }
   });

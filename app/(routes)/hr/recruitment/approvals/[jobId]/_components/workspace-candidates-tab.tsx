@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   AlertCircle, AlertTriangle, ArrowUpRight, CalendarClock, CheckCircle2, Clock,
   ClipboardCheck, Eye, FileText, Inbox, Loader2, Mail, Phone, Settings, Star,
-  UserPlus, XCircle,
+  Trash2, UserPlus, XCircle,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,9 @@ import {
   useApproveCandidate,
   useRejectCandidate,
   useInterviews,
+  usePurgeRejectedApplicant,
 } from '@/hooks/hr/use-recruitment';
+import { Input } from '@/components/ui/input';
 import { useCompleteInterview, useMarkNoShow } from '@/hooks/hr/use-recruitment-interviews';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAlumniSignalBulk } from '@/hooks/hr/use-alumni-signal-bulk';
@@ -488,6 +490,7 @@ function RowActions({
   const rejectCandidate = useRejectCandidate();
   const completeInterview = useCompleteInterview();
   const markNoShow = useMarkNoShow();
+  const purge = usePurgeRejectedApplicant();
 
   // Dialog state
   const [rejectAppOpen, setRejectAppOpen] = useState(false);
@@ -502,6 +505,8 @@ function RowActions({
   const [outcomeOpen, setOutcomeOpen] = useState(false);
   const [outcomeSummary, setOutcomeSummary] = useState('');
   const [onboardOpen, setOnboardOpen] = useState(false);
+  const [purgeOpen, setPurgeOpen] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState('');
 
   // ---- Screening actions (application not yet promoted) ----
   const screening = app && !candidate;
@@ -671,6 +676,32 @@ function RowActions({
     }
   };
 
+  // ---- Permanent delete (super admin, rejected rows only) ----
+  // Covers both rejections: a screening-rejected application and a candidate
+  // rejected inside the pipeline. The server follows the link between them, so
+  // sending either id erases the whole person. Server re-checks both conditions.
+  const canPurge = isSuperAdmin && row.stage === 'rejected';
+  const purgeArmed = purgeConfirm.trim().toUpperCase() === 'DELETE';
+
+  const handlePurge = async () => {
+    if (!purgeArmed) return;
+    try {
+      const result = await purge.mutateAsync(
+        app ? { applicationId: app.id } : { candidateId: candidate!.id },
+      );
+      toast.success(`${row.name} permanently deleted`, {
+        description:
+          result.resumes_failed > 0
+            ? 'All records removed, but the resume could not be deleted from Drive — it has been logged for cleanup.'
+            : 'Application, candidacy and resume have been erased.',
+      });
+      setPurgeOpen(false);
+      setPurgeConfirm('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  };
+
   return (
     <div className="flex flex-col items-stretch gap-1 shrink-0 w-full sm:w-auto sm:min-w-[130px]">
       {/* Screening stage */}
@@ -819,6 +850,19 @@ function RowActions({
         >
           <UserPlus className="h-3.5 w-3.5" />
           Onboard to Staff
+        </Button>
+      )}
+
+      {/* Rejected → super admin may erase the person entirely */}
+      {canPurge && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="w-full justify-start gap-1.5 text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+          onClick={() => { setPurgeConfirm(''); setPurgeOpen(true); }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete Permanently
         </Button>
       )}
 
@@ -1045,6 +1089,60 @@ function RowActions({
               onClick={handleRejectCandidate}
             >
               {rejectCandidate.isPending ? 'Rejecting…' : 'Confirm Reject'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent delete — irreversible, so it asks for a typed confirmation */}
+      <Dialog open={purgeOpen} onOpenChange={(o) => { if (!o) { setPurgeOpen(false); setPurgeConfirm(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Delete {row.name} permanently
+            </DialogTitle>
+            <DialogDescription>
+              This erases every record of this person. It cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <span className="block font-medium">The following will be destroyed:</span>
+              <ul className="mt-1 list-disc pl-4 space-y-0.5 text-xs">
+                <li>Application details — name, email, phone, qualification, experience</li>
+                {candidate && <li>Candidacy and its full approval history</li>}
+                {candidate && <li>Interviews, scorecards, salary packages and comments</li>}
+                {row.resumeUrl && <li>The resume file in Google Drive</li>}
+              </ul>
+            </AlertDescription>
+          </Alert>
+
+          <div className="space-y-1.5">
+            <Label htmlFor={`purge-confirm-${row.key}`}>
+              Type <span className="font-mono font-semibold">DELETE</span> to confirm
+            </Label>
+            <Input
+              id={`purge-confirm-${row.key}`}
+              value={purgeConfirm}
+              onChange={(e) => setPurgeConfirm(e.target.value)}
+              placeholder="DELETE"
+              autoComplete="off"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPurgeOpen(false); setPurgeConfirm(''); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!purgeArmed || purge.isPending}
+              onClick={handlePurge}
+            >
+              {purge.isPending ? 'Deleting…' : 'Delete Permanently'}
             </Button>
           </DialogFooter>
         </DialogContent>

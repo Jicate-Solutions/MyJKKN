@@ -27,6 +27,7 @@ import {
   GraduationCap,
   BookOpen,
   ClipboardCheck,
+  Inbox,
   Gauge,
   IdCard,
   Lock,
@@ -107,6 +108,12 @@ import {
   BadgeCheck,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
+// The single answer to "which MENU_PERMISSIONS values are not permission keys".
+// Imported rather than restated so the sidebar, the route guard
+// (isPageAccessible) and the SQL walls cannot drift into disagreeing about the
+// `super_admin` sentinel. permission-filter imports only a type from
+// ./navigation/types, so there is no import cycle back into this file.
+import { isSentinelPermission } from '@/lib/navigation/permission-filter';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
 
 /**
@@ -219,6 +226,37 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Profile
   '/profile': 'view_profile', // All users should be able to view their own profile
+
+  // ======================================================================
+  // Director's Desk (2026-08-05) — spec: specs/director-desk/SPEC.md
+  //
+  // /director-desk is the Director's own console: everything he has handed
+  // out, and which of it is not green. Genuinely restricted — it lists work
+  // assigned across the whole institution — so it carries a real key.
+  //
+  // /my-desk is the RECEIVER's side and must be reachable by someone who
+  // holds NO module permission at all: the entire point of a handover is that
+  // the receiver could not open the page before. Gating it on any real module
+  // key would defeat the feature.
+  //
+  // `view_profile` is this codebase's universal-authenticated idiom — it is
+  // hard-coded as always-true in isPageAccessible() and filterByPermissions()
+  // (lib/navigation/permission-filter.ts), which is what RoutePermissionGuard
+  // reads, and it is EXEMPT from the catalog gate for exactly this reason
+  // (scripts/check-permissions-catalog.mjs EXEMPT_KEYS). Same pattern already
+  // used by /profile and /ai-pulse.
+  //
+  // CAUTION, measured 2026-08-05 against production: `view_profile` is true on
+  // only 18 of 85 custom_roles. It is a baseline in DEFAULT_ROLE_PERMISSIONS
+  // but 67 live roles predate that and do not carry it — including principal,
+  // hod, faculty, staff, coo and ceo. isPageAccessible short-circuits the key
+  // so the PAGE opens for everyone; the SIDEBAR filter in GetRoleBasedPages
+  // does NOT short-circuit it and would have hidden the link from 79% of
+  // roles. That is why /my-desk also gets an explicit always-visible carve-out
+  // below, the same treatment as /guide and /my-induction-sessions.
+  // ======================================================================
+  '/director-desk': 'director.handover.view_all',
+  '/my-desk': 'view_profile',
 
   // Bug Reports (Student Self-Service)
   '/my-bug-reports': 'learners.bug_reports.view',
@@ -406,7 +444,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // other 99 admin pages use, and it is already in the permission catalog
   // (hr.attendance.view_all is NOT — 2 roles carry it undeclared).
   '/hr/attendance/import': 'hr.dashboard.view',
-  '/hr/shifts/my': 'hr.shifts.view_own',
   '/hr/my-assets': 'hr.assets.view_own',
   '/hr/memos/my': 'hr.memos.view_own',
   '/hr/performance-reviews': 'hr.performance_reviews.view_own',
@@ -446,7 +483,12 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/recruitment-maintenance': 'hr.dashboard.view',
   '/hr/admin/recruitment-need': 'hr.dashboard.view',
   '/hr/admin/required-documents': 'hr.dashboard.view',
-  '/hr/admin/shift-templates': 'hr.dashboard.view',
+  // Gated on its own key, not the blanket hr.dashboard.view the neighbours use.
+  // The retired /hr/admin/shift-templates rode on hr.dashboard.view while its
+  // writes were hardcoded to is_admin(), which locked out custom roles such as
+  // HR Head that hold every other HR key. hr.shift_timings.manage is declared in
+  // the catalog and granted by 20260806090200_hr_shift_timings_permissions.sql.
+  '/hr/admin/shift-timings': 'hr.shift_timings.manage',
   '/hr/admin/terminations': 'hr.dashboard.view',
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
@@ -627,6 +669,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/vac/admin/case/readiness': 'vac.admin.case.readiness.view',
   '/vac/admin/settings': 'vac.admin.settings.view',
 
+  // `/system` is not a page — app/(routes)/system/route.ts answers with a 307 to
+  // /system/api-management. It takes that destination's key so the redirect is
+  // gated exactly like the page it lands on, instead of being an unmatched (and
+  // therefore unprotected) path in the route trie. Same shape as '/staff', which
+  // is the same route.ts-redirect class and carries 'staff.view'.
+  //
+  // This does NOT change who sees the System group in the sidebar: a menu with
+  // submenus is filtered by `menu.submenus.some(...)` and its own key is never
+  // read, so a learner holding only learners.bug_reports.view keeps the group
+  // (and My Bug Reports inside it) exactly as before.
+  '/system': 'system.api.view',
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
@@ -747,6 +800,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -1385,6 +1439,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/polls': 'meetings.polls.view',
   '/meetings/contacts': 'meetings.contacts.view',
   '/meetings/contacts/scan': 'meetings.contacts.scan',
+  '/meetings/contacts/scan/saved': 'meetings.contacts.scan',
   '/meetings/analytics': 'meetings.analytics.view',
   '/meetings/adoption': 'meetings.analytics.view',
   '/meetings/webhooks': 'meetings.webhooks.view',
@@ -1604,6 +1659,11 @@ export const OWNERS_NAV_KEYS = [
  * Does this person reach `href` in the nav? Compares by VALUE (`=== true`), not
  * by key existence: a role may carry a permission key set to an explicit
  * `false`, and an existence test reads that denial as a grant.
+ *
+ * Real super admins and admins never reach this function — GetRoleBasedPages
+ * returns their whole menu earlier — so anything that arrives here belongs to
+ * somebody who is not one. That is why the sentinel wall below is a flat `false`
+ * rather than a role test.
  */
 export function navPathAllowed(
   href: string,
@@ -1617,6 +1677,12 @@ export function navPathAllowed(
     return OWNERS_NAV_KEYS.some((key) => permissions[key] === true);
   }
   if (!requiredPermission) return false;
+  // A sentinel is not a permission key. MENU_PERMISSIONS gates 14 routes on the
+  // literal value `super_admin`, and Director's Desk ORs a handover's keys into
+  // this very map — so a handover of the ID-card printing policy page used to
+  // reveal the entire super-admin sidebar to its receiver. The database walls
+  // the key now; this is the layer that would have acted on it.
+  if (isSentinelPermission(requiredPermission)) return false;
   return permissions[requiredPermission] === true;
 }
 
@@ -1728,6 +1794,28 @@ export function GetPages(pathname: string): MenuGroup[] {
             // participants via MENU_PERMISSIONS (improvement.board.manage).
             { href: '/admin/teaching-cohorts', label: 'Teaching Cohorts', active: pathname === '/admin/teaching-cohorts' }
           ]
+        },
+        {
+          // Director's Desk — the red/green master view of every job handed
+          // out (spec: specs/director-desk/SPEC.md). Gated by
+          // director.handover.view_all via MENU_PERMISSIONS.
+          href: '/director-desk',
+          label: "Director's Desk",
+          active: pathname === '/director-desk' || pathname.startsWith('/director-desk/'),
+          icon: ClipboardCheck,
+          submenus: []
+        },
+        {
+          // My Desk — the receiving side of a handover. Deliberately visible to
+          // EVERY authenticated user (explicit carve-out in GetRoleBasedPages
+          // below): a handover exists precisely because the receiver holds no
+          // permission for the work, so gating its inbox on a module key would
+          // make the feature undiscoverable to the only people who need it.
+          href: '/my-desk',
+          label: 'My Desk',
+          active: pathname === '/my-desk' || pathname.startsWith('/my-desk/'),
+          icon: Inbox,
+          submenus: []
         },
         {
           // CEO Rounds — the daily rounds log (participation-graded attendance,
@@ -2396,7 +2484,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             || pathname.startsWith('/hr/leave/balance')
             || pathname.startsWith('/hr/leave/encashment')
             || pathname.startsWith('/hr/attendance')
-            || pathname.startsWith('/hr/shifts/my')
             || pathname.startsWith('/hr/performance-reviews')
             || pathname.startsWith('/hr/training')
             || pathname.startsWith('/hr/fdp')
@@ -2412,7 +2499,6 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
             { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
-            { href: '/hr/shifts/my', label: 'My Shifts', active: pathname.startsWith('/hr/shifts/my') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -2524,7 +2610,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/recruitment-maintenance', label: 'Recruitment Maintenance', active: pathname.startsWith('/hr/admin/recruitment-maintenance') },
             { href: '/hr/admin/recruitment-need', label: 'Recruitment Need', active: pathname.startsWith('/hr/admin/recruitment-need') },
             { href: '/hr/admin/required-documents', label: 'Required Documents', active: pathname.startsWith('/hr/admin/required-documents') },
-            { href: '/hr/admin/shift-templates', label: 'Shift Templates', active: pathname.startsWith('/hr/admin/shift-templates') },
+            { href: '/hr/admin/shift-timings', label: 'Shift Timings', active: pathname.startsWith('/hr/admin/shift-timings') },
             { href: '/hr/admin/terminations', label: 'Terminations', active: pathname.startsWith('/hr/admin/terminations') },
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
@@ -2710,6 +2796,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
             { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
           ]
         }
       ]
@@ -2959,7 +3046,8 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/meetings/workflows', label: 'Workflows', active: pathname.startsWith('/meetings/workflows') },
             { href: '/meetings/polls', label: 'Polls', active: pathname.startsWith('/meetings/polls') },
             { href: '/meetings/contacts', label: 'Contacts', active: pathname === '/meetings/contacts' },
-            { href: '/meetings/contacts/scan', label: 'Scan a Card', active: pathname.startsWith('/meetings/contacts/scan') },
+            { href: '/meetings/contacts/scan', label: 'Scan a Card', active: pathname === '/meetings/contacts/scan' },
+            { href: '/meetings/contacts/scan/saved', label: 'Scanned Contacts', active: pathname.startsWith('/meetings/contacts/scan/saved') },
             { href: '/meetings/analytics', label: 'Analytics', active: pathname.startsWith('/meetings/analytics') },
             { href: '/meetings/adoption', label: 'Adoption', active: pathname.startsWith('/meetings/adoption') },
             { href: '/meetings/webhooks', label: 'Webhooks', active: pathname.startsWith('/meetings/webhooks') },
@@ -3598,6 +3686,18 @@ export function GetRoleBasedPages(
           // Platform Guide is always visible for all users (universal in-app help)
           if (menu.href === '/guide') return true;
 
+          // My Desk is always visible for all users. A handover exists BECAUSE
+          // the receiver holds no permission for the work — so the inbox where
+          // they accept or decline it cannot itself be permission-gated, or the
+          // only people it is for can never find it. Its MENU_PERMISSIONS entry
+          // maps to view_profile, which isPageAccessible() treats as universal
+          // and so opens the page; this line is the sidebar half, because the
+          // filter below does NOT short-circuit view_profile and that key is
+          // true on only 18 of 85 live roles (measured 2026-08-05 — principal,
+          // hod, faculty, staff, coo and ceo are all missing it). Same
+          // treatment as /guide and /my-induction-sessions.
+          if (menu.href === '/my-desk') return true;
+
           // "My Induction Sessions" is SELF-SCOPED: its RPCs gate on speakership
           // (event_session_speakers.profile_id = auth.uid()); non-presenters just
           // see an empty state. It deliberately has no MENU_PERMISSIONS entry, but
@@ -3659,6 +3759,15 @@ export function GetRoleBasedPages(
             );
             return false;
           }
+
+          // A sentinel is not a permission key (see isSentinelPermission).
+          // `super_admin` marks 14 routes and real super admins already returned
+          // above; reaching here means the viewer is not one, so the link stays
+          // hidden no matter what the merged permission map contains under that
+          // name. Director's Desk can put arbitrary MENU_PERMISSIONS values into
+          // that map, which is how a handover of the ID-card printing policy page
+          // used to reveal the whole super-admin sidebar.
+          if (isSentinelPermission(requiredPermission)) return false;
 
           return userRole.permissions[requiredPermission] === true;
         })

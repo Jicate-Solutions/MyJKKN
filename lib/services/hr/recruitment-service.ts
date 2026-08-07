@@ -28,6 +28,7 @@ import type {
   HRRecruitmentJobNote,
   HRJobApplication,
   JobApplicationStatus,
+  PurgeRejectedApplicantResult,
   ApprovalsJobOverviewRow,
   ApprovalFlowStepTemplate,
   HRApprovalFlow,
@@ -227,34 +228,16 @@ export class RecruitmentService {
       );
     }
 
-    // Parse conditions jsonb and find best match
-    // Priority: role_category + monthly_salary_band match > role_category-only match
     type ApprovalFlowRow = {
       conditions: Record<string, string> | null;
       steps: LeaveApprovalStep[] | null;
     };
 
-    const exactMatches = (flows as ApprovalFlowRow[]).filter((f) => {
-      const cond = f.conditions ?? {};
-      return (
-        cond.role_category === roleCategory &&
-        cond.monthly_salary_band === (monthlySalaryBand ?? '')
-      );
-    });
-
-    const categoryMatches = (flows as ApprovalFlowRow[]).filter((f) => {
-      const cond = f.conditions ?? {};
-      return (
-        cond.role_category === roleCategory &&
-        !cond.monthly_salary_band
-      );
-    });
-
-    const chosen = exactMatches.length > 0
-      ? exactMatches[0]
-      : categoryMatches.length > 0
-        ? categoryMatches[0]
-        : null;
+    const chosen = this.matchRecruitmentFlow(
+      flows as ApprovalFlowRow[],
+      roleCategory,
+      monthlySalaryBand
+    );
 
     if (!chosen) {
       throw new Error(
@@ -793,6 +776,51 @@ export class RecruitmentService {
     if (updateError) throw updateError;
 
     return { application: updated as HRJobApplication, candidate };
+  }
+
+  // ----- Purge a rejected applicant (super-admin only, 2026-08-05) -----------------
+  //
+  // Erases the person entirely: the application row, the promoted candidate row
+  // (interviews / scorecards / packages / comments cascade), and — via the caller —
+  // the resume in Google Drive. Delegated to a SECURITY DEFINER RPC because:
+  //   * hr_job_applications has NO delete policy, so a PostgREST .delete() would
+  //     silently affect 0 rows rather than error;
+  //   * promoted_candidate_id is ON DELETE NO ACTION, so the application must be
+  //     deleted before the candidate, and both in one transaction;
+  //   * the RPC self-authorizes on is_super_admin() and refuses non-rejected rows.
+
+  /**
+   * Permanently delete a REJECTED applicant. Pass whichever id the UI has —
+   * the RPC follows the link to the other side itself.
+   *
+   * Returns the Drive file ids the caller must delete, each paired with the
+   * purge-log row to clear once the file is confirmed gone.
+   */
+  static async purgeRejectedApplicant(
+    supabase: SupabaseClient,
+    target: { applicationId?: string | null; candidateId?: string | null }
+  ): Promise<PurgeRejectedApplicantResult> {
+    if (!target.applicationId && !target.candidateId) {
+      throw new Error('Provide an application id or a candidate id.');
+    }
+
+    const { data, error } = await supabase.rpc('fn_purge_rejected_recruitment_applicant', {
+      p_application_id: target.applicationId ?? null,
+      p_candidate_id: target.candidateId ?? null,
+    });
+    if (error) throw error;
+    return data as PurgeRejectedApplicantResult;
+  }
+
+  /** Record that a purged applicant's Drive resume is confirmed deleted. */
+  static async clearPurgedResumeRef(
+    supabase: SupabaseClient,
+    logId: string
+  ): Promise<void> {
+    const { error } = await supabase.rpc('fn_clear_recruitment_purge_drive_ref', {
+      p_log_id: logId,
+    });
+    if (error) throw error;
   }
 
   // ----- Candidate discussion thread (hr_recruitment_candidate_comments) -----

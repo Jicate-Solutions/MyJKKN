@@ -38,7 +38,7 @@ import type {
 
 import { getPayerDirectoryColumns } from './payer-directory-columns';
 import {
-  normaliseRole,
+  matchesDirectoryFilters,
   type PayerDirectoryFilterState,
 } from './payer-directory-filters';
 
@@ -102,15 +102,12 @@ export function PayerDirectoryDataTable({
     async (params: DataFetchParams) => {
       const term = (params.search ?? '').trim().toLowerCase();
 
+      // matchesDirectoryFilters is shared with the filter bar's option counts.
+      // They used to carry separate copies of this predicate, which is how the
+      // "Works at" dropdown came to advertise a count the table could not
+      // deliver. One definition, so they cannot disagree again.
       const filtered = rows.filter((r) => {
-        const hasPayer = !!r.payer_org_id;
-        if (filters.payerStatus === 'awaiting' && hasPayer) return false;
-        if (filters.payerStatus === 'recorded' && !hasPayer) return false;
-        if (filters.worksAtId && r.works_at_id !== filters.worksAtId) return false;
-        if (filters.payerOrgId && r.payer_org_id !== filters.payerOrgId) return false;
-        if (filters.roleKey && normaliseRole(r.role_title) !== filters.roleKey) {
-          return false;
-        }
+        if (!matchesDirectoryFilters(r, filters)) return false;
         if (!term) return true;
         return (
           r.person_name?.toLowerCase().includes(term) ||

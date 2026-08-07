@@ -13,6 +13,7 @@ export const FEE_HEAD_LABELS: Record<BillingCategoryKind, string> = {
   application_fee: 'Application',
   library: 'Library',
   other: 'Other',
+  penalty: 'Late Charge',
 };
 
 export const inr = (n: number) =>

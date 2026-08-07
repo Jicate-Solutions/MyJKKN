@@ -821,7 +821,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment_accounts.view', label: 'View Payment Gateway Accounts' },
       { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' },
       { key: 'billing.transport.view', label: 'View Transport Fees' },
-      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' }
+      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' },
+
+      // ── Late payment charge (2026-08-07) ──────────────────────────────────
+      // Platform-wide late-charge MECHANISM (Director's plan, rank 1). Built
+      // OFF at every layer: the billing.late_charge.enabled policy row is
+      // false, no schedule exists, and .waive is deliberately granted to NO
+      // role — only the Director (super-admin bypass) can waive. .manage gates
+      // the accrual RPC; nothing in this build calls it live.
+      { key: 'billing.late_charges.view', label: 'View Late Payment Charges (preview + derivation)' },
+      { key: 'billing.late_charges.manage', label: 'Run Late Charge Accrual' },
+      { key: 'billing.late_charges.waive', label: 'Waive Late Payment Charges (Director only)' }
     ]
   },
   {
@@ -917,6 +927,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
 
+      // ── Shift timings (2026-08-06) ────────────────────────────────────────
+      // Institution x staff-category x weekday working hours, with the
+      // first/second half windows and the morning grace period that biometric
+      // punch evaluation reads. Replaces the retired hr.shifts.* namespace,
+      // whose only key (hr.shifts.view_own) gated a per-employee roster module
+      // that was never used and is now removed.
+      { key: 'hr.shift_timings.view', label: 'View Shift Timing Configuration' },
+      { key: 'hr.shift_timings.manage', label: 'Configure Shift Timings' },
+
       // ── Training sessions & enrolments (2026-08-05) ───────────────────────
       // hr_training_sessions / hr_training_enrollments gate on these five and
       // they were registered nowhere, so the training back office was
@@ -928,7 +947,6 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.training.edit', label: 'Edit Training Sessions & Enrolments' },
       { key: 'hr.training.delete', label: 'Delete Training Sessions & Enrolments' },
       { key: 'hr.training.enroll', label: 'Enrol People into Training Sessions' },
-      { key: 'hr.shifts.view_own', label: 'View Own Shifts and Swap Requests' },
       { key: 'hr.assets.view_own', label: 'View Own Assigned Assets' },
       { key: 'hr.memos.view_own', label: 'View Own Memos' },
       { key: 'hr.performance_reviews.view_own', label: 'View Own Appraisal' },
@@ -1456,6 +1474,25 @@ export const PERMISSION_CATEGORIES = [
       { key: 'dashboard.broadcast.initiate', label: 'Initiate Broadcast Rescue for cold leads' },
       { key: 'dashboard.broadcast.claim', label: 'Claim Broadcast Rescue leads' },
       { key: 'dashboard.anomaly.acknowledge', label: 'Acknowledge anomaly alerts' }
+    ]
+  },
+  // ======================================================================
+  // Director's Desk (2026-08-04) — hand over any page; the handover IS the grant
+  // Spec: specs/director-desk/SPEC.md
+  //
+  // These MUST be registered here even though they are never handed over — a key
+  // absent from this file is UNGRANTABLE, because Role Management can only offer
+  // what it can enumerate. fn_handover_key_is_blocked() permanently walls
+  // `director.handover.%` from being handed over, so a deliberate trip to Role
+  // Management is the ONLY way to obtain them. That is the intended friction:
+  // it is what stops the master key from propagating (decision 5).
+  // ======================================================================
+  {
+    name: "Director's Desk",
+    key: 'director',
+    permissions: [
+      { key: 'director.handover.create', label: 'Hand over a page or job to someone' },
+      { key: 'director.handover.view_all', label: "See every handover on the Director's desk" }
     ]
   },
   // ======================================================================
@@ -1997,12 +2034,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.parent_portal.consent', label: 'Parent Portal — Provide Consent' },
       { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' },
 
-      // Premium Stay (paid SKU — added 2026-05-16 in Wave 1 spec)
-      { key: 'campus_living.premium.configure_tier', label: 'Premium Stay — Configure Tier Policy' },
-      { key: 'campus_living.premium.pick_room', label: 'Premium Stay — Self-Pick Room (Learner)' },
-      { key: 'campus_living.premium.invite_roommate', label: 'Premium Stay — Invite Roommate' },
-      { key: 'campus_living.premium.override_pick', label: 'Premium Stay — Override Pick (Chief Warden)' },
-      { key: 'campus_living.premium.view_dashboard', label: 'Premium Stay — View Dashboard' },
+      // Premium Room (paid SKU — added 2026-05-16 in Wave 1 spec)
+      { key: 'campus_living.premium.configure_tier', label: 'Premium Room — Configure Tier Policy' },
+      { key: 'campus_living.premium.pick_room', label: 'Premium Room — Self-Pick Room (Learner)' },
+      { key: 'campus_living.premium.invite_roommate', label: 'Premium Room — Invite Roommate' },
+      { key: 'campus_living.premium.override_pick', label: 'Premium Room — Override Pick (Chief Warden)' },
+      { key: 'campus_living.premium.view_dashboard', label: 'Premium Room — View Dashboard' },
 
       // ══ The write half the catalog never had (2026-08-05) ════════════════
       // Everything above was written as intent verbs — record, config,
@@ -2393,7 +2430,13 @@ export const PERMISSION_CATEGORIES = [
       // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
       // (confirm/decline/supersede) a raised "please confirm a date" request via
       // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
-      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' },
+      // Events Hub row delete (2026-08-06). Seeded to NO role — super admins
+      // pass via user_has_permission()'s bypass, everyone else is granted here
+      // from Role Management. The DELETE it unlocks cascades through 43 child
+      // tables (registrations, payment transactions, tournament matches …), so
+      // it is deliberately not bundled into any existing events key.
+      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree

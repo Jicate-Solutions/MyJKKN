@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   saveIntegrationPref,
   type IntegrationPrefsState,
@@ -81,6 +82,8 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
   const [selected, setSelected] = useState<VideoProvider>(initial.videoProvider);
   const [identity, setIdentity] = useState(initial.providerHostIdentity ?? '');
   const [saved, setSaved] = useState<VideoProvider>(initial.videoProvider);
+  const [noteInTitle, setNoteInTitle] = useState(initial.showNoteInTitle);
+  const [savedNoteInTitle, setSavedNoteInTitle] = useState(initial.showNoteInTitle);
   const [isSaving, startSave] = useTransition();
 
   const avail = initial.availability;
@@ -90,6 +93,7 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
   const selectedMeta = PROVIDERS.find((p) => p.id === selected);
   const dirty =
     selected !== saved ||
+    (initial.noteInTitleSupported && noteInTitle !== savedNoteInTitle) ||
     (selected !== 'google' && identity.trim() !== (initial.providerHostIdentity ?? ''));
 
   function onSave() {
@@ -101,11 +105,14 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
       const res = await saveIntegrationPref({
         videoProvider: selected,
         providerHostIdentity: selected === 'google' ? undefined : identity,
+        showNoteInTitle: initial.noteInTitleSupported ? noteInTitle : undefined,
       });
       if (res.success && res.data) {
         setSaved(res.data.videoProvider);
         setSelected(res.data.videoProvider);
         setIdentity(res.data.providerHostIdentity ?? '');
+        setNoteInTitle(res.data.showNoteInTitle);
+        setSavedNoteInTitle(res.data.showNoteInTitle);
         toast.success('Saved. Your online meetings will use this provider.');
       } else {
         toast.error(res.error ?? 'Could not save your video settings.');
@@ -196,6 +203,29 @@ export function IntegrationPrefsCard({ initial }: { initial: IntegrationPrefsSta
               autoComplete="email"
             />
             <p className="text-xs text-muted-foreground">{selectedMeta.identity.help}</p>
+          </div>
+        )}
+
+        {/* Where the guest's booking note shows up. It is always in the event
+            body; the title is opt-in because the guest can see it. */}
+        {initial.noteInTitleSupported && (
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2.5">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="ip-note-title" className="text-sm">
+                Show the discussion note in the calendar event title
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                What the guest wrote when booking is always in the event
+                description. Turn this on to put it in the title too — the guest
+                is invited to the event, so they can see the title on their own
+                phone and calendar.
+              </p>
+            </div>
+            <Switch
+              id="ip-note-title"
+              checked={noteInTitle}
+              onCheckedChange={setNoteInTitle}
+            />
           </div>
         )}
 

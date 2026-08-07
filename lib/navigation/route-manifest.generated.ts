@@ -1959,6 +1959,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/billing/late-charges",
+        "label": "Late Charges",
+        "iconName": "Wallet",
+        "children": []
+      },
+      {
         "path": "/billing/onboarding",
         "label": "Onboarding",
         "iconName": "UserPlus",
@@ -2698,18 +2704,18 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           },
           {
             "path": "/campus-living/my-hostel/premium",
-            "label": "Premium Stay — Opt-in",
+            "label": "Premium Room — Opt-in",
             "iconName": "Sparkles",
             "children": [
               {
                 "path": "/campus-living/my-hostel/premium/invite-roommate",
-                "label": "Premium Stay — Invite Roommate",
+                "label": "Premium Room — Invite Roommate",
                 "iconName": "Users",
                 "children": []
               },
               {
                 "path": "/campus-living/my-hostel/premium/pick-room",
-                "label": "Premium Stay — Pick Room",
+                "label": "Premium Room — Pick Room",
                 "iconName": "BedDouble",
                 "children": []
               }
@@ -2736,19 +2742,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           },
           {
             "path": "/campus-living/premium/audit-log",
-            "label": "Premium Stay — Audit Log",
+            "label": "Premium Room — Audit Log",
             "iconName": "History",
             "children": []
           },
           {
             "path": "/campus-living/premium/dashboard",
-            "label": "Premium Stay Dashboard",
+            "label": "Premium Room Dashboard",
             "iconName": "LayoutGrid",
             "children": []
           },
           {
             "path": "/campus-living/premium/override",
-            "label": "Premium Stay — Chief Warden Override",
+            "label": "Premium Room — Chief Warden Override",
             "iconName": "ShieldCheck",
             "children": []
           },
@@ -3369,6 +3375,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/design-gallery",
     "label": "Design Gallery",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/director-desk",
+    "label": "Director Desk",
     "iconName": "FileText",
     "children": []
   },
@@ -4126,8 +4138,8 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
-            "path": "/hr/admin/shift-templates",
-            "label": "Shift Templates",
+            "path": "/hr/admin/shift-timings",
+            "label": "Shift Timings",
             "iconName": "FileText",
             "children": []
           },
@@ -4405,25 +4417,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/hr/recruitment/submit",
             "label": "Submit",
             "iconName": "UserSearch",
-            "children": []
-          }
-        ]
-      },
-      {
-        "path": "/hr/shifts",
-        "label": "Shifts",
-        "iconName": "FileText",
-        "children": [
-          {
-            "path": "/hr/shifts/approvals",
-            "label": "Approvals",
-            "iconName": "FileText",
-            "children": []
-          },
-          {
-            "path": "/hr/shifts/my",
-            "label": "My",
-            "iconName": "FileText",
             "children": []
           }
         ]
@@ -5281,7 +5274,14 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/meetings/contacts/scan",
             "label": "Scan",
             "iconName": "FileText",
-            "children": []
+            "children": [
+              {
+                "path": "/meetings/contacts/scan/saved",
+                "label": "Saved",
+                "iconName": "FileText",
+                "children": []
+              }
+            ]
           }
         ]
       },
@@ -5357,6 +5357,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
   {
     "path": "/my-bug-reports",
     "label": "My Bug Reports",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
+    "path": "/my-desk",
+    "label": "My Desk",
     "iconName": "FileText",
     "children": []
   },
