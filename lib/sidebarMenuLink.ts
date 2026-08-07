@@ -669,6 +669,17 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/vac/admin/case/readiness': 'vac.admin.case.readiness.view',
   '/vac/admin/settings': 'vac.admin.settings.view',
 
+  // `/system` is not a page — app/(routes)/system/route.ts answers with a 307 to
+  // /system/api-management. It takes that destination's key so the redirect is
+  // gated exactly like the page it lands on, instead of being an unmatched (and
+  // therefore unprotected) path in the route trie. Same shape as '/staff', which
+  // is the same route.ts-redirect class and carries 'staff.view'.
+  //
+  // This does NOT change who sees the System group in the sidebar: a menu with
+  // submenus is filtered by `menu.submenus.some(...)` and its own key is never
+  // read, so a learner holding only learners.bug_reports.view keeps the group
+  // (and My Bug Reports inside it) exactly as before.
+  '/system': 'system.api.view',
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
@@ -789,6 +800,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
   '/resource-management': 'resources.categories.view',
@@ -1510,6 +1522,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/industry-mentors': 'cdc.industry_mentors.view',
   '/cdc/industry-mentors/new': 'cdc.industry_mentors.create',
   '/cdc/industry-mentors/[id]': 'cdc.industry_mentors.view',
+
+  // Industry Partners directory (public.industry_partners — the COMPANIES).
+  // Top-level route, but CDC-owned: the table is already documented as
+  // CDC-owned in lib/services/pde-employer-briefing-service.ts, so the
+  // permission key and the sidebar entry both live under CDC.
+  '/industry-partners': 'cdc.industry_partners.view',
+  '/industry-partners/[id]': 'cdc.industry_partners.view',
 
   // CDC — Reports & Exports
   '/cdc/exports': 'cdc.exports.view',
@@ -2789,6 +2808,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
             { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
           ]
         }
       ]
@@ -3433,11 +3453,38 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Industry Relations — one accordion row over the two industry
+          // directories. They are DIFFERENT TABLES with the same first word:
+          //   • Industry Mentors  → industry_mentors  (individual people)
+          //   • Industry Partners → industry_partners (companies)
+          //
+          // Nested rather than flat because the CDC group was already sitting
+          // on the hard cap of 14 top-level items (lib/sidebar-validator.ts);
+          // adding a 15th flat row fails `npm run check:sidebar`. Both URLs are
+          // unchanged, so no bookmark breaks.
+          //
+          // The parent row carries no permission of its own — GetRoleBasedPages
+          // shows a parent when ANY submenu is accessible, and menu.tsx attaches
+          // MENU_PERMISSIONS[sub.href] to each child, so a viewer who holds only
+          // one of the two keys sees only that one child.
           href: '/cdc/industry-mentors',
-          label: 'Industry Mentors',
-          active: pathname.startsWith('/cdc/industry-mentors'),
+          label: 'Industry Relations',
+          active:
+            pathname.startsWith('/cdc/industry-mentors') ||
+            pathname.startsWith('/industry-partners'),
           icon: Factory,
-          submenus: []
+          submenus: [
+            {
+              href: '/cdc/industry-mentors',
+              label: 'Industry Mentors',
+              active: pathname.startsWith('/cdc/industry-mentors')
+            },
+            {
+              href: '/industry-partners',
+              label: 'Industry Partners',
+              active: pathname.startsWith('/industry-partners')
+            }
+          ]
         },
         {
           href: '/cdc/exports',

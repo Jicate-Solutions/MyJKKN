@@ -49,6 +49,7 @@ import { CycleCalculationService } from '@/lib/services/academic/cycle-calculati
 import { LeaveCalendarService } from '@/lib/services/academic/leave-calendar-service';
 import type { LeaveBlockInfo } from '@/types/leaves';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { verifySectionInTimetableScope } from '@/lib/utils/academic/attendance-section-scope';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
@@ -317,6 +318,41 @@ export default function AttendanceMarkPage() {
             } else {
               logger.error('academic/attendance/mark', 'Failed to resolve section name from URL', sectionError);
             }
+          }
+        }
+
+        // Added: 2026-08-06 - Refuse a URL section that belongs to a different
+        // semester than the timetable being marked. The `sectionId` query param
+        // is chosen upstream by the filter panel (attendance/page.tsx prefers
+        // searchContext.section_id over the slot's own sections), so when a slot
+        // carries no section of its own — as every practical slot in "II ECE
+        // 2026" did — whatever the user last had selected became the roster
+        // scope unchallenged. That is how a Semester V section listed the third
+        // years on a Semester III SDC lab. It cannot be caught downstream:
+        // fn_attendance_roster treats section as authoritative and ignores the
+        // semester param entirely once section ids are supplied, so the wrong
+        // section yields a complete, plausible, wrong roster. Dropping it here
+        // lets the slot's own section_ids (or the timetable's semester scope)
+        // take over, which is the answer the timetable actually encodes.
+        if (sectionData) {
+          const verdict = verifySectionInTimetableScope(sectionData, timetable);
+          if (!verdict.accepted) {
+            logger.error(
+              'academic/attendance/mark',
+              'Discarding out-of-scope section from URL',
+              {
+                reason: verdict.reason,
+                sectionId: sectionData.id,
+                sectionSemesterId: sectionData.semester_id,
+                timetableId,
+                timetableSemesterId: timetable.semester_id
+              }
+            );
+            toast.error(
+              'The selected section belongs to a different semester than this timetable and was ignored.'
+            );
+            sectionData = null;
+            resolvedSectionId = null;
           }
         }
 
@@ -814,11 +850,45 @@ export default function AttendanceMarkPage() {
           }
         }
 
+        // Updated: 2026-08-06 - Third fallback: practical periods. A practical slot
+        // keeps its real assignment inside practical_config.batches[], leaving the
+        // top-level primary_staff_id/staff_ids empty and sub_slots absent — so both
+        // branches above find nothing and every lab period showed "no faculty".
+        // Prefer the batch the user actually selected; otherwise union every batch,
+        // which is the honest answer before a batch is chosen.
+        if (staffIds.length === 0 && practicalConfig?.batches?.length) {
+          const batches = practicalSelection
+            ? practicalConfig.batches.filter((b: any) => b.batch_id === practicalSelection.batch_id)
+            : practicalConfig.batches;
+
+          for (const batch of batches) {
+            const mapping = batch?.staff_mapping || practicalConfig.staff_mapping;
+            if (!mapping || typeof mapping !== 'object') continue;
+
+            // staff_mapping is { course_id: [staff_id, ...] }. Narrow to the batch's
+            // own course when it declares one, else take every course's staff.
+            const courseId = batch?.assigned_courses?.[0];
+            const lists = courseId && mapping[courseId]
+              ? [mapping[courseId]]
+              : Object.values(mapping);
+
+            for (const list of lists) {
+              for (const id of (Array.isArray(list) ? list : [])) {
+                if (id && !staffIds.includes(id)) staffIds.push(id);
+              }
+            }
+          }
+
+          // No primary is recorded on a batch; the first mapped teacher leads it.
+          if (!primaryStaffId && staffIds.length > 0) primaryStaffId = staffIds[0];
+        }
+
         if (staffIds.length === 0) {
-          logger.warn('academic/attendance/mark', 'No staff IDs found in period slot or sub_slots', {
+          logger.warn('academic/attendance/mark', 'No staff IDs found in period slot, sub_slots or practical batches', {
             periodId, primary_staff_id: periodSlot.primary_staff_id,
             staff_ids: periodSlot.staff_ids, staff_ids_type: typeof periodSlot.staff_ids,
             has_sub_slots: !!(periodSlot.sub_slots?.length),
+            has_practical_batches: !!practicalConfig?.batches?.length,
           });
           setAssignedStaff([]);
           return;
@@ -863,7 +933,11 @@ export default function AttendanceMarkPage() {
 
     // Run all three in parallel — they're independent of each other
     Promise.allSettled([checkLeaveBlock(), checkExisting(), loadStaff()]);
-  }, [contextData, date, timetableId, periodId, isSuperAdmin, isSubdividedFromUrl, subdivisionStaffIds, subdivisionGroupOrder]);
+    // practicalConfig/practicalSelection added 2026-08-06: loadStaff now reads the
+    // practical batches, and both land AFTER this effect's first run (config is set
+    // while resolving context, selection only when the user picks a batch). Without
+    // them the practical fallback would evaluate against nulls once and never retry.
+  }, [contextData, date, timetableId, periodId, isSuperAdmin, isSubdividedFromUrl, subdivisionStaffIds, subdivisionGroupOrder, practicalConfig, practicalSelection]);
 
   // Load students using the resolved context
   useEffect(() => {
@@ -885,13 +959,30 @@ export default function AttendanceMarkPage() {
         ? practicalSelection.section_ids
         : contextData.section_ids;
 
-      // For multi-section slots, section_ids array should be populated
-      // For single-section, section_id should be set
+      // Updated: 2026-08-06 - Do NOT bail out when no section resolves. This used
+      // to `return` silently (no log at all), which is how a practical period whose
+      // practical_config.batches[].section_ids were never filled in produced a
+      // permanently blank roster with nothing in the console to explain it. The
+      // roster RPC already handles a missing section: fn_attendance_roster falls
+      // back to degree/program/semester when p_section_ids IS NULL. Bailing here
+      // blocked the very fallback built for this case. Log the degraded scope and
+      // let the call through — a wider-than-ideal roster beats an empty screen.
       if (
         !contextData.section_id &&
         (!effectiveSectionIds || effectiveSectionIds.length === 0)
       ) {
-        return;
+        logger.warn(
+          'academic/attendance/mark',
+          'No section on this slot - falling back to programme/semester scope',
+          {
+            periodId,
+            timetableId,
+            periodMode,
+            batchId: practicalSelection?.batch_id ?? null,
+            programId: contextData.program_id,
+            semesterId: contextData.semester_id
+          }
+        );
       }
 
       try {
@@ -914,11 +1005,20 @@ export default function AttendanceMarkPage() {
             : { section_id: contextData.section_id })
         });
 
-        // If we got 0 students, log a warning
+        // Updated: 2026-08-06 - Say what actually happened. This used to read
+        // "check RLS policy", which is misleading: getStudentsForAttendance goes
+        // through fn_attendance_roster, a SECURITY DEFINER RPC that RAISEs 42501
+        // on an authorization failure. A permission problem therefore arrives as
+        // a thrown error, never as an empty array. Zero rows here means the scope
+        // matched no learners — a data problem — and the old wording cost real
+        // time hunting permissions for a mis-assigned cohort.
         if (studentsData.length === 0) {
-          logger.warn('academic/attendance/mark', 'No students returned - check RLS policy', {
+          logger.warn('academic/attendance/mark', 'No learners match this scope (not a permission error)', {
             institutionId: contextData.institution_id,
-            sectionId: contextData.section_id
+            sectionId: contextData.section_id,
+            sectionIds: hasMultipleSections ? effectiveSectionIds : null,
+            programId: contextData.program_id,
+            semesterId: contextData.semester_id
           });
         }
 
@@ -977,7 +1077,11 @@ export default function AttendanceMarkPage() {
     subdivisionStudentIds,
     subdivisionGroupName,
     periodMode,
-    practicalSelection
+    practicalSelection,
+    // Added 2026-08-06: read by the no-section diagnostic above. Both are URL
+    // params and change only on navigation, so this adds no refetch churn.
+    periodId,
+    timetableId
   ]);
 
   // Updated: 2026-01-29 - Check for approved leave/onduty applications

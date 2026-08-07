@@ -4718,28 +4718,60 @@ CREATE POLICY "events_auth_read" ON public.events
     )
   );
 
--- Authenticated users can create events for their institution
+-- Create for your institution, but you may not plant an event under someone
+-- else's name: fn_guard_event_privileged_fields freezes created_by, but it is a
+-- BEFORE UPDATE trigger and never sees an INSERT. Who may create is unchanged.
 CREATE POLICY "events_auth_insert" ON public.events
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id IN (
-      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    (
+      (SELECT public.is_super_admin())
+      OR (SELECT public.get_current_user_role()) = ANY (ARRAY['super_admin', 'admin', 'administrator'])
+      OR institution_id IN (
+        SELECT p.institution_id FROM public.profiles p
+         WHERE p.id = (SELECT auth.uid()) AND p.institution_id IS NOT NULL
+      )
+    )
+    AND (
+      created_by IS NULL
+      OR created_by = (SELECT auth.uid())
+      OR (SELECT public.is_super_admin())
     )
   );
 
--- Authenticated users can update their institution's events
+-- Creator-owned edit (2026-08-06). Was "any user whose profile institution
+-- matches", i.e. everyone in the institution could edit every event. Event
+-- in-charges keep their own write path via events_incharge_update below —
+-- permissive policies OR together, so this does not touch them.
+-- The created_by IS NULL arm is the grandfather clause for the 37 rows that
+-- predate ownership; it repeats the OLD institution predicate verbatim rather
+-- than calling role_has_institution_access(), which is wider (it returns true
+-- for any institution_scope='all' role holder).
+-- No WITH CHECK: Postgres reuses USING as the check for UPDATE when it is
+-- omitted, so a row cannot be edited into someone else's ownership.
 CREATE POLICY "events_auth_update" ON public.events
   FOR UPDATE TO authenticated USING (
-    institution_id IN (
-      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
+    (SELECT public.is_super_admin())
+    OR events.created_by = (SELECT auth.uid())
+    OR (
+      events.created_by IS NULL
+      AND events.institution_id IN (
+        SELECT p.institution_id FROM public.profiles p
+         WHERE p.id = (SELECT auth.uid()) AND p.institution_id IS NOT NULL
+      )
     )
   );
 
--- Authenticated users can delete their institution's events
+-- Delete is gated on the events.delete permission key + institution access.
+-- Was "any user whose profile institution matches", which handed DELETE to all
+-- 5,703 non-super-admin users in an institution that owns events — learners
+-- included — on a row that cascades through 43 child tables (registrations,
+-- payment transactions, tournament matches). Replaced 2026-08-06; see
+-- supabase/migrations/20260806_events_delete_permission_gate.sql.
+-- user_has_permission() already carries the super-admin bypass.
 CREATE POLICY "events_auth_delete" ON public.events
   FOR DELETE TO authenticated USING (
-    institution_id IN (
-      SELECT institution_id FROM public.profiles WHERE id = auth.uid()
-    )
+    (SELECT public.user_has_permission('events.delete'))
+    AND public.role_has_institution_access(events.institution_id)
   );
 
 -- ── event_categories ─────────────────────────────────────────────────────────
@@ -8569,3 +8601,54 @@ CREATE POLICY hr_shift_timings_delete ON public.hr_shift_timings
         AND (SELECT public.user_has_permission('hr.shift_timings.manage'))
         AND public.role_has_institution_access(institution_id))
   );
+
+-- BILLING_LATE_CHARGES TABLE (4 policies)
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql — FILE
+-- ONLY, apply is Director-gated). Platform-wide late-payment charge ledger;
+-- mechanism OFF by default (billing.late_charge.enabled = false).
+-- CREATE TABLE never enables RLS; do it explicitly, and close the anon door
+-- Supabase's default privileges opened.
+ALTER TABLE public.billing_late_charges ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.billing_late_charges FROM anon, PUBLIC;
+
+-- Admin read: permission + institution scope. Learner read: her own rows only,
+-- resolved the same two ways the live bills policies resolve a learner
+-- (profiles.learner_id linkage OR the email join).
+DROP POLICY IF EXISTS late_charges_select_scoped ON public.billing_late_charges;
+CREATE POLICY late_charges_select_scoped ON public.billing_late_charges
+    FOR SELECT USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('billing.late_charges.view')
+            AND role_has_institution_access(institution_id))
+        OR student_id IN (
+            SELECT lp.id
+            FROM learners_profiles lp
+            JOIN profiles p ON p.id = auth.uid()
+            WHERE lp.id = p.learner_id
+               OR p.email IN (lp.student_email, lp.college_email)
+        )
+    );
+
+DROP POLICY IF EXISTS late_charges_insert_admin ON public.billing_late_charges;
+CREATE POLICY late_charges_insert_admin ON public.billing_late_charges
+    FOR INSERT WITH CHECK (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('billing.late_charges.manage')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS late_charges_update_admin ON public.billing_late_charges;
+CREATE POLICY late_charges_update_admin ON public.billing_late_charges
+    FOR UPDATE USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('billing.late_charges.manage')
+            AND role_has_institution_access(institution_id))
+    );
+
+DROP POLICY IF EXISTS late_charges_delete_admin ON public.billing_late_charges;
+CREATE POLICY late_charges_delete_admin ON public.billing_late_charges
+    FOR DELETE USING (
+        is_super_admin()
+        OR (user_has_permission('billing.late_charges.manage')
+            AND role_has_institution_access(institution_id))
+    );

@@ -1,6 +1,35 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { TimetableData } from '@/types/academics';
+import { CycleCalculationService } from '@/lib/services/academic/cycle-calculation-service';
+
+/**
+ * Added: 2026-08-05 - Resolve the timetable_data key for a date.
+ *
+ * `regular` timetables key timetable_data by weekday ("MONDAY"); `cycle`
+ * timetables key it by "cycle-N" instead. Indexing a cycle timetable with a
+ * weekday key always misses, which silently emptied this sync path for the two
+ * Arts and Science colleges. Delegates to CycleCalculationService — the same
+ * resolver the Mark Attendance page uses (page.tsx:704-719) — so the two cannot
+ * drift apart. Returns null when the date has no classes (Sunday/holiday).
+ */
+async function resolveDayKey(
+  timetableId: string | undefined,
+  timetableFormat: string | null | undefined,
+  date: string
+): Promise<string | null> {
+  if (timetableFormat === 'cycle') {
+    if (!timetableId) return null;
+    const cycleNum = await CycleCalculationService.getCycleForDate(timetableId, date);
+    return cycleNum ? `cycle-${cycleNum}` : null;
+  }
+  // Parse as local midnight: `new Date("YYYY-MM-DD")` is UTC midnight, so at a
+  // negative UTC offset the weekday resolves one day early and never matches.
+  // No-op in IST; hygiene only.
+  return new Date(date + 'T00:00:00')
+    .toLocaleDateString('en-US', { weekday: 'long' })
+    .toUpperCase();
+}
 
 export class AttendanceFacultySync {
   private static supabase = createClientSupabaseClient();
@@ -23,7 +52,7 @@ export class AttendanceFacultySync {
       // Get the attendance record
       const { data: attendance, error: fetchError } = await this.supabase
         .from('student_attendance')
-        .select('*, timetables!inner(timetable_data)')
+        .select('*, timetables!inner(id, timetable_data, timetable_format)')
         .eq('id', attendanceId)
         .single();
 
@@ -33,13 +62,16 @@ export class AttendanceFacultySync {
       }
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const attendanceData = attendance as unknown as { timetables: { timetable_data: TimetableData }; attendance_date: string; attendance_data: any };
+      const attendanceData = attendance as unknown as { timetables: { id: string; timetable_data: TimetableData; timetable_format: string | null }; attendance_date: string; attendance_data: any };
 
       const timetableData = attendanceData.timetables.timetable_data;
       const attendanceDate = attendanceData.attendance_date;
-      const dayOfWeek = new Date(attendanceDate)
-        .toLocaleDateString('en-US', { weekday: 'long' })
-        .toUpperCase();
+      // Updated: 2026-08-05 - Format-aware key (weekday for regular, cycle-N for cycle).
+      const dayKey = await resolveDayKey(
+        attendanceData.timetables.id,
+        attendanceData.timetables.timetable_format,
+        attendanceDate
+      );
 
       // Process each period in attendance_data
       const updatedAttendanceData: any = {};
@@ -51,7 +83,7 @@ export class AttendanceFacultySync {
         const updatedPeriodData = { ...(periodData as any) };
 
         // Find the matching slot in timetable
-        const dayData = timetableData[dayOfWeek];
+        const dayData = dayKey ? timetableData[dayKey] : null;
         if (!dayData) {
           updatedAttendanceData[periodId] = periodData;
           continue;
@@ -249,7 +281,7 @@ export class AttendanceFacultySync {
       const { data: attendance } = await this.supabase
         .from('student_attendance')
         .select(
-          'attendance_data, attendance_date, timetables!inner(timetable_data)'
+          'attendance_data, attendance_date, timetables!inner(id, timetable_data, timetable_format)'
         )
         .eq('id', attendanceId)
         .single();
@@ -258,7 +290,7 @@ export class AttendanceFacultySync {
       const attendanceRecord = attendance as unknown as {
         attendance_data: any;
         attendance_date: string;
-        timetables: { timetable_data: TimetableData };
+        timetables: { id: string; timetable_data: TimetableData; timetable_format: string | null };
       } | null;
 
       if (!attendanceRecord) {
@@ -273,11 +305,16 @@ export class AttendanceFacultySync {
       const currentFaculty = periodData.assigned_faculty;
 
       // Get day and find slot
-      const dayOfWeek = new Date(attendanceRecord.attendance_date)
-        .toLocaleDateString('en-US', { weekday: 'long' })
-        .toUpperCase();
+      // Updated: 2026-08-05 - Format-aware key (weekday for regular, cycle-N for cycle).
+      const dayKey = await resolveDayKey(
+        attendanceRecord.timetables.id,
+        attendanceRecord.timetables.timetable_format,
+        attendanceRecord.attendance_date
+      );
 
-      const dayData = attendanceRecord.timetables.timetable_data[dayOfWeek];
+      const dayData = dayKey
+        ? attendanceRecord.timetables.timetable_data[dayKey]
+        : null;
       if (!dayData) {
         return { hasChanges: false, currentFaculty };
       }

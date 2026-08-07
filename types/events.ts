@@ -304,6 +304,19 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
   route_config?: Record<string, unknown>;
 }
 
+/**
+ * What deleting an event would take with it, counted past RLS by
+ * fn_event_delete_blockers. Counting these in the browser reports 0 for anyone
+ * who can't see the child rows — a false "safe to delete" on the one check that
+ * exists to stop data loss — so the numbers only ever come from that RPC.
+ */
+export interface EventDeleteBlockers {
+  registrations: number;
+  payments: number;
+  /** True when the DB will refuse the delete outright (the trigger, not the UI). */
+  blocked: boolean;
+}
+
 export interface EventFilters {
   institution_id?: string;
   event_type?: EventType;

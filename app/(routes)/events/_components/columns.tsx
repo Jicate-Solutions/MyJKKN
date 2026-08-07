@@ -5,10 +5,11 @@
 // widens the scope from general-only to EVERY `events` row, so the hub is the
 // one place that answers "what events exist?".
 //
-// No row-selection column: the events permission catalog has no `events.delete`
-// key (see lib/constants/permissions.ts), so there is no bulk action to select
-// rows FOR. Adding selection here would only promise something the toolbar
-// can't deliver.
+// Still no row-selection column, even though `events.delete` now exists (added
+// 2026-08-06). Delete stays per-row on purpose: every event carries its own
+// cascade of registrations and payments, and the DB refuses any row holding
+// them, so a bulk delete would mostly report partial failures. Selection would
+// promise a toolbar action that cannot be honoured.
 
 import type { ColumnDef } from '@tanstack/react-table';
 import { format } from 'date-fns';
@@ -23,13 +24,19 @@ import {
   formatEventType,
   isEventOpen,
   isGeneralEvent,
+  type EventEditViewer,
 } from './event-display';
 import { EventsRowActions } from './row-actions';
 
 export interface EventColumnOptions {
+  /** Who is looking — decides which rows offer Edit / Change Status. */
+  viewer: EventEditViewer;
   onOpen: (event: Event) => void;
   onEdit: (event: Event) => void;
   onStatusChange: (id: string, status: EventStatus) => void;
+  onDelete: (id: string) => void;
+  /** Id of the row whose delete is in flight, so only that row shows a spinner. */
+  deletingId: string | null;
 }
 
 /** Tolerant date render — legacy rows hold a few unparseable date strings. */
@@ -132,9 +139,12 @@ export const getColumns = (options: EventColumnOptions): ColumnDef<Event>[] => [
       <EventsRowActions
         event={row.original}
         canManageHere={isGeneralEvent(row.original)}
+        viewer={options.viewer}
         onOpen={options.onOpen}
         onEdit={options.onEdit}
         onStatusChange={options.onStatusChange}
+        onDelete={options.onDelete}
+        isDeleting={options.deletingId === row.original.id}
       />
     ),
   },

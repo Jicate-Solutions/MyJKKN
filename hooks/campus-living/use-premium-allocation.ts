@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 1 — usePremiumAllocation hooks
+// Premium Room Phase 1 — usePremiumAllocation hooks
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Service: lib/services/campus-living/hostel-premium-allocation-service.ts

@@ -27,6 +27,7 @@ import chromium from '@sparticuz/chromium';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import type { BosMeeting, BosAgendaItem } from '@/types/bos';
+import { PDF_FONT_STACK, pdfFontFaceCss } from '@/lib/utils/bos/pdf-fonts';
 import type { InstitutionPdfHeader } from '@/lib/utils/internal-marks/institution-header';
 
 // =============================================================================
@@ -420,9 +421,14 @@ function buildCetCallLetterHtml(
 <meta charset="UTF-8" />
 <title>Call Letter - ${escapeHtml(recipient.display_name)}</title>
 <style>
+  /* Embedded faces — see lib/utils/bos/pdf-fonts.ts. The single-page budget
+     below is measured in Times; on Vercel the only installed font is Open Sans,
+     whose wider glyphs blow that budget. */
+  ${pdfFontFaceCss()}
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   @page { size: A4; }
-  html, body { width: 210mm; font-family: 'Times New Roman', serif; font-size: 12pt; color: #000; background: #fff; line-height: 1.4; }
+  html, body { width: 210mm; font-family: ${PDF_FONT_STACK}; font-size: 12pt; color: #000; background: #fff; line-height: 1.4; }
 
   /* ── SINGLE-PAGE FIT ──────────────────────────────────────────────────────
      Printable height is 297mm − 2×6mm Puppeteer margin = 285mm. The blocks
@@ -776,10 +782,13 @@ export function buildCallLetterHtml(
 <meta charset="UTF-8" />
 <title>Call Letter - ${escapeHtml(recipient.display_name)}</title>
 <style>
+  /* Embedded faces — see lib/utils/bos/pdf-fonts.ts. */
+  ${pdfFontFaceCss()}
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
     width: 210mm;
-    font-family: 'Times New Roman', serif;
+    font-family: ${PDF_FONT_STACK};
     font-size: 12pt;
     color: #000;
     background: #fff;
@@ -1174,6 +1183,9 @@ async function renderCallLetterInBrowser(
   const page = await browser.newPage();
   try {
     await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    // The embedded faces decode off the main parse; printing before they are
+    // ready would lay the single-page budget out against fallback metrics.
+    await page.evaluate(() => document.fonts.ready);
     const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,

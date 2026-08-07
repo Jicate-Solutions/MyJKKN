@@ -821,7 +821,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.payment_accounts.view', label: 'View Payment Gateway Accounts' },
       { key: 'billing.payment_accounts.manage', label: 'Manage Payment Gateway Accounts' },
       { key: 'billing.transport.view', label: 'View Transport Fees' },
-      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' }
+      { key: 'billing.transport.collect', label: 'Collect Transport Fees online' },
+
+      // ── Late payment charge (2026-08-07) ──────────────────────────────────
+      // Platform-wide late-charge MECHANISM (Director's plan, rank 1). Built
+      // OFF at every layer: the billing.late_charge.enabled policy row is
+      // false, no schedule exists, and .waive is deliberately granted to NO
+      // role — only the Director (super-admin bypass) can waive. .manage gates
+      // the accrual RPC; nothing in this build calls it live.
+      { key: 'billing.late_charges.view', label: 'View Late Payment Charges (preview + derivation)' },
+      { key: 'billing.late_charges.manage', label: 'Run Late Charge Accrual' },
+      { key: 'billing.late_charges.waive', label: 'Waive Late Payment Charges (Director only)' }
     ]
   },
   {
@@ -2034,12 +2044,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.parent_portal.consent', label: 'Parent Portal — Provide Consent' },
       { key: 'campus_living.parent_portal.pay_fee', label: 'Parent Portal — Pay Fee' },
 
-      // Premium Stay (paid SKU — added 2026-05-16 in Wave 1 spec)
-      { key: 'campus_living.premium.configure_tier', label: 'Premium Stay — Configure Tier Policy' },
-      { key: 'campus_living.premium.pick_room', label: 'Premium Stay — Self-Pick Room (Learner)' },
-      { key: 'campus_living.premium.invite_roommate', label: 'Premium Stay — Invite Roommate' },
-      { key: 'campus_living.premium.override_pick', label: 'Premium Stay — Override Pick (Chief Warden)' },
-      { key: 'campus_living.premium.view_dashboard', label: 'Premium Stay — View Dashboard' },
+      // Premium Room (paid SKU — added 2026-05-16 in Wave 1 spec)
+      { key: 'campus_living.premium.configure_tier', label: 'Premium Room — Configure Tier Policy' },
+      { key: 'campus_living.premium.pick_room', label: 'Premium Room — Self-Pick Room (Learner)' },
+      { key: 'campus_living.premium.invite_roommate', label: 'Premium Room — Invite Roommate' },
+      { key: 'campus_living.premium.override_pick', label: 'Premium Room — Override Pick (Chief Warden)' },
+      { key: 'campus_living.premium.view_dashboard', label: 'Premium Room — View Dashboard' },
 
       // ══ The write half the catalog never had (2026-08-05) ════════════════
       // Everything above was written as intent verbs — record, config,
@@ -2430,7 +2440,13 @@ export const PERMISSION_CATEGORIES = [
       // Event-date requests (CARRE instrumentation, 2026-07-25): grants deciding
       // (confirm/decline/supersede) a raised "please confirm a date" request via
       // fn_event_date_request_decide. Raising needs no key (any proposal viewer).
-      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' }
+      { key: 'events.dates.decide', label: 'Decide Event Date Requests (confirm/decline)' },
+      // Events Hub row delete (2026-08-06). Seeded to NO role — super admins
+      // pass via user_has_permission()'s bypass, everyone else is granted here
+      // from Role Management. The DELETE it unlocks cascades through 43 child
+      // tables (registrations, payment transactions, tournament matches …), so
+      // it is deliberately not bundled into any existing events key.
+      { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
@@ -2849,6 +2865,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.industry_mentors.create', label: 'Create Industry Mentors' },
       { key: 'cdc.industry_mentors.edit', label: 'Edit Industry Mentors' },
       { key: 'cdc.industry_mentors.delete', label: 'Delete Industry Mentors' },
+
+      // Industry Partners directory (public.industry_partners — COMPANIES, not
+      // the individual mentors above). Read-only module: the business-card
+      // scanner is the only writer today, so no create/edit/delete keys exist
+      // yet. Add them when a manual-entry surface is actually built.
+      { key: 'cdc.industry_partners.view', label: 'View Industry Partners' },
 
       // Reports & Exports (NAAC / AICTE / flex)
       { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },
