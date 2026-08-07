@@ -21,6 +21,7 @@ import type {
   StaffProfileAnalytics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/utils';
 import {
   buildStaffSearchConditions,
   resolveStaffFiltersForUser
@@ -639,7 +640,12 @@ export class StaffService {
         }
       };
     } catch (error) {
-      console.error('Error fetching staff:', error);
+      // Log the MESSAGE, not the object. A Supabase PostgrestError is a plain
+      // object and prints fine, but an Error instance (e.g. the 30s timeout
+      // reject above) has non-enumerable message/stack and console.error prints
+      // it as `{}` — which left the UI saying "check the console for details"
+      // when the console had none.
+      console.error('Error fetching staff:', getErrorMessage(error), error);
       throw error;
     }
   }
@@ -699,7 +705,11 @@ export class StaffService {
       // Use the existing getStaff method with enhanced filters
       return await this.getStaff(effectiveFilters);
     } catch (error) {
-      console.error('Error fetching staff with role-based filtering:', error);
+      console.error(
+        'Error fetching staff with role-based filtering:',
+        getErrorMessage(error),
+        error
+      );
       throw error;
     }
   }
