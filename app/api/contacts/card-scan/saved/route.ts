@@ -27,6 +27,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
 
 export const dynamic = 'force-dynamic';
 
