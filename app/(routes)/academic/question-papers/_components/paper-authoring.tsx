@@ -143,13 +143,23 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
   const isEditable = (paper?.status === 'draft' || paper?.status === 'submitted') && canEnter;
 
   const enteredMarks = useMemo(() => {
+    // A part contributes only the marks a learner can actually earn: "answer any N"
+    // means the first N questions count, so 2 × 5 (answer 1) adds 5, not 10.
+    const countedPerPart = new Map<string, number>();
     let total = 0;
     for (const q of paper?.questions ?? []) {
       if (q.is_choice_alternative) continue; // don't double-count "(OR)" branches
+      const label = q.part_label ?? '—';
+      const part = partByLabel.get(label);
+      const answerCount =
+        part && Number(part.num_to_answer) > 0 ? Number(part.num_to_answer) : part?.num_questions;
+      const counted = countedPerPart.get(label) ?? 0;
+      if (answerCount != null && counted >= answerCount) continue;
+      countedPerPart.set(label, counted + 1);
       total += Number(edits[q.id]?.marks ?? q.marks ?? 0);
     }
     return total;
-  }, [paper?.questions, edits]);
+  }, [paper?.questions, edits, partByLabel]);
 
   const flushSave = useCallback(() => {
     if (dirtyRef.current.size === 0) return;
@@ -282,6 +292,10 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
       {/* Parts */}
       {grouped.map((group) => {
         const part = group.part;
+        // "Answer any N": only num_to_answer questions count toward the part total,
+        // so the header must read "1 × 5 = 5", not "2 × 5 = 5".
+        const answerCount =
+          part && Number(part.num_to_answer) > 0 ? Number(part.num_to_answer) : part?.num_questions ?? 0;
         return (
           <Card key={group.label}>
             <CardContent className='py-4 space-y-4'>
@@ -290,7 +304,11 @@ export function PaperAuthoring({ paperId, onBack, canEnter, canApprove, canExpor
                   <h3 className='font-semibold'>{part?.part_title ?? `PART ${group.label}`}</h3>
                   {part && (
                     <span className='text-xs text-muted-foreground'>
-                      {part.num_questions} × {part.marks_per_question} = {part.part_max_marks} marks
+                      {answerCount} × {part.marks_per_question} ={' '}
+                      {answerCount * part.marks_per_question} marks
+                      {answerCount < part.num_questions
+                        ? ` · answer ${answerCount} of ${part.num_questions}`
+                        : ''}
                     </span>
                   )}
                 </div>

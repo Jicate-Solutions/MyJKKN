@@ -59588,6 +59588,7 @@ export type Database = {
       learners_profiles: {
         Row: {
           aadhar_number: string | null
+          abc_id: string | null
           academic_year_id: string | null
           accommodation_type_id: string | null
           account_verification_notes: string | null
@@ -59618,6 +59619,7 @@ export type Database = {
           dayscholar_fee: number | null
           degree_id: string | null
           department_id: string | null
+          emis: string | null
           engineering_cutoff_marks: string | null
           enquiry_date: string | null
           entry_type: string
@@ -59629,6 +59631,7 @@ export type Database = {
           fees_confirmed: boolean
           first_graduate: boolean | null
           first_name: string
+          first_name_tamil: string | null
           gender: string
           hospital_training_fee: number | null
           hostel_category_id: string | null
@@ -59639,6 +59642,7 @@ export type Database = {
           institution_id: string | null
           is_profile_complete: boolean
           last_name: string | null
+          last_name_tamil: string | null
           last_school: string
           last_school_id: string | null
           learner_type: string | null
@@ -59690,6 +59694,7 @@ export type Database = {
           transport_stop_id: string | null
           tuition_fee: number | null
           twelfth_marks: Json
+          umis: string | null
           uniform_fee: number | null
           university_reg_fee: number | null
           updated_at: string
@@ -59697,6 +59702,7 @@ export type Database = {
         }
         Insert: {
           aadhar_number?: string | null
+          abc_id?: string | null
           academic_year_id?: string | null
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
@@ -59727,6 +59733,7 @@ export type Database = {
           dayscholar_fee?: number | null
           degree_id?: string | null
           department_id?: string | null
+          emis?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
           entry_type: string
@@ -59738,6 +59745,7 @@ export type Database = {
           fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name: string
+          first_name_tamil?: string | null
           gender: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
@@ -59748,6 +59756,7 @@ export type Database = {
           institution_id?: string | null
           is_profile_complete?: boolean
           last_name?: string | null
+          last_name_tamil?: string | null
           last_school: string
           last_school_id?: string | null
           learner_type?: string | null
@@ -59799,6 +59808,7 @@ export type Database = {
           transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks: Json
+          umis?: string | null
           uniform_fee?: number | null
           university_reg_fee?: number | null
           updated_at?: string
@@ -59806,6 +59816,7 @@ export type Database = {
         }
         Update: {
           aadhar_number?: string | null
+          abc_id?: string | null
           academic_year_id?: string | null
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
@@ -59836,6 +59847,7 @@ export type Database = {
           dayscholar_fee?: number | null
           degree_id?: string | null
           department_id?: string | null
+          emis?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
           entry_type?: string
@@ -59847,6 +59859,7 @@ export type Database = {
           fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name?: string
+          first_name_tamil?: string | null
           gender?: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
@@ -59857,6 +59870,7 @@ export type Database = {
           institution_id?: string | null
           is_profile_complete?: boolean
           last_name?: string | null
+          last_name_tamil?: string | null
           last_school?: string
           last_school_id?: string | null
           learner_type?: string | null
@@ -59908,6 +59922,7 @@ export type Database = {
           transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks?: Json
+          umis?: string | null
           uniform_fee?: number | null
           university_reg_fee?: number | null
           updated_at?: string

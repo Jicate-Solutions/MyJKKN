@@ -22,11 +22,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // RLS) so the UI PermissionGuard alone is not a security boundary — every
   // authenticated user could otherwise POST here directly. user_has_permission
   // honors super_admin bypass internally; we just call it with the catalog key.
-  const { data: canConvert } = await (supabase as any)
+  const { data: canConvert, error: permError } = await (supabase as any)
     .rpc('user_has_permission', {
       user_id: user.id,
       permission_key: 'admission.leads.convert_to_admitted',
     });
+  // A check that could not RUN is not a denial. Reading `data` alone conflates
+  // the two — both arrive falsy — and that conflation is what shipped: when the
+  // (uuid, text) overload lost its EXECUTE grant to `authenticated`, PostgREST
+  // returned 42501 and every caller was told "Forbidden", including admission
+  // officers whose role plainly carried the key. Wrong AND unactionable: it
+  // points the reader at the permissions catalog, where nothing is broken.
+  // Restored by migration 20260814020000; this branch is what makes the next
+  // occurrence legible instead of silent.
+  if (permError) {
+    console.error(
+      '[bridge/convert] Permission check could not run:',
+      permError.code,
+      permError.message,
+    );
+    return NextResponse.json(
+      { error: 'Permission check failed. Please report this to support.' },
+      { status: 500 },
+    );
+  }
   if (!canConvert) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }

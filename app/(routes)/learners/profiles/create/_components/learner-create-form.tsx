@@ -104,6 +104,12 @@ export function LearnerCreateForm() {
         // semester isn't auto-rewritten. That policy is admission-capture
         // only — it lives in the enquiry flow.
         enforceAdmissionRules={false}
+        // Tamil-script name inputs on Basic Details. Scoped to the Learner
+        // Profiles screens — the enquiry and student self-fill flows that share
+        // this form stay as they were.
+        showTamilNames
+        // ABC ID / EMIS / UMIS — same Profiles-only scoping.
+        showLearnerIdentifiers
         submitLabel="Create Learner"
         // Custom submit — form's commitSubmit early-returns after this
         onSubmit={handleStrictSubmit}
