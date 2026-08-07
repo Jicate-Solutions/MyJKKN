@@ -1,11 +1,17 @@
 /**
  * Business-card scanner — "where did my scans go?"
  *
- * Five of the nine destinations a scanned card can land in have NO screen of
+ * Five of the nine destinations a scanned card can land in had NO screen of
  * their own: sh_prospects, industry_partners, ss_mentors, ims_suppliers and
  * internship_site_contacts. Measured 2026-08-06 — `industry_partners` held
  * exactly one row, written by a card scanned from a phone, and there was
  * nowhere in the product to see it.
+ *
+ * Two of those five turned out to have a full module page all along and were
+ * invisible only because TABLE_HREF did not name them (2026-08-07):
+ * sh_prospects → /solutions/pipeline/list and ss_mentors →
+ * /startup-studio/mentors. See the map below for the three that stay
+ * link-less, and why each one does.
  *
  * Rather than five new module pages, this serves ONE screen (Director decision
  * 2026-08-06): every card you have saved, grouped by where it went, plus the
@@ -24,25 +30,82 @@ import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
-/** Table name → what a human calls it. */
-const TABLE_LABEL: Record<string, string> = {
+/**
+ * Table name → what a human calls it.
+ *
+ * `ss_` is Startup Studio: every reference to `ss_mentors` in the codebase
+ * lives under `app/(routes)/startup-studio` / `lib/services/startup-studio`,
+ * and the mentor service queries that table thirteen times. The destination
+ * picker in `lib/services/contacts/card-routing.ts` labels it as a support
+ * mentor, which reads like a different module entirely — so the label here
+ * names Startup Studio, matching the page the link now opens. A label that
+ * disagrees with its own link is its own kind of dead end.
+ *
+ * Exported for the test that pins this map.
+ */
+export const TABLE_LABEL: Record<string, string> = {
   admission_leads: 'Admission leads',
   cdc_recruiters: 'Recruiters',
   sh_prospects: 'Solutions prospects',
   internship_site_contacts: 'Internship site contacts',
   internship_preceptors: 'Internship preceptors',
   industry_partners: 'Industry partners',
-  ss_mentors: 'Mentors',
+  ss_mentors: 'Startup Studio mentors',
   event_sponsors: 'Event sponsors',
   ims_suppliers: 'Suppliers',
 };
 
-/** Where a module actually has a screen, link to it. Five deliberately do not. */
-const TABLE_HREF: Record<string, string> = {
+/**
+ * Where a module has a screen the SCANNER can actually open, link to it.
+ *
+ * The bar is deliberately "openable by the people who scan cards", not "a page
+ * exists". A link to a page the viewer is denied turns this read-only screen
+ * into a dead end, which is worse than the honest "Only viewable here".
+ * Measured against production `custom_roles` / `user_roles` on 2026-08-07,
+ * against the 197 accounts that hold `meetings.contacts.scan` (or are one of
+ * the 14 super admins):
+ *
+ *   sh_prospects   → /solutions/pipeline/list
+ *       `solutions.pipeline.view`, 5 holders, ALL 5 can scan. The subtree is
+ *       wrapped in RoutePermissionGuard, so anyone else gets an explicit
+ *       permission page rather than a silent bounce. LINKED.
+ *
+ *   ss_mentors     → /startup-studio/mentors
+ *       `startup_studio.analytics.view`, 5 holders, ALL 5 can scan. Same
+ *       RoutePermissionGuard treatment. LINKED.
+ *
+ * Three stay deliberately link-less:
+ *
+ *   ims_suppliers  — /ims/settings/suppliers exists, but its declared
+ *       permission `ims.settings.suppliers.manage` has 3 holders and NOT ONE of
+ *       them can scan a card, so for every non-super-admin scanner this link
+ *       would point at a page they are not authorised to open. It happens to
+ *       render for the 105 scanners who hold the broader `ims.view`, because
+ *       the IMS layout gates on that key instead of the declared one — an
+ *       absent page-layer check is not a permission, and wiring a link on top
+ *       of it would break the moment that gate is tightened. On top of which,
+ *       only 3 of 14 institutions have an IMS store, so most of those 105 land
+ *       on "No Store Assigned" regardless.
+ *
+ *   internship_site_contacts — `internship_external_sites/[id]` mentions
+ *       "contact" eight times, but every one of them is the site's own
+ *       `emergency_contact_*` column; the page lists PRECEPTORS, not site
+ *       contacts. `useSiteContacts` exists in hooks/internships/useSites.ts and
+ *       has zero consumers app-wide, so these rows render nowhere. A deep link
+ *       would also have to be per-row (each contact's own `site_id`), which
+ *       this map cannot express — it is keyed by table alone.
+ *
+ *   industry_partners — no module screen of any kind.
+ *
+ * Exported for the test that pins this map.
+ */
+export const TABLE_HREF: Record<string, string> = {
   admission_leads: '/admission/leads',
   cdc_recruiters: '/cdc/admin/recruiters',
   event_sponsors: '/events',
   internship_preceptors: '/internships/sites',
+  sh_prospects: '/solutions/pipeline/list',
+  ss_mentors: '/startup-studio/mentors',
 };
 
 interface ScanRow {
