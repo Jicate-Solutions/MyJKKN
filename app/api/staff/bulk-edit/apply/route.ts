@@ -56,4 +56,4 @@ export const POST = withAuth(async (request: NextRequest, auth) => {
   } catch (err) {
     return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
-}, { requiredPermission: 'write' });
+}, { requirePermission: 'staff.manage_imports' });

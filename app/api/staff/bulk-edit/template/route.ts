@@ -12,6 +12,7 @@ import { withAuth } from '@/lib/auth/with-auth';
 import { getErrorMessage } from '@/lib/utils';
 import { BULK_EDIT_COLUMNS } from '@/lib/services/staff/staff-bulk-edit-columns';
 import { BaseService } from '@/lib/services/base-service';
+import { createApiInstitutionFilter } from '@/lib/auth/api-institution-filter';
 
 export const GET = withAuth(async (request: NextRequest, auth) => {
   await connection();
@@ -20,6 +21,13 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     const institutionId = url.searchParams.get('institution_id') || undefined;
     const departmentId = url.searchParams.get('department_id') || undefined;
     const categoryId = url.searchParams.get('category_id') || undefined;
+
+    // Explicit institution scope, in addition to RLS. Mirrors preview/apply so all three
+    // routes enforce the same boundary rather than this one relying on RLS alone.
+    const filter = await createApiInstitutionFilter(request, { requireInstitutionAccess: true });
+    if (!filter.isAllowed) {
+      return NextResponse.json({ error: filter.reason ?? 'No institution access' }, { status: 403 });
+    }
 
     const supabase = (BaseService as any).supabase;
     let query = supabase
@@ -33,6 +41,14 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
           'category:employment_categories(id, category_name)'
       )
       .order('first_name', { ascending: true });
+
+    // An EMPTY institutionIds means ALL institutions (super-admin / admission-global bypass;
+    // api-institution-filter.ts's own comment reads "Empty means access to all").
+    // .in('institution_id', []) would match ZERO rows, so guard on length — and never branch
+    // on filter.isSuperAdmin, which silently strips scope='all' secondary roles.
+    if (filter.institutionIds.length > 0) {
+      query = query.in('institution_id', filter.institutionIds);
+    }
 
     if (institutionId) query = query.eq('institution_id', institutionId);
     if (departmentId) query = query.eq('department_id', departmentId);
@@ -132,4 +148,4 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   } catch (err) {
     return NextResponse.json({ error: getErrorMessage(err) }, { status: 500 });
   }
-}, { requiredPermission: 'write' });
+}, { requirePermission: 'staff.manage_imports' });
