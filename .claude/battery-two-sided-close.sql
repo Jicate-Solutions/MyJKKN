@@ -363,6 +363,17 @@ BEGIN
   -- look identical, so a typo'd or deleted VALUES row would print
   -- "skipped, not applied" and PASS — reproducing marks_coverage, the exact
   -- failure this check exists to detect. Registered ⇒ it MUST be emitted.
+  -- …and the registry read itself is proved VISIBLE before its answer is
+  -- trusted. work_signal_types is read through a direct SELECT while the RPC it
+  -- is compared against is SECURITY DEFINER, so a role that can call the RPC but
+  -- cannot see the table (RLS, missing grant) would read zero rows, conclude
+  -- "not applied", and PASS — the same silent green, entered through a different
+  -- door. The table is never legitimately empty.
+  SELECT count(*)::int INTO n FROM public.work_signal_types;
+  IF n = 0 THEN
+    RAISE EXCEPTION 'A10b cannot see public.work_signal_types (0 rows visible) — this is an access problem, not an empty registry; the skip below would be a false pass';
+  END IF;
+
   IF EXISTS (SELECT 1 FROM public.work_signal_types
               WHERE signal_key = 'sessions_marked_same_day' AND is_active) THEN
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'signals') s

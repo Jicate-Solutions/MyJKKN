@@ -127,6 +127,17 @@
 -- number only, no comparison, no score. It is an instrument, not an evaluation.
 -- =============================================================================
 
+-- ⚠️ THIS FILE IS ONE TRANSACTION, AND THAT IS WHAT MAKES §0 A GUARD.
+-- A RAISE inside a standalone DO block aborts that block — it does NOT stop the
+-- next statement from being pasted and executed, and this file reaches the
+-- database out-of-band, statement by statement. Without the BEGIN/COMMIT below,
+-- §0 could refuse and the CREATE OR REPLACE could still overwrite a drifted
+-- engine one statement later, which is the exact hazard §0 exists to prevent.
+-- The check and the write have to be structurally indivisible, not merely
+-- adjacent. If your apply path already opens a transaction, strip these two
+-- lines — do not leave the file un-wrapped in one that does not.
+BEGIN;
+
 -- ---------------------------------------------------------------------------
 -- §0 DRIFT GUARD — refuse to apply on top of a body this file did not read.
 --
@@ -211,10 +222,16 @@ $guard$;
 -- 'Asia/Kolkatta'). Two review rounds each found a member the previous list had
 -- missed, which is the signature of a rule that should not be a list. Class 22
 -- is the SQL standard's "the data is bad" class and covers all of them.
--- The re-raise is the other half and matters just as much: `WHEN others` alone
--- would swallow 57014 query_canceled and the 53/58/XX classes, turning a
--- timed-out or failing query into "not marked that day" — a silently wrong
--- count, which is worse than an error.
+-- The re-raise is the other half. NOTE, corrected after review and verified on
+-- production 2026-08-08: plpgsql's OTHERS already excludes QUERY_CANCELED and
+-- ASSERT_FAILURE, so a statement timeout propagates on its own — an earlier
+-- version of this comment claimed the re-raise was what protected 57014, and
+-- that was simply wrong. What the re-raise actually covers is everything else
+-- OTHERS does catch: class 53 (out of memory, disk full, connection limits),
+-- class 40 (serialization failure, deadlock), classes 58/XX (system and
+-- internal errors) and class 42 should this function ever be changed to touch
+-- an object it may not. Swallowing any of those would turn a real failure into
+-- "not marked that day" — a silently wrong count, which is worse than an error.
 --
 -- ZONE HANDLING. The naive branch is taken ONLY for a strictly zone-free form.
 -- Anything else goes through ::timestamptz, which understands 'Z', '+05',
@@ -240,7 +257,11 @@ STABLE
 SET search_path = public
 AS $function$
 DECLARE
-  v_t text := btrim(p_text);
+  -- btrim/1 strips ONLY spaces. A tab, CR, LF, form-feed or vertical tab would
+  -- otherwise survive, miss the zone-free pattern, and take the zoned branch —
+  -- the same "unrecognised silently means assume UTC" day-late bug this helper
+  -- exists to close, left half-open. The character set is explicit.
+  v_t text := btrim(p_text, E' \t\r\n\f\v');
 BEGIN
   IF v_t IS NULL OR v_t = '' THEN
     RETURN NULL;
@@ -254,7 +275,9 @@ BEGIN
   -- Verified on production: that is a day out, and it was a REGRESSION against
   -- the version already running. Being unrecognised must not silently mean
   -- "assume UTC".
-  IF v_t ~ '^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([T ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?)?$' THEN
+  -- [Tt] because the separator is case-insensitive in practice and a lowercase
+  -- 't' would otherwise fall to the zoned branch and land a day late.
+  IF v_t ~ '^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?)?$' THEN
     RETURN (v_t::timestamp)::date;
   END IF;
   -- Everything else carries (or claims) a zone — let Postgres read it.
@@ -550,6 +573,15 @@ BEGIN
   SELECT count(*) INTO v_refs
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public'
+    -- prokind IS LOAD-BEARING: pg_get_functiondef raises 42809 on aggregates
+    -- and window functions, so scanning every pg_proc row in `public` would
+    -- abort this block the day anyone installs an extension that adds one —
+    -- AFTER the engine was replaced, leaving a half-applied migration with a
+    -- misleading unrelated error. Only plain functions and procedures have a
+    -- body that could call anything. (Verified 2026-08-08: `public` currently
+    -- holds prokind 'f' only, so this changes nothing today and prevents a
+    -- future abort.)
+    AND p.prokind IN ('f', 'p')
     AND p.proname <> 'fn_try_timestamptz_ist'
     AND pg_get_functiondef(p.oid) LIKE '%fn_try_timestamptz_ist%';
 
@@ -563,3 +595,5 @@ END
 $retire$;
 
 NOTIFY pgrst, 'reload schema';
+
+COMMIT;

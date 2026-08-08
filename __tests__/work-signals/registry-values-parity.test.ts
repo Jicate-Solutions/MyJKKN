@@ -23,12 +23,14 @@
  * Deliberately static (no database, no credentials): the join is a property of
  * the SQL, so it is checkable from the SQL.
  *
- * ⚠️ WHAT THIS SUITE IS NOT EVIDENCE ABOUT. It grades the newest migration
- * FILE, which right now is 20260816020000 — a file this PR marks FILE ONLY /
- * NOT APPLIED. Production is still running 20260731190000, and DDL reaches it
- * out-of-band through the Management API. So green here means "the files are
- * internally consistent", never "production is consistent". The live check is
- * A10b in .claude/battery-two-sided-close.sql, which reads the real registry
+ * ⚠️ WHAT THIS SUITE IS NOT EVIDENCE ABOUT. It grades migration FILES, never
+ * the running database, and the two are not the same thing right now:
+ * 20260816020000 IS applied to production (2026-08-08), but what is running is
+ * its PRE-CORRECTION body — the version that merged in #2924, whose timestamp
+ * guard still raises on four real inputs. Re-applying the file is the remedy.
+ * DDL also reaches this database out-of-band, so green here means "the files
+ * are internally consistent", never "production is consistent". The live check
+ * is A10b in .claude/battery-two-sided-close.sql, which reads the real registry
  * and the real RPC response; this suite cannot replace it and does not try to.
  *
  * Live counts are NOT asserted
@@ -121,36 +123,94 @@ function emittedKeys(body: string): Set<string> {
 function registeredActiveKeys(): Set<string> {
   const active = new Map<string, boolean>();
 
-  for (const { sql } of migrationFiles()) {
-    // INSERT … VALUES (…), (…) — evaluate each tuple on its own.
+  // Explicitly sorted: the "last write wins" semantics below depend on it, and
+  // depending on readdirSync's incidental order would make the result
+  // platform-dependent for no reason.
+  const files = [...migrationFiles()].sort((a, b) => a.name.localeCompare(b.name));
+
+  for (const { sql } of files) {
+    // Collect INSERTs and UPDATEs with their TEXTUAL OFFSET, then fold them in
+    // that order. Folding all INSERTs before all UPDATEs (the earlier shape)
+    // meant an `UPDATE … is_active=false` appearing BEFORE a re-activating
+    // INSERT in the same file still won — silently dropping a live key from the
+    // derived registry and letting a genuinely dark key beside it escape the
+    // parity comparison. The ordering only held across files, not within one.
+    const effects: { at: number; apply: () => void }[] = [];
+
     for (const ins of sql.matchAll(
       /INSERT INTO public\.work_signal_types[\s\S]*?(?=\n\s*(?:NOTIFY|REVOKE|GRANT|CREATE|ALTER|INSERT|UPDATE|COMMENT|--\s*-{3,})|$)/g,
     )) {
       const stmt = ins[0];
-      // ON CONFLICT … is_active=true is a property of the whole statement.
+      const at = ins.index ?? 0;
+      // Resolve is_active POSITIONALLY against the statement's column list.
+      // Scanning for a bare `false` anywhere in the tuple fires on ANY other
+      // boolean column, which drops the key for the wrong reason — the same
+      // silent drop, just moved from statement scope to row scope.
+      const cols = stmt
+        .match(/INSERT INTO public\.work_signal_types\s*\(([^)]*)\)/i)?.[1]
+        .split(',')
+        .map((c) => c.trim().toLowerCase());
+      const activeIdx = cols ? cols.indexOf('is_active') : -1;
+      // ON CONFLICT … is_active=true only affects rows that actually conflict,
+      // which this static reader cannot know — so it is treated as evidence the
+      // author intends the key active, never as an override of an explicit
+      // per-row false.
       const conflictForcesActive = /ON CONFLICT[\s\S]*?is_active\s*=\s*true/i.test(stmt);
       const valuesPart = stmt.split(/ON CONFLICT/i)[0];
+
       for (const tuple of splitTuples(valuesPart)) {
         const key = tuple.match(/^\s*'([a-z0-9_]+)'\s*,/)?.[1];
         if (!key) continue;
-        // Scan for the boolean OUTSIDE string literals. Registry descriptions
-        // are long prose and one of them containing the word "false" would
-        // otherwise mark a live key inactive, drop it from the derived set, and
-        // hide a genuinely dark key from the parity comparison — the exact
-        // silent-drop this file exists to catch.
-        const rowSaysFalse = /(^|[\s,(])false([\s,)]|$)/i.test(stripLiterals(tuple));
-        active.set(key, conflictForcesActive ? true : !rowSaysFalse);
+        let isActive: boolean;
+        if (activeIdx >= 0) {
+          const field = splitTopLevel(tuple)[activeIdx]?.trim().toLowerCase();
+          isActive = field === undefined ? true : field !== 'false';
+        } else {
+          // No is_active column named ⇒ the table default (true) applies.
+          isActive = true;
+        }
+        if (!isActive && conflictForcesActive) isActive = false; // explicit false wins
+        effects.push({ at, apply: () => active.set(key, isActive) });
       }
     }
-    // UPDATE … SET is_active = <bool> … WHERE signal_key = '…'
+
     for (const m of sql.matchAll(
       /UPDATE public\.work_signal_types[\s\S]{0,400}?is_active\s*=\s*(true|false)[\s\S]{0,300}?signal_key\s*=\s*'([a-z0-9_]+)'/gi,
     )) {
-      active.set(m[2], m[1].toLowerCase() === 'true');
+      const on = m[1].toLowerCase() === 'true';
+      const key = m[2];
+      effects.push({ at: m.index ?? 0, apply: () => active.set(key, on) });
     }
+
+    effects.sort((a, b) => a.at - b.at).forEach((e) => e.apply());
   }
 
   return new Set([...active.entries()].filter(([, on]) => on).map(([k]) => k));
+}
+
+/** Split one tuple's body into its top-level, comma-separated fields. */
+function splitTopLevel(tuple: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let inStr = false;
+  let cur = '';
+  for (let i = 0; i < tuple.length; i++) {
+    const c = tuple[i];
+    if (c === "'") {
+      if (inStr && tuple[i + 1] === "'") { cur += "''"; i++; continue; }
+      inStr = !inStr;
+      cur += c;
+      continue;
+    }
+    if (!inStr) {
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if (c === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
+    }
+    cur += c;
+  }
+  out.push(cur);
+  return out;
 }
 
 /** Blank out single-quoted literals so keyword scans can't read prose.
@@ -281,8 +341,10 @@ describe('work-signals: the same-day count is a subset of the personal count', (
     return m![0];
   }
 
-  /** The text inside `FILTER ( … )`, matched by balancing parentheses. */
-  function filterExpression(block: string): string {
+  /** The text inside `FILTER ( … )`, and where it ends, by balancing parens.
+   *  The end index matters: the FILTER carries its OWN `WHERE`, so anything
+   *  searching for the statement's WHERE has to start after this. */
+  function filterSpan(block: string): { expr: string; end: number } {
     const start = block.indexOf('FILTER (');
     expect(start, 'no FILTER in the counting block').toBeGreaterThan(-1);
     let depth = 0;
@@ -290,11 +352,15 @@ describe('work-signals: the same-day count is a subset of the personal count', (
       if (block[i] === '(') depth++;
       else if (block[i] === ')') {
         depth--;
-        if (depth === 0) return block.slice(start + 'FILTER ('.length, i);
+        if (depth === 0) {
+          return { expr: block.slice(start + 'FILTER ('.length, i), end: i + 1 };
+        }
       }
     }
     throw new Error('unbalanced FILTER parentheses');
   }
+
+  const filterExpression = (block: string): string => filterSpan(block).expr;
 
   it('fills both counters from a single scan of a single predicate', () => {
     const block = countingBlock(engine());
@@ -325,12 +391,19 @@ describe('work-signals: the same-day count is a subset of the personal count', (
     // textually. It asserted grammar, not scoping, and would have passed for a
     // mutant that moved the marker test straight into the FILTER.
     const block = countingBlock(engine());
+    const { expr, end } = filterSpan(block);
     expect(
-      filterExpression(block),
+      expr,
       'the marker test belongs in the WHERE; inside the FILTER it stops scoping ' +
         'the scan and another marker\'s row can be parsed on this caller\'s behalf',
     ).not.toContain('marker_id');
-    expect(block.slice(block.indexOf('WHERE'))).toContain(
+    // Search from AFTER the FILTER closes. The FILTER carries its own WHERE, so
+    // slicing at the first `WHERE` in the block lands INSIDE it and the
+    // assertion degrades to "the marker test exists somewhere" — presence, not
+    // scoping, which is the exact vacuity this file keeps having to remove.
+    const statementTail = block.slice(end);
+    expect(statementTail).toContain('WHERE sa.attendance_date BETWEEN');
+    expect(statementTail).toContain(
       "period.value->'marked_by_details'->>'marker_id' = v_uid::text",
     );
   });
@@ -373,8 +446,14 @@ describe('work-signals: the date helper cannot raise on bad data', () => {
    *
    * A list that needed extending twice is the wrong shape of rule. The handler
    * now swallows CLASS 22 (data exception) and re-raises everything else, which
-   * is complete by the standard's own definition, and the re-raise is what
-   * keeps 57014 query_canceled from becoming a silently wrong count.
+   * is complete by the standard's own definition.
+   *
+   * The re-raise matters too, but NOT for the reason first documented here:
+   * verified on production 2026-08-08, plpgsql's OTHERS already excludes
+   * QUERY_CANCELED, so a statement timeout propagates without help. What the
+   * re-raise actually covers is class 53 (resources), class 40 (deadlock,
+   * serialization), and classes 58/XX — swallowing any of those would turn a
+   * real failure into "not marked that day".
    */
   const migrationSql = (): string =>
     migrationFiles().find((f) => f.name === newestEngineDefinition().name)!.sql;
@@ -415,9 +494,15 @@ describe('work-signals: the date helper cannot raise on bad data', () => {
     // be read as UTC — verified, '2026-08-08 23:30:00 ' and '2026-8-8 23:30:00'
     // landed a day late, a regression against the version already running.
     const h = helper();
-    expect(h, 'input must be trimmed before either branch').toContain('btrim(p_text)');
+    // btrim/1 strips ONLY spaces, so the character set is explicit — a tab, CR
+    // or LF would otherwise survive, miss the pattern, take the zoned branch
+    // and land a day late. Same bug, just a different whitespace character.
+    expect(h, 'input must be trimmed of ALL whitespace, not just spaces').toMatch(
+      /btrim\(p_text, E' \\t\\r\\n\\f\\v'\)/,
+    );
+    // [Tt]: a lowercase separator is zone-free too.
     expect(h).toContain(
-      "'^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([T ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$'",
+      "'^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$'",
     );
     // The doubtful path must be the SAFE one.
     expect(h).toContain("((v_t::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date");
@@ -458,6 +543,14 @@ describe('work-signals: the date helper cannot raise on bad data', () => {
     expect(sql).toContain('REFUSING TO DROP');
     expect(sql).toMatch(/pg_get_functiondef\(p\.oid\) LIKE '%fn_try_timestamptz_ist%'/);
     expect(sql).toMatch(/IF v_refs > 0 THEN/);
+    // …and the scan must not walk objects pg_get_functiondef cannot describe.
+    // It raises 42809 on aggregates and window functions, so an unfiltered scan
+    // aborts this block the day an extension adds one — AFTER the engine was
+    // replaced, leaving a half-applied migration and a misleading error.
+    expect(
+      sql,
+      'the caller scan must exclude aggregates/window functions (prokind)',
+    ).toMatch(/AND p\.prokind IN \('f', 'p'\)/);
   });
 });
 
@@ -505,6 +598,27 @@ describe('work-signals: a late apply cannot silently revert the engine', () => {
     expect(sql).toMatch(/JOIN pg_namespace n ON n\.oid = p\.pronamespace/);
     expect(sql).toMatch(/n\.nspname = 'public' AND p\.proname = 'fn_work_signals_for'/);
     expect(sql).toMatch(/IF v_n <> 1 THEN/);
+  });
+
+  it('is one transaction, or the guard cannot stop the write it protects', () => {
+    // A RAISE inside a standalone DO aborts that block — it does NOT stop the
+    // next statement from being executed, and this file reaches the database
+    // out-of-band, statement by statement. Un-wrapped, §0 could refuse and the
+    // CREATE OR REPLACE could still overwrite a drifted engine a moment later.
+    // Check and write have to be indivisible, not merely adjacent.
+    const sql = migrationFiles().find(
+      (f) => f.name === newestEngineDefinition().name,
+    )!.sql;
+    const code = sql.split('\n').filter((l) => !/^\s*--/.test(l));
+    expect(code.some((l) => /^BEGIN;\s*$/.test(l)), 'migration is not wrapped in BEGIN').toBe(true);
+    expect(code.some((l) => /^COMMIT;\s*$/.test(l)), 'migration is not wrapped in COMMIT').toBe(true);
+    // BEGIN must precede the guard, and COMMIT must follow the last write.
+    const beginAt = sql.search(/^BEGIN;\s*$/m);
+    const guardAt = sql.indexOf('DO $guard$');
+    const commitAt = sql.search(/^COMMIT;\s*$/m);
+    expect(beginAt).toBeGreaterThan(-1);
+    expect(beginAt).toBeLessThan(guardAt);
+    expect(commitAt).toBeGreaterThan(sql.indexOf('$retire$;'));
   });
 });
 
