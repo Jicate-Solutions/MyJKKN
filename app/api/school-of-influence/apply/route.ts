@@ -26,6 +26,8 @@ import {
   submitSoiApplication,
   type SoiApplySubmission,
 } from '@/lib/services/school-of-influence/apply-service';
+import { alertCooWhenNoActiveCoordinator } from '@/lib/services/cohorts/coordinator-notifications';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -81,6 +83,17 @@ export async function POST(request: NextRequest) {
         { status: refusal.status }
       );
     }
+    // D8 — an application has landed. If NOBODY is appointed to read it, the COO
+    // hears about it now rather than when someone notices the queue standing
+    // still. At most one message per programme per day (the idempotency key
+    // carries the date), and it can never affect the applicant: the application
+    // is already recorded, so a failure here is swallowed and logged.
+    try {
+      await alertCooWhenNoActiveCoordinator(createServiceRoleClient(), 'school_of_influence');
+    } catch (notifyError) {
+      console.error('SoI apply: could not check for a missing coordinator', notifyError);
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     console.error('SoI apply: failed to record the application', error);

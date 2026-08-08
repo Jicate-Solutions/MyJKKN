@@ -437,6 +437,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Settings",
         "children": [
           {
+            "path": "/accreditation/manage/bodies",
+            "label": "Bodies",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/accreditation/manage/collaborations",
             "label": "Collaborations",
             "iconName": "FileText",
@@ -6835,6 +6841,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "path": "/startup-studio/school-of-influence/admin/attendance",
                 "label": "Attendance",
                 "iconName": "CheckSquare",
+                "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/coordinators",
+                "label": "Coordinators",
+                "iconName": "FileText",
                 "children": []
               },
               {
