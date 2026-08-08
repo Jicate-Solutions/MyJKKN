@@ -119,6 +119,7 @@ DECLARE
     v_institution_id  UUID;
     v_department_id   UUID;
     v_role            TEXT;
+    v_cluster_scoped  BOOLEAN := false;
     v_count           INT := 0;
     v_sample_ids      UUID[];
     v_today_dow       TEXT;
@@ -129,6 +130,27 @@ BEGIN
     FROM public.profiles p
     WHERE p.id = p_user_id;
 
+    -- Is this caller's role cluster-scoped? ASK THE ROLE REGISTRY, never a
+    -- hardcoded name list. Role scope is configuration in this platform —
+    -- custom_roles.institution_scope is what Role Management writes and what
+    -- role_has_institution_access() reads — so a literal list here would be a
+    -- second, silently-drifting copy of that decision.
+    --
+    -- Measured on production 2026-08-08, which is exactly why the list form is
+    -- wrong: custom_roles holds NO row named 'admin' at all. It holds
+    -- 'administrator' and 'super_admin', both institution_scope='all'. Yet ONE
+    -- live profile still carries the legacy value role='admin', WITH an
+    -- institution_id and WITHOUT the is_super_admin flag — a single-tenant user
+    -- that a name list mentioning 'admin' would hand the whole cluster to.
+    -- Conversely the 2 real 'administrator' users are cluster-scoped and have
+    -- NO institution_id, so clamping them by name would empty their screen.
+    -- Reading the registry gets both cases right without naming either.
+    SELECT COALESCE(bool_or(cr.institution_scope = 'all'), false)
+    INTO v_cluster_scoped
+    FROM public.custom_roles cr
+    WHERE cr.role_key = v_role
+      AND cr.is_active;
+
     -- p_institution_id override — SECURITY CLAMP (added 2026-08-08)
     --
     -- This function is GRANTed to `authenticated`, so any signed-in user can call
@@ -136,33 +158,33 @@ BEGIN
     -- clamp the override was unconditional: passing another college's UUID as
     -- p_institution_id simply replaced the caller's own institution and returned
     -- that college's unmarked count plus up to ten of its timetable UUIDs.
-    --
-    -- The clamp is not new to this codebase — the sibling
-    -- fn_aqs_billing_overdue_invoices in attention_bar_state_query_functions_v1.sql
-    -- (~line 230) already carries exactly this shape. It was simply absent here.
-    -- The re-grain in this migration WIDENS what the hole exposes, from
+    -- The re-grain in this migration WIDENS what that exposes, from
     -- COUNT(DISTINCT section_id) to COUNT(DISTINCT timetables.id) including the
     -- semester-level rows this migration un-hides, so it is closed here rather
     -- than re-shipped.
-    IF v_is_super_admin OR v_role IN ('super_admin', 'admin') THEN
+    --
+    -- Only a genuinely cluster-scoped caller may redirect the scope. Everyone
+    -- else keeps the institution from their own profile, whatever they pass.
+    IF COALESCE(v_is_super_admin, false) OR v_cluster_scoped THEN
         v_institution_id := p_institution_id;
     ELSIF p_institution_id IS NOT NULL THEN
         NULL; -- keep v_institution_id from profiles (security clamp)
     END IF;
 
-    -- Super admin with no institution filter = all institutions
-    IF v_is_super_admin AND p_institution_id IS NULL THEN
+    -- A cluster-scoped caller naming no institution sees all of them.
+    IF (COALESCE(v_is_super_admin, false) OR v_cluster_scoped)
+       AND p_institution_id IS NULL THEN
         v_institution_id := NULL;
     END IF;
 
     -- FAIL CLOSED. The scope predicate below reads
     -- `(v_institution_id IS NULL OR t.institution_id = v_institution_id)`, so a
-    -- NULL institution means CLUSTER-WIDE, not "none". A caller who is not an
-    -- admin and whose institution cannot be resolved — an unknown p_user_id, a
-    -- profile with a NULL institution_id — would otherwise fall through that
-    -- predicate into every college's data. Return an empty result instead.
+    -- NULL institution means CLUSTER-WIDE, not "none". A caller who is NOT
+    -- cluster-scoped and whose institution cannot be resolved — an unknown
+    -- p_user_id, or a profile with a NULL institution_id — would otherwise fall
+    -- through that predicate into every college's data. Return empty instead.
     IF NOT COALESCE(v_is_super_admin, false)
-       AND COALESCE(v_role, '') NOT IN ('super_admin', 'admin')
+       AND NOT v_cluster_scoped
        AND v_institution_id IS NULL THEN
         RETURN jsonb_build_object('count', 0, 'sample_period_ids', '[]'::jsonb);
     END IF;

@@ -72,6 +72,11 @@ const SEC_3 = '00000000-0000-4000-8000-0000000000c3';
 const SEC_LEARNER = '00000000-0000-4000-8000-0000000000c9';
 const SUPER_ADMIN = '00000000-0000-4000-8000-0000000000d1';
 const HOD = '00000000-0000-4000-8000-0000000000d2';
+// Cluster-scoped via custom_roles.institution_scope='all', NOT via the
+// is_super_admin flag, and carrying no institution_id of their own.
+const CLUSTER_ADMIN = '00000000-0000-4000-8000-0000000000d3';
+// role='admin' — a legacy value with NO custom_roles row, institution-scoped.
+const LEGACY_ADMIN = '00000000-0000-4000-8000-0000000000d4';
 
 const TT = {
   sectionUnmarked: '00000000-0000-4000-8000-0000000000e1',
@@ -96,6 +101,14 @@ CREATE TABLE public.profiles (
   role TEXT,
   is_super_admin BOOLEAN DEFAULT false,
   institution_id UUID
+);
+-- The role registry. The clamp asks THIS for a role's scope rather than
+-- matching role names, so the fixture must carry it or the scope questions
+-- below would be answered by a missing relation instead of by the data.
+CREATE TABLE public.custom_roles (
+  role_key TEXT PRIMARY KEY,
+  institution_scope TEXT NOT NULL DEFAULT 'own',
+  is_active BOOLEAN NOT NULL DEFAULT true
 );
 CREATE TABLE public.staff (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -304,11 +317,26 @@ beforeAll(async () => {
   ).rows[0].d as string;
   const notToday = today === 'MONDAY' ? 'TUESDAY' : 'MONDAY';
 
+  // The registry, shaped as production is (measured 2026-08-08): 'administrator'
+  // and 'super_admin' are institution_scope='all'; there is NO row named 'admin'
+  // at all, even though one live profile still carries that legacy value.
+  await db.query(
+    `INSERT INTO public.custom_roles (role_key, institution_scope, is_active) VALUES
+       ('super_admin',  'all', true),
+       ('administrator','all', true),
+       ('hod',          'own', true)`,
+  );
+
   await db.query(
     `INSERT INTO public.profiles (id, email, role, is_super_admin, institution_id) VALUES
-       ($1,'super@jkkn.ac.in','super_admin',true,  $3),
-       ($2,'hod@jkkn.ac.in',  'hod',        false, $3)`,
-    [SUPER_ADMIN, HOD, INST],
+       ($1,'super@jkkn.ac.in','super_admin',  true,  $3),
+       ($2,'hod@jkkn.ac.in',  'hod',          false, $3),
+       -- Cluster-scoped by REGISTRY, not by the is_super_admin flag, and with no
+       -- institution of their own. Production has 2 of these.
+       ($4,'clusteradmin@jkkn.ac.in','administrator', false, NULL),
+       -- Legacy value with no registry row, institution-scoped. Production has 1.
+       ($5,'legacyadmin@jkkn.ac.in','admin',          false, $3)`,
+    [SUPER_ADMIN, HOD, INST, CLUSTER_ADMIN, LEGACY_ADMIN],
   );
   // The HOD is department-scoped through this record.
   await db.query(
@@ -529,6 +557,37 @@ describe('the institution override is clamped to administrators', () => {
 
     const nobodyUnscoped = await unmarkedFor(ghost);
     expect(nobodyUnscoped.count).toBe(0);
+  });
+
+  // Scope is decided by the ROLE REGISTRY, not by a list of role names. These
+  // two cases are why: on production one of them has no registry row and the
+  // other is cluster-scoped without the is_super_admin flag, so any hardcoded
+  // name list gets one of them wrong in one direction or the other.
+
+  it('a legacy role with no registry row is treated as single-tenant', async () => {
+    // role='admin' exists on a live profile but has NO custom_roles row. It must
+    // NOT be read as cluster-wide. The dangerous call is the NO-ARGUMENT one:
+    // p_institution_id defaults to NULL, and NULL means CLUSTER-WIDE downstream.
+    const noArgs = await unmarkedFor(LEGACY_ADMIN);
+    expect(noArgs.sample_period_ids).not.toContain(TT.otherInstitution);
+
+    // Held to their own institution, not emptied — the screen still works.
+    const hod = await unmarkedFor(HOD);
+    expect(noArgs.count).toBeGreaterThan(0);
+    expect(noArgs.count).toBeGreaterThanOrEqual(hod.count);
+
+    // And naming another college explicitly is refused too.
+    const named = await unmarkedForAt(LEGACY_ADMIN, OTHER_INST);
+    expect(named.sample_period_ids).not.toContain(TT.otherInstitution);
+  });
+
+  it('a registry-cluster-scoped caller still sees every institution', async () => {
+    // institution_scope='all' but is_super_admin=false AND institution_id NULL.
+    // Clamping this persona by name would hit the fail-closed guard and empty
+    // their screen — a regression in the opposite direction from the leak.
+    const wide = await unmarkedFor(CLUSTER_ADMIN);
+    expect(wide.sample_period_ids).toContain(TT.otherInstitution);
+    expect(wide.count).toBeGreaterThan(0);
   });
 });
 
