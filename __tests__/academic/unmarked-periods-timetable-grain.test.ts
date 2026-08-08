@@ -66,6 +66,10 @@ const DBNAME = `unmarked_grain_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
 const INST = '00000000-0000-4000-8000-0000000000a1';
 const OTHER_INST = '00000000-0000-4000-8000-0000000000a2';
 const DEPT = '00000000-0000-4000-8000-0000000000b1';
+// A SECOND department. Every fixture timetable used to share one, which meant a
+// department filter could never narrow anything and any assertion about
+// department scope was passing vacuously.
+const OTHER_DEPT = '00000000-0000-4000-8000-0000000000b2';
 const SEC_1 = '00000000-0000-4000-8000-0000000000c1';
 const SEC_2 = '00000000-0000-4000-8000-0000000000c2';
 const SEC_3 = '00000000-0000-4000-8000-0000000000c3';
@@ -91,6 +95,9 @@ const TT = {
   /** Marked, but the attendance row's denormalised institution disagrees with the
    *  timetable's. Production already holds one such row. */
   instMismatch: '00000000-0000-4000-8000-0000000000e9',
+  /** Same institution, DIFFERENT department — visible to a cluster/institution
+   *  caller, hidden from one narrowed to DEPT. */
+  otherDepartment: '00000000-0000-4000-8000-0000000000ea',
 } as const;
 
 /** Minimal shape of the four tables the functions read, plus the registry. */
@@ -353,6 +360,15 @@ beforeAll(async () => {
      VALUES ($1,'hod@jkkn.ac.in',true,$2,$3)`,
     [HOD, DEPT, INST],
   );
+  // The cluster-scoped administrator ALSO holds an active staff row — people who
+  // run a college often still teach in one. Department resolution must not use it
+  // to silently narrow their cluster-wide view down to that one department; the
+  // "still sees every institution" assertion below is what catches it if it does.
+  await db.query(
+    `INSERT INTO public.staff (profile_id, institution_email, is_active, department_id, institution_id)
+     VALUES ($1,'clusteradmin@jkkn.ac.in',true,$2,$3)`,
+    [CLUSTER_ADMIN, DEPT, INST],
+  );
 
   const rows: Array<[string, string | null, boolean, boolean, string, string]> = [
     // id,                     section,  active, template, days,     institution
@@ -374,6 +390,14 @@ beforeAll(async () => {
       [id, section, active, template, JSON.stringify([day]), inst, DEPT],
     );
   }
+
+  // Unmarked, scheduled today, in the OTHER department.
+  await db.query(
+    `INSERT INTO public.timetables
+       (id, section_id, is_active, is_template, selected_days, institution_id, department_id)
+     VALUES ($1::uuid, $2::uuid, true, false, $3::jsonb, $4::uuid, $5::uuid)`,
+    [TT.otherDepartment, SEC_1, JSON.stringify([today]), INST, OTHER_DEPT],
+  );
 
   // One timetable starts out marked, under its OWN section — so the section-keyed
   // original genuinely clears it, and (wrongly) clears its sibling too.
@@ -597,6 +621,22 @@ describe('the institution override is clamped to administrators', () => {
     const wide = await unmarkedFor(CLUSTER_ADMIN);
     expect(wide.sample_period_ids).toContain(TT.otherInstitution);
     expect(wide.count).toBeGreaterThan(0);
+  });
+
+  it('and is not narrowed to one department by an incidental staff row', async () => {
+    // This persona holds an active staff row in DEPT — people who run a college
+    // often still teach in one. Department resolution must be SKIPPED for them,
+    // or the predicate `(v_department_id IS NULL OR t.department_id = ...)`
+    // silently collapses a cluster-wide view to that single department. It fails
+    // safe (under-reports) which is exactly why nothing else would notice.
+    const wide = await unmarkedFor(CLUSTER_ADMIN);
+    expect(wide.sample_period_ids).toContain(TT.otherDepartment);
+
+    // CONTROL: the same row IS hidden from a genuinely department-scoped caller,
+    // proving the department filter works at all and that the assertion above is
+    // not passing because the filter is inert.
+    const scoped = await unmarkedFor(HOD);
+    expect(scoped.sample_period_ids).not.toContain(TT.otherDepartment);
   });
 });
 

@@ -207,15 +207,24 @@ BEGIN
         RETURN jsonb_build_object('count', 0, 'sample_period_ids', '[]'::jsonb);
     END IF;
 
-    -- Resolve the department for a HOD (via profile_id or institution_email)
-    SELECT s.department_id
-    INTO v_department_id
-    FROM public.staff s
-    WHERE (s.profile_id = p_user_id
-       OR s.institution_email = (SELECT email FROM public.profiles WHERE id = p_user_id))
-      AND s.is_active = true
-    ORDER BY CASE WHEN s.profile_id = p_user_id THEN 0 ELSE 1 END
-    LIMIT 1;
+    -- Resolve the department for a HOD (via profile_id or institution_email).
+    --
+    -- Skipped for cluster-scoped callers. The predicate below reads
+    -- `(v_department_id IS NULL OR t.department_id = v_department_id)`, so ANY
+    -- resolved department narrows the result — and a super administrator who also
+    -- happens to hold an active staff row would silently have their cluster-wide
+    -- view collapsed to that one department. It under-reports rather than
+    -- over-reports, so it fails safe, but it is still the wrong number.
+    IF NOT (COALESCE(v_is_super_admin, false) OR v_cluster_scoped) THEN
+        SELECT s.department_id
+        INTO v_department_id
+        FROM public.staff s
+        WHERE (s.profile_id = p_user_id
+           OR s.institution_email = (SELECT email FROM public.profiles WHERE id = p_user_id))
+          AND s.is_active = true
+        ORDER BY CASE WHEN s.profile_id = p_user_id THEN 0 ELSE 1 END
+        LIMIT 1;
+    END IF;
 
     -- Today's day-of-week in uppercase (matches timetable selected_days format)
     -- e.g. 'monday' -> 'MONDAY'
