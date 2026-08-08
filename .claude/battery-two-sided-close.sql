@@ -314,10 +314,20 @@ BEGIN
   -- A10: work-signal regression — all 12 pre-existing emitted keys + the 13th
   -- (clarifications_open) + the NEW clarification_acts_recorded (value >= 2:
   -- both acts recorded in this txn fall inside the 30-day window).
+  -- 2026-08-08: + sessions_marked_same_day (20260816020000).
+  --
+  -- ⚠️ THIS HARDCODED LIST IS THE WEAK PART OF THIS CHECK, and it is the exact
+  -- reason marks_coverage went dark: a list can only confirm the keys someone
+  -- remembered to add to it, which is precisely the set that was never at risk.
+  -- The real guard is __tests__/work-signals/registry-values-parity.test.ts,
+  -- which DERIVES both sides from the migrations and fails on any registered
+  -- key with no emitter. Keep this loop as a runtime smoke test; do not treat
+  -- it as coverage.
   ---------------------------------------------------------------------------
   j := public.fn_work_signals_for();
   FOREACH t IN ARRAY ARRAY[
-    'sessions_marked','sessions_witnessed','pulses_run','lessons_linked',
+    'sessions_marked','sessions_marked_same_day','sessions_witnessed',
+    'pulses_run','lessons_linked',
     'notes_received','verdicts_given','votes_received','od_requests_handled',
     'od_requests_waiting','correctives_open','carre_audits_scored',
     'clarifications_open','clarification_acts_recorded'
@@ -331,7 +341,20 @@ BEGIN
   SELECT (s->>'value')::int INTO n FROM jsonb_array_elements(j->'signals') s
    WHERE s->>'key' = 'clarification_acts_recorded';
   IF n < 2 THEN RAISE EXCEPTION 'A10 acts_recorded=% (expected >=2)', n; END IF;
-  RAISE NOTICE 'A10 ok — 13 signals regressed + new signal counting';
+
+  -- A10b: the same-day count is a SUBSET of the personal count, never a rival
+  -- number. Asserted as a RELATIONSHIP between the two values in one response —
+  -- never against a literal, because these are live counts written by many
+  -- concurrent sessions and two such literals in this repo drifted within three
+  -- hours. Both are read from the SAME jsonb so they cannot race each other.
+  IF (SELECT (s->>'value')::int FROM jsonb_array_elements(j->'signals') s
+       WHERE s->>'key' = 'sessions_marked_same_day')
+     > COALESCE((SELECT (s->>'value_personal')::int FROM jsonb_array_elements(j->'signals') s
+       WHERE s->>'key' = 'sessions_marked'), 0)
+  THEN
+    RAISE EXCEPTION 'A10b same_day exceeds personally-marked — the mirrored predicate has drifted';
+  END IF;
+  RAISE NOTICE 'A10 ok — 14 signals regressed, same-day subset holds';
 
   ---------------------------------------------------------------------------
   -- A11: term close (service_role only), BOTH arms, whichever comes first:
