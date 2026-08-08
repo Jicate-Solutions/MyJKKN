@@ -68,6 +68,7 @@ const OTHER_INST = '00000000-0000-4000-8000-0000000000a2';
 const DEPT = '00000000-0000-4000-8000-0000000000b1';
 const SEC_1 = '00000000-0000-4000-8000-0000000000c1';
 const SEC_2 = '00000000-0000-4000-8000-0000000000c2';
+const SEC_3 = '00000000-0000-4000-8000-0000000000c3';
 const SEC_LEARNER = '00000000-0000-4000-8000-0000000000c9';
 const SUPER_ADMIN = '00000000-0000-4000-8000-0000000000d1';
 const HOD = '00000000-0000-4000-8000-0000000000d2';
@@ -344,7 +345,13 @@ beforeAll(async () => {
   // Marked, but the row's institution disagrees with the timetable's. This is the
   // state that made the old asymmetric `sa.institution_id = v_institution_id`
   // clearing predicate reopen "unmarked forever" through a second column.
-  await mark(TT.instMismatch, OTHER_INST, SEC_1);
+  //
+  // SEC_3, NOT SEC_1, and that matters. The section-keyed controls carry no
+  // institution or department filter, so marking SEC_1 here would clear every
+  // SEC_1 timetable for them too — `fn_ctl_orig_unmarked()` would return count 0
+  // with an empty array and every control assertion below would pass trivially
+  // against nothing. A control that returns the empty set proves nothing.
+  await mark(TT.instMismatch, OTHER_INST, SEC_3);
 
   // Registry rows so the migration's copy UPDATEs have something to hit.
   await db.query(
@@ -481,6 +488,16 @@ describe('institution scope still holds', () => {
 });
 
 describe('the controls prove these assertions can fail', () => {
+  // A control that returns nothing cannot refute anything: `not.toContain` passes
+  // against an empty array however the code behaves, and `orig.count === naive.count`
+  // degenerates to 0 === 0. So every control assertion below is gated on this.
+  it('the original control returns a NON-EMPTY set (guards the ones below)', async () => {
+    const orig = (await db.query('SELECT public.fn_ctl_orig_unmarked() AS j')).rows[0]
+      .j as Unmarked;
+    expect(orig.count).toBeGreaterThan(0);
+    expect(orig.sample_period_ids).toContain(SEC_1); // SEC_1 is deliberately unmarked
+  });
+
   it('the section grain wrongly cleared a timetable nobody had marked', async () => {
     // The "+1" in the impact arithmetic. TT.sectionSibling shares SEC_2 with
     // TT.sectionMarked; only the latter was ever marked.
@@ -504,7 +521,21 @@ describe('the controls prove these assertions can fail', () => {
       .j as Unmarked;
     const naive = (await db.query('SELECT public.fn_ctl_naive_unmarked() AS j')).rows[0]
       .j as Unmarked;
+    // Non-zero first, or "they agree" would just be 0 === 0.
+    expect(orig.count).toBeGreaterThan(0);
     expect(naive.count).toBe(orig.count);
+    // ...even though the naive shape genuinely sees MORE rows; the aggregate eats
+    // them. That widening is the mechanism, and it must be visible here.
+    const naiveRows = (
+      await db.query(
+        `SELECT COUNT(*)::int AS n FROM public.timetables t
+          WHERE t.is_active AND t.selected_days ? TRIM(UPPER(TO_CHAR(CURRENT_DATE,'DAY')))
+            AND NOT EXISTS (SELECT 1 FROM public.student_attendance sa
+                            WHERE sa.section_id = t.section_id
+                              AND sa.attendance_date = CURRENT_DATE)`,
+      )
+    ).rows[0].n as number;
+    expect(naiveRows).toBeGreaterThan(naive.count);
   });
 
   it('and leaves a to-do that marking can never clear', async () => {
@@ -599,6 +630,19 @@ describe('the registry copy stops saying sections', () => {
       expect(row.label).not.toMatch(/sections/i);
       expect(row.label).toMatch(/sessions/i);
     }
+  });
+
+  it('no rule interpolates the two id arrays, whose meaning changed', async () => {
+    // sample_period_ids / non_compliant_user_ids now hold timetable UUIDs rather
+    // than section UUIDs. A rule deep-linking off either would silently produce a
+    // dead link. Verified against production too (0 rows), pinned here so a future
+    // rule that starts reading them fails loudly instead.
+    const r = await db.query(
+      `SELECT COUNT(*)::int AS n FROM public.quick_action_rules
+        WHERE action_template::text ILIKE '%sample_period_ids%'
+           OR action_template::text ILIKE '%non_compliant_user_ids%'`,
+    );
+    expect(r.rows[0].n).toBe(0);
   });
 
   it('leaves the rest of action_template untouched', async () => {

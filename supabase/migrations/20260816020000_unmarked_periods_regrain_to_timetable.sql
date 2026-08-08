@@ -86,8 +86,18 @@
 -- `compliant_count` / `non_compliant_count` / `non_compliant_user_ids`, because
 -- `quick_action_rules.when_clause` addresses them by name. Only the MEANING of the
 -- id arrays changes: they now hold timetable UUIDs rather than section UUIDs.
--- Verified by grep across the repository: no TypeScript reads either array.
+-- Verified by grep across the repository: no TypeScript reads either array, and
+-- verified against production that no quick_action_rules row interpolates either
+-- (0 rows) — a rule deep-linking off one would otherwise start emitting dead links.
 -- ================================================================================
+
+-- ATOMIC ON PURPOSE. The two functions must move together: this change exists
+-- partly because a pending figure and a compliance figure that disagree on the
+-- same screen are worse than both being wrong. Without an explicit transaction a
+-- failure between them — a missing `anon`/`authenticated`/`service_role` role in
+-- some environment is enough — would leave function 1 re-grained to timetables
+-- and function 2 still on sections, which is exactly that split.
+BEGIN;
 
 
 -- ────────────────────────────────────────────────────────────────────────────────
@@ -392,3 +402,5 @@ BEGIN
     END IF;
 END
 $do$;
+
+COMMIT;
