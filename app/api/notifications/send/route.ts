@@ -539,11 +539,14 @@ async function sendWebPushNotifications(
     // would return 0 rows when querying other users' subscriptions.
     const serviceClient = createServiceRoleClient();
 
-    // Get push subscriptions for target users along with profile info
+    // Get push subscriptions for target users along with profile info.
+    // is_active=false is how an unsubscribe is recorded, so pushing to those rows
+    // would buzz learners who explicitly opted out.
     const { data: subscriptions, error: subError } = await serviceClient
       .from('push_subscriptions')
       .select('id, subscription, user_id, profiles!inner(email, role)')
-      .in('user_id', userIds);
+      .in('user_id', userIds)
+      .eq('is_active', true);
 
     if (subError) {
       console.error('Error fetching push subscriptions:', subError);
