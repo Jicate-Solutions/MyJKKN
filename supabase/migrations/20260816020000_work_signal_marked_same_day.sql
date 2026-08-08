@@ -138,23 +138,29 @@
 -- between, with no error and no signal — the exact hazard this file's header
 -- warns about, which would be an odd thing to then walk into.
 --
--- So: proceed only if the live body is either the snapshot this file was built
--- from, or already carries this change. Anything else aborts, and whoever
--- applies it re-reads the live body first.
+-- So: proceed only if the live body is one this file KNOWS — either the
+-- 2026-08-08 snapshot, or the body that an earlier version of this file already
+-- installed, or this exact revision (making a re-run a no-op). Anything else
+-- aborts, and whoever applies it re-reads the live body first.
 --
--- The second clause is the live path today, not a theoretical one. An earlier
--- version of this file was applied to production on 2026-08-08 (md5 of the
--- resulting body: 96dff97bb405f2448c88b23dd6e760ad), so the snapshot md5 no
--- longer matches and it is the `v_personal_same_day` test that lets a re-apply
--- through — which is exactly what should happen, because re-applying is how the
--- corrections below reach the running engine. The clause is a substring rather
--- than a second md5 on purpose: it asks "does this already carry the change?",
--- which stays true across future edits, where a pinned hash would not.
+-- ⚠️ THE IDEMPOTENCY TEST IS A REVISION TAG, NOT A FEATURE SUBSTRING, and that
+-- distinction is the whole guard. A first version asked
+-- `position('v_personal_same_day' in v_def) = 0` — but once this feature is
+-- applied that substring is present FOREVER, so the guard would pass for every
+-- future body containing it and silently overwrite whatever shipped next. A
+-- guard that disarms itself the first time it succeeds is worse than none: it
+-- tells whoever re-applies that the overwrite is safe. The tag below changes
+-- whenever this file's body changes, so a genuinely different engine fails it.
+--
+-- KEEP THE TAG AND THE BODY IN LOCKSTEP: if you edit the function, bump the tag
+-- in BOTH places (the DECLARE below and the marker inside the body).
 -- ---------------------------------------------------------------------------
 DO $guard$
 DECLARE
   v_def text;
   v_n   int;
+  -- Must match the marker inside the function body below, exactly.
+  v_rev constant text := 'work-signals engine rev: same-day-2026-08-08-r3';
 BEGIN
   -- Schema-qualified and counted. An unqualified `WHERE proname = …` would also
   -- match a same-named function in ANOTHER schema, and plpgsql SELECT INTO takes
@@ -176,11 +182,12 @@ BEGIN
     RAISE EXCEPTION 'REFUSING TO APPLY: public.fn_work_signals_for does not exist — this file REPLACES an engine, it does not create one from nothing.';
   END IF;
 
-  IF md5(v_def) <> '09432834a331932fbae2d5a90d607d12'
-     AND position('v_personal_same_day' in v_def) = 0 THEN
+  IF md5(v_def) <> '09432834a331932fbae2d5a90d607d12'          -- the snapshot
+     AND md5(v_def) <> '96dff97bb405f2448c88b23dd6e760ad'      -- what r1 installed
+     AND position(v_rev in v_def) = 0 THEN                     -- this exact revision
     RAISE EXCEPTION
-      'REFUSING TO APPLY: the live fn_work_signals_for body is neither the 2026-08-08 snapshot this file was built from (md5 09432834a331932fbae2d5a90d607d12) nor a body already carrying this change. It has md5 % and length %. Something shipped in between; re-read pg_get_functiondef and rebase this migration onto it rather than overwriting it.',
-      md5(v_def), length(v_def);
+      'REFUSING TO APPLY: the live fn_work_signals_for body is none of the three this file knows — the 2026-08-08 snapshot (md5 09432834a331932fbae2d5a90d607d12), the body an earlier version of this file installed (md5 96dff97bb405f2448c88b23dd6e760ad), or revision %. It has md5 % and length %. Something shipped in between; re-read pg_get_functiondef and rebase this migration onto it rather than overwriting it.',
+      v_rev, md5(v_def), length(v_def);
   END IF;
 END
 $guard$;
@@ -294,6 +301,10 @@ DECLARE
   v_clarifications_open int := 0;
   v_acts_recorded     int := 0;
 BEGIN
+  -- work-signals engine rev: same-day-2026-08-08-r3
+  -- ^ Read by the §0 drift guard in 20260816020000 to recognise its own output.
+  --   Bump it whenever this body changes, and bump v_rev in that guard to match,
+  --   or the guard stops being able to tell this engine from a later one.
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'fn_work_signals_for: not authenticated';
   END IF;
@@ -520,9 +531,35 @@ ON CONFLICT (signal_key) DO UPDATE SET
 -- and it silently discards a lowercase 'z' or a two-digit offset. A retired
 -- function that still parses timestamps is an invitation to call it.
 --
+-- ⚠️ IT REFUSES TO DROP WHILE ANYTHING STILL CALLS IT. A plpgsql body is stored
+-- as TEXT, so Postgres records no dependency and a bare DROP would succeed even
+-- while the live engine still called it — the engine would then fail at runtime,
+-- WorkSignalsService would resolve the error to null, and My Pulse would go
+-- blank for everyone. That is not hypothetical here: this file reaches the
+-- database out-of-band, statement by statement, so "the replace above already
+-- ran" is an assumption, not a fact. The check makes the DROP conditional on
+-- the engine actually having been replaced.
+--
 -- IF EXISTS so this is a no-op on any database that never had the earlier
 -- version, and so re-running the file is idempotent.
 -- ---------------------------------------------------------------------------
-DROP FUNCTION IF EXISTS public.fn_try_timestamptz_ist(text);
+DO $retire$
+DECLARE
+  v_refs int;
+BEGIN
+  SELECT count(*) INTO v_refs
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname <> 'fn_try_timestamptz_ist'
+    AND pg_get_functiondef(p.oid) LIKE '%fn_try_timestamptz_ist%';
+
+  IF v_refs > 0 THEN
+    RAISE EXCEPTION
+      'REFUSING TO DROP public.fn_try_timestamptz_ist: % function(s) still call it. Dropping now would break them at runtime and blank My Pulse. Apply the engine replacement above first, then re-run.', v_refs;
+  END IF;
+
+  EXECUTE 'DROP FUNCTION IF EXISTS public.fn_try_timestamptz_ist(text)';
+END
+$retire$;
 
 NOTIFY pgrst, 'reload schema';

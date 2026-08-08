@@ -441,11 +441,23 @@ describe('work-signals: the date helper cannot raise on bad data', () => {
     // drops a lowercase 'z'. A retired function that still parses timestamps is
     // an invitation to call it.
     expect(migrationSql()).toMatch(
-      /DROP FUNCTION IF EXISTS public\.fn_try_timestamptz_ist\(text\);/,
+      /DROP FUNCTION IF EXISTS public\.fn_try_timestamptz_ist\(text\)/,
     );
     // …and it must not still be WIRED IN anywhere in the file.
     const engineBody = newestEngineDefinition().body;
     expect(engineBody).not.toContain('fn_try_timestamptz_ist');
+  });
+
+  it('refuses to drop the old helper while anything still calls it', () => {
+    // A plpgsql body is stored as TEXT, so Postgres records no dependency and a
+    // bare DROP succeeds even while the live engine still calls it — the engine
+    // then fails at runtime and My Pulse goes blank for everyone. This file
+    // reaches the database out-of-band, statement by statement, so "the replace
+    // already ran" is an assumption rather than a fact.
+    const sql = migrationSql();
+    expect(sql).toContain('REFUSING TO DROP');
+    expect(sql).toMatch(/pg_get_functiondef\(p\.oid\) LIKE '%fn_try_timestamptz_ist%'/);
+    expect(sql).toMatch(/IF v_refs > 0 THEN/);
   });
 });
 
@@ -462,8 +474,30 @@ describe('work-signals: a late apply cannot silently revert the engine', () => {
     )!.sql;
     expect(sql).toContain('REFUSING TO APPLY');
     expect(sql).toMatch(/md5\(v_def\) <> '[0-9a-f]{32}'/);
-    // …and stays a no-op once this change is in, so a re-run is safe.
-    expect(sql).toMatch(/position\('v_personal_same_day' in v_def\) = 0/);
+
+    // The idempotency test must be a REVISION TAG, not a feature substring.
+    // `position('v_personal_same_day' in v_def) = 0` was the first attempt and
+    // it disarms itself: once the feature is applied that substring is present
+    // forever, so the guard would pass for every later body containing it and
+    // silently overwrite whatever shipped next — while telling the operator the
+    // re-apply was safe. A guard that stops guarding the first time it succeeds
+    // is worse than no guard.
+    // Checked against CODE, not prose — the file documents the discarded
+    // approach on purpose, and that explanation must not trip its own guard.
+    const code = sql
+      .split('\n')
+      .filter((l) => !/^\s*--/.test(l))
+      .join('\n');
+    expect(code).not.toMatch(/position\('v_personal_same_day' in v_def\)/);
+    const rev = sql.match(/v_rev constant text := '([^']+)'/)?.[1];
+    expect(rev, 'the guard has no revision tag').toBeTruthy();
+    expect(sql).toMatch(/position\(v_rev in v_def\) = 0/);
+    // …and the tag must actually be present in the body it installs, or the
+    // guard can never recognise its own output and every re-run aborts.
+    expect(
+      newestEngineDefinition().body,
+      `the engine body does not carry the revision tag "${rev}" the guard looks for`,
+    ).toContain(rev!);
     // The read must be schema-qualified and single-row: an unqualified proname
     // match also finds a same-named function in another schema, and plpgsql
     // SELECT INTO silently takes the first of several rows — so the guard could
