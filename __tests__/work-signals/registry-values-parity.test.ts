@@ -21,7 +21,17 @@
  * disappears again.
  *
  * Deliberately static (no database, no credentials): the join is a property of
- * the SQL, so it is checkable from the SQL. Live counts are NOT asserted
+ * the SQL, so it is checkable from the SQL.
+ *
+ * ⚠️ WHAT THIS SUITE IS NOT EVIDENCE ABOUT. It grades the newest migration
+ * FILE, which right now is 20260816020000 — a file this PR marks FILE ONLY /
+ * NOT APPLIED. Production is still running 20260731190000, and DDL reaches it
+ * out-of-band through the Management API. So green here means "the files are
+ * internally consistent", never "production is consistent". The live check is
+ * A10b in .claude/battery-two-sided-close.sql, which reads the real registry
+ * and the real RPC response; this suite cannot replace it and does not try to.
+ *
+ * Live counts are NOT asserted
  * anywhere here — two such counts in this repo drifted within three hours,
  * because roughly nine sessions write this database concurrently. Where a
  * relationship between counts matters, it is proved STRUCTURALLY (one WHERE
@@ -95,29 +105,76 @@ function emittedKeys(body: string): Set<string> {
   );
 }
 
-/** Signal keys REGISTERED as active across every migration. A row is treated as
- *  active unless that same statement explicitly sets is_active to false. */
+/**
+ * Signal keys REGISTERED as active, derived across every migration in
+ * FILENAME ORDER so the last write wins.
+ *
+ * `is_active` is judged PER ROW, not per statement. Review caught the earlier
+ * version doing the latter: a single multi-row seed containing one deactivated
+ * key erased every sibling key in that INSERT from the derived registry, so a
+ * genuinely dark key sitting beside it would never reach the parity comparison
+ * and the no-dark-keys test would report green — the very silent-drop class
+ * this file exists to catch. Ordering matters for the same reason: a key
+ * deactivated in one migration and re-activated in a later one was being
+ * deleted permanently.
+ */
 function registeredActiveKeys(): Set<string> {
-  const keys = new Set<string>();
+  const active = new Map<string, boolean>();
+
   for (const { sql } of migrationFiles()) {
-    const inserts = sql.matchAll(
-      /INSERT INTO public\.work_signal_types[\s\S]*?(?=\n\s*(?:NOTIFY|REVOKE|GRANT|CREATE|ALTER|INSERT|COMMENT|--\s*-{3,})|$)/g,
-    );
-    for (const ins of inserts) {
-      const stmt = ins[0];
-      if (/is_active\s*=?\s*false/i.test(stmt)) continue;
-      for (const m of stmt.matchAll(/\(\s*'([a-z0-9_]+)'\s*,\s*'/g)) keys.add(m[1]);
-    }
-  }
-  // Deactivations elsewhere win over the seed that created the row.
-  for (const { sql } of migrationFiles()) {
-    for (const m of sql.matchAll(
-      /UPDATE public\.work_signal_types[\s\S]{0,400}?is_active\s*=\s*false[\s\S]{0,200}?signal_key\s*=\s*'([a-z0-9_]+)'/g,
+    // INSERT … VALUES (…), (…) — evaluate each tuple on its own.
+    for (const ins of sql.matchAll(
+      /INSERT INTO public\.work_signal_types[\s\S]*?(?=\n\s*(?:NOTIFY|REVOKE|GRANT|CREATE|ALTER|INSERT|UPDATE|COMMENT|--\s*-{3,})|$)/g,
     )) {
-      keys.delete(m[1]);
+      const stmt = ins[0];
+      // ON CONFLICT … is_active=true is a property of the whole statement.
+      const conflictForcesActive = /ON CONFLICT[\s\S]*?is_active\s*=\s*true/i.test(stmt);
+      const valuesPart = stmt.split(/ON CONFLICT/i)[0];
+      for (const tuple of splitTuples(valuesPart)) {
+        const key = tuple.match(/^\s*'([a-z0-9_]+)'\s*,/)?.[1];
+        if (!key) continue;
+        const rowSaysFalse = /(^|[\s,(])false([\s,)]|$)/i.test(tuple);
+        active.set(key, conflictForcesActive ? true : !rowSaysFalse);
+      }
+    }
+    // UPDATE … SET is_active = <bool> … WHERE signal_key = '…'
+    for (const m of sql.matchAll(
+      /UPDATE public\.work_signal_types[\s\S]{0,400}?is_active\s*=\s*(true|false)[\s\S]{0,300}?signal_key\s*=\s*'([a-z0-9_]+)'/gi,
+    )) {
+      active.set(m[2], m[1].toLowerCase() === 'true');
     }
   }
-  return keys;
+
+  return new Set([...active.entries()].filter(([, on]) => on).map(([k]) => k));
+}
+
+/** Split a VALUES list into its top-level parenthesised tuples. */
+function splitTuples(sqlFragment: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inStr = false;
+  for (let i = 0; i < sqlFragment.length; i++) {
+    const c = sqlFragment[i];
+    if (c === "'") {
+      // '' is an escaped quote inside a string literal.
+      if (inStr && sqlFragment[i + 1] === "'") { i++; continue; }
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (c === '(') {
+      if (depth === 0) start = i + 1;
+      depth++;
+    } else if (c === ')') {
+      depth--;
+      if (depth === 0 && start > -1) {
+        out.push(sqlFragment.slice(start, i));
+        start = -1;
+      }
+    }
+  }
+  return out;
 }
 
 describe('work-signals: every registered key has an emitter', () => {
@@ -175,16 +232,45 @@ describe('work-signals: the same-day count is a subset of the personal count', (
    */
   const engine = () => newestEngineDefinition().body;
 
+  /**
+   * The statement that fills BOTH counters, and nothing else.
+   *
+   * The `(?!;)` tempering is load-bearing and was found by review: a plain lazy
+   * `[\s\S]*?` matched from the EARLIER assigned/witnessed aggregate and ran
+   * 2,030 characters across two statements, so `indexOf('FILTER (')` found the
+   * *witnessed* FILTER and the scoping assertion below was grading the wrong
+   * SQL entirely. Forbidding a semicolon inside the match pins it to one
+   * statement; the `v_assigned_marked` assertion is the belt to that braces.
+   */
   function countingBlock(body: string): string {
     const m = body.match(
-      /SELECT\s+count\(\*\)::int,[\s\S]*?INTO v_personal_marked, v_personal_same_day[\s\S]*?;/,
+      /SELECT\s+count\(\*\)::int,(?:(?!;)[\s\S])*?INTO v_personal_marked, v_personal_same_day(?:(?!;)[\s\S])*?;/,
     );
     expect(
       m,
       'the folded two-aggregate counting block is missing — both counters must ' +
         'come from ONE scan, or the subset relation stops being structural',
     ).toBeTruthy();
+    expect(
+      m![0],
+      'the match ran past its own statement into the assigned/witnessed block',
+    ).not.toContain('v_assigned_marked');
     return m![0];
+  }
+
+  /** The text inside `FILTER ( … )`, matched by balancing parentheses. */
+  function filterExpression(block: string): string {
+    const start = block.indexOf('FILTER (');
+    expect(start, 'no FILTER in the counting block').toBeGreaterThan(-1);
+    let depth = 0;
+    for (let i = start + 'FILTER '.length; i < block.length; i++) {
+      if (block[i] === '(') depth++;
+      else if (block[i] === ')') {
+        depth--;
+        if (depth === 0) return block.slice(start + 'FILTER ('.length, i);
+      }
+    }
+    throw new Error('unbalanced FILTER parentheses');
   }
 
   it('fills both counters from a single scan of a single predicate', () => {
@@ -211,31 +297,39 @@ describe('work-signals: the same-day count is a subset of the personal count', (
   });
 
   it('keeps the marker test in the WHERE, so FILTER never sees another marker', () => {
+    // Asserted as a NEGATIVE. An earlier version compared the two offsets —
+    // which can never fail, because a select-list FILTER always precedes WHERE
+    // textually. It asserted grammar, not scoping, and would have passed for a
+    // mutant that moved the marker test straight into the FILTER.
     const block = countingBlock(engine());
-    const whereAt = block.indexOf("marker_id' = v_uid::text");
-    const filterAt = block.indexOf('FILTER (');
-    expect(whereAt).toBeGreaterThan(-1);
-    expect(filterAt).toBeGreaterThan(-1);
-    // The FILTER clause is part of the select list, which precedes the WHERE.
-    expect(filterAt).toBeLessThan(whereAt);
-  });
-
-  it('compares days in IST, never UTC', () => {
-    // attendance_date is an IST calendar date. Truncating a UTC instant credits
-    // a class marked at 02:30 IST to the previous day. Measured on production
-    // 2026-08-08, the two readings already disagree on real rows.
-    expect(countingBlock(engine())).toContain("AT TIME ZONE 'Asia/Kolkata'");
-  });
-
-  it('never casts marked_at directly — a raise there blanks the whole card', () => {
-    // A bare `::timestamptz` on client-written text can raise; the service
-    // resolves any error to null and the card renders nothing.
-    const block = countingBlock(engine());
-    expect(block).toContain('public.fn_try_timestamptz_ist(');
     expect(
-      block,
-      'raw ::timestamptz on marked_at is exactly the failure mode this avoids',
-    ).not.toMatch(/marked_at'\)::timestamptz/);
+      filterExpression(block),
+      'the marker test belongs in the WHERE; inside the FILTER it stops scoping ' +
+        'the scan and another marker\'s row can be parsed on this caller\'s behalf',
+    ).not.toContain('marker_id');
+    expect(block.slice(block.indexOf('WHERE'))).toContain(
+      "period.value->'marked_by_details'->>'marker_id' = v_uid::text",
+    );
+  });
+
+  it('resolves the day in IST, never in the session zone', () => {
+    // attendance_date is an IST calendar date. Measured on production
+    // 2026-08-08, the IST and UTC readings already disagree on real rows.
+    // The conversion lives inside fn_try_ist_date, which returns a date.
+    expect(filterExpression(countingBlock(engine()))).toContain(
+      'public.fn_try_ist_date(',
+    );
+  });
+
+  it('does no datetime arithmetic on client text outside the trap', () => {
+    // The helper returns a DATE precisely so the zone shift happens behind its
+    // exception handler. An earlier version shifted the returned instant out
+    // here, where a value near the type ceiling overflowed and raised in the
+    // engine — defeating the whole point of the helper.
+    const block = countingBlock(engine());
+    expect(block).not.toContain('::timestamptz');
+    expect(block).not.toContain("AT TIME ZONE 'Asia/Kolkata'");
+    expect(block).not.toMatch(/marked_at'\)::/);
   });
 
   it('declares the counter it fills', () => {
@@ -243,60 +337,106 @@ describe('work-signals: the same-day count is a subset of the personal count', (
   });
 });
 
-describe('work-signals: the timestamp helper cannot raise', () => {
+describe('work-signals: the date helper cannot raise on bad data', () => {
   /**
-   * A prefix regex was the first attempt and it is NOT sufficient — it tests
-   * shape, not validity. Verified against production 2026-08-08: '2026-13-40',
-   * '2026-02-30' and '0000-00-00' all satisfy `^\d{4}-\d{2}-\d{2}` and then
-   * raise 22008; '2026-08-08junk', '' and 'not a date' raise 22007. No regex
-   * can exclude 31 February, so the conversion has to trap instead.
+   * Two earlier drafts got this wrong in the same way — by enumerating.
+   *
+   * Draft 1 used `~ '^\d{4}-\d{2}-\d{2}'` and claimed that made a raise
+   * impossible. It tests shape, not validity: '2026-13-40', '2026-02-30' and
+   * '0000-00-00' all satisfy it and raise 22008 (verified on production).
+   *
+   * Draft 2 trapped 22007 and 22008 by name. Review found '+99:00' raises
+   * 22009 and a misspelt zone raises 22023 — both escaped. Verified too.
+   *
+   * A list that needed extending twice is the wrong shape of rule. The handler
+   * now swallows CLASS 22 (data exception) and re-raises everything else, which
+   * is complete by the standard's own definition, and the re-raise is what
+   * keeps 57014 query_canceled from becoming a silently wrong count.
    */
+  const migrationSql = (): string =>
+    migrationFiles().find((f) => f.name === newestEngineDefinition().name)!.sql;
+
   const helper = (): string => {
-    const { sql } = migrationFiles().find(
-      (f) => f.name === newestEngineDefinition().name,
-    )!;
-    const m = sql.match(
-      /CREATE OR REPLACE FUNCTION public\.fn_try_timestamptz_ist[\s\S]*?\$function\$;/,
+    const m = migrationSql().match(
+      /CREATE OR REPLACE FUNCTION public\.fn_try_ist_date[\s\S]*?\$function\$;/,
     );
-    expect(m, 'fn_try_timestamptz_ist is missing').toBeTruthy();
+    expect(m, 'fn_try_ist_date is missing').toBeTruthy();
     return m![0];
   };
 
-  it('traps both datetime SQLSTATEs observed on production', () => {
+  it('swallows data exceptions by CLASS, not by an enumerated list', () => {
     const h = helper();
-    expect(h).toContain('invalid_datetime_format'); // 22007
-    expect(h).toContain('datetime_field_overflow'); // 22008
+    expect(h).toMatch(/left\(SQLSTATE, ?2\) <> '22'/);
+    // Naming individual datetime SQLSTATEs is what failed twice.
+    expect(h).not.toContain('invalid_datetime_format');
+    expect(h).not.toContain('datetime_field_overflow');
   });
 
-  it('does NOT swallow query cancellation', () => {
-    // WHEN others would also catch query_canceled / statement timeout, turning a
-    // timed-out engine into a silently wrong count instead of an error.
-    expect(helper()).not.toMatch(/WHEN\s+others/i);
+  it('re-raises anything that is not a data exception', () => {
+    // Without the RAISE, a cancelled or resource-starved query silently becomes
+    // "not marked that day" — a wrong number is worse than an error.
+    expect(helper()).toMatch(/RAISE;/);
   });
 
-  it('anchors an offset-less timestamp to IST, not to the session zone', () => {
-    // The engine sets search_path and statement_timeout but never timezone, so
-    // a naive '2026-08-08T23:30:00' would otherwise parse as UTC and land on
-    // the 9th.
+  it('returns a date, so the zone shift happens inside the handler', () => {
+    expect(helper()).toMatch(/RETURNS date/);
+  });
+
+  it('takes the naive branch ONLY for a strictly zone-free value', () => {
+    // A permissive "does it look zoned?" test sends anything it fails to
+    // recognise to ::timestamp, which SILENTLY DISCARDS the zone. Verified on
+    // production: '…T20:00:00z', '…T23:50:00+05' and '… UTC' all lost their
+    // zone that way and were re-anchored as IST — 5.5 hours, enough to move the
+    // calendar day at exactly the boundary this branch exists to get right.
     const h = helper();
-    expect(h).toMatch(/~ '\(Z\|\[\+-\]\[0-9\]\{2\}:\?\[0-9\]\{2\}\)/);
-    expect(h).toContain("::timestamp AT TIME ZONE 'Asia/Kolkata'");
+    expect(h).toContain(
+      "'^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$'",
+    );
+    // The doubtful path must be the SAFE one.
+    expect(h).toContain("((p_text::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date");
   });
 
   it('is STABLE, never IMMUTABLE', () => {
-    // Parsing depends on session state; IMMUTABLE would license the planner to
-    // fold or cache it wrongly.
     expect(helper()).toMatch(/\nSTABLE\n/);
     expect(helper()).not.toMatch(/\nIMMUTABLE\n/);
   });
 
   it('is locked away from anon like every other function here', () => {
-    const { sql } = migrationFiles().find(
-      (f) => f.name === newestEngineDefinition().name,
-    )!;
-    expect(sql).toMatch(
-      /REVOKE EXECUTE ON FUNCTION public\.fn_try_timestamptz_ist\(text\) FROM anon, PUBLIC;/,
+    expect(migrationSql()).toMatch(
+      /REVOKE EXECUTE ON FUNCTION public\.fn_try_ist_date\(text\) FROM anon, PUBLIC;/,
     );
+  });
+
+  it('retires the superseded helper instead of leaving it callable', () => {
+    // An earlier version of this same file shipped fn_try_timestamptz_ist and
+    // was APPLIED to production before its corrections merged. It is not merely
+    // redundant — it raises on '+99:00' and on a misspelt zone, and silently
+    // drops a lowercase 'z'. A retired function that still parses timestamps is
+    // an invitation to call it.
+    expect(migrationSql()).toMatch(
+      /DROP FUNCTION IF EXISTS public\.fn_try_timestamptz_ist\(text\);/,
+    );
+    // …and it must not still be WIRED IN anywhere in the file.
+    const engineBody = newestEngineDefinition().body;
+    expect(engineBody).not.toContain('fn_try_timestamptz_ist');
+  });
+});
+
+describe('work-signals: a late apply cannot silently revert the engine', () => {
+  /**
+   * This file rewrites the whole engine body from a 2026-08-08 snapshot, but
+   * the apply is Director-gated to an unknown later date, six migrations define
+   * this function, and DDL reaches production out-of-band. Without a guard, an
+   * apply weeks later overwrites whatever shipped in between and says nothing.
+   */
+  it('refuses to apply on top of a body it did not read', () => {
+    const sql = migrationFiles().find(
+      (f) => f.name === newestEngineDefinition().name,
+    )!.sql;
+    expect(sql).toContain('REFUSING TO APPLY');
+    expect(sql).toMatch(/md5\(v_def\) <> '[0-9a-f]{32}'/);
+    // …and stays a no-op once this change is in, so a re-run is safe.
+    expect(sql).toMatch(/position\('v_personal_same_day' in v_def\) = 0/);
   });
 });
 
