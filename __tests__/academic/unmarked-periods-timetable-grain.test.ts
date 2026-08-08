@@ -623,7 +623,7 @@ describe('the institution override is clamped to administrators', () => {
     expect(wide.count).toBeGreaterThan(0);
   });
 
-  it('and is not narrowed to one department by an incidental staff row', async () => {
+  it('and is not narrowed to one department by an incidental team-member record', async () => {
     // This persona holds an active staff row in DEPT — people who run a college
     // often still teach in one. Department resolution must be SKIPPED for them,
     // or the predicate `(v_department_id IS NULL OR t.department_id = ...)`
