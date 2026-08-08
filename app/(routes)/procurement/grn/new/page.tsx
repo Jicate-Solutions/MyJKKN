@@ -8,8 +8,8 @@ import { usePurchaseOrder } from '@/hooks/procurement/use-purchase-orders';
 import { useCreateGrn } from '@/hooks/procurement/use-grns';
 import { matchLine } from '@/lib/services/procurement/three-way-match';
 import { GRN_MATCH_CONFIG, type GrnLineInput } from '@/types/procurement';
+import { StatusBadge } from '@/components/procurement/status-badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,15 +27,6 @@ interface LineDraft extends GrnLineInput {
   unit_label: string | null;
   po_unit_price: number | null;
 }
-
-// Match-badge accent by GRN_MATCH_CONFIG.color.
-const MATCH_COLOR: Record<string, string> = {
-  green: 'border-green-500 text-green-700',
-  amber: 'border-amber-500 text-amber-700',
-  blue: 'border-blue-400 text-blue-700',
-  orange: 'border-orange-500 text-orange-700',
-  red: 'border-red-500 text-red-700',
-};
 
 export default function NewGrnPage() {
   const router = useRouter();
@@ -256,7 +247,12 @@ export default function NewGrnPage() {
     <ContentLayout title="Receive Goods">
       <div className="space-y-6 max-w-5xl">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Back to purchase order"
+            onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}
+          >
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -330,6 +326,12 @@ export default function NewGrnPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Items received</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              For each line: <b>Invoice qty</b> is what the supplier billed, <b>Received</b> is what
+              you physically counted. Split what arrived into <b>Accepted</b> (goes into stock) and
+              <b> Rejected</b> (does not, and can be replaced later) — together these must not exceed
+              Received. A gap between Invoice qty and Received is flagged as a mismatch.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             {drafts.map((l, idx) => {
@@ -340,23 +342,22 @@ export default function NewGrnPage() {
                 poUnitPrice: l.po_unit_price,
                 invoiceUnitPrice: l.cost != null && Number(l.cost) > 0 ? Number(l.cost) : null,
               });
-              const cfg = GRN_MATCH_CONFIG[match.match_status];
               const overSplit =
                 Number(l.accepted_quantity) + Number(l.rejected_quantity) >
                 Number(l.received_quantity) + 0.001;
               return (
                 <div key={l.po_item_id} className="rounded-lg border p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{l.item_name}</p>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{l.item_name}</p>
                       <p className="text-xs text-muted-foreground">
                         Outstanding on PO: {l.ordered_remaining} {l.unit_label || ''}
                       </p>
                     </div>
-                    <Badge variant="outline" className={MATCH_COLOR[cfg.color]}>{cfg.label}</Badge>
+                    <StatusBadge status={match.match_status} config={GRN_MATCH_CONFIG} />
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
                     <div className="space-y-1">
                       <Label className="text-xs">Invoice qty</Label>
                       <Input
@@ -406,7 +407,7 @@ export default function NewGrnPage() {
                   )}
 
                   {/* Batch tracking — required for chemicals at verification */}
-                  <div className="grid gap-3 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <div className="space-y-1">
                       <Label className="text-xs">Batch no. <span className="text-muted-foreground">(chemicals)</span></Label>
                       <Input
@@ -475,13 +476,19 @@ export default function NewGrnPage() {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3">
-          <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={createGrn.isPending || uploading}>
-            {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Create GRN'}
-          </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Nothing reaches inventory yet. The receipt is saved for verification — a Super Admin
+            checks it against the order and the invoice, and only then does accepted stock post.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => router.push(`/procurement/purchase-orders/${po.id}`)}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={createGrn.isPending || uploading}>
+              {uploading ? 'Uploading invoice…' : createGrn.isPending ? 'Creating…' : 'Create GRN'}
+            </Button>
+          </div>
         </div>
       </div>
     </ContentLayout>
