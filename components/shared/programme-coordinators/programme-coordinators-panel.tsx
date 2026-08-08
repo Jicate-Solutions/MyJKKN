@@ -282,7 +282,7 @@ export function ProgrammeCoordinatorsPanel({
     [refresh]
   );
 
-  if (denied) return <AccessPanel message={NO_ACCESS_MESSAGE} />;
+  if (denied) return <AccessPanel message={denied} />;
   if (loading && !view) return <Skeleton className="h-64 w-full rounded-xl" />;
 
   return (

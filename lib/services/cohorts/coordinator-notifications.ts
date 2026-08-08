@@ -284,7 +284,10 @@ export async function alertCooWhenNoActiveCoordinator(
   if (error || (active ?? []).length > 0) return;
 
   const where = programmeLabel(programmeKind);
-  const today = new Date().toISOString().slice(0, 10);
+  // Campus time, not UTC. On a UTC date the "day" would roll over at 05:30 IST,
+  // so an application at 01:00 would land in the previous day's bucket and be
+  // swallowed as a repeat of a message sent the evening before.
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   const coos = await cooRecipients(admin);
   for (const cooId of coos) {
     await deliverInApp(admin, {
