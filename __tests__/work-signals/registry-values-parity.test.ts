@@ -160,59 +160,143 @@ describe(`work-signals: ${NEW_KEY} lands on BOTH sides`, () => {
 describe('work-signals: the same-day count is a subset of the personal count', () => {
   /**
    * The relationship same_day <= personal_marked is not asserted against live
-   * rows — it is guaranteed structurally. The same-day query repeats every
-   * conjunct of the personal-marked query and adds one more, so its result set
-   * is a subset by construction, for all data and forever. Sampling today's
-   * database would prove strictly less.
+   * rows — it is guaranteed by the SHAPE of the query, which is stronger. Both
+   * counters come out of ONE scan: the personal count is `count(*)` and the
+   * same-day count is `count(*) FILTER (...)` over the same aggregate, so the
+   * second can never exceed the first for any data, ever.
+   *
+   * The shape also settles SCOPE. The marker test lives in the WHERE and the
+   * day test in the FILTER, and FILTER only sees rows the WHERE admitted — so
+   * no other marker's `marked_at` is ever parsed on this caller's behalf. An
+   * earlier draft put both tests in the WHERE, where Postgres may evaluate
+   * conjuncts in any order; that is the same reordering freedom that makes a
+   * bare AND unsafe, and it would have let one malformed value anywhere in the
+   * window blank the card for everybody.
    */
   const engine = () => newestEngineDefinition().body;
 
-  const PERSONAL_CONJUNCTS = [
-    'FROM public.student_attendance sa, jsonb_each(sa.attendance_data) AS period',
-    'WHERE sa.attendance_date BETWEEN v_from AND v_to',
-    "AND period.value->'marked_by_details'->>'marker_id' = v_uid::text",
-  ];
-
-  function sameDayBlock(body: string): string {
+  function countingBlock(body: string): string {
     const m = body.match(
-      /SELECT count\(\*\)::int INTO v_personal_same_day[\s\S]*?END;/,
+      /SELECT\s+count\(\*\)::int,[\s\S]*?INTO v_personal_marked, v_personal_same_day[\s\S]*?;/,
     );
-    expect(m, 'the v_personal_same_day block is missing from the engine').toBeTruthy();
+    expect(
+      m,
+      'the folded two-aggregate counting block is missing — both counters must ' +
+        'come from ONE scan, or the subset relation stops being structural',
+    ).toBeTruthy();
     return m![0];
   }
 
-  it('repeats every conjunct of the personal-marked predicate', () => {
-    const block = sameDayBlock(engine());
-    for (const conjunct of PERSONAL_CONJUNCTS) {
-      expect(block, `same-day block does not mirror: ${conjunct}`).toContain(conjunct);
-    }
+  it('fills both counters from a single scan of a single predicate', () => {
+    const block = countingBlock(engine());
+    expect(block).toContain(
+      'FROM public.student_attendance sa, jsonb_each(sa.attendance_data) AS period',
+    );
+    expect(block).toContain('WHERE sa.attendance_date BETWEEN v_from AND v_to');
+    expect(block).toContain(
+      "AND period.value->'marked_by_details'->>'marker_id' = v_uid::text",
+    );
+    // Exactly ONE reference to the table — a second scan would mean two
+    // predicates to keep in step by hand. Counting the TABLE rather than the
+    // `FROM` keyword is deliberate: a mutation that comma-joins a second copy
+    // into the same FROM clause survives a `FROM …` count, and did.
+    expect(block.match(/public\.student_attendance/g)!.length).toBe(1);
+    expect(block.match(/jsonb_each\(/g)!.length).toBe(1);
   });
 
-  it('adds exactly the day comparison on top', () => {
-    expect(sameDayBlock(engine())).toContain('= sa.attendance_date');
+  it('derives same-day as a FILTER over that scan, not a second query', () => {
+    const block = countingBlock(engine());
+    expect(block).toMatch(/count\(\*\) FILTER \(/);
+    expect(block).toContain('= sa.attendance_date');
+  });
+
+  it('keeps the marker test in the WHERE, so FILTER never sees another marker', () => {
+    const block = countingBlock(engine());
+    const whereAt = block.indexOf("marker_id' = v_uid::text");
+    const filterAt = block.indexOf('FILTER (');
+    expect(whereAt).toBeGreaterThan(-1);
+    expect(filterAt).toBeGreaterThan(-1);
+    // The FILTER clause is part of the select list, which precedes the WHERE.
+    expect(filterAt).toBeLessThan(whereAt);
   });
 
   it('compares days in IST, never UTC', () => {
     // attendance_date is an IST calendar date. Truncating a UTC instant credits
     // a class marked at 02:30 IST to the previous day. Measured on production
     // 2026-08-08, the two readings already disagree on real rows.
-    expect(sameDayBlock(engine())).toContain("AT TIME ZONE 'Asia/Kolkata'");
+    expect(countingBlock(engine())).toContain("AT TIME ZONE 'Asia/Kolkata'");
   });
 
-  it('guards the timestamp cast so one malformed value cannot blank the card', () => {
-    // marked_at is client-written text inside jsonb. An unguarded cast on a
-    // non-ISO value raises, the service resolves any error to null, and the card
-    // renders nothing at all — an estate-wide silent disappearance. A CASE (not
-    // a sibling AND) is required because Postgres does not guarantee the
-    // evaluation order of WHERE conjuncts.
-    const block = sameDayBlock(engine());
-    expect(block).toContain('CASE');
-    expect(block).toMatch(/marked_at' ~ '\^\\d\{4\}-\\d\{2\}-\\d\{2\}'/);
-    expect(block).toContain('ELSE false');
+  it('never casts marked_at directly — a raise there blanks the whole card', () => {
+    // A bare `::timestamptz` on client-written text can raise; the service
+    // resolves any error to null and the card renders nothing.
+    const block = countingBlock(engine());
+    expect(block).toContain('public.fn_try_timestamptz_ist(');
+    expect(
+      block,
+      'raw ::timestamptz on marked_at is exactly the failure mode this avoids',
+    ).not.toMatch(/marked_at'\)::timestamptz/);
   });
 
   it('declares the counter it fills', () => {
     expect(engine()).toContain('v_personal_same_day int := 0;');
+  });
+});
+
+describe('work-signals: the timestamp helper cannot raise', () => {
+  /**
+   * A prefix regex was the first attempt and it is NOT sufficient — it tests
+   * shape, not validity. Verified against production 2026-08-08: '2026-13-40',
+   * '2026-02-30' and '0000-00-00' all satisfy `^\d{4}-\d{2}-\d{2}` and then
+   * raise 22008; '2026-08-08junk', '' and 'not a date' raise 22007. No regex
+   * can exclude 31 February, so the conversion has to trap instead.
+   */
+  const helper = (): string => {
+    const { sql } = migrationFiles().find(
+      (f) => f.name === newestEngineDefinition().name,
+    )!;
+    const m = sql.match(
+      /CREATE OR REPLACE FUNCTION public\.fn_try_timestamptz_ist[\s\S]*?\$function\$;/,
+    );
+    expect(m, 'fn_try_timestamptz_ist is missing').toBeTruthy();
+    return m![0];
+  };
+
+  it('traps both datetime SQLSTATEs observed on production', () => {
+    const h = helper();
+    expect(h).toContain('invalid_datetime_format'); // 22007
+    expect(h).toContain('datetime_field_overflow'); // 22008
+  });
+
+  it('does NOT swallow query cancellation', () => {
+    // WHEN others would also catch query_canceled / statement timeout, turning a
+    // timed-out engine into a silently wrong count instead of an error.
+    expect(helper()).not.toMatch(/WHEN\s+others/i);
+  });
+
+  it('anchors an offset-less timestamp to IST, not to the session zone', () => {
+    // The engine sets search_path and statement_timeout but never timezone, so
+    // a naive '2026-08-08T23:30:00' would otherwise parse as UTC and land on
+    // the 9th.
+    const h = helper();
+    expect(h).toMatch(/~ '\(Z\|\[\+-\]\[0-9\]\{2\}:\?\[0-9\]\{2\}\)/);
+    expect(h).toContain("::timestamp AT TIME ZONE 'Asia/Kolkata'");
+  });
+
+  it('is STABLE, never IMMUTABLE', () => {
+    // Parsing depends on session state; IMMUTABLE would license the planner to
+    // fold or cache it wrongly.
+    expect(helper()).toMatch(/\nSTABLE\n/);
+    expect(helper()).not.toMatch(/\nIMMUTABLE\n/);
+  });
+
+  it('is locked away from anon like every other function here', () => {
+    const { sql } = migrationFiles().find(
+      (f) => f.name === newestEngineDefinition().name,
+    )!;
+    expect(sql).toMatch(
+      /REVOKE EXECUTE ON FUNCTION public\.fn_try_timestamptz_ist\(text\) FROM anon, PUBLIC;/,
+    );
   });
 });
 

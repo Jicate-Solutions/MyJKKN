@@ -30,13 +30,15 @@
 --
 -- WHAT THIS FILE CHANGES — four parts, all four load-bearing:
 --   1. DECLARE v_personal_same_day.
---   2. A counting block placed immediately after the v_personal_marked SELECT
---      and MIRRORING its predicate exactly (same table, same window, same
---      marker test) so the two numbers can never drift apart. The only addition
---      is the day comparison.
+--   2. The existing v_personal_marked SELECT gains a second aggregate over the
+--      SAME scan: `count(*) FILTER (WHERE <marked on the day>)`. Both counters
+--      now come out of ONE pass with ONE predicate, so they cannot drift apart
+--      and the subset relation is structural — a FILTER count can never exceed
+--      the count it filters.
 --   3. One row in the inline VALUES list.
 --   4. One row in the work_signal_types registry.
 --   Parts 3 and 4 MUST land together — see the emitter note below.
+--   Plus one helper, fn_try_timestamptz_ist — see the cast note below.
 --
 -- 🔴 THE EMITTER IS AN INNER JOIN, AND IT IS ALREADY BITING. Signals are
 --    emitted by joining work_signal_types against the inline VALUES list, so a
@@ -65,18 +67,31 @@
 --    comparing it against a UTC-truncated instant credits a class marked at
 --    02:30 IST to the previous day.
 --
--- 🛡️ THE CAST IS GUARDED, DELIBERATELY. `marked_at` is client-written text
---    inside a jsonb blob. Across ALL 31,037 attributable periods on production
---    (2026-08-08) there are zero empty strings and zero non-ISO values, so the
---    guard changes no number today — but 1,028 of those periods carry a
---    marker_id with NO marked_at at all, which proves the field is not written
---    by every path. A single malformed value would make the cast RAISE, and
---    because WorkSignalsService resolves any error to null and the card renders
---    nothing on null, the entire My Pulse card would vanish estate-wide with no
---    error shown to anyone. A regex-guarded CASE (not a bare AND — Postgres does
---    not guarantee WHERE-clause evaluation order, so a sibling AND would not
---    reliably run before the cast) makes that failure impossible. It can only
---    ever REMOVE rows, so same_day <= personal_marked still holds by construction.
+-- 🛡️ THE CAST CANNOT RAISE, AND A REGEX WOULD NOT HAVE BEEN ENOUGH.
+--    `marked_at` is client-written text inside a jsonb blob. Across ALL 31,037
+--    attributable periods on production (2026-08-08) there are zero empty
+--    strings and zero non-ISO values, so none of this changes a number today —
+--    but 1,028 of those periods carry a marker_id with NO marked_at at all,
+--    which proves the field is not written by every path.
+--    A single malformed value would make a bare `::timestamptz` RAISE. The
+--    exception leaves this function, WorkSignalsService resolves any error to
+--    null, and the card renders nothing on null — so ONE poisoned string would
+--    silently blank My Pulse, with no error shown to anyone.
+--    An earlier draft guarded the cast with `~ '^\d{4}-\d{2}-\d{2}'`. That is
+--    NOT sufficient and the claim has been withdrawn: a prefix regex tests
+--    SHAPE, not VALIDITY, so '2026-13-40', '2026-02-30' and '2026-08-08junk'
+--    all pass it and then raise anyway. No regex can exclude 31 February.
+--    The cast therefore goes through fn_try_timestamptz_ist, which traps the
+--    two datetime SQLSTATEs and returns NULL instead of raising. A NULL simply
+--    fails the day comparison, so a malformed value is not counted and is not
+--    called late either.
+--    Scope is settled by the query shape, not by the planner: the marker test
+--    lives in the WHERE and the day test in an aggregate FILTER, and FILTER is
+--    applied only to rows the WHERE already admitted. Another marker's poisoned
+--    row can therefore never be parsed on this caller's behalf. (The earlier
+--    draft put both in the WHERE, where Postgres may evaluate conjuncts in any
+--    order — the same reordering freedom that made a bare AND unsafe would have
+--    let one bad row anywhere in the window blank the card for everyone.)
 --
 -- 🔢 WHAT THE NUMBER DOES NOT SAY. 526 of 8,896 periods in the trailing 30 days
 --    (5.9%) carry no `marked_by_details` at all, spanning 2025-07-09 to
@@ -100,6 +115,53 @@
 -- SELF-SCOPED, NEVER RANKED. Like every signal in this engine: the caller's own
 -- number only, no comparison, no score. It is an instrument, not an evaluation.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- Helper: parse a client-written timestamp WITHOUT ever raising.
+--
+-- Postgres has no TRY_CAST, and a regex cannot stand in for one — '2026-02-30'
+-- is well-shaped and still invalid. Trapping the datetime SQLSTATEs is the only
+-- way to make a text→timestamptz conversion total.
+--
+-- Catches 22007 invalid_datetime_format and 22008 datetime_field_overflow by
+-- NAME rather than WHEN others, deliberately: `others` would also swallow
+-- query_canceled and statement-timeout, turning a timed-out engine into a
+-- silently wrong count instead of an error.
+--
+-- A value carrying no offset is anchored to IST, not to the session zone. The
+-- engine sets search_path and statement_timeout but not timezone, so a naive
+-- '2026-08-08T23:30:00' would otherwise be read as UTC and then shifted to the
+-- 9th, mis-dating a late-evening mark. Every one of the 31,037 values on
+-- production today ends in 'Z'; this is for the write path that does not.
+--
+-- STABLE, not IMMUTABLE: parsing text that carries an offset is independent of
+-- session state, but this function is not — and mislabelling it IMMUTABLE would
+-- license the planner to fold it into an index expression or cache it wrongly.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_try_timestamptz_ist(p_text text)
+RETURNS timestamptz
+LANGUAGE plpgsql
+STABLE
+SET search_path = public
+AS $function$
+BEGIN
+  IF p_text IS NULL THEN
+    RETURN NULL;
+  END IF;
+  -- Explicit instant (…Z or …±HH[:]MM) — parse as given.
+  IF p_text ~ '(Z|[+-][0-9]{2}:?[0-9]{2})[[:space:]]*$' THEN
+    RETURN p_text::timestamptz;
+  END IF;
+  -- No offset — the writer meant local campus time.
+  RETURN (p_text::timestamp AT TIME ZONE 'Asia/Kolkata');
+EXCEPTION
+  WHEN invalid_datetime_format OR datetime_field_overflow THEN
+    RETURN NULL;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_try_timestamptz_ist(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_try_timestamptz_ist(text) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_work_signals_for(p_from date DEFAULT NULL::date, p_to date DEFAULT NULL::date)
  RETURNS jsonb
@@ -173,34 +235,36 @@ BEGIN
   INTO v_assigned_marked, v_witnessed, v_last
   FROM fac_sess fs;
 
-  -- "Track both": sessions this caller PERSONALLY marked (marker attribution).
-  SELECT count(*)::int INTO v_personal_marked
+  -- "Track both": sessions this caller PERSONALLY marked (marker attribution),
+  -- and — of exactly those — how many were marked ON THE DAY OF THE CLASS
+  -- (2026-08-08). ONE scan, ONE predicate, TWO aggregates.
+  --
+  -- The shape is the guarantee. The marker test is in the WHERE, so only this
+  -- caller's periods are ever examined; the day test is an aggregate FILTER,
+  -- which Postgres applies only to rows the WHERE already admitted. So the
+  -- same-day number is a subset of the personally-marked number BY
+  -- CONSTRUCTION — not by two predicates being kept in step by hand — and no
+  -- other marker's row can be parsed on this caller's behalf whatever the
+  -- planner chooses to do.
+  --
+  -- The day comparison is per-period, which is the whole point:
+  -- `marked_by_details.marked_at` is stamped for each period individually,
+  -- unlike the row's created_at, which belongs to whichever period of that day
+  -- happened to be inserted first and is therefore punctual for all of them.
+  --
+  -- fn_try_timestamptz_ist returns NULL rather than raising on a malformed
+  -- value; NULL fails the comparison, so such a period is not counted — and is
+  -- not called late either. It is simply unknown.
+  SELECT
+    count(*)::int,
+    count(*) FILTER (
+      WHERE (public.fn_try_timestamptz_ist(period.value->'marked_by_details'->>'marked_at')
+               AT TIME ZONE 'Asia/Kolkata')::date = sa.attendance_date
+    )::int
+  INTO v_personal_marked, v_personal_same_day
   FROM public.student_attendance sa, jsonb_each(sa.attendance_data) AS period
   WHERE sa.attendance_date BETWEEN v_from AND v_to
     AND period.value->'marked_by_details'->>'marker_id' = v_uid::text;
-
-  -- Of those, how many were marked ON THE DAY OF THE CLASS (2026-08-08).
-  -- The predicate above is MIRRORED EXACTLY — same table, same window, same
-  -- marker test — so this can only ever be a subset of v_personal_marked and the
-  -- two can never disagree about who marked what. The day comparison is the ONLY
-  -- addition, and it is per-period: `marked_by_details.marked_at` is stamped for
-  -- each period individually, unlike the row's created_at which belongs to
-  -- whichever period of that day happened to be inserted first.
-  --
-  -- The CASE (not a bare AND) is deliberate: Postgres may evaluate WHERE
-  -- conjuncts in any order, so only a CASE guarantees the format check runs
-  -- BEFORE the cast. A value that is absent, null, or not ISO-dated is simply
-  -- not counted — never an error, and never an accusation of lateness.
-  SELECT count(*)::int INTO v_personal_same_day
-  FROM public.student_attendance sa, jsonb_each(sa.attendance_data) AS period
-  WHERE sa.attendance_date BETWEEN v_from AND v_to
-    AND period.value->'marked_by_details'->>'marker_id' = v_uid::text
-    AND CASE
-          WHEN period.value->'marked_by_details'->>'marked_at' ~ '^\d{4}-\d{2}-\d{2}'
-          THEN ((period.value->'marked_by_details'->>'marked_at')::timestamptz
-                  AT TIME ZONE 'Asia/Kolkata')::date = sa.attendance_date
-          ELSE false
-        END;
 
   SELECT count(*)::int INTO v_pulses FROM public.scf_live_pulse lp
     WHERE lower(lp.faculty_email) = v_email AND lp.attendance_date BETWEEN v_from AND v_to;
