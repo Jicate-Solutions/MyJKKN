@@ -3,14 +3,17 @@
 // Locks the display-layer strip that stops a learner seeing a question's
 // number twice.
 //
-// Verified on production 2026-08-08: 5 of 31 stored questions in
-// startup_events.config.quiz carry their number inside question_en/_ta
-// ("Q1. What can Gemini Live do that a normal text chat cannot?"). Both
+// Verified on production 2026-08-08, stored questions in
+// startup_events.config->'quiz'->'questions' carry their number inside
+// question_en/_ta in TWO forms — "Q1." … "Q5." (5 English + 5 Tamil) and
+// "1." … "6." (6 English + 6 Tamil), ~22 prefixed strings in all. Both
 // learner-facing surfaces number the list themselves, so the raw text rendered
 // as "Q1  Q1. What can Gemini Live do...".
 //
-// The two properties worth pinning are the ones a careless regex breaks:
-//   • a question that merely STARTS with a Q-word is not truncated, and
+// The properties worth pinning are the ones a careless regex breaks:
+//   • a question that merely STARTS with a Q-word is not truncated,
+//   • prose opening on a bare number with no separator is not truncated,
+//   • leading whitespace does not defeat the `^` anchor, and
 //   • applying the strip twice is the same as applying it once, since both
 //     surfaces call it on every render.
 // ---------------------------------------------------------------------------
@@ -25,6 +28,57 @@ describe('stripLeadingQuestionNumber', () => {
 
   it('removes a two-digit "Q10)" prefix', () => {
     expect(stripLeadingQuestionNumber('Q10) Bar')).toBe('Bar');
+  });
+
+  it('removes a bare numeric prefix with no leading Q', () => {
+    // The larger half of the production rows: 6 English + 6 Tamil are numbered
+    // "1." … "6." with no Q at all, so the Q must be optional.
+    expect(
+      stripLeadingQuestionNumber(
+        '1. What is the primary purpose of Gemini Canvas?',
+      ),
+    ).toBe('What is the primary purpose of Gemini Canvas?');
+    expect(stripLeadingQuestionNumber('6. Flipped classroom')).toBe(
+      'Flipped classroom',
+    );
+    expect(
+      stripLeadingQuestionNumber('4. What is the "Vibe Coding" feature in'),
+    ).toBe('What is the "Vibe Coding" feature in');
+  });
+
+  it('removes a bare numeric prefix from the Tamil twin', () => {
+    // The Tamil questions number themselves with LATIN digits, so the same
+    // pattern serves both languages — no separate Tamil-numeral branch.
+    expect(
+      stripLeadingQuestionNumber('1. Gemini Canvas-இன் முக்கிய நோக்கம் என்ன?'),
+    ).toBe('Gemini Canvas-இன் முக்கிய நோக்கம் என்ன?');
+  });
+
+  it('strips through leading whitespace', () => {
+    // The pattern is `^`-anchored, so the trim has to happen BEFORE the
+    // replace. Trimming afterwards leaves the number visible on exactly this
+    // input — and breaks idempotency for it.
+    expect(stripLeadingQuestionNumber('  Q1. Foo')).toBe('Foo');
+    expect(stripLeadingQuestionNumber('\nQ2. Bar')).toBe('Bar');
+    expect(stripLeadingQuestionNumber('  1. Baz')).toBe('Baz');
+  });
+
+  it('leaves prose that opens on a bare number alone', () => {
+    // No `.`/`)`/`:` straight after the digits, so this is not a number.
+    expect(stripLeadingQuestionNumber('2026 was the year')).toBe(
+      '2026 was the year',
+    );
+  });
+
+  it('does strip a number-plus-separator opening, even in prose', () => {
+    // Documented trade-off, not an oversight: "2026. What happened" is
+    // indistinguishable from question number 2026, so it loses its opening.
+    // Accepted because quizzes here run to 5–6 questions and no production
+    // question takes this shape; capping the digit count would instead break
+    // silently on a longer quiz.
+    expect(stripLeadingQuestionNumber('2026. What happened')).toBe(
+      'What happened',
+    );
   });
 
   it('leaves an already-clean question unchanged', () => {
@@ -44,6 +98,15 @@ describe('stripLeadingQuestionNumber', () => {
   it('is idempotent', () => {
     const once = stripLeadingQuestionNumber('Q1. Foo');
     expect(stripLeadingQuestionNumber(once)).toBe(once);
+  });
+
+  it('is idempotent for whitespace-led and bare-numeric input', () => {
+    // These are the inputs that a trim-after-replace ordering gets wrong: the
+    // first pass returns "Q1. Foo", the second returns "Foo".
+    for (const input of ['  Q1. Foo', '\nQ2. Bar', '1. Flipped classroom']) {
+      const once = stripLeadingQuestionNumber(input);
+      expect(stripLeadingQuestionNumber(once)).toBe(once);
+    }
   });
 
   it('strips the real production prefixes', () => {
@@ -69,6 +132,9 @@ describe('stripLeadingQuestionNumber', () => {
     expect(stripLeadingQuestionNumber(stripLeadingQuestionNumber('Q1.'))).toBe(
       'Q1.',
     );
+    // Same guarantee for the bare-numeric form, and through whitespace.
+    expect(stripLeadingQuestionNumber('1.')).toBe('1.');
+    expect(stripLeadingQuestionNumber('  1.  ')).toBe('1.');
   });
 
   it('handles a missing translation without throwing', () => {
