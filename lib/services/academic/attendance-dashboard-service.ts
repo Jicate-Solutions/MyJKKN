@@ -647,8 +647,18 @@ export class AttendanceDashboardService {
             Object.entries(timetableData[dayKey]).forEach(
               ([periodId, slot]) => {
                 if (slot && !slot.is_break_slot && slot.course_id) {
+                  // Updated: 2026-08-08 - `timetables.periods` stores each period's
+                  // identifier as `id`, not `period_id`. Matching only on `period_id`
+                  // therefore never resolved, and EVERY period-based row was dropped
+                  // before it could be listed — measured on production: 1,085 of 1,244
+                  // period rows carry only `id`, 159 carry only `period_id`, and none
+                  // carry both, so the two shapes are mutually exclusive and the
+                  // fallback is unambiguous. Mirrors the working lookup in
+                  // learners/student-timetable-service.ts:245 (`p.id === slot.period_id`).
                   const periodInfo = Array.isArray(periods)
-                    ? periods.find((p: any) => p.period_id === periodId)
+                    ? periods.find(
+                        (p: any) => (p?.id ?? p?.period_id) === periodId
+                      )
                     : null;
 
                   if (periodInfo && !periodInfo.is_break) {
