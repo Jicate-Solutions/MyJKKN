@@ -3,8 +3,15 @@
 -- HOW MANY CLASSES WERE MARKED THE SAME DAY — the one instrument that can tell
 -- whether a change to the marking screen makes marking LATER.
 --
--- FILE ONLY / NOT APPLIED — Director-gated. Ships DELIBERATELY BEFORE the
--- lesson gate it is meant to measure: a before/after reading needs the BEFORE.
+-- ⚠️ APPLIED TO PRODUCTION 2026-08-08. This header previously read "FILE ONLY /
+-- NOT APPLIED — Director-gated" and that stopped being true when an earlier
+-- version of this same file was applied shortly after #2924 merged. The version
+-- that went live is the one whose timestamp guard is corrected below, so
+-- RE-APPLYING this file is the intended remedy — the §0 guard makes that a safe
+-- no-op-or-upgrade rather than a blind overwrite.
+--
+-- Shipped DELIBERATELY BEFORE the lesson gate it is meant to measure: a
+-- before/after reading needs the BEFORE.
 --
 -- THE PROBLEM. `fn_work_signals_for` derives every marking number from
 -- `sa.attendance_date` alone, so a class marked twenty-one days late is
@@ -147,12 +154,26 @@
 DO $guard$
 DECLARE
   v_def text;
+  v_n   int;
 BEGIN
-  SELECT pg_get_functiondef(oid) INTO v_def
-  FROM pg_proc WHERE proname = 'fn_work_signals_for';
+  -- Schema-qualified and counted. An unqualified `WHERE proname = …` would also
+  -- match a same-named function in ANOTHER schema, and plpgsql SELECT INTO takes
+  -- the first row of a multi-row result WITHOUT complaining — so the guard could
+  -- silently compare the wrong body and wave a genuinely drifted engine through.
+  SELECT count(*) INTO v_n
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'fn_work_signals_for';
+
+  IF v_n <> 1 THEN
+    RAISE EXCEPTION 'REFUSING TO APPLY: expected exactly one public.fn_work_signals_for, found %. An overload changes which body this file is replacing; resolve that first.', v_n;
+  END IF;
+
+  SELECT pg_get_functiondef(p.oid) INTO v_def
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'fn_work_signals_for';
 
   IF v_def IS NULL THEN
-    RAISE EXCEPTION 'REFUSING TO APPLY: fn_work_signals_for does not exist — this file REPLACES an engine, it does not create one from nothing.';
+    RAISE EXCEPTION 'REFUSING TO APPLY: public.fn_work_signals_for does not exist — this file REPLACES an engine, it does not create one from nothing.';
   END IF;
 
   IF md5(v_def) <> '09432834a331932fbae2d5a90d607d12'
@@ -211,16 +232,26 @@ LANGUAGE plpgsql
 STABLE
 SET search_path = public
 AS $function$
+DECLARE
+  v_t text := btrim(p_text);
 BEGIN
-  IF p_text IS NULL THEN
+  IF v_t IS NULL OR v_t = '' THEN
     RETURN NULL;
   END IF;
-  -- Strictly zone-free ⇒ the writer meant local campus time.
-  IF p_text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?)?$' THEN
-    RETURN (p_text::timestamp)::date;
+  -- Zone-free ⇒ the writer meant local campus time.
+  -- btrim, and 1-2 digits for month/day/hour, are BOTH load-bearing. A first
+  -- version of this test was exact-width and untrimmed, which made it REJECT
+  -- genuinely zone-free values it merely failed to recognise — '2026-08-08
+  -- 23:30:00 ' (trailing space) and '2026-8-8 23:30:00' fell through to the
+  -- zoned branch and were read in the session zone (UTC), landing on the 9th.
+  -- Verified on production: that is a day out, and it was a REGRESSION against
+  -- the version already running. Being unrecognised must not silently mean
+  -- "assume UTC".
+  IF v_t ~ '^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([T ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?)?$' THEN
+    RETURN (v_t::timestamp)::date;
   END IF;
   -- Everything else carries (or claims) a zone — let Postgres read it.
-  RETURN ((p_text::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date;
+  RETURN ((v_t::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date;
 EXCEPTION
   WHEN others THEN
     -- Bad DATA is not counted. Anything else is a real failure and must travel.

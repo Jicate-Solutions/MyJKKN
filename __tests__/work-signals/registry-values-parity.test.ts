@@ -133,7 +133,12 @@ function registeredActiveKeys(): Set<string> {
       for (const tuple of splitTuples(valuesPart)) {
         const key = tuple.match(/^\s*'([a-z0-9_]+)'\s*,/)?.[1];
         if (!key) continue;
-        const rowSaysFalse = /(^|[\s,(])false([\s,)]|$)/i.test(tuple);
+        // Scan for the boolean OUTSIDE string literals. Registry descriptions
+        // are long prose and one of them containing the word "false" would
+        // otherwise mark a live key inactive, drop it from the derived set, and
+        // hide a genuinely dark key from the parity comparison — the exact
+        // silent-drop this file exists to catch.
+        const rowSaysFalse = /(^|[\s,(])false([\s,)]|$)/i.test(stripLiterals(tuple));
         active.set(key, conflictForcesActive ? true : !rowSaysFalse);
       }
     }
@@ -146,6 +151,24 @@ function registeredActiveKeys(): Set<string> {
   }
 
   return new Set([...active.entries()].filter(([, on]) => on).map(([k]) => k));
+}
+
+/** Blank out single-quoted literals so keyword scans can't read prose.
+ *  '' inside a literal is an escaped quote, not a terminator. */
+function stripLiterals(sqlFragment: string): string {
+  let out = '';
+  let inStr = false;
+  for (let i = 0; i < sqlFragment.length; i++) {
+    const c = sqlFragment[i];
+    if (c === "'") {
+      if (inStr && sqlFragment[i + 1] === "'") { i++; continue; }
+      inStr = !inStr;
+      out += ' ';
+      continue;
+    }
+    out += inStr ? ' ' : c;
+  }
+  return out;
 }
 
 /** Split a VALUES list into its top-level parenthesised tuples. */
@@ -382,18 +405,22 @@ describe('work-signals: the date helper cannot raise on bad data', () => {
     expect(helper()).toMatch(/RETURNS date/);
   });
 
-  it('takes the naive branch ONLY for a strictly zone-free value', () => {
-    // A permissive "does it look zoned?" test sends anything it fails to
-    // recognise to ::timestamp, which SILENTLY DISCARDS the zone. Verified on
-    // production: '…T20:00:00z', '…T23:50:00+05' and '… UTC' all lost their
-    // zone that way and were re-anchored as IST — 5.5 hours, enough to move the
-    // calendar day at exactly the boundary this branch exists to get right.
+  it('takes the naive branch for a zone-free value, padded or not', () => {
+    // Two failure directions, and BOTH have been walked into here.
+    // Too permissive: a "does it look zoned?" test sends anything it fails to
+    // recognise to ::timestamp, which SILENTLY DISCARDS the zone — verified,
+    // '…T20:00:00z', '…T23:50:00+05' and '… UTC' were re-anchored as IST.
+    // Too strict: an exact-width, untrimmed test REJECTS genuinely zone-free
+    // values it merely fails to recognise, sending them to the zoned branch to
+    // be read as UTC — verified, '2026-08-08 23:30:00 ' and '2026-8-8 23:30:00'
+    // landed a day late, a regression against the version already running.
     const h = helper();
+    expect(h, 'input must be trimmed before either branch').toContain('btrim(p_text)');
     expect(h).toContain(
-      "'^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$'",
+      "'^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([T ][0-9]{1,2}:[0-9]{2}(:[0-9]{2}(\\.[0-9]+)?)?)?$'",
     );
     // The doubtful path must be the SAFE one.
-    expect(h).toContain("((p_text::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date");
+    expect(h).toContain("((v_t::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date");
   });
 
   it('is STABLE, never IMMUTABLE', () => {
@@ -437,6 +464,13 @@ describe('work-signals: a late apply cannot silently revert the engine', () => {
     expect(sql).toMatch(/md5\(v_def\) <> '[0-9a-f]{32}'/);
     // …and stays a no-op once this change is in, so a re-run is safe.
     expect(sql).toMatch(/position\('v_personal_same_day' in v_def\) = 0/);
+    // The read must be schema-qualified and single-row: an unqualified proname
+    // match also finds a same-named function in another schema, and plpgsql
+    // SELECT INTO silently takes the first of several rows — so the guard could
+    // compare the wrong body and wave a drifted engine through.
+    expect(sql).toMatch(/JOIN pg_namespace n ON n\.oid = p\.pronamespace/);
+    expect(sql).toMatch(/n\.nspname = 'public' AND p\.proname = 'fn_work_signals_for'/);
+    expect(sql).toMatch(/IF v_n <> 1 THEN/);
   });
 });
 
