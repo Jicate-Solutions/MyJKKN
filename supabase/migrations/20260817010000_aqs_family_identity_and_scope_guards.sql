@@ -56,12 +56,40 @@
 --     the flag alone would have emptied their screen instead.
 --
 -- custom_roles.institution_scope is what Role Management writes and what
--- role_has_institution_access() reads (via user_roles, and via a legacy
--- profiles.role -> custom_roles.role_key fallback — the same join used below).
--- A literal list is therefore a second copy of a decision that already has an
--- owner, free to drift away from it. Verified live the same day: custom_roles has
--- NO institution_id column, and role_key is unique on its own (88 roles, 88
--- distinct keys), so this lookup needs no further qualification.
+-- role_has_institution_access() reads. A literal list is therefore a second copy
+-- of a decision that already has an owner, free to drift away from it.
+--
+-- READING ONLY profiles.role IS THE SAME MISTAKE ONE LEVEL DOWN. A first draft of
+-- this migration inlined `custom_roles cr WHERE cr.role_key = v_role` into two
+-- bodies and called it parity with role_has_institution_access(). It is not:
+-- that function checks user_roles FIRST — the many-to-many table Role Management
+-- actually writes — and falls back to the denormalised profiles.role only
+-- afterwards. Measured on production 2026-08-08, reading the fallback alone is
+-- wrong in both directions again: 161 profiles are cluster-scoped via user_roles
+-- against 138 via profiles.role, and 29 of them are visible ONLY through
+-- user_roles — clamped to one college, or (had any carried a NULL institution)
+-- dropped into the fail-closed branch and shown a permanent zero.
+--
+-- fn_aqs_caller_is_cluster_scoped below therefore ORs both paths, in the same
+-- order and with the same joins as role_has_institution_access(), and is a
+-- FUNCTION rather than an inlined join precisely because this file argues that a
+-- second copy of a decision is free to drift — two inlined copies would have been
+-- the third and fourth.
+--
+-- Verified live the same day, so these need not be re-litigated: custom_roles has
+-- NO institution_id column; role_key is unique on its own (88 roles, 88 distinct
+-- keys); is_active EXISTS and is NOT NULL DEFAULT true (so the filter below
+-- cannot raise 42703 or be silently demoted by a NULL); and institution_scope IS
+-- nullable, which is why every read is wrapped in COALESCE and a NULL scope
+-- resolves to "not cluster-scoped" rather than to true.
+--
+-- KNOWN AND INHERITED, NOT INTRODUCED HERE: 6 profiles are cluster-scoped through
+-- profiles.role ALONE with no matching user_roles row. Deleting a user_roles row
+-- does not clear profiles.role, so some of those are plausibly demoted people
+-- still being handed the cluster. That over-grant lives in
+-- role_has_institution_access() itself — this file matches that function rather
+-- than quietly diverging from it, and closing it means changing the platform
+-- authority, which is its own reviewed decision.
 --
 -- SERVICE CALLERS
 -- ---------------
@@ -71,8 +99,77 @@
 -- lib/attention-bar/state-queries.ts calls these through
 -- createServerSupabaseClient(), the cookie-backed session client.
 --
+-- REVIEW FINDINGS DELIBERATELY NOT ACTED ON (recorded so they are decisions, not
+-- oversights):
+--   * The NULL-auth.uid() trust rule could instead assert
+--     current_setting('role') = 'service_role'. Not changed: this is the exact
+--     shape already applied and proven in 20260816030000, and a family whose
+--     members disagree about what "internal caller" means is how a hole reappears.
+--   * An unresolvable caller returns a well-formed zero rather than raising. Also
+--     inherited: the resolver is fail-soft and turns any error into a null chip,
+--     so raising would produce the same silence with more moving parts. Making a
+--     permission failure visible to the reader is a real gap and belongs to the
+--     card's contract, across the whole family at once.
+--   * `SELECT id INTO v_counselor_id … LIMIT 1` has no ORDER BY, so a caller with
+--     two active counselor rows gets a plan-dependent pipeline. Pre-existing and
+--     untouched here; fixing it changes which leads people see, which is a
+--     product decision, not a security one.
+--   * `total_overdue_amount` sums `final_amount - COALESCE(balance_amount, 0)`,
+--     which reads as the amount already settled rather than the amount still
+--     owed. Reproduced VERBATIM from the live body (verified byte-identical) and
+--     RETAINED ON PURPOSE: this file exists to close an access hole, and silently
+--     changing what a money figure means while doing so is precisely the kind of
+--     rider a security fix must not carry. Flagged for its own decision.
+--   * The redundant second `v_institution_id := NULL` write for cluster-scoped
+--     callers is kept because it is what the applied sibling runs; matching the
+--     proven body beats tidying it.
+--
 -- MIGRATION IS A FILE ONLY — not applied. Director-gated.
 -- ================================================================================
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- 0/3  fn_aqs_caller_is_cluster_scoped — the scope decision, read ONCE
+--
+-- Mirrors role_has_institution_access()'s role test: user_roles first, the legacy
+-- profiles.role join second. It deliberately does NOT reproduce that function's
+-- own-institution / CAS-sibling / user_institution_access branches — those answer
+-- "may this caller see institution X", a different question from "is this caller
+-- cluster-scoped", which is the only thing the clamps below need.
+--
+-- NOT granted to `authenticated`. Its callers are SECURITY DEFINER and execute as
+-- the owner, so they need no grant, and withholding it keeps this from becoming a
+-- new argument-takes-identity surface of exactly the kind this file exists to close.
+-- ────────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_aqs_caller_is_cluster_scoped(
+    p_user_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $function$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.user_roles ur
+        JOIN public.custom_roles cr ON cr.id = ur.role_id
+        WHERE ur.user_id = p_user_id
+          AND cr.institution_scope = 'all'
+          AND cr.is_active
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM public.profiles p
+        JOIN public.custom_roles cr ON cr.role_key = p.role
+        WHERE p.id = p_user_id
+          AND cr.institution_scope = 'all'
+          AND cr.is_active
+    );
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_aqs_caller_is_cluster_scoped(UUID) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_aqs_caller_is_cluster_scoped(UUID) TO service_role;
+
 
 -- ────────────────────────────────────────────────────────────────────────────────
 -- 1/3  fn_aqs_billing_overdue_invoices — EXPOSED ON ALL THREE HOLES
@@ -120,11 +217,7 @@ BEGIN
 
     -- Ask the role registry, never a name list. See the header for the two live
     -- profiles that make the literal form wrong in both directions.
-    SELECT COALESCE(bool_or(cr.institution_scope = 'all'), false)
-    INTO v_cluster_scoped
-    FROM public.custom_roles cr
-    WHERE cr.role_key = v_user_role
-      AND cr.is_active;
+    v_cluster_scoped := COALESCE(public.fn_aqs_caller_is_cluster_scoped(p_user_id), false);
 
     -- SECURITY CLAMP. Only a genuinely cluster-scoped caller may redirect scope;
     -- everyone else keeps the institution from their own profile, whatever they pass.
@@ -305,11 +398,7 @@ BEGIN
     WHERE p.id = v_caller_id;
 
     -- Ask the role registry, never a name list. See the header.
-    SELECT COALESCE(bool_or(cr.institution_scope = 'all'), false)
-    INTO v_cluster_scoped
-    FROM public.custom_roles cr
-    WHERE cr.role_key = v_user_role
-      AND cr.is_active;
+    v_cluster_scoped := COALESCE(public.fn_aqs_caller_is_cluster_scoped(v_caller_id), false);
 
     IF v_caller_id IS NULL THEN
         -- service_role / internal context: full trust, honour the filter as before.

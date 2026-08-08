@@ -71,6 +71,10 @@ const LEGACY_ADMIN = '00000000-0000-4000-8000-0000000000d3';
 const COUNSELOR_A = '00000000-0000-4000-8000-0000000000d4';
 const COUNSELOR_B = '00000000-0000-4000-8000-0000000000d5';
 const ORPHAN = '00000000-0000-4000-8000-0000000000d6';
+/** Cluster-scoped ONLY via user_roles; profiles.role is institution-scoped. */
+const MODERN_CLUSTER = '00000000-0000-4000-8000-0000000000d7';
+/** Cluster-scoped via a role row that is is_active = false. */
+const RETIRED_HEAD = '00000000-0000-4000-8000-0000000000d8';
 const NOBODY = '00000000-0000-4000-8000-0000000000df';
 
 const CA = '00000000-0000-4000-8000-0000000000f1';
@@ -91,10 +95,23 @@ CREATE TABLE public.profiles (
   is_super_admin BOOLEAN DEFAULT false,
   institution_id UUID
 );
+-- Mirrors production: is_active is NOT NULL DEFAULT true, institution_scope is
+-- NULLABLE with default 'own' (verified 2026-08-08) — so a NULL scope must
+-- resolve to "not cluster-scoped", never to true.
 CREATE TABLE public.custom_roles (
-  role_key TEXT PRIMARY KEY,
-  institution_scope TEXT NOT NULL DEFAULT 'own',
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  role_key TEXT UNIQUE NOT NULL,
+  institution_scope TEXT DEFAULT 'own',
   is_active BOOLEAN NOT NULL DEFAULT true
+);
+-- The many-to-many table Role Management actually writes, and the FIRST thing
+-- role_has_institution_access() consults. A fixture without it cannot tell a
+-- profiles.role-only read from a correct one.
+CREATE TABLE public.user_roles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  role_id UUID NOT NULL,
+  is_primary BOOLEAN DEFAULT false
 );
 CREATE TABLE public.billing_student_bills (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -305,7 +322,8 @@ beforeAll(async () => {
   for (const role of ['anon', 'authenticated', 'service_role']) {
     await db.query(
       `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${role}')
-         THEN CREATE ROLE ${role} NOLOGIN; END IF; END $$;`,
+         THEN CREATE ROLE ${role} NOLOGIN; END IF;
+       EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
   }
 
@@ -316,32 +334,55 @@ beforeAll(async () => {
   await db.query(readFileSync(MIGRATION, 'utf8'));
 
   // The registry as production carries it: no row named 'admin'.
+  // 'staff_counselor' is real and really is institution_scope='all' (46 holders
+  // on production) — it pins the widening this migration discloses.
+  // 'retired_head' is cluster-scoped but INACTIVE: deactivating a role in Role
+  // Management must revoke cluster scope, not keep granting it.
   await db.query(
     `INSERT INTO public.custom_roles (role_key, institution_scope, is_active) VALUES
-       ('super_admin',   'all', true),
-       ('administrator', 'all', true),
-       ('counselor',     'own', true)`,
+       ('super_admin',     'all',  true),
+       ('administrator',   'all',  true),
+       ('staff_counselor', 'all',  true),
+       ('retired_head',    'all',  false),
+       ('counselor',       'own',  true)`,
   );
 
   await db.query(
     `INSERT INTO public.profiles (id, email, role, is_super_admin, institution_id) VALUES
-       ($1,'super@jkkn.ac.in',    'super_admin',   true,  $7),
+       ($1,'super@jkkn.ac.in',    'super_admin',   true,  $9),
        ($2,'cluster@jkkn.ac.in',  'administrator', false, NULL),
-       ($3,'legacy@jkkn.ac.in',   'admin',         false, $7),
-       ($4,'ca@jkkn.ac.in',       'counselor',     false, $7),
-       ($5,'cb@jkkn.ac.in',       'counselor',     false, $8),
-       ($6,'orphan@jkkn.ac.in',   'counselor',     false, NULL)`,
-    [SUPER_ADMIN, CLUSTER_ADMIN, LEGACY_ADMIN, COUNSELOR_A, COUNSELOR_B, ORPHAN, INST, OTHER_INST],
+       ($3,'legacy@jkkn.ac.in',   'admin',         false, $9),
+       ($4,'ca@jkkn.ac.in',       'counselor',     false, $9),
+       ($5,'cb@jkkn.ac.in',       'counselor',     false, $10),
+       ($6,'orphan@jkkn.ac.in',   'counselor',     false, NULL),
+       -- profiles.role is institution-scoped; their cluster role arrives ONLY
+       -- through user_roles. 29 live profiles are in exactly this state.
+       ($7,'modern@jkkn.ac.in',   'counselor',     false, $9),
+       -- Cluster-scoped by a role that has been DEACTIVATED.
+       ($8,'retired@jkkn.ac.in',  'retired_head',  false, $9)`,
+    [
+      SUPER_ADMIN, CLUSTER_ADMIN, LEGACY_ADMIN, COUNSELOR_A, COUNSELOR_B, ORPHAN,
+      MODERN_CLUSTER, RETIRED_HEAD, INST, OTHER_INST,
+    ],
   );
 
-  // Overdue bills: 2 in INST, 2 in OTHER_INST. Cluster (4) differs from either
-  // institution alone, so "saw the cluster" and "saw one college" are separable.
+  // The cluster role that exists ONLY in user_roles.
+  await db.query(
+    `INSERT INTO public.user_roles (user_id, role_id)
+     SELECT $1::uuid, cr.id FROM public.custom_roles cr WHERE cr.role_key = 'staff_counselor'`,
+    [MODERN_CLUSTER],
+  );
+
+  // Overdue bills: 2 in INST, 3 in OTHER_INST, cluster 5. The two colleges must
+  // hold DIFFERENT counts — with 2 and 2, a clamp test asserting `toBe(2)` would
+  // pass whether the clamp held or redirected, which is vacuity by fixture.
   await db.query(
     `INSERT INTO public.billing_student_bills (status, due_date, institution_id, final_amount, balance_amount) VALUES
        ('unpaid',  CURRENT_DATE - 1,  $1, 1000, 0),
        ('pending', CURRENT_DATE - 10, $1, 2000, 500),
        ('unpaid',  CURRENT_DATE - 30, $2, 5000, 0),
        ('unpaid',  CURRENT_DATE - 3,  $2, 100,  0),
+       ('unpaid',  CURRENT_DATE - 2,  $2, 250,  0),
        ('paid',    CURRENT_DATE - 5,  $1, 700,  0),
        ('unpaid',  CURRENT_DATE + 1,  $1, 900,  0)`,
     [INST, OTHER_INST],
@@ -385,7 +426,7 @@ describe('the fixture can tell cluster from institution', () => {
   it('cluster billing is strictly larger than either college alone', async () => {
     const cluster = await asSession(SUPER_ADMIN, () => billingFor(SUPER_ADMIN, null));
     const one = await asSession(SUPER_ADMIN, () => billingFor(SUPER_ADMIN, INST));
-    expect(cluster.count).toBe(4);
+    expect(cluster.count).toBe(5);
     expect(one.count).toBe(2);
     expect(cluster.count).toBeGreaterThan(one.count);
   });
@@ -416,20 +457,20 @@ describe('billing: the caller cannot borrow another identity', () => {
     // The zero is a refusal, not an empty estate: the same identity unborrowed
     // is genuinely cluster-wide.
     const real = await asSession(SUPER_ADMIN, () => billingFor(SUPER_ADMIN, null));
-    expect(real.count).toBe(4);
+    expect(real.count).toBe(5);
   });
 
   it('CONTROL: the pre-fix body hands over the whole cluster for the same call', async () => {
     // This is the proof the assertion above is not vacuous. Same fixture, same
     // arguments, guard removed.
     const leaked = await asSession(COUNSELOR_A, () => prefixBillingFor(SUPER_ADMIN, null));
-    expect(leaked.count).toBe(4);
+    expect(leaked.count).toBe(5);
     expect(Number(leaked.total_overdue_amount)).toBeGreaterThan(0);
   });
 
   it('leaves service-role and internal callers working', async () => {
     const internal = await asSession(null, () => billingFor(SUPER_ADMIN, null));
-    expect(internal.count).toBe(4);
+    expect(internal.count).toBe(5);
   });
 });
 
@@ -494,14 +535,14 @@ describe('scope is clamped, and decided by the role registry', () => {
 
   it('CONTROL: the pre-fix name list did hand it the whole cluster', async () => {
     const leaked = await asSession(LEGACY_ADMIN, () => prefixBillingFor(LEGACY_ADMIN, null));
-    expect(leaked.count).toBe(4);
+    expect(leaked.count).toBe(5);
   });
 
   it('a registry cluster role still sees everything without the super-admin flag', async () => {
     // The other direction: clamping on is_super_admin alone would have emptied
     // this screen. Production has 2 of these.
     const wide = await asSession(CLUSTER_ADMIN, () => billingFor(CLUSTER_ADMIN, null));
-    expect(wide.count).toBe(4);
+    expect(wide.count).toBe(5);
   });
 
   it('the same two directions hold for unassigned leads', async () => {
@@ -528,7 +569,7 @@ describe('an unresolvable caller fails closed, not open', () => {
 
   it('CONTROL: the pre-fix body gave that caller the whole cluster', async () => {
     const leaked = await asSession(ORPHAN, () => prefixBillingFor(ORPHAN, null));
-    expect(leaked.count).toBe(4);
+    expect(leaked.count).toBe(5);
   });
 
   it('billing returns nothing for a p_user_id matching no profile at all', async () => {
@@ -540,7 +581,7 @@ describe('an unresolvable caller fails closed, not open', () => {
 
   it('CONTROL: the pre-fix body answered for that unknown identity too', async () => {
     const leaked = await asSession(null, () => prefixBillingFor(NOBODY, null));
-    expect(leaked.count).toBe(4);
+    expect(leaked.count).toBe(5);
   });
 
   it('unassigned leads fail closed for the same caller', async () => {
@@ -551,10 +592,86 @@ describe('an unresolvable caller fails closed, not open', () => {
     expect(leaked.count).toBe(5);
   });
 
+  it('unassigned leads cannot be redirected to another college either', async () => {
+    // Without this, deleting `ELSE v_institution_id := v_caller_inst_id` would
+    // leave every other test green while re-opening cross-tenant redirect — the
+    // clamp was only ever exercised with a NULL argument.
+    const redirected = await asSession(COUNSELOR_A, () => unassigned(OTHER_INST));
+    expect(redirected.count).toBe(2); // own college, not the 3 next door
+
+    // CONTROL: OTHER_INST really does hold 3, so the 2 above is the clamp
+    // holding rather than the other college being empty. (The pre-fix body is
+    // NOT the control here — it clamped ordinary callers correctly too; this
+    // function's holes were the name list and the fail-open, not redirect.)
+    const truth = await asSession(SUPER_ADMIN, () => unassigned(OTHER_INST));
+    expect(truth.count).toBe(3);
+  });
+
   it('but an internal caller with no session keeps the cluster-wide figure', async () => {
     // This function has no p_user_id to fall back on, so failing closed on a NULL
     // auth.uid() would break server-side callers that legitimately read it.
     const internal = await asSession(null, () => unassigned(null));
     expect(internal.count).toBe(5);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Scope authority: user_roles is the table Role Management writes, and
+ * role_has_institution_access() consults it BEFORE the denormalised
+ * profiles.role. Reading only the fallback is the same mistake as a name list,
+ * one level down — and it is the mistake this file's first draft made.
+ * ─────────────────────────────────────────────────────────────────────────── */
+describe('cluster scope is read from user_roles, not only profiles.role', () => {
+  it('a cluster role held ONLY through user_roles is honoured', async () => {
+    // profiles.role says 'counselor' (own). The cluster role arrives via
+    // user_roles alone — the state 29 live profiles are in. Reading only
+    // profiles.role clamps them to one college.
+    const wide = await asSession(MODERN_CLUSTER, () => billingFor(MODERN_CLUSTER, null));
+    expect(wide.count).toBe(5);
+  });
+
+  it('CONTROL: their profiles.role alone would have clamped them to one college', async () => {
+    // Proves the assertion above is about the user_roles read and not about the
+    // caller being cluster-scoped by some other route: a caller with the SAME
+    // profiles.role and no user_roles row sees only their own institution.
+    const clamped = await asSession(COUNSELOR_A, () => billingFor(COUNSELOR_A, null));
+    expect(clamped.count).toBe(2);
+  });
+
+  it('the same holds for unassigned leads', async () => {
+    const wide = await asSession(MODERN_CLUSTER, () => unassigned(null));
+    expect(wide.count).toBe(5);
+  });
+
+  it('a DEACTIVATED cluster role grants nothing', async () => {
+    // Deactivating a role in Role Management must revoke cluster scope. This
+    // caller's institution is INST, so they fall back to their own college
+    // rather than the cluster — not to zero.
+    const revoked = await asSession(RETIRED_HEAD, () => billingFor(RETIRED_HEAD, null));
+    expect(revoked.count).toBe(2);
+  });
+});
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * PINNED, NOT ASSUMED — the widening this migration discloses.
+ *
+ * Reading custom_roles.institution_scope instead of the old name list takes
+ * cluster-wide billing from 31 profiles to 138. `staff_counselor` (46 holders on
+ * production) is institution_scope='all' and therefore now sees every college's
+ * overdue position through a SECURITY DEFINER function that consults no
+ * permission check. That is a deliberate consequence of treating the registry as
+ * the authority, and it is pinned here so it is a decision on the record rather
+ * than an emergent behaviour — if a reviewer rejects the widening, THIS test is
+ * what must change, and it will fail loudly rather than drifting.
+ * ─────────────────────────────────────────────────────────────────────────── */
+describe('DISCLOSED: a cluster-scoped non-admin role sees cluster-wide billing', () => {
+  it('staff_counselor reads every college overdue position', async () => {
+    const wide = await asSession(MODERN_CLUSTER, () => billingFor(MODERN_CLUSTER, null));
+    expect(wide.count).toBe(5);
+
+    // CONTROL: under the pre-fix name list they saw only their own college, so
+    // this is a real change in exposure and not a restatement of old behaviour.
+    const before = await asSession(MODERN_CLUSTER, () => prefixBillingFor(MODERN_CLUSTER, null));
+    expect(before.count).toBe(2);
   });
 });
