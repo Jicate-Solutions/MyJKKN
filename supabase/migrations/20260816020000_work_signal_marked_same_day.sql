@@ -117,29 +117,83 @@
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
--- Helper: parse a client-written timestamp WITHOUT ever raising.
+-- §0 DRIFT GUARD — refuse to apply on top of a body this file did not read.
 --
--- Postgres has no TRY_CAST, and a regex cannot stand in for one — '2026-02-30'
--- is well-shaped and still invalid. Trapping the datetime SQLSTATEs is the only
--- way to make a text→timestamptz conversion total.
+-- The CREATE OR REPLACE below rewrites the WHOLE ~7,027-char engine from a
+-- snapshot taken 2026-08-08. Application is Director-gated to an unknown later
+-- date, six files define this function, and DDL reaches this database
+-- out-of-band through the Management API without always landing in the ledger.
+-- Applying a stale body weeks later would silently revert whatever shipped in
+-- between, with no error and no signal — the exact hazard this file's header
+-- warns about, which would be an odd thing to then walk into.
 --
--- Catches 22007 invalid_datetime_format and 22008 datetime_field_overflow by
--- NAME rather than WHEN others, deliberately: `others` would also swallow
--- query_canceled and statement-timeout, turning a timed-out engine into a
--- silently wrong count instead of an error.
---
--- A value carrying no offset is anchored to IST, not to the session zone. The
--- engine sets search_path and statement_timeout but not timezone, so a naive
--- '2026-08-08T23:30:00' would otherwise be read as UTC and then shifted to the
--- 9th, mis-dating a late-evening mark. Every one of the 31,037 values on
--- production today ends in 'Z'; this is for the write path that does not.
---
--- STABLE, not IMMUTABLE: parsing text that carries an offset is independent of
--- session state, but this function is not — and mislabelling it IMMUTABLE would
--- license the planner to fold it into an index expression or cache it wrongly.
+-- So: proceed only if the live body is either the snapshot this file was built
+-- from, or already carries this change (making a re-run a no-op). Anything else
+-- aborts, and whoever applies it re-reads the live body first.
 -- ---------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_try_timestamptz_ist(p_text text)
-RETURNS timestamptz
+DO $guard$
+DECLARE
+  v_def text;
+BEGIN
+  SELECT pg_get_functiondef(oid) INTO v_def
+  FROM pg_proc WHERE proname = 'fn_work_signals_for';
+
+  IF v_def IS NULL THEN
+    RAISE EXCEPTION 'REFUSING TO APPLY: fn_work_signals_for does not exist — this file REPLACES an engine, it does not create one from nothing.';
+  END IF;
+
+  IF md5(v_def) <> '09432834a331932fbae2d5a90d607d12'
+     AND position('v_personal_same_day' in v_def) = 0 THEN
+    RAISE EXCEPTION
+      'REFUSING TO APPLY: the live fn_work_signals_for body is neither the 2026-08-08 snapshot this file was built from (md5 09432834a331932fbae2d5a90d607d12) nor a body already carrying this change. It has md5 % and length %. Something shipped in between; re-read pg_get_functiondef and rebase this migration onto it rather than overwriting it.',
+      md5(v_def), length(v_def);
+  END IF;
+END
+$guard$;
+
+-- ---------------------------------------------------------------------------
+-- Helper: turn a client-written timestamp into the IST CALENDAR DATE it fell
+-- on, and NEVER raise while doing it.
+--
+-- It returns a date, not a timestamptz, on purpose. An earlier draft returned
+-- the instant and left the caller to do `… AT TIME ZONE 'Asia/Kolkata')::date`
+-- — which put datetime arithmetic on client-supplied text OUTSIDE the trap, so
+-- a value near the type ceiling ('294276-12-31T23:59:59Z') parsed fine inside
+-- and then overflowed on the +05:30 shift, raising 22008 in the engine. Every
+-- step that can fail now happens in here, behind the handler.
+--
+-- WHAT IT SWALLOWS: class 22 (data exception) ONLY, and it re-raises everything
+-- else. Enumerating datetime SQLSTATEs by name does not work — verified on
+-- production 2026-08-08, the cast raises 22007 (invalid_datetime_format),
+-- 22008 (datetime_field_overflow), 22009 (invalid_time_zone_displacement_value,
+-- e.g. '+99:00') and 22023 (invalid_parameter_value, e.g. a misspelt zone name
+-- 'Asia/Kolkatta'). Two review rounds each found a member the previous list had
+-- missed, which is the signature of a rule that should not be a list. Class 22
+-- is the SQL standard's "the data is bad" class and covers all of them.
+-- The re-raise is the other half and matters just as much: `WHEN others` alone
+-- would swallow 57014 query_canceled and the 53/58/XX classes, turning a
+-- timed-out or failing query into "not marked that day" — a silently wrong
+-- count, which is worse than an error.
+--
+-- ZONE HANDLING. The naive branch is taken ONLY for a strictly zone-free form.
+-- Anything else goes through ::timestamptz, which understands 'Z', '+05',
+-- '+05:30', '+0530' and named zones alike. The earlier draft asked "does this
+-- look like it has an offset?" with a narrow regex and fell back to ::timestamp
+-- otherwise — and ::timestamp SILENTLY DISCARDS a zone it was not asked about.
+-- Verified on production: '…T20:00:00z' (lowercase), '…T23:50:00+05' (two-digit
+-- offset) and '2026-08-07 23:00:00 UTC' all missed that detector, lost their
+-- zone, and were re-anchored as IST wall-clock — a 5.5-hour shift that moves
+-- the calendar day at exactly the late-evening boundary this branch exists to
+-- get right. Now the doubtful cases go the SAFE way, not the lossy way.
+-- A genuinely zone-free value is treated as local campus time, because the
+-- engine sets search_path and statement_timeout but never timezone, so the
+-- session default (UTC) would push a 23:30 IST mark onto the next day.
+--
+-- STABLE, not IMMUTABLE: parsing depends on session state, and mislabelling it
+-- IMMUTABLE would license the planner to fold or cache it wrongly.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_try_ist_date(p_text text)
+RETURNS date
 LANGUAGE plpgsql
 STABLE
 SET search_path = public
@@ -148,20 +202,24 @@ BEGIN
   IF p_text IS NULL THEN
     RETURN NULL;
   END IF;
-  -- Explicit instant (…Z or …±HH[:]MM) — parse as given.
-  IF p_text ~ '(Z|[+-][0-9]{2}:?[0-9]{2})[[:space:]]*$' THEN
-    RETURN p_text::timestamptz;
+  -- Strictly zone-free ⇒ the writer meant local campus time.
+  IF p_text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?)?$' THEN
+    RETURN (p_text::timestamp)::date;
   END IF;
-  -- No offset — the writer meant local campus time.
-  RETURN (p_text::timestamp AT TIME ZONE 'Asia/Kolkata');
+  -- Everything else carries (or claims) a zone — let Postgres read it.
+  RETURN ((p_text::timestamptz) AT TIME ZONE 'Asia/Kolkata')::date;
 EXCEPTION
-  WHEN invalid_datetime_format OR datetime_field_overflow THEN
+  WHEN others THEN
+    -- Bad DATA is not counted. Anything else is a real failure and must travel.
+    IF left(SQLSTATE, 2) <> '22' THEN
+      RAISE;
+    END IF;
     RETURN NULL;
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_try_timestamptz_ist(text) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_try_timestamptz_ist(text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_try_ist_date(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_try_ist_date(text) TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_work_signals_for(p_from date DEFAULT NULL::date, p_to date DEFAULT NULL::date)
  RETURNS jsonb
@@ -252,14 +310,15 @@ BEGIN
   -- unlike the row's created_at, which belongs to whichever period of that day
   -- happened to be inserted first and is therefore punctual for all of them.
   --
-  -- fn_try_timestamptz_ist returns NULL rather than raising on a malformed
-  -- value; NULL fails the comparison, so such a period is not counted — and is
-  -- not called late either. It is simply unknown.
+  -- fn_try_ist_date returns NULL rather than raising on a malformed value, and
+  -- does the zone shift internally so no datetime arithmetic on client text
+  -- happens out here. NULL fails the comparison, so such a period is not
+  -- counted — and is not called late either. It is simply unknown.
   SELECT
     count(*)::int,
     count(*) FILTER (
-      WHERE (public.fn_try_timestamptz_ist(period.value->'marked_by_details'->>'marked_at')
-               AT TIME ZONE 'Asia/Kolkata')::date = sa.attendance_date
+      WHERE public.fn_try_ist_date(period.value->'marked_by_details'->>'marked_at')
+              = sa.attendance_date
     )::int
   INTO v_personal_marked, v_personal_same_day
   FROM public.student_attendance sa, jsonb_each(sa.attendance_data) AS period
