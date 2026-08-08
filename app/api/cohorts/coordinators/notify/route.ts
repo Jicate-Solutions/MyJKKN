@@ -61,8 +61,19 @@ export async function POST(request: NextRequest) {
     }
 
     const appointment = data as unknown as CoordinatorAppointment;
-    const isActive = appointment.status === 'active';
-    if ((action === 'appointed') !== isActive) {
+
+    // Which column a removal writes could not be observed — cohort_coordinators
+    // holds no rows on production yet — so each direction accepts either
+    // convention rather than guessing one and silently 409-ing forever. The
+    // client sends this fire-and-forget, so a wrong guess would be invisible.
+    //   • 'removed'   — accepted when EITHER signal says removed.
+    //   • 'appointed' — accepted only while `status` says active.
+    // The guarantee that matters survives both readings: a row that is active
+    // and carries no removal date can never be told it was dropped.
+    const saysRemoved = appointment.status !== 'active' || !!appointment.removed_at;
+    const describesTruth =
+      action === 'appointed' ? appointment.status === 'active' : saysRemoved;
+    if (!describesTruth) {
       return NextResponse.json(
         { error: 'That appointment is not in the state this message describes.' },
         { status: 409 }
