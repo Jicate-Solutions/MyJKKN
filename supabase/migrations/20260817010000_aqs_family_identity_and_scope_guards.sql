@@ -76,12 +76,53 @@
 -- second copy of a decision is free to drift — two inlined copies would have been
 -- the third and fourth.
 --
--- Verified live the same day, so these need not be re-litigated: custom_roles has
+-- Schema facts this file depends on, verified live 2026-08-08: custom_roles has
 -- NO institution_id column; role_key is unique on its own (88 roles, 88 distinct
 -- keys); is_active EXISTS and is NOT NULL DEFAULT true (so the filter below
 -- cannot raise 42703 or be silently demoted by a NULL); and institution_scope IS
 -- nullable, which is why every read is wrapped in COALESCE and a NULL scope
 -- resolves to "not cluster-scoped" rather than to true.
+--
+-- DO NOT TAKE ANY OF THE NUMBERS IN THIS HEADER ON TRUST. They are measurements
+-- of a database that nine sessions write concurrently, they are not visible in
+-- the diff, and a comment is not evidence. Every figure quoted above is
+-- reproduced by these three read-only queries — run them and disagree with the
+-- comment if the comment is out of date:
+--
+--   -- who is cluster-scoped, by each path (161 / 138 / 29 / 6 when written)
+--   WITH viaprof AS (
+--     SELECT p.id FROM profiles p
+--     JOIN custom_roles cr ON cr.role_key = p.role AND cr.is_active
+--     WHERE cr.institution_scope = 'all'),
+--   viaroles AS (
+--     SELECT DISTINCT ur.user_id AS id FROM user_roles ur
+--     JOIN custom_roles cr ON cr.id = ur.role_id
+--     WHERE cr.institution_scope = 'all' AND cr.is_active)
+--   SELECT (SELECT count(*) FROM viaroles)                                   AS via_user_roles,
+--          (SELECT count(*) FROM viaprof)                                    AS via_profiles_role,
+--          (SELECT count(*) FROM viaroles r
+--             WHERE NOT EXISTS (SELECT 1 FROM viaprof p WHERE p.id = r.id))  AS only_user_roles,
+--          (SELECT count(*) FROM viaprof p
+--             WHERE NOT EXISTS (SELECT 1 FROM viaroles r WHERE r.id = p.id)) AS only_legacy;
+--
+--   -- the role-name list vs the registry, per role actually in use
+--   SELECT p.role, count(*) AS profiles,
+--          (p.role IN ('super_admin','admin')) AS old_list_says_cluster,
+--          COALESCE((SELECT bool_or(cr.institution_scope = 'all') FROM custom_roles cr
+--                    WHERE cr.role_key = p.role AND cr.is_active), false) AS registry_says_cluster
+--   FROM profiles p WHERE p.role IS NOT NULL GROUP BY p.role ORDER BY profiles DESC;
+--
+--   -- the disclosed widening (31 -> 138 when written)
+--   WITH c AS (
+--     SELECT COALESCE(p.is_super_admin,false) AS flag, p.institution_id,
+--            COALESCE((SELECT bool_or(cr.institution_scope='all') FROM custom_roles cr
+--                      WHERE cr.role_key = p.role AND cr.is_active), false) AS reg,
+--            (p.role IN ('super_admin','admin')) AS oldlist
+--     FROM profiles p)
+--   SELECT count(*) FILTER (WHERE (flag OR oldlist)
+--                              OR (NOT (flag OR oldlist) AND institution_id IS NULL)) AS before,
+--          count(*) FILTER (WHERE flag OR reg)                                        AS after
+--   FROM c;
 --
 -- KNOWN AND INHERITED, NOT INTRODUCED HERE: 6 profiles are cluster-scoped through
 -- profiles.role ALONE with no matching user_roles row. Deleting a user_roles row
@@ -90,6 +131,31 @@
 -- role_has_institution_access() itself — this file matches that function rather
 -- than quietly diverging from it, and closing it means changing the platform
 -- authority, which is its own reviewed decision.
+--
+-- ⚠️ THIS FILE WIDENS AS WELL AS NARROWS — RATIFY BEFORE APPLYING
+-- ----------------------------------------------------------------
+-- Treating the registry as the authority is correct, and it has a consequence
+-- that is NOT a side effect to be waved through: cluster-wide billing goes from
+-- 31 profiles to 138 (+114, -7). The gainers include staff_counselor (46) and
+-- admission_counselor (31) — roles Role Management already marks
+-- institution_scope='all', and which already pass role_has_institution_access()
+-- for any institution, but which do NOT hold any billing capability, because
+-- these functions are SECURITY DEFINER and consult scope with no permission half
+-- at all. In practice that is a larger change in what people see than the holes
+-- this file closes for billing, which needed either impersonation or a NULL
+-- institution to reach.
+--
+-- It is pinned by a test (a staff_counselor fixture asserting it reads every
+-- college, with a pre-fix control showing it previously saw one) so it fails
+-- loudly rather than drifting, and so a decision to reject it has somewhere
+-- explicit to land.
+--
+-- It is deliberately NOT gated on user_has_permission here: the missing
+-- permission half is a property of all five siblings, and gating billing alone
+-- would leave the family disagreeing about what scope means — which is the
+-- failure mode this file exists to remove. Whether to add that half, to all
+-- five, is the Director's decision. THIS FILE SHOULD NOT BE APPLIED UNTIL THAT
+-- DECISION IS RECORDED.
 --
 -- SERVICE CALLERS
 -- ---------------
@@ -114,12 +180,29 @@
 --     two active counselor rows gets a plan-dependent pipeline. Pre-existing and
 --     untouched here; fixing it changes which leads people see, which is a
 --     product decision, not a security one.
---   * `total_overdue_amount` sums `final_amount - COALESCE(balance_amount, 0)`,
---     which reads as the amount already settled rather than the amount still
---     owed. Reproduced VERBATIM from the live body (verified byte-identical) and
---     RETAINED ON PURPOSE: this file exists to close an access hole, and silently
---     changing what a money figure means while doing so is precisely the kind of
---     rider a security fix must not carry. Flagged for its own decision.
+--   * 🔴 `total_overdue_amount` IS RETURNING ZERO ON PRODUCTION RIGHT NOW, and
+--     this file does NOT fix it. It sums `final_amount - COALESCE(balance_amount, 0)`
+--     — the amount already SETTLED, not the amount owed. The repo's own billing
+--     code defines outstanding the other way (`SUM(balance_amount) WHERE
+--     balance_amount > 0`, supabase/setup/02_functions.sql), and on an unpaid bill
+--     balance_amount equals final_amount, so the subtraction collapses to 0.
+--     Measured 2026-08-08: 2,920 overdue bills, this formula returns ₹0.00, while
+--     the amount actually owed is ₹26,01,97,825. The attention bar has therefore
+--     been showing a ₹0 overdue figure to everyone, always. Reproduce with:
+--
+--       SELECT count(*) AS overdue_bills,
+--              SUM(final_amount - COALESCE(balance_amount,0))::numeric(15,2) AS this_formula,
+--              SUM(COALESCE(balance_amount, final_amount))::numeric(15,2)    AS amount_owed
+--       FROM billing_student_bills
+--       WHERE status IN ('unpaid','pending') AND due_date < CURRENT_DATE;
+--
+--     Reproduced VERBATIM from the live body (verified byte-identical) and
+--     RETAINED here on purpose: this file exists to close an access hole, and
+--     changing what a money figure means while doing so is precisely the rider a
+--     security fix must not carry — the correction moves a number on a finance
+--     screen and deserves its own review, not a footnote in this one. It is
+--     called out this loudly because it is the more consequential defect of the
+--     two, and because the clamp work above would otherwise bury it.
 --   * The redundant second `v_institution_id := NULL` write for cluster-scoped
 --     callers is kept because it is what the applied sibling runs; matching the
 --     proven body beats tidying it.
