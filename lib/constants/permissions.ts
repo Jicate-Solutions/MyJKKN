@@ -1059,7 +1059,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'notifications.edit', label: 'Edit Notifications' },
       { key: 'notifications.delete', label: 'Delete Notifications' },
       { key: 'notifications.send', label: 'Send Notifications' },
-      { key: 'notifications.view.all', label: 'View All Notifications' }
+      { key: 'notifications.view.all', label: 'View All Notifications' },
+      {
+        key: 'notifications.create.learners',
+        label: 'Send Notifications to Learners Only'
+      }
     ]
   },
   {
