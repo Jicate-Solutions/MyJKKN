@@ -136,6 +136,7 @@ function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
             <PermissionGuard
               module="admission.marketing"
               action="edit"
+              fallback={null}
             >
               <DropdownMenuItem
                 onClick={() =>
@@ -159,7 +160,7 @@ function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
               </DropdownMenuItem>
             </PermissionGuard>
 
-            <PermissionGuard module="admission.marketing" action="view">
+            <PermissionGuard module="admission.marketing" action="view" fallback={null}>
               <DropdownMenuItem
                 onClick={() =>
                   router.push(
@@ -178,6 +179,7 @@ function CampaignActionsCell({ campaign }: { campaign: Campaign }) {
               <PermissionGuard
                 module="admission.marketing"
                 action="delete"
+                fallback={null}
               >
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -413,6 +415,7 @@ export default function CampaignsListPage() {
           <PermissionGuard
             module="admission.marketing"
             action="create"
+            fallback={null}
           >
             <Link href="/admission/marketing/campaigns/new">
               <Button>+ Create Campaign</Button>

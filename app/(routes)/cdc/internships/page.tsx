@@ -103,7 +103,7 @@ export default function CdcInternshipsPage() {
               {total} internship{total !== 1 ? 's' : ''} total
             </p>
           </div>
-          <PermissionGuard module="cdc.internships" action="create">
+          <PermissionGuard module="cdc.internships" action="create" fallback={null}>
             <Link href="/cdc/internships/new">
               <Button>
                 <Plus className="w-4 h-4 mr-2" />
@@ -151,7 +151,7 @@ export default function CdcInternshipsPage() {
             <CardContent className="flex flex-col items-center justify-center py-16">
               <Briefcase className="w-12 h-12 text-gray-300 mb-4" />
               <p className="text-gray-500 text-sm">No corporate internships found.</p>
-              <PermissionGuard module="cdc.internships" action="create">
+              <PermissionGuard module="cdc.internships" action="create" fallback={null}>
                 <Link href="/cdc/internships/new" className="mt-4">
                   <Button variant="outline" size="sm">
                     <Plus className="w-4 h-4 mr-2" />
