@@ -51,6 +51,7 @@ import type { LeaveBlockInfo } from '@/types/leaves';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { verifySectionInTimetableScope } from '@/lib/utils/academic/attendance-section-scope';
 import { AttendanceSummaryModal } from './components/attendance-summary-modal';
+import { FacultySyncIndicator } from '../_components/faculty-sync-indicator';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
@@ -1842,6 +1843,16 @@ export default function AttendanceMarkPage() {
               </div>
             </AlertDescription>
           </Alert>
+        )}
+
+        {/* The timetable's team-member assignment can change after attendance was marked
+            (e.g. a substitution); this lets the marker sync the record to match. */}
+        {existingAttendance && periodId && (
+          <FacultySyncIndicator
+            attendanceId={existingAttendance.id}
+            periodId={periodId}
+            currentFaculty={existingAttendance.attendance_data?.[periodId]?.assigned_faculty}
+          />
         )}
 
         {/* Updated: 2026-02-06 - Practical Batch Selector moved to TOP for practical periods */}
