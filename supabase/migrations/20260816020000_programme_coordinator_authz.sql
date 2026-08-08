@@ -1314,6 +1314,16 @@ $fn$;
 -- any of them). For the three new ones they are the actual lock — Supabase's
 -- ALTER DEFAULT PRIVILEGES grants EXECUTE on every new function to anon, which
 -- is a grant separate from PUBLIC and survives a bare REVOKE FROM PUBLIC.
+-- fn_is_cohort_coordinator is NOT redefined by this file, but §6 makes it the
+-- linchpin of three live gates for the first time — until now nothing called it
+-- at all. Re-asserting its lock here is a no-op against today's grants and means
+-- the function that decides SoI access is locked in the same file that gives it
+-- that job. (It also keeps the CI anon guard honest about the LIVE BASELINE
+-- block above, which quotes its definition and which the guard's parser reads as
+-- real DDL.)
+REVOKE EXECUTE ON FUNCTION public.fn_is_cohort_coordinator(uuid)                      FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_is_cohort_coordinator(uuid)                      TO authenticated;
+
 REVOKE EXECUTE ON FUNCTION public.fn_is_cohort_programme_authority(text, uuid)        FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_can_appoint_cohort_coordinator(text, uuid)       FROM anon, PUBLIC;
 -- `authenticated` is named explicitly here and nowhere else: this is the one
