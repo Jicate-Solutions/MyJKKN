@@ -132,9 +132,10 @@ function CreateODForm({
   userId: string;
   institutionId: string;
   upcomingEvents: { id: string; title: string; starts_at: string; ends_at: string; requires_od: boolean }[];
-  onSuccess: () => void;
+  onSuccess: (created: LCODRequest) => void;
 }) {
   const createOD = useCreateODRequest();
+  const [formError, setFormError] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<CreateODRequestDto>>({
     event_id: undefined,
     reason: '',
@@ -169,7 +170,17 @@ function CreateODForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.reason || !form.start_date || !form.end_date) return;
+    // Never return silently: the learner is looking at an unchanged dialog and has no way
+    // to tell a rejected click from a click that did nothing.
+    if (!form.reason?.trim() || !form.start_date || !form.end_date) {
+      setFormError('Please fill in the reason, the start date and the end date before creating the request.');
+      return;
+    }
+    if (!form.duration_hours || form.duration_hours < 1) {
+      setFormError('Please enter how many hours this OD is for (at least 1 hour).');
+      return;
+    }
+    setFormError(null);
 
     createOD.mutate(
       {
@@ -180,6 +191,13 @@ function CreateODForm({
       { onSuccess }
     );
   };
+
+  // The toast that react-query fires lasts four seconds and lands in the page corner while
+  // this dialog stays open and unchanged -- which is why the failure was reported as
+  // "silent". This block stays on screen, next to the button that failed.
+  const errorMessage =
+    formError
+    || (createOD.isError ? ((createOD.error as Error)?.message || 'We could not create the request. Please try again.') : null);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -265,6 +283,16 @@ function CreateODForm({
       </div>
 
       <Separator />
+
+      {errorMessage && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{errorMessage}</span>
+        </div>
+      )}
 
       <div className="flex justify-end">
         <Button type="submit" disabled={createOD.isPending}>
@@ -369,7 +397,13 @@ export function ODRequestsClient({
               userId={userId}
               institutionId={institutionId}
               upcomingEvents={upcomingEvents}
-              onSuccess={() => setDialogOpen(false)}
+              onSuccess={(created) => {
+                // This list is server-rendered once, so a react-query invalidation never
+                // refreshes it. Without this the new request is invisible and a successful
+                // create is indistinguishable from a failed one.
+                setRequests((prev) => [created, ...prev]);
+                setDialogOpen(false);
+              }}
             />
           </DialogContent>
         </Dialog>
