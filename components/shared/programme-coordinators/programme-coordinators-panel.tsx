@@ -222,10 +222,21 @@ export function ProgrammeCoordinatorsPanel({
     if (!removing || reason.trim().length === 0) return;
     setBusyId(removing.id);
     try {
-      await ProgrammeCoordinatorService.remove({
+      // The RPC answers false when it changed nothing — an appointment already
+      // removed, or one this person may not touch. Saying "removed" on a false
+      // would be a lie on screen AND would send the person a message about
+      // something that did not happen.
+      const done = await ProgrammeCoordinatorService.remove({
         appointmentId: removing.id,
         reason,
       });
+      if (!done) {
+        toast.error(
+          `${personText(removing)} was not removed. Reload the screen — someone may have changed this already.`
+        );
+        await refresh();
+        return;
+      }
       toast.success(`${personText(removing)} is no longer a coordinator.`);
       await ProgrammeCoordinatorService.announce({
         appointmentId: removing.id,
@@ -246,7 +257,15 @@ export function ProgrammeCoordinatorsPanel({
     async (row: ProgrammeCoordinator) => {
       setBusyId(row.id);
       try {
-        await ProgrammeCoordinatorService.reinstate(row.id);
+        // Same as removal: false means nothing changed, so nothing is claimed.
+        const done = await ProgrammeCoordinatorService.reinstate(row.id);
+        if (!done) {
+          toast.error(
+            `${personText(row)} was not put back. Reload the screen — someone may have changed this already.`
+          );
+          await refresh();
+          return;
+        }
         toast.success(`${personText(row)} is a coordinator again.`);
         await ProgrammeCoordinatorService.announce({
           appointmentId: row.id,
