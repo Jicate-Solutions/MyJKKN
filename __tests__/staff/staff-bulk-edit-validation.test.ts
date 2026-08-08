@@ -240,3 +240,38 @@ describe('validateStaffBulkEditRow — biometric pair, machine already on file',
     expect(r.updates).toEqual({ biometric_institution_id: SECOND_INST_ID });
   });
 });
+
+// ── Machine with no code anywhere ───────────────────────────────────────────────────────
+//
+// The template can pre-fill "Biometric Machine" for a whole sheet (the template route's
+// biometric_institution_id param), so most rows arrive with a machine and an EMPTY code.
+// Those must be inert. Writing a bare machine would mean one dropdown choice silently
+// updating every staff member without a code, and no reader ever returns such a row —
+// enrolment is the pair, and every consumer filters on a non-null code.
+describe('validateStaffBulkEditRow — machine given, no code in the cell or on file', () => {
+  it('is a no-op: no update and no issue', () => {
+    const r = validateStaffBulkEditRow(
+      row({ 'Biometric Machine': 'JKKN Dental College and Hospital' }),
+      ctx(),
+      new Set()
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.updates).toEqual({});
+  });
+
+  it('still validates the machine name, so a typo is not silently swallowed', () => {
+    const r = validateStaffBulkEditRow(row({ 'Biometric Machine': 'Hogwarts' }), ctx(), new Set());
+    expect(r.issues.some(i => i.field === 'Biometric Machine' && i.kind === 'record')).toBe(true);
+    expect(r.updates).toEqual({});
+  });
+
+  it('a code alongside the pre-filled machine still enrols normally', () => {
+    const r = validateStaffBulkEditRow(
+      row({ 'Biometric Code': '00007', 'Biometric Machine': 'JKKN Dental College and Hospital' }),
+      ctx(),
+      new Set()
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.updates).toEqual({ biometric_id: '00007', biometric_institution_id: INST_ID });
+  });
+});
