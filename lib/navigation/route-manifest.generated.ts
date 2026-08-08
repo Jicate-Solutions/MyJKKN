@@ -4747,6 +4747,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
     ]
   },
   {
+    "path": "/industry-partners",
+    "label": "Industry Partners",
+    "iconName": "FileText",
+    "children": []
+  },
+  {
     "path": "/internships",
     "label": "Internships",
     "iconName": "FileText",

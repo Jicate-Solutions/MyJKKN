@@ -1059,7 +1059,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'notifications.edit', label: 'Edit Notifications' },
       { key: 'notifications.delete', label: 'Delete Notifications' },
       { key: 'notifications.send', label: 'Send Notifications' },
-      { key: 'notifications.view.all', label: 'View All Notifications' }
+      { key: 'notifications.view.all', label: 'View All Notifications' },
+      {
+        key: 'notifications.create.learners',
+        label: 'Send Notifications to Learners Only'
+      }
     ]
   },
   {
@@ -1667,6 +1671,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
+
+      // Awarding-body registry + institution mapping (2026-08-06) —
+      // /accreditation/manage/bodies. Which bodies a college answers to decides
+      // its DENOMINATOR: before this existed, every institution was measured
+      // against all 107 metrics including seven that could never apply to it.
+      // `.manage` is deliberately not `.metrics.manage`: adding a metric to a
+      // rubric and deciding which rubrics a college answers to at all are
+      // different powers, and the second one changes every total on the screen.
+      { key: 'accreditation.bodies.view', label: 'View Awarding Bodies & Institution Mapping' },
+      { key: 'accreditation.bodies.manage', label: 'Manage Awarding Bodies & Institution Mapping' },
 
       // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
       // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
@@ -2855,6 +2869,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'cdc.industry_mentors.create', label: 'Create Industry Mentors' },
       { key: 'cdc.industry_mentors.edit', label: 'Edit Industry Mentors' },
       { key: 'cdc.industry_mentors.delete', label: 'Delete Industry Mentors' },
+
+      // Industry Partners directory (public.industry_partners — COMPANIES, not
+      // the individual mentors above). Read-only module: the business-card
+      // scanner is the only writer today, so no create/edit/delete keys exist
+      // yet. Add them when a manual-entry surface is actually built.
+      { key: 'cdc.industry_partners.view', label: 'View Industry Partners' },
 
       // Reports & Exports (NAAC / AICTE / flex)
       { key: 'cdc.exports.view', label: 'View CDC Reports & Exports Page' },

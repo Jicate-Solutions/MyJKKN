@@ -48,6 +48,7 @@ import { usePrograms } from '@/hooks/organization/use-programs';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useRoles } from '@/hooks/organization/use-roles';
+import { useIsLcOfficeBearer } from '@/hooks/learners-council/use-is-lc-office-bearer';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
@@ -258,7 +259,26 @@ export function NotificationForm() {
     limit: 1000 // Fixed: 2025-01-30 - Increased from 100 to fetch all sections for notifications
   });
 
-  const institutions = institutionsData || [];
+  // An elected Learners Council office bearer is a learner, so the composer
+  // must not offer them staff, HODs or principals as targets. Administrators
+  // are untouched — including an administrator who also holds a council seat.
+  //
+  // This narrows what the picker DRAWS. It is not the guard: the send path and
+  // RLS decide who can actually be reached, independently of this.
+  const { isOfficeBearer: isLcOfficeBearer, isAdmin: isLcAdmin } =
+    useIsLcOfficeBearer();
+  const restrictToLearners = isLcOfficeBearer && !isLcAdmin;
+
+  // Council office bearers hold college seats, so the two JKKN schools (which
+  // enrol children) are dropped from their picker. useInstitutionsWithAccess
+  // already defaults to entity_type='institution' for non-super-admins; this
+  // is the explicit second guard so a future change to that default cannot
+  // silently put schools back in front of a council office bearer.
+  const allInstitutions = institutionsData || [];
+  const institutions = restrictToLearners
+    ? allInstitutions.filter((i) => i.entity_type !== 'school')
+    : allInstitutions;
+
   const departments = departmentsResponse?.data || [];
   const programs = programsResponse?.data || [];
   const semesters = semestersResponse?.data || [];
@@ -269,12 +289,24 @@ export function NotificationForm() {
     includeSystemRoles: true
   });
 
-  const availableRoles =
+  // 'student' is the role key every learner carries. It is a stored value, not
+  // wording shown to anyone — the picker renders role_name ("Student") from the
+  // database, and the copy below says "learners".
+  const LEARNER_ROLE_KEY = 'student';
+
+  const allRoles =
     rolesResponse?.map((role) => ({
       value: role.role_key,
       label: role.role_name,
       description: role.description
     })) || [];
+
+  // Narrowing here covers every consumer at once — the checkbox grid, the
+  // "Select All Roles" toggle, the n/N counter and the target summary all read
+  // availableRoles.
+  const availableRoles = restrictToLearners
+    ? allRoles.filter((role) => role.value === LEARNER_ROLE_KEY)
+    : allRoles;
 
   // Fetch saved audiences
   const { data: audiences } = useQuery({
@@ -755,6 +787,12 @@ export function NotificationForm() {
                   notifications to all users. Please select specific targeting
                   criteria.
                 </div>
+              )}
+              {restrictToLearners && (
+                <p className='mt-2 text-xs text-muted-foreground'>
+                  As a council office bearer you can send to learners in your
+                  colleges.
+                </p>
               )}
             </div>
             <div className='grid gap-4'>

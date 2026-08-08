@@ -54,6 +54,14 @@ export interface WaivedLateCharge {
   waiver_reason: string | null;
 }
 
+/** Summary returned by fn_late_charge_waive_bill — the "waive whole bill" action. */
+export interface WaiveBillResult {
+  bill_id: string;
+  rows_waived: number;
+  penalty_bills_cancelled: number;
+  total_amount_waived: number;
+}
+
 const POLICY_DEFAULTS: Omit<LateChargePolicySnapshot, 'installed'> = {
   enabled: false,
   ratePercentPerMonth: 10,
@@ -138,5 +146,28 @@ export class BillingLateChargeService {
       .limit(100);
     if (error) return []; // table absent until the migration is applied
     return (data ?? []) as WaivedLateCharge[];
+  }
+
+  /**
+   * Waive EVERY not-yet-waived late charge on one bill in a single action —
+   * the "bigger brush" alongside the existing month-by-month
+   * fn_late_charge_waive. Same gate (billing.late_charges.waive or super
+   * admin), enforced in the RPC. Throws (via Supabase's error) if the bill
+   * has no waivable rows, is missing, or the caller lacks the permission —
+   * the dialog surfaces the message rather than pretending success.
+   */
+  static async waiveBill(
+    billId: string,
+    reason: string
+  ): Promise<{ data: WaiveBillResult | null; error: string | null }> {
+    // 'as never': fn_late_charge_waive_bill is not in the generated DB types
+    // until this (Director-gated) migration is applied — same pre-apply idiom
+    // as fn_late_charge_preview above.
+    const { data, error } = await this.supabase.rpc('fn_late_charge_waive_bill' as never, {
+      p_bill_id: billId,
+      p_reason: reason
+    } as never);
+    if (error) return { data: null, error: error.message };
+    return { data: data as unknown as WaiveBillResult, error: null };
   }
 }

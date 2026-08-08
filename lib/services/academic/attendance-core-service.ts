@@ -11,6 +11,7 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
+  ConsolidatedAttendancePeriod,
   UpsertConsolidatedAttendanceDto,
   AttendanceAuditEntry
 } from '@/types/attendance';
@@ -38,6 +39,32 @@ export function computeAttendanceDiff(
       old_status: old.status,
       new_status: newMap.get(old.student_id)!,
     }))
+}
+
+/**
+ * Merges an incoming attendance period into the existing stored period,
+ * unioning `students` by student_id instead of replacing the array.
+ * Practical periods split students across batches that all share one
+ * period_id — each batch only submits its own students, so a plain
+ * object-replace here would let the second batch's write wipe out the
+ * first batch's Present markers.
+ */
+function mergeAttendancePeriod(
+  existing: ConsolidatedAttendancePeriod | undefined,
+  incoming: ConsolidatedAttendancePeriod
+): ConsolidatedAttendancePeriod {
+  if (!existing) return incoming;
+
+  const studentMap = new Map<string, ConsolidatedAttendanceStudent>(
+    (existing.students || []).map((s) => [s.student_id, s])
+  );
+  (incoming.students || []).forEach((s) => studentMap.set(s.student_id, s));
+
+  return {
+    ...existing,
+    ...incoming,
+    students: Array.from(studentMap.values())
+  };
 }
 
 /**
@@ -294,6 +321,17 @@ export class AttendanceCoreService {
         return { isAuthorized: true, reason: `Assigned ${authType} member`, authorizationType: 'assigned_faculty' };
       }
 
+      // STEP 8.5: Faculty with the general attendance-marking permission (e.g. covering
+      // a period outside their own department/timetable, such as a library/study hour)
+      // are already let past the roster-level gate by canMarkAttendanceForSlot's third
+      // tier (checkFacultyAttendancePermission) — mirror that here, otherwise the page
+      // lets them fill out and submit attendance that this save-time check then silently
+      // rejects, since they're neither specifically assigned nor HOD of that department.
+      const hasRolePermission = await this.checkFacultyAttendancePermission();
+      if (hasRolePermission) {
+        return { isAuthorized: true, reason: 'Role-based attendance permission', authorizationType: 'permission_based' };
+      }
+
       // STEP 9: For development/testing - if no assignments found, allow with warning
       if (allAssignedIds.size === 0) {
         logger.warn('academic/attendance', 'No staff/profile assignments found in timetable - allowing access for testing');
@@ -501,12 +539,18 @@ export class AttendanceCoreService {
         }
 
         // Merge new attendance data with existing data
+        // Updated: 2026-07-22 - Merge per-period (not a shallow top-level
+        // spread) so a second practical batch writing to the same period_id
+        // unions students instead of replacing the first batch's array.
         const existingAttendanceData =
           ((currentRecord as any)?.attendance_data as ConsolidatedAttendanceData) || {};
-        const mergedAttendanceData = {
-          ...existingAttendanceData, // Keep existing periods
-          ...enrichedAttendanceData // Add/update new periods with authorization_type
-        };
+        const mergedAttendanceData: ConsolidatedAttendanceData = { ...existingAttendanceData };
+        Object.keys(enrichedAttendanceData).forEach((periodKey) => {
+          mergedAttendanceData[periodKey] = mergeAttendancePeriod(
+            existingAttendanceData[periodKey],
+            enrichedAttendanceData[periodKey]
+          );
+        });
 
         // Updated: 2025-10-09 - Update section_ids array for multi-section support
         const { data: updateResult, error: updateError } = await (this.supabase

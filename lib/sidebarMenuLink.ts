@@ -1189,6 +1189,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // gates writes on accreditation.naac.narrative.manage — so the page gate uses
   // the same key rather than a second one that could drift away from the table.
   '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
+  // Which bodies apply to which campus. Gated on VIEW, not manage: the page
+  // shows a college which bodies it answers to, and that is worth reading even
+  // to somebody who may not change it. The write policies on both tables are
+  // the actual guard.
+  '/accreditation/manage/bodies': 'accreditation.bodies.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1517,6 +1522,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/industry-mentors': 'cdc.industry_mentors.view',
   '/cdc/industry-mentors/new': 'cdc.industry_mentors.create',
   '/cdc/industry-mentors/[id]': 'cdc.industry_mentors.view',
+
+  // Industry Partners directory (public.industry_partners — the COMPANIES).
+  // Top-level route, but CDC-owned: the table is already documented as
+  // CDC-owned in lib/services/pde-employer-briefing-service.ts, so the
+  // permission key and the sidebar entry both live under CDC.
+  '/industry-partners': 'cdc.industry_partners.view',
+  '/industry-partners/[id]': 'cdc.industry_partners.view',
 
   // CDC — Reports & Exports
   '/cdc/exports': 'cdc.exports.view',
@@ -3441,11 +3453,38 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Industry Relations — one accordion row over the two industry
+          // directories. They are DIFFERENT TABLES with the same first word:
+          //   • Industry Mentors  → industry_mentors  (individual people)
+          //   • Industry Partners → industry_partners (companies)
+          //
+          // Nested rather than flat because the CDC group was already sitting
+          // on the hard cap of 14 top-level items (lib/sidebar-validator.ts);
+          // adding a 15th flat row fails `npm run check:sidebar`. Both URLs are
+          // unchanged, so no bookmark breaks.
+          //
+          // The parent row carries no permission of its own — GetRoleBasedPages
+          // shows a parent when ANY submenu is accessible, and menu.tsx attaches
+          // MENU_PERMISSIONS[sub.href] to each child, so a viewer who holds only
+          // one of the two keys sees only that one child.
           href: '/cdc/industry-mentors',
-          label: 'Industry Mentors',
-          active: pathname.startsWith('/cdc/industry-mentors'),
+          label: 'Industry Relations',
+          active:
+            pathname.startsWith('/cdc/industry-mentors') ||
+            pathname.startsWith('/industry-partners'),
           icon: Factory,
-          submenus: []
+          submenus: [
+            {
+              href: '/cdc/industry-mentors',
+              label: 'Industry Mentors',
+              active: pathname.startsWith('/cdc/industry-mentors')
+            },
+            {
+              href: '/industry-partners',
+              label: 'Industry Partners',
+              active: pathname.startsWith('/industry-partners')
+            }
+          ]
         },
         {
           href: '/cdc/exports',
