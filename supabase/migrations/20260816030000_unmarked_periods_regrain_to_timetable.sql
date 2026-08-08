@@ -129,14 +129,42 @@ BEGIN
     FROM public.profiles p
     WHERE p.id = p_user_id;
 
-    -- p_institution_id override
-    IF p_institution_id IS NOT NULL THEN
+    -- p_institution_id override — SECURITY CLAMP (added 2026-08-08)
+    --
+    -- This function is GRANTed to `authenticated`, so any signed-in user can call
+    -- it directly through PostgREST with arguments of their choosing. Before this
+    -- clamp the override was unconditional: passing another college's UUID as
+    -- p_institution_id simply replaced the caller's own institution and returned
+    -- that college's unmarked count plus up to ten of its timetable UUIDs.
+    --
+    -- The clamp is not new to this codebase — the sibling
+    -- fn_aqs_billing_overdue_invoices in attention_bar_state_query_functions_v1.sql
+    -- (~line 230) already carries exactly this shape. It was simply absent here.
+    -- The re-grain in this migration WIDENS what the hole exposes, from
+    -- COUNT(DISTINCT section_id) to COUNT(DISTINCT timetables.id) including the
+    -- semester-level rows this migration un-hides, so it is closed here rather
+    -- than re-shipped.
+    IF v_is_super_admin OR v_role IN ('super_admin', 'admin') THEN
         v_institution_id := p_institution_id;
+    ELSIF p_institution_id IS NOT NULL THEN
+        NULL; -- keep v_institution_id from profiles (security clamp)
     END IF;
 
     -- Super admin with no institution filter = all institutions
     IF v_is_super_admin AND p_institution_id IS NULL THEN
         v_institution_id := NULL;
+    END IF;
+
+    -- FAIL CLOSED. The scope predicate below reads
+    -- `(v_institution_id IS NULL OR t.institution_id = v_institution_id)`, so a
+    -- NULL institution means CLUSTER-WIDE, not "none". A caller who is not an
+    -- admin and whose institution cannot be resolved — an unknown p_user_id, a
+    -- profile with a NULL institution_id — would otherwise fall through that
+    -- predicate into every college's data. Return an empty result instead.
+    IF NOT COALESCE(v_is_super_admin, false)
+       AND COALESCE(v_role, '') NOT IN ('super_admin', 'admin')
+       AND v_institution_id IS NULL THEN
+        RETURN jsonb_build_object('count', 0, 'sample_period_ids', '[]'::jsonb);
     END IF;
 
     -- Resolve the department for a HOD (via profile_id or institution_email)

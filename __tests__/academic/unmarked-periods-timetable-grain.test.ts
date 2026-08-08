@@ -1,6 +1,6 @@
 /**
  * Semester-level timetables must be COUNTED, and must DISAPPEAR once marked.
- * Behavioural proof for supabase/migrations/20260816020000_unmarked_periods_regrain_to_timetable.sql
+ * Behavioural proof for supabase/migrations/20260816030000_unmarked_periods_regrain_to_timetable.sql
  *
  * WHAT MAKES THIS A PROOF AND NOT A RESTATEMENT
  * ---------------------------------------------
@@ -52,7 +52,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(
   REPO,
-  'supabase/migrations/20260816020000_unmarked_periods_regrain_to_timetable.sql',
+  'supabase/migrations/20260816030000_unmarked_periods_regrain_to_timetable.sql',
 );
 
 const PGHOST = process.env.UNMARKED_TEST_PGHOST ?? 'localhost';
@@ -484,6 +484,51 @@ describe('institution scope still holds', () => {
   it('shows it to an unscoped super administrator', async () => {
     const wide = await unmarkedFor(SUPER_ADMIN);
     expect(wide.sample_period_ids).toContain(TT.otherInstitution);
+  });
+});
+
+// The function is GRANTed to `authenticated`, so any signed-in caller can invoke
+// it through PostgREST with arguments of their own choosing. Before the clamp
+// added 2026-08-08, p_institution_id was assigned unconditionally: naming another
+// college simply replaced the caller's own scope. These assertions pin that shut.
+// A control proves the target is genuinely reachable, so a green here cannot come
+// from the row being absent for some unrelated reason.
+describe('the institution override is clamped to administrators', () => {
+  async function unmarkedForAt(userId: string, institutionId: string): Promise<Unmarked> {
+    const r = await db.query(
+      'SELECT public.fn_aqs_attendance_unmarked_periods_today($1::uuid,$2::uuid) AS j',
+      [userId, institutionId],
+    );
+    return r.rows[0].j as Unmarked;
+  }
+
+  it('CONTROL: the other institution timetable really is reachable at that scope', async () => {
+    // Guards the two assertions below — `not.toContain` passes vacuously against
+    // an empty array, so first prove a correctly-privileged caller DOES see it.
+    const wide = await unmarkedForAt(SUPER_ADMIN, OTHER_INST);
+    expect(wide.sample_period_ids).toContain(TT.otherInstitution);
+  });
+
+  it('a department-scoped caller naming another college is held to their own', async () => {
+    const attempted = await unmarkedForAt(HOD, OTHER_INST);
+    expect(attempted.sample_period_ids).not.toContain(TT.otherInstitution);
+
+    // And not merely emptied — the clamp keeps them on their OWN institution
+    // rather than returning nothing, so the screen still works for them.
+    const own = await unmarkedFor(HOD);
+    expect(attempted.count).toBe(own.count);
+  });
+
+  it('an unresolvable caller gets nothing, never the whole cluster', async () => {
+    // A uuid with no profile row leaves v_institution_id NULL, and the scope
+    // predicate reads NULL as CLUSTER-WIDE rather than as "none". Fail closed.
+    const ghost = '00000000-0000-4000-8000-00000000dead';
+    const nobody = await unmarkedForAt(ghost, OTHER_INST);
+    expect(nobody.count).toBe(0);
+    expect(nobody.sample_period_ids).toEqual([]);
+
+    const nobodyUnscoped = await unmarkedFor(ghost);
+    expect(nobodyUnscoped.count).toBe(0);
   });
 });
 
