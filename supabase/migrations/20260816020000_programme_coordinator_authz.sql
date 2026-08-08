@@ -55,9 +55,28 @@
 -- WHAT AN APPOINTMENT NOW OPENS (School of Influence)
 --   fn_soi_can_review_applications, fn_soi_can_manage_batch and
 --   fn_soi_has_programme_access each gain one appointment branch. Those three
---   are the gates behind the review queue, the batch screens and module entry,
---   so an appointment alone — with no role grant and no permission key — is
---   enough to run a programme end to end.
+--   are the gates behind module entry, the batch screens and the review queue,
+--   so an appointment alone — with no role grant and no permission key — opens
+--   the programme, its batches, and the ability to READ and REJECT applications.
+--
+--   ⚠️ ACCEPTING IS NOT YET COVERED, and the claim is limited on purpose.
+--   fn_soi_prepare_acceptance's coherence gate still requires a non-admin to
+--   hold cohort.create + cohort.view + institution access to the target batch,
+--   because the enrolment it clears the way for runs under cohort_memberships'
+--   RLS as the caller — and THOSE POLICIES are not widened here. Admitting the
+--   coordinator in the gate without widening the policies would be strictly
+--   worse than the gap: the explicit, named refusal would be replaced by a bare
+--   42501 from RLS after the reviewer has already committed to a batch. A
+--   keyless appointed coordinator can therefore run the queue but cannot yet
+--   enrol anyone. Closing that needs a reviewed change to cohort_memberships'
+--   INSERT/SELECT policies and is deliberately a separate PR.
+--
+--   ⚠️ Also unchanged: fn_cohort_coordinators_overview admits only CLUSTER
+--   authorities (super admin, admin, COO). A programme OWNER may now appoint and
+--   remove but still cannot read that list, because the list returns every
+--   programme's bench at once and scoping it per owned kind changes the JSON
+--   shape the UI lane is coding against. Stated here rather than left to be
+--   discovered.
 -- ============================================================================
 
 -- ─── §0 GUARD ───────────────────────────────────────────────────────────────
@@ -140,20 +159,39 @@ BEGIN
     RETURN true;
   END IF;
 
+  -- Called as (NULL, NULL) this function therefore answers a narrower question —
+  -- "is the caller a CLUSTER authority?" — because the owner branch below needs a
+  -- programme to reason about. Two callers rely on that on purpose: the overview
+  -- gate and the self-appointment guard.
   IF v_kind IS NULL THEN
     RETURN false;
   END IF;
 
-  -- The programme owner. Read literally: owning any live cohort of this kind is
-  -- what makes someone the programme's owner, so they may appoint into a sister
-  -- batch of the same programme. Archived cohorts confer nothing.
+  -- The programme owner — SCOPED, because owning one batch is not owning the
+  -- programme. Name a cohort and they must own THAT cohort. A programme-wide
+  -- appointment reaches every batch in every college with no institution filter
+  -- (D9), so making one requires owning every non-archived cohort of the kind.
+  -- Unscoped, owning a single batch in one college would escalate to decide
+  -- rights over every applicant in every college.
+  IF p_cohort_id IS NOT NULL THEN
+    RETURN EXISTS (
+      SELECT 1 FROM public.cohorts c
+      WHERE c.id = p_cohort_id
+        AND c.archived_at IS NULL
+        AND c.owner_id = (SELECT auth.uid())
+    );
+  END IF;
+
   RETURN EXISTS (
-    SELECT 1
-    FROM public.cohorts c
-    WHERE c.kind = v_kind
-      AND c.archived_at IS NULL
-      AND c.owner_id = (SELECT auth.uid())
-  );
+           SELECT 1 FROM public.cohorts c
+           WHERE c.kind = v_kind AND c.archived_at IS NULL
+             AND c.owner_id = (SELECT auth.uid())
+         )
+     AND NOT EXISTS (
+           SELECT 1 FROM public.cohorts c
+           WHERE c.kind = v_kind AND c.archived_at IS NULL
+             AND c.owner_id IS DISTINCT FROM (SELECT auth.uid())
+         );
 END;
 $fn$;
 
@@ -242,6 +280,18 @@ BEGIN
     RAISE EXCEPTION 'Choose a programme, or a cohort within one' USING ERRCODE = '22023';
   END IF;
 
+  -- No self-appointment except by a cluster authority (the (NULL, NULL) call —
+  -- super admin, admin or COO, never an owner and never a coordinator). An owner
+  -- or coordinator appointing THEMSELVES is how "I run one batch" becomes "I
+  -- decide every applicant in every college": the appointment branches are
+  -- deliberately institution-free by D9, so this guard is the only thing between
+  -- the two.
+  IF p_user_id = (SELECT auth.uid())
+     AND NOT COALESCE(public.fn_is_cohort_programme_authority(NULL, NULL), false) THEN
+    RAISE EXCEPTION 'You cannot appoint yourself as a coordinator. Ask an administrator or the COO to do it.'
+      USING ERRCODE = '42501';
+  END IF;
+
   -- D1. Checked after the programme is known, because who may appoint depends on
   -- WHICH programme is being appointed into.
   IF NOT COALESCE(public.fn_can_appoint_cohort_coordinator(v_kind, p_cohort_id), false) THEN
@@ -281,13 +331,29 @@ BEGIN
   END IF;
 
   IF v_id IS NULL THEN
-    -- The partial unique index already holds an active row for this pair.
-    SELECT id INTO v_id
-      FROM public.cohort_coordinators
+    -- The partial unique index already holds an active row for this pair. Lift
+    -- may_appoint_others when THIS appointer has standing of their own: without
+    -- it, an admin re-appointing someone a coordinator appointed first could
+    -- never restore the right, and the RPC would report success having changed
+    -- nothing. Never lowers it — a re-appointment is not a demotion.
+    UPDATE public.cohort_coordinators
+       SET may_appoint_others = COALESCE(may_appoint_others, true) OR v_may_appoint,
+           note = COALESCE(p_note, note)
      WHERE user_id = p_user_id
        AND programme_kind = v_kind
        AND cohort_id IS NOT DISTINCT FROM p_cohort_id
-       AND status = 'active';
+       AND status = 'active'
+     RETURNING id INTO v_id;
+
+    IF v_id IS NULL THEN
+      -- ON CONFLICT DO NOTHING swallows ANY unique violation, so reaching here
+      -- means the insert was refused by something OTHER than the active-pair
+      -- index. Returning NULL would report a failed authorization write as a
+      -- success.
+      RAISE EXCEPTION 'That appointment could not be recorded, so nothing was changed. Reload the coordinator list and try again.'
+        USING ERRCODE = '22023';
+    END IF;
+
     RETURN v_id;
   END IF;
 
@@ -339,6 +405,18 @@ BEGIN
   IF NOT COALESCE(public.fn_can_appoint_cohort_coordinator(
                     v_row.programme_kind, v_row.cohort_id), false) THEN
     RAISE EXCEPTION 'You cannot remove a coordinator from this programme. This is done by an administrator, the COO, the programme owner, or a coordinator of this programme.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- A coordinator may undo an appointment THEY made. Removing a peer — or the one
+  -- the programme owner made — is an authority's decision. Without this line a
+  -- coordinator could replace the whole bench, and because the overview RPC is
+  -- deliberately closed to coordinators, nobody below an administrator would see
+  -- it happen.
+  IF NOT COALESCE(public.fn_is_cohort_programme_authority(
+                    v_row.programme_kind, v_row.cohort_id), false)
+     AND v_row.appointed_by IS DISTINCT FROM (SELECT auth.uid()) THEN
+    RAISE EXCEPTION 'You can only remove a coordinator you appointed yourself. Ask an administrator, the COO, or the programme owner to remove this one.'
       USING ERRCODE = '42501';
   END IF;
 
@@ -1050,11 +1128,13 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $fn$
 DECLARE
-  v_ids uuid[];
+  v_ids    uuid[];
+  v_closed integer;
 BEGIN
-  -- Maintenance, not a user action. auth.uid() IS NULL is the server-side /
-  -- scheduled caller (service_role holds no uid); anon cannot reach this at all
-  -- because EXECUTE is revoked from anon below.
+  -- Maintenance, not a user action. EXECUTE is granted to service_role ONLY (see
+  -- §9) — deliberately not to `authenticated`, because a uid-is-null test is not
+  -- by itself proof of the scheduler: a session whose claims GUC is unset would
+  -- satisfy it. The grant is the real gate; this is defence behind it.
   IF NOT (COALESCE(public.is_super_admin(), false)
           OR COALESCE(public.is_admin(), false)
           OR (SELECT auth.uid()) IS NULL) THEN
@@ -1071,27 +1151,42 @@ BEGIN
   -- The second EXISTS is the guard that matters: without it, a programme that
   -- has NEVER had a cohort would read as "no cohort still running" and this
   -- would quietly end appointments for a programme that has not begun.
-  SELECT array_agg(cc.id) INTO v_ids
-  FROM public.cohort_coordinators cc
-  WHERE cc.status = 'active'
-    AND EXISTS (
-      SELECT 1 FROM public.cohorts c2
-      WHERE (cc.cohort_id IS NOT NULL AND c2.id = cc.cohort_id)
-         OR (cc.cohort_id IS NULL AND c2.kind = cc.programme_kind)
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM public.cohorts c
-      WHERE ((cc.cohort_id IS NOT NULL AND c.id = cc.cohort_id)
-             OR (cc.cohort_id IS NULL AND c.kind = cc.programme_kind))
-        AND c.archived_at IS NULL
-        AND c.status NOT IN ('completed', 'archived')
-        AND (
-          c.kind <> 'school_of_influence'
-          OR c.status = 'enrolling'
-          OR COALESCE(c.hard_deadline, c.closes_at) IS NULL
-          OR COALESCE(c.hard_deadline, c.closes_at) > now()
-        )
-    );
+  -- Rows are locked as they are chosen, so a manual removal cannot land between
+  -- this SELECT and the UPDATE below and have its removed_by / reason clobbered
+  -- by "Programme ended". FOR UPDATE lives in the subquery because it cannot sit
+  -- beside an aggregate.
+  SELECT array_agg(t.id) INTO v_ids
+  FROM (
+    SELECT cc.id
+    FROM public.cohort_coordinators cc
+    WHERE cc.status = 'active'
+      AND EXISTS (
+        SELECT 1 FROM public.cohorts c2
+        WHERE (cc.cohort_id IS NOT NULL AND c2.id = cc.cohort_id)
+           OR (cc.cohort_id IS NULL AND c2.kind = cc.programme_kind)
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public.cohorts c
+        WHERE ((cc.cohort_id IS NOT NULL AND c.id = cc.cohort_id)
+               OR (cc.cohort_id IS NULL AND c.kind = cc.programme_kind))
+          AND c.archived_at IS NULL
+          AND c.status NOT IN ('completed', 'archived')
+          AND (
+            -- A School-of-Influence batch that has closed to new applicants is
+            -- MID-PROGRAMME, not over: hard_deadline / closes_at is the INTAKE
+            -- window — fn_soi_prepare_acceptance says so in as many words when it
+            -- refuses to re-check it — and ending a coordinator's appointment the
+            -- day applications close would take them off exactly when the batch
+            -- needs running. Only a batch that never got going, still 'draft'
+            -- with its window already past, is ended by the deadline.
+            c.kind <> 'school_of_influence'
+            OR c.status IN ('active', 'enrolling')
+            OR COALESCE(c.hard_deadline, c.closes_at) IS NULL
+            OR COALESCE(c.hard_deadline, c.closes_at) > now()
+          )
+      )
+    FOR UPDATE
+  ) t;
 
   IF v_ids IS NULL THEN
     RETURN 0;
@@ -1109,19 +1204,27 @@ BEGIN
          'no cohort of this programme is still running',
          auth.uid()
     FROM public.cohort_coordinators cc
-   WHERE cc.id = ANY (v_ids);
+   WHERE cc.id = ANY (v_ids)
+     AND cc.status = 'active';
 
-  UPDATE public.cohort_coordinators
-     SET status = 'removed',
-         removed_at = now(),
-         removed_by = NULL,
-         removal_reason = 'Programme ended',
-         removal_evidence_field = 'cohorts.status',
-         removal_evidence_value = 'no cohort of this programme is still running',
-         removed_automatically = true
-   WHERE id = ANY (v_ids);
+  -- status = 'active' is re-asserted here as well as above: the count returned
+  -- has to be what was actually ended, not what this run intended to end.
+  WITH ended AS (
+    UPDATE public.cohort_coordinators
+       SET status = 'removed',
+           removed_at = now(),
+           removed_by = NULL,
+           removal_reason = 'Programme ended',
+           removal_evidence_field = 'cohorts.status',
+           removal_evidence_value = 'no cohort of this programme is still running',
+           removed_automatically = true
+     WHERE id = ANY (v_ids)
+       AND status = 'active'
+    RETURNING id
+  )
+  SELECT count(*)::integer INTO v_closed FROM ended;
 
-  RETURN array_length(v_ids, 1);
+  RETURN v_closed;
 END;
 $fn$;
 
@@ -1134,7 +1237,11 @@ $fn$;
 -- is a grant separate from PUBLIC and survives a bare REVOKE FROM PUBLIC.
 REVOKE EXECUTE ON FUNCTION public.fn_is_cohort_programme_authority(text, uuid)        FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_can_appoint_cohort_coordinator(text, uuid)       FROM anon, PUBLIC;
-REVOKE EXECUTE ON FUNCTION public.fn_cohort_coordinator_close_ended_programmes()      FROM anon, PUBLIC;
+-- `authenticated` is named explicitly here and nowhere else: this is the one
+-- function no end-user session may call, and ALTER DEFAULT PRIVILEGES grants
+-- EXECUTE to authenticated on every new function as a DIRECT grant — revoking
+-- anon and PUBLIC leaves it in place. Rehearsal caught this holding.
+REVOKE EXECUTE ON FUNCTION public.fn_cohort_coordinator_close_ended_programmes()      FROM anon, authenticated, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_cohort_coordinator_appoint(uuid, text, uuid, text) FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_cohort_coordinator_remove(uuid, text)            FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_cohort_coordinators_overview()                   FROM anon, PUBLIC;
@@ -1147,7 +1254,15 @@ REVOKE EXECUTE ON FUNCTION public.fn_soi_reject_application(uuid, text)         
 
 GRANT EXECUTE ON FUNCTION public.fn_is_cohort_programme_authority(text, uuid)         TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_can_appoint_cohort_coordinator(text, uuid)        TO authenticated;
-GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_close_ended_programmes()       TO authenticated, service_role;
+-- Maintenance only. NOT granted to `authenticated`: it can mass-remove every
+-- appointment in the system and no end-user session has a reason to call it.
+GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_close_ended_programmes()       TO service_role;
+
+-- may_appoint_others is a privilege flag on a PostgREST-exposed table. The
+-- table's UPDATE policy is already super-admin-only, so this is defence in
+-- depth — but a later permissive policy must not be able to hand out the right
+-- to appoint as a side effect of an ordinary column update.
+REVOKE UPDATE (may_appoint_others) ON public.cohort_coordinators FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_appoint(uuid, text, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_remove(uuid, text)             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinators_overview()                    TO authenticated;
