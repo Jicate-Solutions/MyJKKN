@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { resolveBosAccess, guardInstitutionWrite } from '@/lib/utils/bos/bos-access';
+import {
+  findCourseCodeConflict,
+  courseCodeConflictMessage,
+  courseCodeConflictMessageFor,
+  UNIQUE_VIOLATION,
+} from '@/lib/utils/bos/course-code-conflict';
 import { BosCourseSyllabus } from '@/types/bos';
 
 /**
@@ -75,18 +81,14 @@ export async function POST(
       return NextResponse.json({ error: 'Source syllabus not found' }, { status: 404 });
     }
 
-    // Step 7: Block a colliding course_code + regulation (same rule as create)
-    const { data: existing } = await supabase
-      .from('bos_course_syllabi')
-      .select('id')
-      .eq('regulation_id', body.regulation_id)
-      .eq('course_code', body.course_code)
-      .eq('is_latest', true)
-      .maybeSingle();
+    // Step 7: Block a colliding course_code + regulation (same rule as create).
+    // The clone also lands at version 1, so archived and superseded rows block
+    // it too — checking is_latest alone let those through into a mute 500.
+    const conflict = await findCourseCodeConflict(body.regulation_id, body.course_code);
 
-    if (existing) {
+    if (conflict) {
       return NextResponse.json(
-        { error: `Course ${body.course_code} already exists in this regulation. Pick a different code or regulation.` },
+        { error: courseCodeConflictMessage(body.course_code, conflict) },
         { status: 409 }
       );
     }
@@ -140,6 +142,12 @@ export async function POST(
 
     if (insertError) {
       console.error('[POST /api/bos/syllabus/[id]/clone] Insert error:', insertError);
+      if (insertError.code === UNIQUE_VIOLATION) {
+        return NextResponse.json(
+          { error: await courseCodeConflictMessageFor(body.regulation_id, body.course_code) },
+          { status: 409 }
+        );
+      }
       return NextResponse.json({ error: 'Failed to clone syllabus' }, { status: 500 });
     }
 
