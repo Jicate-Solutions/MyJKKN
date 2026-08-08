@@ -526,11 +526,17 @@ export default function AttendanceMarkPage() {
 
                   // Updated: 2026-03-13 - Extract section_ids from parent slot OR from sub_slots
                   // Combined/subdivided slots often have empty parent section_ids but populated sub_slot section_ids
+                  // Updated: 2026-08-02 (BUG-003160) - Only fall back to a sub_slot's section_ids when the
+                  // slot is ACTUALLY subdivided/combined (same gate as isSubdividedSlot above). A slot that
+                  // still carries a stale sub_slots array from a past edit but is no longer flagged
+                  // is_subdivided/is_combined was having its roster silently narrowed to one sub_slot's
+                  // (e.g. group 1's) small section instead of the real ~100-student section — the page
+                  // rendered as a normal (non-grouped) roster but showed only that sub_slot's few students.
                   let foundSectionIds: string[] = [];
 
                   if (slot.section_ids && Array.isArray(slot.section_ids) && slot.section_ids.length > 0) {
                     foundSectionIds = slot.section_ids;
-                  } else if (hasSubSlots) {
+                  } else if (hasSubSlots && (slot.is_subdivided || slot.is_combined || isSubdividedFromUrl)) {
                     // Fallback: get section_ids from the matching sub_slot (by group order) or first sub_slot
                     const targetGroupOrder = subdivisionGroupOrder ? parseInt(subdivisionGroupOrder, 10) : 1;
                     const matchedSubSlot = slot.sub_slots.find(
