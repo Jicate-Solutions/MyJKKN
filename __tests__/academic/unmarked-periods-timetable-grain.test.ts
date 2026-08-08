@@ -80,6 +80,11 @@ const TT = {
   sectionSibling: '00000000-0000-4000-8000-0000000000e5',
   notToday: '00000000-0000-4000-8000-0000000000e6',
   inactive: '00000000-0000-4000-8000-0000000000e7',
+  /** Lives in a different institution — must never reach an INST-scoped caller. */
+  otherInstitution: '00000000-0000-4000-8000-0000000000e8',
+  /** Marked, but the attendance row's denormalised institution disagrees with the
+   *  timetable's. Production already holds one such row. */
+  instMismatch: '00000000-0000-4000-8000-0000000000e9',
 } as const;
 
 /** Minimal shape of the four tables the functions read, plus the registry. */
@@ -176,6 +181,21 @@ BEGIN
                             'sample_period_ids', COALESCE(to_jsonb(v_ids),'[]'::jsonb));
 END $ctl$;
 
+-- The asymmetric control: timetables filtered on t.institution_id, attendance
+-- tested on sa.institution_id. This is what the first draft of the fix shipped,
+-- and it reopens "unmarked forever" whenever the two columns disagree.
+CREATE OR REPLACE FUNCTION public.fn_ctl_asymmetric_says_unmarked(p_tt UUID, p_inst UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE AS $ctl$
+  SELECT EXISTS (
+    SELECT 1 FROM public.timetables t
+    WHERE t.id = p_tt AND t.is_active AND t.institution_id = p_inst
+      AND t.selected_days ? TRIM(UPPER(TO_CHAR(CURRENT_DATE,'DAY')))
+      AND NOT EXISTS (SELECT 1 FROM public.student_attendance sa
+                      WHERE sa.timetable_id = t.id
+                        AND sa.attendance_date = CURRENT_DATE
+                        AND sa.institution_id = p_inst));
+$ctl$;
+
 -- The naive control, asked the one question that matters: is a given timetable
 -- still reported as unmarked? Keyed exactly as the naive fix would key it.
 CREATE OR REPLACE FUNCTION public.fn_ctl_naive_says_unmarked(p_tt UUID) RETURNS BOOLEAN
@@ -218,13 +238,19 @@ async function complianceFor(userId: string): Promise<Compliance> {
 }
 
 /** Mark one timetable, exactly as production stores it: a REAL section id on the
- *  row even when the timetable itself is semester-level. */
-async function mark(timetableId: string, institutionId = INST) {
+ *  row even when the timetable itself is semester-level.
+ *  `sectionId` defaults to a section no timetable owns (the semester-level case).
+ *  Pass the timetable's OWN section to reproduce how the section-keyed original
+ *  behaved — without that, the original control can never clear anything and its
+ *  agreement with the naive shape would be a fixture artefact rather than a result.
+ *  `institutionId` exists so a row's denormalised institution can be made to
+ *  disagree with its timetable's, which is a real production state. */
+async function mark(timetableId: string, institutionId = INST, sectionId = SEC_LEARNER) {
   await db.query(
     `INSERT INTO public.student_attendance
        (timetable_id, section_id, institution_id, attendance_date)
      VALUES ($1::uuid, $2::uuid, $3::uuid, CURRENT_DATE)`,
-    [timetableId, SEC_LEARNER, institutionId],
+    [timetableId, sectionId, institutionId],
   );
 }
 
@@ -299,6 +325,8 @@ beforeAll(async () => {
     [TT.sectionSibling, SEC_2, true, false, today, INST],
     [TT.notToday, SEC_1, true, false, notToday, INST],
     [TT.inactive, SEC_1, false, false, today, INST],
+    [TT.otherInstitution, SEC_1, true, false, today, OTHER_INST],
+    [TT.instMismatch, SEC_1, true, false, today, INST],
   ];
   for (const [id, section, active, template, day, inst] of rows) {
     await db.query(
@@ -309,8 +337,14 @@ beforeAll(async () => {
     );
   }
 
-  // One timetable starts out marked; its section-sharing sibling does not.
-  await mark(TT.sectionMarked);
+  // One timetable starts out marked, under its OWN section — so the section-keyed
+  // original genuinely clears it, and (wrongly) clears its sibling too.
+  await mark(TT.sectionMarked, INST, SEC_2);
+
+  // Marked, but the row's institution disagrees with the timetable's. This is the
+  // state that made the old asymmetric `sa.institution_id = v_institution_id`
+  // clearing predicate reopen "unmarked forever" through a second column.
+  await mark(TT.instMismatch, OTHER_INST, SEC_1);
 
   // Registry rows so the migration's copy UPDATEs have something to hit.
   await db.query(
@@ -368,10 +402,18 @@ describe('unmarked attendance is counted per timetable, not per section', () => 
     expect(r.sample_period_ids.every((v) => typeof v === 'string')).toBe(true);
   });
 
-  it('reports a count equal to the number of distinct ids it returns', async () => {
+  // The aggregate and the sample are computed by two separately-written copies of
+  // the same predicate list (outer query vs the ARRAY subquery on t2). They can
+  // drift, and a drift shows up as a badge number that disagrees with the list
+  // behind it. Both scopes are checked: an institution-scoped caller exercises
+  // predicates that a super administrator's NULL scope leaves inert.
+  it.each([
+    ['an unscoped super administrator', () => SUPER_ADMIN],
+    ['a department-scoped HOD', () => HOD],
+  ])('reports a count equal to the number of distinct ids it returns, for %s', async (_l, who) => {
     // Relationship, never a literal: the fixture is small enough to sit under the
     // LIMIT 10, so the aggregate and the sample must describe the same set.
-    const r = await unmarkedFor(SUPER_ADMIN);
+    const r = await unmarkedFor(who());
     expect(r.sample_period_ids.length).toBeLessThanOrEqual(10);
     expect(new Set(r.sample_period_ids).size).toBe(r.sample_period_ids.length);
     expect(r.count).toBe(r.sample_period_ids.length);
@@ -397,7 +439,58 @@ describe('THE HEADLINE: a marked semester-level timetable disappears', () => {
   });
 });
 
+describe('a marked timetable clears even when its attendance row names another institution', () => {
+  it('does not report the mismatched row as unmarked, at either scope', async () => {
+    // Marked once, with institution OTHER_INST on the row and INST on the timetable.
+    const scoped = await unmarkedFor(HOD); // v_institution_id = INST
+    const wide = await unmarkedFor(SUPER_ADMIN); // v_institution_id = NULL
+    expect(scoped.sample_period_ids).not.toContain(TT.instMismatch);
+    expect(wide.sample_period_ids).not.toContain(TT.instMismatch);
+    // The aggregate is computed by a second copy of the predicate list, so assert
+    // it too — checking only the sample leaves the outer query unexamined.
+    expect(scoped.count).toBe(scoped.sample_period_ids.length);
+    expect(wide.count).toBe(wide.sample_period_ids.length);
+  });
+
+  it('and the asymmetric shape would have reported it unmarked forever', async () => {
+    // Non-vacuity for the fix above: the control keyed on sa.institution_id still
+    // calls this marked timetable unmarked. Mechanism 3, via a second column.
+    const asym = (
+      await db.query('SELECT public.fn_ctl_asymmetric_says_unmarked($1::uuid,$2::uuid) AS b', [
+        TT.instMismatch,
+        INST,
+      ])
+    ).rows[0].b as boolean;
+    expect(asym).toBe(true);
+  });
+});
+
+describe('institution scope still holds', () => {
+  it('hides another institution timetable from a department-scoped caller', async () => {
+    const scoped = await unmarkedFor(HOD);
+    expect(scoped.sample_period_ids).not.toContain(TT.otherInstitution);
+
+    const compliance = await complianceFor(HOD);
+    expect(compliance.non_compliant_user_ids).not.toContain(TT.otherInstitution);
+  });
+
+  it('shows it to an unscoped super administrator', async () => {
+    const wide = await unmarkedFor(SUPER_ADMIN);
+    expect(wide.sample_period_ids).toContain(TT.otherInstitution);
+  });
+});
+
 describe('the controls prove these assertions can fail', () => {
+  it('the section grain wrongly cleared a timetable nobody had marked', async () => {
+    // The "+1" in the impact arithmetic. TT.sectionSibling shares SEC_2 with
+    // TT.sectionMarked; only the latter was ever marked.
+    const orig = (await db.query('SELECT public.fn_ctl_orig_unmarked() AS j')).rows[0]
+      .j as Unmarked;
+    const live = await unmarkedFor(SUPER_ADMIN);
+    expect(orig.sample_period_ids).not.toContain(SEC_2); // cleared by the sibling
+    expect(live.sample_period_ids).toContain(TT.sectionSibling);
+  });
+
   it('the shipped behaviour cannot see the semester-level timetable at all', async () => {
     const orig = (await db.query('SELECT public.fn_ctl_orig_unmarked() AS j')).rows[0]
       .j as Unmarked;

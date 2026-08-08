@@ -157,6 +157,17 @@ BEGIN
     -- NOT EXISTS never stops being true — the row would read unmarked forever,
     -- including after it has been marked. `student_attendance.timetable_id` is
     -- NOT NULL, which is what makes it a safe existence key.
+    --
+    -- THE EXISTENCE TEST CARRIES NO INSTITUTION PREDICATE, DELIBERATELY. The old
+    -- shape filtered timetables on `t.institution_id` but tested attendance on
+    -- `sa.institution_id`, and those are different columns: an attendance row whose
+    -- denormalised institution drifts from its timetable's satisfies the count side
+    -- and fails the NOT EXISTS, so the row reads unmarked forever after being
+    -- marked — mechanism 3 reopened through a second column. Production already has
+    -- one such row (measured 2026-08-08). The predicate was also redundant:
+    -- `sa.timetable_id = t.id` pins exactly one timetable and `t` is already
+    -- institution-scoped above, so the clause could only ever wrongly EXCLUDE a
+    -- match, never admit an extra one. Do not add it back.
     SELECT
         COUNT(DISTINCT t.id)::INT,
         ARRAY(
@@ -171,8 +182,8 @@ BEGIN
                   SELECT 1 FROM public.student_attendance sa2
                   WHERE sa2.timetable_id    = t2.id
                     AND sa2.attendance_date = CURRENT_DATE
-                    AND (v_institution_id IS NULL OR sa2.institution_id = v_institution_id)
               )
+            ORDER BY t2.id
             LIMIT 10
         )
     INTO v_count, v_sample_ids
@@ -186,7 +197,6 @@ BEGIN
           SELECT 1 FROM public.student_attendance sa
           WHERE sa.timetable_id    = t.id
             AND sa.attendance_date = CURRENT_DATE
-            AND (v_institution_id IS NULL OR sa.institution_id = v_institution_id)
       );
 
     RETURN jsonb_build_object(
@@ -282,7 +292,6 @@ BEGIN
         SELECT DISTINCT sa.timetable_id
         FROM public.student_attendance sa
         WHERE sa.attendance_date = CURRENT_DATE
-          AND sa.institution_id  = v_institution_id
           AND sa.timetable_id IN (SELECT timetable_id FROM dept_timetables)
     )
     SELECT
@@ -363,7 +372,10 @@ BEGIN
             ),
             description = 'Senior Learner on /academic/attendance/dashboard with more than 0 teaching '
                           'sessions still unmarked today.'
-        WHERE id = '11111111-1111-4111-8111-100000000004'::UUID;
+        WHERE id = '11111111-1111-4111-8111-100000000004'::UUID
+          -- jsonb_set is strict: a NULL or scalar action_template would be
+          -- overwritten with NULL or raise, taking href/cta/icon with it.
+          AND jsonb_typeof(action_template) = 'object';
 
         -- The HOD badge sits on the same screen and is fed by the sibling function.
         UPDATE public.quick_action_rules
@@ -375,7 +387,8 @@ BEGIN
             ),
             description = 'HOD on /academic/attendance/dashboard when any teaching session in their '
                           'department is non-compliant today.'
-        WHERE id = '11111111-1111-4111-8111-100000000003'::UUID;
+        WHERE id = '11111111-1111-4111-8111-100000000003'::UUID
+          AND jsonb_typeof(action_template) = 'object';
     END IF;
 END
 $do$;
