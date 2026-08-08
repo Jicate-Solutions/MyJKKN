@@ -124,6 +124,24 @@ DECLARE
     v_sample_ids      UUID[];
     v_today_dow       TEXT;
 BEGIN
+    -- IDENTITY GUARD — must come before anything reads p_user_id.
+    --
+    -- Every scope decision below is derived from `profiles WHERE id = p_user_id`,
+    -- and p_user_id is an ARGUMENT. The function is SECURITY DEFINER and GRANTed
+    -- to `authenticated`, so without this guard any signed-in caller could pass a
+    -- known super-admin's UUID through PostgREST and walk straight past the clamp
+    -- below — the clamp would faithfully evaluate someone else's privileges.
+    --
+    -- auth.uid() is present for every request that arrives with a user JWT, which
+    -- is how the app calls this: lib/attention-bar/state-queries.ts builds its
+    -- client with createServerSupabaseClient() (the cookie-backed session client),
+    -- not the service-role one. When auth.uid() IS NULL the caller is service_role
+    -- or an internal server context that already holds full trust, and p_user_id
+    -- is honoured as before so those paths keep working.
+    IF auth.uid() IS NOT NULL AND p_user_id IS DISTINCT FROM auth.uid() THEN
+        RETURN jsonb_build_object('count', 0, 'sample_period_ids', '[]'::jsonb);
+    END IF;
+
     -- Resolve caller role + institution from profiles
     SELECT p.is_super_admin, p.role, p.institution_id
     INTO v_is_super_admin, v_role, v_institution_id
@@ -307,6 +325,22 @@ DECLARE
     v_unmarked_ids         UUID[];
     v_today_dow            TEXT;
 BEGIN
+    -- IDENTITY GUARD — same reasoning as the sibling function above, and needed
+    -- here for the same reason: every figure below is derived from p_user_id,
+    -- which is an argument, on a SECURITY DEFINER function GRANTed to
+    -- `authenticated`. Without it, one signed-in caller could read another
+    -- department's compliance figures plus its unmarked timetable UUIDs simply by
+    -- naming that person. Fixing only the sibling would leave the same door open
+    -- one function along.
+    IF auth.uid() IS NOT NULL AND p_user_id IS DISTINCT FROM auth.uid() THEN
+        RETURN jsonb_build_object(
+            'total_faculty',          0,
+            'compliant_count',        0,
+            'non_compliant_count',    0,
+            'non_compliant_user_ids', '[]'::jsonb
+        );
+    END IF;
+
     -- Resolve the HOD's department + institution via the staff -> profiles link
     -- Priority 1: profile_id FK (durable, survives an email rename)
     -- Priority 2: institution_email match

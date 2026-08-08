@@ -95,6 +95,15 @@ const TT = {
 
 /** Minimal shape of the four tables the functions read, plus the registry. */
 const SCHEMA = `
+-- Stand-in for Supabase's auth.uid(). The real one reads the request JWT; this
+-- reads the same GUC, so the identity guard can be exercised in BOTH states:
+-- a signed-in caller (claim set) and a service-role/internal caller (unset, so
+-- the function returns NULL exactly as it does for service_role in production).
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $fn$
+  SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+$fn$;
+
 CREATE TABLE public.profiles (
   id UUID PRIMARY KEY,
   email TEXT,
@@ -588,6 +597,54 @@ describe('the institution override is clamped to administrators', () => {
     const wide = await unmarkedFor(CLUSTER_ADMIN);
     expect(wide.sample_period_ids).toContain(TT.otherInstitution);
     expect(wide.count).toBeGreaterThan(0);
+  });
+});
+
+// The clamp above decides scope from the profile named by p_user_id — and
+// p_user_id is an ARGUMENT. On a SECURITY DEFINER function granted to every
+// signed-in user, that means the clamp is only as strong as the identity behind
+// it: name a super administrator and the clamp faithfully evaluates THEIR
+// privileges. These pin the caller to their own session.
+describe('the caller cannot borrow another identity', () => {
+  async function asSession<T>(sessionUser: string | null, fn: () => Promise<T>): Promise<T> {
+    await db.query(`SELECT set_config('request.jwt.claim.sub', $1, false)`, [sessionUser ?? '']);
+    try {
+      return await fn();
+    } finally {
+      await db.query(`SELECT set_config('request.jwt.claim.sub', '', false)`);
+    }
+  }
+
+  it('CONTROL: signed in as themselves, the caller still gets their own data', async () => {
+    // Without this, the two assertions below could pass because the function is
+    // broken for everyone rather than because impersonation is refused.
+    const own = await asSession(HOD, () => unmarkedFor(HOD));
+    expect(own.count).toBeGreaterThan(0);
+  });
+
+  it('refuses to answer for a super administrator the caller merely names', async () => {
+    const borrowed = await asSession(HOD, () => unmarkedFor(SUPER_ADMIN));
+    expect(borrowed.count).toBe(0);
+    expect(borrowed.sample_period_ids).toEqual([]);
+
+    // And the same identity, unborrowed, is genuinely cluster-wide — so the zero
+    // above is the guard refusing, not the super administrator seeing nothing.
+    const real = await asSession(SUPER_ADMIN, () => unmarkedFor(SUPER_ADMIN));
+    expect(real.sample_period_ids).toContain(TT.otherInstitution);
+  });
+
+  it('protects the compliance figures the same way', async () => {
+    const borrowed = await asSession(HOD, () => complianceFor(SUPER_ADMIN));
+    expect(borrowed.non_compliant_count).toBe(0);
+    expect(borrowed.non_compliant_user_ids).toEqual([]);
+  });
+
+  it('leaves service-role and internal callers working', async () => {
+    // auth.uid() is NULL for service_role. Those callers already hold full
+    // trust, and server-side code depends on passing p_user_id explicitly, so
+    // the guard must not fire for them.
+    const internal = await asSession(null, () => unmarkedFor(HOD));
+    expect(internal.count).toBeGreaterThan(0);
   });
 });
 
