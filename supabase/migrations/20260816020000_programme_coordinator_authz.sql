@@ -59,6 +59,13 @@
 --   so an appointment alone — with no role grant and no permission key — opens
 --   the programme, its batches, and the ability to READ and REJECT applications.
 --
+--   A PROGRAMME-WIDE appointment (cohort_id IS NULL) opens all three. A
+--   BATCH-SCOPED one opens module entry and its own batch, but NOT the review
+--   queue: that gate is keyed on the EVENT and its queue holds applicants who
+--   have no batch yet, so admitting a batch-scoped holder there would hand them
+--   every applicant of the whole event — other batches, and other colleges when
+--   batches share a source event.
+--
 --   ⚠️ ACCEPTING IS NOT YET COVERED, and the claim is limited on purpose.
 --   fn_soi_prepare_acceptance's coherence gate still requires a non-admin to
 --   hold cohort.create + cohort.view + institution access to the target batch,
@@ -77,6 +84,51 @@
 --   programme's bench at once and scoping it per owned kind changes the JSON
 --   shape the UI lane is coding against. Stated here rather than left to be
 --   discovered.
+-- ============================================================================
+
+-- ─── LIVE BASELINE, pasted so this file can be reviewed from the tree ───────
+-- None of the objects below exist anywhere in this repository — the migration
+-- ledger has diverged from it — so a reader has no way to check the deltas above
+-- against what they modify. Read from production 2026-08-08 and reproduced here
+-- verbatim. Every scoping claim in this file rests on these:
+--
+--   CREATE OR REPLACE FUNCTION public.fn_is_cohort_coordinator(p_cohort_id uuid)
+--    RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+--    SET search_path TO 'public', 'pg_temp' AS $$
+--      SELECT EXISTS (
+--        SELECT 1
+--        FROM public.cohort_coordinators cc
+--        JOIN public.cohorts c ON c.id = p_cohort_id
+--        WHERE cc.user_id = auth.uid()
+--          AND cc.status = 'active'
+--          AND cc.programme_kind = c.kind
+--          AND (cc.cohort_id IS NULL OR cc.cohort_id = p_cohort_id)
+--      );
+--    $$;
+--   -- i.e. it matches the cohort's KIND, and a NULL cohort_id is programme-wide.
+--   -- It carries no institution predicate, which is what makes D9 true.
+--
+--   public.cohort_coordinators — RLS ENABLED. Table grants: postgres and
+--   service_role hold arwdDxt; `authenticated` holds **r** and nothing else, so
+--   no end-user session can INSERT or UPDATE this table by any route. Every
+--   write goes through the SECURITY DEFINER RPCs in this file. Policies:
+--     select : is_super_admin() OR user_id = auth.uid()
+--     insert : WITH CHECK is_super_admin()
+--     update : USING is_super_admin()
+--     delete : USING is_super_admin()
+--   Indexes (the two partial uniques are what appoint()'s ON CONFLICT relies on):
+--     uidx_cohort_coordinators_programme_active
+--       UNIQUE (programme_kind, user_id) WHERE cohort_id IS NULL AND status='active'
+--     uidx_cohort_coordinators_cohort_active
+--       UNIQUE (cohort_id, user_id)      WHERE cohort_id IS NOT NULL AND status='active'
+--   CHECKs: status IN ('active','removed'); programme_kind IN
+--     ('sf100','foundations','cdc','trainer','mba_associate','school_of_influence').
+--
+--   NOTE for anyone diffing against the repo rather than the database: the live
+--   fn_soi_can_review_applications ALREADY admitted both 'cohort.manage' and
+--   'cohort.school_of_influence.manage' before this file. The repo's last
+--   committed copy (20260808146000_soi_review_accept_queue.sql) shows only the
+--   single key and is stale. This file changes neither of them.
 -- ============================================================================
 
 -- ─── §0 GUARD ───────────────────────────────────────────────────────────────
@@ -276,8 +328,18 @@ BEGIN
     v_kind := p_programme_kind;
   END IF;
 
+  -- NULL was the only thing rejected here. '' and any unknown string wrote an
+  -- active row matching no cohort — junk that grants nothing and that neither
+  -- the overview nor the auto-close can ever reach. The list mirrors the table's
+  -- own programme_kind CHECK.
+  v_kind := NULLIF(btrim(COALESCE(v_kind, '')), '');
   IF v_kind IS NULL THEN
     RAISE EXCEPTION 'Choose a programme, or a cohort within one' USING ERRCODE = '22023';
+  END IF;
+  IF v_kind <> ALL (ARRAY['sf100','foundations','cdc','trainer',
+                          'mba_associate','school_of_influence']) THEN
+    RAISE EXCEPTION 'There is no programme called "%". Pick one from the list.', v_kind
+      USING ERRCODE = '22023';
   END IF;
 
   -- No self-appointment except by a cluster authority (the (NULL, NULL) call —
@@ -395,8 +457,13 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
+  -- FOR UPDATE: this now races fn_cohort_coordinator_close_ended_programmes,
+  -- which also takes its rows FOR UPDATE. Without the lock a manual removal and
+  -- the nightly auto-close can both write an event for one appointment and leave
+  -- it holding two contradictory audit rows.
   SELECT * INTO v_row FROM public.cohort_coordinators
-   WHERE id = p_appointment_id AND status = 'active';
+   WHERE id = p_appointment_id AND status = 'active'
+   FOR UPDATE;
   IF v_row.id IS NULL THEN
     RETURN false;
   END IF;
@@ -436,9 +503,12 @@ BEGIN
          removal_evidence_field = 'cohort_coordinators.status',
          removal_evidence_value = 'removed',
          removed_automatically = false
-   WHERE id = v_row.id;
+   WHERE id = v_row.id
+     AND status = 'active';
 
-  RETURN true;
+  -- Report what actually happened. Returning an unconditional true would tell
+  -- the screen an appointment had ended when the row was already gone.
+  RETURN FOUND;
 END;
 $fn$;
 
@@ -628,14 +698,23 @@ BEGIN
 
   -- ADDED — the appointment branch. Placed BEFORE the permission check so an
   -- appointed coordinator holding no cohort.* key is not turned away by it.
-  -- D9: no institution predicate. A programme-wide appointment matches any batch
-  -- of this event; a batch-scoped one matches only its own batch.
+  -- D9: no institution predicate — the programme is the boundary.
+  --
+  -- PROGRAMME-WIDE APPOINTMENTS ONLY, deliberately. This function is keyed on
+  -- the EVENT, not on a batch: it answers "may this person work the queue for
+  -- this programme", and the queue holds applicants who have no batch yet (under
+  -- staff_assign nobody has chosen one, so there is no batch to scope them by).
+  -- Admitting a batch-scoped appointment here would therefore hand the holder
+  -- every applicant of the whole event — including the ones bound for other
+  -- batches, in other colleges if those batches share a source event. A
+  -- batch-scoped appointment still opens fn_soi_can_manage_batch for its own
+  -- batch, which IS batch-keyed and can honour the narrower grant.
   IF EXISTS (
-    SELECT 1 FROM public.cohorts c
-    WHERE c.kind = 'school_of_influence'
-      AND c.archived_at IS NULL
-      AND NULLIF(btrim(c.config ->> 'source_event_id'), '')::uuid = p_event_id
-      AND COALESCE(public.fn_is_cohort_coordinator(c.id), false)
+    SELECT 1 FROM public.cohort_coordinators cc
+    WHERE cc.user_id = (SELECT auth.uid())
+      AND cc.status = 'active'
+      AND cc.programme_kind = 'school_of_influence'
+      AND cc.cohort_id IS NULL
   ) THEN
     RETURN true;
   END IF;
@@ -1258,11 +1337,14 @@ GRANT EXECUTE ON FUNCTION public.fn_can_appoint_cohort_coordinator(text, uuid)  
 -- appointment in the system and no end-user session has a reason to call it.
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_close_ended_programmes()       TO service_role;
 
--- may_appoint_others is a privilege flag on a PostgREST-exposed table. The
--- table's UPDATE policy is already super-admin-only, so this is defence in
--- depth — but a later permissive policy must not be able to hand out the right
--- to appoint as a side effect of an ordinary column update.
+-- may_appoint_others is a privilege flag on a PostgREST-exposed table. Both
+-- statements are no-ops against today's grants — `authenticated` holds SELECT
+-- and nothing else on this table (see LIVE BASELINE) — and are written anyway so
+-- that a later `GRANT INSERT/UPDATE` cannot hand out the right to appoint as a
+-- side effect. INSERT is named as well as UPDATE: locking edits while leaving
+-- column-level INSERT open would be a gap, not a guard.
 REVOKE UPDATE (may_appoint_others) ON public.cohort_coordinators FROM anon, authenticated;
+REVOKE INSERT (may_appoint_others) ON public.cohort_coordinators FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_appoint(uuid, text, uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinator_remove(uuid, text)             TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_cohort_coordinators_overview()                    TO authenticated;
