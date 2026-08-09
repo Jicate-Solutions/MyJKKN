@@ -10,7 +10,8 @@ import Link from 'next/link';
 import {
   listQueueItems,
   QueueFilter,
-  QueueCounts
+  QueueCounts,
+  QueueItem
 } from '@/lib/services/dashboard/decision-queue-service';
 import { QueueItemCard } from '@/components/dashboard/decision-queue-item';
 import { TabTitleBadge } from '@/components/dashboard/tab-title-badge';
@@ -75,6 +76,44 @@ function EmptyState({ filter }: { filter: QueueFilter }) {
 }
 
 // ============================================================================
+// Collapse repeated daily digests
+// ----------------------------------------------------------------------------
+// The digest work item is raised once a day per category (its DB key ends in
+// the date), so every day it goes unacknowledged adds another near-identical
+// card. On a phone one card fills most of the screen, and two copies of
+// "Daily digest — 7426 stale lead(s)" push real items out of sight. Keep the
+// newest run of each digest category and say how many runs it stands for.
+// Non-digest items are never merged.
+// ============================================================================
+type QueueEntry = { item: QueueItem; repeats: number };
+
+function collapseDigests(items: QueueItem[]): QueueEntry[] {
+  const entries: QueueEntry[] = [];
+  const indexByDigestKey = new Map<string, number>();
+
+  for (const item of items) {
+    const cfg = item.action_config as { digest?: unknown } | null | undefined;
+    if (cfg?.digest !== true) {
+      entries.push({ item, repeats: 1 });
+      continue;
+    }
+    const key = item.category;
+    const at = indexByDigestKey.get(key);
+    if (at === undefined) {
+      indexByDigestKey.set(key, entries.length);
+      entries.push({ item, repeats: 1 });
+      continue;
+    }
+    const kept = entries[at];
+    kept.repeats += 1;
+    // Newest run wins — its counts are the ones still worth acting on.
+    if (item.age_seconds < kept.item.age_seconds) kept.item = item;
+  }
+
+  return entries;
+}
+
+// ============================================================================
 // Main container
 // ============================================================================
 export async function DecisionQueue({
@@ -82,6 +121,7 @@ export async function DecisionQueue({
   basePath = '/dashboard'
 }: DecisionQueueProps) {
   const { items, counts } = await listQueueItems(filter);
+  const entries = collapseDigests(items);
 
   const chipHref = (f: QueueFilter) =>
     f === 'all' ? `${basePath}#decision-queue` : `${basePath}?queue=${f}#decision-queue`;
@@ -104,12 +144,16 @@ export async function DecisionQueue({
       </div>
 
       <div className='p-3 sm:p-4'>
-        {items.length === 0 ? (
+        {entries.length === 0 ? (
           <EmptyState filter={filter} />
         ) : (
           <div className='space-y-2.5'>
-            {items.map((item) => (
-              <QueueItemCard key={item.user_notification_id} item={item} />
+            {entries.map(({ item, repeats }) => (
+              <QueueItemCard
+                key={item.user_notification_id}
+                item={item}
+                repeats={repeats}
+              />
             ))}
           </div>
         )}

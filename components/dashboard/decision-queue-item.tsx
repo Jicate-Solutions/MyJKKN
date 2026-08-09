@@ -62,9 +62,14 @@ function DeadlinePill({ status, item }: { status: DeadlineStatus; item: QueueIte
   const hrs = item.acknowledgment_deadline_hours ?? 2;
   const ageH = (item.age_seconds / 3600).toFixed(1);
   if (status === 'overdue') {
+    // Once the deadline is blown the limit says nothing useful ("2581.7h / 24h
+    // limit" on a 107-day-old item), and the age was printed a second time in
+    // the row beside this pill. State the age once, in readable units, and
+    // drop the limit. The card hides its own age text while this pill shows.
+    const age = formatRelativeAge(item.age_seconds);
     const label = item.escalated_at
-      ? `OVERDUE · escalated lvl ${item.escalation_level ?? 1}`
-      : `OVERDUE · ${ageH}h / ${hrs}h limit`;
+      ? `OVERDUE · ${age} · escalated lvl ${item.escalation_level ?? 1}`
+      : `OVERDUE · ${age}`;
     return (
       <span
         className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-rose-600 text-white shadow-sm animate-pulse'
@@ -111,8 +116,11 @@ function ActionButton({
       'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 border-neutral-200 dark:border-neutral-700',
     danger:
       'bg-rose-600 text-white hover:bg-rose-700 border-rose-600',
+    // 'ghost' is the low-emphasis choice (Snooze, Skip, False alarm) — but it
+    // still has to look like something you can tap. A transparent border made
+    // it read as plain text next to a filled button and got missed on phones.
     ghost:
-      'bg-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 border-transparent'
+      'bg-neutral-50 dark:bg-neutral-800/60 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border-neutral-200 dark:border-neutral-700'
   }[variant];
 
   return (
@@ -226,6 +234,21 @@ function RescueActions({ item }: { item: QueueItem }) {
 
   // CASE 2 — Director/Manager view: this is an invitation to broadcast (has lead_id).
   //          Submit fires initiateRescueBroadcast.
+  //
+  //          A daily digest card summarises many leads and carries no single
+  //          lead_id, so broadcasting is not on offer — show no button rather
+  //          than printing an internal column name at the reader. A non-digest
+  //          rescue with no lead_id is a real data fault: log it for ops.
+  if (!leadId && cfg.digest !== true) {
+    console.warn(
+      '[dashboard/queue] rescue item has no lead_id — broadcast button hidden',
+      {
+        userNotificationId: item.user_notification_id,
+        notificationId: item.notification_id
+      }
+    );
+  }
+
   return (
     <div className='flex flex-wrap gap-2'>
       {leadId ? (
@@ -244,15 +267,13 @@ function RescueActions({ item }: { item: QueueItem }) {
             🔥 Broadcast rescue
           </button>
         </form>
-      ) : (
-        <span className='text-[11px] text-neutral-500 px-2 py-1'>
-          (lead_id missing — cannot broadcast)
-        </span>
-      )}
+      ) : null}
+      {/* Closing a lead is routine housekeeping, not a destructive operation.
+          A filled crimson button overstated it next to a text-only Snooze. */}
       <ActionButton
         action='reject'
         label='Close lead'
-        variant='danger'
+        variant='secondary'
         userNotificationId={item.user_notification_id}
       />
       <ActionButton
@@ -288,7 +309,14 @@ function AnomalyActions({ item }: { item: QueueItem }) {
 // ============================================================================
 // Card
 // ============================================================================
-export function QueueItemCard({ item }: { item: QueueItem }) {
+export function QueueItemCard({
+  item,
+  repeats = 1
+}: {
+  item: QueueItem;
+  /** How many unacknowledged runs of this daily digest this card stands for. */
+  repeats?: number;
+}) {
   const ageText = formatRelativeAge(item.age_seconds);
   const typeLabel = queueTypeLabel(item.queue_type);
   const emoji = queueTypeEmoji(item.queue_type);
@@ -337,7 +365,19 @@ export function QueueItemCard({ item }: { item: QueueItem }) {
               </span>
               <SeverityPill band={item.severity_band} priority={item.priority} />
               <DeadlinePill status={deadlineStatus} item={item} />
-              <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
+              {/* The overdue pill already states the age — printing it again
+                  here said the same thing twice on a 387px-wide screen. */}
+              {deadlineStatus !== 'overdue' && (
+                <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
+              )}
+              {repeats > 1 && (
+                <span
+                  className='inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
+                  title={`This digest is raised once a day. ${repeats} runs are still unacknowledged; the newest one is shown.`}
+                >
+                  {repeats} daily runs
+                </span>
+              )}
             </div>
             <h3 className='mt-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 leading-snug group-hover:underline'>
               {item.title}
