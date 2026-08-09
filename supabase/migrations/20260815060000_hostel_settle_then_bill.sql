@@ -1100,9 +1100,11 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- Mark every joining event processed, whether or not it produced a credit
-  -- row. This is the idempotency record; a zero-credit round must never come
-  -- back a second time with the denominator already advanced.
+  -- Mark every joining event this round actually EVALUATED, whether or not it
+  -- produced a credit row. This is the idempotency record; a zero-credit round
+  -- must never come back a second time. Every arrival above is evaluated —
+  -- a NULL check_in_date falls back to the arrival timestamp rather than
+  -- forfeiting the credit — so stamping here can never bury money.
   IF NOT p_dry_run AND array_length(v_processed, 1) IS NOT NULL THEN
     UPDATE hostel_room_settle_windows
        SET credited_allocation_ids = credited_allocation_ids || v_processed
@@ -1116,8 +1118,10 @@ BEGIN
     'window_id',      v_window.id,
     'hostel_year_id', v_year_id,
     'billed_at',      v_window.billed_at,
-    'occupants_at_billing', v_window.occupants_at_billing,
+    'occupants_at_billing', v_n_billed,
     'active_occupants',     v_live,
+    'entitlement_per_resident', v_entitlement,
+    'credits',        v_credits,
     'hostel_year_end_date', v_year_end,
     -- Compute primitives, so the TS wrapper can re-derive every share and every
     -- remaining-months figure below through computeFeeBreakdown /
