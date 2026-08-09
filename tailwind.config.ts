@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import plugin from 'tailwindcss/plugin';
 import tailwindcssAnimate from 'tailwindcss-animate';
 
 const config: Config = {
@@ -15,40 +16,47 @@ const config: Config = {
       },
       // Clearance above the mobile bottom navigation.
       //
-      // components/BottomNav/bottom-navbar.tsx is `fixed bottom-0` below the
-      // `lg` breakpoint (it is `lg:hidden`) and pads itself by
-      // env(safe-area-inset-bottom) so it clears the iOS home indicator. Its
-      // content strip measures ~4rem tall on a 387pt iPhone — the same figure
-      // hard-coded in components/attention-bar/realtime-listener.tsx.
+      // components/BottomNav/bottom-navbar.tsx is `fixed bottom-0 z-[80]`
+      // below the `lg` breakpoint (it is `lg:hidden`) and pads itself by
+      // env(safe-area-inset-bottom) so it clears the iOS home indicator.
+      //
+      // Its content strip is 76px, not the 4rem/64px this comment previously
+      // claimed. Measured off components/BottomNav/bottom-nav-item.tsx:
+      // py-2.5 (10px x 2) around a w-9/h-9 icon tile (36px) + gap-1 (4px) +
+      // a ~16px text-[10px] label line. The bare `64px` still hard-coded in
+      // components/attention-bar/* is 12px short of the real nav — do not
+      // copy that figure into new code.
       //
       // Anything `fixed` near the bottom of the screen must therefore sit at
-      // ~4rem + a gutter + the safe-area inset, or it lands on top of the nav
+      // 76px + the safe-area inset or higher, or it lands on top of the nav
       // (or behind it, if its z-index is below the nav's z-[80]).
       //
-      //   bottom-nav-safe    first free line above the nav. Use for a lone
-      //                      floating element.
-      //   bottom-nav-safe-2  first slot of the right-edge floating column.
-      //   bottom-nav-safe-3  second slot (nav-safe-2 + 4rem: a 3rem control
-      //                      plus a 1rem gap).
-      //   bottom-nav-safe-4  third slot (nav-safe-3 + 4rem).
+      // The ladder steps by a uniform 4rem so that a 48px control in one slot
+      // clears the tallest element one slot below it (the 56px echo bubble):
       //
-      // The right-edge column is `nav-safe-2..4` because three controls mount
-      // together on every authenticated page (bug reporter, Director handover,
-      // work pulse) and must not overlap each other.
+      //   bottom-nav-safe     4.75rem  — flush above the nav. Lone floating
+      //                       elements, and the base of the right-edge column.
+      //   bottom-nav-safe-2   8.75rem  (+4rem) — second slot.
+      //   bottom-nav-safe-3  12.75rem  (+4rem) — third slot.
+      //   bottom-nav-safe-4  16.75rem  (+4rem) — fourth slot.
+      //
+      // Slots 2..4 exist because three 48px controls mount together on every
+      // authenticated page (bug reporter, Director handover, work pulse) above
+      // whatever already occupies nav-safe, and must not overlap each other.
       //
       // Always pair these with an `lg:` offset — the nav does not exist at
       // `lg` and above, so the element should return to its desktop position.
       //
-      // Pixel values below assume env(safe-area-inset-bottom) = 34px, the iOS
-      // home-indicator inset. nav-safe / -2 / -3 reproduce exactly the 6.875rem
-      // / 8.5rem / 12.5rem literals they replace, so nothing moved on a notched
-      // phone; on a phone without an inset they now sit 34px lower, which is
-      // where they always should have been. nav-safe-4 is new.
+      // Pixel comments below assume env(safe-area-inset-bottom) = 34px, the
+      // iOS home-indicator inset. Only nav-safe reproduces the literal it
+      // replaced (6.875rem on a notched phone); -2 and -3 now sit higher than
+      // the 8.5rem / 12.5rem literals they replaced, because those literals
+      // were themselves too close together — see the 4rem rule above.
       spacing: {
-        'nav-safe': 'calc(4.75rem + env(safe-area-inset-bottom, 0px))', // 110px on iOS
-        'nav-safe-2': 'calc(6.375rem + env(safe-area-inset-bottom, 0px))', // 136px on iOS
-        'nav-safe-3': 'calc(10.375rem + env(safe-area-inset-bottom, 0px))', // 200px on iOS
-        'nav-safe-4': 'calc(14.375rem + env(safe-area-inset-bottom, 0px))' // 264px on iOS
+        'nav-safe': 'calc(4.75rem + env(safe-area-inset-bottom, 0px))', // 76px → 110px on iOS
+        'nav-safe-2': 'calc(8.75rem + env(safe-area-inset-bottom, 0px))', // 140px → 174px on iOS
+        'nav-safe-3': 'calc(12.75rem + env(safe-area-inset-bottom, 0px))', // 204px → 238px on iOS
+        'nav-safe-4': 'calc(16.75rem + env(safe-area-inset-bottom, 0px))' // 268px → 302px on iOS
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -151,6 +159,34 @@ const config: Config = {
       }
     }
   },
-  plugins: [tailwindcssAnimate]
+  plugins: [
+    tailwindcssAnimate,
+    // `modal-open:` — matches only while a MODAL dialog/sheet is on screen.
+    //
+    // The bottom-right FAB column sits at z-[95]/[96]/[100], deliberately
+    // above the Sheet primitive (overlay z-[85], content z-[90] in
+    // components/ui/sheet.tsx). That is correct for a `modal={false}` drawer
+    // — BUG-003871 / BUG-003893 require the bug reporter to stay visible and
+    // clickable over one — but it also meant the FABs painted on top of the
+    // full-height More drawer (h-[88vh], z-[90]). `modal-open:hidden` closes
+    // that hole without touching the z-indices those bug fixes depend on.
+    //
+    // Both halves of the selector are load-bearing:
+    //   body[data-scroll-locked]              set by react-remove-scroll,
+    //     which @radix-ui/react-dialog mounts ONLY when `modal` is true. A
+    //     `modal={false}` Sheet never matches, so the BUG-003871 behaviour is
+    //     preserved exactly.
+    //   :has([role="dialog"][data-state="open"])
+    //     narrows to dialogs and sheets. A modal dropdown menu (role=menu) or
+    //     select (role=listbox) must not blank the FABs.
+    //
+    // Browsers without :has() simply drop the rule and behave as before.
+    plugin(({ addVariant }) => {
+      addVariant(
+        'modal-open',
+        'body[data-scroll-locked]:has([role="dialog"][data-state="open"]) &'
+      );
+    })
+  ]
 };
 export default config;

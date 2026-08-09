@@ -147,7 +147,14 @@ export function InstallPromptBanner() {
       aria-label="Install MyJKKN"
       // The bottom nav is `lg:hidden`, so the desktop offset has to wait for
       // `lg` — at `md` the nav is still on screen.
-      className="fixed bottom-nav-safe lg:bottom-6 left-4 right-4 md:right-6 md:left-auto md:max-w-sm bg-background border shadow-lg rounded-lg p-3 z-50"
+      //
+      // `right-20` (80px), not `right-4`: below `lg` the floating FAB column
+      // occupies right-4 and is 48px wide (16px..64px from the right edge),
+      // with the 56px echo bubble reaching 72px. A full-bleed banner at
+      // nav-safe put the red bug-reporter FAB directly on top of the "Not
+      // now" button. 80px clears the widest of them by 8px. At `lg` the nav
+      // and the mobile FAB column are gone, so the inset lifts.
+      className="fixed bottom-nav-safe lg:bottom-6 left-4 right-20 md:left-auto md:max-w-sm lg:right-6 bg-background border shadow-lg rounded-lg p-3 z-50"
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
