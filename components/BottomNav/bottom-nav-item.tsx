@@ -26,6 +26,40 @@ const indicatorSpring = {
   damping: 30
 };
 
+// Short labels for the bottom STRIP only.
+//
+// Six items across a 387pt phone leaves ~56px of text width per item. Section
+// names wider than that were cut with an ellipsis: "User Management" showed as
+// "User Mana…" on every screen, and "Applications" lost its tail only while it
+// was the selected tab, because the label of the active tab renders bold and
+// bold is wider — so the label shortened exactly when the user looked at it.
+//
+// Only the strip uses these. The More drawer (2-line tiles) and the button's
+// accessible name both keep the full section name, so nothing is hidden from a
+// screen reader or from the full menu. A section that isn't listed here falls
+// through to its full name — every current one already fits.
+const STRIP_SHORT_LABELS: Record<string, string> = {
+  'User Management': 'Users',
+  'Applications': 'Apps',
+  'Billing & Accounts': 'Billing',
+  'Learning & Courses': 'Learning',
+  'Health & Wellness': 'Health',
+  'Admission CRM': 'Admission',
+  'Learners Council': 'Council',
+  'Service Requests': 'Requests',
+  'Audit Workflow': 'Audit',
+  'Campus Living': 'Campus',
+  'Accreditation': 'Accredit',
+  'Administration': 'Admin',
+  'Organization': 'Org',
+  'Solution Hub': 'Solutions',
+  'Startup Studio': 'Startup',
+  'Procurement': 'Purchase',
+  'Family Moments': 'Family',
+  'HR Management': 'HR',
+  'Scheduling': 'Schedule'
+};
+
 export function BottomNavItem({
   id,
   icon: Icon,
@@ -148,15 +182,24 @@ export function BottomNavItem({
   // user directive: "same effect for entire bottom navigation menu".
   // Bottom indicator bar removed — the glass tile + scale + ring IS the
   // active indicator now (multi-cue, accessibility-preserving).
+  const stripLabel = STRIP_SHORT_LABELS[label] ?? label;
+
   return (
     <motion.button
       onClick={onClick}
       className={cn(
-        'relative flex flex-col items-center justify-center px-1 sm:px-2 py-2.5 min-w-0 sm:min-w-[56px] flex-1 gap-1',
+        // px-0.5 (was px-1) on the phone widths: it buys 4px more room for the
+        // label without moving the item centres or shrinking the tap target,
+        // which takes the longest surviving label from 0.5px of headroom to
+        // 4.5px. The 36px icon tile is unaffected — it never needed the space.
+        'relative flex flex-col items-center justify-center px-0.5 sm:px-2 py-2.5 min-w-0 sm:min-w-[56px] flex-1 gap-1',
         'touch-manipulation transition-colors duration-150'
       )}
       whileTap={{ scale: 0.92 }}
       transition={tapSpring}
+      // The visible text may be a short form; keep the full section name as the
+      // accessible name so screen readers still announce "User Management".
+      aria-label={label}
     >
       <motion.div
         className={cn(
@@ -209,10 +252,14 @@ export function BottomNavItem({
         )}
       </motion.div>
 
+      {/* Weight is the SAME for active and inactive so selecting a tab can
+          never change how much of the label fits. Selection is still obvious
+          from the tile (scales up, lifts, gains a ring) and from the label
+          switching to full-contrast foreground colour. */}
       <motion.span
         className={cn(
-          'text-[10px] font-medium truncate max-w-full',
-          isActive ? 'font-semibold text-foreground' : 'text-muted-foreground'
+          'text-[10px] font-semibold truncate max-w-full',
+          isActive ? 'text-foreground' : 'text-muted-foreground'
         )}
         animate={{
           opacity: isActive ? 1 : 0.85,
@@ -220,7 +267,7 @@ export function BottomNavItem({
         }}
         transition={{ duration: 0.15 }}
       >
-        {label}
+        {stripLabel}
       </motion.span>
     </motion.button>
   );
