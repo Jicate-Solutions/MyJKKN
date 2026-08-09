@@ -166,6 +166,16 @@ export async function GET(request: NextRequest) {
       // deduplicated, but a DISTINCT failure later the same day still pages.
       idempotencyKey: `loop-watchdog:${istDay}:${findingsFingerprint(findings)}`,
       source: 'loop-watchdog-cron',
+      // 2026-08-09: a DAILY restatement of the current failure set — a
+      // still-broken routine pages again tomorrow under a new istDay. Without an
+      // expiry every edition stayed unread forever (14 of the Director's 680).
+      // 36h = 1.5x the daily cycle, so a skipped run still leaves one live row
+      // in the bell while the stack is capped at 2 instead of unbounded.
+      // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
+      // admin/manage/stats reads deliberately still show lapsed rows.
+      extraColumns: {
+        expires_at: new Date(nowMs + 36 * 60 * 60 * 1000).toISOString(),
+      },
     });
     notified = outcome.notified;
   }

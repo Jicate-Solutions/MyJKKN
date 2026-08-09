@@ -288,6 +288,16 @@ export async function GET(request: NextRequest) {
       // lapse the same day pages immediately (different fingerprint).
       idempotencyKey: `loop-adherence:${istDay}:${findingsFingerprint(findings)}`,
       source: 'loop-adherence-cron',
+      // 2026-08-09: this is a DAILY restatement of the current lapse set — a
+      // still-quiet desk pages again tomorrow under a new istDay. Without an
+      // expiry every edition stayed unread forever (25 of the Director's 680).
+      // 36h = 1.5x the daily cycle, so a skipped run still leaves one live row
+      // in the bell while the stack is capped at 2 instead of unbounded.
+      // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
+      // admin/manage/stats reads deliberately still show lapsed rows.
+      extraColumns: {
+        expires_at: new Date(nowMs + 36 * 60 * 60 * 1000).toISOString(),
+      },
     });
     notified = outcome.notified;
   }
