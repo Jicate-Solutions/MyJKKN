@@ -1108,12 +1108,25 @@ BEGIN
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
   WHERE n.nspname = 'public'
-    AND p.proname IN ('fn_settle_room_annual_cost','fn_settle_window_open',
-                      'fn_settle_window_due','fn_settle_bill_close',
-                      'fn_settle_late_join_credit')
+    AND p.proname LIKE 'fn_settle%'
     AND has_function_privilege('anon', p.oid, 'EXECUTE');
   IF v_open IS NOT NULL THEN
     RAISE EXCEPTION 'anon still holds EXECUTE on: %', v_open;
+  END IF;
+
+  -- Every money-writer must carry its own authorization guard: SECURITY
+  -- DEFINER bypasses the RLS policies above, so a missing guard is an open
+  -- door for any authenticated user in any tenant.
+  SELECT string_agg(p.proname, ', ')
+    INTO v_open
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname IN ('fn_settle_window_open','fn_settle_bill_close',
+                      'fn_settle_late_join_credit')
+    AND pg_get_functiondef(p.oid) NOT LIKE '%fn_settle_can_manage%';
+  IF v_open IS NOT NULL THEN
+    RAISE EXCEPTION 'money-writer(s) missing an authorization guard: %', v_open;
   END IF;
 
   IF has_table_privilege('anon', 'public.hostel_room_settle_windows', 'SELECT') THEN
