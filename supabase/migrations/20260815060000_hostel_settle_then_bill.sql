@@ -897,7 +897,10 @@ DECLARE
   v_ac           numeric;
   v_n_before     int;
   v_n_after      int;
-  v_already_credited int;
+  v_live         int;   -- active occupants RIGHT NOW
+  v_uncredited   int;   -- joiners whose credit round has not been processed
+  v_step         int := 0;
+  v_processed    uuid[] := '{}'::uuid[];
   v_share_before numeric;
   v_share_after  numeric;
   v_delta        numeric;
