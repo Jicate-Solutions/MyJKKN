@@ -35,8 +35,9 @@
 -- WHY
 -- --------------------------------------------------------------------------------
 -- The Director's installed PWA shows 680 unread. Measured on production
--- 2026-08-09 for profiles.email='director@jkkn.ac.in', every one of those 680
--- rows has notifications.expires_at IS NULL, the oldest dating to 2026-04-23.
+-- 2026-08-09 for profiles.email='director@jkkn.ac.in': 678 of those 680 rows
+-- have notifications.expires_at IS NULL, the oldest dating to 2026-04-23. The
+-- two exceptions are the daily-intel pair, which already carry a future expiry.
 --
 -- The read path already honours expires_at (liveNotificationOrFilter() in
 -- lib/services/notification/notification-service.ts, applied to
