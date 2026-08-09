@@ -241,7 +241,7 @@ function QueueSkeleton() {
 // ============================================================================
 // Live Morning Brief wrapper — fetches brief data, renders dismissible card
 // ============================================================================
-async function LiveMorningBrief() {
+async function LiveMorningBrief({ showsQueue }: { showsQueue: boolean }) {
   // 2026-08-09: the brief used to be fetched alone, so it could print
   // "Inbox zero" directly above a Decision Queue holding 101 open items —
   // the two halves of one screen read from different RPCs with different
@@ -251,11 +251,21 @@ async function LiveMorningBrief() {
   // Fetching the queue total here lets the card check itself against the
   // same number the user can see below it. Same one-item probe already used
   // by LiveTodaysFocus above — we only need counts.
+  //
+  // showsQueue MUST mirror the Decision Queue's own render condition below.
+  // The brief renders for every persona that gets the morning_brief widget,
+  // but the queue is additionally gated. Where the queue does not render, the
+  // queue-aware copy would point at a #decision-queue anchor that is not on
+  // the page — a caption naming a section the reader cannot see, and a link
+  // that silently does nothing. So: no queue on screen, no queue total, and
+  // no wasted RPC round-trip either.
   const [brief, queueTotal] = await Promise.all([
     getMorningBrief(),
-    listQueueItems('all', 1)
-      .then((q) => q.counts.total)
-      .catch(() => null) // queue unavailable — fall back to brief-only copy
+    showsQueue
+      ? listQueueItems('all', 1)
+          .then((q) => q.counts.total)
+          .catch(() => null) // queue unavailable — fall back to brief-only copy
+      : Promise.resolve(null)
   ]);
   if (!brief.ok) return null; // RPC failed or user not authed — skip gracefully
   return <MorningBriefCard brief={brief} queueTotal={queueTotal} />;
@@ -340,6 +350,12 @@ export default async function DashboardV2Page({
   const isStudent = persona === 'student';
   const isLimited = persona === 'limited';
 
+  // Single source of truth for "does the Decision Queue appear on this page".
+  // The morning brief's queue-aware copy links to the queue's #decision-queue
+  // anchor, so the two must be decided by the same expression or the caption
+  // can advertise a section that never rendered. Used twice below.
+  const showsDecisionQueue = !isStudent && showsWidget('decision_queue');
+
   return (
     <ContentLayout title='Dashboard'>
       <KeyboardShortcuts />
@@ -397,7 +413,7 @@ export default async function DashboardV2Page({
           <div data-dashboard-section='morning-brief'>
             <DashboardErrorBoundary label='Morning Brief' mode='silent'>
               <Suspense fallback={null}>
-                <LiveMorningBrief />
+                <LiveMorningBrief showsQueue={showsDecisionQueue} />
               </Suspense>
             </DashboardErrorBoundary>
           </div>
@@ -547,7 +563,7 @@ export default async function DashboardV2Page({
         {/* Decision Queue — safe for ALL personas (already scoped by auth.uid() in RPC).
             Hidden for students — they have no actionable queue items. Loud boundary:
             queue is load-bearing for the operator persona, failures must be visible. */}
-        {!isStudent && showsWidget('decision_queue') && (
+        {showsDecisionQueue && (
           <div data-dashboard-section='decision-queue'>
             <DashboardErrorBoundary label='Decision queue' showDetails={isDirector}>
               <Suspense fallback={<QueueSkeleton />}>
