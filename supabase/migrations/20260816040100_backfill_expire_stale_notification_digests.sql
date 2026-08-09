@@ -99,6 +99,13 @@
 --   of those, already lapsed at run time ..................... 42,220
 --   unread rows that stop counting, ALL users ................ 36,282
 --
+--   EVERY FIGURE HERE IS A POINT-IN-TIME READING, NOT A FIXTURE. The generators
+--   keep emitting while this file sits unapplied, so the selector matches a few
+--   more rows every hour -- re-measured 55 minutes apart on 2026-08-09 it went
+--   44,855 -> 44,856. When you hand-apply, trust the row count in the DO block's
+--   NOTICE, not this number; a slightly larger count is the expected drift, not
+--   a sign the selector changed.
+--
 --   director@jkkn.ac.in unread ...................... 680 -> 96
 --   (simulated against the real read filter: user_notifications.read_at IS NULL
 --    AND (notifications.expires_at IS NULL OR expires_at > now()))
