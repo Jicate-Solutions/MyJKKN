@@ -357,7 +357,12 @@ export default async function DashboardV2Page({
   const showsDecisionQueue = !isStudent && showsWidget('decision_queue');
 
   return (
-    <ContentLayout title='Dashboard'>
+    // No `title` prop: ContentLayout accepts one but has never rendered it —
+    // it destructures only { children, fullWidth }. The visible "Dashboard"
+    // heading is the global Navbar's <h1>, which A3 hides on this route
+    // (components/Navbar/Navbar.tsx). Passing a dead prop here only invited
+    // the wrong fix.
+    <ContentLayout>
       <KeyboardShortcuts />
       {/* Animated glass background */}
       <div className='fixed inset-0 -z-10 overflow-hidden pointer-events-none'>
