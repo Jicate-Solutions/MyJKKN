@@ -169,6 +169,45 @@
 -- ================================================================================
 
 -- --------------------------------------------------------------------------------
+-- 0. GATE. This file does not apply itself.
+-- --------------------------------------------------------------------------------
+-- Unless myjkkn.apply_notification_expiry_ddl = 'yes' is set in the session, the
+-- statement below ABORTS the migration. A blanket `supabase db push` runs with it
+-- unset, so it cannot apply the DROP FUNCTION, the five function bodies, or the
+-- digest revival without someone deciding to.
+--
+-- Why this one RAISES rather than quietly returning (the companion backfill does
+-- the opposite): a no-op here would let db push record 20260816040000 in
+-- supabase_migrations.schema_migrations while the function bodies were never
+-- replaced -- a ledger that says "applied" over a database where nothing changed,
+-- which is worse than a loud refusal. Failing keeps the ledger honest.
+--
+-- The companion backfill 20260816040100 is a DATA migration and takes the other
+-- branch: it no-ops so a stray push cannot stamp 44,855 rows. Known consequence,
+-- stated plainly: a blanket push WILL record that version as applied even though
+-- the rows were not touched, so the hand-apply recipe in that file's header stays
+-- the way it runs -- paste the body, do not reach for db push afterwards.
+--
+-- Neither gate makes the apply WORKFLOW safe. It is a blanket push over a diverged
+-- ledger; 20260803080000_backfill_expire_stale_broadcast_notifications.sql sorts
+-- BEFORE both of these files and has no guard at all, so it would already have run
+-- by the time this statement raises.
+--
+-- To apply this file by hand:
+--     SET myjkkn.apply_notification_expiry_ddl = 'yes';
+--     <paste the rest of this file>
+--     RESET myjkkn.apply_notification_expiry_ddl;
+DO $gate$
+BEGIN
+  IF current_setting('myjkkn.apply_notification_expiry_ddl', true) IS DISTINCT FROM 'yes' THEN
+    RAISE EXCEPTION
+      'migration 20260816040000 is Director-gated and was NOT applied'
+      USING HINT = 'Set myjkkn.apply_notification_expiry_ddl to yes first. This file replaces five function bodies AND revives fn_generate_super_admin_daily_digest, dead on prod since 2026-05-08.';
+  END IF;
+END
+$gate$;
+
+-- --------------------------------------------------------------------------------
 -- 1. fn_create_dashboard_work_item --- add opt-in p_expires_hours (DEFAULT NULL)
 -- --------------------------------------------------------------------------------
 -- DROP first: CREATE OR REPLACE cannot change a function's argument list, and

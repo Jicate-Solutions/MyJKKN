@@ -13,10 +13,19 @@
 --        -> RAISE NOTICE, change nothing, return
 --
 -- So a blanket `supabase db push` (the repo's only apply mechanism -- see the
--- next banner) runs this file as a NO-OP and records the version. Nothing in
--- this file is destructive when the flag is unset; verified both ways inside
--- BEGIN..ROLLBACK on production 2026-08-09 (flag unset -> 0 rows; flag set ->
--- 44,855 rows), with production re-confirmed unchanged in a separate call.
+-- next banner) runs this file as a NO-OP. Nothing in this file is destructive
+-- when the flag is unset; verified both ways inside BEGIN..ROLLBACK on
+-- production 2026-08-09 (flag unset -> 0 rows changed; flag set -> 44,855 rows),
+-- with production re-confirmed unchanged in a separate call.
+--
+-- KNOWN CONSEQUENCE OF NO-OPPING, stated so nobody is caught by it: such a push
+-- still RECORDS this version in supabase_migrations.schema_migrations even
+-- though no row was touched. The ledger would then read "applied" over an
+-- untouched table. That is why the hand-apply below is a paste, not a push --
+-- pasting the body works whether or not the version is already recorded, and the
+-- DO block's NOTICE is the only honest report of what actually happened. The
+-- companion 20260816040000 takes the opposite branch for exactly this reason: it
+-- is DDL, so it RAISES instead of no-opping, and a push records nothing.
 --
 -- HAND-APPLY RECIPE (Supabase Studio SQL editor, project kvizhngldtiuufknvehv):
 --     SET myjkkn.apply_backfill = 'yes';   -- session-level, survives the BEGIN below
@@ -38,7 +47,9 @@
 -- 20260803080000_backfill_expire_stale_broadcast_notifications.sql, an earlier
 -- unapplied 'DO NOT AUTO-APPLY' backfill, which has NO such guard). The guard
 -- above protects THIS file's data change only; it does not make that workflow
--- safe to fire.
+-- safe to fire. Note the ordering: 20260803080000 sorts BEFORE both of the
+-- 20260816 files, so a blanket push would already have applied it before either
+-- gate here gets a chance to speak.
 --
 -- --------------------------------------------------------------------------------
 -- WHAT IT DOES
