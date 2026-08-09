@@ -98,9 +98,17 @@ CREATE TABLE IF NOT EXISTS public.hostel_room_settle_windows (
                            CHECK (status IN ('open','billed','cancelled')),
     billed_at            timestamptz,
     occupants_at_billing int,
+    -- Joiner allocation ids whose late-join credit round has been PROCESSED.
+    -- Marked whether or not any credit row was written, so a round that credits
+    -- nobody (rounds to 0, co-residents unbilled) is still never re-processed.
+    credited_allocation_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
     created_at           timestamptz NOT NULL DEFAULT now(),
     updated_at           timestamptz NOT NULL DEFAULT now()
 );
+
+-- Re-apply safety: the column was added after the table's first draft.
+ALTER TABLE public.hostel_room_settle_windows
+  ADD COLUMN IF NOT EXISTS credited_allocation_ids uuid[] NOT NULL DEFAULT '{}'::uuid[];
 
 -- One OPEN window per room per hostel year.
 -- COALESCE is load-bearing: Postgres treats NULLs as DISTINCT in a plain unique
