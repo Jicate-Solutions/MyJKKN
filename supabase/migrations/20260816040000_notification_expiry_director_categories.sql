@@ -127,8 +127,12 @@
 -- day: successful emissions would then be 48h apart while the surviving row dies
 -- at 36h, leaving a ~12h window with no live row. Surviving a skipped day needs
 -- >= 2x the cycle. The accepted consequence is a bounded, at-most-12h under-count
--- of the badge on a day the cron did not run at all; the underlying work always
--- lives in a queue page, not in the notification.
+-- of the badge on a day the cron did not run at all. For the digest,
+-- accreditation and hr_brief families that costs nothing -- the work itself lives
+-- on a queue page and the notification is only a pointer to it. It is NOT free
+-- for the unmarked-attendance rows, whose only surface for a past day IS the
+-- notification; that trade-off is the subject of the HONEST SCOPE note on
+-- section 3 and of the Director decision recorded in the companion backfill.
 --
 -- Why a LITERAL 36 is safe here but not in the loop crons (review, 2026-08-09).
 -- A hardcoded TTL is only sound while it cannot be silently outrun by a cadence

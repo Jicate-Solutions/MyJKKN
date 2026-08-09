@@ -187,8 +187,13 @@
 --              survive a skipped day -- successful emissions would then be 48h
 --              apart while the surviving row dies at 36h, leaving a ~12h window
 --              with no live row (surviving that needs >= 2x the cycle). The
---              consequence is a bounded, at-most-12h under-count of the badge, and
---              the underlying work always lives in a queue page, not the bell.
+--              consequence is a bounded, at-most-12h under-count of the badge.
+--              For the digest / accreditation / hr_brief families that costs
+--              nothing, because the work itself lives on a queue page and the
+--              notification is only a pointer to it. It is NOT free for the
+--              dashboard:anomaly rows, which have no second surface at all --
+--              that is the whole subject of the Director decision above, and it
+--              is why that decision is recorded rather than assumed.
 --              These cadences are deploy-gated in vercel.json, so unlike the two
 --              above they cannot be changed without a deploy that could carry a
 --              matching TTL change.
