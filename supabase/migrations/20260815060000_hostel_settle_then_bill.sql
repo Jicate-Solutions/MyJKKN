@@ -308,7 +308,11 @@ BEGIN
   -- whereas a too-loose one is a silent cross-tenant billing hole. Widen it
   -- deliberately after observing the real role, never pre-emptively.
   IF auth.uid() IS NULL THEN
-    RETURN COALESCE(current_setting('role', true), '') IN ('service_role', 'postgres');
+    RETURN COALESCE(
+             (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb)->>'role',
+             ''
+           ) = 'service_role'
+        OR COALESCE(current_setting('role', true), '') = 'service_role';
   END IF;
 
   IF is_super_admin() OR is_admin() THEN
