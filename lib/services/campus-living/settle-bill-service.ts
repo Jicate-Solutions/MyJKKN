@@ -265,32 +265,64 @@ function closeParity(result: SettleCloseResult): SettleCloseResult {
 }
 
 /**
- * Re-derive every late-join event: both shares through computeFeeBreakdown, and
- * the pro-rata window through remainingWholeMonths.
+ * Re-derive ONE arrival through the canonical engine. Exported so the key
+ * contract with the SQL payload is testable in isolation: if a field is
+ * renamed on either side this returns NaN-driven mismatches immediately rather
+ * than at 2am on a live sweep.
+ */
+export function verifyLateJoinEvent(
+  primitives: FeePrimitives,
+  ev: SettleLateJoinEvent,
+  hostelYearEndDate: string,
+): { ok: boolean; share_before: number; share_after: number; months: number; contribution: number } {
+  const before = canonicalShare(primitives, Number(ev.occupants_before));
+  const after = canonicalShare(primitives, Number(ev.occupants_after));
+  const months = remainingWholeMonths(String(ev.joined_on), {
+    start_date: '',
+    end_date: hostelYearEndDate,
+  });
+  const contribution = Math.round((Math.max(0, before - after) * months) / 12);
+
+  const ok =
+    Number.isFinite(before) &&
+    Number.isFinite(after) &&
+    Number.isFinite(months) &&
+    before === Number(ev.share_before) &&
+    after === Number(ev.share_after) &&
+    months === Number(ev.remaining_months) &&
+    contribution === Number(ev.contribution);
+
+  return { ok, share_before: before, share_after: after, months, contribution };
+}
+
+/**
+ * Re-derive every arrival AND the accumulated entitlement they sum to. A
+ * missing primitive is a FAILED check, never a skipped one — a gate that
+ * passes when it cannot see the numbers is not a gate.
  */
 function lateJoinParity(result: SettleLateJoinResult): SettleLateJoinResult {
-  const events = result.events ?? [];
-  if (result.status !== 'ok' || events.length === 0 || result.per_bed_annual_rate === undefined) {
-    return result;
-  }
-  if (!result.hostel_year_end_date) return result;
+  if (result.status !== 'ok') return result;
 
-  const hostelYear = { start_date: '', end_date: result.hostel_year_end_date };
+  const events = result.events ?? [];
+  if (events.length === 0) {
+    // Nothing arrived, nothing to verify, nothing will be credited.
+    return { ...result, parity_ok: true, parity_expected_entitlement: 0 };
+  }
+
+  if (result.per_bed_annual_rate === undefined || !result.hostel_year_end_date) {
+    logger.error(LOG, 'Late-join payload is missing compute primitives — cannot verify', {
+      room_id: result.room_id,
+    });
+    return { ...result, parity_ok: false };
+  }
+
   let ok = true;
+  let expected = 0;
 
   for (const ev of events) {
-    const before = canonicalShare(result, Number(ev.occupants_before));
-    const after = canonicalShare(result, Number(ev.occupants_after));
-    const months = remainingWholeMonths(String(ev.joined_on), hostelYear);
-    const delta = Math.max(0, before - after);
-    const credit = Math.round((delta * months) / 12);
-
-    if (
-      before !== Number(ev.share_before) ||
-      after !== Number(ev.share_after) ||
-      months !== Number(ev.remaining_months) ||
-      credit !== Number(ev.credit_per_resident)
-    ) {
+    const check = verifyLateJoinEvent(result, ev, result.hostel_year_end_date);
+    expected += check.contribution;
+    if (!check.ok) {
       ok = false;
       logger.error(LOG, 'Late-join credit parity mismatch — SQL disagrees with the fee engine', {
         room_id: result.room_id,
@@ -299,14 +331,23 @@ function lateJoinParity(result: SettleLateJoinResult): SettleLateJoinResult {
           share_before: ev.share_before,
           share_after: ev.share_after,
           remaining_months: ev.remaining_months,
-          credit: ev.credit_per_resident,
+          contribution: ev.contribution,
         },
-        compute: { share_before: before, share_after: after, remaining_months: months, credit },
+        compute: check,
       });
     }
   }
 
-  return { ...result, parity_ok: ok };
+  if (expected !== Number(result.entitlement_per_resident)) {
+    ok = false;
+    logger.error(LOG, 'Late-join entitlement does not equal the sum of its arrivals', {
+      room_id: result.room_id,
+      sql_entitlement: result.entitlement_per_resident,
+      compute_entitlement: expected,
+    });
+  }
+
+  return { ...result, parity_ok: ok, parity_expected_entitlement: expected };
 }
 
 /**
