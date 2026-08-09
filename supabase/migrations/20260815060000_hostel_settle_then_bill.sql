@@ -715,10 +715,15 @@ BEGIN
     RETURN jsonb_build_object('status', 'no_open_window', 'room_id', p_room_id);
   END IF;
 
-  v_year_id := COALESCE(
-    v_window.hostel_year_id,
-    (SELECT hy.id FROM hostel_years hy WHERE hy.is_current AND hy.is_active LIMIT 1)
-  );
+  v_year_id := COALESCE(v_window.hostel_year_id, fn_settle_current_hostel_year());
+
+  -- Refuse rather than stamp a NULL hostel_year_id: the dedup key against
+  -- campus_living_generate_hostel_year_bills compares hostel_year_id, and NULL
+  -- never matches, so a NULL-year bill would defeat the double-bill guard.
+  IF v_year_id IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_hostel_year', 'room_id', p_room_id,
+                              'window_id', v_window.id);
+  END IF;
 
   v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
   IF NOT (v_cost->>'found')::boolean THEN
