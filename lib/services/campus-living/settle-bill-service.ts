@@ -240,16 +240,25 @@ function canonicalShare(p: FeePrimitives, occupants: number): number {
   }).total_annual;
 }
 
-/** Re-derive the close figures. `undefined` when the result carried nothing to check. */
+/**
+ * Re-derive the close figures. Only a 'closed' result bills anyone, so only
+ * that status is verified — but if it IS 'closed' and a primitive is missing,
+ * that is a FAILED check, not a skipped one. A gate that passes when it cannot
+ * see the numbers is not a gate.
+ */
 function closeParity(result: SettleCloseResult): SettleCloseResult {
+  if (result.status !== 'closed') return result;
+
   if (
-    result.status !== 'closed' ||
     result.per_bed_annual_rate === undefined ||
     result.capacity === undefined ||
     result.active_occupants === undefined ||
     result.share_per_resident === undefined
   ) {
-    return result;
+    logger.error(LOG, 'Close payload is missing compute primitives — cannot verify', {
+      room_id: result.room_id,
+    });
+    return { ...result, parity_ok: false };
   }
 
   const expected = canonicalShare(result, Number(result.active_occupants));
