@@ -1073,6 +1073,15 @@ BEGIN
     'occupants_at_billing', v_window.occupants_at_billing,
     'active_occupants',     v_live,
     'hostel_year_end_date', v_year_end,
+    -- Compute primitives, so the TS wrapper can re-derive every share and every
+    -- remaining-months figure below through computeFeeBreakdown /
+    -- remainingWholeMonths instead of trusting this function's arithmetic.
+    'capacity',            (v_cost->>'capacity')::int,
+    'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
+    'base_room_annual',    v_base,
+    'ac_room_annual',      v_ac,
+    'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
+    'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
     'events',         v_events,
     'events_processed', COALESCE(array_length(v_processed, 1), 0),
     'credits_written', v_written);
