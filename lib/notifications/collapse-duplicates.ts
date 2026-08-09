@@ -48,42 +48,20 @@ export function stackKeyOf(item: any): string {
   )}`;
 }
 
-/** The category a notification was filed under, normalised for display. */
-export function categoryOf(item: any): string {
-  const notif = item?.notification || item || {};
-  const category = notif?.category;
-  return typeof category === 'string' && category.trim()
-    ? category.trim()
-    : 'general';
-}
-
 /**
- * Generic single-pass fold. One implementation so every list in the app stacks
- * identically — callers differ only in the key they group on.
- *
- * Composable on purpose: `__stackCount` SUMS the counts already carried by its
- * inputs (`__stackCount || 1`) and `__stackItems` flattens theirs, so folding a
- * second time (e.g. duplicates, then category) still reports the number of
- * underlying LOADED rows rather than the number of intermediate groups. On raw
- * input every item counts 1, which is exactly the previous behaviour.
+ * Collapse runs of near-duplicates into a single representative item carrying
+ * __stackCount/__stackItems. Groups smaller than MIN_STACK pass through
+ * untouched, so normal mail is unaffected.
  *
  * Input order is preserved (feed is already newest-first), and the newest item
  * of each group becomes the representative.
  */
-export function collapseBy(
-  items: any[],
-  keyOf: (item: any) => string,
-  options: {
-    minStack?: number;
-    decorate?: (group: any[]) => Record<string, any>;
-  } = {}
-): any[] {
-  const minStack = options.minStack ?? MIN_STACK;
+export function collapseDuplicates(items: any[]): any[] {
   const map = new Map<string, any[]>();
   const order: string[] = [];
 
   for (const item of items) {
-    const key = keyOf(item);
+    const key = stackKeyOf(item);
     if (!map.has(key)) {
       map.set(key, []);
       order.push(key);
@@ -94,58 +72,21 @@ export function collapseBy(
   const out: any[] = [];
   for (const key of order) {
     const group = map.get(key)!;
-    if (group.length >= minStack) {
+    if (group.length >= MIN_STACK) {
       out.push({
         ...group[0],
         // LOADED occurrences only — used to decide "is this a stack" and whether
         // every occurrence is read; NEVER rendered as a global total.
-        __stackCount: group.reduce(
-          (sum, item) => sum + (item?.__stackCount || 1),
-          0
-        ),
-        __stackItems: group.flatMap((item) => item?.__stackItems || [item]),
-        ...(options.decorate ? options.decorate(group) : {})
+        __stackCount: group.length,
+        __stackItems: group,
+        __stackEvent: eventOf(group[0]),
+        __stackPattern: prettifyPattern(
+          (group[0].notification || group[0]).title || ''
+        )
       });
     } else {
       out.push(...group);
     }
   }
   return out;
-}
-
-/**
- * Collapse runs of near-duplicates into a single representative item carrying
- * __stackCount/__stackItems. Groups smaller than MIN_STACK pass through
- * untouched, so normal mail is unaffected.
- */
-export function collapseDuplicates(items: any[]): any[] {
-  return collapseBy(items, stackKeyOf, {
-    decorate: (group) => ({
-      __stackEvent: eventOf(group[0]),
-      __stackPattern: prettifyPattern(
-        (group[0].notification || group[0]).title || ''
-      )
-    })
-  });
-}
-
-/**
- * Collapse a run of same-CATEGORY rows into one representative.
- *
- * Coarser than collapseDuplicates on purpose: a backlog can be dominated by a
- * single category whose titles are all different (244 distinct 'Alert' rows),
- * which the duplicate fold cannot touch because no two titles or events match.
- * Intended to run AFTER collapseDuplicates so the inner counts survive.
- *
- * The resulting __stackCount is still LOADED occurrences — the number of rows
- * actually fetched into this list — never the global per-category total.
- */
-export function collapseByCategory(
-  items: any[],
-  minStack: number = MIN_STACK
-): any[] {
-  return collapseBy(items, (item) => `category|${categoryOf(item).toLowerCase()}`, {
-    minStack,
-    decorate: (group) => ({ __stackCategory: categoryOf(group[0]) })
-  });
 }

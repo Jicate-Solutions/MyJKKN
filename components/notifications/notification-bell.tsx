@@ -28,10 +28,7 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useMediaQuery } from '@/hooks/use-media-query';
 import { NotificationItem } from './notification-item';
-import {
-  collapseByCategory,
-  collapseDuplicates
-} from '@/lib/notifications/collapse-duplicates';
+import { collapseDuplicates } from '@/lib/notifications/collapse-duplicates';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -70,18 +67,28 @@ export function NotificationBell() {
   // 2026-07-15 the bell fetched every unread row fully joined, on a 30s poll,
   // just to read `.length` — an array length standing in for a COUNT.
   const notifications = data?.notifications ?? [];
-  // Two folds, coarsest last:
-  //   1. collapseDuplicates — near-identical repeats (same metadata.event, or
-  //      same category + digit-stripped title).
-  //   2. collapseByCategory — a run of same-category rows whose titles are all
-  //      DIFFERENT, which fold 1 can never touch. A 680-row backlog that is 244
-  //      'Alert' + 194 'accreditation' otherwise fills every visible row with one
-  //      category and buries everything else.
-  // __stackCount composes across both and counts LOADED rows only — it is never
-  // a global per-category total, which this component does not have.
-  const foldedNotifications = collapseByCategory(
-    collapseDuplicates(notifications)
-  );
+  // ONE fold, and only the near-duplicate one: same metadata.event, or same
+  // category + digit-stripped title. It collapses repeats of the SAME fact,
+  // which is the only fold that can honestly hide a row.
+  //
+  // An earlier revision of this PR added a second, category-wide fold to stop a
+  // dominant category filling the panel. It cannot work here and it loses mail:
+  // the bell only ever holds the newest UNREAD_PREVIEW_LIMIT (5) unread rows, so
+  // the burial happens in the API's ORDER BY created_at DESC LIMIT 5, not at
+  // render time — folding those 5 by category cannot fetch the row that was
+  // never returned, it can only delete one that was. Modelled over production
+  // (2026-08-09): 4,352 of 7,152 users with unread mail would lose at least one
+  // distinct preview row and 2,958 would see the bell collapse to a SINGLE row —
+  // 14,010 distinct rows destroyed cluster-wide. Concrete case (user 020c6373):
+  // five different programmes, all category 'dashboard:anomaly', all
+  // "Attendance not marked today — <programme>" — folded to one row showing ONE
+  // programme's title with a ×5 badge, the other four unreachable.
+  //
+  // Making that panel honest needs a GLOBAL per-category tally, which this
+  // component does not have. GET /api/notifications already returns one
+  // (`category_counts`), but hooks/notification/use-notifications.ts drops it —
+  // wiring it through is a separate change, not a render-time fold.
+  const foldedNotifications = collapseDuplicates(notifications);
   const unreadCount = data?.unreadCount ?? 0;
 
   const handleNotificationClick = async (
@@ -187,7 +194,14 @@ export function NotificationBell() {
   };
 
   const headerActions = unreadCount > 0 && (
-    <div className='flex shrink-0 items-center gap-1'>
+    <div
+      className={cn(
+        'flex items-center gap-1',
+        // Compact: own row, so it can never be overlapped by the title.
+        // Desktop: icon-only, must not shrink beside the title.
+        isCompact ? '-mx-2 flex-wrap' : 'shrink-0'
+      )}
+    >
       {renderAction(
         'mark-all',
         CheckCheck,
@@ -207,20 +221,38 @@ export function NotificationBell() {
     </div>
   );
 
-  const renderHeader = (
-    TitleTag: React.ElementType,
-    extraClassName?: string
-  ) => (
+  // The compact header STACKS. Side-by-side, the two labelled buttons occupy a
+  // fixed ~171px inside a 299–375px sheet that also reserves pr-12 for
+  // SheetContent's own close button, so the title and the "{n} new" badge
+  // painted straight over them (measured: 92px of overlap at 299px, 71px at
+  // 320px, 31px at 360px) — reintroducing the cramped-unreadable defect this
+  // PR exists to fix. Two rows cost 24px of height and collide at no width.
+  // The title also truncates now, so a long count can never push the badge out.
+  const renderHeader = (TitleTag: React.ElementType) => (
     <div
       className={cn(
-        'flex items-center justify-between gap-2 border-b px-4 py-3',
-        extraClassName
+        'border-b px-4 py-3',
+        isCompact
+          ? 'flex flex-col gap-1.5'
+          : 'flex items-center justify-between gap-2'
       )}
     >
-      <div className='flex min-w-0 items-center gap-2'>
-        <TitleTag className='text-sm font-semibold'>Notifications</TitleTag>
+      <div
+        className={cn(
+          'flex min-w-0 items-center gap-2',
+          // Clears SheetContent's close button (rendered at right-4) — on the
+          // title row only, so the actions below get the full width.
+          isCompact && 'pr-12'
+        )}
+      >
+        <TitleTag className='truncate text-sm font-semibold'>
+          Notifications
+        </TitleTag>
         {unreadCount > 0 && (
-          <Badge variant='secondary' className='h-5 shrink-0 px-1.5 text-xs'>
+          <Badge
+            variant='secondary'
+            className='h-5 shrink-0 px-1.5 text-xs tabular-nums'
+          >
             {unreadCount} new
           </Badge>
         )}
@@ -320,8 +352,7 @@ export function NotificationBell() {
             aria-describedby={undefined}
             className='flex max-h-[85dvh] flex-col gap-0 rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]'
           >
-            {/* pr-12 clears SheetContent's own close button at right-4 */}
-            {renderHeader(SheetTitle, 'pr-12')}
+            {renderHeader(SheetTitle)}
             {/* Native scrolling rather than ScrollArea: momentum + overscroll
                 containment behave correctly inside an iOS sheet. */}
             <div className='min-h-[8rem] flex-1 overflow-y-auto overscroll-contain'>
@@ -348,3 +379,4 @@ export function NotificationBell() {
     </TooltipProvider>
   );
 }
+
