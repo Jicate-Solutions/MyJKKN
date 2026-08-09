@@ -222,12 +222,14 @@ export function NotificationBell() {
   );
 
   // The compact header STACKS. Side-by-side, the two labelled buttons occupy a
-  // fixed ~171px inside a 299–375px sheet that also reserves pr-12 for
-  // SheetContent's own close button, so the title and the "{n} new" badge
-  // painted straight over them (measured: 92px of overlap at 299px, 71px at
-  // 320px, 31px at 360px) — reintroducing the cramped-unreadable defect this
-  // PR exists to fix. Two rows cost 24px of height and collide at no width.
-  // The title also truncates now, so a long count can never push the badge out.
+  // fixed ~171px inside a sheet that also reserves pr-12 for SheetContent's own
+  // close button, so the title and the "{n} new" badge painted straight over
+  // them — reintroducing the cramped-unreadable defect this PR exists to fix.
+  // Reproduced in Chrome with 636 unread: "636 new" and "Mark read" were
+  // superimposed at 299px and 320px and touching at 375px
+  // (.screenshots/bell-header-BEFORE-collision-299-320-375-390.png). Two rows
+  // cost ~24px of height and collide at no width. The title truncates too, so a
+  // long count can never push the badge out.
   const renderHeader = (TitleTag: React.ElementType) => (
     <div
       className={cn(
@@ -379,4 +381,3 @@ export function NotificationBell() {
     </TooltipProvider>
   );
 }
-
