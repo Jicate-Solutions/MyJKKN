@@ -27,10 +27,11 @@
 -- ── MECHANISMS REUSED (nothing parallel is invented here) ───────────────────
 --   * Fee maths — lib/services/campus-living/hostel-fee-compute-service.ts
 --     `computeFeeBreakdown`. The SQL below MIRRORS it and is bound to it by a
---     parity check in lib/services/campus-living/settle-bill-service.ts (the
---     dry-run returns the primitives; the TS recomputes with the canonical
---     function and flags any divergence). SQL cannot call TS, so the mirror is
---     made a CHECKED invariant rather than an unchecked copy.
+--     parity GATE in lib/services/campus-living/settle-bill-service.ts: both
+--     money paths run the dry run FIRST, re-derive every figure through the
+--     canonical engine, and only call the live path once the two agree. A
+--     mismatch aborts that room — it is not billed and then logged. SQL cannot
+--     call TS, so the mirror is unavoidable; leaving it unchecked was not.
 --         base_share = round(per_bed_annual × room_capacity / active_occupants)
 --         ac_share   = round(tonnage × base_inr_per_month_24h × 12 / occupants)
 --     Both terms are rounded SEPARATELY, exactly as computeFeeBreakdown does.
