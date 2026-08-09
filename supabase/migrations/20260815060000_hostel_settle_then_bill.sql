@@ -951,36 +951,45 @@ BEGIN
   v_base     := (v_cost->>'base_room_annual')::numeric;
   v_ac       := (v_cost->>'ac_room_annual')::numeric;
 
+  -- ── The credit is measured against WHAT RESIDENTS WERE BILLED ─────────────
+  -- Not against a step-by-step walk. A resident paid for a room of
+  -- occupants_at_billing; if the room now holds more, she overpaid by exactly
+  -- share(billed) − share(now), and that difference — pro-rated from the month
+  -- of joining — is her total entitlement for this window. Each round tops her
+  -- up TOWARD that target rather than computing an independent delta.
+  --
+  -- This is what makes departures behave. A room billed at 2 that loses one
+  -- resident and gains another still holds 2: share(2) − share(2) = 0 and
+  -- nobody is credited, which is right, because the resident who stayed was
+  -- billed for a 2-person room and is in a 2-person room. A stepping
+  -- implementation reads that same room as "1 → 2" and pays out a full
+  -- half-room credit that was never owed.
+  --
+  -- It is also why re-running is safe by construction: n_now is unchanged and
+  -- the top-up is target − already_credited, which is 0.
   SELECT COUNT(*)::int INTO v_live
   FROM hostel_allocations al
   WHERE al.room_id = p_room_id AND al.check_out_date IS NULL;
 
-  FOR j IN
-    SELECT al.id AS allocation_id, al.learner_id, al.check_in_date, al.created_at
-    FROM hostel_allocations al
-    WHERE al.room_id = p_room_id
-      AND al.check_out_date IS NULL
-      AND al.created_at > v_window.billed_at
-      AND NOT (al.id = ANY (v_window.credited_allocation_ids))
-    ORDER BY al.created_at, al.id
-  LOOP
-    v_processed := v_processed || j.allocation_id;
+  v_n_before := GREATEST(1, COALESCE(v_window.occupants_at_billing, 1));
+  v_n_after  := GREATEST(1, v_live);
 
-    -- Occupancy RECONSTRUCTED at the instant this joiner arrived, not walked
-    -- forward from a stored count. Someone who checked out between billing and
-    -- this arrival was genuinely not sharing the room, so a room that lost one
-    -- resident and gained another has not grown and owes nobody a credit —
-    -- which a stored-count walk gets wrong in both directions. This count is a
-    -- pure function of history, so a re-run can only reproduce it.
-    SELECT COUNT(*)::int INTO v_n_after
-    FROM hostel_allocations al
-    WHERE al.room_id = p_room_id
-      AND al.created_at <= j.created_at            -- includes the joiner
-      AND (al.check_out_date IS NULL OR al.check_out_date > j.created_at::date);
+  -- The uncredited joiners this round settles, and the month it is anchored to
+  -- ("from the month of joining" — the earliest one still owed).
+  SELECT array_agg(al.id ORDER BY al.created_at, al.id),
+         MIN(al.check_in_date)
+    INTO v_processed, v_anchor_date
+  FROM hostel_allocations al
+  WHERE al.room_id = p_room_id
+    AND al.check_out_date IS NULL
+    AND al.created_at > v_window.billed_at
+    AND NOT (al.id = ANY (v_window.credited_allocation_ids));
 
-    v_n_after  := GREATEST(2, v_n_after);          -- the joiner + at least one resident
-    v_n_before := v_n_after - 1;
+  IF v_processed IS NULL THEN
+    v_processed := '{}'::uuid[];
+  END IF;
 
+  IF v_anchor_date IS NOT NULL AND v_n_after > v_n_before THEN
     -- Same two-term, separately-rounded shape as computeFeeBreakdown.
     v_share_before := round(v_base / v_n_before) + round(v_ac / v_n_before);
     v_share_after  := round(v_base / v_n_after)  + round(v_ac / v_n_after);
@@ -991,68 +1000,77 @@ BEGIN
     -- inclusive, clamped to [0, 12].
     v_remaining := (
       (EXTRACT(YEAR FROM v_year_end)::int * 12 + EXTRACT(MONTH FROM v_year_end)::int)
-      - (EXTRACT(YEAR FROM j.check_in_date)::int * 12 + EXTRACT(MONTH FROM j.check_in_date)::int)
+      - (EXTRACT(YEAR FROM v_anchor_date)::int * 12 + EXTRACT(MONTH FROM v_anchor_date)::int)
     ) + 1;
     v_remaining := GREATEST(0, LEAST(12, v_remaining));
 
-    v_credit  := round(v_delta * v_remaining / 12.0);
+    v_target  := round(v_delta * v_remaining / 12.0);
     v_credits := '[]'::jsonb;
 
-    IF v_credit > 0 THEN
-      FOR r IN
-        SELECT al.id AS allocation_id, al.learner_id
-        FROM hostel_allocations al
-        WHERE al.room_id = p_room_id
-          AND al.check_out_date IS NULL
-          AND al.id <> j.allocation_id
-        ORDER BY al.check_in_date, al.id
-      LOOP
-        v_lp_id := NULL;
-        IF r.learner_id IS NOT NULL THEN
-          SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = r.learner_id;
-        END IF;
-        CONTINUE WHEN v_lp_id IS NULL;
+    FOR r IN
+      SELECT al.id AS allocation_id, al.learner_id
+      FROM hostel_allocations al
+      WHERE al.room_id = p_room_id
+        AND al.check_out_date IS NULL
+        AND NOT (al.id = ANY (v_processed))   -- a joiner is not credited for joining
+      ORDER BY al.check_in_date, al.id
+    LOOP
+      v_lp_id := NULL;
+      IF r.learner_id IS NOT NULL THEN
+        SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = r.learner_id;
+      END IF;
+      CONTINUE WHEN v_lp_id IS NULL;
 
-        -- Only residents who were ACTUALLY billed for this room can be credited
-        -- against it. A resident with no hostel bill has nothing to reduce.
-        CONTINUE WHEN NOT EXISTS (
-          SELECT 1 FROM billing_student_bills b
-          WHERE b.student_id       = v_lp_id
-            AND b.hostel_year_id   = v_year_id
-            AND b.item_category_id = v_category
-            AND b.fee_source IN ('academic','hostel_category')
-            AND b.status <> 'cancelled'
-        );
+      -- Only residents who were ACTUALLY billed for this room can be credited
+      -- against it. A resident with no hostel bill has nothing to reduce.
+      CONTINUE WHEN NOT EXISTS (
+        SELECT 1 FROM billing_student_bills b
+        WHERE b.student_id       = v_lp_id
+          AND b.hostel_year_id   = v_year_id
+          AND b.item_category_id = v_category
+          AND b.fee_source IN ('academic','hostel_category')
+          AND b.status <> 'cancelled'
+      );
 
-        IF NOT p_dry_run THEN
-          INSERT INTO student_credit_balances
-            (student_id, amount, source, source_event_id, is_consumed, notes)
-          VALUES
-            (v_lp_id, v_credit, 'fee_structure_change', j.allocation_id, false,
-             'Campus living settle-then-bill late join: room occupancy '
-             || v_n_before || ' → ' || v_n_after || ' from ' || j.check_in_date
-             || '. Share ₹' || v_share_before || ' → ₹' || v_share_after
-             || ', credited ' || v_remaining || '/12 months.');
-          v_written := v_written + 1;
-        END IF;
+      -- What earlier rounds on THIS window already gave her.
+      SELECT COALESCE(SUM(scb.amount), 0) INTO v_already
+      FROM student_credit_balances scb
+      WHERE scb.student_id = v_lp_id
+        AND scb.source     = 'fee_structure_change'
+        AND scb.source_event_id = ANY (v_window.credited_allocation_ids);
 
-        v_credits := v_credits || jsonb_build_object(
-          'learner_id', v_lp_id, 'allocation_id', r.allocation_id, 'amount', v_credit);
-      END LOOP;
-    END IF;
+      v_credit := GREATEST(0, v_target - v_already);
+      CONTINUE WHEN v_credit <= 0;
+
+      IF NOT p_dry_run THEN
+        INSERT INTO student_credit_balances
+          (student_id, amount, source, source_event_id, is_consumed, notes)
+        VALUES
+          (v_lp_id, v_credit, 'fee_structure_change', v_processed[1], false,
+           'Campus living settle-then-bill late join: room occupancy '
+           || v_n_before || ' → ' || v_n_after || ' from ' || v_anchor_date
+           || '. Share ₹' || v_share_before || ' → ₹' || v_share_after
+           || ', credited ' || v_remaining || '/12 months.');
+        v_written := v_written + 1;
+      END IF;
+
+      v_credits := v_credits || jsonb_build_object(
+        'learner_id', v_lp_id, 'allocation_id', r.allocation_id,
+        'already_credited', v_already, 'amount', v_credit);
+    END LOOP;
 
     v_events := v_events || jsonb_build_object(
-      'joiner_allocation_id', j.allocation_id,
-      'joined_on',            j.check_in_date,
-      'occupants_before',     v_n_before,
-      'occupants_after',      v_n_after,
+      'joiner_allocation_ids', to_jsonb(v_processed),
+      'anchored_on',          v_anchor_date,
+      'occupants_at_billing', v_n_before,
+      'occupants_now',        v_n_after,
       'share_before',         v_share_before,
       'share_after',          v_share_after,
       'delta_annual',         v_delta,
       'remaining_months',     v_remaining,
-      'credit_per_resident',  v_credit,
+      'target_per_resident',  v_target,
       'credits',              v_credits);
-  END LOOP;
+  END IF;
 
   -- Mark every joining event processed, whether or not it produced a credit
   -- row. This is the idempotency record; a zero-credit round must never come
