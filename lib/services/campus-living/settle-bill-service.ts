@@ -486,7 +486,7 @@ export async function runSettleThenBill(
   const lateJoinDue = await listLateJoinDue(client);
   const credits: SettleLateJoinResult[] = [];
   for (const room of lateJoinDue) {
-    credits.push(await creditLateJoins(client, room.room_id, dryRun));
+    credits.push(await creditLateJoins(client, room.room_id, dryRun, room.window_id));
   }
 
   const summary: SettleRunSummary = {
