@@ -57,7 +57,14 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { fanoutNotification } from '@/lib/services/_shared/notifications/notify';
-import { findingsFingerprint } from '@/lib/ai-routines/loop-governance';
+import { findingsFingerprint, staleThresholdMs } from '@/lib/ai-routines/loop-governance';
+
+// 2026-08-09 expiry — see the fanout below. Derived, not literal: this routine's
+// schedule lives in ai_routine_schedules and is editable on /admin/ai-routines
+// with no deploy, so a hardcoded 36h would silently invert the safety margin the
+// moment someone slowed the cadence down.
+const TTL_CYCLE_MULTIPLIER = 1.5; // a skipped run still leaves one live row
+const OWN_ROUTINE_ID = 'loop-adherence';
 
 // SWEEP A: >= 2 consecutive most-recent missed beats = a pattern worth paging.
 const MENTOR_LAPSE_ALARM = 2;
@@ -274,6 +281,18 @@ export async function GET(request: NextRequest) {
     }
     const userIds = supers.map((s: { id: string }) => s.id);
     const istDay = new Date(nowMs + 19_800_000).toISOString().slice(0, 10);
+    // Own cadence for the TTL below. Only queried on the paging path, so the
+    // silent (healthy) run costs nothing extra. A missing row or a failed read
+    // leaves days_of_week undefined, which staleThresholdMs treats as daily —
+    // the same 25h it assumes elsewhere, so the fallback matches today's
+    // behaviour rather than inventing one.
+    const { data: ownSched } = await admin
+      .from('ai_routine_schedules')
+      .select('days_of_week')
+      .eq('routine_id', OWN_ROUTINE_ID)
+      .maybeSingle();
+    const ownDays = (ownSched as { days_of_week: number[] | null } | null)?.days_of_week;
+    const expiresMs = Math.round(staleThresholdMs(ownDays) * TTL_CYCLE_MULTIPLIER);
     const outcome = await fanoutNotification(admin, {
       title: `🔴 Loop adherence: ${findings.length} issue${findings.length === 1 ? '' : 's'} (${mentorsLapsed} mentor${mentorsLapsed === 1 ? '' : 's'} lapsed, ${quietDesks} quiet desk${quietDesks === 1 ? '' : 's'})`,
       body:
@@ -288,15 +307,17 @@ export async function GET(request: NextRequest) {
       // lapse the same day pages immediately (different fingerprint).
       idempotencyKey: `loop-adherence:${istDay}:${findingsFingerprint(findings)}`,
       source: 'loop-adherence-cron',
-      // 2026-08-09: this is a DAILY restatement of the current lapse set — a
-      // still-quiet desk pages again tomorrow under a new istDay. Without an
+      // 2026-08-09: this is a restatement of the current lapse set — a
+      // still-quiet desk pages again next cycle under a new istDay. Without an
       // expiry every edition stayed unread forever (25 of the Director's 680).
-      // 36h = 1.5x the daily cycle, so a skipped run still leaves one live row
-      // in the bell while the stack is capped at 2 instead of unbounded.
+      // TTL = own cadence x 1.5, read from this routine's dispatcher row rather
+      // than hardcoded (today: daily -> 25h x 1.5 = 37.5h), so a skipped run
+      // still leaves one live row while the stack stays capped at 2, AND the
+      // margin follows a cadence edit made on /admin/ai-routines with no deploy.
       // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
       // admin/manage/stats reads deliberately still show lapsed rows.
       extraColumns: {
-        expires_at: new Date(nowMs + 36 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(nowMs + expiresMs).toISOString(),
       },
     });
     notified = outcome.notified;

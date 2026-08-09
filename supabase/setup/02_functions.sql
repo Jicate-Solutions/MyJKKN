@@ -30307,9 +30307,27 @@ $function$;
 -- (that file carries the full rationale and the category-by-category decision on
 -- what is expired vs deliberately left in the badge as un-actioned work).
 --
--- These four definitions SUPERSEDE the earlier copies above in this file.
+-- These FIVE definitions SUPERSEDE the earlier copies above in this file.
+-- (fn_generate_hr_command_center_brief_items was added in review 2026-08-09:
+--  the backfill cleared its rows but its generator still emitted unexpiring
+--  ones, so the backlog would have simply rebuilt.)
 -- fn_create_dashboard_work_item gains a ninth parameter, p_expires_hours, which
 -- DEFAULTS TO NULL so every existing eight-argument caller is unchanged.
+--
+-- ############################################################################
+-- ##  ORDERING WARNING -- fn_generate_super_admin_daily_digest              ##
+-- ############################################################################
+-- The copy below is NOT the body currently running on production. Production's
+-- carries a dead `se.event_type` reference (public.startup_events has no such
+-- column) which raises 42703 and kills the whole digest -- the newest 'digest:%'
+-- notification on prod is dated 2026-05-08 although the cron has fired daily
+-- since. That one line is DELETED here, marked `2026-08-09 REVIVAL`, precisely
+-- so this file does not freeze the bug and silently revert whoever fixes it
+-- first: CREATE OR REPLACE does not validate a plpgsql body, so re-applying an
+-- older copy after this one restores the dead reference with no error at all.
+-- Do NOT re-add `se.event_type`, and do not apply an older copy of that function
+-- after this file. Same warning sits on section 2 below and in
+-- supabase/migrations/20260816040000_notification_expiry_director_categories.sql.
 -- ================================================================================
 
 -- --------------------------------------------------------------------------------
@@ -30376,10 +30394,47 @@ GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,te
 
 -- --------------------------------------------------------------------------------
 -- 2. fn_generate_super_admin_daily_digest --- 36h TTL on all seven digest rows
+--    + the one-line REVIVAL of a function dead on prod since 2026-05-08
 -- --------------------------------------------------------------------------------
 -- Every call site in this function builds a row titled 'Daily digest --- N ...'
 -- under the key 'digest:<user>:<category>:<YYYY-MM-DD>'. All seven are the same
 -- shape and all seven already declare a 24h acknowledgment deadline.
+--
+-- ############################################################################
+-- ##  ORDERING WARNING -- THIS BODY IS NOT THE ONE RUNNING ON PROD          ##
+-- ############################################################################
+-- The production body carries a dead column reference, `se.event_type`, in the
+-- Category 5 (dashboard:ai_pulse) block. public.startup_events has no such
+-- column (information_schema, 2026-08-09), so the statement raises 42703 the
+-- moment the loop reaches its first super-admin -- which aborts the whole call
+-- and rolls back every digest row the earlier categories built. That is why the
+-- newest 'digest:%' notification on prod is dated 2026-05-08 while the cron
+-- (vercel.json '3 3 * * *') has fired every day since.
+--
+-- MEASURED, production, BEGIN..ROLLBACK, 2026-08-09 (prod re-verified unchanged
+-- afterwards -- 8-arg signature intact, digest row count still 687):
+--   * body EXACTLY as it stands on prod  -> ERROR 42703 'column se.event_type
+--     does not exist', PL/pgSQL line 207.
+--   * same body with the dead disjunct removed -> returns 129 (rows it would
+--     have created), no error.
+--
+-- Shipping the prod body verbatim would have frozen that bug into two files. A
+-- later PR that fixes it, applied BEFORE this one, would then be silently
+-- reverted -- CREATE OR REPLACE does not validate a plpgsql body, so the dead
+-- reference would come back with no error and the digest would die again.
+-- So the fix is CARRIED here rather than copied around, marked `2026-08-09
+-- REVIVAL`. It is a one-line deletion: the two surviving disjuncts
+-- (config->>'kind' and config->'ai_pulse') already express the same intent.
+--
+-- IF YOU ARE THE OTHER PR: this file already contains the fix. Do not apply an
+-- older copy of fn_generate_super_admin_daily_digest after this one, and do not
+-- re-add `se.event_type`. The same warning sits above the same function in
+-- supabase/setup/02_functions.sql.
+--
+-- CONSEQUENCE OF APPLYING THIS FILE: the super-admin daily digest starts
+-- producing rows again (~129 on the day measured, all with a 36h TTL). That is
+-- the intended repair, but it is a behaviour change on top of the TTL work and
+-- the Director should be told it is in the same apply.
 CREATE OR REPLACE FUNCTION public.fn_generate_super_admin_daily_digest()
  RETURNS integer
  LANGUAGE plpgsql
@@ -30593,9 +30648,12 @@ BEGIN
 
       SELECT se.id INTO v_last_cycle_id
       FROM startup_events se
+      -- 2026-08-09 REVIVAL: `se.event_type = 'ai_pulse'` removed from this
+      -- disjunction. startup_events has no event_type column, so the prod body
+      -- raised 42703 here and killed the whole digest (last row 2026-05-08).
+      -- The two remaining disjuncts carry the same intent. Do NOT re-add it.
       WHERE (
-              se.event_type = 'ai_pulse'
-           OR (se.config->>'kind') = 'ai_pulse'
+              (se.config->>'kind') = 'ai_pulse'
            OR (se.config->'ai_pulse') IS NOT NULL
         )
         AND se.status IN ('closed', 'completed')
@@ -30769,6 +30827,27 @@ GRANT  EXECUTE ON FUNCTION public.fn_generate_super_admin_daily_digest() TO serv
 -- ('unmarked_attendance:<timetable>:<date>:<user>'). The generator already
 -- declares "ttl_hours": 8; expires_hours is a separate, more generous key so the
 -- existing acknowledgment deadline is not disturbed.
+--
+-- HONEST SCOPE OF THIS ONE (review, 2026-08-09). Unlike the other three, this
+-- row is NOT a restatement: the key embeds the DATE, so 'timetable T was unmarked
+-- on date D' is announced EXACTLY ONCE and tomorrow's row is a different fact.
+-- It therefore does NOT satisfy the "same fact re-announced daily" rule this
+-- migration otherwise applies, and the justification has to stand on its own:
+--   * the row's own text is 'not marked TODAY ... as of 11am' -- a claim that is
+--     literally false 36 hours later, and its action URL
+--     (/academic/attendance/dashboard?timetable=<id>) carries no date, so an old
+--     copy cannot even navigate you to the day it is about;
+--   * the durable record of the gap is the ABSENCE of student_attendance rows,
+--     not the notification;
+--   * after the TTL the row is still fully visible at /notifications/admin --
+--     only the bell/inbox read path applies liveNotificationOrFilter().
+-- The cost, stated plainly: past days' unmarked sessions become invisible in the
+-- bell, and the only live query, fn_aqs_attendance_unmarked_periods_today, is
+-- CURRENT_DATE-only, so there is no other in-app surface for history.
+-- It is therefore REVERSIBLE WITHOUT A DEPLOY: set the generator config key
+-- unmarked_attendance.expires_hours to 0 and rows stop expiring (0 maps to NULL
+-- below). The companion backfill deliberately does NOT touch the 42.5K historical
+-- rows of this category -- that is a Director decision, not a code one.
 CREATE OR REPLACE FUNCTION public.fn_generate_unmarked_attendance_items()
  RETURNS integer
  LANGUAGE plpgsql
@@ -30816,8 +30895,15 @@ BEGIN
   v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
   v_priority             := COALESCE(v_cfg->>'priority', 'normal');
   v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 8);
-  -- 2026-08-09 expiry: 36h = 1.5x the daily re-emit cycle.
+  -- 2026-08-09 expiry: 36h = 1.5x the daily re-emit cycle. 0 (or any value <= 0)
+  -- is the OFF switch: it maps to NULL = never expires, so the TTL can be
+  -- withdrawn from generator config with no deploy. Without this mapping a 0 in
+  -- config would mean "expire instantly", the opposite of what an operator
+  -- typing 0 intends.
   v_expires_hours        := COALESCE((v_cfg->>'expires_hours')::INT, 36);
+  IF v_expires_hours IS NOT NULL AND v_expires_hours <= 0 THEN
+    v_expires_hours := NULL;
+  END IF;
   v_learning_window_days := COALESCE((v_cfg->>'learning_window_days')::INT, 14);
   v_prioritize_emails    := COALESCE(
                               ARRAY(SELECT jsonb_array_elements_text(v_cfg->'prioritize_emails')),
@@ -30968,3 +31054,132 @@ END; $function$;
 -- Cron-only generator; anon/authenticated explicitly locked out (see above).
 REVOKE EXECUTE ON FUNCTION public.fn_accreditation_narrative_reminders(integer, integer) FROM anon, PUBLIC, authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_accreditation_narrative_reminders(integer, integer) TO service_role;
+
+-- --------------------------------------------------------------------------------
+-- 5. fn_generate_hr_command_center_brief_items --- 36h TTL on the daily HR brief
+-- --------------------------------------------------------------------------------
+-- Added 2026-08-09 in review: the first cut of this migration backfilled
+-- dashboard:hr_brief but left its generator alone, so 34 of the Director's 35
+-- rows would have lapsed and then ~1 unexpiring row per recipient per day would
+-- have started accruing again (860 rows since 2026-04-28, newest today). Same
+-- shape as the digest: key is 'hr_brief:<user>:<YYYY-MM-DD>', body is a snapshot
+-- of TODAY's pending-leave / recruitment / holiday counts, re-emitted every day
+-- by the hourly /api/cron/dashboard-work-items sweep. 36h = 1.5x that daily
+-- re-key, so a skipped day still leaves one live row.
+--
+-- Body captured VERBATIM from production pg_get_functiondef 2026-08-09; the only
+-- edit is the ninth argument on the fn_create_dashboard_work_item call.
+CREATE OR REPLACE FUNCTION public.fn_generate_hr_command_center_brief_items()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_created INT := 0;
+  v_user RECORD;
+  v_today TEXT := TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD');
+  v_key TEXT;
+  v_pending_leaves INT;
+  v_active_recruitment INT;
+  v_todays_holidays INT;
+  v_staff_on_leave INT;
+  v_total INT;
+  v_priority TEXT;
+  v_title TEXT;
+  v_body TEXT;
+  v_signal_parts TEXT[];
+BEGIN
+  -- Aggregate metrics ONCE (institution-wide, same as previous version)
+  SELECT COUNT(*) INTO v_pending_leaves
+  FROM hr_leave_applications la
+  WHERE la.status = 'pending'
+    AND la.created_at < NOW() - INTERVAL '24 hours'
+    AND la.created_at > NOW() - INTERVAL '30 days'
+    AND la.superseded_by IS NULL;
+
+  SELECT COUNT(*) INTO v_active_recruitment
+  FROM hr_recruitment_candidates
+  WHERE status IN ('pending_approval', 'in_process', 'submitted')
+    AND COALESCE(submitted_at, created_at) > NOW() - INTERVAL '30 days';
+
+  SELECT COUNT(*) INTO v_todays_holidays
+  FROM institution_leaves
+  WHERE CURRENT_DATE BETWEEN start_date AND end_date
+    AND status IN ('approved', 'active');
+
+  SELECT COUNT(*) INTO v_staff_on_leave
+  FROM hr_leave_applications
+  WHERE status = 'approved'
+    AND CURRENT_DATE BETWEEN start_date AND end_date
+    AND superseded_by IS NULL;
+
+  v_total := v_pending_leaves + v_active_recruitment + v_todays_holidays + v_staff_on_leave;
+
+  IF v_total = 0 THEN
+    RETURN 0;
+  END IF;
+
+  v_signal_parts := ARRAY[]::TEXT[];
+  IF v_pending_leaves > 0 THEN
+    v_signal_parts := v_signal_parts || (v_pending_leaves || ' pending leave(s)');
+  END IF;
+  IF v_active_recruitment > 0 THEN
+    v_signal_parts := v_signal_parts || (v_active_recruitment || ' active recruitment');
+  END IF;
+  IF v_todays_holidays > 0 THEN
+    v_signal_parts := v_signal_parts || (v_todays_holidays || ' holiday today');
+  END IF;
+  IF v_staff_on_leave > 0 THEN
+    v_signal_parts := v_signal_parts || (v_staff_on_leave || ' staff on leave today');
+  END IF;
+
+  v_priority := CASE
+    WHEN v_pending_leaves >= 5 OR v_todays_holidays > 0 THEN 'high'
+    ELSE 'normal'
+  END;
+
+  v_title := 'HR brief — ' || array_to_string(v_signal_parts, ', ');
+  v_body := 'Daily HR Command Center summary: ' || array_to_string(v_signal_parts, ', ') || '. Open /hr for full breakdown across institutions.';
+
+  -- Fan out via config-driven recipient set
+  FOR v_user IN SELECT user_id FROM get_digest_recipients('hr_command_brief')
+  LOOP
+    v_key := 'hr_brief:' || v_user.user_id::text || ':' || v_today;
+
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:hr_brief',
+      v_priority,
+      v_title,
+      v_body,
+      jsonb_build_object(
+        'url', '/hr',
+        'digest', true,
+        'pending_leaves', v_pending_leaves,
+        'active_recruitment', v_active_recruitment,
+        'todays_holidays', v_todays_holidays,
+        'staff_on_leave', v_staff_on_leave,
+        'total', v_total
+      ),
+      v_user.user_id,
+      v_key,
+      20,
+      36); -- 2026-08-09 expiry: 36h, 1.5x the daily re-key
+  END LOOP;
+
+  RETURN v_created;
+END
+$function$;
+
+-- ACL note: unlike the other four, this function's production ACL includes
+-- `authenticated=X` -- and that grant is DELIBERATE, written by hand in
+-- supabase/migrations/20260428_hr_command_center_brief_digest.sql line 186, not
+-- a Supabase default. It is preserved here rather than quietly tightened: this
+-- migration is about expiry, and revoking a standing grant belongs in its own
+-- change with its own caller sweep. anon/PUBLIC are still explicitly revoked --
+-- Supabase's ALTER DEFAULT PRIVILEGES would otherwise hand anon EXECUTE.
+-- (Flagged for follow-up: a SECURITY DEFINER generator callable by every logged-in
+-- user can be fired to fan out notifications; worth a separate look.)
+REVOKE EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() TO service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() TO authenticated;
