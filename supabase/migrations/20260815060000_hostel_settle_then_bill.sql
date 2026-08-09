@@ -918,6 +918,11 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  IF NOT fn_settle_can_manage(p_room_id, 'campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
   SELECT * INTO v_window
   FROM hostel_room_settle_windows w
   WHERE w.room_id = p_room_id AND w.status = 'billed'
