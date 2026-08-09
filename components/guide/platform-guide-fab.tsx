@@ -227,9 +227,18 @@ export function PlatformGuideFab({
           "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           // Retract out of the way of the left-aligned card controls underneath
           // while the user scrolls down (mobile only — see the variant's note in
-          // tailwind.config.ts). `pointer-events-none` is the load-bearing half:
-          // it stops the FAB swallowing a tap meant for ✓ Approve even mid-fade.
-          "scrolling-down:pointer-events-none scrolling-down:opacity-0"
+          // tailwind.config.ts). All three utilities are load-bearing:
+          //   pointer-events-none  applies instantly (not transitionable), so
+          //     the FAB stops swallowing a tap meant for ✓ Approve at the START
+          //     of the fade rather than at the end of it.
+          //   opacity-0            the visible retract, over `duration-200`.
+          //   invisible            takes the button out of the tab order and the
+          //     a11y tree. opacity alone leaves a keyboard/AT user on a narrow
+          //     (<1024px) viewport able to Tab to — and activate with Enter — an
+          //     invisible Help button. `visibility` transitions discretely and
+          //     stays `visible` while either endpoint is, so the fade-out still
+          //     plays in full and the fade-in reveals immediately.
+          "scrolling-down:pointer-events-none scrolling-down:opacity-0 scrolling-down:invisible"
         )}
       >
         <HelpCircle className="size-5 shrink-0" />
