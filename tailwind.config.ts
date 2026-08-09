@@ -188,6 +188,36 @@ const config: Config = {
         'modal-open',
         'body[data-scroll-locked]:has([role$="dialog"][data-state="open"]) &'
       );
+    }),
+    // `scrolling-down:` — sibling of `modal-open:`. Matches while the user is
+    // scrolling DOWN the page on a mobile-width viewport, so the floating stack
+    // can retract out of the way of the content it is parked over.
+    //
+    // Why a retract is the fix, and not a nudge: the Help FAB is
+    // `fixed left-4` and 48px wide (x ∈ [16,64]); a Decision Queue action row's
+    // first button starts at x = 24 (8px dashboard `px-2` + 16px card `p-4`,
+    // and <main> has no horizontal padding below `lg`). So the FAB covers the
+    // leading 40px of ✓ Approve / 🔥 Claim rescue / Acknowledge whenever that
+    // row scrolls into its band. The inert gutter is 24px and an accessible
+    // touch target is 44px, so nothing tappable fits beside the content — a
+    // fixed control over a scrolling list of left-aligned controls always
+    // collides with one eventually. Time, not space, is the only lever.
+    //
+    // `data-scrolling-down` is set by hooks/use-floating-stack-retract.ts
+    // (one passive rAF-throttled scroll listener; direction-aware, so the FAB
+    // stays out of the way after a downward scroll settles — which is the whole
+    // point, that is when the tap lands — and returns on any scroll up).
+    //
+    // The media query is baked into the variant rather than left to a stacked
+    // `max-lg:` so it can never be applied where it would be wrong. At `lg`+
+    // <main> carries `lg:ml-72`, so the FAB sits over the sidebar and never
+    // over content; there is no collision to solve there, and hiding a help
+    // button a keyboard user may be tabbing toward would be a regression. The
+    // query mirrors Tailwind's own `max-lg` exactly.
+    plugin(({ addVariant }) => {
+      addVariant('scrolling-down', [
+        '@media not all and (min-width: 1024px) { body[data-scrolling-down] & }'
+      ]);
     })
   ]
 };

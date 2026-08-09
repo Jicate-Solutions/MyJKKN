@@ -38,6 +38,7 @@ import {
   laneProgress,
 } from "@/lib/guide/types";
 import { useGuideProgress } from "@/lib/guide/use-progress";
+import { useFloatingStackRetract } from "@/hooks/use-floating-stack-retract";
 import { GuideDrawer } from "@/components/guide/guide-drawer";
 import { pickGuideLane } from "@/lib/guide/pick-lane";
 import { matchModuleRoute } from "@/lib/guide/route-map";
@@ -196,8 +197,21 @@ export function PlatformGuideFab({
   const [hydrated, setHydrated] = React.useState(false);
   React.useEffect(() => setHydrated(true), []);
 
+  const visible = hydrated && !isHiddenRoute(pathname);
+
+  // ── Retract while scrolling down (mobile only) ──
+  // This FAB is `fixed left-4`, i.e. parked in the same 48px-wide column that
+  // the FIRST button of every Decision Queue action row occupies (that button
+  // starts at x = 24 on mobile), so it covers the leading edge of ✓ Approve /
+  // 🔥 Claim rescue / Acknowledge on whichever card has scrolled into its band.
+  // Sets body[data-scrolling-down], which the `scrolling-down:` classes below
+  // key off. Gated on `visible` so hidden routes don't attach a listener, and
+  // keyed on `pathname` so navigating away never strands it retracted.
+  // Hooks must run before the early return, so this sits above it.
+  useFloatingStackRetract(visible, pathname);
+
   // Early return AFTER all hooks (invariant: hooks before returns).
-  if (!hydrated || isHiddenRoute(pathname)) return null;
+  if (!visible) return null;
 
   return (
     <>
@@ -210,7 +224,12 @@ export function PlatformGuideFab({
         aria-label={remaining > 0 ? `Help — ${remaining} setup steps left` : "Help"}
         className={cx(
           "group fixed bottom-nav-safe left-4 right-auto z-40 lg:bottom-4 flex items-center gap-2 rounded-full bg-primary px-3.5 py-3 text-primary-foreground shadow-lg",
-          "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          // Retract out of the way of the left-aligned card controls underneath
+          // while the user scrolls down (mobile only — see the variant's note in
+          // tailwind.config.ts). `pointer-events-none` is the load-bearing half:
+          // it stops the FAB swallowing a tap meant for ✓ Approve even mid-fade.
+          "scrolling-down:pointer-events-none scrolling-down:opacity-0"
         )}
       >
         <HelpCircle className="size-5 shrink-0" />
