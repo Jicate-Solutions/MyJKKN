@@ -304,7 +304,11 @@ async function findTargetUsers(
     targeting.target_roles && targeting.target_roles.length > 0;
   const hasAudienceTargeting = audienceUserIds.size > 0;
 
-  // If ONLY audiences are specified, return those directly
+  // If ONLY audiences are specified, return those directly.
+  // No is_active filter is applied to audience-resolved ids here on purpose:
+  // resolve_audience already applies the is_active gate inside the SECURITY
+  // DEFINER function (verified against prod pg_proc 2026-08-09). Re-filtering
+  // in TS would mean two sources of truth for the same rule.
   if (hasAudienceTargeting && !hasLocationTargeting && !hasRoleTargeting) {
     return { userIds: Array.from(audienceUserIds), failedAudiences };
   }
@@ -357,10 +361,17 @@ async function findTargetUsers(
     !targeting.semester_id &&
     !targeting.section_id
   ) {
+    // is_active is mandatory here for the same reason it is on the "all users"
+    // and role-only branches above: deactivated accounts (alumni, ex-staff)
+    // must never receive a notification. This branch omitted it until
+    // 2026-08-09, so institution-targeted sends reached 825 deactivated
+    // profiles cluster-wide. profiles.is_active is NOT NULL in practice
+    // (0 NULL rows on prod), so .eq(true) == "not deactivated".
     let query = supabase
       .from('profiles')
       .select('id')
-      .in('institution_id', institutionIds);
+      .in('institution_id', institutionIds)
+      .eq('is_active', true);
 
     // Add role filtering if specified
     if (hasRoleTargeting) {
@@ -380,6 +391,9 @@ async function findTargetUsers(
     // Super admins have institution_id = null, so they're excluded by the
     // institution filter above. Always include them when super_admin is
     // in the target roles, since they oversee all institutions.
+    // The INSTITUTION filter is deliberately absent here — that is the whole
+    // point of the top-up. The is_active filter is NOT optional though: a
+    // deactivated super admin is still a deactivated account.
     if (
       hasRoleTargeting &&
       targeting.target_roles.includes('super_admin')
@@ -388,6 +402,7 @@ async function findTargetUsers(
         .from('profiles')
         .select('id')
         .eq('role', 'super_admin')
+        .eq('is_active', true)
         .is('institution_id', null);
 
       if (superAdmins) {
@@ -455,10 +470,16 @@ async function findTargetUsers(
         // Previously this query ignored target_roles entirely, so "department
         // CSE + target_roles=['faculty']" returned all CSE students instead
         // of zero — exactly the wrong audience.
+        //
+        // is_active is applied on the profiles side (not learners_profiles)
+        // because profiles.is_active is the single account-level gate every
+        // other branch uses. 375 learner rows on prod resolve to a
+        // deactivated profile and were being notified before 2026-08-09.
         let profileQuery = supabase
           .from('profiles')
           .select('id')
-          .in('email', emails);
+          .in('email', emails)
+          .eq('is_active', true);
 
         if (hasRoleTargeting) {
           profileQuery = profileQuery.in('role', targeting.target_roles);
@@ -479,7 +500,9 @@ async function findTargetUsers(
 
   const userIds: string[] = [...studentIds];
 
-  // Include super_admins when targeted (they have null institution_id)
+  // Include super_admins when targeted (they have null institution_id).
+  // Same rationale as the top-up in the institution-only branch: no
+  // institution filter by design, but is_active still applies.
   if (
     hasRoleTargeting &&
     targeting.target_roles.includes('super_admin')
@@ -488,6 +511,7 @@ async function findTargetUsers(
       .from('profiles')
       .select('id')
       .eq('role', 'super_admin')
+      .eq('is_active', true)
       .is('institution_id', null);
 
     if (superAdmins) {
