@@ -432,7 +432,7 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 5. fn_settle_window_open — open, or restart, the room's settle window.
