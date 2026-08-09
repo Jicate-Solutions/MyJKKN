@@ -43,7 +43,7 @@ const indicatorSpring = {
 // the badge count rendered inside the button stays part of that name.
 //
 // Do not "helpfully" add aria-label={label} back. It breaks both of those:
-// 5 of the 19 short forms below are not substrings of their full name at all
+// 6 of the 19 short forms below are not substrings of their full name at all
 // ("Users" is not inside "User Management", "Purchase" is not inside
 // "Procurement"), and 8 fail the whole-word match speech engines actually do —
 // so the visible word would stop working as a voice command. An aria-label
@@ -61,7 +61,10 @@ const STRIP_SHORT_LABELS: Record<string, string> = {
   'Service Requests': 'Requests',
   'Audit Workflow': 'Audit',
   'Campus Living': 'Campus',
-  'Accreditation': 'Accredit',
+  // "Quality", not "Accredit": a tab is named after the section it opens, and
+  // "Accredit" is a verb, not the name of anything. Chosen wording, not a
+  // truncation — do not shorten it back to a clipped form of "Accreditation".
+  'Accreditation': 'Quality',
   'Administration': 'Admin',
   'Organization': 'Org',
   'Solution Hub': 'Solutions',
