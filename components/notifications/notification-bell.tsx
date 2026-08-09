@@ -76,13 +76,22 @@ export function NotificationBell() {
   // the bell only ever holds the newest UNREAD_PREVIEW_LIMIT (5) unread rows, so
   // the burial happens in the API's ORDER BY created_at DESC LIMIT 5, not at
   // render time — folding those 5 by category cannot fetch the row that was
-  // never returned, it can only delete one that was. Modelled over production
-  // (2026-08-09): 4,352 of 7,152 users with unread mail would lose at least one
-  // distinct preview row and 2,958 would see the bell collapse to a SINGLE row —
-  // 14,010 distinct rows destroyed cluster-wide. Concrete case (user 020c6373):
+  // never returned, it can only delete one that was.
+  //
+  // Modelled read-only against production on 2026-08-09 — both folds in the
+  // order the reverted revision ran them (collapseDuplicates then
+  // collapseByCategory, MIN_STACK = 3) over each user's newest 5 unread,
+  // non-expired rows, compared against the duplicate fold alone (what ships):
+  // of 7,151 users with unread mail, 4,353 would lose at least one distinct
+  // preview row and 2,957 would see the bell collapse to a SINGLE row — 14,008
+  // distinct rows destroyed cluster-wide. Live unread state moves, so re-running
+  // this drifts by a row or two; the shape does not.
+  //
+  // Concrete case, still true when re-checked on 2026-08-09 (user 020c6373):
   // five different programmes, all category 'dashboard:anomaly', all
-  // "Attendance not marked today — <programme>" — folded to one row showing ONE
-  // programme's title with a ×5 badge, the other four unreachable.
+  // "Attendance not marked today — <programme>", none carrying a metadata.event
+  // — so the duplicate fold cannot touch them and the category fold folded all
+  // five to ONE row showing ONE programme's title, the other four unreachable.
   //
   // Making that panel honest needs a GLOBAL per-category tally, which this
   // component does not have. GET /api/notifications already returns one
