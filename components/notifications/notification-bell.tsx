@@ -230,15 +230,14 @@ export function NotificationBell() {
     </div>
   );
 
-  // The compact header STACKS. Side-by-side, the two labelled buttons occupy a
-  // fixed ~171px inside a sheet that also reserves pr-12 for SheetContent's own
-  // close button, so the title and the "{n} new" badge painted straight over
-  // them — reintroducing the cramped-unreadable defect this PR exists to fix.
-  // Reproduced in Chrome with 636 unread: "636 new" and "Mark read" were
-  // superimposed at 299px and 320px and touching at 375px
-  // (.screenshots/bell-header-BEFORE-collision-299-320-375-390.png). Two rows
-  // cost ~24px of height and collide at no width. The title truncates too, so a
-  // long count can never push the badge out.
+  // The compact header STACKS. This guards a regression introduced EARLIER IN
+  // THIS PR, not a defect on main: main's compact header has icon-only actions
+  // and does not collide. Once the compact branch gave those buttons visible
+  // text ("Mark read" / "Clear") they occupied a fixed ~171px on one row inside
+  // a sheet that also reserves pr-12 for SheetContent's own close button, and
+  // the title plus the "{n} new" badge painted straight over them at 299px and
+  // 320px. Two rows cost ~24px of height and collide at no width. The title
+  // truncates too, so a long count can never push the badge out.
   const renderHeader = (TitleTag: React.ElementType) => (
     <div
       className={cn(
