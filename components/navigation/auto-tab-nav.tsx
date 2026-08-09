@@ -94,10 +94,16 @@ function TabBar({ chips, adapt }: TabBarProps) {
     const el = containerRef.current;
     if (!el) return;
     const maxScroll = el.scrollWidth - el.clientWidth;
-    setHidden({
-      start: el.scrollLeft > 1,
-      end: maxScroll > 1 && el.scrollLeft < maxScroll - 1,
-    });
+    const start = el.scrollLeft > 1;
+    const end = maxScroll > 1 && el.scrollLeft < maxScroll - 1;
+    // `scroll` fires on every frame of a swipe. Passing a fresh object literal
+    // to setHidden defeats React's Object.is bailout — a new object is never
+    // Object.is-equal to the old one — so the whole strip would re-render on
+    // each of those frames even though the two booleans almost never change.
+    // Keep the previous object unless a boolean actually flipped.
+    setHidden((prev) =>
+      prev.start === start && prev.end === end ? prev : { start, end }
+    );
   }, []);
 
   // Mobile-first: the chip strip is a single horizontal-scroll row (< md).
