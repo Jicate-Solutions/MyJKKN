@@ -63,7 +63,10 @@ const AUDIT_WINDOW_HOURS = 26; // audit sweep window: this cron's own daily cade
 // routine's own dispatcher row (staleThresholdMs over its days_of_week), because
 // that schedule is editable on /admin/ai-routines with no deploy: a literal 36h
 // would silently invert the moment someone slowed the cadence down.
-const TTL_CYCLE_MULTIPLIER = 1.5; // 1.5x the cadence: a skipped run still leaves one live row
+// 1.5x the cadence absorbs a LATE run, not a fully skipped cycle (that would
+// need >= 2x). Moot for this routine in practice: the 7-day floor below
+// dominates 1.5x a daily cadence, so the effective TTL is 7 days either way.
+const TTL_CYCLE_MULTIPLIER = 1.5;
 // FLOOR, and the reason this routine is not just `cycle * 1.5`: loop-watchdog
 // exists so that silence does not look like health, and it is itself
 // dispatcher-run. If the dispatcher dies, no new edition is emitted — so a

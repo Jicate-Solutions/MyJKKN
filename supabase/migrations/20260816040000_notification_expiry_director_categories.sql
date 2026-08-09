@@ -5,10 +5,15 @@
 -- Created: 2026-08-09
 -- Bodies below were captured VERBATIM from production `pg_get_functiondef`
 --   (project kvizhngldtiuufknvehv, 2026-08-09) and edited ONLY at the lines
---   marked `-- 2026-08-09 expiry:`, plus exactly ONE non-expiry edit, marked
---   `-- 2026-08-09 REVIVAL:`, in fn_generate_super_admin_daily_digest. See the
---   ORDERING WARNING on section 2 — shipping the broken body verbatim would have
---   made this file a time bomb that silently reverts whoever fixes it first.
+--   marked `-- 2026-08-09 expiry:`, plus exactly TWO non-expiry edits, both in
+--   fn_generate_super_admin_daily_digest and both marked:
+--     `-- 2026-08-09 REVIVAL:`     one executable line (see the ORDERING WARNING
+--                                  on section 2 — shipping the broken body
+--                                  verbatim would have made this file a time bomb
+--                                  that silently reverts whoever fixes it first).
+--     `-- 2026-08-09 COMMENT FIX:` comment only, no executable line. Deletes a
+--                                  carried-in note that misdescribed the
+--                                  ai_pulse_policies columns in both directions.
 --
 -- FILE ONLY / NOT APPLIED BY THIS PR. Applying is Director-gated.
 --
@@ -19,9 +24,19 @@
 -- is a blanket `supabase db push`: it applies EVERY pending migration in version
 -- order, not just this one. The local ledger is diverged, so that run would also
 -- drag in 20260803080000_backfill_expire_stale_broadcast_notifications.sql (an
--- earlier unapplied 'DO NOT AUTO-APPLY' backfill) and whatever else is pending --
--- including the companion 20260816040100 backfill, which is Director-gated on its
--- own. The 'DO NOT AUTO-APPLY' banners in these files are comments, not gates.
+-- earlier unapplied 'DO NOT AUTO-APPLY' backfill whose data UPDATE has no guard
+-- of any kind) and whatever else is pending.
+--
+-- THIS FILE IS NOT GUARDED. Its statements are one DROP FUNCTION and five
+-- CREATE OR REPLACE FUNCTIONs, so a blanket push WOULD apply them. The companion
+-- data backfill 20260816040100 IS guarded (its UPDATE no-ops unless
+-- myjkkn.apply_backfill='yes'), so a blanket push cannot silently stamp those
+-- 44,855 rows -- but it CAN apply the function bodies here, and one of those
+-- bodies revives fn_generate_super_admin_daily_digest, dead since 2026-05-08.
+-- That restarts a daily emitter with no sign-off: measured inside BEGIN..ROLLBACK
+-- on 2026-08-09 the revived function creates 129 rows for one day (each with a
+-- 36h TTL); while it was last alive it averaged 46-49 rows/day. Treat this file
+-- as Director-gated on that basis, not on the banner.
 --
 -- To apply THIS file alone, hand-run its contents once via Supabase Studio's SQL
 -- editor (or the Management API) against project kvizhngldtiuufknvehv, then record
@@ -72,9 +87,13 @@
 --     deliberately more generous than the generator's own declared intent.
 --     NOTE: this one does NOT satisfy the "same fact re-announced" rule -- see
 --     the long note on section 3 for the justification it stands on instead, and
---     for the config key that switches it off without a deploy. FORWARD-ONLY:
---     the companion backfill deliberately leaves all 43,064 existing rows of this
---     category untouched.
+--     for the config key that switches it off without a deploy. THIS FILE is
+--     forward-only: it changes nothing about rows that already exist. The
+--     existing 42,772 per-timetable rows are expired by the companion backfill
+--     20260816040100 under an explicit Director decision recorded in that file's
+--     header -- the Director was shown, and accepted, that afterwards those
+--     ~42.5K historical unmarked sessions are visible nowhere in the product
+--     except /notifications/admin.
 --   * accreditation narrative nudge + escalation. Keys are
 --     'accred_narr_nudge:<narrative>:<YYYY-MM-DD>' and 'accred_narr_esc:...'.
 --     Measured on production: the Director's 187 unread accreditation rows
@@ -99,9 +118,16 @@
 --     'accreditation-narrative-capout-cron') --- one row per narrative, not
 --     re-emitted. Genuine.
 --
--- Why 36h and not 24h: these are all daily emitters. 36h is 1.5x the cycle, so a
--- single skipped cron run still leaves one live row in the bell, while the stack
--- is capped at 2 instead of growing without bound.
+-- Why 36h and not 24h: these are all daily emitters, so 24h leaves no margin at
+-- all -- the row dies at the same moment its replacement is due, and any slip
+-- empties the bell. 36h is 1.5x the cycle, which buys tolerance of a LATE run
+-- (up to 12h of slip still overlaps the previous row) while capping the stack at
+-- 2 instead of letting it grow without bound. It does NOT cover a fully SKIPPED
+-- day: successful emissions would then be 48h apart while the surviving row dies
+-- at 36h, leaving a ~12h window with no live row. Surviving a skipped day needs
+-- >= 2x the cycle. The accepted consequence is a bounded, at-most-12h under-count
+-- of the badge on a day the cron did not run at all; the underlying work always
+-- lives in a queue page, not in the notification.
 --
 -- Why a LITERAL 36 is safe here but not in the loop crons (review, 2026-08-09).
 -- A hardcoded TTL is only sound while it cannot be silently outrun by a cadence
@@ -239,9 +265,12 @@ GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,te
 -- supabase/setup/02_functions.sql.
 --
 -- CONSEQUENCE OF APPLYING THIS FILE: the super-admin daily digest starts
--- producing rows again (~129 on the day measured, all with a 36h TTL). That is
--- the intended repair, but it is a behaviour change on top of the TTL work and
--- the Director should be told it is in the same apply.
+-- producing rows again every day -- 129 for the day measured 2026-08-09, and it
+-- averaged 46-49/day over its last fortnight alive (2026-04-25..2026-05-08), all
+-- with a 36h TTL. That is the intended repair, but it is a behaviour change on
+-- top of the TTL work and the Director should be told it is in the same apply.
+-- It also cannot be rolled back independently of the TTL work: both live in this
+-- one CREATE OR REPLACE.
 CREATE OR REPLACE FUNCTION public.fn_generate_super_admin_daily_digest()
  RETURNS integer
  LANGUAGE plpgsql
@@ -480,9 +509,15 @@ BEGIN
         CONTINUE;
       END IF;
 
-      -- NOTE: column-name mismatch — function queries policy_key/value but
-      -- ai_pulse_policies actual columns are config_key/value_jsonb. Will silently
-      -- fail at runtime; needs follow-up PR to correct. Defaults below kick in.
+      -- 2026-08-09 COMMENT FIX: the note that stood here claimed this block
+      -- "queries policy_key/value" while the real columns are
+      -- config_key/value_jsonb, and would "silently fail at runtime". Both halves
+      -- were wrong. Verified on production 2026-08-09: ai_pulse_policies HAS
+      -- config_key, value_jsonb and is_active, which is exactly what the two
+      -- SELECTs below use -- so the code is correct; and an undefined column
+      -- would raise 42703, not fail silently. The note was carried in from the
+      -- captured body and caused a review panel to raise a false HIGH, so it is
+      -- deleted rather than reproduced. No executable line changed here.
       SELECT COALESCE(
         (SELECT (value_jsonb->>'value')::int
          FROM ai_pulse_policies
@@ -653,8 +688,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_generate_super_admin_daily_digest() TO serv
 -- CURRENT_DATE-only, so there is no other in-app surface for history.
 -- It is therefore REVERSIBLE WITHOUT A DEPLOY: set the generator config key
 -- unmarked_attendance.expires_hours to 0 and rows stop expiring (0 maps to NULL
--- below). The companion backfill deliberately does NOT touch the 42.5K historical
--- rows of this category -- that is a Director decision, not a code one.
+-- below). The 42,772 historical rows of this category are a separate question,
+-- and it was decided by the Director on 2026-08-09, not by code: expire them,
+-- accepting that afterwards they are visible nowhere in the product but
+-- /notifications/admin. The companion backfill 20260816040100 carries that
+-- decision and its full wording.
 CREATE OR REPLACE FUNCTION public.fn_generate_unmarked_attendance_items()
  RETURNS integer
  LANGUAGE plpgsql
@@ -872,7 +910,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_accreditation_narrative_reminders(integer, 
 -- shape as the digest: key is 'hr_brief:<user>:<YYYY-MM-DD>', body is a snapshot
 -- of TODAY's pending-leave / recruitment / holiday counts, re-emitted every day
 -- by the hourly /api/cron/dashboard-work-items sweep. 36h = 1.5x that daily
--- re-key, so a skipped day still leaves one live row.
+-- re-key: it absorbs a late run, not a fully skipped day (see the "Why 36h and
+-- not 24h" note in the file header).
 --
 -- Body captured VERBATIM from production pg_get_functiondef 2026-08-09; the only
 -- edit is the ninth argument on the fn_create_dashboard_work_item call.

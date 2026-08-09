@@ -63,7 +63,13 @@ import { findingsFingerprint, staleThresholdMs } from '@/lib/ai-routines/loop-go
 // schedule lives in ai_routine_schedules and is editable on /admin/ai-routines
 // with no deploy, so a hardcoded 36h would silently invert the safety margin the
 // moment someone slowed the cadence down.
-const TTL_CYCLE_MULTIPLIER = 1.5; // a skipped run still leaves one live row
+// 1.5x absorbs a LATE run (up to half a cycle of slip still overlaps the
+// previous row) and caps the stack at 2. It does NOT cover a fully skipped
+// cycle: emissions would then be 2 cycles apart while the surviving row dies at
+// 1.5, leaving a half-cycle window with no live row. Accepted — the cost is a
+// bounded under-count of the bell on a day the routine did not run at all, and
+// the findings themselves live on /admin/ai-routines, not in the notification.
+const TTL_CYCLE_MULTIPLIER = 1.5;
 const OWN_ROUTINE_ID = 'loop-adherence';
 
 // SWEEP A: >= 2 consecutive most-recent missed beats = a pattern worth paging.
@@ -311,8 +317,9 @@ export async function GET(request: NextRequest) {
       // still-quiet desk pages again next cycle under a new istDay. Without an
       // expiry every edition stayed unread forever (25 of the Director's 680).
       // TTL = own cadence x 1.5, read from this routine's dispatcher row rather
-      // than hardcoded (today: daily -> 25h x 1.5 = 37.5h), so a skipped run
-      // still leaves one live row while the stack stays capped at 2, AND the
+      // than hardcoded (today: daily -> 25h x 1.5 = 37.5h). That absorbs a LATE
+      // run and caps the stack at 2; it does NOT cover a fully skipped cycle
+      // (see TTL_CYCLE_MULTIPLIER above). The point of deriving it is that the
       // margin follows a cadence edit made on /admin/ai-routines with no deploy.
       // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
       // admin/manage/stats reads deliberately still show lapsed rows.

@@ -30431,10 +30431,11 @@ GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,te
 -- re-add `se.event_type`. The same warning sits above the same function in
 -- supabase/setup/02_functions.sql.
 --
--- CONSEQUENCE OF APPLYING THIS FILE: the super-admin daily digest starts
--- producing rows again (~129 on the day measured, all with a 36h TTL). That is
--- the intended repair, but it is a behaviour change on top of the TTL work and
--- the Director should be told it is in the same apply.
+-- CONSEQUENCE OF APPLYING THIS DEFINITION: the super-admin daily digest starts
+-- producing rows again every day -- 129 for the day measured 2026-08-09, and it
+-- averaged 46-49/day over its last fortnight alive (2026-04-25..2026-05-08), all
+-- with a 36h TTL. That is the intended repair, but it is a behaviour change on
+-- top of the TTL work and the Director should be told it is in the same apply.
 CREATE OR REPLACE FUNCTION public.fn_generate_super_admin_daily_digest()
  RETURNS integer
  LANGUAGE plpgsql
@@ -30673,9 +30674,15 @@ BEGIN
         CONTINUE;
       END IF;
 
-      -- NOTE: column-name mismatch — function queries policy_key/value but
-      -- ai_pulse_policies actual columns are config_key/value_jsonb. Will silently
-      -- fail at runtime; needs follow-up PR to correct. Defaults below kick in.
+      -- 2026-08-09 COMMENT FIX: the note that stood here claimed this block
+      -- "queries policy_key/value" while the real columns are
+      -- config_key/value_jsonb, and would "silently fail at runtime". Both halves
+      -- were wrong. Verified on production 2026-08-09: ai_pulse_policies HAS
+      -- config_key, value_jsonb and is_active, which is exactly what the two
+      -- SELECTs below use -- so the code is correct; and an undefined column
+      -- would raise 42703, not fail silently. The note was carried in from the
+      -- captured body and caused a review panel to raise a false HIGH, so it is
+      -- deleted rather than reproduced. No executable line changed here.
       SELECT COALESCE(
         (SELECT (value_jsonb->>'value')::int
          FROM ai_pulse_policies
@@ -30846,8 +30853,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_generate_super_admin_daily_digest() TO serv
 -- CURRENT_DATE-only, so there is no other in-app surface for history.
 -- It is therefore REVERSIBLE WITHOUT A DEPLOY: set the generator config key
 -- unmarked_attendance.expires_hours to 0 and rows stop expiring (0 maps to NULL
--- below). The companion backfill deliberately does NOT touch the 42.5K historical
--- rows of this category -- that is a Director decision, not a code one.
+-- below). The 42,772 historical rows of this category are a separate question,
+-- and it was decided by the Director on 2026-08-09, not by code: expire them,
+-- accepting that afterwards they are visible nowhere in the product but
+-- /notifications/admin. The backfill migration
+-- 20260816040100_backfill_expire_stale_notification_digests.sql carries that
+-- decision and its full wording.
 CREATE OR REPLACE FUNCTION public.fn_generate_unmarked_attendance_items()
  RETURNS integer
  LANGUAGE plpgsql
@@ -31065,7 +31076,8 @@ GRANT  EXECUTE ON FUNCTION public.fn_accreditation_narrative_reminders(integer, 
 -- shape as the digest: key is 'hr_brief:<user>:<YYYY-MM-DD>', body is a snapshot
 -- of TODAY's pending-leave / recruitment / holiday counts, re-emitted every day
 -- by the hourly /api/cron/dashboard-work-items sweep. 36h = 1.5x that daily
--- re-key, so a skipped day still leaves one live row.
+-- re-key: it absorbs a late run, not a fully skipped day (36h < the 48h gap a
+-- skipped day creates), which is a bounded at-most-12h under-count of the badge.
 --
 -- Body captured VERBATIM from production pg_get_functiondef 2026-08-09; the only
 -- edit is the ninth argument on the fn_create_dashboard_work_item call.
