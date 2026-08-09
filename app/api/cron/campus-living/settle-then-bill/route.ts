@@ -68,9 +68,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    if (summary.parity_mismatches > 0) {
-      logger.error(LOG, 'Fee parity mismatches in this sweep', {
-        parity_mismatches: summary.parity_mismatches,
+    if (summary.parity_aborts > 0) {
+      logger.error(LOG, 'Rooms aborted by the fee parity gate — nothing was billed for them', {
+        parity_aborts: summary.parity_aborts,
       });
     }
 
