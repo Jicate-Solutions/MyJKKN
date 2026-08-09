@@ -589,11 +589,53 @@ AS $$
       OR now() >= w.hard_deadline
       OR (occ.capacity > 0 AND occ.active_residents >= occ.capacity)
     )
+    -- Scoped: SECURITY DEFINER bypasses RLS, so without this the list would
+    -- leak every institution's rooms to any authenticated caller.
+    AND fn_settle_can_manage(w.room_id, 'campus_living.fees.view')
   ORDER BY w.current_deadline;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_window_due() FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_settle_window_due() TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_window_due() TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 6b. fn_settle_late_join_due — read-only. Which BILLED rooms owe a credit?
+--
+--     Rule 6 lives in a state fn_settle_window_due can never return: that
+--     function filters status='open', but a late join only matters once the
+--     window is 'billed'. Driving the credit pass off the close list would mean
+--     no sweep ever issues a credit. This is that missing list.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_late_join_due()
+RETURNS TABLE (
+  window_id            uuid,
+  room_id              uuid,
+  hostel_year_id       uuid,
+  billed_at            timestamptz,
+  occupants_at_billing int,
+  uncredited_joiners   int
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT w.id, w.room_id, w.hostel_year_id, w.billed_at, w.occupants_at_billing,
+         COUNT(al.id)::int
+  FROM hostel_room_settle_windows w
+  JOIN hostel_allocations al
+    ON al.room_id = w.room_id
+   AND al.check_out_date IS NULL
+   AND al.created_at > w.billed_at
+   AND NOT (al.id = ANY (w.credited_allocation_ids))
+  WHERE w.status = 'billed'
+    AND fn_settle_can_manage(w.room_id, 'campus_living.fees.view')
+  GROUP BY w.id, w.room_id, w.hostel_year_id, w.billed_at, w.occupants_at_billing
+  ORDER BY w.billed_at;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_due() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_due() TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 7. fn_settle_bill_close — the biller. Rule 5.
