@@ -68,12 +68,20 @@ function EmptyState({ filter }: { filter: QueueFilter }) {
         Inbox zero — no {label} items awaiting your action
       </div>
       {/* 2026-08-09 (mobile audit finding 05, moved here from PR #2941 so one
-          PR owns this file): the auto-escalation sentence was removed.
-          fn_dashboard_queue_escalate only picks up rows with
-          notifications.requires_acknowledgment = TRUE, and every item
-          fn_create_dashboard_work_item writes sets that to FALSE — so no work
-          item has ever been escalated, while items sat 107 days overdue on the
-          same screen. Restore the sentence when the RPC filter is fixed. */}
+          PR owns this file): the auto-escalation sentence was removed because
+          it promised something that was not happening — fn_dashboard_queue_escalate
+          required notifications.requires_acknowledgment = TRUE while
+          fn_create_dashboard_work_item writes FALSE, so no work item had ever
+          escalated even at 107 days overdue.
+
+          That filter was FIXED in production later the same day (migration
+          20260817000100, applied 2026-08-09 12:58 UTC). Escalation now runs —
+          but only for items created after dashboard_config.escalation_start_at,
+          because un-gating it against the existing backlog would have sent
+          9,087 items to one person. So the sentence is still not restored: it
+          would be true for new items and false for everything already in the
+          queue. Restore it once the pre-cutoff backlog is cleared, at which
+          point "auto-escalates after 2h" is true of every item on screen. */}
       <div className='mt-2 text-xs text-neutral-500 max-w-sm mx-auto leading-relaxed'>
         New items (approvals, escalations, cold-lead rescues, anomalies) will
         appear here.
