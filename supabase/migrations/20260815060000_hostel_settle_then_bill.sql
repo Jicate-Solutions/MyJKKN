@@ -1138,8 +1138,8 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 9. Apply-time asserts — the switch must be OFF and anon must be locked out.
