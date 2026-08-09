@@ -145,7 +145,9 @@ export function InstallPromptBanner() {
     <div
       role="dialog"
       aria-label="Install MyJKKN"
-      className="fixed bottom-4 left-4 right-4 md:bottom-6 md:right-6 md:left-auto md:max-w-sm bg-background border shadow-lg rounded-lg p-3 z-50"
+      // The bottom nav is `lg:hidden`, so the desktop offset has to wait for
+      // `lg` — at `md` the nav is still on screen.
+      className="fixed bottom-nav-safe lg:bottom-6 left-4 right-4 md:right-6 md:left-auto md:max-w-sm bg-background border shadow-lg rounded-lg p-3 z-50"
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">

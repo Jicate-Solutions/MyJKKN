@@ -13,6 +13,43 @@ const config: Config = {
       screens: {
         xs: '475px'
       },
+      // Clearance above the mobile bottom navigation.
+      //
+      // components/BottomNav/bottom-navbar.tsx is `fixed bottom-0` below the
+      // `lg` breakpoint (it is `lg:hidden`) and pads itself by
+      // env(safe-area-inset-bottom) so it clears the iOS home indicator. Its
+      // content strip measures ~4rem tall on a 387pt iPhone — the same figure
+      // hard-coded in components/attention-bar/realtime-listener.tsx.
+      //
+      // Anything `fixed` near the bottom of the screen must therefore sit at
+      // ~4rem + a gutter + the safe-area inset, or it lands on top of the nav
+      // (or behind it, if its z-index is below the nav's z-[80]).
+      //
+      //   bottom-nav-safe    first free line above the nav. Use for a lone
+      //                      floating element.
+      //   bottom-nav-safe-2  first slot of the right-edge floating column.
+      //   bottom-nav-safe-3  second slot (nav-safe-2 + 4rem: a 3rem control
+      //                      plus a 1rem gap).
+      //   bottom-nav-safe-4  third slot (nav-safe-3 + 4rem).
+      //
+      // The right-edge column is `nav-safe-2..4` because three controls mount
+      // together on every authenticated page (bug reporter, Director handover,
+      // work pulse) and must not overlap each other.
+      //
+      // Always pair these with an `lg:` offset — the nav does not exist at
+      // `lg` and above, so the element should return to its desktop position.
+      //
+      // Pixel values below assume env(safe-area-inset-bottom) = 34px, the iOS
+      // home-indicator inset. nav-safe / -2 / -3 reproduce exactly the 6.875rem
+      // / 8.5rem / 12.5rem literals they replace, so nothing moved on a notched
+      // phone; on a phone without an inset they now sit 34px lower, which is
+      // where they always should have been. nav-safe-4 is new.
+      spacing: {
+        'nav-safe': 'calc(4.75rem + env(safe-area-inset-bottom, 0px))', // 110px on iOS
+        'nav-safe-2': 'calc(6.375rem + env(safe-area-inset-bottom, 0px))', // 136px on iOS
+        'nav-safe-3': 'calc(10.375rem + env(safe-area-inset-bottom, 0px))', // 200px on iOS
+        'nav-safe-4': 'calc(14.375rem + env(safe-area-inset-bottom, 0px))' // 264px on iOS
+      },
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',

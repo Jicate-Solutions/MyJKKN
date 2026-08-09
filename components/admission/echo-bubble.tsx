@@ -199,7 +199,7 @@ export function EchoBubble() {
       {/* Expanded Mini Chat Panel */}
       {isExpanded && (
         <div
-          className="fixed bottom-20 right-4 w-80 bg-background border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          className="fixed bottom-nav-safe lg:bottom-20 right-4 w-80 bg-background border rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden"
           style={{ height: '480px' }}
         >
           {/* Panel Header */}
@@ -287,7 +287,7 @@ export function EchoBubble() {
           if (isExpanded) setActiveConversation(null);
         }}
         className={cn(
-          'fixed bottom-4 right-4 z-50 h-14 w-14 rounded-full shadow-lg flex items-center justify-center transition-all',
+          'fixed bottom-nav-safe lg:bottom-4 right-4 z-50 h-14 w-14 rounded-full shadow-lg flex items-center justify-center transition-all',
           'bg-primary text-primary-foreground hover:scale-105 active:scale-95',
           isExpanded && 'bg-muted text-muted-foreground'
         )}

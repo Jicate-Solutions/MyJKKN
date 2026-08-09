@@ -998,7 +998,7 @@ export function BugReporterWidget() {
             <Button
               onClick={handleOpenBugReport}
               disabled={isCapturingScreenshot}
-              className='fixed bottom-[8.5rem] right-4 lg:bottom-4 z-[95] bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget'
+              className='fixed bottom-nav-safe-2 right-4 lg:bottom-4 z-[95] bg-red-600 hover:bg-red-700 rounded-full w-12 h-12 p-0 shadow-lg hover:shadow-xl transition-all duration-200 bug-reporter-widget'
               variant='outline'
             >
               {isCapturingScreenshot ? (
