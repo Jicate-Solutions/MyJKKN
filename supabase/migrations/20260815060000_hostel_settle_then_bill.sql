@@ -271,6 +271,81 @@ ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000
 DO NOTHING;
 
 -- ----------------------------------------------------------------------------
+-- 3b. fn_settle_can_manage — the authorization gate for everything below.
+--
+--     A SECURITY DEFINER function bypasses RLS, so the table policies above
+--     protect nothing once these functions are granted. Without an explicit
+--     guard inside each one, any logged-in learner in any tenant could call
+--     fn_settle_bill_close('<any room uuid>', false) and bill a whole room, or
+--     fn_settle_late_join_credit and mint credit rows. Each writer therefore
+--     re-checks permission AND institution access for itself.
+--
+--     auth.uid() IS NULL means there is no user session — that is the cron on
+--     the service-role client. It cannot be anon: anon holds EXECUTE on nothing
+--     in this file and is revoked explicitly, with an apply-time assert.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_can_manage(
+  p_room_id    uuid,
+  p_permission text DEFAULT 'campus_living.fees.config'
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_institution_id uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN true;  -- service-role cron
+  END IF;
+
+  IF is_super_admin() OR is_admin() THEN
+    RETURN true;
+  END IF;
+
+  SELECT r.institution_id INTO v_institution_id
+  FROM hostel_rooms r WHERE r.id = p_room_id;
+
+  IF v_institution_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  RETURN user_has_permission(p_permission)
+     AND role_has_institution_access(v_institution_id);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 3c. fn_settle_current_hostel_year — deterministic, and refuses rather than
+--     guessing. A NULL hostel_year_id on a bill would make the dedup key
+--     against campus_living_generate_hostel_year_bills never match (NULL = NULL
+--     is not true), which is a DOUBLE-BILL, so callers must refuse instead.
+--     ORDER BY is load-bearing: LIMIT 1 with no ordering is whatever the
+--     planner returns first.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_current_hostel_year()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT hy.id
+  FROM hostel_years hy
+  WHERE hy.is_current AND hy.is_active
+  ORDER BY hy.start_date DESC, hy.id
+  LIMIT 1;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_current_hostel_year() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_current_hostel_year() TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
 -- 4. fn_settle_room_annual_cost — the one place the room's annual cost is read.
 --    Private helper. It exists so the rate lookup is not written three times
 --    across open/close/credit and cannot drift between them.
