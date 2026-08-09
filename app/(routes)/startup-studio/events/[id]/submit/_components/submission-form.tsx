@@ -40,6 +40,7 @@ import {
 import { calculateScore, getTierColor } from '@/lib/utils/tier-calculator';
 import { useSSEvent, useUpdateMetrics } from '@/hooks/startup-studio';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/hooks/use-auth-provider';
 import { toast } from 'sonner';
 
 interface SubmissionFormProps {
@@ -70,14 +71,14 @@ function useCreateSubmission() {
 }
 
 /** Fetch the user's existing submissions for this event */
-function useMySubmissions(eventId: string) {
+function useMySubmissions(eventId: string, userId?: string) {
   return useQuery({
-    queryKey: ['startup-studio', 'submissions', 'mine', eventId],
+    queryKey: ['startup-studio', 'submissions', 'mine', eventId, userId],
     queryFn: () =>
       apiClient.get<any>('/api/startup-studio/submissions', {
-        params: { event_id: eventId },
+        params: { event_id: eventId, user_id: userId },
       }),
-    enabled: !!eventId,
+    enabled: !!eventId && !!userId,
   });
 }
 
@@ -356,10 +357,11 @@ function MetricsUpdateCard({ submission }: { submission: any }) {
 
 export function SubmissionForm({ eventId }: SubmissionFormProps) {
   const router = useRouter();
+  const { profile, isLoading: authLoading } = useAuth();
   const { data: eventRaw, isLoading: eventLoading, error: eventError } = useSSEvent(eventId);
   const event = eventRaw as any;
   const createSubmission = useCreateSubmission();
-  const { data: submissionsRaw, isLoading: subsLoading } = useMySubmissions(eventId);
+  const { data: submissionsRaw, isLoading: subsLoading } = useMySubmissions(eventId, profile?.id);
 
   // The API returns { data: [...], metadata: {...} } for paginated, or just the array
   const mySubmissions = Array.isArray(submissionsRaw)
@@ -428,7 +430,7 @@ export function SubmissionForm({ eventId }: SubmissionFormProps) {
     }
   };
 
-  if (eventLoading || subsLoading) {
+  if (eventLoading || authLoading || subsLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
