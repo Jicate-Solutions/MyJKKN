@@ -879,8 +879,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO a
 --    and steps back one per uncredited joiner.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(
-  p_room_id uuid,
-  p_dry_run boolean DEFAULT true
+  p_room_id   uuid,
+  p_dry_run   boolean DEFAULT true,
+  p_window_id uuid    DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
