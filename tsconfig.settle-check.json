@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "lib/services/campus-living/settle-bill-service.ts",
+    "app/api/cron/campus-living/settle-then-bill/route.ts",
+    "lib/policies/keys.ts",
+    "next-env.d.ts"
+  ]
+}
