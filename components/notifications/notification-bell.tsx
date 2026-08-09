@@ -105,16 +105,17 @@ export function NotificationBell() {
               // the width from jittering as the count ticks; the ring separates
               // it from the bell glyph underneath.
               //
-              // Pinned to right-0, not -right-1: the pill must stay inside the
-              // button's own footprint. Hanging it a further 4px out pushed it
-              // into the avatar button next door on a phone-width header.
+              // Anchored on the repo's shared badge corner, 'absolute -top-1
+              // -right-1' — the same offsets BottomNav/bottom-nav-item.tsx and
+              // eight other badge call sites use. Pulling it in to right-0
+              // parked the pill on top of the bell glyph instead.
               // Still no '9+' cap — that reads as "about ten" and hid a real
               // 257-item backlog — but capped at '99+' so the pill is never
               // wider than three glyphs. The panel prints the exact number.
               <Badge
                 variant='destructive'
                 title={`${unreadCount} unread notifications`}
-                className='absolute -top-1 right-0 h-5 min-w-[1.25rem] w-auto flex items-center justify-center rounded-full px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background'
+                className='absolute -top-1 -right-1 h-5 min-w-[1.25rem] w-auto flex items-center justify-center rounded-full px-1 py-0 text-[10px] font-bold leading-none tabular-nums ring-2 ring-background'
               >
                 {unreadBadgeLabel}
               </Badge>

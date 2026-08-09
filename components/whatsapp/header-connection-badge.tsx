@@ -10,7 +10,7 @@
 // Spec: /specs/byow-platform-v2.md §8 H2.1
 
 import Link from 'next/link';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, MessageCircleOff, MessageCircleWarning } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -106,20 +106,44 @@ export function HeaderConnectionBadge() {
   const summary = data?.summary ?? { ready: 0, stale: 0, disconnected: 0, total: 0 };
   const pillColor = deriveOverallPillColor(summary);
 
-  // One meaning per icon. The glyph used to change with status as well — a
-  // slashed "off" circle when a connection was down — so the button showed a
-  // muted symbol and a red alert dot at the same time, in a 20px target,
-  // saying opposite things. The glyph is now fixed and only means "WhatsApp
-  // connections"; the dot below is the single state indicator, and the state
-  // is spelled out in words in the button's label, the tooltip, and the panel.
-  const dotColorClass =
+  // WCAG 1.4.1 (Use of Colour): connection state is never carried by colour
+  // alone. Three redundant channels, the same three that
+  // components/whatsapp/lead-inline-connection-indicator.tsx already uses for
+  // this exact data — the glyph SHAPE changes, the COLOUR changes, and the
+  // state is spelled out in a visible WORD beside the glyph.
+  //
+  // An earlier revision of this file reduced it to a single 8px coloured dot.
+  // Neither of that revision's stated fallbacks actually covers a sighted
+  // colourblind user: aria-label only reaches assistive tech, and the Radix
+  // tooltip below never opens on touch because its trigger wraps the popover
+  // trigger, so a tap opens the panel instead. Red vs green at 8px is the
+  // commonest confusion pair, and the header is used on a ~390px phone.
+  const Icon =
     pillColor === 'red'
-      ? 'bg-red-500'
+      ? MessageCircleOff
       : pillColor === 'yellow'
-        ? 'bg-yellow-500'
+        ? MessageCircleWarning
+        : MessageCircle;
+
+  const statusColorClass =
+    pillColor === 'red'
+      ? 'text-red-700 dark:text-red-400'
+      : pillColor === 'yellow'
+        ? 'text-yellow-700 dark:text-yellow-400'
         : pillColor === 'green'
-          ? 'bg-green-500'
-          : 'bg-gray-400';
+          ? 'text-green-700 dark:text-green-400'
+          : 'text-muted-foreground';
+
+  // 'gray' only occurs while the health query is still in flight (total 0 with
+  // data loaded returns null above), so there is no state to spell out yet.
+  const statusWord =
+    pillColor === 'red'
+      ? 'down'
+      : pillColor === 'yellow'
+        ? 'stale'
+        : pillColor === 'green'
+          ? 'live'
+          : null;
 
   const tooltipLabel =
     pillColor === 'green'
@@ -139,17 +163,20 @@ export function HeaderConnectionBadge() {
               <Button
                 variant='ghost'
                 size='icon'
-                className='relative'
+                className='w-auto gap-1 px-2'
                 aria-label={tooltipLabel}
               >
-                <MessageCircle className='h-5 w-5' />
-                <span
-                  className={cn(
-                    'absolute top-1 right-1 inline-block h-2 w-2 rounded-full ring-2 ring-background',
-                    dotColorClass
-                  )}
-                  aria-hidden
-                />
+                <Icon className={cn('h-5 w-5', statusColorClass)} />
+                {statusWord && (
+                  <span
+                    className={cn(
+                      'text-[11px] font-medium leading-none',
+                      statusColorClass
+                    )}
+                  >
+                    {statusWord}
+                  </span>
+                )}
               </Button>
             </PopoverTrigger>
           </TooltipTrigger>
