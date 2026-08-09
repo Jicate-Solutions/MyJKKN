@@ -31760,7 +31760,7 @@ BEGIN
         AND b.hostel_year_id  = v_year_id
         AND b.item_category_id = v_category
         AND b.fee_source IN ('academic','hostel_category')
-        AND b.status <> 'cancelled'
+        AND b.status NOT IN ('cancelled','superseded')
     ) INTO v_exists;
 
     IF v_exists THEN
@@ -32037,7 +32037,7 @@ BEGIN
           AND b.hostel_year_id   = v_year_id
           AND b.item_category_id = v_category
           AND b.fee_source IN ('academic','hostel_category')
-          AND b.status <> 'cancelled'
+          AND b.status NOT IN ('cancelled','superseded')
       );
 
       -- What earlier rounds on THIS window already gave her.

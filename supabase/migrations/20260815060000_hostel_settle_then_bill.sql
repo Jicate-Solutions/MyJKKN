@@ -46,7 +46,7 @@
 --     fee_source='hostel_category' and item_category_id = the hostel category.
 --     Matching it is load-bearing: that function's dedup guard reads exactly
 --     (student_id, hostel_year_id, item_category_id, fee_source IN
---     ('academic','hostel_category'), status<>'cancelled'), so the two paths
+--     ('academic','hostel_category'), status NOT IN ('cancelled','superseded')), so the two paths
 --     see each other and neither can double-bill the room.
 --     (Pre-existing oddity, inherited not introduced: item_category_id holds a
 --     hostel_categories.id on this path while billing reports LEFT JOIN
@@ -826,7 +826,7 @@ BEGIN
         AND b.hostel_year_id  = v_year_id
         AND b.item_category_id = v_category
         AND b.fee_source IN ('academic','hostel_category')
-        AND b.status <> 'cancelled'
+        AND b.status NOT IN ('cancelled','superseded')
     ) INTO v_exists;
 
     IF v_exists THEN
@@ -1103,7 +1103,7 @@ BEGIN
           AND b.hostel_year_id   = v_year_id
           AND b.item_category_id = v_category
           AND b.fee_source IN ('academic','hostel_category')
-          AND b.status <> 'cancelled'
+          AND b.status NOT IN ('cancelled','superseded')
       );
 
       -- What earlier rounds on THIS window already gave her.
