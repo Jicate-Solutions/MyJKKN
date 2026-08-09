@@ -6,11 +6,11 @@
  * performQueueAction → fn_dashboard_queue_action, reversed by
  * fn_dashboard_queue_undo). Idempotent via idempotency_key.
  *
- * The confirm dialogs this file carried on approve / reject / Close lead were
- * removed on 2026-08-09: confirm-before plus undo-after is double friction, and
- * the Director chose undo. ConfirmActionForm survives for "🔥 Broadcast rescue"
- * alone — that one alerts other people the moment it fires and genuinely
- * cannot be recalled, so there is nothing for an undo bar to offer.
+ * An earlier revision of this PR added a confirm dialog in front of approve /
+ * reject / Close lead. The Director chose undo INSTEAD of confirm, so no
+ * confirmation step is introduced here at all — including on "🔥 Broadcast
+ * rescue", which stays exactly the plain one-tap form it already is on main.
+ * See RescueActions for why that one gets no undo either.
  *
  * Spec: specs/myjkkn-dashboard-v2-spec.md §4.2 (4 item types + inline actions)
  */
@@ -26,7 +26,6 @@ import {
   initiateRescueBroadcast,
   claimRescueBroadcast
 } from '@/app/(routes)/dashboard/_actions/rescue-actions';
-import { ConfirmActionForm } from '@/components/dashboard/confirm-action-form';
 import { QueueActionButton } from '@/components/dashboard/queue-action-button';
 
 // ============================================================================
@@ -328,25 +327,24 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
   return (
     <div className='flex flex-wrap gap-2'>
       {leadId ? (
-        // Confirmed: this fans an alert out to the counselling team. It reaches
-        // other people the moment it fires and nothing here can recall it.
-        <ConfirmActionForm
-          formAction={initiateRescueBroadcast}
-          label='🔥 Broadcast rescue'
-          buttonClassName={actionButtonClass('primary')}
-          title='Alert the counselling team'
-          description={
-            <>
-              <span className='font-medium text-foreground'>{item.title}</span>
-              <br />
-              This alerts the counselling team about this lead straight away and
-              clears the item from your queue. An alert that has gone out cannot
-              be recalled.
-            </>
-          }
-          confirmLabel='Send the alert'
-          tone='default'
-        >
+        // ONE TAP. No confirm dialog and no undo bar — deliberately, and they
+        // are two different reasons:
+        //
+        //   no confirm — the Director's decision for this queue was undo
+        //     INSTEAD of confirm. Adding a dialog to this one button would ship
+        //     the shape that was rejected. main has no dialog here today; this
+        //     is unchanged from main.
+        //
+        //   no undo — initiateRescueBroadcast IS terminal (it posts
+        //     action='approve' through fn_dashboard_queue_action, so it does
+        //     set acknowledged_at), but its terminal half is the trivial half.
+        //     Before that it calls fn_rescue_broadcast_initiate, which fans an
+        //     alert out to the counselling team. fn_dashboard_queue_undo cannot
+        //     recall a sent alert, and it explicitly REFUSES this row
+        //     (idempotency key '…:broadcast:initiated'). An Undo button that
+        //     only put the card back would tell the reader the alert had been
+        //     withdrawn when it had not.
+        <form action={initiateRescueBroadcast} className='inline-block'>
           <input type='hidden' name='leadId' value={leadId} />
           <input
             type='hidden'
@@ -354,7 +352,10 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
             value={item.user_notification_id}
           />
           <input type='hidden' name='scope' value='{}' />
-        </ConfirmActionForm>
+          <button type='submit' className={actionButtonClass('primary')}>
+            🔥 Broadcast rescue
+          </button>
+        </form>
       ) : null}
       {/* Closing a lead is routine housekeeping, not a destructive operation.
           A filled crimson button overstated it next to a text-only Snooze.

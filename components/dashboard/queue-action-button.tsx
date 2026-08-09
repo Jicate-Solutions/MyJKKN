@@ -115,13 +115,34 @@ export function QueueActionButton({
       if (!doneLabel) return;
 
       const targets = res.undoTargets;
-      // Count the rows THIS tap actually changed, not the rows it visited. A
-      // grouped run can include a row an earlier request already cleared; that
-      // row comes back idempotent and is excluded from undoTargets, so
-      // counting it here would promise an undo wider than the one on offer.
-      const changed = targets.length > 0 ? targets.length : res.applied;
-      const runs = changed > 1 ? ` · all ${changed} runs` : '';
+
+      // A grouped dismissal can PARTIALLY fail. performQueueAction stops at the
+      // first refusal that comes after the visible row has already landed, and
+      // still returns ok:true — with applied < requested. Reporting that as
+      // "all 3 runs" is a success toast for work that did not happen, and the
+      // rows left behind reappear on the next render as if the tap were
+      // ignored. Say how many of how many, the way the undo path already does.
+      const partial = res.applied < res.requested;
+      const runs =
+        res.requested > 1
+          ? partial
+            ? ` · ${res.applied} of ${res.requested} runs`
+            : ` · all ${res.applied} runs`
+          : '';
       const headline = `${doneLabel} — ${itemTitle}${runs}`;
+
+      if (partial) {
+        // Not toast.success: some of what was asked for did not happen. The
+        // undo, when offered, covers only the rows that did.
+        toast.warning(`${headline} — the rest did not go through.`, {
+          duration: UNDO_WINDOW_MS,
+          action:
+            targets.length > 0
+              ? { label: 'Undo', onClick: () => runUndo(targets) }
+              : undefined
+        });
+        return;
+      }
 
       if (targets.length === 0) {
         // Terminal, but nothing changed this time round (an idempotent replay

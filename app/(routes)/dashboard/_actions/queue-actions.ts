@@ -105,8 +105,41 @@ function actionMessage(code: string | null | undefined): string {
   }
 }
 
+/**
+ * Migration-first sequencing, made graceful.
+ *
+ * fn_dashboard_queue_undo ships in migration 20260817020000 and the Director
+ * applies that BEFORE this PR merges. If the order is ever reversed — code live,
+ * migration not yet applied — every Undo tap on all six buttons calls a function
+ * that does not exist. PostgREST answers PGRST202 ("Could not find the function
+ * … in the schema cache"), which arrives as a transport error and would
+ * otherwise be flattened into the generic "Couldn't undo that". That sentence
+ * invites the reader to tap again forever.
+ *
+ * Detected here so the toast can say the specific true thing instead. Nothing is
+ * retried and nothing is worked around: the forward action already landed and is
+ * unaffected — fn_dashboard_queue_action exists either way, and the migration
+ * only adds one metadata key to it.
+ */
+function isFunctionNotDeployed(
+  error: { code?: string; message?: string } | null
+): boolean {
+  if (!error) return false;
+  // PGRST202 = no matching function in the PostgREST schema cache.
+  // 42883     = undefined_function, if the call reaches Postgres at all.
+  if (error.code === 'PGRST202' || error.code === '42883') return true;
+  const m = (error.message ?? '').toLowerCase();
+  return (
+    m.includes('could not find the function') ||
+    m.includes('fn_dashboard_queue_undo') ||
+    m.includes('does not exist')
+  );
+}
+
 function undoMessage(code: string | null | undefined): string {
   switch (code) {
+    case 'undo_not_deployed':
+      return "Undo isn't available yet — the database update it needs has not been applied. Nothing was changed.";
     case 'undo_window_expired':
       return 'Too late to undo.';
     case 'not_an_undoable_action':
@@ -344,6 +377,22 @@ export async function undoQueueAction(input: {
       const payload = data as RpcPayload | null;
       const refused = payload?.ok === false;
       if (error || refused) {
+        // The RPC is missing entirely — the same answer for every remaining
+        // target, so stop rather than issue N identical failing calls.
+        if (isFunctionNotDeployed(error)) {
+          console.error('[dashboard/queue-undo] RPC not deployed:', {
+            target,
+            transportError: error
+          });
+          return {
+            ok: false,
+            restored,
+            requested: targets.length,
+            expiresRecoverable: true,
+            error: 'undo_not_deployed',
+            message: undoMessage('undo_not_deployed')
+          };
+        }
         firstError ??= refused ? (payload?.error ?? 'unknown') : 'transport';
         console.error('[dashboard/queue-undo] undo failed:', {
           target,
@@ -371,9 +420,13 @@ export async function undoQueueAction(input: {
     revalidatePath('/dashboard/i/[instId]', 'page');
 
     // A partial group is reported as a partial, not rounded up to success.
+    // The cause is deliberately not named: the rows that refused could have
+    // been past the window, superseded, or stamped by somebody else, and this
+    // loop keeps only the first code. Asserting one reason would be a claim the
+    // data does not support.
     const message =
       restored < targets.length
-        ? `Put back ${restored} of ${targets.length} — the rest were past the undo window.`
+        ? `Put back ${restored} of ${targets.length} — the rest were not reversed.`
         : !expiresRecoverable
           ? 'Back in your queue. The 24-hour silence could not be reset — check the item.'
           : targets.length > 1
