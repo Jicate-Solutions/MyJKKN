@@ -1052,9 +1052,16 @@ BEGIN
       'remaining_months',     v_remaining,
       'credit_per_resident',  v_credit,
       'credits',              v_credits);
-
-    v_n_before := v_n_after;
   END LOOP;
+
+  -- Mark every joining event processed, whether or not it produced a credit
+  -- row. This is the idempotency record; a zero-credit round must never come
+  -- back a second time with the denominator already advanced.
+  IF NOT p_dry_run AND array_length(v_processed, 1) IS NOT NULL THEN
+    UPDATE hostel_room_settle_windows
+       SET credited_allocation_ids = credited_allocation_ids || v_processed
+     WHERE id = v_window.id;
+  END IF;
 
   RETURN jsonb_build_object(
     'status',         'ok',
@@ -1064,13 +1071,16 @@ BEGIN
     'hostel_year_id', v_year_id,
     'billed_at',      v_window.billed_at,
     'occupants_at_billing', v_window.occupants_at_billing,
+    'active_occupants',     v_live,
+    'hostel_year_end_date', v_year_end,
     'events',         v_events,
+    'events_processed', COALESCE(array_length(v_processed, 1), 0),
     'credits_written', v_written);
 END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 9. Apply-time asserts — the switch must be OFF and anon must be locked out.
