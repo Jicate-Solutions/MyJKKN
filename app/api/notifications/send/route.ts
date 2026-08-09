@@ -367,8 +367,12 @@ async function findTargetUsers(
       audienceUserIds.clear();
       if (filterError) {
         // Fail closed: we could not establish who is active, so we claim no
-        // audience resolved. The caller turns a non-empty failedAudiences into
-        // a 500 and sends nothing.
+        // audience resolved. Nothing is sent either way; the status code
+        // depends on the send shape. Audience-only: every branch below yields
+        // no recipients, so the caller's `targetUsers.length === 0` check fires
+        // first and answers 400. Audience + role/location: those branches still
+        // return recipients, so the caller reaches the failedAudiences check
+        // and answers 500.
         for (const audienceId of rawAudienceIds) failedAudiences.push(audienceId);
       } else {
         for (const uid of activeIds) audienceUserIds.add(uid);
