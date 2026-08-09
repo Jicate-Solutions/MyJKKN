@@ -112,17 +112,30 @@ export interface SettleCloseResult extends FeePrimitives {
   parity_expected_share?: number;
 }
 
+/**
+ * One post-billing arrival. Keys MUST match what fn_settle_late_join_credit
+ * emits — a rename on one side silently turns every re-derivation into NaN,
+ * which the parity gate then reads as a mismatch and refuses forever. The
+ * round-trip is asserted by `verifyLateJoinEvent`, which the gate itself calls.
+ */
 export interface SettleLateJoinEvent {
   joiner_allocation_id: string;
   joined_on: string;
+  newly_processed: boolean;
   occupants_before: number;
   occupants_after: number;
   share_before: number;
   share_after: number;
   delta_annual: number;
   remaining_months: number;
-  credit_per_resident: number;
-  credits: Array<{ learner_id: string; allocation_id: string; amount: number }>;
+  contribution: number;
+}
+
+export interface SettleCreditLine {
+  learner_id: string;
+  allocation_id: string;
+  already_credited: number;
+  amount: number;
 }
 
 export interface SettleLateJoinResult extends FeePrimitives {
