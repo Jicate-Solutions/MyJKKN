@@ -132,8 +132,8 @@ export function SoleOccupancyNotice({
             You can bring people in first
           </p>
           <p className='mt-0.5 text-sm text-amber-800 dark:text-amber-300'>
-            Invite friends to share this room — every person who joins lowers
-            what each of you pays.
+            Invite friends to share this room
+            {cost.ready ? ' — every person who joins lowers what each of you pays' : ''}.
           </p>
           <Button asChild size='sm' variant='outline' className='mt-2'>
             <Link href='/campus-living/my-hostel/premium/invite-roommate'>

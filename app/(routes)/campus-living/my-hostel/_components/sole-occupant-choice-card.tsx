@@ -100,17 +100,12 @@ export function SoleOccupantChoiceCard({
               {emptyBeds === 1 ? 'bed' : 'beds'} too.
             </>
           ) : (
-            <>
-              The cost of a room is shared by the people living in it, so having
-              someone move in can bring your share down.
-              {costUnknown && (
-                <>
-                  {' '}
-                  We could not show your exact amount here — your hostel office
-                  can tell you what your room costs you right now.
-                </>
-              )}
-            </>
+            costUnknown && (
+              <>
+                Your hostel office can tell you what your room costs you right
+                now.
+              </>
+            )
           )}
         </CardDescription>
       </CardHeader>
@@ -151,7 +146,7 @@ export function SoleOccupantChoiceCard({
                 <p className='mt-1 text-sm text-muted-foreground'>
                   You can move once this year to another{' '}
                   {changeStatus?.category_name ?? 'room'} at no extra charge.
-                  Sharing brings your share down.
+                  {cost.ready ? ' Sharing brings your share down.' : ''}
                 </p>
                 <Button asChild size='sm' variant='outline' className='mt-2'>
                   <Link href='/campus-living/my-hostel?tab=category-fees'>
@@ -186,16 +181,12 @@ export function SoleOccupantChoiceCard({
                     — each person who joins lowers what everyone pays.
                   </>
                 ) : (
-                  <>
-                    If you would rather share, invite someone to move in — each
-                    person who joins lowers what everyone pays.
-                  </>
+                  <>If you would rather share, invite someone to move in.</>
                 )
               ) : (
                 <>
                   If you would rather share, ask the hostel office to place
-                  someone with you — each person who joins lowers what everyone
-                  pays.
+                  someone with you.
                 </>
               )}
             </p>

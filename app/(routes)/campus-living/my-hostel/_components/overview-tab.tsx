@@ -203,9 +203,13 @@ export function OverviewTab() {
       )}
 
       {/* Alone in a multi-bed room → she is paying for the empty beds. Names
-          the cost and offers move-or-stay. Self-gates away otherwise. */}
+          the cost and offers move-or-stay. Self-gates away otherwise.
+          ACTIVE allocations only: this display query also returns
+          pending_approval and pending_vacate rows, and neither should be told
+          she is overpaying or nudged toward a one-time, irreversible move —
+          one is not hers yet, the other she is leaving. */}
       <SoleOccupantChoiceCard
-        roomId={activeAllocation?.room_id ?? null}
+        roomId={activeAllocation?.status === 'active' ? activeAllocation.room_id ?? null : null}
         roomNumber={activeAllocation?.hostel_rooms?.room_number ?? null}
         messCategoryId={summary?.messCategory?.id ?? null}
         tierId={activeAllocation?.tier_id ?? null}
