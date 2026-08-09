@@ -849,8 +849,8 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean) TO authenticated;
+REVOKE EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 8. fn_settle_late_join_credit — rule 6.
