@@ -418,27 +418,31 @@ export async function creditLateJoins(
   client: Client,
   roomId: string,
   dryRun = true,
+  windowId?: string | null,
 ): Promise<SettleLateJoinResult> {
-  const preview = lateJoinParity(await callCredit(client, roomId, true));
+  const preview = lateJoinParity(await callCredit(client, roomId, true, windowId));
   if (dryRun) return preview;
-
-  if (preview.parity_ok === false) {
-    logger.error(LOG, 'Refusing to credit — parity gate failed', { room_id: roomId });
-    return { ...preview, status: 'parity_abort', dry_run: false };
-  }
   if (preview.status !== 'ok') return preview;
 
-  return lateJoinParity(await callCredit(client, roomId, false));
+  // Fail CLOSED: anything other than a positive verification refuses.
+  if (preview.parity_ok !== true) {
+    logger.error(LOG, 'Refusing to credit — parity gate did not pass', { room_id: roomId });
+    return { ...preview, status: 'parity_abort', dry_run: false };
+  }
+
+  return lateJoinParity(await callCredit(client, roomId, false, windowId));
 }
 
 async function callCredit(
   client: Client,
   roomId: string,
   dryRun: boolean,
+  windowId?: string | null,
 ): Promise<SettleLateJoinResult> {
   const { data, error } = await client.rpc('fn_settle_late_join_credit', {
     p_room_id: roomId,
     p_dry_run: dryRun,
+    p_window_id: windowId ?? null,
   });
   if (error) throw toError(error);
   return data as SettleLateJoinResult;
