@@ -59,15 +59,19 @@ export function SoleOccupantChoiceCard({
   const { data: changeStatus } = useRoomChangeStatus();
 
   const capacity = room?.capacity ?? 0;
+  // Alone in a room built for more than one — nothing else qualifies.
+  const alone = !roommatesLoading && (roommates ?? []).length === 0;
+
+  // Quote only for a genuine sole occupant. This sits on the default Overview
+  // tab, so passing roomId unconditionally would fire two fee-quote requests
+  // for every resident of a shared room, where the card never renders.
   const cost = useSoleOccupancyCost({
-    roomId,
+    roomId: alone ? roomId : null,
     roomCategoryId: room?.category_id,
     capacity,
     messCategoryId,
   });
 
-  // Alone in a room built for more than one — nothing else qualifies.
-  const alone = !roommatesLoading && (roommates ?? []).length === 0;
   if (dismissed || !roomId || !alone || capacity <= 1) return null;
 
   const emptyBeds = capacity - 1;
