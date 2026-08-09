@@ -100,11 +100,21 @@ export async function performQueueAction(formData: FormData): Promise<void> {
         p_idempotency_key: key
       });
 
-      if (error) {
-        console.error('[dashboard/queue-action] RPC error:', {
+      // fn_dashboard_queue_action reports its own refusals — not_authenticated,
+      // invalid_action, not_found_or_not_owned — by RETURNING
+      // jsonb_build_object('ok', FALSE, ...) (02_functions.sql:6318-6330). That
+      // is a normal return, so Supabase leaves `error` null. Guarding on `error`
+      // alone would count an expired session as a successful dismissal and let
+      // the loop carry on clearing the rest of the group. Both signals count.
+      // ok:true with idempotent:true is a real success and stays counted.
+      const payload = data as { ok?: boolean; error?: string } | null;
+      const refused = payload?.ok === false;
+      if (error || refused) {
+        console.error('[dashboard/queue-action] action failed:', {
           target,
           action,
-          error
+          transportError: error ?? null,
+          rpcError: refused ? (payload?.error ?? 'unknown') : null
         });
         // First row failing is the one the reader acted on — stop and let the
         // page re-render unchanged rather than half-clearing the group.
