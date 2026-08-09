@@ -258,11 +258,14 @@ export async function runEmptyBedNotices(
     });
   }
   // One window per room is the sibling lane's intent; if two ever exist, the
-  // earlier deadline is the one the learner is actually racing.
+  // earlier deadline is the one the learner is actually racing. A NULL deadline
+  // sorts LAST, not first — an empty string would beat every real date and hand
+  // the learner the least informative of the two windows.
+  const deadlineKey = (w: OpenWindow) => w.current_deadline ?? '9999-12-31';
   const windowByRoom = new Map<string, OpenWindow>();
   for (const w of windows) {
     const seen = windowByRoom.get(w.room_id);
-    if (!seen || (w.current_deadline ?? '') < (seen.current_deadline ?? '')) {
+    if (!seen || deadlineKey(w) < deadlineKey(seen)) {
       windowByRoom.set(w.room_id, w);
     }
   }
