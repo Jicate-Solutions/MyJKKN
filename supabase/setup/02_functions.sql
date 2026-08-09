@@ -31232,8 +31232,21 @@ AS $$
 DECLARE
   v_institution_id uuid;
 BEGIN
+  -- The cron bypass is deliberately NARROW. "No resolvable auth.uid()" alone is
+  -- too broad: a token missing `sub`, a psql session holding EXECUTE, pg_cron,
+  -- or a nested SECURITY DEFINER that reset request.jwt.claims would all land
+  -- here and get unconditional cross-tenant write. The session role must ALSO
+  -- name itself. If the deployed cron runtime reports some other role this gate
+  -- refuses it — which is the correct direction to be wrong in: the mechanism
+  -- is OFF and unwired, so a too-tight gate surfaces in the first dry run,
+  -- whereas a too-loose one is a silent cross-tenant billing hole. Widen it
+  -- deliberately after observing the real role, never pre-emptively.
   IF auth.uid() IS NULL THEN
-    RETURN true;  -- service-role cron
+    RETURN COALESCE(
+             (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb)->>'role',
+             ''
+           ) = 'service_role'
+        OR COALESCE(current_setting('role', true), '') = 'service_role';
   END IF;
 
   IF is_super_admin() OR is_admin() THEN
