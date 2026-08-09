@@ -926,9 +926,15 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  -- Credit the window the caller was handed. A room can hold billed windows in
+  -- two hostel years; always taking the newest would stamp the older one's
+  -- joiners never, leaving it in the due list on every sweep forever and
+  -- computing against the wrong year's rate.
   SELECT * INTO v_window
   FROM hostel_room_settle_windows w
-  WHERE w.room_id = p_room_id AND w.status = 'billed'
+  WHERE w.room_id = p_room_id
+    AND w.status = 'billed'
+    AND (p_window_id IS NULL OR w.id = p_window_id)
   ORDER BY w.billed_at DESC NULLS LAST
   LIMIT 1
   FOR UPDATE;
