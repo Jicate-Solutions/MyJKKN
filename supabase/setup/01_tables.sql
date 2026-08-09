@@ -6838,3 +6838,30 @@ CREATE INDEX IF NOT EXISTS hr_shift_timings_lookup
 CREATE INDEX IF NOT EXISTS hr_shift_timings_category
   ON public.hr_shift_timings (employment_category_id)
   WHERE employment_category_id IS NOT NULL;
+
+-- Updated: 2026-08-09 - Empty-bed intimation send ledger (Director interview 2026-08-09).
+-- One row per room per learner per IST calendar day, so a reminder about the
+-- same under-filled room cannot reach the same learner twice in one day.
+-- Written ONLY by the service-role cron (/api/cron/campus-living/empty-bed-notices);
+-- there is deliberately no INSERT/UPDATE/DELETE policy. See migration
+-- supabase/migrations/20260815060001_empty_bed_intimation.sql — FILE ONLY, NOT APPLIED.
+--
+-- sent_on exists because a UNIQUE constraint cannot span an expression and only
+-- a constraint (not a bare unique index) works as an ON CONFLICT target from
+-- PostgREST. It is pinned to Asia/Kolkata: a UTC cron run between 00:00 and
+-- 05:30 IST would otherwise bank the notice on yesterday and allow a second one
+-- the same Indian morning.
+CREATE TABLE IF NOT EXISTS public.hostel_empty_bed_notices (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id           UUID        NOT NULL REFERENCES public.hostel_rooms(id) ON DELETE CASCADE,
+    learner_id        UUID        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    sent_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sent_on           DATE        NOT NULL DEFAULT (now() AT TIME ZONE 'Asia/Kolkata')::date,
+    occupants_at_send INTEGER     NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT hostel_empty_bed_notices_one_per_day
+        UNIQUE (room_id, learner_id, sent_on)
+);
+
+CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
+    ON public.hostel_empty_bed_notices (learner_id, room_id, sent_at DESC);

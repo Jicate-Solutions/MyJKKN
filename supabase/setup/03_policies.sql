@@ -8652,3 +8652,24 @@ CREATE POLICY late_charges_delete_admin ON public.billing_late_charges
         OR (user_has_permission('billing.late_charges.manage')
             AND role_has_institution_access(institution_id))
     );
+
+-- Updated: 2026-08-09 - Empty-bed intimation ledger (hostel_empty_bed_notices).
+-- READ-ONLY policies by design. The ledger is written exclusively by the
+-- service-role cron, which bypasses RLS; a row nobody can forge is the whole
+-- point of the one-per-day guard, so no INSERT/UPDATE/DELETE policy is granted.
+-- The anon lock and the narrow authenticated re-grant live in the migration:
+-- supabase/migrations/20260815060001_empty_bed_intimation.sql (FILE ONLY, NOT APPLIED).
+ALTER TABLE public.hostel_empty_bed_notices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hostel_empty_bed_notices_select_admin ON public.hostel_empty_bed_notices;
+CREATE POLICY hostel_empty_bed_notices_select_admin ON public.hostel_empty_bed_notices
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('campus_living.allocations.view')
+    );
+
+-- profiles.id = auth.users.id and hostel_allocations.learner_id is a profiles.id,
+-- so learner_id = auth.uid() is the same self test the rest of campus living uses.
+DROP POLICY IF EXISTS hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices;
+CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices
+    FOR SELECT USING (learner_id = auth.uid());
