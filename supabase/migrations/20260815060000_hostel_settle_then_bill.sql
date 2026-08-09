@@ -542,7 +542,7 @@ END;
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 6. fn_settle_window_due — read-only. Which windows should close right now?
