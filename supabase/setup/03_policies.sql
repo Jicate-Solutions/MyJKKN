@@ -8652,3 +8652,77 @@ CREATE POLICY late_charges_delete_admin ON public.billing_late_charges
         OR (user_has_permission('billing.late_charges.manage')
             AND role_has_institution_access(institution_id))
     );
+
+-- Campus Living — Settle Then Bill (Director 2026-08-09)
+-- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
+-- FILE ONLY, apply is Director-gated). A hostel room is NOT billed at
+-- move-in: a settle window lets the room fill (5 days, restarting on each
+-- joiner, capped 20 days from first open, short-circuited when the room is
+-- full), then every resident is billed at the occupancy that exists at that
+-- moment. A later joiner produces CREDITS, never a refund or a bill rewrite.
+-- The whole mechanism is OFF by default (hostel.settle_bill.enabled = false
+-- in platform_policies).
+
+ALTER TABLE public.hostel_room_settle_windows ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.hostel_room_settle_windows FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON TABLE public.hostel_room_settle_windows TO authenticated;
+
+DROP POLICY IF EXISTS settle_windows_select_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_select_admin ON public.hostel_room_settle_windows
+    FOR SELECT USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.view')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+-- A resident may read the window of the room she actually lives in — that is
+-- the "why am I not billed yet / when will I be" answer, and nothing more.
+-- hostel_allocations.learner_id FKs profiles(id), and profiles.id = auth.uid().
+DROP POLICY IF EXISTS settle_windows_select_own_room ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_select_own_room ON public.hostel_room_settle_windows
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.hostel_allocations a
+            WHERE a.room_id = hostel_room_settle_windows.room_id
+              AND a.learner_id = auth.uid()
+              AND a.check_out_date IS NULL
+        )
+    );
+
+DROP POLICY IF EXISTS settle_windows_insert_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_insert_admin ON public.hostel_room_settle_windows
+    FOR INSERT WITH CHECK (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+DROP POLICY IF EXISTS settle_windows_update_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_update_admin ON public.hostel_room_settle_windows
+    FOR UPDATE USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+DROP POLICY IF EXISTS settle_windows_delete_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_delete_admin ON public.hostel_room_settle_windows
+    FOR DELETE USING (
+        is_super_admin()
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
