@@ -56,11 +56,14 @@ export function SoleOccupantChoiceCard({
   const [dismissed, setDismissed] = useState(false);
   const { data: roommates, isLoading: roommatesLoading } = useMyRoommates(!!roomId);
   const { data: room } = useMyRoomDetails(roomId);
-  const { data: changeStatus } = useRoomChangeStatus();
 
   const capacity = room?.capacity ?? 0;
   // Alone in a room built for more than one — nothing else qualifies.
   const alone = !roommatesLoading && (roommates ?? []).length === 0;
+
+  // Same deferral as the quotes below: a resident of a shared room never sees
+  // this card, so she should not pay for the room-change RPC on page load.
+  const { data: changeStatus } = useRoomChangeStatus(alone);
 
   // Quote only for a genuine sole occupant. This sits on the default Overview
   // tab, so passing roomId unconditionally would fire two fee-quote requests
