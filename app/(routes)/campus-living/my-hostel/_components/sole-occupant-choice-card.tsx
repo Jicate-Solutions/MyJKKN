@@ -68,6 +68,12 @@ export function SoleOccupantChoiceCard({
   const emptyBeds = capacity - 1;
   // The existing one-time room change is the only move mechanism that exists.
   const canSelfMove = changeStatus?.allowed === true;
+  // Only claim she is paying for the empty beds when the quote actually says
+  // so. `ready` is false when no fee row exists for her category (year rollover
+  // before fees are entered), when the request failed, and when the band prices
+  // flat per bed — in all three there may be nothing extra to pay, and nudging
+  // her toward an irreversible one-time room change on that premise is wrong.
+  const costUnknown = !cost.ready && !cost.loading;
 
   return (
     <Card className='border-amber-400 bg-amber-50/60 dark:bg-amber-950/20'>
@@ -78,8 +84,21 @@ export function SoleOccupantChoiceCard({
         </CardTitle>
         <CardDescription>
           It has {capacity} beds, and {emptyBeds} {emptyBeds === 1 ? 'is' : 'are'}{' '}
-          empty. The cost of a room is shared by the people living in it, so
-          right now you are paying for the empty {emptyBeds === 1 ? 'bed' : 'beds'} too.
+          empty.{' '}
+          {costUnknown ? (
+            <>
+              The cost of a room is shared by the people living in it, so having
+              someone move in can bring your share down. We could not show your
+              exact amount here — your hostel office can tell you what your room
+              costs you right now.
+            </>
+          ) : (
+            <>
+              The cost of a room is shared by the people living in it, so right
+              now you are paying for the empty{' '}
+              {emptyBeds === 1 ? 'bed' : 'beds'} too.
+            </>
+          )}
         </CardDescription>
       </CardHeader>
 
@@ -140,13 +159,15 @@ export function SoleOccupantChoiceCard({
           <div className='rounded-md border bg-background p-3'>
             <p className='flex items-center gap-2 text-sm font-medium'>
               <Users className='h-4 w-4 text-primary' />
-              Keep this room and pay for the empty {emptyBeds === 1 ? 'bed' : 'beds'}
+              {costUnknown
+                ? 'Keep this room as it is'
+                : `Keep this room and pay for the empty ${emptyBeds === 1 ? 'bed' : 'beds'}`}
             </p>
             <p className='mt-1 text-sm text-muted-foreground'>
-              Nothing changes and you keep the room to yourself. If you would
-              rather not pay for the empty {emptyBeds === 1 ? 'bed' : 'beds'},
-              invite someone to move in — each person who joins lowers what
-              everyone pays.
+              Nothing changes and you keep the room to yourself.{' '}
+              {costUnknown
+                ? 'If you would rather share, invite someone to move in — each person who joins lowers what everyone pays.'
+                : `If you would rather not pay for the empty ${emptyBeds === 1 ? 'bed' : 'beds'}, invite someone to move in — each person who joins lowers what everyone pays.`}
             </p>
             <div className='mt-2 flex flex-wrap gap-2'>
               <Button asChild size='sm'>

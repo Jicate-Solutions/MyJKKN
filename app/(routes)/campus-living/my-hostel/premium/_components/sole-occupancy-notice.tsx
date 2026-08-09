@@ -65,6 +65,13 @@ export function SoleOccupancyNotice({
   // Only a multi-bed room with nobody in it can leave her alone.
   if (capacity <= 1 || currentOccupancy > 0) return null;
 
+  // The quote is the only thing allowed to claim she will pay more. When it
+  // cannot be produced — no fee row for the category yet, request failed — or
+  // when the band prices flat per bed, the warning drops to the plain fact
+  // (she'd be alone in a room built for several) rather than asserting a cost
+  // nobody has confirmed.
+  const costUnknown = !cost.ready && !cost.loading;
+
   return (
     <Card className='border-amber-400 bg-amber-50 dark:bg-amber-950/30'>
       <CardContent className='space-y-4 p-4'>
@@ -75,9 +82,10 @@ export function SoleOccupancyNotice({
               Room {roomNumber} has {capacity} beds and nobody in it yet
             </p>
             <p className='text-sm text-amber-800 dark:text-amber-300'>
-              The cost of a room is shared by the people living in it. If you
-              move in on your own, you pay for all {capacity} beds until someone
-              else joins you.
+              The cost of a room is shared by the people living in it.{' '}
+              {costUnknown
+                ? `If you move in on your own, you will be the only person in a room built for ${capacity}, and what you pay may be higher until someone joins you.`
+                : `If you move in on your own, you pay for all ${capacity} beds until someone else joins you.`}
             </p>
           </div>
         </div>
@@ -149,7 +157,7 @@ export function SoleOccupancyNotice({
           >
             {cost.ready
               ? `I understand I will pay ${formatInr(cost.aloneTotal!)} for the year while I am the only one in this ${capacity}-bed room.`
-              : `I understand I will pay for all ${capacity} beds while I am the only one in this room.`}
+              : `I understand I am taking a room built for ${capacity} people on my own, and that what I pay may be higher until someone joins me.`}
           </Label>
         </div>
       </CardContent>
