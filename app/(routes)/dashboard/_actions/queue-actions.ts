@@ -2,7 +2,7 @@
  * Dashboard v2 — Decision Queue Server Actions
  * All exports here are Server Actions (per Next.js 'use server' contract).
  *
- * Called from <form action={...}> in decision-queue-item.tsx.
+ * Called from components/dashboard/queue-action-button.tsx.
  * Idempotency: each action carries an idempotency_key = `${user_notification_id}:${action}`
  * to survive double-submits (Round 4.15 decision).
  *
@@ -22,21 +22,127 @@ export type QueueAction =
   | 'acknowledge'
   | 'false_alarm';
 
-export type QueueActionResult = {
+/**
+ * The four actions that set user_notifications.acknowledged_at from the queue
+ * and can therefore be reversed by fn_dashboard_queue_undo. snooze only defers
+ * (it moves created_at), and delegate also puts a row in somebody else's queue,
+ * so neither is offered an undo.
+ */
+const UNDOABLE_ACTIONS: readonly QueueAction[] = [
+  'approve',
+  'reject',
+  'acknowledge',
+  'false_alarm'
+];
+
+/**
+ * What the client learns about a completed action.
+ *
+ * performQueueAction used to return void, so the page could only tell the
+ * reader what had happened by re-rendering — which is exactly what it cannot do
+ * for an action whose whole point is that the card disappears. The undo bar
+ * needs three things back: whether it worked, which rows to reverse, and a
+ * sentence to show if it did not.
+ *
+ * `runId` exists so the caller can tell two identical outcomes apart.
+ */
+export type QueueActionOutcome = {
+  runId: string;
   ok: boolean;
   action?: QueueAction;
-  idempotent?: boolean;
-  acknowledged_at?: string;
-  resumes_at?: string;
-  delegated_to?: string;
+  /** Rows actually acted on — the group case can be more than one. */
+  applied: number;
+  /** Rows the caller asked for. applied < requested ⇒ a partial group. */
+  requested: number;
+  /** Row ids to hand to undoQueueAction. Empty ⇒ offer no undo. */
+  undoTargets: string[];
+  /** Machine-readable failure code, for logs. */
   error?: string;
+  /** Plain words for the reader. Only meaningful when ok is false. */
+  message?: string;
 };
+
+export type UndoOutcome = {
+  ok: boolean;
+  restored: number;
+  requested: number;
+  /**
+   * false ⇒ a false_alarm's 24h silence was reversed but the expiry it
+   * overwrote had never been recorded (an action taken before the
+   * 20260817020000 migration shipped). The item is back in the queue; the
+   * silence window is not the one it had before. Surfaced, never hidden.
+   */
+  expiresRestored: boolean;
+  error?: string;
+  message: string;
+};
+
+/** Distinct id per invocation so the client can tell repeat outcomes apart. */
+function newRunId(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+/**
+ * fn_dashboard_queue_action and fn_dashboard_queue_undo report refusals by
+ * RETURNING jsonb {ok:false, error}, which is a normal return — Supabase leaves
+ * `error` null. Every caller must check both signals or an expired session
+ * reads as a success (the bug fixed in d7dc6bd620; kept fixed here).
+ */
+type RpcPayload = { ok?: boolean; error?: string } & Record<string, unknown>;
+
+/** Plain words for each refusal the RPCs can return. No codes at the reader. */
+function actionMessage(code: string | null | undefined): string {
+  switch (code) {
+    case 'not_authenticated':
+      return 'Your session has ended. Sign in again and retry.';
+    case 'not_found_or_not_owned':
+      return 'That item is no longer in your queue.';
+    case 'invalid_action':
+      return "That action isn't available for this item.";
+    default:
+      return "That didn't go through. Nothing was changed — try again.";
+  }
+}
+
+function undoMessage(code: string | null | undefined): string {
+  switch (code) {
+    case 'undo_window_expired':
+      return 'Too late to undo.';
+    case 'not_an_undoable_action':
+      return "This one can't be undone from here.";
+    case 'acted_by_another_user':
+      return 'Someone else acted on this, so it stays as it is.';
+    case 'superseded':
+      return 'This has changed since you acted. It was left as it is.';
+    case 'not_found_or_not_owned':
+      return 'That item is no longer in your queue.';
+    case 'not_authenticated':
+      return 'Your session has ended. Sign in again.';
+    default:
+      return "Couldn't undo that. Nothing was changed.";
+  }
+}
+
+/** The rows one card stands for, visible row first. */
+function resolveTargets(formData: FormData, userNotificationId: string): string[] {
+  const groupRaw = String(formData.get('userNotificationIds') ?? '');
+  const groupIds = groupRaw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return groupIds.length > 0
+    ? [userNotificationId, ...groupIds.filter((id) => id !== userNotificationId)]
+    : [userNotificationId];
+}
 
 /**
  * Perform an inline action on a queue item via fn_dashboard_queue_action RPC.
- * Form submission → Server Action → RPC → revalidate dashboard path.
+ * Returns what happened so the caller can name it and offer an undo.
  */
-export async function performQueueAction(formData: FormData): Promise<void> {
+export async function performQueueAction(
+  formData: FormData
+): Promise<QueueActionOutcome> {
+  const runId = newRunId();
   const userNotificationId = String(formData.get('userNotificationId') ?? '');
   const action = String(formData.get('action') ?? '') as QueueAction;
   const note = (formData.get('note') as string) || null;
@@ -52,7 +158,15 @@ export async function performQueueAction(formData: FormData): Promise<void> {
       userNotificationId,
       action
     });
-    return;
+    return {
+      runId,
+      ok: false,
+      applied: 0,
+      requested: 0,
+      undoTargets: [],
+      error: 'missing_params',
+      message: actionMessage('missing_params')
+    };
   }
 
   // 2026-08-09 — group dismissal.
@@ -62,28 +176,20 @@ export async function performQueueAction(formData: FormData): Promise<void> {
   // clear only the newest run and the next-oldest immediately took its place —
   // the card looked like it refused to go away. The optional
   // `userNotificationIds` field carries every row the card represents; we
-  // apply the same action to each. Deliberately NOT solved by changing the
-  // Postgres function: that is a production database change and is out of
-  // scope here.
+  // apply the same action to each.
   //
   // Order matters: the visible row goes first so its outcome is what the
   // reader sees even if a later call fails. Sequential, not Promise.all — a
   // burst of concurrent writes against the same person's notification rows
   // buys nothing and risks lock contention. The list is bounded by the queue
   // page size (listQueueItems limit = 50).
-  const groupRaw = String(formData.get('userNotificationIds') ?? '');
-  const groupIds = groupRaw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const targets =
-    groupIds.length > 0
-      ? [userNotificationId, ...groupIds.filter((id) => id !== userNotificationId)]
-      : [userNotificationId];
+  const targets = resolveTargets(formData, userNotificationId);
 
   try {
     const supabase = await createClient();
     let applied = 0;
+    const done: string[] = [];
+    let firstError: string | undefined;
 
     for (const target of targets) {
       // A grouped run needs a distinct key per row — reusing the visible
@@ -100,16 +206,10 @@ export async function performQueueAction(formData: FormData): Promise<void> {
         p_idempotency_key: key
       });
 
-      // fn_dashboard_queue_action reports its own refusals — not_authenticated,
-      // invalid_action, not_found_or_not_owned — by RETURNING
-      // jsonb_build_object('ok', FALSE, ...) (02_functions.sql:6318-6330). That
-      // is a normal return, so Supabase leaves `error` null. Guarding on `error`
-      // alone would count an expired session as a successful dismissal and let
-      // the loop carry on clearing the rest of the group. Both signals count.
-      // ok:true with idempotent:true is a real success and stays counted.
-      const payload = data as { ok?: boolean; error?: string } | null;
+      const payload = data as RpcPayload | null;
       const refused = payload?.ok === false;
       if (error || refused) {
+        firstError = refused ? (payload?.error ?? 'unknown') : 'transport';
         console.error('[dashboard/queue-action] action failed:', {
           target,
           action,
@@ -118,11 +218,26 @@ export async function performQueueAction(formData: FormData): Promise<void> {
         });
         // First row failing is the one the reader acted on — stop and let the
         // page re-render unchanged rather than half-clearing the group.
-        if (applied === 0) return;
+        if (applied === 0) {
+          return {
+            runId,
+            ok: false,
+            action,
+            applied: 0,
+            requested: targets.length,
+            undoTargets: [],
+            error: firstError,
+            message: actionMessage(firstError)
+          };
+        }
         break;
       }
 
       applied += 1;
+      // An idempotent replay changed nothing this time round, so it is not a
+      // row this undo should try to reverse — reversing it would un-do an act
+      // from an earlier request that the reader is not looking at.
+      if (payload?.idempotent !== true) done.push(target);
       console.log('[dashboard/queue-action] completed', {
         userNotificationId: target,
         action,
@@ -140,7 +255,130 @@ export async function performQueueAction(formData: FormData): Promise<void> {
 
     revalidatePath('/dashboard');
     revalidatePath('/dashboard/i/[instId]', 'page');
+
+    return {
+      runId,
+      ok: true,
+      action,
+      applied,
+      requested: targets.length,
+      // Only the terminal four are reversible. snooze and Skip get no undo:
+      // they are already recoverable, and an undo bar on a safe action is the
+      // noise that teaches people to ignore the one that matters.
+      undoTargets: UNDOABLE_ACTIONS.includes(action) ? done : []
+    };
   } catch (err) {
     console.error('[dashboard/queue-action] unexpected error:', err);
+    return {
+      runId,
+      ok: false,
+      action,
+      applied: 0,
+      requested: targets.length,
+      undoTargets: [],
+      error: 'unexpected',
+      message: actionMessage('unexpected')
+    };
+  }
+}
+
+/**
+ * Reverse one terminal queue action inside the undo window.
+ *
+ * Calls fn_dashboard_queue_undo (migration 20260817020000), which restores
+ * user_notifications.acknowledged_at to NULL — putting the card back in the
+ * queue — clears notifications.acted_by so the same action can be taken again,
+ * and restores the pre-silence expires_at for a false_alarm.
+ *
+ * The window is 60s server-side though the UI only offers ~8s, so a slow
+ * network never turns a legitimate undo into a refusal. The RPC refuses rather
+ * than corrupts on every other case; nothing here retries or works around a
+ * refusal.
+ */
+export async function undoQueueAction(input: {
+  targets: string[];
+}): Promise<UndoOutcome> {
+  const targets = (input?.targets ?? []).filter(Boolean);
+  if (targets.length === 0) {
+    return {
+      ok: false,
+      restored: 0,
+      requested: 0,
+      expiresRestored: true,
+      error: 'missing_params',
+      message: undoMessage('missing_params')
+    };
+  }
+
+  try {
+    const supabase = await createClient();
+    let restored = 0;
+    let firstError: string | undefined;
+    // Starts true and is only pulled down by a row that admits it could not
+    // put an overwritten expiry back — so the reader is told about the one
+    // part of the reversal that is incomplete.
+    let expiresRestored = true;
+
+    for (const target of targets) {
+      const { data, error } = await supabase.rpc('fn_dashboard_queue_undo', {
+        p_user_notification_id: target
+      });
+      const payload = data as RpcPayload | null;
+      const refused = payload?.ok === false;
+      if (error || refused) {
+        firstError ??= refused ? (payload?.error ?? 'unknown') : 'transport';
+        console.error('[dashboard/queue-undo] undo failed:', {
+          target,
+          transportError: error ?? null,
+          rpcError: refused ? (payload?.error ?? 'unknown') : null
+        });
+        continue;
+      }
+      restored += 1;
+      if (payload?.expires_at_recoverable === false) expiresRestored = false;
+    }
+
+    if (restored === 0) {
+      return {
+        ok: false,
+        restored: 0,
+        requested: targets.length,
+        expiresRestored: true,
+        error: firstError,
+        message: undoMessage(firstError)
+      };
+    }
+
+    revalidatePath('/dashboard');
+    revalidatePath('/dashboard/i/[instId]', 'page');
+
+    // A partial group is reported as a partial, not rounded up to success.
+    const message =
+      restored < targets.length
+        ? `Put back ${restored} of ${targets.length} — the rest were past the undo window.`
+        : !expiresRestored
+          ? 'Back in your queue. The 24-hour silence could not be reset — check the item.'
+          : targets.length > 1
+            ? `Back in your queue — all ${restored} runs.`
+            : 'Back in your queue.';
+
+    return {
+      ok: true,
+      restored,
+      requested: targets.length,
+      expiresRestored,
+      error: firstError,
+      message
+    };
+  } catch (err) {
+    console.error('[dashboard/queue-undo] unexpected error:', err);
+    return {
+      ok: false,
+      restored: 0,
+      requested: targets.length,
+      expiresRestored: true,
+      error: 'unexpected',
+      message: undoMessage('unexpected')
+    };
   }
 }

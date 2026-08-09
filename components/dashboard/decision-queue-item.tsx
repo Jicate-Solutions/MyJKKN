@@ -1,13 +1,20 @@
 /**
  * Dashboard v2 — Single queue item card with inline actions
  *
- * Server component. Inline actions dispatch Next.js Server Actions
- * via <form action={performQueueAction}> (idempotent via idempotency_key).
+ * Server component. Every inline action is ONE tap; the six final ones raise a
+ * toast naming what happened with an Undo for ~8 seconds (QueueActionButton →
+ * performQueueAction → fn_dashboard_queue_action, reversed by
+ * fn_dashboard_queue_undo). Idempotent via idempotency_key.
+ *
+ * The confirm dialogs this file carried on approve / reject / Close lead were
+ * removed on 2026-08-09: confirm-before plus undo-after is double friction, and
+ * the Director chose undo. ConfirmActionForm survives for "🔥 Broadcast rescue"
+ * alone — that one alerts other people the moment it fires and genuinely
+ * cannot be recalled, so there is nothing for an undo bar to offer.
  *
  * Spec: specs/myjkkn-dashboard-v2-spec.md §4.2 (4 item types + inline actions)
  */
 
-import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
   QueueItem,
@@ -15,15 +22,12 @@ import {
   queueTypeEmoji,
   queueTypeLabel
 } from '@/lib/services/dashboard/decision-queue-service';
-import { performQueueAction } from '@/app/(routes)/dashboard/_actions/queue-actions';
 import {
   initiateRescueBroadcast,
   claimRescueBroadcast
 } from '@/app/(routes)/dashboard/_actions/rescue-actions';
-import {
-  ConfirmActionForm,
-  type ConfirmCopy
-} from '@/components/dashboard/confirm-action-form';
+import { ConfirmActionForm } from '@/components/dashboard/confirm-action-form';
+import { QueueActionButton } from '@/components/dashboard/queue-action-button';
 
 // ============================================================================
 // Severity-aware badge pill
@@ -106,6 +110,20 @@ type ActionButtonProps = {
   label: string;
   variant?: ActionVariant;
   userNotificationId: string;
+  /** The card's own title — the toast names the item, not just the act. */
+  itemTitle: string;
+  /**
+   * Past-tense name of the act, e.g. "Approved". Present ⇒ the action is final
+   * and gets a named toast with an Undo for ~8 seconds. Absent ⇒ the action is
+   * already recoverable (Snooze, Skip) and passes silently: an undo bar on a
+   * safe action is the noise that teaches people to ignore the ones that
+   * matter.
+   *
+   * It is a separate prop from `action` because the mapping is not 1:1 —
+   * "✕ Reject" and "Close lead" both post action='reject', and "Rejected" is
+   * the wrong word for the second.
+   */
+  doneLabel?: string;
   /**
    * Every user_notification row this button should act on. A collapsed daily
    * digest card stands for more than one row; acting on only the visible row
@@ -114,13 +132,6 @@ type ActionButtonProps = {
    */
   groupIds?: string[];
   extraFields?: Record<string, string>;
-  /**
-   * Present ⇒ the tap opens a confirmation first and only commits on a second,
-   * deliberate tap. Reserved for actions that cannot be undone. Leave it off
-   * for Snooze / Acknowledge / False alarm: friction on a recoverable action
-   * just trains people to dismiss dialogs unread.
-   */
-  confirm?: ConfirmCopy;
 };
 
 function actionButtonClass(variant: ActionVariant) {
@@ -146,91 +157,32 @@ function actionButtonClass(variant: ActionVariant) {
   return `min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all hover:shadow-sm active:scale-[0.98] ${cls}`;
 }
 
+/**
+ * Every queue action is one tap. The client component behind this raises the
+ * toast and, for the final ones, the Undo — see queue-action-button.tsx for why
+ * that has to be a client component rather than a bare server-action form.
+ */
 function ActionButton({
   action,
   label,
   variant = 'secondary',
   userNotificationId,
+  itemTitle,
+  doneLabel,
   groupIds,
-  extraFields = {},
-  confirm
+  extraFields = {}
 }: ActionButtonProps) {
-  const className = actionButtonClass(variant);
-
-  // Identical payload on both paths — confirming changes when the form posts,
-  // never what it posts.
-  const fields = (
-    <>
-      <input type='hidden' name='userNotificationId' value={userNotificationId} />
-      <input type='hidden' name='action' value={action} />
-      {groupIds && groupIds.length > 1 && (
-        <input
-          type='hidden'
-          name='userNotificationIds'
-          value={groupIds.join(',')}
-        />
-      )}
-      <input
-        type='hidden'
-        name='idempotencyKey'
-        value={`${userNotificationId}:${action}`}
-      />
-      {Object.entries(extraFields).map(([k, v]) => (
-        <input key={k} type='hidden' name={k} value={v} />
-      ))}
-    </>
-  );
-
-  if (confirm) {
-    return (
-      <ConfirmActionForm
-        formAction={performQueueAction}
-        label={label}
-        buttonClassName={className}
-        title={confirm.title}
-        description={confirm.description}
-        confirmLabel={confirm.confirmLabel}
-        tone={confirm.tone}
-      >
-        {fields}
-      </ConfirmActionForm>
-    );
-  }
-
   return (
-    <form action={performQueueAction} className='inline-block'>
-      {fields}
-      <button type='submit' className={className}>
-        {label}
-      </button>
-    </form>
-  );
-}
-
-// ============================================================================
-// Confirmation copy
-// ============================================================================
-/**
- * Body of a confirmation: the item's own title, then plain words for what the
- * tap does. Names the thing rather than asking "Are you sure?".
- *
- * A collapsed digest card stands for several rows and one tap clears them all,
- * so the count is stated here too — it is the part a reader is most likely to
- * have missed.
- */
-function confirmBody(
-  item: QueueItem,
-  sentence: string,
-  groupIds?: string[]
-): ReactNode {
-  const runs = groupIds && groupIds.length > 1 ? groupIds.length : 0;
-  return (
-    <>
-      <span className='font-medium text-foreground'>{item.title}</span>
-      <br />
-      {sentence}
-      {runs > 0 && ` This one tap does it to all ${runs} open runs of this item.`}
-    </>
+    <QueueActionButton
+      action={action}
+      label={label}
+      doneLabel={doneLabel}
+      itemTitle={itemTitle}
+      className={actionButtonClass(variant)}
+      userNotificationId={userNotificationId}
+      groupIds={groupIds}
+      extraFields={extraFields}
+    />
   );
 }
 
@@ -242,52 +194,37 @@ function confirmBody(
 type ActionRowProps = { item: QueueItem; groupIds?: string[] };
 
 function ApprovalActions({ item, groupIds }: ActionRowProps) {
-  // Approve is confirmed as well as Reject, and the symmetry is the point.
-  // These two sit ~10px apart on a 387px phone and both are final, so the real
-  // hazard is a mis-tap in either direction — guarding only Reject leaves half
-  // of it open. Worse, one-tap Approve beside two-tap Reject makes approving
-  // the cheaper action, and a queue of governance decisions should not have its
-  // thumb on the scale.
+  // Approve and Reject sit ~10px apart on a 387px phone and both are final, so
+  // the hazard is a mis-tap in either direction. Both are one tap and both get
+  // an undo bar: the symmetry is the point, because one-tap Approve beside a
+  // guarded Reject would make approving the cheaper act, and a queue of
+  // governance decisions should not have its thumb on the scale.
   return (
     <div className='flex flex-wrap gap-2'>
       <ActionButton
         action='approve'
         label='✓ Approve'
+        doneLabel='Approved'
         variant='primary'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
-        confirm={{
-          title: 'Approve this request',
-          description: confirmBody(
-            item,
-            'Your approval is recorded against your name and the request leaves your queue. It cannot be undone from here.',
-            groupIds
-          ),
-          confirmLabel: 'Approve',
-          tone: 'default'
-        }}
       />
       <ActionButton
         action='reject'
         label='✕ Reject'
+        doneLabel='Rejected'
         variant='danger'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
-        confirm={{
-          title: 'Reject this request',
-          description: confirmBody(
-            item,
-            'Your rejection is recorded against your name and the request leaves your queue. It cannot be undone from here.',
-            groupIds
-          ),
-          confirmLabel: 'Reject'
-        }}
       />
       <ActionButton
         action='snooze'
         label='Snooze 2h'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
         extraFields={{ snoozeMinutes: '120' }}
       />
@@ -301,8 +238,10 @@ function EscalationActions({ item, groupIds }: ActionRowProps) {
       <ActionButton
         action='acknowledge'
         label='Mark resolved'
+        doneLabel='Marked resolved'
         variant='primary'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
       />
       <ActionButton
@@ -310,6 +249,7 @@ function EscalationActions({ item, groupIds }: ActionRowProps) {
         label='Snooze 2h'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
         extraFields={{ snoozeMinutes: '120' }}
       />
@@ -346,9 +286,11 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
             name='userNotificationId'
             value={item.user_notification_id}
           />
-          {/* No confirmation here on purpose: claiming is an acquire, it is
-              raced against other counsellors via SELECT FOR UPDATE, and a
-              dialog would cost you the race for no safety gain. */}
+          {/* No confirmation and no undo here on purpose: claiming is an
+              acquire, it is raced against other counsellors via SELECT FOR
+              UPDATE, and it assigns the lead to you in admission_leads — none
+              of which fn_dashboard_queue_undo reverses. Offering an Undo that
+              only un-acknowledged the notification would be a lie. */}
           <button type='submit' className={actionButtonClass('primary')}>
             🔥 Claim rescue
           </button>
@@ -358,6 +300,7 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
           label='Skip'
           variant='ghost'
           userNotificationId={item.user_notification_id}
+          itemTitle={item.title}
           groupIds={groupIds}
           extraFields={{ snoozeMinutes: '120' }}
         />
@@ -415,28 +358,22 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
       ) : null}
       {/* Closing a lead is routine housekeeping, not a destructive operation.
           A filled crimson button overstated it next to a text-only Snooze.
-          It is still one-way though, so it asks first. */}
+          It is final, so it carries an undo — but it is not "Rejected". */}
       <ActionButton
         action='reject'
         label='Close lead'
+        doneLabel='Lead closed'
         variant='secondary'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
-        confirm={{
-          title: 'Close this lead',
-          description: confirmBody(
-            item,
-            'The rescue is marked closed against your name and leaves your queue. No counsellor is alerted, and it cannot be undone from here.',
-            groupIds
-          ),
-          confirmLabel: 'Close lead'
-        }}
       />
       <ActionButton
         action='snooze'
         label='Snooze 2h'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
         extraFields={{ snoozeMinutes: '120' }}
       />
@@ -450,15 +387,19 @@ function AnomalyActions({ item, groupIds }: ActionRowProps) {
       <ActionButton
         action='acknowledge'
         label='Acknowledge'
+        doneLabel='Acknowledged'
         variant='primary'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
       />
       <ActionButton
         action='false_alarm'
         label='False alarm (silence 24h)'
+        doneLabel='Silenced for 24 hours'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        itemTitle={item.title}
         groupIds={groupIds}
       />
     </div>

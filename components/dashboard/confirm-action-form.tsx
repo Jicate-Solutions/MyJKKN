@@ -3,23 +3,26 @@
 /**
  * Dashboard v2 — a confirmation step in front of a one-tap Server Action.
  *
- * The Decision Queue's action buttons are bare `<form action={serverAction}>`
- * submits: one tap runs fn_dashboard_queue_action, which sets
- * user_notifications.acknowledged_at and stamps notifications.acted_by with the
- * caller. There is no un-acknowledge action in that function's enum
- * (supabase/setup/02_functions.sql:6411) — so the tap is final, and on a 387px
- * phone Approve and Reject sit about 10px apart.
+ * SCOPE, as of 2026-08-09 (PR #2940): exactly ONE caller — "🔥 Broadcast
+ * rescue" in decision-queue-item.tsx.
  *
- * This wraps the *same* form in the repo's existing Radix AlertDialog
+ * This wrapped the Decision Queue's Approve / Reject / Close lead buttons too.
+ * Those now take one tap and put an undo bar up for ~8 seconds instead
+ * (fn_dashboard_queue_undo, migration 20260817020000): the Director's call was
+ * that confirm-before AND undo-after is double friction, and a dialog in front
+ * of something you can take back only teaches people to dismiss dialogs unread.
+ *
+ * Broadcast rescue keeps its dialog because it is the one action here that
+ * genuinely cannot be reversed by any database write: it alerts the counselling
+ * team the moment it fires. Ask first is the only protection available, so it
+ * stays. Do not "unify" this away.
+ *
+ * Mechanism: wraps the form in the repo's existing Radix AlertDialog
  * (components/ui/alert-dialog.tsx — the pattern already used by
  * shared/crud-master/crud-row-actions.tsx and archive-initiative-dialog.tsx).
- * No new confirm mechanism, and no change to the Server Action or the RPC: the
- * form, its hidden inputs and its idempotency key are untouched, the submit is
- * just gated behind a second, deliberate tap.
- *
- * Only genuinely irreversible actions are given one. Snooze, Acknowledge and
- * False alarm stay a single tap on purpose — a dialog in front of a recoverable
- * action only teaches people to dismiss dialogs without reading them.
+ * No new confirm mechanism, and no change to the Server Action: the form, its
+ * hidden inputs and its idempotency key are untouched, the submit is just gated
+ * behind a second, deliberate tap.
  */
 
 import * as React from 'react';
