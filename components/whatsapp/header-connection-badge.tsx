@@ -10,7 +10,7 @@
 // Spec: /specs/byow-platform-v2.md §8 H2.1
 
 import Link from 'next/link';
-import { MessageCircle, MessageCircleOff, MessageCircleWarning } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -105,13 +105,13 @@ export function HeaderConnectionBadge() {
 
   const summary = data?.summary ?? { ready: 0, stale: 0, disconnected: 0, total: 0 };
   const pillColor = deriveOverallPillColor(summary);
-  const Icon =
-    pillColor === 'red'
-      ? MessageCircleOff
-      : pillColor === 'yellow'
-        ? MessageCircleWarning
-        : MessageCircle;
 
+  // One meaning per icon. The glyph used to change with status as well — a
+  // slashed "off" circle when a connection was down — so the button showed a
+  // muted symbol and a red alert dot at the same time, in a 20px target,
+  // saying opposite things. The glyph is now fixed and only means "WhatsApp
+  // connections"; the dot below is the single state indicator, and the state
+  // is spelled out in words in the button's label, the tooltip, and the panel.
   const dotColorClass =
     pillColor === 'red'
       ? 'bg-red-500'
@@ -140,9 +140,9 @@ export function HeaderConnectionBadge() {
                 variant='ghost'
                 size='icon'
                 className='relative'
-                aria-label='Department WhatsApp connection health'
+                aria-label={tooltipLabel}
               >
-                <Icon className='h-5 w-5' />
+                <MessageCircle className='h-5 w-5' />
                 <span
                   className={cn(
                     'absolute top-1 right-1 inline-block h-2 w-2 rounded-full ring-2 ring-background',
