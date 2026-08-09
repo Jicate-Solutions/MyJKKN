@@ -99,6 +99,13 @@ type ActionButtonProps = {
   label: string;
   variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
   userNotificationId: string;
+  /**
+   * Every user_notification row this button should act on. A collapsed daily
+   * digest card stands for more than one row; acting on only the visible row
+   * left the rest to reappear on the next render. Omit (or pass a single id)
+   * for ordinary cards.
+   */
+  groupIds?: string[];
   extraFields?: Record<string, string>;
 };
 
@@ -107,13 +114,19 @@ function ActionButton({
   label,
   variant = 'secondary',
   userNotificationId,
+  groupIds,
   extraFields = {}
 }: ActionButtonProps) {
   const cls = {
     primary:
       'bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600',
+    // The fill here used to be bg-white dark:bg-neutral-900 — byte-identical to
+    // the card behind it — with only a neutral-200/700 hairline to separate the
+    // two. In dark mode that hairline is nearly invisible and the button read
+    // as plain text. A lighter surface in dark mode plus a stronger border on
+    // both themes gives it an edge you can actually see and aim at.
     secondary:
-      'bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 border-neutral-200 dark:border-neutral-700',
+      'bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-100 hover:bg-neutral-50 dark:hover:bg-neutral-700 border-neutral-400 dark:border-neutral-500 shadow-sm',
     danger:
       'bg-rose-600 text-white hover:bg-rose-700 border-rose-600',
     // 'ghost' is the low-emphasis choice (Snooze, Skip, False alarm) — but it
@@ -127,6 +140,13 @@ function ActionButton({
     <form action={performQueueAction} className='inline-block'>
       <input type='hidden' name='userNotificationId' value={userNotificationId} />
       <input type='hidden' name='action' value={action} />
+      {groupIds && groupIds.length > 1 && (
+        <input
+          type='hidden'
+          name='userNotificationIds'
+          value={groupIds.join(',')}
+        />
+      )}
       <input
         type='hidden'
         name='idempotencyKey'
@@ -148,7 +168,11 @@ function ActionButton({
 // ============================================================================
 // Per-type action rows
 // ============================================================================
-function ApprovalActions({ item }: { item: QueueItem }) {
+// Every row takes groupIds so a collapsed digest clears as one unit whatever
+// its queue_type happens to be.
+type ActionRowProps = { item: QueueItem; groupIds?: string[] };
+
+function ApprovalActions({ item, groupIds }: ActionRowProps) {
   return (
     <div className='flex flex-wrap gap-2'>
       <ActionButton
@@ -156,25 +180,28 @@ function ApprovalActions({ item }: { item: QueueItem }) {
         label='✓ Approve'
         variant='primary'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
       />
       <ActionButton
         action='reject'
         label='✕ Reject'
         variant='danger'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
       />
       <ActionButton
         action='snooze'
         label='Snooze 2h'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
         extraFields={{ snoozeMinutes: '120' }}
       />
     </div>
   );
 }
 
-function EscalationActions({ item }: { item: QueueItem }) {
+function EscalationActions({ item, groupIds }: ActionRowProps) {
   return (
     <div className='flex flex-wrap gap-2'>
       <ActionButton
@@ -182,19 +209,21 @@ function EscalationActions({ item }: { item: QueueItem }) {
         label='Mark resolved'
         variant='primary'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
       />
       <ActionButton
         action='snooze'
         label='Snooze 2h'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
         extraFields={{ snoozeMinutes: '120' }}
       />
     </div>
   );
 }
 
-function RescueActions({ item }: { item: QueueItem }) {
+function RescueActions({ item, groupIds }: ActionRowProps) {
   const cfg = (item.action_config ?? {}) as Record<string, unknown>;
   const broadcastId =
     typeof cfg.broadcast_id === 'string' && cfg.broadcast_id.length > 0
@@ -204,6 +233,15 @@ function RescueActions({ item }: { item: QueueItem }) {
 
   // CASE 1 — Counselor view: this notification IS a broadcast (has broadcast_id).
   //          Show Claim button which races via SELECT FOR UPDATE.
+  //
+  //          Claiming is an acquire — you are taking the lead on, not deleting
+  //          anything — so it wears the same affirmative emerald as Broadcast
+  //          rescue below. It was crimson, the colour this file reserves for
+  //          Reject, which read as a destructive act.
+  //
+  //          A broadcast notification carries a single broadcast_id and is
+  //          never a digest, so it is never one of the collapsed cards and
+  //          needs no group handling here.
   if (broadcastId) {
     return (
       <div className='flex flex-wrap gap-2'>
@@ -216,7 +254,7 @@ function RescueActions({ item }: { item: QueueItem }) {
           />
           <button
             type='submit'
-            className='min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all bg-rose-600 text-white hover:bg-rose-700 hover:shadow-sm active:scale-[0.98] border-rose-600'
+            className='min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-sm active:scale-[0.98] border-emerald-600'
           >
             🔥 Claim rescue
           </button>
@@ -226,6 +264,7 @@ function RescueActions({ item }: { item: QueueItem }) {
           label='Skip'
           variant='ghost'
           userNotificationId={item.user_notification_id}
+          groupIds={groupIds}
           extraFields={{ snoozeMinutes: '120' }}
         />
       </div>
@@ -275,19 +314,21 @@ function RescueActions({ item }: { item: QueueItem }) {
         label='Close lead'
         variant='secondary'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
       />
       <ActionButton
         action='snooze'
         label='Snooze 2h'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
         extraFields={{ snoozeMinutes: '120' }}
       />
     </div>
   );
 }
 
-function AnomalyActions({ item }: { item: QueueItem }) {
+function AnomalyActions({ item, groupIds }: ActionRowProps) {
   return (
     <div className='flex flex-wrap gap-2'>
       <ActionButton
@@ -295,12 +336,14 @@ function AnomalyActions({ item }: { item: QueueItem }) {
         label='Acknowledge'
         variant='primary'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
       />
       <ActionButton
         action='false_alarm'
         label='False alarm (silence 24h)'
         variant='ghost'
         userNotificationId={item.user_notification_id}
+        groupIds={groupIds}
       />
     </div>
   );
@@ -311,11 +354,17 @@ function AnomalyActions({ item }: { item: QueueItem }) {
 // ============================================================================
 export function QueueItemCard({
   item,
-  repeats = 1
+  repeats = 1,
+  groupIds
 }: {
   item: QueueItem;
   /** How many unacknowledged runs of this daily digest this card stands for. */
   repeats?: number;
+  /**
+   * The user_notification rows behind those runs. Handed to the action buttons
+   * so one tap clears the whole group instead of the newest run only.
+   */
+  groupIds?: string[];
 }) {
   const ageText = formatRelativeAge(item.age_seconds);
   const typeLabel = queueTypeLabel(item.queue_type);
@@ -371,10 +420,7 @@ export function QueueItemCard({
                 <span className='tabular-nums font-mono text-[11px] text-neutral-500'>· {ageText}</span>
               )}
               {repeats > 1 && (
-                <span
-                  className='inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
-                  title={`This digest is raised once a day. ${repeats} runs are still unacknowledged; the newest one is shown.`}
-                >
+                <span className='inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'>
                   {repeats} daily runs
                 </span>
               )}
@@ -385,15 +431,34 @@ export function QueueItemCard({
             <p className='mt-1 text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed line-clamp-3'>
               {item.body}
             </p>
+            {/* This used to be a title attribute on the pill above. title only
+                appears on hover, and the audit that found this ran on a touch
+                device where there is no hover — so the explanation for why one
+                card now stands for several was unreachable. Plain visible text
+                instead. */}
+            {repeats > 1 && (
+              <p className='mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400 leading-relaxed'>
+                Raised once a day · {repeats} runs still open, newest shown ·
+                acting here clears all {repeats}
+              </p>
+            )}
           </div>
         </div>
       </Link>
 
       <div className='mt-3 pt-3 border-t border-neutral-100 dark:border-neutral-800'>
-        {item.queue_type === 'approval' && <ApprovalActions item={item} />}
-        {item.queue_type === 'escalation' && <EscalationActions item={item} />}
-        {item.queue_type === 'rescue' && <RescueActions item={item} />}
-        {item.queue_type === 'anomaly' && <AnomalyActions item={item} />}
+        {item.queue_type === 'approval' && (
+          <ApprovalActions item={item} groupIds={groupIds} />
+        )}
+        {item.queue_type === 'escalation' && (
+          <EscalationActions item={item} groupIds={groupIds} />
+        )}
+        {item.queue_type === 'rescue' && (
+          <RescueActions item={item} groupIds={groupIds} />
+        )}
+        {item.queue_type === 'anomaly' && (
+          <AnomalyActions item={item} groupIds={groupIds} />
+        )}
       </div>
     </article>
   );
