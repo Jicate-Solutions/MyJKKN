@@ -7,6 +7,7 @@
  * Spec: specs/myjkkn-dashboard-v2-spec.md §4.2 (4 item types + inline actions)
  */
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import {
   QueueItem,
@@ -19,6 +20,10 @@ import {
   initiateRescueBroadcast,
   claimRescueBroadcast
 } from '@/app/(routes)/dashboard/_actions/rescue-actions';
+import {
+  ConfirmActionForm,
+  type ConfirmCopy
+} from '@/components/dashboard/confirm-action-form';
 
 // ============================================================================
 // Severity-aware badge pill
@@ -94,10 +99,12 @@ function DeadlinePill({ status, item }: { status: DeadlineStatus; item: QueueIte
 // ============================================================================
 // Inline action button (submit button inside a form)
 // ============================================================================
+type ActionVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+
 type ActionButtonProps = {
   action: string;
   label: string;
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  variant?: ActionVariant;
   userNotificationId: string;
   /**
    * Every user_notification row this button should act on. A collapsed daily
@@ -107,16 +114,16 @@ type ActionButtonProps = {
    */
   groupIds?: string[];
   extraFields?: Record<string, string>;
+  /**
+   * Present ⇒ the tap opens a confirmation first and only commits on a second,
+   * deliberate tap. Reserved for actions that cannot be undone. Leave it off
+   * for Snooze / Acknowledge / False alarm: friction on a recoverable action
+   * just trains people to dismiss dialogs unread.
+   */
+  confirm?: ConfirmCopy;
 };
 
-function ActionButton({
-  action,
-  label,
-  variant = 'secondary',
-  userNotificationId,
-  groupIds,
-  extraFields = {}
-}: ActionButtonProps) {
+function actionButtonClass(variant: ActionVariant) {
   const cls = {
     primary:
       'bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-600',
@@ -136,8 +143,24 @@ function ActionButton({
       'bg-neutral-50 dark:bg-neutral-800/60 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 border-neutral-200 dark:border-neutral-700'
   }[variant];
 
-  return (
-    <form action={performQueueAction} className='inline-block'>
+  return `min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all hover:shadow-sm active:scale-[0.98] ${cls}`;
+}
+
+function ActionButton({
+  action,
+  label,
+  variant = 'secondary',
+  userNotificationId,
+  groupIds,
+  extraFields = {},
+  confirm
+}: ActionButtonProps) {
+  const className = actionButtonClass(variant);
+
+  // Identical payload on both paths — confirming changes when the form posts,
+  // never what it posts.
+  const fields = (
+    <>
       <input type='hidden' name='userNotificationId' value={userNotificationId} />
       <input type='hidden' name='action' value={action} />
       {groupIds && groupIds.length > 1 && (
@@ -155,13 +178,59 @@ function ActionButton({
       {Object.entries(extraFields).map(([k, v]) => (
         <input key={k} type='hidden' name={k} value={v} />
       ))}
-      <button
-        type='submit'
-        className={`min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all hover:shadow-sm active:scale-[0.98] ${cls}`}
+    </>
+  );
+
+  if (confirm) {
+    return (
+      <ConfirmActionForm
+        formAction={performQueueAction}
+        label={label}
+        buttonClassName={className}
+        title={confirm.title}
+        description={confirm.description}
+        confirmLabel={confirm.confirmLabel}
+        tone={confirm.tone}
       >
+        {fields}
+      </ConfirmActionForm>
+    );
+  }
+
+  return (
+    <form action={performQueueAction} className='inline-block'>
+      {fields}
+      <button type='submit' className={className}>
         {label}
       </button>
     </form>
+  );
+}
+
+// ============================================================================
+// Confirmation copy
+// ============================================================================
+/**
+ * Body of a confirmation: the item's own title, then plain words for what the
+ * tap does. Names the thing rather than asking "Are you sure?".
+ *
+ * A collapsed digest card stands for several rows and one tap clears them all,
+ * so the count is stated here too — it is the part a reader is most likely to
+ * have missed.
+ */
+function confirmBody(
+  item: QueueItem,
+  sentence: string,
+  groupIds?: string[]
+): ReactNode {
+  const runs = groupIds && groupIds.length > 1 ? groupIds.length : 0;
+  return (
+    <>
+      <span className='font-medium text-foreground'>{item.title}</span>
+      <br />
+      {sentence}
+      {runs > 0 && ` This one tap does it to all ${runs} open runs of this item.`}
+    </>
   );
 }
 
@@ -173,6 +242,12 @@ function ActionButton({
 type ActionRowProps = { item: QueueItem; groupIds?: string[] };
 
 function ApprovalActions({ item, groupIds }: ActionRowProps) {
+  // Approve is confirmed as well as Reject, and the symmetry is the point.
+  // These two sit ~10px apart on a 387px phone and both are final, so the real
+  // hazard is a mis-tap in either direction — guarding only Reject leaves half
+  // of it open. Worse, one-tap Approve beside two-tap Reject makes approving
+  // the cheaper action, and a queue of governance decisions should not have its
+  // thumb on the scale.
   return (
     <div className='flex flex-wrap gap-2'>
       <ActionButton
@@ -181,6 +256,16 @@ function ApprovalActions({ item, groupIds }: ActionRowProps) {
         variant='primary'
         userNotificationId={item.user_notification_id}
         groupIds={groupIds}
+        confirm={{
+          title: 'Approve this request',
+          description: confirmBody(
+            item,
+            'Your approval is recorded against your name and the request leaves your queue. It cannot be undone from here.',
+            groupIds
+          ),
+          confirmLabel: 'Approve',
+          tone: 'default'
+        }}
       />
       <ActionButton
         action='reject'
@@ -188,6 +273,15 @@ function ApprovalActions({ item, groupIds }: ActionRowProps) {
         variant='danger'
         userNotificationId={item.user_notification_id}
         groupIds={groupIds}
+        confirm={{
+          title: 'Reject this request',
+          description: confirmBody(
+            item,
+            'Your rejection is recorded against your name and the request leaves your queue. It cannot be undone from here.',
+            groupIds
+          ),
+          confirmLabel: 'Reject'
+        }}
       />
       <ActionButton
         action='snooze'
@@ -252,10 +346,10 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
             name='userNotificationId'
             value={item.user_notification_id}
           />
-          <button
-            type='submit'
-            className='min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-sm active:scale-[0.98] border-emerald-600'
-          >
+          {/* No confirmation here on purpose: claiming is an acquire, it is
+              raced against other counsellors via SELECT FOR UPDATE, and a
+              dialog would cost you the race for no safety gain. */}
+          <button type='submit' className={actionButtonClass('primary')}>
             🔥 Claim rescue
           </button>
         </form>
@@ -291,7 +385,25 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
   return (
     <div className='flex flex-wrap gap-2'>
       {leadId ? (
-        <form action={initiateRescueBroadcast} className='inline-block'>
+        // Confirmed: this fans an alert out to the counselling team. It reaches
+        // other people the moment it fires and nothing here can recall it.
+        <ConfirmActionForm
+          formAction={initiateRescueBroadcast}
+          label='🔥 Broadcast rescue'
+          buttonClassName={actionButtonClass('primary')}
+          title='Alert the counselling team'
+          description={
+            <>
+              <span className='font-medium text-foreground'>{item.title}</span>
+              <br />
+              This alerts the counselling team about this lead straight away and
+              clears the item from your queue. An alert that has gone out cannot
+              be recalled.
+            </>
+          }
+          confirmLabel='Send the alert'
+          tone='default'
+        >
           <input type='hidden' name='leadId' value={leadId} />
           <input
             type='hidden'
@@ -299,22 +411,26 @@ function RescueActions({ item, groupIds }: ActionRowProps) {
             value={item.user_notification_id}
           />
           <input type='hidden' name='scope' value='{}' />
-          <button
-            type='submit'
-            className='min-h-[36px] px-3.5 py-2 rounded-lg border text-xs font-medium transition-all bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-sm active:scale-[0.98] border-emerald-600'
-          >
-            🔥 Broadcast rescue
-          </button>
-        </form>
+        </ConfirmActionForm>
       ) : null}
       {/* Closing a lead is routine housekeeping, not a destructive operation.
-          A filled crimson button overstated it next to a text-only Snooze. */}
+          A filled crimson button overstated it next to a text-only Snooze.
+          It is still one-way though, so it asks first. */}
       <ActionButton
         action='reject'
         label='Close lead'
         variant='secondary'
         userNotificationId={item.user_notification_id}
         groupIds={groupIds}
+        confirm={{
+          title: 'Close this lead',
+          description: confirmBody(
+            item,
+            'The rescue is marked closed against your name and leaves your queue. No counsellor is alerted, and it cannot be undone from here.',
+            groupIds
+          ),
+          confirmLabel: 'Close lead'
+        }}
       />
       <ActionButton
         action='snooze'
