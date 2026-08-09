@@ -859,14 +859,23 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO a
 --    the months remaining from the month of joining, as a CREDIT. Never a
 --    refund, never a bill rewrite.
 --
---    IDEMPOTENCY: each joining event is identified by the joiner's
---    hostel_allocations.id, written to student_credit_balances.source_event_id.
---    A joiner with any credit row already carrying that id is skipped, so a
---    re-run cannot double-credit. That id is only ever used as an event id by
---    this function, so the guard cannot collide with the admission
---    fee-change-event writer that shares source='fee_structure_change'.
---    (A partial unique index was considered and rejected: that writer can emit
---    more than one row per (learner, event) and an index would break it.)
+--    IDEMPOTENCY is recorded EXPLICITLY, on the window's
+--    credited_allocation_ids array — not inferred from the existence of credit
+--    rows. Inferring it was wrong: any round that writes zero rows (the credit
+--    rounds to 0, every co-resident is unbilled) would be re-processed forever
+--    while the denominator had already moved on, double-crediting the same
+--    occupancy step. The joiner's allocation id is still stamped on
+--    student_credit_balances.source_event_id for the audit trail; it is no
+--    longer the guard. (A partial unique index was considered and rejected: the
+--    admission fee-change writer shares source='fee_structure_change' and can
+--    emit more than one row per (learner, event).)
+--
+--    DENOMINATORS COME FROM LIVE COUNTS. Walking up from a stored
+--    occupants_at_billing ignores anyone who checked out after billing: a room
+--    that lost one resident and gained one is unchanged in size and owes no
+--    credit at all, but a stored-count walk would pay one out and over-state
+--    every later step. So the walk ends at the CURRENT active-occupant count
+--    and steps back one per uncredited joiner.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(
   p_room_id uuid,
