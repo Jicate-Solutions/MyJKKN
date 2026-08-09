@@ -461,10 +461,15 @@ BEGIN
     RETURN jsonb_build_object('action', 'disabled', 'room_id', p_room_id);
   END IF;
 
-  v_year_id := COALESCE(
-    p_hostel_year_id,
-    (SELECT hy.id FROM hostel_years hy WHERE hy.is_current AND hy.is_active LIMIT 1)
-  );
+  -- Opening/restarting a window delays billing, so it is gated too — but on the
+  -- permission the people who actually allocate rooms hold, not the fees one.
+  IF NOT (fn_settle_can_manage(p_room_id, 'campus_living.allocations.create')
+          OR fn_settle_can_manage(p_room_id, 'campus_living.fees.config')) THEN
+    RAISE EXCEPTION 'permission denied: campus_living.allocations.create or campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_year_id := COALESCE(p_hostel_year_id, fn_settle_current_hostel_year());
 
   -- A room already billed for this year must NOT get a second window — that
   -- would bill everyone twice. This is the late-join credit path instead.
