@@ -310,6 +310,25 @@ BEGIN
       'action', v_action);
   END IF;
 
+  -- Two call sites outside the Decision Queue post a terminal action through
+  -- fn_dashboard_queue_action as a side-effect of work this undo cannot
+  -- reverse (app/(routes)/dashboard/_actions/rescue-actions.ts):
+  --   initiateRescueBroadcast → 'approve'     once the alert has reached the
+  --                                           counselling team
+  --   claimRescueBroadcast    → 'acknowledge' once the lead is assigned in
+  --                                           admission_leads
+  -- Un-acknowledging either would put the card back and imply the work had not
+  -- happened, while the alert stays sent and the lead stays assigned. No button
+  -- offers it — but this RPC is callable directly by any authenticated user, so
+  -- refuse here rather than rely on the absence of a button. Both are
+  -- identifiable by the distinctive idempotency keys those call sites mint.
+  -- (LIKE against a NULL key yields NULL, so an unkeyed row is unaffected.)
+  IF v_notif.idempotency_key LIKE '%:broadcast:initiated'
+     OR v_notif.idempotency_key LIKE '%:claim:attempted' THEN
+    RETURN jsonb_build_object('ok', FALSE, 'error', 'not_an_undoable_action',
+      'action', v_action, 'reason', 'rescue_side_effect');
+  END IF;
+
   -- Never clear somebody else's stamp. notifications is the shared row and
   -- user_notifications is the per-user fan-out, so in principle two people can
   -- hold rows against one notification. (Measured on production 2026-08-09: 0
