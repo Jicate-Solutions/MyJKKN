@@ -130,3 +130,11 @@ BEGIN
   );
 END;
 $function$;
+
+-- Lock the redefined function from anon/PUBLIC explicitly. CREATE OR REPLACE
+-- preserves whatever grants already exist, and production already had only
+-- authenticated + service_role (verified: has_function_privilege anon = false).
+-- Stating it here anyway so the migration is correct on a fresh database, where
+-- Postgres would otherwise grant EXECUTE to PUBLIC by default.
+REVOKE EXECUTE ON FUNCTION public.fn_dashboard_queue_escalate(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_dashboard_queue_escalate(uuid) TO authenticated, service_role;
