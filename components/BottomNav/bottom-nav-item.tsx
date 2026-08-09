@@ -34,10 +34,22 @@ const indicatorSpring = {
 // was the selected tab, because the label of the active tab renders bold and
 // bold is wider — so the label shortened exactly when the user looked at it.
 //
-// Only the strip uses these. The More drawer (2-line tiles) and the button's
-// accessible name both keep the full section name, so nothing is hidden from a
-// screen reader or from the full menu. A section that isn't listed here falls
-// through to its full name — every current one already fits.
+// Only the strip uses these. The More drawer (2-line tiles) still shows the
+// full section name, so the long form is never more than one tap away.
+//
+// The strip button deliberately carries NO aria-label: its accessible name is
+// computed from its own contents, so the word on screen is exactly the word a
+// voice-control user can speak to activate it (WCAG 2.5.3 Label in Name), and
+// the badge count rendered inside the button stays part of that name.
+//
+// Do not "helpfully" add aria-label={label} back. It breaks both of those:
+// 5 of the 19 short forms below are not substrings of their full name at all
+// ("Users" is not inside "User Management", "Purchase" is not inside
+// "Procurement"), and 8 fail the whole-word match speech engines actually do —
+// so the visible word would stop working as a voice command. An aria-label
+// also replaces the entire subtree, which silently drops the badge count.
+//
+// A section that isn't listed here falls through to its full name.
 const STRIP_SHORT_LABELS: Record<string, string> = {
   'User Management': 'Users',
   'Applications': 'Apps',
@@ -188,18 +200,28 @@ export function BottomNavItem({
     <motion.button
       onClick={onClick}
       className={cn(
-        // px-0.5 (was px-1) on the phone widths: it buys 4px more room for the
-        // label without moving the item centres or shrinking the tap target,
-        // which takes the longest surviving label from 0.5px of headroom to
-        // 4.5px. The 36px icon tile is unaffected — it never needed the space.
+        // px-0.5 (was px-1) on the phone widths: 4px more room for the label,
+        // without shrinking the tap target. The 36px icon tile is unaffected —
+        // it never needed the space.
+        //
+        // This cannot move the item centres: padding insets the content inside
+        // each item, and the items are flex-1 in a full-width row with no
+        // padding of its own, so the six boxes keep whatever width and position
+        // they already had.
+        //
+        // Headroom figures in the PR are a text-width budget measured in
+        // headless Chrome at the app's real font, not an on-device measurement.
+        // A device audit reported label centres up to 7px away from the
+        // computed box centres, but the two are different quantities — the
+        // audit reads the centroid of the OCR'd glyphs, this reads the flex box
+        // — and they were never reconciled. Nothing here depends on settling
+        // it: this change only shortens strings and insets padding, so it
+        // cannot move a box either way.
         'relative flex flex-col items-center justify-center px-0.5 sm:px-2 py-2.5 min-w-0 sm:min-w-[56px] flex-1 gap-1',
         'touch-manipulation transition-colors duration-150'
       )}
       whileTap={{ scale: 0.92 }}
       transition={tapSpring}
-      // The visible text may be a short form; keep the full section name as the
-      // accessible name so screen readers still announce "User Management".
-      aria-label={label}
     >
       <motion.div
         className={cn(
@@ -239,7 +261,10 @@ export function BottomNavItem({
           strokeWidth={isActive ? 2.5 : 2.2}
         />
 
-        {/* Badge for notifications — anchored to top-right of glass tile. */}
+        {/* Badge for notifications — anchored to top-right of glass tile.
+            Not aria-hidden on purpose: this text is part of the button's
+            accessible name, which is the only way a screen-reader user hears
+            the count. Adding an aria-label to the button would silence it. */}
         {badgeCount !== undefined && badgeCount > 0 && (
           <motion.span
             initial={{ scale: 0 }}
