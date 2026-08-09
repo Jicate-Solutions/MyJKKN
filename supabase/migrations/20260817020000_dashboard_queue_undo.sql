@@ -521,11 +521,17 @@ COMMENT ON FUNCTION public.fn_dashboard_queue_undo(UUID, INT) IS
 -- the caller could not. Locked from anon/PUBLIC regardless: its only caller is
 -- fn_dashboard_queue_escalate, which is SECURITY DEFINER and executes it as the
 -- owner.
+-- IMMUTABLE (a pure function of its argument) but deliberately left at the
+-- default PARALLEL UNSAFE: a plpgsql EXCEPTION clause opens a subtransaction on
+-- every entry to the block, and a subtransaction inside a parallel worker
+-- errors with "cannot start subtransactions during a parallel operation".
+-- Step 2's CTE is data-modifying and therefore never parallelised anyway, so
+-- this costs nothing here and stops the helper being a trap for a future
+-- caller.
 CREATE OR REPLACE FUNCTION public.fn_dashboard_undone_at(p_metadata JSONB)
 RETURNS TIMESTAMPTZ
 LANGUAGE plpgsql
 IMMUTABLE
-PARALLEL SAFE
 SET search_path = public
 AS $function$
 BEGIN
