@@ -208,6 +208,7 @@ export function OverviewTab() {
         roomId={activeAllocation?.room_id ?? null}
         roomNumber={activeAllocation?.hostel_rooms?.room_number ?? null}
         messCategoryId={summary?.messCategory?.id ?? null}
+        tierId={activeAllocation?.tier_id ?? null}
       />
 
       {/* Roommates — co-residents of the assigned room */}

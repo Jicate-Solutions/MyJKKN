@@ -65,12 +65,11 @@ export function SoleOccupancyNotice({
   // Only a multi-bed room with nobody in it can leave her alone.
   if (capacity <= 1 || currentOccupancy > 0) return null;
 
-  // The quote is the only thing allowed to claim she will pay more. When it
-  // cannot be produced — no fee row for the category yet, request failed — or
-  // when the band prices flat per bed, the warning drops to the plain fact
-  // (she'd be alone in a room built for several) rather than asserting a cost
-  // nobody has confirmed.
-  const costUnknown = !cost.ready && !cost.loading;
+  // The quote is the only thing allowed to claim she will pay more. Until it
+  // resolves — and permanently when it cannot (no fee row for the category
+  // yet, request failed, or a band that prices flat per bed) — the warning
+  // states the plain fact, that she'd be alone in a room built for several,
+  // rather than asserting a cost nobody has confirmed.
 
   return (
     <Card className='border-amber-400 bg-amber-50 dark:bg-amber-950/30'>
@@ -83,9 +82,9 @@ export function SoleOccupancyNotice({
             </p>
             <p className='text-sm text-amber-800 dark:text-amber-300'>
               The cost of a room is shared by the people living in it.{' '}
-              {costUnknown
-                ? `If you move in on your own, you will be the only person in a room built for ${capacity}, and what you pay may be higher until someone joins you.`
-                : `If you move in on your own, you pay for all ${capacity} beds until someone else joins you.`}
+              {cost.ready
+                ? `If you move in on your own, you pay for all ${capacity} beds until someone else joins you.`
+                : `If you move in on your own, you will be the only person in a room built for ${capacity}, and what you pay may be higher until someone joins you.`}
             </p>
           </div>
         </div>

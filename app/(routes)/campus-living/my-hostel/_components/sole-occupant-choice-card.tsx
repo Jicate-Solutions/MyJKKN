@@ -41,12 +41,17 @@ interface SoleOccupantChoiceCardProps {
   roomNumber: string | null | undefined;
   /** Her mess category, so the quote matches what she is billed. */
   messCategoryId?: string | null;
+  /** hostel_allocations.tier_id. Only a premium resident may invite — without
+   *  it the invite page refuses her, so the CTA is withheld rather than shown
+   *  as a dead end. Moving rooms stays available to everyone. */
+  tierId?: string | null;
 }
 
 export function SoleOccupantChoiceCard({
   roomId,
   roomNumber,
   messCategoryId,
+  tierId,
 }: SoleOccupantChoiceCardProps) {
   const [dismissed, setDismissed] = useState(false);
   const { data: roommates, isLoading: roommatesLoading } = useMyRoommates(!!roomId);
@@ -68,12 +73,15 @@ export function SoleOccupantChoiceCard({
   const emptyBeds = capacity - 1;
   // The existing one-time room change is the only move mechanism that exists.
   const canSelfMove = changeStatus?.allowed === true;
-  // Only claim she is paying for the empty beds when the quote actually says
-  // so. `ready` is false when no fee row exists for her category (year rollover
-  // before fees are entered), when the request failed, and when the band prices
-  // flat per bed — in all three there may be nothing extra to pay, and nudging
-  // her toward an irreversible one-time room change on that premise is wrong.
+  // Only claim she is paying for the empty beds once the quote has actually
+  // said so. `ready` is false while the quote is in flight, when no fee row
+  // exists for her category (year rollover before fees are entered), when the
+  // request failed, and when the band prices flat per bed. In every one of
+  // those there may be nothing extra to pay, and nudging her toward an
+  // irreversible one-time room change on that premise is wrong — so the strong
+  // sentence waits for `ready`, and never renders during the loading flicker.
   const costUnknown = !cost.ready && !cost.loading;
+  const canInvite = !!tierId;
 
   return (
     <Card className='border-amber-400 bg-amber-50/60 dark:bg-amber-950/20'>
@@ -85,18 +93,23 @@ export function SoleOccupantChoiceCard({
         <CardDescription>
           It has {capacity} beds, and {emptyBeds} {emptyBeds === 1 ? 'is' : 'are'}{' '}
           empty.{' '}
-          {costUnknown ? (
-            <>
-              The cost of a room is shared by the people living in it, so having
-              someone move in can bring your share down. We could not show your
-              exact amount here — your hostel office can tell you what your room
-              costs you right now.
-            </>
-          ) : (
+          {cost.ready ? (
             <>
               The cost of a room is shared by the people living in it, so right
               now you are paying for the empty{' '}
               {emptyBeds === 1 ? 'bed' : 'beds'} too.
+            </>
+          ) : (
+            <>
+              The cost of a room is shared by the people living in it, so having
+              someone move in can bring your share down.
+              {costUnknown && (
+                <>
+                  {' '}
+                  We could not show your exact amount here — your hostel office
+                  can tell you what your room costs you right now.
+                </>
+              )}
             </>
           )}
         </CardDescription>
@@ -159,23 +172,44 @@ export function SoleOccupantChoiceCard({
           <div className='rounded-md border bg-background p-3'>
             <p className='flex items-center gap-2 text-sm font-medium'>
               <Users className='h-4 w-4 text-primary' />
-              {costUnknown
-                ? 'Keep this room as it is'
-                : `Keep this room and pay for the empty ${emptyBeds === 1 ? 'bed' : 'beds'}`}
+              {cost.ready
+                ? `Keep this room and pay for the empty ${emptyBeds === 1 ? 'bed' : 'beds'}`
+                : 'Keep this room as it is'}
             </p>
             <p className='mt-1 text-sm text-muted-foreground'>
               Nothing changes and you keep the room to yourself.{' '}
-              {costUnknown
-                ? 'If you would rather share, invite someone to move in — each person who joins lowers what everyone pays.'
-                : `If you would rather not pay for the empty ${emptyBeds === 1 ? 'bed' : 'beds'}, invite someone to move in — each person who joins lowers what everyone pays.`}
+              {canInvite ? (
+                cost.ready ? (
+                  <>
+                    If you would rather not pay for the empty{' '}
+                    {emptyBeds === 1 ? 'bed' : 'beds'}, invite someone to move in
+                    — each person who joins lowers what everyone pays.
+                  </>
+                ) : (
+                  <>
+                    If you would rather share, invite someone to move in — each
+                    person who joins lowers what everyone pays.
+                  </>
+                )
+              ) : (
+                <>
+                  If you would rather share, ask the hostel office to place
+                  someone with you — each person who joins lowers what everyone
+                  pays.
+                </>
+              )}
             </p>
             <div className='mt-2 flex flex-wrap gap-2'>
-              <Button asChild size='sm'>
-                <Link href='/campus-living/my-hostel/premium/invite-roommate'>
-                  <Users className='mr-2 h-4 w-4' />
-                  Invite a roommate
-                </Link>
-              </Button>
+              {/* Only a premium resident can send an invite. Showing the button
+                  to anyone else sends her to a page that refuses her. */}
+              {canInvite && (
+                <Button asChild size='sm'>
+                  <Link href='/campus-living/my-hostel/premium/invite-roommate'>
+                    <Users className='mr-2 h-4 w-4' />
+                    Invite a roommate
+                  </Link>
+                </Button>
+              )}
               <Button size='sm' variant='ghost' onClick={() => setDismissed(true)}>
                 <Check className='mr-2 h-4 w-4' />
                 Keep my room as it is
