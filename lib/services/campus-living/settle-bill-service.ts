@@ -148,13 +148,16 @@ export interface SettleLateJoinResult extends FeePrimitives {
   billed_at?: string;
   occupants_at_billing?: number;
   active_occupants?: number;
+  entitlement_per_resident?: number;
   hostel_year_end_date?: string;
   base_room_annual?: number;
   ac_room_annual?: number;
   events?: SettleLateJoinEvent[];
+  credits?: SettleCreditLine[];
   events_processed?: number;
   credits_written?: number;
   parity_ok?: boolean;
+  parity_expected_entitlement?: number;
 }
 
 export interface SettleRunSummary {
