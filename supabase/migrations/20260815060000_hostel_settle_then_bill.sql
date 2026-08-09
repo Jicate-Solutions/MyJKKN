@@ -644,8 +644,9 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_due() TO authenticated, se
 --    Idempotent: a window already 'billed' is skipped, never billed twice.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_settle_bill_close(
-  p_room_id uuid,
-  p_dry_run boolean DEFAULT true
+  p_room_id   uuid,
+  p_dry_run   boolean DEFAULT true,
+  p_window_id uuid    DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
