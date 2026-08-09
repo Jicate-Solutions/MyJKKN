@@ -114,10 +114,14 @@ export function QueueActionButton({
       // Recoverable action (snooze / Skip): it worked, say nothing.
       if (!doneLabel) return;
 
-      const runs =
-        res.applied > 1 ? ` · all ${res.applied} runs` : '';
-      const headline = `${doneLabel} — ${itemTitle}${runs}`;
       const targets = res.undoTargets;
+      // Count the rows THIS tap actually changed, not the rows it visited. A
+      // grouped run can include a row an earlier request already cleared; that
+      // row comes back idempotent and is excluded from undoTargets, so
+      // counting it here would promise an undo wider than the one on offer.
+      const changed = targets.length > 0 ? targets.length : res.applied;
+      const runs = changed > 1 ? ` · all ${changed} runs` : '';
+      const headline = `${doneLabel} — ${itemTitle}${runs}`;
 
       if (targets.length === 0) {
         // Terminal, but nothing changed this time round (an idempotent replay
@@ -153,9 +157,12 @@ export function QueueActionButton({
       {Object.entries(extraFields).map(([k, v]) => (
         <input key={k} type='hidden' name={k} value={v} />
       ))}
+      {/* Dimmed and disabled while in flight. Without it a slow action gives no
+          feedback at all between the tap and the toast, and the reader taps
+          again — on a button whose whole point is that one tap is enough. */}
       <button
         type='submit'
-        className={className}
+        className={`${className} disabled:opacity-60 disabled:cursor-not-allowed`}
         disabled={pending}
         aria-busy={pending}
       >
