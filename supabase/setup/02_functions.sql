@@ -30432,8 +30432,8 @@ GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,te
 -- supabase/setup/02_functions.sql.
 --
 -- CONSEQUENCE OF APPLYING THIS DEFINITION: the super-admin daily digest starts
--- producing rows again every day -- 129 for the day measured 2026-08-09, and it
--- averaged 46-49/day over its last fortnight alive (2026-04-25..2026-05-08), all
+-- producing rows again every day -- 129 for the day measured 2026-08-09, and
+-- 46-49/day over its last eight days alive (2026-05-01..2026-05-08), all
 -- with a 36h TTL. That is the intended repair, but it is a behaviour change on
 -- top of the TTL work and the Director should be told it is in the same apply.
 CREATE OR REPLACE FUNCTION public.fn_generate_super_admin_daily_digest()

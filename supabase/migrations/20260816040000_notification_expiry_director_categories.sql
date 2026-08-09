@@ -35,8 +35,9 @@
 -- bodies revives fn_generate_super_admin_daily_digest, dead since 2026-05-08.
 -- That restarts a daily emitter with no sign-off: measured inside BEGIN..ROLLBACK
 -- on 2026-08-09 the revived function creates 129 rows for one day (each with a
--- 36h TTL); while it was last alive it averaged 46-49 rows/day. Treat this file
--- as Director-gated on that basis, not on the banner.
+-- 36h TTL); over its last eight days alive (2026-05-01..2026-05-08) it emitted
+-- 46-49 rows/day. Treat this file as Director-gated on that basis, not on the
+-- banner.
 --
 -- To apply THIS file alone, hand-run its contents once via Supabase Studio's SQL
 -- editor (or the Management API) against project kvizhngldtiuufknvehv, then record
@@ -92,8 +93,8 @@
 --     existing 42,772 per-timetable rows are expired by the companion backfill
 --     20260816040100 under an explicit Director decision recorded in that file's
 --     header -- the Director was shown, and accepted, that afterwards those
---     ~42.5K historical unmarked sessions are visible nowhere in the product
---     except /notifications/admin.
+--     rows (the fan-out of 5,258 distinct (timetable, day) unmarked sessions
+--     over 110 days) are visible nowhere in the product but /notifications/admin.
 --   * accreditation narrative nudge + escalation. Keys are
 --     'accred_narr_nudge:<narrative>:<YYYY-MM-DD>' and 'accred_narr_esc:...'.
 --     Measured on production: the Director's 187 unread accreditation rows
@@ -265,8 +266,8 @@ GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,te
 -- supabase/setup/02_functions.sql.
 --
 -- CONSEQUENCE OF APPLYING THIS FILE: the super-admin daily digest starts
--- producing rows again every day -- 129 for the day measured 2026-08-09, and it
--- averaged 46-49/day over its last fortnight alive (2026-04-25..2026-05-08), all
+-- producing rows again every day -- 129 for the day measured 2026-08-09, and
+-- 46-49/day over its last eight days alive (2026-05-01..2026-05-08), all
 -- with a 36h TTL. That is the intended repair, but it is a behaviour change on
 -- top of the TTL work and the Director should be told it is in the same apply.
 -- It also cannot be rolled back independently of the TTL work: both live in this

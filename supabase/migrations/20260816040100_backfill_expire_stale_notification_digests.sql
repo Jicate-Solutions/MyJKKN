@@ -69,10 +69,13 @@
 -- with no second surface in the product:
 -- fn_aqs_attendance_unmarked_periods_today is CURRENT_DATE-only (no date
 -- parameter) and the row's action URL /academic/attendance/dashboard?timetable=<id>
--- carries no date either. So expiring the history means ~42.5K historical
--- unmarked sessions, back to 2026-04-21, become visible NOWHERE in the product
--- except /notifications/admin. The Director was told this and chose to expire
--- them anyway: clear the badge.
+-- carries no date either. So expiring the history means 42,772 historical
+-- notification rows, back to 2026-04-21, become visible NOWHERE in the product
+-- except /notifications/admin. Those rows are the fan-out of 5,258 distinct
+-- (timetable, day) unmarked sessions across 110 days -- roughly 8 recipients per
+-- session -- so the underlying fact being hidden from every in-app surface is
+-- 5,258 sessions, not 42,772 of them. The Director was told this and chose to
+-- expire them anyway: clear the badge.
 --
 -- ROW COUNT COVERED BY THE DECISION: 42,772 dashboard:anomaly rows with
 -- expires_at IS NULL (measured on production 2026-08-09) -- 42,523 matched by the
@@ -264,8 +267,9 @@ BEGIN
             AND n.metadata->>'source' = 'ai-tasks-sweep:runner-down')
         -- DIRECTOR DECISION 2026-08-09 (see header): the per-timetable
         -- 'Attendance not marked today - X' history IS expired, accepting that
-        -- ~42.5K historical unmarked sessions are then visible nowhere in the
-        -- product but /notifications/admin. Two key shapes, one population:
+        -- 42,772 historical rows -- the fan-out of 5,258 (timetable, day)
+        -- unmarked sessions -- are then visible nowhere in the product but
+        -- /notifications/admin. Two key shapes, one population:
         -- the current 'unmarked_attendance:<timetable>:<DATE>:<user>' key and an
         -- older cohort keyed '<uuid>:acknowledge' that carries timetable_id in
         -- action_config. 42,772 rows on production 2026-08-09.
