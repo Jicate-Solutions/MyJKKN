@@ -220,6 +220,62 @@ interface TargetingResult {
   failedAudiences: string[];
 }
 
+// `.in('id', [...])` travels in the PostgREST query string. 200 UUIDs is
+// ~7.4 KB of URL — comfortably under the proxy's header limit — and the
+// chunks run in parallel, so the whole filter costs one round trip.
+const ACTIVE_FILTER_CHUNK = 200;
+
+/**
+ * Keep only the ids whose profile is is_active = true.
+ *
+ * Allowlist, not blocklist: an id with no `profiles` row at all is dropped
+ * rather than kept. Runs on the service client because the ids being filtered
+ * came from resolve_audience (SECURITY DEFINER, cluster-wide) — filtering them
+ * through an RLS-scoped client would narrow by visibility as well as by
+ * is_active and silently lose legitimate recipients.
+ *
+ * Returns error:true on any failure so the caller can fail closed. Under-
+ * delivering silently is not an option here: the caller turns this into a 500
+ * and sends nothing.
+ */
+async function keepActiveProfiles(
+  serviceClient: any,
+  ids: string[]
+): Promise<{ activeIds: string[]; error: boolean }> {
+  if (ids.length === 0) return { activeIds: [], error: false };
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += ACTIVE_FILTER_CHUNK) {
+    chunks.push(ids.slice(i, i + ACTIVE_FILTER_CHUNK));
+  }
+
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      serviceClient
+        .from('profiles')
+        .select('id')
+        .in('id', chunk)
+        .eq('is_active', true)
+    )
+  );
+
+  const activeIds: string[] = [];
+  for (const result of results) {
+    if (result?.error) {
+      console.error(
+        '[notifications/send] is_active filter on audience ids failed:',
+        result.error
+      );
+      return { activeIds: [], error: true };
+    }
+    for (const row of result?.data || []) {
+      if (row?.id) activeIds.push(row.id);
+    }
+  }
+
+  return { activeIds, error: false };
+}
+
 async function findTargetUsers(
   supabase: any,
   targeting: any
@@ -278,6 +334,46 @@ async function findTargetUsers(
         failedAudiences.push(audienceId);
       }
     }
+
+    // resolve_audience does NOT gate every arm on the account being active.
+    // Checked per statement against the live prod body on 2026-08-09 (not by
+    // grepping the whole function — a whole-function grep for 'is_active'
+    // returns true because 10 of the 13 built-in arms do gate, and because
+    // line 1 reads notification_audiences.is_active, the AUDIENCE row's own
+    // flag, which is not a user gate at all). The three arms with no gate:
+    //   push_subscribers  -> SELECT DISTINCT user_id FROM push_subscriptions
+    //   attendance_below  -> SELECT DISTINCT ses.user_id FROM
+    //                        student_engagement_scores WHERE is_at_risk
+    //   login_recency + logged_in_within_days -> SELECT DISTINCT us.user_id
+    //                        FROM user_sessions WHERE us.created_at >= ...
+    // The last one is the trap: its not_logged_in_days sibling in the same
+    // IF block DOES gate, so the asymmetry is invisible above statement level.
+    //
+    // Measured on prod the same day: 'Push Subscribers' resolved 1,302 ids of
+    // which 29 were deactivated (48 push_subscriptions rows); 'Low Attendance
+    // (<75%)' and 'Critical Attendance (<60%)' each resolved 4,698 of which
+    // 480 were deactivated.
+    //
+    // So this route filters audience-resolved ids itself. This is the delivery
+    // boundary — nothing sent from here reaches a deactivated account, whatever
+    // an audience arm returns. Fixing the arms in the DB would be the deeper
+    // fix and is deliberately NOT done in this PR (see the PR body).
+    if (audienceUserIds.size > 0) {
+      const { activeIds, error: filterError } = await keepActiveProfiles(
+        serviceClient,
+        Array.from(audienceUserIds)
+      );
+
+      audienceUserIds.clear();
+      if (filterError) {
+        // Fail closed: we could not establish who is active, so we claim no
+        // audience resolved. The caller turns a non-empty failedAudiences into
+        // a 500 and sends nothing.
+        for (const audienceId of rawAudienceIds) failedAudiences.push(audienceId);
+      } else {
+        for (const uid of activeIds) audienceUserIds.add(uid);
+      }
+    }
   }
 
   // Check if only role targeting is specified
@@ -304,13 +400,30 @@ async function findTargetUsers(
     targeting.target_roles && targeting.target_roles.length > 0;
   const hasAudienceTargeting = audienceUserIds.size > 0;
 
-  // If ONLY audiences are specified, return those directly.
-  // No is_active filter is applied to audience-resolved ids here on purpose:
-  // resolve_audience already applies the is_active gate inside the SECURITY
-  // DEFINER function (verified against prod pg_proc 2026-08-09). Re-filtering
-  // in TS would mean two sources of truth for the same rule.
+  // If ONLY audiences are specified, return those directly. They are already
+  // is_active-filtered above — resolve_audience does NOT gate every arm, so
+  // this route does it at the delivery boundary. Do not remove that filter on
+  // the belief that the DB handles it; three of its arms do not.
   if (hasAudienceTargeting && !hasLocationTargeting && !hasRoleTargeting) {
     return { userIds: Array.from(audienceUserIds), failedAudiences };
+  }
+
+  // An audience WAS asked for, resolved to nobody, and nothing else narrows
+  // the send. hasAudienceTargeting means "resolved to >= 1 id", not "was
+  // requested", so without this guard the request falls through to the
+  // untargeted branches below and blasts every active account (or, if it
+  // reaches the org-unit branch with no org filters set, every active
+  // learner). That was already reachable before this PR — 'Hostel Residents'
+  // and 'Bus Commuters' both return an empty array by construction — and the
+  // is_active filter above adds one more way in. Asking for an audience and
+  // getting nobody must mean nobody: return [] and let the caller answer 400.
+  if (
+    rawAudienceIds.length > 0 &&
+    !hasAudienceTargeting &&
+    !hasLocationTargeting &&
+    !hasRoleTargeting
+  ) {
+    return { userIds: [], failedAudiences };
   }
 
   // If no specific targeting criteria, send to all users
@@ -364,9 +477,11 @@ async function findTargetUsers(
     // is_active is mandatory here for the same reason it is on the "all users"
     // and role-only branches above: deactivated accounts (alumni, ex-staff)
     // must never receive a notification. This branch omitted it until
-    // 2026-08-09, so institution-targeted sends reached 825 deactivated
-    // profiles cluster-wide. profiles.is_active is NOT NULL in practice
-    // (0 NULL rows on prod), so .eq(true) == "not deactivated".
+    // 2026-08-09, so institution-targeted sends reached every deactivated
+    // profile carrying that institution_id (824 cluster-wide when measured
+    // on 2026-08-09 — a live count that drifts, not a fixture).
+    // profiles.is_active has 0 NULL rows on prod, so .eq(true) is exactly
+    // "not deactivated".
     let query = supabase
       .from('profiles')
       .select('id')
@@ -473,8 +588,9 @@ async function findTargetUsers(
         //
         // is_active is applied on the profiles side (not learners_profiles)
         // because profiles.is_active is the single account-level gate every
-        // other branch uses. 375 learner rows on prod resolve to a
-        // deactivated profile and were being notified before 2026-08-09.
+        // other branch uses. 375 learner rows on prod resolved to a
+        // deactivated profile when measured on 2026-08-09 and were being
+        // notified before that (again: a live count, not a fixture).
         let profileQuery = supabase
           .from('profiles')
           .select('id')
