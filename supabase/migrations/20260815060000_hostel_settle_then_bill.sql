@@ -194,9 +194,22 @@ CREATE POLICY settle_windows_insert_admin ON public.hostel_room_settle_windows
                   AND role_has_institution_access(r.institution_id)))
     );
 
+-- WITH CHECK is NOT optional here. Without it the post-image is never
+-- re-validated, so a tenant-scoped holder of campus_living.fees.config could
+-- UPDATE a window they can see and move its room_id to another institution's
+-- room — or flip status from 'billed' back to 'open' and clear the guard that
+-- stops a room being billed twice.
 DROP POLICY IF EXISTS settle_windows_update_admin ON public.hostel_room_settle_windows;
 CREATE POLICY settle_windows_update_admin ON public.hostel_room_settle_windows
     FOR UPDATE USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    )
+    WITH CHECK (
         (SELECT is_super_admin() OR is_admin())
         OR (user_has_permission('campus_living.fees.config')
             AND EXISTS (
