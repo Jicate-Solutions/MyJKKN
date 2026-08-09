@@ -950,16 +950,22 @@ BEGIN
   v_base     := (v_cost->>'base_room_annual')::numeric;
   v_ac       := (v_cost->>'ac_room_annual')::numeric;
 
-  -- The denominator the last issued credit round left behind: the occupancy at
-  -- billing, plus every joiner already credited since.
-  SELECT COUNT(*)::int INTO v_already_credited
+  -- Both denominators are derived from what is TRUE NOW. v_live is the current
+  -- active-occupant count; v_uncredited is how many of those arrived after
+  -- billing without their credit round being processed. The walk therefore ends
+  -- at v_live and steps back one per uncredited joiner, which absorbs anyone
+  -- who checked out in the meantime instead of paying credits for a room that
+  -- never actually grew.
+  SELECT COUNT(*)::int INTO v_live
+  FROM hostel_allocations al
+  WHERE al.room_id = p_room_id AND al.check_out_date IS NULL;
+
+  SELECT COUNT(*)::int INTO v_uncredited
   FROM hostel_allocations al
   WHERE al.room_id = p_room_id
     AND al.check_out_date IS NULL
     AND al.created_at > v_window.billed_at
-    AND EXISTS (SELECT 1 FROM student_credit_balances scb WHERE scb.source_event_id = al.id);
-
-  v_n_before := GREATEST(1, COALESCE(v_window.occupants_at_billing, 1)) + v_already_credited;
+    AND NOT (al.id = ANY (v_window.credited_allocation_ids));
 
   FOR j IN
     SELECT al.id AS allocation_id, al.learner_id, al.check_in_date, al.created_at
@@ -967,10 +973,13 @@ BEGIN
     WHERE al.room_id = p_room_id
       AND al.check_out_date IS NULL
       AND al.created_at > v_window.billed_at
-      AND NOT EXISTS (SELECT 1 FROM student_credit_balances scb WHERE scb.source_event_id = al.id)
+      AND NOT (al.id = ANY (v_window.credited_allocation_ids))
     ORDER BY al.created_at, al.id
   LOOP
-    v_n_after := v_n_before + 1;
+    v_step     := v_step + 1;
+    v_n_after  := v_live - (v_uncredited - v_step);
+    v_n_before := GREATEST(1, v_n_after - 1);
+    v_processed := v_processed || j.allocation_id;
 
     -- Same two-term, separately-rounded shape as computeFeeBreakdown.
     v_share_before := round(v_base / v_n_before) + round(v_ac / v_n_before);
