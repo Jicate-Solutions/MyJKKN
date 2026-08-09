@@ -374,16 +374,22 @@ export async function closeSettleWindow(
   dryRun = true,
   windowId?: string | null,
 ): Promise<SettleCloseResult> {
-  const preview = closeParity(
-    await callClose(client, roomId, true, windowId),
-  );
+  const preview = closeParity(await callClose(client, roomId, true, windowId));
   if (dryRun) return preview;
 
-  if (preview.parity_ok === false) {
-    logger.error(LOG, 'Refusing to bill — parity gate failed', { room_id: roomId });
-    return { ...preview, status: 'parity_abort', dry_run: false };
+  // 'no_occupants' writes nothing but must reach the live path: it is the only
+  // branch that marks the emptied window 'cancelled'. Skipping it would leave a
+  // past-deadline window in the due list on every future sweep, forever.
+  if (preview.status === 'no_occupants') {
+    return callClose(client, roomId, false, windowId);
   }
   if (preview.status !== 'closed') return preview;
+
+  // Fail CLOSED: anything other than a positive verification refuses.
+  if (preview.parity_ok !== true) {
+    logger.error(LOG, 'Refusing to bill — parity gate did not pass', { room_id: roomId });
+    return { ...preview, status: 'parity_abort', dry_run: false };
+  }
 
   return closeParity(await callClose(client, roomId, false, windowId));
 }
