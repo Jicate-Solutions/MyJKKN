@@ -681,9 +681,21 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
+  IF NOT fn_settle_can_manage(p_room_id, 'campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Bill the window the caller was handed, not "the oldest open one on this
+  -- room". The unique index is per (room, hostel year), so a room with open
+  -- windows in two hostel years would otherwise be billed against the wrong
+  -- year — wrong rate, wrong dedup key — and the window that actually came due
+  -- would be left open.
   SELECT * INTO v_window
   FROM hostel_room_settle_windows w
-  WHERE w.room_id = p_room_id AND w.status = 'open'
+  WHERE w.room_id = p_room_id
+    AND w.status = 'open'
+    AND (p_window_id IS NULL OR w.id = p_window_id)
   ORDER BY w.opened_at
   LIMIT 1
   FOR UPDATE;
