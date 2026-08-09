@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyHostelSummary, useMyRoommates } from '@/hooks/campus-living/use-my-hostel';
 import { WinsFeedCard } from './wins-feed-card';
+import { SoleOccupantChoiceCard } from './sole-occupant-choice-card';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import {
   BedDouble,
@@ -200,6 +201,14 @@ export function OverviewTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Alone in a multi-bed room → she is paying for the empty beds. Names
+          the cost and offers move-or-stay. Self-gates away otherwise. */}
+      <SoleOccupantChoiceCard
+        roomId={activeAllocation?.room_id ?? null}
+        roomNumber={activeAllocation?.hostel_rooms?.room_number ?? null}
+        messCategoryId={summary?.messCategory?.id ?? null}
+      />
 
       {/* Roommates — co-residents of the assigned room */}
       {hasAllocation && (
