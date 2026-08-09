@@ -66,9 +66,15 @@ function EmptyState({ filter }: { filter: QueueFilter }) {
       <div className='text-sm font-medium text-neutral-900 dark:text-neutral-100'>
         Inbox zero — no {label} items awaiting your action
       </div>
+      {/* 2026-08-09 (mobile audit finding 05): the "auto-escalate after 2h"
+          sentence was removed. fn_dashboard_queue_escalate only picks up rows
+          with notifications.requires_acknowledgment = TRUE, and every item
+          fn_create_dashboard_work_item writes sets that to FALSE — so no work
+          item has ever been escalated, while items sat 107 days overdue on the
+          same screen. Restore the sentence when the RPC filter is fixed. */}
       <div className='mt-2 text-xs text-neutral-500 max-w-sm mx-auto leading-relaxed'>
         New items (approvals, escalations, cold-lead rescues, anomalies) will
-        appear here. Unacked items auto-escalate to the Chief of Staff after 2h.
+        appear here.
       </div>
     </div>
   );
@@ -96,8 +102,12 @@ export async function DecisionQueue({
       <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-5 border-b border-neutral-200 dark:border-neutral-800'>
         <div>
           <h2 className='text-base sm:text-lg font-semibold'>Decision Queue</h2>
+          {/* 2026-08-09 (mobile audit finding 05): dropped the "auto-escalates
+              to Chief of Staff after 2h" claim — see EmptyState above for why
+              it is not true today. Replaced with the sort order, which the
+              RPC really does apply (severity_order ASC, created_at ASC). */}
           <p className='text-xs text-neutral-500 mt-0.5'>
-            Items awaiting your action · auto-escalates to Chief of Staff after 2h
+            Items awaiting your action · highest priority first, then oldest
           </p>
         </div>
         <FilterChipRow counts={counts} active={filter} chipHref={chipHref} />

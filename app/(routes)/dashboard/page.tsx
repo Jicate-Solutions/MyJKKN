@@ -242,9 +242,23 @@ function QueueSkeleton() {
 // Live Morning Brief wrapper — fetches brief data, renders dismissible card
 // ============================================================================
 async function LiveMorningBrief() {
-  const brief = await getMorningBrief();
+  // 2026-08-09: the brief used to be fetched alone, so it could print
+  // "Inbox zero" directly above a Decision Queue holding 101 open items —
+  // the two halves of one screen read from different RPCs with different
+  // filters (see PR notes: fn_dashboard_morning_brief still requires
+  // n.requires_acknowledgment = TRUE, which fn_dashboard_queue_list dropped
+  // on 2026-04-23 and which every generated work item sets to FALSE).
+  // Fetching the queue total here lets the card check itself against the
+  // same number the user can see below it. Same one-item probe already used
+  // by LiveTodaysFocus above — we only need counts.
+  const [brief, queueTotal] = await Promise.all([
+    getMorningBrief(),
+    listQueueItems('all', 1)
+      .then((q) => q.counts.total)
+      .catch(() => null) // queue unavailable — fall back to brief-only copy
+  ]);
   if (!brief.ok) return null; // RPC failed or user not authed — skip gracefully
-  return <MorningBriefCard brief={brief} />;
+  return <MorningBriefCard brief={brief} queueTotal={queueTotal} />;
 }
 
 // ============================================================================
