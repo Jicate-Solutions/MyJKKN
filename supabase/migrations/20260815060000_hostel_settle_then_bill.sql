@@ -783,6 +783,28 @@ BEGIN
     SELECT lp.institution_id INTO v_inst_id
     FROM learners_profiles lp WHERE lp.id = v_lp_id;
 
+    -- A learner on a FLAT PACKAGE is not settle-billable at all: her hostel fee
+    -- is one bundled package price that does not divide by occupancy. Worse,
+    -- the generate path keys package bills on package_id and would not see a
+    -- 'hostel_category' row at all — so billing her here is a straight
+    -- DOUBLE-BILL of the room. Detected by asking the canonical resolver rather
+    -- than re-deriving its package-matching rules.
+    SELECT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(
+             COALESCE(campus_living_resolve_hostel_fee(v_lp_id, v_year_id), '[]'::jsonb)
+           ) AS itm
+      WHERE itm->>'fee_source' = 'hostel_package'
+    ) INTO v_exists;
+
+    IF v_exists THEN
+      v_skipped := v_skipped + 1;
+      v_lines := v_lines || jsonb_build_object(
+        'allocation_id', a.allocation_id, 'learner_id', v_lp_id,
+        'action', 'skipped', 'reason', 'flat_package', 'amount', 0);
+      CONTINUE;
+    END IF;
+
     -- Same dedup key campus_living_generate_hostel_year_bills uses, so the two
     -- paths cannot both bill this room to this learner.
     SELECT EXISTS (
