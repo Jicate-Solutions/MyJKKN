@@ -49,11 +49,8 @@ export function AutoBreadcrumbs({ className }: AutoBreadcrumbsProps) {
   }));
 
   // Skip root, /auth/*, /api/*, and any pathname with no crumbs.
-  // Also skip trails that are only "Home › <this page>". The page title is
-  // already in the header immediately above the trail, so a two-crumb line
-  // just repeats it and costs a row of screen height for nothing. This is
-  // what made the dashboard read "Dashboard" twice, one line apart.
-  if (items.length < 3) return null;
+  // Also skip 1-item trails (just "Home") — adds no value.
+  if (items.length < 2) return null;
 
   const lastIndex = items.length - 1;
   // Narrow screens show the parent and the current page only. Everything
@@ -121,21 +118,11 @@ export default AutoBreadcrumbs;
  * Utility wrapper that applies the standard class used when AutoBreadcrumbs is
  * mounted globally in the routes layout. Keeps layout.tsx tidy while allowing
  * callers to drop <AutoBreadcrumbs /> inline with a custom className.
- *
- * Padding here deliberately mirrors, exactly, the wrapper div currently in
- * app/(routes)/layout.tsx (`px-4 md:px-8 pt-3`). That div renders whether or
- * not AutoBreadcrumbs returns null, so on a collapsed two-crumb route it still
- * paints an empty 12px padded row — the row this component's collapse was
- * supposed to reclaim. The fix is to delete that div and render
- * `<GlobalAutoBreadcrumbs key='auto-breadcrumbs' />` in its place, at which
- * point returning null removes the row and its padding together. layout.tsx is
- * owned by another lane, so that swap is not made here; matching the padding
- * value makes it a behaviour-preserving one-liner when it is.
  */
 export function GlobalAutoBreadcrumbs({ className }: AutoBreadcrumbsProps) {
   return (
     <AutoBreadcrumbs
-      className={cn('px-4 md:px-8 pt-3', className)}
+      className={cn('px-4 md:px-8 pt-2', className)}
     />
   );
 }
