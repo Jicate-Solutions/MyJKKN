@@ -84,9 +84,13 @@
 -- today - ...'. The 231 'Daily digest - N anomaly signal(s)' rows in the same
 -- category are keyed 'digest:%' and were already in scope for a different reason.
 --
+-- (All 249 verified on production 2026-08-09 to carry the title 'Attendance not
+-- marked today...' -- 249/249, none other.)
+--
 -- SCOPE LIMIT: nothing outside that population was added. Escalations
 -- (missing_data:gap-escalated, attendance:breach-escalated, rcltp), per-item
--- approvals and per-bug rescues are still untouched -- see the NOT EXPIRED list.
+-- approvals and per-bug rescues are still untouched -- see the "remaining"
+-- column notes below and the NOT EXPIRED list in the companion migration.
 --
 -- --------------------------------------------------------------------------------
 -- MEASURED IMPACT (production, 2026-08-09, read-only)
@@ -98,6 +102,8 @@
 --   director@jkkn.ac.in unread ...................... 680 -> 96
 --   (simulated against the real read filter: user_notifications.read_at IS NULL
 --    AND (notifications.expires_at IS NULL OR expires_at > now()))
+--
+--   Breakdown of those 680 -> 96 (the DIRECTOR'S unread only, not cluster-wide):
 --
 --   category                          unread  cleared  remaining
 --   --------------------------------  ------  -------  ---------
