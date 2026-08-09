@@ -176,15 +176,17 @@ const config: Config = {
     //     which @radix-ui/react-dialog mounts ONLY when `modal` is true. A
     //     `modal={false}` Sheet never matches, so the BUG-003871 behaviour is
     //     preserved exactly.
-    //   :has([role="dialog"][data-state="open"])
-    //     narrows to dialogs and sheets. A modal dropdown menu (role=menu) or
-    //     select (role=listbox) must not blank the FABs.
+    //   :has([role$="dialog"][data-state="open"])
+    //     narrows to dialogs, sheets and alert dialogs — the only two ARIA
+    //     roles ending in "dialog" are `dialog` and `alertdialog`, and Radix's
+    //     AlertDialog is always modal. A modal dropdown menu (role=menu) or
+    //     select (role=listbox) must NOT blank the FABs, and does not match.
     //
     // Browsers without :has() simply drop the rule and behave as before.
     plugin(({ addVariant }) => {
       addVariant(
         'modal-open',
-        'body[data-scroll-locked]:has([role="dialog"][data-state="open"]) &'
+        'body[data-scroll-locked]:has([role$="dialog"][data-state="open"]) &'
       );
     })
   ]
