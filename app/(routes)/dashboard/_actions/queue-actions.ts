@@ -67,12 +67,13 @@ export type UndoOutcome = {
   restored: number;
   requested: number;
   /**
-   * false ⇒ a false_alarm's 24h silence was reversed but the expiry it
-   * overwrote had never been recorded (an action taken before the
-   * 20260817020000 migration shipped). The item is back in the queue; the
-   * silence window is not the one it had before. Surfaced, never hidden.
+   * Mirrors the RPC's `expires_at_recoverable`. false ⇒ a false_alarm's 24h
+   * silence was reversed but the expiry it overwrote had never been recorded
+   * (an action taken before the 20260817020000 migration shipped). The item is
+   * back in the queue; the silence window is not the one it had before.
+   * Surfaced to the reader, never hidden.
    */
-  expiresRestored: boolean;
+  expiresRecoverable: boolean;
   error?: string;
   message: string;
 };
@@ -283,6 +284,23 @@ export async function performQueueAction(
 }
 
 /**
+ * `<form action={…}>` requires void | Promise<void>, and performQueueAction now
+ * returns an outcome. This is the adapter for callers that post a form and have
+ * nothing to do with the result — today that is the Morning Brief's inline
+ * Snooze, which is recoverable and deliberately silent, so there is no toast to
+ * raise and no undo to offer.
+ *
+ * It exists because dropping the return type would take the undo bar with it,
+ * and because a plain `<form action={performQueueAction}>` is a *type* error
+ * that this repo's PR-scoped typecheck would not have reported: morning-brief.tsx
+ * is not in this PR's diff, so the gate ignores errors in it. Found by checking
+ * every importer by hand.
+ */
+export async function performQueueActionForm(formData: FormData): Promise<void> {
+  await performQueueAction(formData);
+}
+
+/**
  * Reverse one terminal queue action inside the undo window.
  *
  * Calls fn_dashboard_queue_undo (migration 20260817020000), which restores
@@ -304,7 +322,7 @@ export async function undoQueueAction(input: {
       ok: false,
       restored: 0,
       requested: 0,
-      expiresRestored: true,
+      expiresRecoverable: true,
       error: 'missing_params',
       message: undoMessage('missing_params')
     };
@@ -317,7 +335,7 @@ export async function undoQueueAction(input: {
     // Starts true and is only pulled down by a row that admits it could not
     // put an overwritten expiry back — so the reader is told about the one
     // part of the reversal that is incomplete.
-    let expiresRestored = true;
+    let expiresRecoverable = true;
 
     for (const target of targets) {
       const { data, error } = await supabase.rpc('fn_dashboard_queue_undo', {
@@ -335,7 +353,7 @@ export async function undoQueueAction(input: {
         continue;
       }
       restored += 1;
-      if (payload?.expires_at_recoverable === false) expiresRestored = false;
+      if (payload?.expires_at_recoverable === false) expiresRecoverable = false;
     }
 
     if (restored === 0) {
@@ -343,7 +361,7 @@ export async function undoQueueAction(input: {
         ok: false,
         restored: 0,
         requested: targets.length,
-        expiresRestored: true,
+        expiresRecoverable: true,
         error: firstError,
         message: undoMessage(firstError)
       };
@@ -356,7 +374,7 @@ export async function undoQueueAction(input: {
     const message =
       restored < targets.length
         ? `Put back ${restored} of ${targets.length} — the rest were past the undo window.`
-        : !expiresRestored
+        : !expiresRecoverable
           ? 'Back in your queue. The 24-hour silence could not be reset — check the item.'
           : targets.length > 1
             ? `Back in your queue — all ${restored} runs.`
@@ -366,7 +384,7 @@ export async function undoQueueAction(input: {
       ok: true,
       restored,
       requested: targets.length,
-      expiresRestored,
+      expiresRecoverable,
       error: firstError,
       message
     };
@@ -376,7 +394,7 @@ export async function undoQueueAction(input: {
       ok: false,
       restored: 0,
       requested: targets.length,
-      expiresRestored: true,
+      expiresRecoverable: true,
       error: 'unexpected',
       message: undoMessage('unexpected')
     };
