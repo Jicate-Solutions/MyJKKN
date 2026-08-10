@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { ShieldCheck, Link2Off, FileQuestion, Info, ArrowUpRight } from 'lucide-react';
+import { ShieldCheck, Link2Off, FileQuestion, Info } from 'lucide-react';
 import {
   ReferralReviewService,
   type ReferralReviewRow,
@@ -214,13 +214,10 @@ export default function ReferralReviewWorklistPage() {
                       owed would never be recorded in the first place.
                     </span>
                     <span className="block">
-                      <Link
-                        href="/admission/consultants/unlinked-referrals"
-                        className="text-primary underline inline-flex items-center gap-1"
-                      >
-                        Link them on the unlinked referrals screen
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      </Link>
+                      Attaching the agency is done on the unlinked referrals screen, which is not
+                      part of this release — it arrives with PR #2793. Until that ships there is no
+                      screen to link these from, so this list stays read-only and no link is offered
+                      here.
                     </span>
                   </CardDescription>
                 </CardHeader>
