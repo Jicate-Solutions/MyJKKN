@@ -31310,18 +31310,18 @@ BEGIN
 END
 $function$;
 
--- ACL note: unlike the other four, this function's production ACL includes
--- `authenticated=X` -- and that grant is DELIBERATE, written by hand in
--- supabase/migrations/20260428_hr_command_center_brief_digest.sql line 186, not
--- a Supabase default. It is preserved here rather than quietly tightened: this
--- migration is about expiry, and revoking a standing grant belongs in its own
--- change with its own caller sweep. anon/PUBLIC are still explicitly revoked --
--- Supabase's ALTER DEFAULT PRIVILEGES would otherwise hand anon EXECUTE.
--- (Flagged for follow-up: a SECURITY DEFINER generator callable by every logged-in
--- user can be fired to fan out notifications; worth a separate look.)
-REVOKE EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() FROM anon, PUBLIC;
+-- Updated: 2026-08-17 - the `authenticated` grant flagged for follow-up above is
+-- now REVOKED (migration 20260817030000). The caller sweep it asked for was done:
+-- the only caller is the service-role cron app/api/cron/dashboard-work-items,
+-- which reaches this function through fn_generate_all_dashboard_work_items --
+-- SECURITY DEFINER, owner postgres -- so EXECUTE is checked against postgres and
+-- the cron is unaffected. No .rpc() call exists under app/, lib/, components/ or
+-- hooks/. The grant was harmful, not merely untidy: the brief is idempotency-keyed
+-- per user per day, so any logged-in caller could burn the key and SUPPRESS the
+-- real scheduled brief. anon/PUBLIC stay explicitly revoked -- Supabase's
+-- ALTER DEFAULT PRIVILEGES would otherwise hand anon EXECUTE.
+REVOKE EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() FROM authenticated, anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() TO service_role;
-GRANT  EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() TO authenticated;
 
 -- Campus Living — Settle Then Bill (Director 2026-08-09)
 -- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
