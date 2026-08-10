@@ -8760,3 +8760,40 @@ CREATE POLICY hostel_empty_bed_notices_select_admin ON public.hostel_empty_bed_n
 DROP POLICY IF EXISTS hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices;
 CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices
     FOR SELECT USING (learner_id = auth.uid());
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit trail
+-- (referral_attribution_audit). READ-ONLY policy by design. The table is written
+-- exclusively by trg_audit_learner_referral_attribution, whose SECURITY DEFINER
+-- function runs as the owner; a trail a client can write to, edit or delete is
+-- not evidence of anything, so no INSERT/UPDATE/DELETE policy is granted and no
+-- write privilege is held. See migration
+-- supabase/migrations/20260817010000_extend_referral_source_audit.sql
+-- (FILE ONLY, NOT APPLIED).
+--
+-- Supabase default-grants ALL on every new table to anon AND authenticated, so a
+-- bare GRANT SELECT is a silent no-op. Revoke both first, then grant back only
+-- SELECT.
+REVOKE ALL ON TABLE public.referral_attribution_audit FROM anon, PUBLIC, authenticated;
+GRANT SELECT ON TABLE public.referral_attribution_audit TO authenticated;
+
+ALTER TABLE public.referral_attribution_audit ENABLE ROW LEVEL SECURITY;
+
+-- Read is gated on the same key that opens the leads the trail is about, so
+-- nobody gains sight of referral attribution here that they could not already
+-- see on the lead itself.
+--
+-- 🔴 Deliberately NOT institution-scoped. The table holds no institution_id (its
+-- subject is a learner id and nothing else), so this is a flat permission test:
+-- whoever holds admission.leads.view sees every institution's rows. That matches
+-- how the admission desk already works — admission and counselor roles are
+-- institution_scope='all' — but an own-scoped role granted this key in future
+-- would read across colleges. Scoping it later means joining
+-- learners_profiles.institution_id, which is a change to make deliberately.
+DROP POLICY IF EXISTS referral_attribution_audit_select ON public.referral_attribution_audit;
+CREATE POLICY referral_attribution_audit_select ON public.referral_attribution_audit
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(public.is_super_admin(), false)
+        OR COALESCE(public.is_admin(), false)
+        OR COALESCE(public.user_has_permission('admission.leads.view'), false)
+    );
