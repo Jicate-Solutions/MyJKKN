@@ -206,6 +206,18 @@ describe('missingColumnFilter', () => {
       'biometric_institution_id.is.null'
     );
   });
+
+  it('checks only null on a date column', () => {
+    // Comparing a date to '' raises "invalid input syntax for type date",
+    // which PostgREST surfaces as a 400 for the whole request. Both
+    // date_of_birth and date_of_joining are STAFF_REQUIRED_FIELDS, so this
+    // path is reachable from the default fieldScope.
+    expect(missingColumnFilter('date_of_joining')).toBe('date_of_joining.is.null');
+  });
+
+  it('checks only null on a boolean column', () => {
+    expect(missingColumnFilter('is_active')).toBe('is_active.is.null');
+  });
 });
 
 describe('matchesSearch', () => {

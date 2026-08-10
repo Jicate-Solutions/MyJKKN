@@ -245,22 +245,33 @@ export function parseIncompleteStaffParams(
 }
 
 /**
- * uuid columns cannot be compared to '' — Postgres raises "invalid input
- * syntax for type uuid" and PostgREST fails the whole request with a 400.
- * Text columns must check both, because several `staff` columns store '' where
- * others store NULL, and isFieldMissing() treats the two identically.
+ * Columns where comparing to '' is a type error, not just a false match — the
+ * rule is not "uuid", it is "any column where `= ''` doesn't typecheck":
+ * uuid, date, timestamp, boolean, numeric all qualify. Postgres raises
+ * "invalid input syntax for type X" and PostgREST fails the whole request
+ * with a 400 (surfaced by the route as a 500). Text columns must check both
+ * null and '', because several `staff` columns store '' where others store
+ * NULL, and isFieldMissing() treats the two identically.
+ *
+ * Verified against information_schema: date_of_birth/date_of_joining are
+ * `date`, created_at is `timestamptz`, is_active is `boolean` — none of the
+ * four can be compared to ''.
  */
-const UUID_COLUMNS = new Set([
+const NULL_ONLY_COLUMNS = new Set([
   'institution_id',
   'department_id',
   'category_id',
   'biometric_institution_id',
   'profile_id',
+  'date_of_birth',
+  'date_of_joining',
+  'created_at',
+  'is_active',
 ]);
 
 /** PostgREST `.or()` argument meaning "this column has no value". */
 export function missingColumnFilter(column: string): string {
-  return UUID_COLUMNS.has(column)
+  return NULL_ONLY_COLUMNS.has(column)
     ? `${column}.is.null`
     : `${column}.is.null,${column}.eq.`;
 }

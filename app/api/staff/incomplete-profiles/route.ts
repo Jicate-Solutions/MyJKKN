@@ -27,7 +27,6 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import {
   computeMissingFields,
-  STAFF_FIELD_LABELS,
   fieldsForScope,
 } from '@/lib/utils/staff/incomplete-profile-fields';
 import {
@@ -58,6 +57,13 @@ const HYDRATE_COLUMNS = `
   category:employment_categories(id, category_name)
 `;
 
+// PostgREST's project-level "Max rows" (default 1000) would otherwise cap
+// phase 1 silently — total/totalPages are derived from narrowRows.length, so
+// a silent cap produces a confidently wrong page count with no error. `staff`
+// is ~866 rows today; 5000 is headroom, not a real limit, and the warning
+// below makes a future breach loud instead of silent.
+const PHASE_1_HARD_CAP = 5000;
+
 export async function GET(request: NextRequest) {
   await connection();
   try {
@@ -83,8 +89,37 @@ export async function GET(request: NextRequest) {
 
     const params = parseIncompleteStaffParams(request.nextUrl.searchParams);
 
+    // A specific missing field is a SQL predicate, so it narrows the fetch
+    // itself rather than being re-checked row by row below. Only honour it when
+    // the field is inside the active scope — "required only" plus "missing
+    // Blood Group" is a contradiction, and answering it with rows would be a lie.
+    //
+    // Checked BEFORE the query runs, not after: an out-of-scope missingField
+    // can only ever match nothing, so awaiting the (widest, no-predicate)
+    // phase-1 fetch first would pay for a full `staff` scan — against
+    // `authenticated`'s 8s statement_timeout — purely to throw the result away.
+    const scopeFields = fieldsForScope(params.fieldScope);
+    const missingFieldInScope =
+      params.missingField && scopeFields.includes(params.missingField)
+        ? params.missingField
+        : undefined;
+
+    if (params.missingField && !missingFieldInScope) {
+      // totalPages: 1 (not 0) to match the shape of every other empty result —
+      // the normal path's Math.max(1, ceil(0/limit)) is also 1, and a table
+      // rendering "Page 1 of N" should not have to special-case which kind of
+      // empty response it got.
+      return NextResponse.json(
+        { profiles: [], total: 0, page: params.page, limit: params.limit, totalPages: 1 },
+        { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+      );
+    }
+
     // ---------- Phase 1: narrow fetch ----------
-    let query = supabase.from('staff').select(NARROW_COLUMNS);
+    let query = supabase
+      .from('staff')
+      .select(NARROW_COLUMNS)
+      .range(0, PHASE_1_HARD_CAP - 1);
 
     /** An id filter that also understands the "not set" sentinel. */
     const applyIdFilter = (column: string, value: string | undefined) => {
@@ -150,15 +185,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // A specific missing field is a SQL predicate, so it narrows the fetch
-    // itself rather than being re-checked row by row below. Only honour it when
-    // the field is inside the active scope — "required only" plus "missing
-    // Blood Group" is a contradiction, and answering it with rows would be a lie.
-    const scopeFields = fieldsForScope(params.fieldScope);
-    const missingFieldInScope =
-      params.missingField && scopeFields.includes(params.missingField)
-        ? params.missingField
-        : undefined;
     if (missingFieldInScope) {
       query = query.or(missingColumnFilter(missingFieldInScope));
     }
@@ -173,12 +199,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // A missingField outside the scope can only match nothing. Return the empty
-    // page rather than the unfiltered one.
-    if (params.missingField && !missingFieldInScope) {
-      return NextResponse.json(
-        { profiles: [], total: 0, page: params.page, limit: params.limit, totalPages: 0 },
-        { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+    if ((narrowRows?.length ?? 0) >= PHASE_1_HARD_CAP) {
+      console.warn(
+        '[api/staff/incomplete-profiles] Phase 1 hit the %d-row cap; total and totalPages are undercounts.',
+        PHASE_1_HARD_CAP
       );
     }
 
@@ -281,6 +305,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
-// Re-exported so the options route and the UI share one label source.
-export { STAFF_FIELD_LABELS };
