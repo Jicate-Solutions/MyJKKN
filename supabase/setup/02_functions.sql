@@ -32359,7 +32359,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authentica
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Added: 2026-08-10 — Referral review worklist (read-only).
--- Mirror of supabase/migrations/20260817030000_referral_review_worklist_rpc.sql
+-- Mirror of supabase/migrations/20260818050000_referral_review_worklist_rpc.sql
 -- ═══════════════════════════════════════════════════════════════════════════
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Referral review worklist — ONE read RPC behind the /admission/consultants/
