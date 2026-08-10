@@ -220,10 +220,12 @@ export default function ReferralReconciliationPage() {
                   <Label>Agency</Label>
                   <Select
                     // `|| undefined`, never the raw empty string: Radix Select treats
-                    // value="" as a selection it cannot find an item for, and the
-                    // dropdown breaks on first open. undefined is what shows the
-                    // placeholder. The repo's CI audit only catches the literal
-                    // <SelectItem value="">, not this dynamic form.
+                    // an empty-string value as a selection it cannot find an item
+                    // for, and the dropdown breaks on first open. undefined is what
+                    // shows the placeholder instead. The repo's CI audit only spots
+                    // the hardcoded literal form of this, not the dynamic one, so
+                    // this had to be caught by reading the guard rather than by it
+                    // firing.
                     value={consultantId || undefined}
                     onValueChange={(v) => { setConsultantId(v); setSessionId(''); setSummary(null); }}
                   >
