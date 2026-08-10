@@ -189,6 +189,15 @@ export function IncompleteStaffFilters({
     [categories]
   );
 
+  // Also no "Not set" here, for a different reason than Category: `designation`
+  // is one of the 15 tracked completion fields, so Missing Field -> Designation
+  // already asks this exact question through a correctly-wired path. A second
+  // route to the same answer would be redundant, not more useful.
+  const designationOptions = useMemo<StaffFilterOption[]>(
+    () => [{ value: ALL, label: 'All designations' }, ...(options?.designations ?? [])],
+    [options?.designations]
+  );
+
   // Only fields inside the active scope can be missing, so offering the others
   // would be offering a guaranteed-empty result.
   const missingFieldOptions = useMemo(
@@ -318,7 +327,7 @@ export function IncompleteStaffFilters({
           <SearchableSelect
             value={value.designation}
             onValueChange={(next) => set({ designation: next })}
-            options={withSentinels(options?.designations, 'All designations')}
+            options={designationOptions}
             loading={optionsLoading}
             placeholder='All designations'
             searchPlaceholder='Search designations…'

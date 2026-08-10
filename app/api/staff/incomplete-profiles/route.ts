@@ -131,6 +131,16 @@ export async function GET(request: NextRequest) {
       }
     };
 
+    /** A text filter that also understands the "not set" sentinel. */
+    const applyTextFilter = (column: string, value: string | undefined) => {
+      if (!value) return;
+      if (value === FIELD_MISSING) {
+        query = query.or(missingColumnFilter(column));
+      } else {
+        query = query.eq(column, value);
+      }
+    };
+
     // An explicit institution wins; otherwise confine to the caller's own.
     // Falling through to RLS unscoped is intentional for callers with no
     // institution_id — that is the behaviour this route already had.
@@ -144,17 +154,11 @@ export async function GET(request: NextRequest) {
     applyIdFilter('category_id', params.categoryId);
     applyIdFilter('biometric_institution_id', params.biometricMachineId);
 
-    if (params.designation) query = query.eq('designation', params.designation);
+    applyTextFilter('designation', params.designation);
     if (params.recordStatus) query = query.eq('status', params.recordStatus);
-    if (params.gender) query = query.eq('gender', params.gender);
-    if (params.maritalStatus) query = query.eq('marital_status', params.maritalStatus);
-    if (params.bloodGroup) {
-      if (params.bloodGroup === FIELD_MISSING) {
-        query = query.or(missingColumnFilter('blood_group'));
-      } else {
-        query = query.eq('blood_group', params.bloodGroup);
-      }
-    }
+    applyTextFilter('gender', params.gender);
+    applyTextFilter('marital_status', params.maritalStatus);
+    applyTextFilter('blood_group', params.bloodGroup);
 
     // is_active is nullable. A plain .eq(false) would make a null row invisible
     // under BOTH Active and Inactive — a row that exists but no filter reaches.
