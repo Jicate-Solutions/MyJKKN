@@ -32,6 +32,11 @@ const OPTIONAL_FIELDS = [
   'pincode',
   'institution_email',
   'blood_group',
+  // Biometric enrolment. Both halves are checked: staff_biometric_scope_chk only
+  // forces a machine when a code is present, so "machine set, code blank" is a
+  // legal state and the two badges have to be able to appear independently.
+  'biometric_id',
+  'biometric_institution_id',
 ] as const;
 
 const ALL_FIELDS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
@@ -53,6 +58,11 @@ const FIELD_LABELS: Record<string, string> = {
   pincode: 'Pincode',
   institution_email: 'Institution Email',
   blood_group: 'Blood Group',
+  biometric_id: 'Biometric Code',
+  // The column names the machine, not the person's own college — see
+  // lib/hr/biometric/validate-upload.ts. "Biometric Machine" is the label the
+  // staff form and the bulk-edit template already use.
+  biometric_institution_id: 'Biometric Machine',
 };
 
 /**
@@ -126,6 +136,8 @@ export async function GET(request: NextRequest) {
         district,
         pincode,
         blood_group,
+        biometric_id,
+        biometric_institution_id,
         institution:institutions!staff_institution_id_fkey(id, name),
         department:departments(id, department_name),
         category:employment_categories(id, category_name)
@@ -152,7 +164,12 @@ export async function GET(request: NextRequest) {
       query = query.eq('category_id', categoryId);
     }
 
-    const { data, error } = await query;
+    // PostgREST caps an unbounded select() at 1000 rows and says nothing about it.
+    // `total` below is counted from this array, not from the exact count header, so a
+    // silent truncation would under-report the missing-field totals rather than error.
+    // Staff is at 864 and climbing; bound it generously so growth past the cap fails
+    // loudly instead. Same reasoning as STAFF_RANGE_END in the bulk-edit template.
+    const { data, error } = await query.range(0, 9999);
 
     if (error) {
       console.error('[api/staff/incomplete-profiles] Query error:', error);
