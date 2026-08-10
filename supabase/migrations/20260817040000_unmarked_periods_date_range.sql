@@ -66,7 +66,7 @@
 --
 -- Those 112 are not noise in a view whose entire purpose is to show what really
 -- went unmarked. Without the predicate the number inflates by ~5.5% per month of
--- history and every extra row names a class that was not scheduled.
+-- history and every extra row names a session that was not scheduled.
 --
 -- WHY IT DOES NOT BREAK THE SAME-DAY AGREEMENT ABOVE, and where it eventually will.
 -- Measured on production 2026-08-10: of the 176 active non-template timetables

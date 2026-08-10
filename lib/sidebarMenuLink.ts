@@ -559,7 +559,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Retrospective view of sessions that went unmarked. Gated on the DASHBOARD
   // key, not the plain view key, and deliberately: it reads across a whole
   // department or institution for months at a time, which is the dashboard's
-  // audience (10 roles hold it), not the per-class faculty audience. The RPC
+  // audience (10 roles hold it), not the per-session Senior Learner audience. The RPC
   // behind it enforces the identical key server-side, so the page gate and the
   // data gate cannot drift apart.
   '/academic/attendance/history': 'academic.attendance.dashboard.view',
