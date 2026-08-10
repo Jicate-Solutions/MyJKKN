@@ -6,14 +6,16 @@
 // of "complete" can be unit-tested without a Supabase client.
 //
 // LOCK-STEP CONTRACT: this list must stay identical to the aggregate in
-// lib/services/staff/staff-service.ts (~1206, ~1705) and the per-employee bar
-// in lib/utils/staff-profile-completion.ts. Adding a field here moves the
+// lib/services/staff/staff-service.ts — getOverviewStats and
+// getProfileAnalytics — and the per-employee bar in
+// lib/utils/staff-profile-completion.ts. Adding a field here moves the
 // dashboard's headline completion percentage. Required (7) + optional (10).
 // Department is deliberately NOT tracked here — it stays a filter dimension
 // only. biometric_id / biometric_institution_id were filter-only too but are
 // now tracked as of 2026-08-10 (see the design doc, section 3.1) — that also
-// means DASHBOARD_STAFF_COLUMNS in staff-service.ts must select both, or the
-// aggregate stats see them as permanently missing regardless of real data.
+// means DASHBOARD_STAFF_COLUMNS in staff-service.ts (the fifth lock-step
+// site) must select both, or the aggregate stats see them as permanently
+// missing regardless of real data.
 // ============================================
 
 export type StaffFieldScope = 'all' | 'required' | 'optional';

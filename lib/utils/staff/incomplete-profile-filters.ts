@@ -36,7 +36,11 @@ export const SORTABLE_STAFF_COLUMNS = new Set([
   'staff_id',
   'designation',
   'date_of_joining',
-  'created_at',
+  // 'created_at' is deliberately NOT allowlisted here: DataTable defaults its
+  // sortBy state to 'created_at', so allowlisting it would make that the
+  // silent default sort instead of DEFAULT_SORT_BY ('missing_count') below —
+  // inverting the feature's headline behaviour with no visible signal (there
+  // is no created_at column, so no sort arrow would appear).
   'biometric_id',
 ]);
 

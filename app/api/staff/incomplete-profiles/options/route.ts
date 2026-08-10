@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse, connection } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { FIELD_MISSING } from '@/lib/utils/staff/incomplete-profile-filters';
 import type { IncompleteStaffFilterOptions, StaffFilterOption } from '@/types/staff';
 
 /** Enough to cover every distinct value at current scale with headroom. */
@@ -67,7 +68,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
     }
 
-    const institutionId = request.nextUrl.searchParams.get('institutionId');
+    const institutionIdParam = request.nextUrl.searchParams.get('institutionId');
+    // The Institution picker offers no "Not set" option, so this route never
+    // sees FIELD_MISSING from the UI today — but treat it as "no explicit
+    // institution" rather than passing it into a uuid .eq(), which would 500
+    // (Postgres invalid-uuid error surfaced as a 400). Mirrors the guard the
+    // sibling incomplete-profiles route already needs for uuid columns.
+    const institutionId =
+      institutionIdParam && institutionIdParam !== FIELD_MISSING ? institutionIdParam : null;
 
     let query = supabase
       .from('staff')

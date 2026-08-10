@@ -232,8 +232,8 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
 
         {fieldFilters.fieldScope === 'required' && (
           <p className='rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground'>
-            All seven required fields are currently populated for every employee,
-            so this scope is expected to return no rows. Switch to
+            Required fields are currently complete for every employee, so this
+            scope usually returns no rows. Switch to
             <span className='font-medium'> All tracked fields </span>
             or <span className='font-medium'>Optional only</span> to see the real gaps.
           </p>

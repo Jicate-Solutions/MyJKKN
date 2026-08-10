@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StaffProfileAnalytics, StaffDashboardFilters } from '@/types/staff';
+import { STAFF_FIELD_LABELS } from '@/lib/utils/staff/incomplete-profile-fields';
 import { IncompleteStaffTable } from './incomplete-staff-table';
 
 interface ProfileAnalyticsProps {
@@ -58,7 +59,7 @@ const CustomTooltip = ({ active, payload }: any) => {
     const data = payload[0].payload;
     return (
       <div className='bg-background border rounded-lg shadow-lg p-3'>
-        <p className='font-medium'>{data.field || data.categoryName}</p>
+        <p className='font-medium'>{data.fieldLabel || data.categoryName}</p>
         <div className='space-y-1 mt-2'>
           {data.completedCount !== undefined && (
             <div className='flex items-center justify-between gap-4'>
@@ -103,6 +104,9 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
 
     return data.profileCompletionBreakdown.map((item, index) => ({
       ...item,
+      // Raw `field` is a `staff` column name (e.g. biometric_institution_id);
+      // fieldLabel is what the chart axis, tooltip and summary lists render.
+      fieldLabel: STAFF_FIELD_LABELS[item.field] ?? item.field,
       fill: COLORS[index % COLORS.length]
     }));
   }, [data?.profileCompletionBreakdown]);
@@ -121,6 +125,8 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
 
     return data.missingFields.map((item, index) => ({
       ...item,
+      // See completionData above — same raw-column-name concern.
+      fieldLabel: STAFF_FIELD_LABELS[item.field] ?? item.field,
       fill: COLORS[index % COLORS.length]
     }));
   }, [data?.missingFields]);
@@ -202,7 +208,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
                       className='opacity-30'
                     />
                     <XAxis
-                      dataKey='field'
+                      dataKey='fieldLabel'
                       tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
@@ -242,7 +248,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
                           key={`completion-summary-${item.field}`}
                           className='flex justify-between items-center'
                         >
-                          <span className='text-sm'>{item.field}:</span>
+                          <span className='text-sm'>{item.fieldLabel}:</span>
                           <div className='text-right'>
                             <div className='font-medium'>
                               {item.percentage.toFixed(1)}%
@@ -283,7 +289,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
                                 Math.max(
                                   ...completionData.map((i) => i.percentage)
                                 )
-                            )?.field || 'N/A'}
+                            )?.fieldLabel || 'N/A'}
                           </div>
                         </div>
                       </div>
@@ -399,7 +405,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
                       className='opacity-30'
                     />
                     <XAxis
-                      dataKey='field'
+                      dataKey='fieldLabel'
                       tick={{ fontSize: 12 }}
                       tickLine={false}
                       axisLine={false}
@@ -434,7 +440,7 @@ export function ProfileAnalytics({ data, isLoading, filters }: ProfileAnalyticsP
                         {index + 1}
                       </div>
                       <div>
-                        <h3 className='font-medium'>{field.field}</h3>
+                        <h3 className='font-medium'>{field.fieldLabel}</h3>
                         <div className='text-sm text-muted-foreground'>
                           High priority for completion
                         </div>

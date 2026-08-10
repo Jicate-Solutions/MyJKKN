@@ -455,7 +455,6 @@ export interface IncompleteStaffDetail {
   /** missingFields.length, exposed so the table need not recompute the sort key. */
   missing_count: number;
   institution_name: string | null;
-  department_id: string | null;
   department_name: string | null;
   category_name: string | null;
   biometric_id: string | null;

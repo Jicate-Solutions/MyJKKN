@@ -121,18 +121,16 @@ export async function GET(request: NextRequest) {
       .select(NARROW_COLUMNS)
       .range(0, PHASE_1_HARD_CAP - 1);
 
-    /** An id filter that also understands the "not set" sentinel. */
-    const applyIdFilter = (column: string, value: string | undefined) => {
-      if (!value) return;
-      if (value === FIELD_MISSING) {
-        query = query.or(missingColumnFilter(column));
-      } else {
-        query = query.eq(column, value);
-      }
-    };
-
-    /** A text filter that also understands the "not set" sentinel. */
-    const applyTextFilter = (column: string, value: string | undefined) => {
+    // Equality filter that also understands the "not set" sentinel. Every
+    // column whose picker can emit FIELD_MISSING must go through this — both
+    // uuid columns (institution_id, department_id, ...) and text columns
+    // (designation, gender, ...) share one rule here; missingColumnFilter is
+    // what decides `.is.null` alone (uuid/date/timestamp/boolean) versus the
+    // dual `.is.null,.eq.` (text). A uuid/text fork of this helper is exactly
+    // how the original bug shipped: three columns got a bare `.eq()` and
+    // their "Not set" option silently queried for the literal string
+    // `__missing__`.
+    const applyEqOrMissing = (column: string, value: string | undefined) => {
       if (!value) return;
       if (value === FIELD_MISSING) {
         query = query.or(missingColumnFilter(column));
@@ -145,20 +143,22 @@ export async function GET(request: NextRequest) {
     // Falling through to RLS unscoped is intentional for callers with no
     // institution_id — that is the behaviour this route already had.
     if (params.institutionId) {
-      applyIdFilter('institution_id', params.institutionId);
+      applyEqOrMissing('institution_id', params.institutionId);
     } else if (profile.institution_id) {
       query = query.eq('institution_id', profile.institution_id);
     }
 
-    applyIdFilter('department_id', params.departmentId);
-    applyIdFilter('category_id', params.categoryId);
-    applyIdFilter('biometric_institution_id', params.biometricMachineId);
+    applyEqOrMissing('department_id', params.departmentId);
+    applyEqOrMissing('category_id', params.categoryId);
+    applyEqOrMissing('biometric_institution_id', params.biometricMachineId);
 
-    applyTextFilter('designation', params.designation);
+    applyEqOrMissing('designation', params.designation);
+    // recordStatus's picker offers no "Not set" sentinel, so this stays a
+    // bare .eq() rather than going through applyEqOrMissing.
     if (params.recordStatus) query = query.eq('status', params.recordStatus);
-    applyTextFilter('gender', params.gender);
-    applyTextFilter('marital_status', params.maritalStatus);
-    applyTextFilter('blood_group', params.bloodGroup);
+    applyEqOrMissing('gender', params.gender);
+    applyEqOrMissing('marital_status', params.maritalStatus);
+    applyEqOrMissing('blood_group', params.bloodGroup);
 
     // is_active is nullable. A plain .eq(false) would make a null row invisible
     // under BOTH Active and Inactive — a row that exists but no filter reaches.
@@ -284,7 +284,6 @@ export async function GET(request: NextRequest) {
         missingFields: row.missingFields,
         missing_count: row.missing_count,
         institution_name: joined.institution?.name ?? null,
-        department_id: row.department_id ?? null,
         department_name: joined.department?.department_name ?? null,
         category_name: joined.category?.category_name ?? null,
         biometric_id: row.biometric_id ?? null,

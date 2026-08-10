@@ -1151,7 +1151,9 @@ export class StaffService {
     'email',
     'phone',
     'designation',
-    // profile-completion optional fields
+    // profile-completion optional fields — includes blood_group: removing
+    // it here silently reintroduces a completion-calculation bug (Task 11),
+    // since getOverviewStats/getProfileAnalytics read it as a completion field.
     'staff_id',
     'profile_picture',
     'address',
@@ -1161,10 +1163,10 @@ export class StaffService {
     'institution_email',
     'biometric_id',
     'biometric_institution_id',
+    'blood_group',
     // demographics
     'gender',
     'marital_status',
-    'blood_group',
     // embedded display names
     'institution:institutions!staff_institution_id_fkey(id, name)',
     'department:departments(id, department_name)',
