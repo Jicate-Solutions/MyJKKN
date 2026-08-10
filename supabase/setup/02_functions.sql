@@ -30411,6 +30411,14 @@ $function$;
 
 -- ================================================================================
 -- Updated: 2026-08-09 - Notification expiry for self-obsoleting cron rows.
+-- ✅ APPLIED TO PRODUCTION 2026-08-10 via migration 20260816040000 (hand-applied,
+--    Director-gated, recorded in supabase_migrations.schema_migrations). The
+--    bodies in this section are now the ones RUNNING on prod — verified by
+--    catalog read: fn_create_dashboard_work_item pronargs=9 with p_expires_hours.
+--    ⚠️ This section carries Director-gated changes (it revives
+--    fn_generate_super_admin_daily_digest). Do NOT paste it wholesale to
+--    "restore" functions without checking what is already live — the migration
+--    that owns it is gated for a reason; this reference copy is not.
 -- Mirrors supabase/migrations/20260816040000_notification_expiry_director_categories.sql
 -- (that file carries the full rationale and the category-by-category decision on
 -- what is expired vs deliberately left in the badge as un-actioned work).
@@ -30425,10 +30433,12 @@ $function$;
 -- ############################################################################
 -- ##  ORDERING WARNING -- fn_generate_super_admin_daily_digest              ##
 -- ############################################################################
--- The copy below is NOT the body currently running on production. Production's
--- carries a dead `se.event_type` reference (public.startup_events has no such
--- column) which raises 42703 and kills the whole digest -- the newest 'digest:%'
--- notification on prod is dated 2026-05-08 although the cron has fired daily
+-- HISTORICAL, resolved 2026-08-10: the copy below WAS ahead of production until
+-- migration 20260816040000 was hand-applied, and is now the body running there.
+-- Before that, production carried a dead `se.event_type` reference
+-- (public.startup_events has no such column) which raised 42703 and killed the
+-- whole digest -- the newest 'digest:%' notification on prod was dated
+-- 2026-05-08 although the cron had fired daily
 -- since. That one line is DELETED here, marked `2026-08-09 REVIVAL`, precisely
 -- so this file does not freeze the bug and silently revert whoever fixes it
 -- first: CREATE OR REPLACE does not validate a plpgsql body, so re-applying an
@@ -30509,9 +30519,18 @@ GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,te
 -- shape and all seven already declare a 24h acknowledgment deadline.
 --
 -- ############################################################################
--- ##  ORDERING WARNING -- THIS BODY IS NOT THE ONE RUNNING ON PROD          ##
+-- ##  HISTORICAL (resolved 2026-08-10) -- THIS BODY *IS* NOW THE ONE ON PROD ##
 -- ############################################################################
--- The production body carries a dead column reference, `se.event_type`, in the
+-- As of 2026-08-10 this corrected body was applied to production, so the warning
+-- below is history rather than a live hazard. It is kept because the failure it
+-- describes is subtle and worth not re-introducing: CREATE OR REPLACE does not
+-- validate a plpgsql body, so re-applying an OLDER copy of this function would
+-- silently restore the dead reference with no error at all. Do NOT re-add
+-- `se.event_type`. (Verified on prod 2026-08-10: the only remaining mentions of
+-- event_type in this function are the comments recording its removal.)
+--
+-- The pre-2026-08-10 production body carried a dead column reference,
+-- `se.event_type`, in the
 -- Category 5 (dashboard:ai_pulse) block. public.startup_events has no such
 -- column (information_schema, 2026-08-09), so the statement raises 42703 the
 -- moment the loop reaches its first super-admin -- which aborts the whole call
