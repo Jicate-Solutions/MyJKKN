@@ -126,6 +126,30 @@ export async function uploadResumeToJobFolder(opts: ResumeUploadOptions): Promis
   };
 }
 
+/**
+ * Permanently delete a Drive file (skips the trash — a trashed resume is still a
+ * readable resume). Used by the super-admin purge of a rejected applicant.
+ *
+ * Returns false instead of throwing when the file is already gone (404) or Drive
+ * isn't configured, so a purge is never blocked by the storage side. The caller
+ * keeps the file id in hr_recruitment_purge_log until this returns true.
+ */
+export async function deleteDriveFile(fileId: string): Promise<boolean> {
+  if (!isDriveConfigured() || !fileId) return false;
+
+  try {
+    await createDriveClient().files.delete({ fileId, supportsAllDrives: true });
+    return true;
+  } catch (err) {
+    const status = (err as { code?: number; status?: number })?.code
+      ?? (err as { status?: number })?.status;
+    // Already deleted — the desired end state either way.
+    if (status === 404) return true;
+    console.error(`[drive] delete failed for file ${fileId}`, err);
+    return false;
+  }
+}
+
 export interface UploadOptions {
   feature: PPFeature;
   institutionName: string;

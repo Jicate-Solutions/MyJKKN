@@ -5,6 +5,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { isDriveConfigured } from '@/lib/google/drive-client';
 import { uploadRoomConditionPhoto } from '@/lib/google/drive-upload';
+import {
+  learnerFacingError,
+  logWithReference,
+} from '@/lib/services/campus-living/error-sanitize';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -74,9 +78,12 @@ export async function POST(
     if (insertErr) throw insertErr;
     return NextResponse.json(photo);
   } catch (err) {
-    console.error('[campus-living/rooms/condition-photos] POST error', err);
+    // The insertErr rethrow above can carry raw Postgres text (constraint
+    // names, SQLSTATE prose) — log full server-side, return a plain sentence
+    // + reference (2026-08-07).
+    const reference = logWithReference('campus-living', 'condition-photo upload error', err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Upload failed' },
+      { error: learnerFacingError('uploading the room photo', reference), reference },
       { status: 500 }
     );
   }

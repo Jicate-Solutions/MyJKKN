@@ -32,6 +32,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import type {
   MyBill,
+  MyBillLateCharge,
+  MyBillLateChargeMonth,
   MyBillsData,
   MyReceipt,
   MyReceiptItem,
@@ -43,6 +45,7 @@ import {
   isBillLearnerVisible,
   LEARNER_HIDDEN_LINE_LABEL,
 } from '@/lib/utils/billing/learner-visibility';
+import { isOverdue } from './_components/shared';
 import { MyBillsClient } from './_components/my-bills-client';
 
 export const metadata = {
@@ -243,6 +246,65 @@ export default async function MyBillsPage() {
       };
     });
 
+  // Late payment charge (platform-wide mechanism — OFF by default). While the
+  // billing.late_charge.enabled policy is false (today's state) this whole
+  // block resolves to null and the page renders NOTHING new. The RPCs may not
+  // exist until the late-charge migration is applied — any error also reads as
+  // "off" — so this page is deploy-safe in either order. The month-by-month
+  // figures come from fn_late_charge_derivation (the canonical formula in the
+  // database); nothing here re-implements the arithmetic.
+  let lateCharges: Record<string, MyBillLateCharge> | null = null;
+  // 'as never': fn_late_charge_derivation is not in the generated DB types
+  // until the (Director-gated) migration is applied — pre-apply idiom, same as
+  // yoy-trajectory-service.ts. fn_get_policy_bool gets the same cast so this
+  // file typechecks identically before and after a types regeneration.
+  const { data: lateChargeEnabled, error: lateChargeEnabledError } = await supabase.rpc(
+    'fn_get_policy_bool' as never,
+    { p_key: 'billing.late_charge.enabled', p_default: false } as never
+  );
+  if (!lateChargeEnabledError && (lateChargeEnabled as unknown as boolean | null) === true) {
+    const overdueBills = bills.filter((b) => b.balanceAmount > 0 && isOverdue(b.dueDate));
+    const derivations = await Promise.all(
+      overdueBills.map((b) =>
+        supabase.rpc('fn_late_charge_derivation' as never, { p_bill_id: b.id } as never)
+      )
+    );
+    const map: Record<string, MyBillLateCharge> = {};
+    overdueBills.forEach((b, i) => {
+      const { data, error } = derivations[i];
+      const rows = data as unknown as
+        | {
+            month_number: number;
+            period_start: string;
+            period_end: string;
+            opening_base: number;
+            rate_percent: number;
+            month_charge: number;
+            cumulative_charge: number;
+          }[]
+        | null;
+      if (error || !rows || rows.length === 0) return; // grace window / no access
+      const months: MyBillLateChargeMonth[] = rows.map((r) => ({
+        monthNumber: Number(r.month_number),
+        periodStart: r.period_start,
+        periodEnd: r.period_end,
+        openingBase: num(r.opening_base),
+        ratePercent: num(r.rate_percent),
+        monthCharge: num(r.month_charge),
+        cumulativeCharge: num(r.cumulative_charge),
+      }));
+      const last = months[months.length - 1];
+      map[b.id] = {
+        months: months.length,
+        ratePercent: last.ratePercent,
+        chargeAmount: last.cumulativeCharge,
+        totalWithCharge: b.balanceAmount + last.cumulativeCharge,
+        derivation: months,
+      };
+    });
+    if (Object.keys(map).length > 0) lateCharges = map;
+  }
+
   // Receipt line items grouped by receipt.
   const itemsByReceipt = new Map<string, MyReceiptItem[]>();
   for (const it of itemRows ?? []) {
@@ -329,6 +391,7 @@ export default async function MyBillsPage() {
         <Suspense fallback={null}>
           <MyBillsClient
             data={data}
+            lateCharges={lateCharges}
             learnerId={learnerId}
             learnerName={learnerName}
             rollNumber={learnerRow?.roll_number ?? ''}

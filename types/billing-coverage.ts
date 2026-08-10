@@ -6,8 +6,11 @@
 // error this repo has hit before; the service strips that prefix, so the types
 // below are the clean post-strip shape.
 
-/** A learner is 'cannot_evaluate' when no academic year can be resolved for
- *  them — reported separately so they are never miscounted as a real gap. */
+/** A learner is 'cannot_evaluate' when no academic year can be resolved to
+ *  measure against — reported separately so they are never miscounted as a real
+ *  gap. Since 2026-08-08 the year is resolved per INSTITUTION rather than per
+ *  learner, so this is now rare: it means the institution has no active academic
+ *  year that has started yet, not merely that a learner's own year is unset. */
 export type CoverageState = 'generated' | 'not_generated' | 'cannot_evaluate';
 
 /** The lifecycle statuses treated as "should have a bill". */
@@ -36,7 +39,16 @@ export type TransportFilter = 'any' | 'bus' | 'no_bus';
 export const GENDER_UNSET = '__unset__';
 
 export interface BillCoverageFilters {
-  /** Target academic year. Null means "each learner's own current year". */
+  /**
+   * The academic year whose coverage is being MEASURED — never a filter on
+   * which learners are shown. Null means "each institution's current year",
+   * resolved by date in SQL.
+   *
+   * It used to fall back to each learner's own profile year, which reported 167
+   * learners as unbilled who had a live bill under a different year (fixed
+   * 2026-08-08). The learner's year and the bill's year are independent columns:
+   * bills are raised per year, and profile rollover lags behind bill generation.
+   */
   academic_year_id?: string | null;
   institution_ids?: string[] | null;
   lifecycle_statuses?: string[] | null;
@@ -116,8 +128,15 @@ export interface BillCoverageRow {
   /** Semester and section combined in SQL, e.g. "3 Year · A". Degrades to just
    *  one part when the other is missing (503 learners have no section). */
   semester_section: string | null;
+  /** The learner's OWN year. Context only — NOT what coverage is measured
+   *  against. Displaying this alone is what made the old bug invisible: the
+   *  table showed 2025-2026 next to "Not generated" while the bill sat in
+   *  2026-2027, so the row looked self-consistent. */
   academic_year_id: string | null;
   academic_year_name: string | null;
+  /** The year coverage was actually measured against: the explicitly filtered
+   *  year, else the institution's current one. */
+  target_academic_year_name: string | null;
   accommodation_type: string | null;
   uses_transport: boolean;
   bill_count: number;

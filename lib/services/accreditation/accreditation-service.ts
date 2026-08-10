@@ -11,11 +11,23 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import type {
   AccreditationBodyCode,
   BodyScoreboard,
   CoverageMatrixRow,
 } from '@/lib/types/accreditation';
+
+/**
+ * The bodies this service reports on, in display order.
+ *
+ * Derived from ACCREDITATION_BODIES rather than repeated as a literal: the
+ * same ten codes were written out twice in this file, and a body added to the
+ * metadata but not to both copies would silently get no scoreboard row and no
+ * sort position — which is exactly what happened to the five bodies added on
+ * 2026-08-06 before this line existed.
+ */
+const BODY_ORDER: AccreditationBodyCode[] = ACCREDITATION_BODIES.map((b) => b.code);
 
 export class AccreditationService {
   private static supabase = createClientSupabaseClient();
@@ -55,11 +67,7 @@ export class AccreditationService {
       return acc;
     }, {});
 
-    const allBodies: AccreditationBodyCode[] = [
-      'NAAC', 'UGC', 'NIRF', 'QS', 'NBA', 'AICTE', 'NCTE', 'DCI', 'PCI', 'INC',
-    ];
-
-    return allBodies.map((body_code) => {
+    return BODY_ORDER.map((body_code) => {
       const metrics_seeded = metricCounts[body_code] ?? 0;
       const evidence_rows = evidenceCounts[body_code] ?? 0;
       // Placeholder coverage: 0% if no evidence, else clamped.
@@ -132,12 +140,9 @@ export class AccreditationService {
     }
 
     // Sort: body first (stable order), then coverage desc
-    const bodyOrder: AccreditationBodyCode[] = [
-      'NAAC', 'UGC', 'NIRF', 'QS', 'NBA', 'AICTE', 'NCTE', 'DCI', 'PCI', 'INC',
-    ];
     matrix.sort((a, b) => {
-      const aIdx = bodyOrder.indexOf(a.body_code);
-      const bIdx = bodyOrder.indexOf(b.body_code);
+      const aIdx = BODY_ORDER.indexOf(a.body_code);
+      const bIdx = BODY_ORDER.indexOf(b.body_code);
       if (aIdx !== bIdx) return aIdx - bIdx;
       return b.coverage_pct - a.coverage_pct;
     });

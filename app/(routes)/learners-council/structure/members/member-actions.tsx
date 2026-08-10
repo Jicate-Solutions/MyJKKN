@@ -63,6 +63,24 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
   const assignMember = useAssignMember();
 
+  // The 4 executive seats are elected FROM the sitting council — a learner
+  // becomes an LC member first, then is elected President/VP/Secretary/
+  // Treasurer (ElectionType 'executive_rotation'). So for an executive seat the
+  // learner list is narrowed to that term's active members.
+  const selectedPosition = positions.find((p) => p.id === positionId);
+  const isExecutiveSeat = selectedPosition?.category === 'executive';
+  const pickerScope = isExecutiveSeat ? 'lc_members' : 'all';
+
+  // Switching between an executive seat and any other seat changes the pool, so
+  // a person picked from the previous pool must not silently carry over.
+  const handlePositionChange = (nextPositionId: string) => {
+    const next = positions.find((p) => p.id === nextPositionId);
+    if ((next?.category === 'executive') !== isExecutiveSeat) {
+      setUserId('');
+    }
+    setPositionId(nextPositionId);
+  };
+
   const handleSubmit = async () => {
     if (!termId || !positionId || !userId || !institutionId) return;
 
@@ -117,7 +135,7 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
           <div>
             <Label htmlFor="assign-position">Position</Label>
-            <Select value={positionId} onValueChange={setPositionId}>
+            <Select value={positionId} onValueChange={handlePositionChange}>
               <SelectTrigger id="assign-position">
                 <SelectValue placeholder="Select position" />
               </SelectTrigger>
@@ -133,10 +151,17 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
           <div>
             <Label htmlFor="assign-user">Learner</Label>
-            <PersonPicker id="assign-user" value={userId} onChange={setUserId} />
+            <PersonPicker
+              id="assign-user"
+              value={userId}
+              onChange={setUserId}
+              scope={pickerScope}
+              termId={termId}
+            />
             <p className="text-xs text-muted-foreground mt-1">
-              Search by name or email. Only learners from institutions you can
-              access are listed.
+              {isExecutiveSeat
+                ? 'Executive seats are filled from the sitting council — only active members of the selected term are listed.'
+                : 'Search by name or email. Only learners from institutions you can access are listed.'}
             </p>
           </div>
 

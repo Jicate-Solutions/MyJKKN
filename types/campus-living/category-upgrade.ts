@@ -7,7 +7,11 @@ export interface UpgradeRoomCategoryOption {
   type: string;
   allocation_mode: string | null; // 'auto' => fee-only upgrade (room via auto-allocation); 'manual' => pick a room
   current_year_fee: number; // the target category's full (base) fee
-  upgrade_fee: number; // configured from→to upgrade payment (else full-fee difference)
+  upgrade_fee: number; // PAYABLE after any discount (else full-fee difference)
+  /** Pre-discount list price — equals upgrade_fee when no discount is configured. */
+  upgrade_fee_original: number;
+  /** upgrade_fee_original − upgrade_fee; 0 when undiscounted. Drives the strikethrough. */
+  upgrade_discount: number;
   available_beds: number; // 0 => waitlist branch
   threshold_pct: number | null; // category gate; null = no gate
   paid_pct: number | null; // learner's current-AY academic paid %; null = no AY-tagged bills
@@ -52,7 +56,10 @@ export interface UpgradeMessCategoryOption {
   mess_category_id: string;
   name: string;
   current_year_fee: number;
+  /** PAYABLE after any discount. */
   upgrade_fee: number;
+  upgrade_fee_original: number;
+  upgrade_discount: number;
 }
 
 export interface UpgradeBillResult {

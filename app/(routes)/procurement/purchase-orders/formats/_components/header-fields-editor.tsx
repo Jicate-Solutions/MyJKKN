@@ -89,16 +89,16 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
             <CardContent className="p-4">
               <div className="flex items-start gap-2">
                 <div className="flex flex-col gap-1 pt-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveField(index, 'up')} disabled={index === 0}>
+                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move field up" onClick={() => moveField(index, 'up')} disabled={index === 0}>
                     <ChevronUp className="h-3 w-3" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveField(index, 'down')} disabled={index === fields.length - 1}>
+                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move field down" onClick={() => moveField(index, 'down')} disabled={index === fields.length - 1}>
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                 </div>
 
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  <div className="sm:col-span-4 space-y-1">
+                <div className="min-w-0 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3">
+                  <div className="lg:col-span-4 space-y-1 min-w-0">
                     <Label className="text-xs">Field Label</Label>
                     <Input
                       placeholder="e.g. Proforma Invoice Quotation No."
@@ -107,7 +107,7 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                     />
                   </div>
 
-                  <div className="sm:col-span-5 space-y-1">
+                  <div className="lg:col-span-6 space-y-1 min-w-0">
                     <Label className="text-xs">Source</Label>
                     <Select
                       value={custom ? CUSTOM_SOURCE : field.source}
@@ -140,8 +140,8 @@ export function HeaderFieldsEditor({ fields, onChange }: HeaderFieldsEditorProps
                     )}
                   </div>
 
-                  <div className="sm:col-span-2 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeField(index)}>
+                  <div className="lg:col-span-2 flex items-end justify-end">
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" aria-label="Remove field" onClick={() => removeField(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

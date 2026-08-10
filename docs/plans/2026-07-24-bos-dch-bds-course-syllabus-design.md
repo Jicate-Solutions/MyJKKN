@@ -16,7 +16,7 @@ This spec is a **sibling of the AHS and CNR specs** ([`2026-07-24-bos-ahs-course
 | Decision | Proposed choice |
 |---|---|
 | Where BDS subjects live | **Extend the COE course-master** (`/api/v1/courses`) with nullable medical-model fields; the `/bos/courses` proxy branches by institution model. Same as AHS §5.2. |
-| BDS course codes | **Temp auto-assigned code now, official code later.** Source PDF has **no codes** — 19 subjects identified only by name. A deterministic temp-code generator assigns a flagged placeholder; when DCI/university codes are issued they update in place (safe because syllabi anchor on the stable `course_id`, not `course_code`). |
+| BDS course codes | **Official codes exist — use them (supersedes the earlier temp-code plan).** The syllabus PDF has no codes, but the university/DCI master supplies a **`42xx` code family**, split **per delivery**: each subject has a separate **Theory** code and **Practical/Clinical** code (`-P` suffix), and combined subjects split by discipline (`4202A/B` Physiology\|Biochemistry, `4206A/B` Pathology\|Microbiology, `4208A/B` Dental Materials Conservative\|Prosthodontics). **~46 course codes**, not 19 subjects. **Consequence:** the code regex MUST be relaxed to allow the `-P`/separator format (see §5.2) — the current `^[A-Z0-9]+$` rejects every practical code. The clean import sheet lives at `docs/plans/bds-courses-import.xlsx` (46 rows, 23 Theory / 23 Practical). |
 | Where BDS syllabus content lives | **Extend `bos_course_syllabi`** with the shared `academic_model` discriminator + one BDS-only JSONB column (`bds_content`) + the shared `exam_scheme` column. Reuse existing versioning / RLS / CAS / observer plumbing unchanged. |
 | Discriminator strategy | **One consolidated `academic_model` enum** across all three medical models — see §5.0. |
 
@@ -174,16 +174,10 @@ Same shape as AHS §5.2 — the medical fields are shared. **COE side** (separat
 - [course-form.tsx](app/(routes)/bos/courses/_components/course-form.tsx): for BDS hide Credits/L-T-P/Category/Part/Level/Marks; show **Academic Year (I–IV)** + **Lecture / Practical / Total Hours**.
 - [courses-import-dialog.tsx](app/(routes)/bos/courses/_components/courses-import-dialog.tsx) + [courses-columns.tsx](app/(routes)/bos/courses/_components/courses-columns.tsx): BDS preset columns = `Course Code, Subject Name, Academic Year, Lecture Hrs, Practical Hrs, Total Hrs`.
 
-**Temporary course-code feature** (identical mechanism to AHS §5.2 — codes update in place, safe via the `course_id` anchor):
-
-```ts
-// lib/services/bos/bds-temp-code.ts (new)
-// Format: TMP-BDS-<YEAR><SEQ2>  e.g. I-Year General Anatomy → "TMP-BDS-1-01"
-export function makeBdsTempCode(year: number, subjectSeq: number) {
-  return `TMP-BDS-${year}-${String(subjectSeq).padStart(2, '0')}`;
-}
-export const isTempCode = (code?: string | null) => /^TMP-/i.test((code ?? '').trim());
-```
+**Official codes (temp-code plan RETIRED).** The university master supplies real `42xx` codes, so no temp-code generator is needed for BDS. The single required code change is **regex relaxation**:
+- The BoS import/create code check is `^[A-Z0-9]+$` ([courses-schemas.ts](lib/services/bos/courses-schemas.ts)) and the skill's `convert_curriculum.py` uses `code.isalnum()` — **both reject the `-P` / `/` separators** in `4206B-P`, `4223-P`, etc. Under the medical model, allow `[A-Z0-9/-]` (or gate the strict regex by `academic_model`).
+- **Granularity:** the course master holds ~46 rows (Theory + Practical/Clinical per subject), not 19. One `bos_course_syllabi` row still maps per **course code**, so a subject's Theory and Practical codes each get their own syllabus row (or the Practical/Clinical code carries only the practical/exam blocks). Confirm in Open item O-7.
+- **Known source defects already corrected** in the import sheet (flag for the registrar): dropped `4211P` (duplicate of `4211-P`); `4223/P`→`4223-P`; `4207B`→`4207-P`; dropped `1101 Library` (non-course); **`4202-P` "Dental Materials Practicals" left as-is but likely should be `4204-P`** — it sits in the Physiology/Biochemistry `4202` family.
 
 ### 5.3 `bos_course_syllabi` extension
 

@@ -36,6 +36,11 @@ export const WIDGET_IDS = [
   'activity_feed',
   'leaderboards',
   'ai_agency',
+  // Dormant by default: deliberately absent from HARDCODED_DEFAULT, so no role
+  // sees it until the Director adds it to a role in
+  // /admin/dashboard/widget-config (which writes the dashboard.role_widgets
+  // platform_policies row). Registering the ID here is what makes it selectable.
+  'daily_intel',
 ] as const;
 
 export type WidgetId = (typeof WIDGET_IDS)[number];
