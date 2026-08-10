@@ -1,3 +1,8 @@
+-- 2026-08-10 CORRECTION: hostel_rooms has NO institution_id column, so this
+-- file could not be applied at all (42703 on the first policy). A room's
+-- institution is carried by its beds; hostel_rooms' own RLS scopes with
+-- fn_user_can_access_room(id) / role_has_block_access(block_id). Corrected in
+-- place because this migration had never been applied to any environment.
 -- ============================================================================
 -- 20260815070000_settle_window_trigger_and_scope.sql
 -- Start the settle clock on every move-in, and stop an admin billing another
@@ -234,8 +239,10 @@ BEGIN
   -- 2026-08-10: the room's institution is resolved BEFORE the admin branch.
   -- It used to be read after it, which is precisely why the admin branch could
   -- not be scoped.
-  SELECT r.institution_id INTO v_institution_id
-  FROM hostel_rooms r WHERE r.id = p_room_id;
+  SELECT b.institution_id INTO v_institution_id
+  FROM hostel_beds b
+  WHERE b.room_id = p_room_id AND b.institution_id IS NOT NULL
+  LIMIT 1;
 
   -- Platform owner: unconditional, and above the NULL-room test so a super
   -- admin's answer is byte-for-byte what it was before this change.
