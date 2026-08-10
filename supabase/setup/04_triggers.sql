@@ -1730,7 +1730,7 @@ CREATE TRIGGER trg_allocation_settle_arrival_update
 
 -- =====================================================================
 -- Added: 2026-08-06 - admission_leads source/referral audit trail
--- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
 -- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
 -- Fires only when one of the five watched source/referral columns changes,
 -- calling fn_audit_admission_lead_source (setup/02_functions.sql) to record

@@ -6942,7 +6942,7 @@ CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
 
 -- =====================================================================
 -- Added: 2026-08-06 - admission_leads source/referral audit trail
--- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
 -- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL; this records it so
 --  the repo is not amnesiac and survives a DB rebuild).
 -- Records who/when/old->new for every change to source, source_detail,

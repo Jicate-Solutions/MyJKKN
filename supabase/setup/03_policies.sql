@@ -8764,7 +8764,7 @@ CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_not
 
 -- =====================================================================
 -- Added: 2026-08-06 - admission_leads source/referral audit trail
--- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
 -- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
 -- Read-only to admission-lead viewers; the table is written only by the
 -- SECURITY DEFINER trigger fn_audit_admission_lead_source (bypasses RLS),

@@ -32359,7 +32359,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authentica
 
 -- =====================================================================
 -- Added: 2026-08-06 - admission_leads source/referral audit trail
--- Mirror of migration 20260814020000_admission_lead_source_audit.sql
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
 -- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
 -- SECURITY DEFINER; only inserts an audit row when a watched field actually
 -- changes, so the trigger can never block a legitimate lead update.
