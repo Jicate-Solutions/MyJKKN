@@ -8767,7 +8767,7 @@ CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_not
 -- function runs as the owner; a trail a client can write to, edit or delete is
 -- not evidence of anything, so no INSERT/UPDATE/DELETE policy is granted and no
 -- write privilege is held. See migration
--- supabase/migrations/20260817010000_extend_referral_source_audit.sql
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
 -- (FILE ONLY, NOT APPLIED).
 --
 -- Supabase default-grants ALL on every new table to anon AND authenticated, so a

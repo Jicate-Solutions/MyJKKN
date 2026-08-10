@@ -6947,6 +6947,12 @@ CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
 -- Direct-versus-Counselling distinction that decides whether a referral is
 -- payable at all.
 --
+-- The companion is live on production (hand-applied via the Management API on
+-- 2026-08-06, and it has already captured a real change) but is NOT yet in this
+-- repository — PR #2889 back-fills it, so grepping for it here returns nothing.
+-- Rebuilt from the repo alone today, neither trail would exist until #2889
+-- merges and both are applied.
+--
 -- One row per FIELD that actually changed, never one per UPDATE statement.
 -- learner_profile_id carries NO foreign key on purpose: ON DELETE CASCADE would
 -- erase the trail exactly when it matters and ON DELETE RESTRICT would let the
@@ -6959,7 +6965,7 @@ CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
 -- no client holds INSERT, UPDATE or DELETE, and there is deliberately no policy
 -- for them. The anon lock and the narrow authenticated re-grant live with the
 -- policies in 03_policies.sql. See migration
--- supabase/migrations/20260817010000_extend_referral_source_audit.sql
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
 -- — FILE ONLY, NOT APPLIED.
 CREATE TABLE IF NOT EXISTS public.referral_attribution_audit (
     id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

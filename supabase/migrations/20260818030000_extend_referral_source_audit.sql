@@ -1,4 +1,4 @@
--- supabase/migrations/20260817010000_extend_referral_source_audit.sql
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
 -- ===========================================================================
 -- The referral audit currently watches ONE door. This adds the second one,
 -- and the quota.
@@ -10,14 +10,33 @@
 -- A referral credit can be attached to a learner in two different places:
 --
 --   1. On the lead        — admission_leads.referral_type / referred_by_id /
---                           referred_by_name. Already audited into
---                           admission_lead_source_audit by a live trigger.
+--                           referred_by_name. Audited into
+--                           admission_lead_source_audit. See the note below on
+--                           where that trigger actually lives.
 --   2. On the LEARNER     — learners_profiles carries the same three columns
 --                           (added 2026-04-18 so conversion stopped dropping
 --                           them). Nothing watches these. A credit written or
 --                           moved directly on the learner record is invisible
 --                           to the existing audit, because that trigger is
 --                           bound to a different table and cannot see this one.
+--
+-- WHERE THE LEAD-SIDE AUDIT ACTUALLY LIVES — READ BEFORE SEARCHING FOR IT
+-- ---------------------------------------------------------------------------
+-- Do not expect to find admission_lead_source_audit by grepping this repo.
+-- `git grep admission_lead_source_audit jicate/main` returns nothing, and that
+-- absence is real, not an oversight:
+--
+--   * The table and its trigger ARE live on production. They were hand-applied
+--     through the Supabase Management API on 6 August 2026 and have already
+--     captured a real change.
+--   * They are NOT yet in the repository. PR #2889 is the pull request that
+--     back-fills them into version control.
+--
+-- So this file's learner-side trail is a SIBLING of a trigger that is running
+-- in production but is not yet committed. If the database were rebuilt from
+-- this repository alone today, NEITHER trail would exist — the lead-side one
+-- because #2889 has not merged, this one because it is FILE ONLY and unapplied.
+-- That gap closes when #2889 merges and both files are applied.
 --
 -- Door 2 is not theoretical. `trg_sync_learner_referral_to_attribution`
 -- (migration admission/20260506) exists precisely because attribution gets
@@ -32,7 +51,8 @@
 --
 -- WHY A SECOND TABLE AND NOT THE EXISTING ONE
 -- ---------------------------------------------------------------------------
--- admission_lead_source_audit is keyed on a LEAD. This trail is keyed on a
+-- admission_lead_source_audit (live on production, repo back-fill pending in
+-- PR #2889) is keyed on a LEAD. This trail is keyed on a
 -- LEARNER, and the two are neither one-to-one nor always both present: a
 -- learner can exist with no lead at all, and one lead's edit fans out onto the
 -- linked learner. Overloading one table would force a nullable subject column
@@ -144,7 +164,7 @@ CREATE TABLE IF NOT EXISTS public.referral_attribution_audit (
 );
 
 COMMENT ON TABLE public.referral_attribution_audit IS
-  'Append-only trail of referral-attribution and quota changes made on the LEARNER record (learners_profiles). Companion to admission_lead_source_audit, which watches the same kind of change on the lead. One row per field that actually changed. Written only by trg_audit_learner_referral_attribution; no client holds INSERT, UPDATE or DELETE. Starts at the moment this trigger is created — it cannot describe anything that happened before.';
+  'Append-only trail of referral-attribution and quota changes made on the LEARNER record (learners_profiles). Companion to admission_lead_source_audit, which watches the same kind of change on the lead; that table and its trigger are live on production (hand-applied via the Management API on 2026-08-06, and they have already captured a real change) but are NOT yet in the repository — PR #2889 back-fills them, so a database rebuilt from the repo alone would have neither trail until #2889 merges and both files are applied. One row per field that actually changed. Written only by trg_audit_learner_referral_attribution; no client holds INSERT, UPDATE or DELETE. Starts at the moment this trigger is created — it cannot describe anything that happened before.';
 
 COMMENT ON COLUMN public.referral_attribution_audit.learner_profile_id IS
   'learners_profiles.id. Intentionally NOT a foreign key: an audit row must survive the deletion of the row it describes.';

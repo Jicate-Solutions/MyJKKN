@@ -1729,10 +1729,17 @@ CREATE TRIGGER trg_allocation_settle_arrival_update
 
 
 -- Referral attribution + quota audit on the LEARNER record. A referral credit
--- can be attached in two places — on the lead (already audited into
+-- can be attached in two places — on the lead (audited into
 -- admission_lead_source_audit) and directly on learners_profiles, which nothing
 -- watched. Also covers quota_id + counseling_applied, the Direct-versus-
 -- Counselling distinction that decides whether a referral is payable at all.
+--
+-- Note on the lead-side trail: it is live on production (hand-applied via the
+-- Management API on 2026-08-06, and it has already captured a real change) but
+-- is NOT yet in this repository — PR #2889 back-fills it. Grepping for
+-- admission_lead_source_audit here returns nothing, and that is expected. This
+-- trigger is its sibling; rebuilt from the repo alone today, neither would
+-- exist until #2889 merges and both are applied.
 --
 -- AFTER, so the row is already final and no failure here can undo it. UPDATE OF
 -- the five watched columns, so an unrelated edit never enters the function.
@@ -1747,7 +1754,7 @@ CREATE TRIGGER trg_allocation_settle_arrival_update
 -- prior attribution row when referred_by_id changes. Body lives in
 -- 02_functions.sql.
 -- Added: 2026-08-10 (migration
---        supabase/migrations/20260817010000_extend_referral_source_audit.sql
+--        supabase/migrations/20260818030000_extend_referral_source_audit.sql
 --        — FILE ONLY, NOT APPLIED)
 
 DROP TRIGGER IF EXISTS trg_audit_learner_referral_attribution ON public.learners_profiles;

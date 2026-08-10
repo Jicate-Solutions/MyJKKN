@@ -32361,7 +32361,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authentica
 -- Writes one referral_attribution_audit row per watched field that actually
 -- changed on a learners_profiles UPDATE. Trigger declaration lives in
 -- 04_triggers.sql; migration
--- supabase/migrations/20260817010000_extend_referral_source_audit.sql
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
 -- — FILE ONLY, NOT APPLIED.
 --
 -- SECURITY DEFINER for two reasons: the people who edit a learner's referral
