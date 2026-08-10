@@ -219,7 +219,12 @@ export default function ReferralReconciliationPage() {
                 <div className="space-y-1 min-w-[240px]">
                   <Label>Agency</Label>
                   <Select
-                    value={consultantId}
+                    // `|| undefined`, never the raw empty string: Radix Select treats
+                    // value="" as a selection it cannot find an item for, and the
+                    // dropdown breaks on first open. undefined is what shows the
+                    // placeholder. The repo's CI audit only catches the literal
+                    // <SelectItem value="">, not this dynamic form.
+                    value={consultantId || undefined}
                     onValueChange={(v) => { setConsultantId(v); setSessionId(''); setSummary(null); }}
                   >
                     <SelectTrigger>
