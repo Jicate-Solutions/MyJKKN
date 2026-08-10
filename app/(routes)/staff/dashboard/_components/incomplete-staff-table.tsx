@@ -107,7 +107,7 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
     }
     const note = (label: string, value: string) => {
       if (value === ALL || value === '') return;
-      parts.push(value === '__missing__' ? `${label}: Not set` : `${label}: filtered`);
+      parts.push(value === FIELD_MISSING ? `${label}: Not set` : `${label}: filtered`);
     };
     note('Institution', fieldFilters.institutionId);
     note('Department', fieldFilters.departmentId);
