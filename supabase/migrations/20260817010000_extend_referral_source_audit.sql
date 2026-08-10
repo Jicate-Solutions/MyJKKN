@@ -101,6 +101,16 @@ BEGIN
   IF to_regprocedure('public.user_has_permission(text)') IS NULL THEN
     RAISE EXCEPTION 'REFUSING TO APPLY: user_has_permission(text) is absent.';
   END IF;
+
+  -- auth.uid() is checked here for a specific reason. The trigger function
+  -- swallows every error so it can never block a learner update — which means
+  -- that if auth.uid() did not exist, the call would raise 42883, the handler
+  -- would catch it, and NO ROW WOULD EVER BE WRITTEN. The audit would look
+  -- perfectly installed and record nothing, forever, with only a WARNING in a
+  -- log nobody reads. Refusing here converts that silent no-op into a loud one.
+  IF to_regprocedure('auth.uid()') IS NULL THEN
+    RAISE EXCEPTION 'REFUSING TO APPLY: auth.uid() is absent — the trail would install cleanly and then silently record nothing.';
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -255,13 +265,20 @@ BEGIN
     INSERT INTO public.referral_attribution_audit
       (learner_profile_id, changed_field, old_value, new_value, changed_by)
     SELECT NEW.id, f.field, f.old_value, f.new_value, v_actor
+    -- Every value is cast to text EXPLICITLY, including the two columns that
+    -- are already text. A VALUES list resolves one common type per column, so
+    -- leaving the text ones bare would make that resolution depend on their
+    -- declared type staying text — and the day referral_type became an enum,
+    -- the column would fail to resolve and the handler would swallow it into
+    -- an audit that silently records nothing. The redundant casts cost nothing
+    -- and remove the dependency.
     FROM (
       VALUES
-        ('referral_type',      OLD.referral_type,                NEW.referral_type),
-        ('referred_by_id',     OLD.referred_by_id::text,         NEW.referred_by_id::text),
-        ('referred_by_name',   OLD.referred_by_name,             NEW.referred_by_name),
-        ('quota_id',           OLD.quota_id::text,               NEW.quota_id::text),
-        ('counseling_applied', OLD.counseling_applied::text,     NEW.counseling_applied::text)
+        ('referral_type',      OLD.referral_type::text,      NEW.referral_type::text),
+        ('referred_by_id',     OLD.referred_by_id::text,     NEW.referred_by_id::text),
+        ('referred_by_name',   OLD.referred_by_name::text,   NEW.referred_by_name::text),
+        ('quota_id',           OLD.quota_id::text,           NEW.quota_id::text),
+        ('counseling_applied', OLD.counseling_applied::text, NEW.counseling_applied::text)
     ) AS f(field, old_value, new_value)
     WHERE f.old_value IS DISTINCT FROM f.new_value;
 

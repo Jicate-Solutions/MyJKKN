@@ -32413,11 +32413,16 @@ BEGIN
     INSERT INTO public.referral_attribution_audit
       (learner_profile_id, changed_field, old_value, new_value, changed_by)
     SELECT NEW.id, f.field, f.old_value, f.new_value, v_actor
+    -- Every value is cast to text EXPLICITLY, including the two columns that
+    -- are already text: a VALUES list resolves one common type per column, and
+    -- because the handler swallows errors, a future type change on
+    -- referral_type would turn the whole trail into a silent no-op rather than
+    -- a visible failure. The redundant casts remove that dependency for free.
     FROM (
       VALUES
-        ('referral_type',      OLD.referral_type,            NEW.referral_type),
+        ('referral_type',      OLD.referral_type::text,      NEW.referral_type::text),
         ('referred_by_id',     OLD.referred_by_id::text,     NEW.referred_by_id::text),
-        ('referred_by_name',   OLD.referred_by_name,         NEW.referred_by_name),
+        ('referred_by_name',   OLD.referred_by_name::text,   NEW.referred_by_name::text),
         ('quota_id',           OLD.quota_id::text,           NEW.quota_id::text),
         ('counseling_applied', OLD.counseling_applied::text, NEW.counseling_applied::text)
     ) AS f(field, old_value, new_value)
