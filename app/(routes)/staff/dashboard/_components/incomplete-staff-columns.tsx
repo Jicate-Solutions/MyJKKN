@@ -33,6 +33,8 @@ export const MISSING_FIELD_COLORS: Record<string, string> = {
   Pincode: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
   'Institution Email': 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
   'Blood Group': 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
+  'Biometric Code': 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
+  'Biometric Machine': 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
 };
 
 function Empty() {

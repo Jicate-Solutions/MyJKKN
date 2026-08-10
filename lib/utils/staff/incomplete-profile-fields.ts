@@ -8,9 +8,12 @@
 // LOCK-STEP CONTRACT: this list must stay identical to the aggregate in
 // lib/services/staff/staff-service.ts (~1206, ~1705) and the per-employee bar
 // in lib/utils/staff-profile-completion.ts. Adding a field here moves the
-// dashboard's headline completion percentage. Department and the biometric
-// columns are deliberately NOT tracked here — they are filter dimensions only
-// (see the 2026-08-10 design doc, section 3.1).
+// dashboard's headline completion percentage. Required (7) + optional (10).
+// Department is deliberately NOT tracked here — it stays a filter dimension
+// only. biometric_id / biometric_institution_id were filter-only too but are
+// now tracked as of 2026-08-10 (see the design doc, section 3.1) — that also
+// means DASHBOARD_STAFF_COLUMNS in staff-service.ts must select both, or the
+// aggregate stats see them as permanently missing regardless of real data.
 // ============================================
 
 export type StaffFieldScope = 'all' | 'required' | 'optional';
@@ -34,6 +37,8 @@ export const STAFF_OPTIONAL_FIELDS = [
   'pincode',
   'institution_email',
   'blood_group',
+  'biometric_id',
+  'biometric_institution_id',
 ] as const;
 
 export const STAFF_ALL_FIELDS: readonly string[] = [
@@ -62,6 +67,8 @@ export const STAFF_FIELD_LABELS: Record<string, string> = {
   pincode: 'Pincode',
   institution_email: 'Institution Email',
   blood_group: 'Blood Group',
+  biometric_id: 'Biometric Code',
+  biometric_institution_id: 'Biometric Machine',
 };
 
 export function fieldsForScope(scope: StaffFieldScope): readonly string[] {

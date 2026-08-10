@@ -16,13 +16,14 @@ const COMPLETE_ROW = {
   profile_picture: 'https://example.test/a.png', address: '12 Main St',
   state: 'Tamil Nadu', district: 'Namakkal', pincode: '637503',
   institution_email: 'asha@jkkn.ac.in', blood_group: 'O+',
+  biometric_id: 'BIO001', biometric_institution_id: 'inst-uuid-1',
 };
 
 describe('field lists', () => {
-  it('holds 7 required and 8 optional fields, 15 in total', () => {
+  it('holds 7 required and 10 optional fields, 17 in total', () => {
     expect(STAFF_REQUIRED_FIELDS).toHaveLength(7);
-    expect(STAFF_OPTIONAL_FIELDS).toHaveLength(8);
-    expect(STAFF_ALL_FIELDS).toHaveLength(15);
+    expect(STAFF_OPTIONAL_FIELDS).toHaveLength(10);
+    expect(STAFF_ALL_FIELDS).toHaveLength(17);
   });
 
   it('labels every tracked field', () => {
@@ -46,8 +47,8 @@ describe('fieldsForScope', () => {
   it('returns the optional list for "optional"', () => {
     expect(fieldsForScope('optional')).toEqual(STAFF_OPTIONAL_FIELDS);
   });
-  it('returns all 15 for "all"', () => {
-    expect(fieldsForScope('all')).toHaveLength(15);
+  it('returns all 17 for "all"', () => {
+    expect(fieldsForScope('all')).toHaveLength(17);
   });
 });
 
@@ -99,5 +100,15 @@ describe('computeMissingFields', () => {
   it('defaults to the "all" scope', () => {
     const row = { ...COMPLETE_ROW, pincode: null };
     expect(computeMissingFields(row)).toEqual(['Pincode']);
+  });
+
+  it('reports "Biometric Code" when biometric_id is missing', () => {
+    const row = { ...COMPLETE_ROW, biometric_id: null };
+    expect(computeMissingFields(row, 'all')).toEqual(['Biometric Code']);
+  });
+
+  it('reports "Biometric Machine" when biometric_institution_id is missing', () => {
+    const row = { ...COMPLETE_ROW, biometric_institution_id: null };
+    expect(computeMissingFields(row, 'all')).toEqual(['Biometric Machine']);
   });
 });

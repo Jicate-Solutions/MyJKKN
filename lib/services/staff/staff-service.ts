@@ -1159,6 +1159,8 @@ export class StaffService {
     'district',
     'pincode',
     'institution_email',
+    'biometric_id',
+    'biometric_institution_id',
     // demographics
     'gender',
     'marital_status',
@@ -1327,7 +1329,10 @@ export class StaffService {
       'state',
       'district',
       'pincode',
-      'institution_email'
+      'institution_email',
+      'blood_group',
+      'biometric_id',
+      'biometric_institution_id'
     ];
 
     let totalFieldsExpected = 0;
@@ -1737,7 +1742,9 @@ export class StaffService {
       'district',
       'pincode',
       'institution_email',
-      'blood_group'
+      'blood_group',
+      'biometric_id',
+      'biometric_institution_id'
     ];
     const allFields = [...requiredFields, ...optionalFields];
 
