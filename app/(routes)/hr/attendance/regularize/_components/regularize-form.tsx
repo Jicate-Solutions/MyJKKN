@@ -23,16 +23,18 @@ import {
 
 interface RegularizeFormProps {
   employeeId: string;
+  /** `yyyy-MM-dd`. Set when arriving from a My Attendance log row. */
+  initialDate?: string;
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-export function RegularizeForm({ employeeId }: RegularizeFormProps) {
+export function RegularizeForm({ employeeId, initialDate }: RegularizeFormProps) {
   const { data: reasons, isLoading: reasonsLoading } = useRegularizationReasons();
   const { data: statusTypes, isLoading: statusLoading } = useAttendanceStatusTypes();
   const submit = useSubmitRegularization();
 
-  const [forDate, setForDate] = useState<string>(todayIso());
+  const [forDate, setForDate] = useState<string>(initialDate ?? todayIso());
   const [reasonCodeId, setReasonCodeId] = useState<string>('');
   const [reasonText, setReasonText] = useState<string>('');
   const [proposedStatusTypeId, setProposedStatusTypeId] = useState<string>('');

@@ -9339,21 +9339,38 @@ $$;
 --   Extended 2026-07-31 by 20260731100100_extend_learner_scope_guard_section_id.sql
 --   to also cover section_id — the column the first two waves never checked,
 --   which left 179 learners on another institution's same-named section.
+--   Extended 2026-08-08 by 20260808150000_extend_learner_scope_guard_programme.sql
+--   to cover program_id (which had NO validation at all) and to add PROGRAMME
+--   scope for semester_id and section_id.
 -- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
 --
--- Rejects a learners_profiles row whose degree_id, department_id, semester_id,
--- academic_year_id or section_id belongs to a DIFFERENT institution. These tables are all
--- institution-scoped and carry duplicate NAMES across institutions (nine rows
--- named 'Undergraduate', one per institution), so a mis-pointed FK renders
--- identically in the UI and is invisible until a filter silently returns zero
--- rows. Two separate bulk writes on 2026-07-30 did exactly that.
+-- Rejects a learners_profiles row whose degree_id, department_id, program_id,
+-- semester_id, academic_year_id or section_id belongs to a DIFFERENT
+-- institution. These tables are all institution-scoped and carry duplicate
+-- NAMES across institutions (nine rows named 'Undergraduate', one per
+-- institution), so a mis-pointed FK renders identically in the UI and is
+-- invisible until a filter silently returns zero rows. Two separate bulk writes
+-- on 2026-07-30 did exactly that.
 --
--- Validates only on INSERT or when the value (or institution_id) ACTUALLY
--- CHANGES — unlike validate_learner_admission_year_scope, which validates
--- unconditionally. That is safe there because no bad rows exist. Here 319
--- known-unresolvable semester rows deliberately remain, and an unconditional
--- guard would make those learners impossible to edit at all, including to fix
--- them.
+-- ALSO rejects a semester_id or section_id belonging to another PROGRAMME of
+-- the same institution (added 2026-08-08). Institution scope alone was never
+-- sufficient: `semesters` and `sections` are programme-scoped, so Dental holds
+-- six distinct rows named '1 Year', one per programme. KESTER R (DB23029) was
+-- reported holding 'Semester IV' / code MPHARM-RA-SEM-4 — a Pharmacy M.Pharm
+-- row — and 25 further rows held a right-institution/WRONG-PROGRAMME semester
+-- that institution scope waved straight through.
+--
+-- NOT enforced: section.semester_id = learner.semester_id. That has a
+-- legitimate failure mode (learner promoted, section not yet moved), so it is
+-- reported through v_learner_scope_violations rather than blocked.
+--
+-- Validates only on INSERT or when a participating column ACTUALLY CHANGES —
+-- unlike validate_learner_admission_year_scope, which validates
+-- unconditionally. That is safe there because no bad rows exist. Here 3
+-- known-unresolvable 'reserved' rows deliberately remain (JKKN College of
+-- Pharmacy, PHARM D PB entry year is an admissions decision), and an
+-- unconditional guard would make those learners impossible to edit at all,
+-- including to fix them.
 -- =====================================================
 CREATE OR REPLACE FUNCTION public.validate_learner_semester_year_scope()
 RETURNS TRIGGER
@@ -9363,6 +9380,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_inst uuid;
+  v_prog uuid;
 BEGIN
   -- Cannot judge scope without an institution on the learner.
   IF NEW.institution_id IS NULL THEN
@@ -9393,6 +9411,25 @@ BEGIN
       RAISE EXCEPTION
         'department_id % belongs to institution %, not the learner''s institution %',
         NEW.department_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- Added 2026-08-08 — program_id had NO validation of any kind before today.
+  -- That is exactly why 21 Arts&Sci (Self) M.COM learners kept Arts&Sci
+  -- (Aided)'s programme through THREE repair waves: every wave searched for the
+  -- correct semester inside (learner institution, learner program_id), and the
+  -- program_id was itself the foreign value, so every candidate count was 0.
+  IF NEW.program_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.program_id     IS DISTINCT FROM OLD.program_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT pr.institution_id INTO v_inst
+      FROM public.programs pr WHERE pr.id = NEW.program_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'program_id % belongs to institution %, not the learner''s institution %',
+        NEW.program_id, v_inst, NEW.institution_id
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -9438,6 +9475,38 @@ BEGIN
       RAISE EXCEPTION
         'section_id % belongs to institution %, not the learner''s institution %',
         NEW.section_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- ── programme scope (added 2026-08-08) ───────────────────────────────────
+  -- Institution scope cannot separate 'Semester I of B.Sc CS' from 'Semester I
+  -- of B.A. English': both are real rows of the right college and both render
+  -- the identical label. Only this check does.
+  IF NEW.semester_id IS NOT NULL AND NEW.program_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.semester_id IS DISTINCT FROM OLD.semester_id
+          OR NEW.program_id  IS DISTINCT FROM OLD.program_id) THEN
+    SELECT s.program_id INTO v_prog
+      FROM public.semesters s WHERE s.id = NEW.semester_id;
+    IF FOUND AND v_prog IS DISTINCT FROM NEW.program_id THEN
+      RAISE EXCEPTION
+        'semester_id % belongs to programme %, not the learner''s programme %',
+        NEW.semester_id, v_prog, NEW.program_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.section_id IS NOT NULL AND NEW.program_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.section_id IS DISTINCT FROM OLD.section_id
+          OR NEW.program_id IS DISTINCT FROM OLD.program_id) THEN
+    SELECT sc.program_id INTO v_prog
+      FROM public.sections sc WHERE sc.id = NEW.section_id;
+    IF FOUND AND v_prog IS DISTINCT FROM NEW.program_id THEN
+      RAISE EXCEPTION
+        'section_id % belongs to programme %, not the learner''s programme %',
+        NEW.section_id, v_prog, NEW.program_id
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -27100,7 +27169,45 @@ BEGIN
       );
 
     ELSIF p_effective_from <= v_current.effective_from THEN
-      -- Correction: overwrite the live row, keep its effective_from.
+      -- Correction. Reworked 2026-08-10 (migration 20260810091000): this branch
+      -- used to overwrite the live row and KEEP its effective_from, silently
+      -- discarding the caller's earlier date. Once a save had superseded, the
+      -- closed row was unreachable from the UI and history could never be
+      -- corrected — three attendance incidents in two days each needed a
+      -- hand-written migration to repair.
+
+      -- 1. Retire whatever started inside the span we are about to claim.
+      --    is_active = false, never DELETE: the row records what the rule used
+      --    to say, and the partial unique index ignores inactive rows. Leaving
+      --    them active would put two rows over the same date, with the
+      --    resolver's `ORDER BY effective_from DESC LIMIT 1` picking arbitrarily.
+      UPDATE public.hr_shift_timings h
+         SET is_active  = false,
+             updated_by = v_actor
+       WHERE h.institution_id = p_institution_id
+         AND h.staff_scope    = p_staff_scope
+         AND h.day_of_week    = v_day.day_of_week
+         AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+         AND h.id <> v_current.id
+         AND h.is_active
+         AND h.effective_from >= p_effective_from;
+
+      -- 2. A row that predates the span keeps its earlier life, clipped to end
+      --    where the correction begins. effective_from < p_effective_from, so
+      --    hr_shift_timings_effective_chk (until > from) still holds.
+      UPDATE public.hr_shift_timings h
+         SET effective_until = p_effective_from,
+             updated_by      = v_actor
+       WHERE h.institution_id = p_institution_id
+         AND h.staff_scope    = p_staff_scope
+         AND h.day_of_week    = v_day.day_of_week
+         AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+         AND h.id <> v_current.id
+         AND h.is_active
+         AND h.effective_from < p_effective_from
+         AND (h.effective_until IS NULL OR h.effective_until > p_effective_from);
+
+      -- 3. The live row takes the new values and really does start here.
       UPDATE public.hr_shift_timings
          SET is_working_day          = v_day.is_working_day,
              first_half_start        = v_day.first_half_start,
@@ -27109,6 +27216,7 @@ BEGIN
              second_half_end         = v_day.second_half_end,
              grace_minutes           = COALESCE(v_day.grace_minutes, 0),
              second_saturday_holiday = COALESCE(v_day.second_saturday_holiday, false),
+             effective_from          = p_effective_from,
              updated_by              = v_actor
        WHERE id = v_current.id;
 
@@ -27143,7 +27251,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) IS
-  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). Corrections update in place; a future effective_from closes the live rows and inserts successors. Self-authorizing on hr.shift_timings.manage.';
+  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). An effective_from at or before the live row CORRECTS history: overlapping earlier rows are retired or clipped and the live row moves back to that date, so already-imported attendance can be recomputed against it. A later effective_from SCHEDULES: the live rows close and successors are inserted, leaving history judged by the rule that was in force. Self-authorizing on hr.shift_timings.manage.';
 
 REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;
@@ -30299,3 +30407,1951 @@ BEGIN
            lb.due_date NULLS LAST, lb.bill_description;
 END;
 $function$;
+
+
+-- ================================================================================
+-- Updated: 2026-08-09 - Notification expiry for self-obsoleting cron rows.
+-- Mirrors supabase/migrations/20260816040000_notification_expiry_director_categories.sql
+-- (that file carries the full rationale and the category-by-category decision on
+-- what is expired vs deliberately left in the badge as un-actioned work).
+--
+-- These FIVE definitions SUPERSEDE the earlier copies above in this file.
+-- (fn_generate_hr_command_center_brief_items was added in review 2026-08-09:
+--  the backfill cleared its rows but its generator still emitted unexpiring
+--  ones, so the backlog would have simply rebuilt.)
+-- fn_create_dashboard_work_item gains a ninth parameter, p_expires_hours, which
+-- DEFAULTS TO NULL so every existing eight-argument caller is unchanged.
+--
+-- ############################################################################
+-- ##  ORDERING WARNING -- fn_generate_super_admin_daily_digest              ##
+-- ############################################################################
+-- The copy below is NOT the body currently running on production. Production's
+-- carries a dead `se.event_type` reference (public.startup_events has no such
+-- column) which raises 42703 and kills the whole digest -- the newest 'digest:%'
+-- notification on prod is dated 2026-05-08 although the cron has fired daily
+-- since. That one line is DELETED here, marked `2026-08-09 REVIVAL`, precisely
+-- so this file does not freeze the bug and silently revert whoever fixes it
+-- first: CREATE OR REPLACE does not validate a plpgsql body, so re-applying an
+-- older copy after this one restores the dead reference with no error at all.
+-- Do NOT re-add `se.event_type`, and do not apply an older copy of that function
+-- after this file. Same warning sits on section 2 below and in
+-- supabase/migrations/20260816040000_notification_expiry_director_categories.sql.
+-- ================================================================================
+
+-- --------------------------------------------------------------------------------
+-- 1. fn_create_dashboard_work_item --- add opt-in p_expires_hours (DEFAULT NULL)
+-- --------------------------------------------------------------------------------
+-- DROP first: CREATE OR REPLACE cannot change a function's argument list, and
+-- leaving the 8-arg version in place alongside a 9-arg one would make every
+-- existing 8-argument call ambiguous.
+DROP FUNCTION IF EXISTS public.fn_create_dashboard_work_item(text,text,text,text,jsonb,uuid,text,integer);
+
+CREATE OR REPLACE FUNCTION public.fn_create_dashboard_work_item(p_category text, p_priority text, p_title text, p_body text, p_action_config jsonb, p_target_user uuid, p_idempotency_key text, p_deadline_hours integer DEFAULT 48,
+-- 2026-08-09 expiry: NEW, opt-in. NULL (the default) reproduces today's
+-- behaviour exactly for all twelve existing callers.
+ p_expires_hours integer DEFAULT NULL)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_notif_id UUID;
+BEGIN
+  IF EXISTS (SELECT 1 FROM notifications WHERE idempotency_key = p_idempotency_key) THEN
+    RETURN 0;
+  END IF;
+  INSERT INTO notifications (
+    id, title, body, category, kind, priority, requires_acknowledgment,
+    acknowledgment_deadline_hours, action_type, action_config, idempotency_key,
+    created_by, targeting, created_at, updated_at,
+    is_layer_0,
+    -- 2026-08-09 expiry: honoured by liveNotificationOrFilter() in the bell /
+    -- inbox / rollup read path. NULL = never expires (unchanged default).
+    expires_at
+  ) VALUES (
+    -- 2026-04-23 decoupling: requires_acknowledgment=FALSE so work items don't
+    -- trigger the Mandatory Acknowledgment blocking modal. Queue filter uses
+    -- category only.
+    -- 2026-04-24 split: kind='work_item' keeps these out of /admin/notifications
+    -- (which filters to kind='announcement'). Work items surface via dashboard
+    -- widgets + super-admin digest instead.
+    -- Wave B.4 (2026-04-29): is_layer_0 is the new dedicated Attention Bar
+    -- Layer 0 signal. Setting it for urgent priorities makes the bar's
+    -- split-rendering path eligible to surface this work item, without
+    -- coupling to the gate's ack semantics.
+    gen_random_uuid(), p_title, p_body, p_category, 'work_item', p_priority, FALSE,
+    p_deadline_hours, 'open_url', p_action_config, p_idempotency_key,
+    p_target_user, jsonb_build_object('type','user','user_ids', jsonb_build_array(p_target_user)),
+    NOW(), NOW(),
+    (p_priority = 'urgent'),
+    CASE WHEN p_expires_hours IS NULL THEN NULL
+         ELSE NOW() + make_interval(hours => p_expires_hours) END
+  ) RETURNING id INTO v_notif_id;
+  INSERT INTO user_notifications (id, notification_id, user_id, created_at)
+  VALUES (gen_random_uuid(), v_notif_id, p_target_user, NOW());
+  RETURN 1;
+END
+$function$;
+
+-- Production ACL for this function is postgres + service_role only (verified
+-- 2026-08-09). Re-assert it after the DROP; the explicit anon revoke is required
+-- because Supabase's ALTER DEFAULT PRIVILEGES grants EXECUTE on every new
+-- function to anon and to authenticated.
+REVOKE ALL ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,text,jsonb,uuid,text,integer,integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_create_dashboard_work_item(text,text,text,text,jsonb,uuid,text,integer,integer) TO service_role;
+
+-- --------------------------------------------------------------------------------
+-- 2. fn_generate_super_admin_daily_digest --- 36h TTL on all seven digest rows
+--    + the one-line REVIVAL of a function dead on prod since 2026-05-08
+-- --------------------------------------------------------------------------------
+-- Every call site in this function builds a row titled 'Daily digest --- N ...'
+-- under the key 'digest:<user>:<category>:<YYYY-MM-DD>'. All seven are the same
+-- shape and all seven already declare a 24h acknowledgment deadline.
+--
+-- ############################################################################
+-- ##  ORDERING WARNING -- THIS BODY IS NOT THE ONE RUNNING ON PROD          ##
+-- ############################################################################
+-- The production body carries a dead column reference, `se.event_type`, in the
+-- Category 5 (dashboard:ai_pulse) block. public.startup_events has no such
+-- column (information_schema, 2026-08-09), so the statement raises 42703 the
+-- moment the loop reaches its first super-admin -- which aborts the whole call
+-- and rolls back every digest row the earlier categories built. That is why the
+-- newest 'digest:%' notification on prod is dated 2026-05-08 while the cron
+-- (vercel.json '3 3 * * *') has fired every day since.
+--
+-- MEASURED, production, BEGIN..ROLLBACK, 2026-08-09 (prod re-verified unchanged
+-- afterwards -- 8-arg signature intact, digest row count still 687):
+--   * body EXACTLY as it stands on prod  -> ERROR 42703 'column se.event_type
+--     does not exist', PL/pgSQL line 207.
+--   * same body with the dead disjunct removed -> returns 129 (rows it would
+--     have created), no error.
+--
+-- Shipping the prod body verbatim would have frozen that bug into two files. A
+-- later PR that fixes it, applied BEFORE this one, would then be silently
+-- reverted -- CREATE OR REPLACE does not validate a plpgsql body, so the dead
+-- reference would come back with no error and the digest would die again.
+-- So the fix is CARRIED here rather than copied around, marked `2026-08-09
+-- REVIVAL`. It is a one-line deletion: the two surviving disjuncts
+-- (config->>'kind' and config->'ai_pulse') already express the same intent.
+--
+-- IF YOU ARE THE OTHER PR: this file already contains the fix. Do not apply an
+-- older copy of fn_generate_super_admin_daily_digest after this one, and do not
+-- re-add `se.event_type`. The same warning sits above the same function in
+-- supabase/setup/02_functions.sql.
+--
+-- CONSEQUENCE OF APPLYING THIS DEFINITION: the super-admin daily digest starts
+-- producing rows again every day -- 129 for the day measured 2026-08-09, and
+-- 46-49/day over its last eight days alive (2026-05-01..2026-05-08), all
+-- with a 36h TTL. That is the intended repair, but it is a behaviour change on
+-- top of the TTL work and the Director should be told it is in the same apply.
+CREATE OR REPLACE FUNCTION public.fn_generate_super_admin_daily_digest()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_created INT := 0;
+  v_user RECORD;
+  v_today TEXT := TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD');
+  v_key TEXT;
+  v_total INT;
+  v_breakdown TEXT;
+  v_body TEXT;
+  v_emit_escalation BOOLEAN;
+  v_emit_rescue BOOLEAN;
+  v_emit_approval BOOLEAN;
+  v_emit_anomaly BOOLEAN;
+  v_last_cycle_id       UUID;
+  v_enrolled_teams      INT;
+  v_engaged_teams       INT;
+  v_engagement_pct      NUMERIC(5,1);
+  v_anomaly_count       INT;
+  v_gold_count          INT;
+  v_red_flag_depts      TEXT;
+  v_red_flag_count      INT;
+  v_quiz_pass_threshold INT;
+  v_escalation_t2_pct   NUMERIC(5,1);
+  v_ai_pulse_active     BOOLEAN;
+  v_ai_pulse_parts      TEXT[];
+BEGIN
+  FOR v_user IN
+    SELECT id, role, is_super_admin
+    FROM profiles
+    WHERE is_super_admin = TRUE
+       OR role IN ('ceo','cao','cbo','executive_admin_officer','registrar',
+                   'hr_admin','system_admin','admission_counselor','expo_counselor',
+                   'admission_staff','accountant_assistant')
+  LOOP
+    v_emit_escalation := v_user.is_super_admin
+                      OR v_user.role IN ('ceo','cbo','accountant_assistant');
+    v_emit_rescue     := v_user.is_super_admin
+                      OR v_user.role IN ('cbo','admission_counselor','expo_counselor','admission_staff');
+    v_emit_approval   := v_user.is_super_admin
+                      OR v_user.role IN ('ceo','cao','executive_admin_officer','registrar','hr_admin');
+    v_emit_anomaly    := v_user.is_super_admin
+                      OR v_user.role IN ('cao','registrar','system_admin');
+
+    -- Category 1: dashboard:escalation
+    IF v_emit_escalation THEN
+      WITH counts AS (
+        SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+        FROM billing_invoices bi
+        JOIN institutions i ON bi.institution_id = i.id
+        WHERE bi.due_date < CURRENT_DATE - INTERVAL '30 days' AND bi.grand_total > 0
+          AND COALESCE((SELECT SUM(br.payment_amount) FROM billing_receipts br
+                        WHERE br.student_id = bi.student_id
+                          AND br.receipt_date >= bi.billing_period_from), 0) < bi.grand_total
+        GROUP BY i.id, i.name
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM counts;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:escalation:' || v_today;
+        v_body := v_total || ' overdue invoice(s). ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:escalation', 'high',
+          'Daily digest — ' || v_total || ' overdue invoice(s)',
+          v_body,
+          jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aescalation',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+      END IF;
+    END IF;
+
+    -- Category 2: dashboard:rescue
+    IF v_emit_rescue THEN
+      WITH counts AS (
+        SELECT REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '') AS inst, COUNT(*) AS cnt
+        FROM admission_leads al
+        JOIN institutions i ON al.institution_id = i.id
+        WHERE COALESCE(al.last_activity_at, al.created_at) < NOW() - INTERVAL '24 hours'
+          AND COALESCE(al.last_activity_at, al.created_at) > NOW() - INTERVAL '30 days'
+        GROUP BY i.id, i.name
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(inst || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM counts;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:rescue:' || v_today;
+        v_body := v_total || ' stale lead(s). ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:rescue', 'normal',
+          'Daily digest — ' || v_total || ' stale lead(s)',
+          v_body,
+          jsonb_build_object('url', '/admission/leads?stale_min_days=30',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+      END IF;
+    END IF;
+
+    -- Category 3: dashboard:approval
+    IF v_emit_approval THEN
+      WITH leave_counts AS (
+        SELECT 'leaves' AS src, COUNT(*) AS cnt
+        FROM hr_leave_applications la
+        WHERE la.status = 'pending' AND la.created_at < NOW() - INTERVAL '48 hours'
+          AND la.created_at > NOW() - INTERVAL '30 days' AND la.superseded_by IS NULL
+      ),
+      recruit_counts AS (
+        SELECT 'recruitment' AS src, COUNT(*) AS cnt
+        FROM hr_recruitment_candidates
+        WHERE status = 'pending_approval' AND submitted_at < NOW() - INTERVAL '24 hours'
+          AND submitted_at > NOW() - INTERVAL '90 days'
+      ),
+      sr_counts AS (
+        SELECT 'service_requests' AS src, COUNT(*) AS cnt
+        FROM service_requests sr
+        WHERE sr.status::text IN ('submitted','in_review','returned')
+          AND COALESCE(sr.submitted_at, sr.created_at) < NOW() - INTERVAL '24 hours'
+          AND COALESCE(sr.submitted_at, sr.created_at) > NOW() - INTERVAL '180 days'
+      ),
+      all_counts AS (
+        SELECT src, cnt FROM leave_counts WHERE cnt > 0
+        UNION ALL SELECT src, cnt FROM recruit_counts WHERE cnt > 0
+        UNION ALL SELECT src, cnt FROM sr_counts WHERE cnt > 0
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM all_counts;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:approval:' || v_today;
+        v_body := v_total || ' approval(s) pending. ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:approval', 'normal',
+          'Daily digest — ' || v_total || ' approval(s) pending',
+          v_body,
+          jsonb_build_object('url', '/admin/notifications?category=dashboard%3Aapproval',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+      END IF;
+    END IF;
+
+    -- Category 4: dashboard:anomaly
+    IF v_emit_anomaly THEN
+      WITH attn AS (
+        SELECT 'unmarked_attendance' AS src, COUNT(*) AS cnt
+        FROM timetables t
+        WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
+          AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+          AND NOT EXISTS (SELECT 1 FROM student_attendance sa
+            WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
+          AND EXISTS (SELECT 1 FROM student_attendance sa2
+            WHERE sa2.timetable_id = t.id
+              AND sa2.attendance_date BETWEEN CURRENT_DATE - INTERVAL '14 days' AND CURRENT_DATE - INTERVAL '1 day')
+      ),
+      bugs AS (
+        SELECT 'untriaged_bugs' AS src, COUNT(*) AS cnt
+        FROM bug_reports
+        WHERE status = 'new'
+          AND created_at < NOW() - INTERVAL '72 hours'
+          AND created_at > NOW() - INTERVAL '180 days'
+          AND COALESCE(metadata->'triage'->>'tag', '')
+            NOT IN ('not_a_bug','duplicate','content_only','obsolete','feature_request')
+      ),
+      all_anomaly AS (
+        SELECT src, cnt FROM attn WHERE cnt > 0
+        UNION ALL SELECT src, cnt FROM bugs WHERE cnt > 0
+      )
+      SELECT COALESCE(SUM(cnt), 0),
+             STRING_AGG(src || ': ' || cnt, ', ' ORDER BY cnt DESC)
+      INTO v_total, v_breakdown FROM all_anomaly;
+      IF v_total > 0 THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:anomaly:' || v_today;
+        v_body := v_total || ' anomaly signal(s). ' || COALESCE(v_breakdown, '') || '.';
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:anomaly', 'normal',
+          'Daily digest — ' || v_total || ' anomaly signal(s)',
+          v_body,
+          jsonb_build_object('url', '/academic/attendance/dashboard',
+            'digest', true, 'total', v_total),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+      END IF;
+    END IF;
+
+    -- Category 5: dashboard:ai_pulse (super_admin only)
+    IF v_user.is_super_admin THEN
+      v_ai_pulse_active := EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = 'ai_pulse_policies'
+      );
+
+      IF NOT v_ai_pulse_active THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:ai_pulse:pending:' || v_today;
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:ai_pulse', 'low',
+          'AI Pulse — module not yet active',
+          'AI Pulse Wave A.1 (PR #644) has not merged yet. No cycle data available.',
+          jsonb_build_object('url', '/ai-pulse', 'digest', true, 'active', false,
+            'reason', 'No AI Pulse cycle data yet'),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+        CONTINUE;
+      END IF;
+
+      SELECT se.id INTO v_last_cycle_id
+      FROM startup_events se
+      -- 2026-08-09 REVIVAL: `se.event_type = 'ai_pulse'` removed from this
+      -- disjunction. startup_events has no event_type column, so the prod body
+      -- raised 42703 here and killed the whole digest (last row 2026-05-08).
+      -- The two remaining disjuncts carry the same intent. Do NOT re-add it.
+      WHERE (
+              (se.config->>'kind') = 'ai_pulse'
+           OR (se.config->'ai_pulse') IS NOT NULL
+        )
+        AND se.status IN ('closed', 'completed')
+      ORDER BY se.end_date DESC NULLS LAST, se.created_at DESC
+      LIMIT 1;
+
+      IF v_last_cycle_id IS NULL THEN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:ai_pulse:no_cycle:' || v_today;
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:ai_pulse', 'low',
+          'AI Pulse — no completed cycle yet',
+          'AI Pulse module is active but no cycle has reached "completed" status yet.',
+          jsonb_build_object('url', '/ai-pulse/admin/cycles', 'digest', true,
+            'active', true, 'reason', 'No completed AI Pulse cycle found'),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+        CONTINUE;
+      END IF;
+
+      -- 2026-08-09 COMMENT FIX: the note that stood here claimed this block
+      -- "queries policy_key/value" while the real columns are
+      -- config_key/value_jsonb, and would "silently fail at runtime". Both halves
+      -- were wrong. Verified on production 2026-08-09: ai_pulse_policies HAS
+      -- config_key, value_jsonb and is_active, which is exactly what the two
+      -- SELECTs below use -- so the code is correct; and an undefined column
+      -- would raise 42703, not fail silently. The note was carried in from the
+      -- captured body and caused a review panel to raise a false HIGH, so it is
+      -- deleted rather than reproduced. No executable line changed here.
+      SELECT COALESCE(
+        (SELECT (value_jsonb->>'value')::int
+         FROM ai_pulse_policies
+         WHERE config_key = 'quiz_pass_threshold_live'
+           AND is_active = TRUE
+         LIMIT 1),
+        60
+      ) INTO v_quiz_pass_threshold;
+
+      SELECT COALESCE(
+        (SELECT (value_jsonb->>'value')::numeric
+         FROM ai_pulse_policies
+         WHERE config_key = 'escalation_t2_percent'
+           AND is_active = TRUE
+         LIMIT 1),
+        100
+      ) INTO v_escalation_t2_pct;
+
+      SELECT COALESCE(COUNT(*), 0) INTO v_enrolled_teams
+      FROM event_registrations er
+      WHERE er.event_id = v_last_cycle_id
+        AND er.status != 'disqualified';
+
+      SELECT COALESCE(COUNT(DISTINCT eta.registration_id), 0) INTO v_engaged_teams
+      FROM event_team_attendance eta
+      WHERE eta.event_id = v_last_cycle_id
+        AND (
+          (eta.day_type = 'live_session'
+           AND (eta.engagement_signals->>'quiz_score')::int >= v_quiz_pass_threshold)
+          OR
+          (eta.day_type = 'async_makeup'
+           AND (eta.engagement_signals->>'async_passed')::boolean IS TRUE)
+        );
+
+      v_engagement_pct := CASE
+        WHEN v_enrolled_teams = 0 THEN 0
+        ELSE ROUND((v_engaged_teams::numeric / v_enrolled_teams::numeric) * 100, 1)
+      END;
+
+      SELECT COALESCE(COUNT(*), 0) INTO v_anomaly_count
+      FROM ai_pulse_anomaly_flags apaf
+      WHERE (apaf.review_outcome IS NULL OR apaf.review_outcome = 'pending')
+        AND apaf.created_at > NOW() - INTERVAL '7 days';
+
+      SELECT COALESCE(COUNT(*), 0) INTO v_gold_count
+      FROM event_submissions es
+      WHERE es.event_id = v_last_cycle_id
+        AND es.proof_urls IS NOT NULL
+        AND jsonb_array_length(es.proof_urls) > 0;
+
+      v_red_flag_count := 0;
+      v_red_flag_depts := NULL;
+
+      SELECT
+        COUNT(*) AS dept_count,
+        STRING_AGG(
+          REPLACE(REPLACE(i.name, 'JKKN College of ', ''), 'JKKN ', '')
+            || ': ' || missed_teams || '/' || total_teams || ' missed',
+          '; '
+          ORDER BY (missed_teams::numeric / NULLIF(total_teams,0)) DESC
+        )
+      INTO v_red_flag_count, v_red_flag_depts
+      FROM (
+        SELECT
+          er.institution_id,
+          COUNT(*) AS total_teams,
+          COUNT(*) FILTER (WHERE NOT EXISTS (
+            SELECT 1 FROM event_submissions es
+            WHERE es.event_id = v_last_cycle_id
+              AND es.registration_id = er.id
+          )) AS missed_teams
+        FROM event_registrations er
+        WHERE er.event_id = v_last_cycle_id
+          AND er.status != 'disqualified'
+        GROUP BY er.institution_id
+        HAVING COUNT(*) > 0
+      ) dept_stats
+      JOIN institutions i ON i.id = dept_stats.institution_id
+      WHERE dept_stats.total_teams > 0
+        AND (dept_stats.missed_teams::numeric / dept_stats.total_teams::numeric) * 100
+            >= v_escalation_t2_pct;
+
+      v_ai_pulse_parts := ARRAY[]::TEXT[];
+
+      v_ai_pulse_parts := v_ai_pulse_parts || (
+        'Engagement: ' || v_engaged_teams || '/' || v_enrolled_teams
+        || ' teams (' || v_engagement_pct || '%)'
+      );
+
+      IF v_red_flag_count > 0 THEN
+        v_ai_pulse_parts := v_ai_pulse_parts || (
+          'Red-flag institutions (' || v_red_flag_count || '): ' || COALESCE(v_red_flag_depts, '')
+        );
+      END IF;
+
+      IF v_anomaly_count > 0 THEN
+        v_ai_pulse_parts := v_ai_pulse_parts || (
+          v_anomaly_count || ' unreviewed anomaly flag(s) this week'
+        );
+      END IF;
+
+      IF v_gold_count > 0 THEN
+        v_ai_pulse_parts := v_ai_pulse_parts || (
+          v_gold_count || ' Gold Standard candidate(s) this cycle'
+        );
+      END IF;
+
+      v_body := ARRAY_TO_STRING(v_ai_pulse_parts, '. ') || '.';
+
+      DECLARE
+        v_pulse_priority TEXT := CASE
+          WHEN v_engagement_pct < 70 OR v_red_flag_count > 0 THEN 'high'
+          ELSE 'normal'
+        END;
+      BEGIN
+        v_key := 'digest:' || v_user.id::text || ':dashboard:ai_pulse:' || v_today;
+        v_created := v_created + fn_create_dashboard_work_item(
+          'dashboard:ai_pulse', v_pulse_priority,
+          'AI Pulse digest — ' || v_engagement_pct || '% engaged (' || v_enrolled_teams || ' teams)',
+          v_body,
+          jsonb_build_object(
+            'url', '/ai-pulse/admin/cycles', 'digest', true, 'active', true,
+            'cycle_id', v_last_cycle_id, 'enrolled_teams', v_enrolled_teams,
+            'engaged_teams', v_engaged_teams, 'engagement_pct', v_engagement_pct,
+            'anomaly_flag_count', v_anomaly_count, 'gold_standard_count', v_gold_count,
+            'red_flag_institution_count', v_red_flag_count
+          ),
+          v_user.id, v_key, 24,
+          36); -- 2026-08-09 expiry: 36h, 1.5x the daily cycle
+      END;
+    END IF;
+  END LOOP;
+  RETURN v_created;
+END $function$;
+
+
+-- CREATE OR REPLACE preserves existing grants, but assert them anyway: Supabase's
+-- ALTER DEFAULT PRIVILEGES grants EXECUTE on new functions to anon AND to
+-- authenticated, so an explicit revoke is the only thing keeping this cron-only
+-- generator off the public anon key. Production ACL verified 2026-08-09:
+-- postgres + service_role only.
+REVOKE EXECUTE ON FUNCTION public.fn_generate_super_admin_daily_digest() FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_super_admin_daily_digest() TO service_role;
+
+-- --------------------------------------------------------------------------------
+-- 3. fn_generate_unmarked_attendance_items --- 36h TTL, config-overridable
+-- --------------------------------------------------------------------------------
+-- 'Attendance not marked today --- X' is scoped to CURRENT_DATE and re-keyed daily
+-- ('unmarked_attendance:<timetable>:<date>:<user>'). The generator already
+-- declares "ttl_hours": 8; expires_hours is a separate, more generous key so the
+-- existing acknowledgment deadline is not disturbed.
+--
+-- HONEST SCOPE OF THIS ONE (review, 2026-08-09). Unlike the other three, this
+-- row is NOT a restatement: the key embeds the DATE, so 'timetable T was unmarked
+-- on date D' is announced EXACTLY ONCE and tomorrow's row is a different fact.
+-- It therefore does NOT satisfy the "same fact re-announced daily" rule this
+-- migration otherwise applies, and the justification has to stand on its own:
+--   * the row's own text is 'not marked TODAY ... as of 11am' -- a claim that is
+--     literally false 36 hours later, and its action URL
+--     (/academic/attendance/dashboard?timetable=<id>) carries no date, so an old
+--     copy cannot even navigate you to the day it is about;
+--   * the durable record of the gap is the ABSENCE of student_attendance rows,
+--     not the notification;
+--   * after the TTL the row is still fully visible at /notifications/admin --
+--     only the bell/inbox read path applies liveNotificationOrFilter().
+-- The cost, stated plainly: past days' unmarked sessions become invisible in the
+-- bell, and the only live query, fn_aqs_attendance_unmarked_periods_today, is
+-- CURRENT_DATE-only, so there is no other in-app surface for history.
+-- It is therefore REVERSIBLE WITHOUT A DEPLOY: set the generator config key
+-- unmarked_attendance.expires_hours to 0 and rows stop expiring (0 maps to NULL
+-- below). The 42,772 historical rows of this category are a separate question,
+-- and it was decided by the Director on 2026-08-09, not by code: expire them,
+-- accepting that afterwards they are visible nowhere in the product but
+-- /notifications/admin. The backfill migration
+-- 20260816040100_backfill_expire_stale_notification_digests.sql carries that
+-- decision and its full wording.
+CREATE OR REPLACE FUNCTION public.fn_generate_unmarked_attendance_items()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_created INT := 0; v_tt RECORD; v_target RECORD; v_key TEXT;
+  -- Wave B.2: config-driven constants
+  v_cfg JSONB;
+  v_category TEXT;
+  v_time_gate_ist_hour INT;
+  v_batch_limit_outer INT;
+  v_batch_limit_inner INT;
+  v_target_roles TEXT[];
+  v_exclude_super_admin BOOLEAN;
+  v_priority TEXT;
+  v_ttl_hours INT;
+  v_expires_hours INT; -- 2026-08-09 expiry
+  v_learning_window_days INT;
+  v_prioritize_emails TEXT[];
+BEGIN
+  v_cfg := fn_get_generator_config('unmarked_attendance', '{
+    "category": "dashboard:anomaly",
+    "time_gate_ist_hour": 11,
+    "batch_limit_outer": 100,
+    "batch_limit_inner": 50,
+    "target_roles": ["director","principal","hod","admin"],
+    "exclude_super_admin": true,
+    "priority": "normal",
+    "ttl_hours": 8,
+    "expires_hours": 36,
+    "learning_window_days": 14,
+    "prioritize_emails": ["director@jkkn.ac.in"]
+  }'::jsonb);
+
+  v_category             := COALESCE(v_cfg->>'category', 'dashboard:anomaly');
+  v_time_gate_ist_hour   := COALESCE((v_cfg->>'time_gate_ist_hour')::INT, 11);
+  v_batch_limit_outer    := COALESCE((v_cfg->>'batch_limit_outer')::INT, 100);
+  v_batch_limit_inner    := COALESCE((v_cfg->>'batch_limit_inner')::INT, 50);
+  v_target_roles         := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'target_roles')),
+                              ARRAY['director','principal','hod','admin']
+                            );
+  v_exclude_super_admin  := COALESCE((v_cfg->>'exclude_super_admin')::BOOLEAN, true);
+  v_priority             := COALESCE(v_cfg->>'priority', 'normal');
+  v_ttl_hours            := COALESCE((v_cfg->>'ttl_hours')::INT, 8);
+  -- 2026-08-09 expiry: 36h = 1.5x the daily re-emit cycle. 0 (or any value <= 0)
+  -- is the OFF switch: it maps to NULL = never expires, so the TTL can be
+  -- withdrawn from generator config with no deploy. Without this mapping a 0 in
+  -- config would mean "expire instantly", the opposite of what an operator
+  -- typing 0 intends.
+  v_expires_hours        := COALESCE((v_cfg->>'expires_hours')::INT, 36);
+  IF v_expires_hours IS NOT NULL AND v_expires_hours <= 0 THEN
+    v_expires_hours := NULL;
+  END IF;
+  v_learning_window_days := COALESCE((v_cfg->>'learning_window_days')::INT, 14);
+  v_prioritize_emails    := COALESCE(
+                              ARRAY(SELECT jsonb_array_elements_text(v_cfg->'prioritize_emails')),
+                              ARRAY['director@jkkn.ac.in']
+                            );
+
+  IF EXTRACT(HOUR FROM (NOW() AT TIME ZONE 'Asia/Kolkata')) < v_time_gate_ist_hour THEN
+    RETURN 0;
+  END IF;
+
+  FOR v_tt IN
+    SELECT t.id, t.institution_id, t.section_id, t.timetable_name
+    FROM timetables t
+    WHERE t.is_active = TRUE AND t.start_date <= CURRENT_DATE
+      AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+      AND NOT EXISTS (SELECT 1 FROM student_attendance sa
+        WHERE sa.timetable_id = t.id AND sa.attendance_date = CURRENT_DATE)
+      AND EXISTS (SELECT 1 FROM student_attendance sa2
+        WHERE sa2.timetable_id = t.id
+          AND sa2.attendance_date BETWEEN
+            CURRENT_DATE - make_interval(days => v_learning_window_days)
+            AND CURRENT_DATE - INTERVAL '1 day')
+    LIMIT v_batch_limit_outer
+  LOOP
+    v_key := 'unmarked_attendance:' || v_tt.id::text || ':' || CURRENT_DATE::text;
+    -- 2026-04-23 targeting fix: (a) LIMIT 50 was LIMIT 5 — cut director off;
+    -- (b) no DISTINCT so ORDER BY by email works; (c) prioritize by email
+    -- because director's profile.role='super_admin', NOT 'director'.
+    -- Updated: 2026-04-24 - Exclude super_admin from per-item fanout.
+    FOR v_target IN
+      SELECT p.id AS uid, p.email, p.institution_id AS p_inst
+      FROM profiles p
+      WHERE p.institution_id = v_tt.institution_id
+        AND (NOT v_exclude_super_admin OR p.is_super_admin = FALSE)
+        AND p.role = ANY(v_target_roles)
+      ORDER BY
+        CASE WHEN p.email = ANY(v_prioritize_emails) THEN 0
+             WHEN p.institution_id = v_tt.institution_id THEN 1
+             ELSE 2 END,
+        p.id
+      LIMIT v_batch_limit_inner
+    LOOP
+      v_created := v_created + fn_create_dashboard_work_item(
+        v_category, v_priority,
+        'Attendance not marked today — ' || COALESCE(v_tt.timetable_name, 'Section timetable'),
+        'No attendance rows for this timetable today as of ' || v_time_gate_ist_hour::text || 'am. Faculty may need a nudge.',
+        jsonb_build_object('timetable_id', v_tt.id, 'section_id', v_tt.section_id,
+          'url', '/academic/attendance/dashboard?timetable=' || v_tt.id::text),
+        v_target.uid, v_key || ':' || v_target.uid::text, v_ttl_hours,
+        v_expires_hours); -- 2026-08-09 expiry
+    END LOOP;
+  END LOOP;
+  RETURN v_created;
+END $function$;
+
+
+-- Cron-only generator; anon/authenticated explicitly locked out (see above).
+REVOKE EXECUTE ON FUNCTION public.fn_generate_unmarked_attendance_items() FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_unmarked_attendance_items() TO service_role;
+
+-- --------------------------------------------------------------------------------
+-- 4. fn_accreditation_narrative_reminders --- 36h TTL on both daily nudges
+-- --------------------------------------------------------------------------------
+-- Both branches key on ':<YYYY-MM-DD>', so the same narrative is re-announced
+-- every day it stays stuck. Measured 2026-08-09: 187 unread rows for the
+-- Director, 46 distinct narratives behind them. Expiring yesterday's copy leaves
+-- today's copy live and leaves /accreditation/naac/narratives untouched.
+CREATE OR REPLACE FUNCTION public.fn_accreditation_narrative_reminders(p_nudge_days integer DEFAULT 3, p_escalate_days integer DEFAULT 7)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_sys uuid;
+  v_today text := to_char(now() AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD');
+  v_nudged int := 0;
+  v_escalated int := 0;
+BEGIN
+  SELECT id INTO v_sys FROM public.profiles WHERE is_super_admin = true ORDER BY created_at NULLS LAST LIMIT 1;
+  IF v_sys IS NULL THEN RAISE EXCEPTION 'no system identity for notifications.created_by'; END IF;
+
+  -- 1) NUDGE the owner of an actionable draft stuck > p_nudge_days -------------
+  WITH stuck AS (
+    SELECT n.id, n.owner_user_id AS uid, n.metric_code,
+           'accred_narr_nudge:'||n.id::text||':'||v_today AS ik
+    FROM public.accreditation_metric_narratives n
+    WHERE n.owner_user_id IS NOT NULL
+      AND ( (n.status = 'ai_drafted' AND n.grounding_verdict = 'grounded')
+            OR n.status = 'revision_requested' )
+      AND n.updated_at < now() - make_interval(days => GREATEST(0, p_nudge_days))
+  ),
+  created AS (
+    INSERT INTO public.notifications
+      -- 2026-08-09 expiry: expires_at added; 36h = 1.5x the daily re-emit cycle.
+      (id, title, body, url, icon, priority, category, kind, idempotency_key, targeting, created_by, created_at, updated_at, expires_at)
+    SELECT gen_random_uuid(),
+      'NAAC narrative awaiting your review',
+      'An AI-drafted NAAC narrative for metric '||s.metric_code||' is waiting for you to review and okay it.',
+      '/accreditation/naac/narratives/'||s.id::text, 'FileText', 'normal', 'accreditation', 'work_item',
+      s.ik, jsonb_build_object('type','user','user_ids', jsonb_build_array(s.uid)), v_sys, now(), now(),
+      now() + interval '36 hours'
+    FROM stuck s
+    WHERE NOT EXISTS (SELECT 1 FROM public.notifications x WHERE x.idempotency_key = s.ik)
+    RETURNING id, (targeting->'user_ids'->>0)::uuid AS uid
+  ),
+  fan AS (
+    INSERT INTO public.user_notifications (id, notification_id, user_id, created_at)
+    SELECT gen_random_uuid(), c.id, c.uid, now() FROM created c
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_nudged FROM fan;
+
+  -- 2) ESCALATE a draft stuck > p_escalate_days to super-admin oversight -------
+  WITH stuck2 AS (
+    SELECT n.id, n.metric_code,
+           'accred_narr_esc:'||n.id::text||':'||v_today AS ik
+    FROM public.accreditation_metric_narratives n
+    WHERE n.status IN ('ai_drafted','owner_okayed','principal_approved','revision_requested')
+      AND ( n.status <> 'ai_drafted' OR n.grounding_verdict = 'grounded' )
+      AND n.updated_at < now() - make_interval(days => GREATEST(1, p_escalate_days))
+  ),
+  created2 AS (
+    INSERT INTO public.notifications
+      -- 2026-08-09 expiry: expires_at added; 36h = 1.5x the daily re-emit cycle.
+      (id, title, body, url, icon, priority, category, kind, idempotency_key, targeting, created_by, created_at, updated_at, expires_at)
+    SELECT gen_random_uuid(),
+      'Overdue NAAC narrative needs attention',
+      'A NAAC narrative for metric '||s.metric_code||' has been waiting more than '||p_escalate_days||' days for review.',
+      '/accreditation/naac/narratives/'||s.id::text, 'AlertTriangle', 'high', 'accreditation', 'work_item',
+      s.ik, jsonb_build_object('type','role','roles', jsonb_build_array('super_admin')), v_sys, now(), now(),
+      now() + interval '36 hours'
+    FROM stuck2 s
+    WHERE NOT EXISTS (SELECT 1 FROM public.notifications x WHERE x.idempotency_key = s.ik)
+    RETURNING id
+  ),
+  fan2 AS (
+    INSERT INTO public.user_notifications (id, notification_id, user_id, created_at)
+    SELECT gen_random_uuid(), c.id, p.id, now()
+    FROM created2 c CROSS JOIN public.profiles p WHERE p.is_super_admin = true
+    RETURNING 1
+  )
+  SELECT count(*) INTO v_escalated FROM fan2;
+
+  RETURN jsonb_build_object('nudged', v_nudged, 'escalated', v_escalated);
+END; $function$;
+
+-- Cron-only generator; anon/authenticated explicitly locked out (see above).
+REVOKE EXECUTE ON FUNCTION public.fn_accreditation_narrative_reminders(integer, integer) FROM anon, PUBLIC, authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_accreditation_narrative_reminders(integer, integer) TO service_role;
+
+-- --------------------------------------------------------------------------------
+-- 5. fn_generate_hr_command_center_brief_items --- 36h TTL on the daily HR brief
+-- --------------------------------------------------------------------------------
+-- Added 2026-08-09 in review: the first cut of this migration backfilled
+-- dashboard:hr_brief but left its generator alone, so 34 of the Director's 35
+-- rows would have lapsed and then ~1 unexpiring row per recipient per day would
+-- have started accruing again (860 rows since 2026-04-28, newest today). Same
+-- shape as the digest: key is 'hr_brief:<user>:<YYYY-MM-DD>', body is a snapshot
+-- of TODAY's pending-leave / recruitment / holiday counts, re-emitted every day
+-- by the hourly /api/cron/dashboard-work-items sweep. 36h = 1.5x that daily
+-- re-key: it absorbs a late run, not a fully skipped day (36h < the 48h gap a
+-- skipped day creates), which is a bounded at-most-12h under-count of the badge.
+--
+-- Body captured VERBATIM from production pg_get_functiondef 2026-08-09; the only
+-- edit is the ninth argument on the fn_create_dashboard_work_item call.
+CREATE OR REPLACE FUNCTION public.fn_generate_hr_command_center_brief_items()
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_created INT := 0;
+  v_user RECORD;
+  v_today TEXT := TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD');
+  v_key TEXT;
+  v_pending_leaves INT;
+  v_active_recruitment INT;
+  v_todays_holidays INT;
+  v_staff_on_leave INT;
+  v_total INT;
+  v_priority TEXT;
+  v_title TEXT;
+  v_body TEXT;
+  v_signal_parts TEXT[];
+BEGIN
+  -- Aggregate metrics ONCE (institution-wide, same as previous version)
+  SELECT COUNT(*) INTO v_pending_leaves
+  FROM hr_leave_applications la
+  WHERE la.status = 'pending'
+    AND la.created_at < NOW() - INTERVAL '24 hours'
+    AND la.created_at > NOW() - INTERVAL '30 days'
+    AND la.superseded_by IS NULL;
+
+  SELECT COUNT(*) INTO v_active_recruitment
+  FROM hr_recruitment_candidates
+  WHERE status IN ('pending_approval', 'in_process', 'submitted')
+    AND COALESCE(submitted_at, created_at) > NOW() - INTERVAL '30 days';
+
+  SELECT COUNT(*) INTO v_todays_holidays
+  FROM institution_leaves
+  WHERE CURRENT_DATE BETWEEN start_date AND end_date
+    AND status IN ('approved', 'active');
+
+  SELECT COUNT(*) INTO v_staff_on_leave
+  FROM hr_leave_applications
+  WHERE status = 'approved'
+    AND CURRENT_DATE BETWEEN start_date AND end_date
+    AND superseded_by IS NULL;
+
+  v_total := v_pending_leaves + v_active_recruitment + v_todays_holidays + v_staff_on_leave;
+
+  IF v_total = 0 THEN
+    RETURN 0;
+  END IF;
+
+  v_signal_parts := ARRAY[]::TEXT[];
+  IF v_pending_leaves > 0 THEN
+    v_signal_parts := v_signal_parts || (v_pending_leaves || ' pending leave(s)');
+  END IF;
+  IF v_active_recruitment > 0 THEN
+    v_signal_parts := v_signal_parts || (v_active_recruitment || ' active recruitment');
+  END IF;
+  IF v_todays_holidays > 0 THEN
+    v_signal_parts := v_signal_parts || (v_todays_holidays || ' holiday today');
+  END IF;
+  IF v_staff_on_leave > 0 THEN
+    v_signal_parts := v_signal_parts || (v_staff_on_leave || ' staff on leave today');
+  END IF;
+
+  v_priority := CASE
+    WHEN v_pending_leaves >= 5 OR v_todays_holidays > 0 THEN 'high'
+    ELSE 'normal'
+  END;
+
+  v_title := 'HR brief — ' || array_to_string(v_signal_parts, ', ');
+  v_body := 'Daily HR Command Center summary: ' || array_to_string(v_signal_parts, ', ') || '. Open /hr for full breakdown across institutions.';
+
+  -- Fan out via config-driven recipient set
+  FOR v_user IN SELECT user_id FROM get_digest_recipients('hr_command_brief')
+  LOOP
+    v_key := 'hr_brief:' || v_user.user_id::text || ':' || v_today;
+
+    v_created := v_created + fn_create_dashboard_work_item(
+      'dashboard:hr_brief',
+      v_priority,
+      v_title,
+      v_body,
+      jsonb_build_object(
+        'url', '/hr',
+        'digest', true,
+        'pending_leaves', v_pending_leaves,
+        'active_recruitment', v_active_recruitment,
+        'todays_holidays', v_todays_holidays,
+        'staff_on_leave', v_staff_on_leave,
+        'total', v_total
+      ),
+      v_user.user_id,
+      v_key,
+      20,
+      36); -- 2026-08-09 expiry: 36h, 1.5x the daily re-key
+  END LOOP;
+
+  RETURN v_created;
+END
+$function$;
+
+-- ACL note: unlike the other four, this function's production ACL includes
+-- `authenticated=X` -- and that grant is DELIBERATE, written by hand in
+-- supabase/migrations/20260428_hr_command_center_brief_digest.sql line 186, not
+-- a Supabase default. It is preserved here rather than quietly tightened: this
+-- migration is about expiry, and revoking a standing grant belongs in its own
+-- change with its own caller sweep. anon/PUBLIC are still explicitly revoked --
+-- Supabase's ALTER DEFAULT PRIVILEGES would otherwise hand anon EXECUTE.
+-- (Flagged for follow-up: a SECURITY DEFINER generator callable by every logged-in
+-- user can be fired to fan out notifications; worth a separate look.)
+REVOKE EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() TO service_role;
+GRANT  EXECUTE ON FUNCTION public.fn_generate_hr_command_center_brief_items() TO authenticated;
+
+-- Campus Living — Settle Then Bill (Director 2026-08-09)
+-- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
+-- FILE ONLY, apply is Director-gated). A hostel room is NOT billed at
+-- move-in: a settle window lets the room fill (5 days, restarting on each
+-- joiner, capped 20 days from first open, short-circuited when the room is
+-- full), then every resident is billed at the occupancy that exists at that
+-- moment. A later joiner produces CREDITS, never a refund or a bill rewrite.
+-- The whole mechanism is OFF by default (hostel.settle_bill.enabled = false
+-- in platform_policies).
+
+-- 3b. fn_settle_can_manage — the authorization gate for everything below.
+--
+--     A SECURITY DEFINER function bypasses RLS, so the table policies above
+--     protect nothing once these functions are granted. Without an explicit
+--     guard inside each one, any logged-in learner in any tenant could call
+--     fn_settle_bill_close('<any room uuid>', false) and bill a whole room, or
+--     fn_settle_late_join_credit and mint credit rows. Each writer therefore
+--     re-checks permission AND institution access for itself.
+--
+--     auth.uid() IS NULL means there is no user session — that is the cron on
+--     the service-role client. It cannot be anon: anon holds EXECUTE on nothing
+--     in this file and is revoked explicitly, with an apply-time assert.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_can_manage(
+  p_room_id    uuid,
+  p_permission text DEFAULT 'campus_living.fees.config'
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_institution_id uuid;
+BEGIN
+  -- The cron bypass is deliberately NARROW. "No resolvable auth.uid()" alone is
+  -- too broad: a token missing `sub`, a psql session holding EXECUTE, pg_cron,
+  -- or a nested SECURITY DEFINER that reset request.jwt.claims would all land
+  -- here and get unconditional cross-tenant write. The session role must ALSO
+  -- name itself. If the deployed cron runtime reports some other role this gate
+  -- refuses it — which is the correct direction to be wrong in: the mechanism
+  -- is OFF and unwired, so a too-tight gate surfaces in the first dry run,
+  -- whereas a too-loose one is a silent cross-tenant billing hole. Widen it
+  -- deliberately after observing the real role, never pre-emptively.
+  IF auth.uid() IS NULL THEN
+    RETURN COALESCE(
+             (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb)->>'role',
+             ''
+           ) = 'service_role'
+        OR COALESCE(current_setting('role', true), '') = 'service_role';
+  END IF;
+
+  IF is_super_admin() OR is_admin() THEN
+    RETURN true;
+  END IF;
+
+  SELECT r.institution_id INTO v_institution_id
+  FROM hostel_rooms r WHERE r.id = p_room_id;
+
+  IF v_institution_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  RETURN user_has_permission(p_permission)
+     AND role_has_institution_access(v_institution_id);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 3c. fn_settle_current_hostel_year — deterministic, and refuses rather than
+--     guessing. A NULL hostel_year_id on a bill would make the dedup key
+--     against campus_living_generate_hostel_year_bills never match (NULL = NULL
+--     is not true), which is a DOUBLE-BILL, so callers must refuse instead.
+--     ORDER BY is load-bearing: LIMIT 1 with no ordering is whatever the
+--     planner returns first.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_current_hostel_year()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT hy.id
+  FROM hostel_years hy
+  WHERE hy.is_current AND hy.is_active
+  ORDER BY hy.start_date DESC, hy.id
+  LIMIT 1;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_current_hostel_year() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_current_hostel_year() TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 4. fn_settle_room_annual_cost — the one place the room's annual cost is read.
+--    Private helper. It exists so the rate lookup is not written three times
+--    across open/close/credit and cannot drift between them.
+--    Mirrors computeFeeBreakdown's inputs: per-bed annual rate × capacity, plus
+--    the room's AC annual cost. Splitting by occupants is the caller's job.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_room_annual_cost(
+  p_room_id        uuid,
+  p_hostel_year_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_capacity    int;
+  v_category_id uuid;
+  v_per_bed     numeric := 0;
+  v_amount      numeric;
+  v_frequency   text;
+  v_ac_annual   numeric := 0;
+  v_ac_tonnage  numeric := 0;
+  v_ac_permonth numeric := 0;
+  v_ac_config   jsonb;
+BEGIN
+  SELECT r.capacity, r.category_id INTO v_capacity, v_category_id
+  FROM hostel_rooms r WHERE r.id = p_room_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('found', false, 'reason', 'room_not_found');
+  END IF;
+
+  IF v_category_id IS NULL THEN
+    -- No category = no per-bed rate. Refuse rather than bill ₹0 silently.
+    RETURN jsonb_build_object('found', false, 'reason', 'room_has_no_category',
+                              'capacity', v_capacity);
+  END IF;
+
+  SELECT hf.amount, hf.frequency INTO v_amount, v_frequency
+  FROM hostel_fees hf
+  WHERE hf.hostel_category_id = v_category_id
+    AND hf.hostel_year_id     = p_hostel_year_id
+    AND hf.is_active
+  LIMIT 1;
+
+  IF v_amount IS NULL THEN
+    RETURN jsonb_build_object('found', false, 'reason', 'no_active_fee_row',
+                              'capacity', v_capacity, 'category_id', v_category_id);
+  END IF;
+
+  -- annualize() from hostel-fee-compute-service.ts.
+  v_per_bed := CASE v_frequency
+                 WHEN 'monthly'  THEN v_amount * 12
+                 WHEN 'semester' THEN v_amount * 2
+                 ELSE v_amount
+               END;
+
+  SELECT v.effective_config INTO v_ac_config
+  FROM v_room_effective_billable_amenities v
+  WHERE v.room_id = p_room_id AND v.code = 'air_conditioner'
+  LIMIT 1;
+
+  IF v_ac_config IS NOT NULL THEN
+    v_ac_tonnage  := GREATEST(0, COALESCE((v_ac_config->>'tonnage')::numeric, 0));
+    v_ac_permonth := GREATEST(0, COALESCE((v_ac_config->>'base_inr_per_month_24h')::numeric, 0));
+    v_ac_annual   := v_ac_tonnage * v_ac_permonth * 12;
+  END IF;
+
+  -- The two AC primitives are returned alongside the product so the TS caller
+  -- can feed computeFeeBreakdown its REAL inputs and check parity, rather than
+  -- reverse-engineering them from the product.
+  RETURN jsonb_build_object(
+    'found',                true,
+    'capacity',             GREATEST(1, COALESCE(v_capacity, 1)),
+    'category_id',          v_category_id,
+    'per_bed_annual_rate',  v_per_bed,
+    'base_room_annual',     v_per_bed * GREATEST(1, COALESCE(v_capacity, 1)),
+    'ac_room_annual',       v_ac_annual,
+    'ac_tonnage',           v_ac_tonnage,
+    'ac_base_inr_per_month_24h', v_ac_permonth
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 5. fn_settle_window_open — open, or restart, the room's settle window.
+--    Rule 1 + 2 + 3. Called when a learner is allocated to the room.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_window_open(
+  p_room_id        uuid,
+  p_hostel_year_id uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_year_id  uuid;
+  v_window   public.hostel_room_settle_windows%ROWTYPE;
+  v_win_days int;
+  v_outer    int;
+  v_deadline timestamptz;
+BEGIN
+  -- Master switch. While off, no window is ever created, so switching it on
+  -- later starts from a clean slate rather than a backlog of stale deadlines.
+  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+    RETURN jsonb_build_object('action', 'disabled', 'room_id', p_room_id);
+  END IF;
+
+  -- Opening/restarting a window delays billing, so it is gated too — but on the
+  -- permission the people who actually allocate rooms hold, not the fees one.
+  IF NOT (fn_settle_can_manage(p_room_id, 'campus_living.allocations.create')
+          OR fn_settle_can_manage(p_room_id, 'campus_living.fees.config')) THEN
+    RAISE EXCEPTION 'permission denied: campus_living.allocations.create or campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_year_id := COALESCE(p_hostel_year_id, fn_settle_current_hostel_year());
+
+  -- A room already billed for this year must NOT get a second window — that
+  -- would bill everyone twice. This is the late-join credit path instead.
+  SELECT * INTO v_window
+  FROM hostel_room_settle_windows w
+  WHERE w.room_id = p_room_id
+    AND COALESCE(w.hostel_year_id, '00000000-0000-0000-0000-000000000000'::uuid)
+        = COALESCE(v_year_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    AND w.status = 'billed'
+  ORDER BY w.billed_at DESC NULLS LAST
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN jsonb_build_object(
+      'action',    'already_billed_late_join',
+      'room_id',   p_room_id,
+      'window_id', v_window.id,
+      'note',      'Room already billed — run fn_settle_late_join_credit.');
+  END IF;
+
+  v_win_days := GREATEST(0, fn_get_policy_int('hostel.settle_bill.window_days', 5));
+  v_outer    := GREATEST(0, fn_get_policy_int('hostel.settle_bill.outer_limit_days', 20));
+
+  SELECT * INTO v_window
+  FROM hostel_room_settle_windows w
+  WHERE w.room_id = p_room_id
+    AND COALESCE(w.hostel_year_id, '00000000-0000-0000-0000-000000000000'::uuid)
+        = COALESCE(v_year_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    AND w.status = 'open'
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    INSERT INTO hostel_room_settle_windows
+      (room_id, hostel_year_id, opened_at, restart_count,
+       current_deadline, hard_deadline, status)
+    VALUES
+      (p_room_id, v_year_id, now(), 0,
+       now() + make_interval(days => v_win_days),
+       now() + make_interval(days => v_outer),
+       'open')
+    RETURNING * INTO v_window;
+
+    RETURN jsonb_build_object(
+      'action',           'opened',
+      'room_id',          p_room_id,
+      'window_id',        v_window.id,
+      'restart_count',    v_window.restart_count,
+      'current_deadline', v_window.current_deadline,
+      'hard_deadline',    v_window.hard_deadline);
+  END IF;
+
+  -- Restart: push the deadline out, but never past the hard limit.
+  v_deadline := LEAST(now() + make_interval(days => v_win_days), v_window.hard_deadline);
+
+  UPDATE hostel_room_settle_windows
+     SET restart_count    = restart_count + 1,
+         current_deadline = v_deadline
+   WHERE id = v_window.id
+  RETURNING * INTO v_window;
+
+  RETURN jsonb_build_object(
+    'action',           'restarted',
+    'room_id',          p_room_id,
+    'window_id',        v_window.id,
+    'restart_count',    v_window.restart_count,
+    'current_deadline', v_window.current_deadline,
+    'hard_deadline',    v_window.hard_deadline,
+    'capped_at_hard_deadline', v_deadline = v_window.hard_deadline);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 6. fn_settle_window_due — read-only. Which windows should close right now?
+--    Rule 3 + 4 + 5. Occupancy comes from the canonical view, not a recount.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_window_due()
+RETURNS TABLE (
+  window_id        uuid,
+  room_id          uuid,
+  hostel_year_id   uuid,
+  reason           text,
+  active_occupants int,
+  capacity         int,
+  opened_at        timestamptz,
+  current_deadline timestamptz,
+  hard_deadline    timestamptz
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT
+    w.id,
+    w.room_id,
+    w.hostel_year_id,
+    -- 'room_full' is tested FIRST: rule 4 says a full room bills immediately
+    -- because nothing more can change the price.
+    CASE
+      WHEN occ.capacity > 0 AND occ.active_residents >= occ.capacity THEN 'room_full'
+      WHEN now() >= w.hard_deadline                                  THEN 'outer_limit'
+      ELSE                                                                'window_elapsed'
+    END,
+    occ.active_residents,
+    occ.capacity,
+    w.opened_at,
+    w.current_deadline,
+    w.hard_deadline
+  FROM hostel_room_settle_windows w
+  JOIN v_hostel_room_occupancy occ ON occ.room_id = w.room_id
+  WHERE w.status = 'open'
+    AND (
+      now() >= w.current_deadline
+      OR now() >= w.hard_deadline
+      OR (occ.capacity > 0 AND occ.active_residents >= occ.capacity)
+    )
+    -- Scoped: SECURITY DEFINER bypasses RLS, so without this the list would
+    -- leak every institution's rooms to any authenticated caller.
+    AND fn_settle_can_manage(w.room_id, 'campus_living.fees.view')
+  ORDER BY w.current_deadline;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_window_due() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_window_due() TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 6b. fn_settle_late_join_due — read-only. Which BILLED rooms owe a credit?
+--
+--     Rule 6 lives in a state fn_settle_window_due can never return: that
+--     function filters status='open', but a late join only matters once the
+--     window is 'billed'. Driving the credit pass off the close list would mean
+--     no sweep ever issues a credit. This is that missing list.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_late_join_due()
+RETURNS TABLE (
+  window_id            uuid,
+  room_id              uuid,
+  hostel_year_id       uuid,
+  billed_at            timestamptz,
+  occupants_at_billing int,
+  uncredited_joiners   int
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT w.id, w.room_id, w.hostel_year_id, w.billed_at, w.occupants_at_billing,
+         COUNT(al.id)::int
+  FROM hostel_room_settle_windows w
+  JOIN hostel_allocations al
+    ON al.room_id = w.room_id
+   AND al.check_out_date IS NULL
+   AND al.created_at > w.billed_at
+   AND NOT (al.id = ANY (w.credited_allocation_ids))
+  WHERE w.status = 'billed'
+    AND fn_settle_can_manage(w.room_id, 'campus_living.fees.view')
+  GROUP BY w.id, w.room_id, w.hostel_year_id, w.billed_at, w.occupants_at_billing
+  ORDER BY w.billed_at;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_due() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_due() TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 7. fn_settle_bill_close — the biller. Rule 5.
+--    Dry-run returns what WOULD be billed and writes nothing.
+--    Live path bills every resident at the occupancy that exists right now.
+--    Idempotent: a window already 'billed' is skipped, never billed twice.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_bill_close(
+  p_room_id   uuid,
+  p_dry_run   boolean DEFAULT true,
+  p_window_id uuid    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_window     public.hostel_room_settle_windows%ROWTYPE;
+  v_year_id    uuid;
+  v_cost       jsonb;
+  v_capacity   int;
+  v_occupants  int;
+  v_due_days   int;
+  v_base_share numeric;
+  v_ac_share   numeric;
+  v_share      numeric;
+  v_category   uuid;
+  v_lines      jsonb := '[]'::jsonb;
+  v_billed     int := 0;
+  v_skipped    int := 0;
+  a            record;
+  v_lp_id      uuid;
+  v_inst_id    uuid;
+  v_exists     boolean;
+BEGIN
+  -- Defense in depth: even a hand-made live call is refused while the master
+  -- switch is off. This RAISEs rather than returning, so a caller that ignores
+  -- return values still cannot bill anyone.
+  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+    RAISE EXCEPTION 'settle-then-bill is disabled (platform policy hostel.settle_bill.enabled = false)'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT fn_settle_can_manage(p_room_id, 'campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Bill the window the caller was handed, not "the oldest open one on this
+  -- room". The unique index is per (room, hostel year), so a room with open
+  -- windows in two hostel years would otherwise be billed against the wrong
+  -- year — wrong rate, wrong dedup key — and the window that actually came due
+  -- would be left open.
+  SELECT * INTO v_window
+  FROM hostel_room_settle_windows w
+  WHERE w.room_id = p_room_id
+    AND w.status = 'open'
+    AND (p_window_id IS NULL OR w.id = p_window_id)
+  ORDER BY w.opened_at
+  LIMIT 1
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    SELECT * INTO v_window
+    FROM hostel_room_settle_windows w
+    WHERE w.room_id = p_room_id AND w.status = 'billed'
+    ORDER BY w.billed_at DESC NULLS LAST
+    LIMIT 1;
+
+    IF FOUND THEN
+      RETURN jsonb_build_object('status', 'already_billed', 'room_id', p_room_id,
+                                'window_id', v_window.id, 'billed_at', v_window.billed_at,
+                                'occupants_at_billing', v_window.occupants_at_billing);
+    END IF;
+    RETURN jsonb_build_object('status', 'no_open_window', 'room_id', p_room_id);
+  END IF;
+
+  v_year_id := COALESCE(v_window.hostel_year_id, fn_settle_current_hostel_year());
+
+  -- Refuse rather than stamp a NULL hostel_year_id: the dedup key against
+  -- campus_living_generate_hostel_year_bills compares hostel_year_id, and NULL
+  -- never matches, so a NULL-year bill would defeat the double-bill guard.
+  IF v_year_id IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_hostel_year', 'room_id', p_room_id,
+                              'window_id', v_window.id);
+  END IF;
+
+  v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
+  IF NOT (v_cost->>'found')::boolean THEN
+    -- Missing rate config: leave the window OPEN so an admin can fix the
+    -- configuration and the room bills on the next sweep. Never bill ₹0.
+    RETURN jsonb_build_object('status', 'no_rate', 'room_id', p_room_id,
+                              'window_id', v_window.id, 'reason', v_cost->>'reason');
+  END IF;
+
+  v_capacity := (v_cost->>'capacity')::int;
+  v_category := (v_cost->>'category_id')::uuid;
+
+  -- Occupancy exactly as v_hostel_room_occupancy defines it.
+  SELECT COUNT(*)::int INTO v_occupants
+  FROM hostel_allocations al
+  WHERE al.room_id = p_room_id AND al.check_out_date IS NULL;
+
+  IF v_occupants = 0 THEN
+    -- Everyone left before the window closed. There is nobody to bill; close it
+    -- as cancelled so the sweep stops returning it forever.
+    IF NOT p_dry_run THEN
+      UPDATE hostel_room_settle_windows SET status = 'cancelled' WHERE id = v_window.id;
+    END IF;
+    RETURN jsonb_build_object('status', 'no_occupants', 'room_id', p_room_id,
+                              'window_id', v_window.id, 'dry_run', p_dry_run);
+  END IF;
+
+  -- computeFeeBreakdown parity: each term rounded separately, then summed.
+  v_base_share := round((v_cost->>'base_room_annual')::numeric / v_occupants);
+  v_ac_share   := round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
+  v_share      := v_base_share + v_ac_share;
+
+  v_due_days := GREATEST(0, fn_get_policy_int('hostel.settle_bill.bill_due_days', 5));
+
+  FOR a IN
+    SELECT al.id AS allocation_id, al.learner_id
+    FROM hostel_allocations al
+    WHERE al.room_id = p_room_id AND al.check_out_date IS NULL
+    ORDER BY al.check_in_date, al.id
+  LOOP
+    -- profiles(id) → learners_profiles(id). Non-learner residents cannot be
+    -- billed through the learner billing tables; they are reported, not billed.
+    v_lp_id := NULL;
+    IF a.learner_id IS NOT NULL THEN
+      SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = a.learner_id;
+    END IF;
+
+    IF v_lp_id IS NULL THEN
+      v_skipped := v_skipped + 1;
+      v_lines := v_lines || jsonb_build_object(
+        'allocation_id', a.allocation_id, 'profile_id', a.learner_id,
+        'action', 'skipped', 'reason', 'not_a_learner', 'amount', 0);
+      CONTINUE;
+    END IF;
+
+    SELECT lp.institution_id INTO v_inst_id
+    FROM learners_profiles lp WHERE lp.id = v_lp_id;
+
+    -- A learner on a FLAT PACKAGE is not settle-billable at all: her hostel fee
+    -- is one bundled package price that does not divide by occupancy. Worse,
+    -- the generate path keys package bills on package_id and would not see a
+    -- 'hostel_category' row at all — so billing her here is a straight
+    -- DOUBLE-BILL of the room. Detected by asking the canonical resolver rather
+    -- than re-deriving its package-matching rules.
+    SELECT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(
+             COALESCE(campus_living_resolve_hostel_fee(v_lp_id, v_year_id), '[]'::jsonb)
+           ) AS itm
+      WHERE itm->>'fee_source' = 'hostel_package'
+    ) INTO v_exists;
+
+    IF v_exists THEN
+      v_skipped := v_skipped + 1;
+      v_lines := v_lines || jsonb_build_object(
+        'allocation_id', a.allocation_id, 'learner_id', v_lp_id,
+        'action', 'skipped', 'reason', 'flat_package', 'amount', 0);
+      CONTINUE;
+    END IF;
+
+    -- Same dedup key campus_living_generate_hostel_year_bills uses, so the two
+    -- paths cannot both bill this room to this learner.
+    SELECT EXISTS (
+      SELECT 1 FROM billing_student_bills b
+      WHERE b.student_id      = v_lp_id
+        AND b.hostel_year_id  = v_year_id
+        AND b.item_category_id = v_category
+        AND b.fee_source IN ('academic','hostel_category')
+        AND b.status NOT IN ('cancelled','superseded')
+    ) INTO v_exists;
+
+    IF v_exists THEN
+      v_skipped := v_skipped + 1;
+      v_lines := v_lines || jsonb_build_object(
+        'allocation_id', a.allocation_id, 'learner_id', v_lp_id,
+        'action', 'skipped', 'reason', 'already_billed', 'amount', 0);
+      CONTINUE;
+    END IF;
+
+    IF NOT p_dry_run THEN
+      INSERT INTO billing_student_bills
+        (student_id, institution_id, item_category_id, hostel_year_id, fee_source,
+         bill_description, due_date, quantity, unit_amount, total_amount,
+         final_amount, balance_amount, status)
+      VALUES
+        (v_lp_id, v_inst_id, v_category, v_year_id, 'hostel_category',
+         'Hostel room share (settled at ' || v_occupants || ' of ' || v_capacity || ' occupants)',
+         (now() + make_interval(days => v_due_days))::date,
+         1, v_share, v_share, v_share, v_share, 'unpaid');
+    END IF;
+
+    v_billed := v_billed + 1;
+    v_lines := v_lines || jsonb_build_object(
+      'allocation_id', a.allocation_id, 'learner_id', v_lp_id,
+      'action', CASE WHEN p_dry_run THEN 'would_bill' ELSE 'billed' END,
+      'amount', v_share);
+  END LOOP;
+
+  IF NOT p_dry_run THEN
+    UPDATE hostel_room_settle_windows
+       SET status = 'billed', billed_at = now(), occupants_at_billing = v_occupants
+     WHERE id = v_window.id;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'status',              'closed',
+    'dry_run',             p_dry_run,
+    'room_id',             p_room_id,
+    'window_id',           v_window.id,
+    'hostel_year_id',      v_year_id,
+    'capacity',            v_capacity,
+    'active_occupants',    v_occupants,
+    'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
+    'base_room_annual',    (v_cost->>'base_room_annual')::numeric,
+    'ac_room_annual',      (v_cost->>'ac_room_annual')::numeric,
+    'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
+    'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
+    'base_share',          v_base_share,
+    'ac_share',            v_ac_share,
+    'share_per_resident',  v_share,
+    'due_date',            (now() + make_interval(days => v_due_days))::date,
+    'billed_count',        v_billed,
+    'skipped_count',       v_skipped,
+    'lines',               v_lines);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO authenticated, service_role;
+
+-- ----------------------------------------------------------------------------
+-- 8. fn_settle_late_join_credit — rule 6.
+--    A learner joined a room that was ALREADY billed. Every resident who was
+--    billed gets the difference between the old share and the new share, for
+--    the months remaining from the month of joining, as a CREDIT. Never a
+--    refund, never a bill rewrite.
+--
+--    IDEMPOTENCY is recorded EXPLICITLY, on the window's
+--    credited_allocation_ids array — not inferred from the existence of credit
+--    rows. Inferring it was wrong: any round that writes zero rows (the credit
+--    rounds to 0, every co-resident is unbilled) would be re-processed forever
+--    while the denominator had already moved on, double-crediting the same
+--    occupancy step. The joiner's allocation id is still stamped on
+--    student_credit_balances.source_event_id for the audit trail; it is no
+--    longer the guard. (A partial unique index was considered and rejected: the
+--    admission fee-change writer shares source='fee_structure_change' and can
+--    emit more than one row per (learner, event).)
+--
+--    DENOMINATORS COME FROM LIVE COUNTS. Walking up from a stored
+--    occupants_at_billing ignores anyone who checked out after billing: a room
+--    that lost one resident and gained one is unchanged in size and owes no
+--    credit at all, but a stored-count walk would pay one out and over-state
+--    every later step. So the walk ends at the CURRENT active-occupant count
+--    and steps back one per uncredited joiner.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(
+  p_room_id   uuid,
+  p_dry_run   boolean DEFAULT true,
+  p_window_id uuid    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_window       public.hostel_room_settle_windows%ROWTYPE;
+  v_year_id      uuid;
+  v_year_end     date;
+  v_cost         jsonb;
+  v_category     uuid;
+  v_base         numeric;
+  v_ac           numeric;
+  v_n_billed     int;   -- occupants the residents were BILLED at
+  v_n_before     int;   -- clamped occupancy just before one arrival
+  v_n_after      int;   -- clamped occupancy just after that arrival
+  v_live         int;   -- active occupants RIGHT NOW
+  v_entitlement  numeric := 0;
+  v_already      numeric;
+  v_processed    uuid[] := '{}'::uuid[];
+  v_share_before numeric;
+  v_share_after  numeric;
+  v_delta        numeric;
+  v_remaining    int;
+  v_credit       numeric;
+  v_events       jsonb := '[]'::jsonb;
+  v_credits      jsonb;
+  v_written      int := 0;
+  j              record;
+  r              record;
+  v_lp_id        uuid;
+BEGIN
+  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+    RAISE EXCEPTION 'settle-then-bill is disabled (platform policy hostel.settle_bill.enabled = false)'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT fn_settle_can_manage(p_room_id, 'campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- Credit the window the caller was handed. A room can hold billed windows in
+  -- two hostel years; always taking the newest would stamp the older one's
+  -- joiners never, leaving it in the due list on every sweep forever and
+  -- computing against the wrong year's rate.
+  SELECT * INTO v_window
+  FROM hostel_room_settle_windows w
+  WHERE w.room_id = p_room_id
+    AND w.status = 'billed'
+    AND (p_window_id IS NULL OR w.id = p_window_id)
+  ORDER BY w.billed_at DESC NULLS LAST
+  LIMIT 1
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'no_billed_window', 'room_id', p_room_id);
+  END IF;
+
+  v_year_id := COALESCE(v_window.hostel_year_id, fn_settle_current_hostel_year());
+  SELECT hy.end_date INTO v_year_end FROM hostel_years hy WHERE hy.id = v_year_id;
+  IF v_year_end IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_hostel_year', 'room_id', p_room_id,
+                              'window_id', v_window.id);
+  END IF;
+
+  v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
+  IF NOT (v_cost->>'found')::boolean THEN
+    RETURN jsonb_build_object('status', 'no_rate', 'room_id', p_room_id,
+                              'window_id', v_window.id, 'reason', v_cost->>'reason');
+  END IF;
+  v_category := (v_cost->>'category_id')::uuid;
+  v_base     := (v_cost->>'base_room_annual')::numeric;
+  v_ac       := (v_cost->>'ac_room_annual')::numeric;
+
+  -- ── Entitlement accumulates PER JOINING EVENT, capped at what she was billed
+  -- Each arrival k contributes
+  --     max(0, share(max(n_billed, n_after_k − 1)) − share(max(n_billed, n_after_k)))
+  --     × remaining_months(that arrival) / 12
+  -- and a resident's total entitlement is the sum over every post-billing
+  -- arrival still in the room. Each round tops her up toward that sum.
+  --
+  -- Both clamps are load-bearing, and each one fixes a case that a simpler
+  -- formula gets wrong:
+  --   * max(n_billed, …) is what makes DEPARTURES behave. A room billed at 2
+  --     that loses one resident and gains another still holds 2 —
+  --     share(2) − share(2) = 0, nobody is credited, which is right because she
+  --     paid for a 2-person room and is in one. Reconstructing the step alone
+  --     reads that same room as "1 → 2" and pays out a half-room credit that
+  --     was never owed.
+  --   * summing PER EVENT, each with its OWN month, is what stops a later
+  --     arrival in a shorter month from dragging the whole target below what
+  --     was already credited and permanently under-paying the earlier step.
+  --     One target recomputed against a shifting anchor does exactly that.
+  -- With nobody leaving, the sum telescopes to share(n_billed) − share(n_now),
+  -- and re-running is inert: the entitlement is unchanged and the top-up is
+  -- entitlement − already_credited = 0.
+  SELECT COUNT(*)::int INTO v_live
+  FROM hostel_allocations al
+  WHERE al.room_id = p_room_id AND al.check_out_date IS NULL;
+
+  v_n_billed := GREATEST(1, COALESCE(v_window.occupants_at_billing, 1));
+
+  FOR j IN
+    SELECT al.id AS allocation_id,
+           COALESCE(al.check_in_date, al.created_at::date) AS join_date,
+           al.created_at,
+           NOT (al.id = ANY (v_window.credited_allocation_ids)) AS is_new
+    FROM hostel_allocations al
+    WHERE al.room_id = p_room_id
+      AND al.check_out_date IS NULL
+      AND al.created_at > v_window.billed_at
+    ORDER BY al.created_at, al.id
+  LOOP
+    -- Occupancy reconstructed at the instant this joiner arrived (includes her).
+    SELECT COUNT(*)::int INTO v_n_after
+    FROM hostel_allocations al
+    WHERE al.room_id = p_room_id
+      AND al.created_at <= j.created_at
+      AND (al.check_out_date IS NULL OR al.check_out_date > j.created_at::date);
+
+    v_n_after  := GREATEST(1, v_n_after);
+    v_n_before := GREATEST(v_n_billed, v_n_after - 1);
+    v_n_after  := GREATEST(v_n_billed, v_n_after);
+
+    -- Same two-term, separately-rounded shape as computeFeeBreakdown.
+    v_share_before := round(v_base / v_n_before) + round(v_ac / v_n_before);
+    v_share_after  := round(v_base / v_n_after)  + round(v_ac / v_n_after);
+    v_delta        := GREATEST(0, v_share_before - v_share_after);
+
+    -- remainingWholeMonths(joinDate, hostelYear) from hostel-fee-compute-service.ts:
+    -- whole months from the month of joining through the hostel-year end,
+    -- inclusive, clamped to [0, 12]. check_in_date is nullable, so the arrival
+    -- timestamp is the fallback — a NULL must not silently forfeit the credit.
+    v_remaining := (
+      (EXTRACT(YEAR FROM v_year_end)::int * 12 + EXTRACT(MONTH FROM v_year_end)::int)
+      - (EXTRACT(YEAR FROM j.join_date)::int * 12 + EXTRACT(MONTH FROM j.join_date)::int)
+    ) + 1;
+    v_remaining := GREATEST(0, LEAST(12, v_remaining));
+
+    v_entitlement := v_entitlement + round(v_delta * v_remaining / 12.0);
+
+    IF j.is_new THEN
+      v_processed := v_processed || j.allocation_id;
+    END IF;
+
+    v_events := v_events || jsonb_build_object(
+      'joiner_allocation_id', j.allocation_id,
+      'joined_on',            j.join_date,
+      'newly_processed',      j.is_new,
+      'occupants_before',     v_n_before,
+      'occupants_after',      v_n_after,
+      'share_before',         v_share_before,
+      'share_after',          v_share_after,
+      'delta_annual',         v_delta,
+      'remaining_months',     v_remaining,
+      'contribution',         round(v_delta * v_remaining / 12.0));
+  END LOOP;
+
+  v_credits := '[]'::jsonb;
+
+  IF v_entitlement > 0 THEN
+    FOR r IN
+      SELECT al.id AS allocation_id, al.learner_id
+      FROM hostel_allocations al
+      WHERE al.room_id = p_room_id
+        AND al.check_out_date IS NULL
+        AND al.created_at <= v_window.billed_at   -- billed cohort, not the joiners
+      ORDER BY al.check_in_date, al.id
+    LOOP
+      v_lp_id := NULL;
+      IF r.learner_id IS NOT NULL THEN
+        SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = r.learner_id;
+      END IF;
+      CONTINUE WHEN v_lp_id IS NULL;
+
+      -- Only residents who were ACTUALLY billed for this room can be credited
+      -- against it. A resident with no hostel bill has nothing to reduce.
+      CONTINUE WHEN NOT EXISTS (
+        SELECT 1 FROM billing_student_bills b
+        WHERE b.student_id       = v_lp_id
+          AND b.hostel_year_id   = v_year_id
+          AND b.item_category_id = v_category
+          AND b.fee_source IN ('academic','hostel_category')
+          AND b.status NOT IN ('cancelled','superseded')
+      );
+
+      -- What earlier rounds on THIS window already gave her.
+      SELECT COALESCE(SUM(scb.amount), 0) INTO v_already
+      FROM student_credit_balances scb
+      WHERE scb.student_id = v_lp_id
+        AND scb.source     = 'fee_structure_change'
+        AND scb.source_event_id = ANY (v_window.credited_allocation_ids || v_processed);
+
+      v_credit := GREATEST(0, v_entitlement - v_already);
+      CONTINUE WHEN v_credit <= 0;
+
+      IF NOT p_dry_run THEN
+        INSERT INTO student_credit_balances
+          (student_id, amount, source, source_event_id, is_consumed, notes)
+        VALUES
+          (v_lp_id, v_credit, 'fee_structure_change',
+           COALESCE(v_processed[1], v_window.id), false,
+           'Campus living settle-then-bill late join: billed at ' || v_n_billed
+           || ' occupant(s), room now holds ' || v_live
+           || '. Entitlement ₹' || v_entitlement || ' less ₹' || v_already
+           || ' already credited = ₹' || v_credit || '.');
+        v_written := v_written + 1;
+      END IF;
+
+      v_credits := v_credits || jsonb_build_object(
+        'learner_id', v_lp_id, 'allocation_id', r.allocation_id,
+        'already_credited', v_already, 'amount', v_credit);
+    END LOOP;
+  END IF;
+
+  -- Mark every joining event this round actually EVALUATED, whether or not it
+  -- produced a credit row. This is the idempotency record; a zero-credit round
+  -- must never come back a second time. Every arrival above is evaluated —
+  -- a NULL check_in_date falls back to the arrival timestamp rather than
+  -- forfeiting the credit — so stamping here can never bury money.
+  IF NOT p_dry_run AND array_length(v_processed, 1) IS NOT NULL THEN
+    UPDATE hostel_room_settle_windows
+       SET credited_allocation_ids = credited_allocation_ids || v_processed
+     WHERE id = v_window.id;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'status',         'ok',
+    'dry_run',        p_dry_run,
+    'room_id',        p_room_id,
+    'window_id',      v_window.id,
+    'hostel_year_id', v_year_id,
+    'billed_at',      v_window.billed_at,
+    'occupants_at_billing', v_n_billed,
+    'active_occupants',     v_live,
+    'entitlement_per_resident', v_entitlement,
+    'credits',        v_credits,
+    'hostel_year_end_date', v_year_end,
+    -- Compute primitives, so the TS wrapper can re-derive every share and every
+    -- remaining-months figure below through computeFeeBreakdown /
+    -- remainingWholeMonths instead of trusting this function's arithmetic.
+    'capacity',            (v_cost->>'capacity')::int,
+    'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
+    'base_room_annual',    v_base,
+    'ac_room_annual',      v_ac,
+    'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
+    'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
+    'events',         v_events,
+    'events_processed', COALESCE(array_length(v_processed, 1), 0),
+    'credits_written', v_written);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) TO authenticated, service_role;
+
+
+-- ============================================================================
+-- Campus Living — settle-then-bill: start the clock on every move-in.
+-- Added: 2026-08-10 (migration 20260815070000_settle_window_trigger_and_scope.sql
+--        — FILE ONLY, apply is Director-gated)
+--
+-- Trigger body for trg_allocation_settle_arrival_insert / _update (04_triggers.sql).
+-- Director 2026-08-10: ARRIVALS ONLY. A learner joining a room starts or
+-- restarts that room's settle clock; a learner LEAVING never touches a clock,
+-- because a departure must not postpone the remaining residents' bills. A
+-- learner who moves from room A to room B leaves A's clock alone and starts or
+-- restarts B's — she is only ever billed for where she ends up.
+--
+-- SECURITY DEFINER is load-bearing: a plain trigger runs under the writer's own
+-- RLS, and RLS denial is silent (0 rows, no error), so the window lookup inside
+-- fn_settle_window_open would read nothing and the clock would silently fail to
+-- restart for exactly the callers whose RLS is narrowest.
+--
+-- The EXCEPTION block is load-bearing too: fn_settle_window_open RAISEs 42501
+-- when the writer holds no campus-living permission, and the whole settle
+-- schema may be absent on an environment where the engine migration has not
+-- been applied. An AFTER trigger that raises ABORTS THE INSERT — a learner
+-- would fail to get a bed because a billing window could not be opened.
+-- Placing a learner in a bed outranks opening a billing window.
+--
+-- The hostel year is resolved INSIDE fn_settle_window_open (it COALESCEs a NULL
+-- to fn_settle_current_hostel_year()); one resolver means the trigger can never
+-- disagree with the close and credit paths about which year a window belongs to.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public._on_allocation_settle_arrival()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  -- Arrival-only is enforced by the triggers' WHEN clauses; by the time this
+  -- body runs, NEW is an active occupancy of a room it was not already
+  -- actively occupying.
+  BEGIN
+    PERFORM fn_settle_window_open(NEW.room_id);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING
+      '[campus-living] settle window not opened for room % (allocation %): % [%]',
+      NEW.room_id, NEW.id, SQLERRM, SQLSTATE;
+  END;
+
+  RETURN NULL;  -- AFTER trigger: the return value is ignored.
+END;
+$function$;
+
+-- No GRANT TO authenticated on purpose: no legitimate direct caller, only the
+-- two triggers. Revoked anyway per the CLAUDE.md rule and the CI gate.
+REVOKE EXECUTE ON FUNCTION public._on_allocation_settle_arrival() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public._on_allocation_settle_arrival() IS
+  'Starts or restarts a room''s settle window when a learner ARRIVES in it '
+  '(Director 2026-08-10). Departures never touch a clock. Failures are warned '
+  'and swallowed — placing a learner in a bed outranks opening a billing '
+  'window. Inert while hostel.settle_bill.enabled is false.';
+
+-- ============================================================================
+-- fn_settle_can_manage — 2026-08-10: SUPERSEDES THE DEFINITION ABOVE.
+-- (migration 20260815070000_settle_window_trigger_and_scope.sql — FILE ONLY,
+--  apply is Director-gated)
+--
+-- The definition above returns true on `is_super_admin() OR is_admin()` BEFORE
+-- it reads the room's institution, so any admin-flagged person could bill rooms
+-- in a college that is not theirs — and because every settle writer and both
+-- settle read lists route through this one function, that branch was the
+-- engine's entire cross-tenant surface. 45 lines before, 56 after; the only
+-- behavioural change is that a PLAIN is_admin() must now also satisfy
+-- role_has_institution_access() on the room's institution. is_super_admin()
+-- keeps unconditional reach (platform owner), including on a room that does
+-- not exist, so its answer is byte-for-byte what it was. The service_role cron
+-- bypass is unchanged — it was deliberately narrowed in PR #2954 and its
+-- reasoning is reproduced verbatim below.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_settle_can_manage(
+  p_room_id    uuid,
+  p_permission text DEFAULT 'campus_living.fees.config'
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_institution_id uuid;
+BEGIN
+  -- The cron bypass is deliberately NARROW. "No resolvable auth.uid()" alone is
+  -- too broad: a token missing `sub`, a psql session holding EXECUTE, pg_cron,
+  -- or a nested SECURITY DEFINER that reset request.jwt.claims would all land
+  -- here and get unconditional cross-tenant write. The session role must ALSO
+  -- name itself. If the deployed cron runtime reports some other role this gate
+  -- refuses it — which is the correct direction to be wrong in: the mechanism
+  -- is OFF and unwired, so a too-tight gate surfaces in the first dry run,
+  -- whereas a too-loose one is a silent cross-tenant billing hole. Widen it
+  -- deliberately after observing the real role, never pre-emptively.
+  IF auth.uid() IS NULL THEN
+    RETURN COALESCE(
+             (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb)->>'role',
+             ''
+           ) = 'service_role'
+        OR COALESCE(current_setting('role', true), '') = 'service_role';
+  END IF;
+
+  -- 2026-08-10: the room's institution is resolved BEFORE the admin branch.
+  -- It used to be read after it, which is precisely why the admin branch could
+  -- not be scoped.
+  SELECT r.institution_id INTO v_institution_id
+  FROM hostel_rooms r WHERE r.id = p_room_id;
+
+  -- Platform owner: unconditional, and above the NULL-room test so a super
+  -- admin's answer is byte-for-byte what it was before this change.
+  IF is_super_admin() THEN
+    RETURN true;
+  END IF;
+
+  IF v_institution_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- 2026-08-10: a plain admin is an admin OF SOMEWHERE. Scoped to the room's
+  -- institution, exactly like the permission path below.
+  IF is_admin() THEN
+    RETURN role_has_institution_access(v_institution_id);
+  END IF;
+
+  RETURN user_has_permission(p_permission)
+     AND role_has_institution_access(v_institution_id);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authenticated, service_role;
