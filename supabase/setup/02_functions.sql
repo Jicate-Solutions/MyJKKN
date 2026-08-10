@@ -25253,7 +25253,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_generate_referral_commissions(integer,boole
 GRANT  EXECUTE ON FUNCTION public.fn_generate_referral_commissions(integer,boolean,uuid[],uuid) TO authenticated;
 
 COMMENT ON FUNCTION public.fn_generate_referral_commissions(integer,boolean,uuid[],uuid) IS
-  'Generates pending commission transactions from attributed CONSULTANT referrals for a year. DRY RUN by default (writes nothing). Skips already-transacted learners and referrals with no resolvable rate. Faculty (payroll) and students (excluded) are out of scope.';
+  'Generates pending commission transactions from attributed CONSULTANT referrals for a year. DRY RUN by default (writes nothing). Skips already-transacted learners and referrals with no resolvable rate. Senior Learner referrals (payroll) and learner referrals (excluded) are out of scope.';
 
 -- ================================================================================
 -- HR PAYROLL ORGANISATION (2026-08-04)
