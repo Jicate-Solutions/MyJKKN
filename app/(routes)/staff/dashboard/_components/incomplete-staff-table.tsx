@@ -28,6 +28,8 @@ import { fetchIncompleteStaffProfiles, useIncompleteStaffFilterOptions } from '@
 import {
   ALL,
   DEFAULT_INCOMPLETE_STAFF_FILTERS,
+  FIELD_ASSIGNED,
+  FIELD_MISSING,
   type IncompleteStaffFilterState,
 } from '@/lib/utils/staff/incomplete-profile-filters';
 import { STAFF_FIELD_LABELS } from '@/lib/utils/staff/incomplete-profile-fields';
@@ -79,7 +81,7 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
 
   const { data: options, isLoading: optionsLoading } = useIncompleteStaffFilterOptions(
     // Options are keyed on the institution only, so paging never refetches them.
-    fieldFilters.institutionId !== ALL && fieldFilters.institutionId !== '__missing__'
+    fieldFilters.institutionId !== ALL && fieldFilters.institutionId !== FIELD_MISSING
       ? fieldFilters.institutionId
       : filters?.institutionId
   );
@@ -117,6 +119,18 @@ export function IncompleteStaffTable({ filters }: IncompleteStaffTableProps) {
     note('Marital Status', fieldFilters.maritalStatus);
     note('Blood Group', fieldFilters.bloodGroup);
     note('Biometric Machine', fieldFilters.biometricMachineId);
+    // Free-text-or-sentinel fields: note() can't handle these, since a typed
+    // value isn't ALL and a raw sentinel must never reach user-visible text.
+    const textNote = (label: string, value: string) => {
+      if (!value) return;
+      if (value === FIELD_MISSING) parts.push(`${label}: Not set`);
+      else if (value === FIELD_ASSIGNED) parts.push(`${label}: Enrolled`);
+      else parts.push(`${label} contains "${value}"`);
+    };
+    // Raw values, not debounced — the subtitle describes what the user has
+    // selected, and by export time the debounce has long since settled.
+    textNote('Staff ID', fieldFilters.staffIdQuery);
+    textNote('Biometric Code', fieldFilters.biometricCode);
     if (fieldFilters.joinedFrom || fieldFilters.joinedTo) {
       parts.push(`Joined ${fieldFilters.joinedFrom || '…'} to ${fieldFilters.joinedTo || '…'}`);
     }
