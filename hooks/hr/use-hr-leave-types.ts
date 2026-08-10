@@ -105,6 +105,37 @@ export function useGenerateBalances() {
 }
 
 /**
+ * Provision several institutions at once.
+ *
+ * `hrOrgIds` null = every organization the caller can access. Invalidates the
+ * analytics query on a real run for the same reason the single-org mutation
+ * does: coverage has changed, and the tab would otherwise keep showing
+ * pre-generation numbers.
+ */
+export function useGenerateBalancesBulk() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({
+      hrAcademicYearId,
+      hrOrgIds,
+      dryRun,
+    }: {
+      hrAcademicYearId: string;
+      hrOrgIds: string[] | null;
+      dryRun: boolean;
+    }) =>
+      HRLeaveTypeService.generateBalancesBulk(supabase, hrAcademicYearId, hrOrgIds, dryRun),
+    onSuccess: (_data, vars) => {
+      if (!vars.dryRun) {
+        qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
+        qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      }
+    },
+  });
+}
+
+/**
  * Short Time Off usage for one person and type in the current period.
  * Disabled until both ids are known, so the drawer does not fire on open.
  */

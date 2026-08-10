@@ -22,7 +22,7 @@
  * would collapse.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Bar,
   BarChart,
@@ -52,9 +52,6 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
@@ -62,10 +59,9 @@ import {
 } from '@/components/ui/chart';
 import { cn, getErrorMessage } from '@/lib/utils';
 import { useLeaveBalanceAnalytics } from '@/hooks/hr/use-hr-leave-types';
-import type {
-  HRLeaveCoverageStatus,
-  HRLeaveInstitutionAnalytics,
-} from '@/types/hr-leave-analytics';
+import type { HRLeaveInstitutionAnalytics } from '@/types/hr-leave-analytics';
+
+import { BLOCKED, STATUS_META, fmt } from './coverage-status';
 
 /** Validated categorical slots — see the file header for the measured figures. */
 const SERIES = [
@@ -80,51 +76,17 @@ const SERIES = [
 /** Single-hue brand green for magnitude. Dark step selected, not flipped. */
 const BRAND = { light: 'hsl(150 78% 26%)', dark: 'hsl(150 65% 38%)' };
 
-const STATUS_META: Record<
-  HRLeaveCoverageStatus,
-  { label: string; tone: string; hint: string }
-> = {
-  complete: {
-    label: 'Complete',
-    tone: 'border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400',
-    hint: 'Every active team member has balance rows for this year.',
-  },
-  partial: {
-    label: 'Partial',
-    tone: 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
-    hint: 'Some team members have balances, some do not — re-run the generator.',
-  },
-  not_generated: {
-    label: 'Not generated',
-    tone: 'border-orange-600/30 bg-orange-600/10 text-orange-700 dark:text-orange-400',
-    hint: 'Configured and ready, but nobody has run the generator yet.',
-  },
-  no_types: {
-    label: 'No leave types',
-    tone: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-400',
-    hint: 'Zero active leave types — the generator would write 0 rows and still report success.',
-  },
-  no_staff: {
-    label: 'No team members',
-    tone: 'border-muted-foreground/30 bg-muted text-muted-foreground',
-    hint: 'No active team members to provision.',
-  },
-};
+// Status vocabulary lives in coverage-status.ts — the Generate tab renders the
+// same badges, and a second copy would drift.
 
-const nf = new Intl.NumberFormat('en-IN');
-const fmt = (n: number) => nf.format(Math.round(n));
 
 /**
- * Blocking states — the generator physically cannot fix these.
- *
- * 'no_academic_year' used to sit here too. It cannot occur now that one
- * group-wide HR year serves every institution: a missing year is a page-level
- * condition, handled once below, not a per-institution badge.
+ * `year` is owned by the page, not by this component. Both tabs read the same
+ * selection, so switching to Generate does not silently change which year you
+ * are looking at — and the gaps listed here are the ones Generate preselects.
+ * Null means "the year containing today", resolved inside the RPC.
  */
-const BLOCKED: HRLeaveCoverageStatus[] = ['no_types'];
-
-export function LeaveBalanceAnalytics() {
-  const [year, setYear] = useState<string | null>(null);
+export function LeaveBalanceAnalytics({ year }: { year: string | null }) {
   const { data, isLoading, isError, error, refetch, isFetching } =
     useLeaveBalanceAnalytics(year);
 
@@ -198,32 +160,8 @@ export function LeaveBalanceAnalytics() {
 
   return (
     <div className="space-y-6">
-      {/* ── Controls ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-[220px]">
-          <Label className="text-xs text-muted-foreground">HR academic year</Label>
-          <Select
-            value={year ?? '__current__'}
-            onValueChange={(v) => setYear(v === '__current__' ? null : v)}
-          >
-            <SelectTrigger className="mt-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__current__">
-                Current year{data?.year_name ? ` — ${data.year_name}` : ''}
-              </SelectItem>
-              {(data?.academic_years ?? []).map((y) => (
-                <SelectItem key={y.id} value={y.id}>
-                  {y.year_name}
-                  {y.is_current && (
-                    <span className="ml-2 text-xs text-muted-foreground">current</span>
-                  )}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+      {/* ── Controls (the year selector lives on the page) ────────── */}
+      <div className="flex items-center justify-end">
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
           <RefreshCw className={cn('mr-2 h-4 w-4', isFetching && 'animate-spin')} />
           Refresh
