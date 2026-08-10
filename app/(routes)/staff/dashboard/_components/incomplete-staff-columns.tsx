@@ -151,7 +151,7 @@ export const incompleteStaffColumns: ColumnDef<IncompleteStaffDetail>[] = [
     size: 120,
   },
   {
-    id: 'missingFields',
+    id: 'missing_count',
     accessorKey: 'missing_count',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Missing Fields' />
