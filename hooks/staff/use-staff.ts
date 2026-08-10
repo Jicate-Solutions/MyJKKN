@@ -18,6 +18,7 @@ import {
   IncompleteStaffResponse
 } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { getErrorMessage } from '@/lib/utils';
 import { useAuth } from '../use-auth';
 import { usePermissions } from '../use-permissions';
 
@@ -98,10 +99,12 @@ export function useStaff(
         is_super_admin: profile?.is_super_admin || false
       });
     } catch (error) {
-      console.error('[useStaff] Fetch Error:', error);
-      throw new Error(
-        'Failed to fetch staff. Please check the console for details.'
-      );
+      // Surface the real cause. Re-throwing a generic Error here used to
+      // discard the Supabase code/message entirely, so the UI and the console
+      // both said "check the console for details" and neither had any.
+      const detail = getErrorMessage(error);
+      console.error('[useStaff] Fetch Error:', detail, error);
+      throw new Error(`Failed to fetch staff: ${detail}`);
     }
   }, [filters, profile]);
 

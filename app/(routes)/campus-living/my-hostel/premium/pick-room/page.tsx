@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — PICK ROOM (learner-facing, Phase 2)
+// PREMIUM ROOM — PICK ROOM (learner-facing, Phase 2)
 // ============================================================================
 // Created: 2026-05-19
 //
@@ -18,7 +18,7 @@
 'use client';
 
 export const navMeta = {
-  label: 'Premium Stay — Pick Room',
+  label: 'Premium Room — Pick Room',
   icon: 'BedDouble',
   invokedFrom: '/campus-living/my-hostel/premium',
 } as const;
@@ -47,8 +47,10 @@ import {
   useReservePremiumBed,
 } from '@/hooks/campus-living/use-premium-allocation';
 import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { RoomBedPicker } from '../_components/room-bed-picker';
+import { SoleOccupancyNotice } from '../_components/sole-occupancy-notice';
 import {
   Loader2,
   AlertCircle,
@@ -80,10 +82,14 @@ export default function PickRoomPage() {
   const { data: rooms, isLoading: roomsLoading, refetch: refetchRooms } =
     usePremiumAvailableRooms(institutionId);
   const { data: academicYears } = useAcademicYears(institutionId ?? undefined);
+  // Her mess category, so the sole-occupancy quote matches what she'd be billed.
+  const { data: hostelSummary } = useMyHostelSummary();
 
   // Pull beds for selected room (lazy)
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedBedId, setSelectedBedId] = useState<string | null>(null);
+  // Ticked only when the chosen room would leave her its only occupant.
+  const [soleOccupancyAck, setSoleOccupancyAck] = useState(false);
 
   // Filters
   const [filterAC, setFilterAC] = useState<string>('all');
@@ -139,6 +145,11 @@ export default function PickRoomPage() {
   const selectedRoom = filteredRooms.find((r) => r.room_id === selectedRoomId) ?? null;
   const activeAY = academicYears?.data?.[0];
 
+  // A multi-bed room with nobody in it leaves her paying for every empty bed.
+  // She has to be told, and tick, before the reserve button opens.
+  const wouldBeSoleOccupant =
+    !!selectedRoom && selectedRoom.capacity > 1 && selectedRoom.current_occupancy === 0;
+
   const canSubmit =
     !!selectedRoomId &&
     !!selectedBedId &&
@@ -146,6 +157,7 @@ export default function PickRoomPage() {
     !!userId &&
     !!institutionId &&
     !!activeAY?.id &&
+    (!wouldBeSoleOccupant || soleOccupancyAck) &&
     emergencyName.trim().length >= 2 &&
     emergencyPhone.trim().length >= 7 &&
     emergencyRelation.trim().length >= 2;
@@ -177,7 +189,7 @@ export default function PickRoomPage() {
 
   if (!tierId) {
     return (
-      <ContentLayout title='Premium Stay — Pick Room'>
+      <ContentLayout title='Premium Room — Pick Room'>
         <Card className='mt-6'>
           <CardContent className='p-8 text-center space-y-3'>
             <AlertCircle className='h-10 w-10 mx-auto text-amber-500' />
@@ -196,7 +208,7 @@ export default function PickRoomPage() {
 
   if (tierLoading || roomsLoading) {
     return (
-      <ContentLayout title='Premium Stay — Pick Room'>
+      <ContentLayout title='Premium Room — Pick Room'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
         </div>
@@ -205,13 +217,13 @@ export default function PickRoomPage() {
   }
 
   return (
-    <ContentLayout title='Premium Stay — Pick Room'>
+    <ContentLayout title='Premium Room — Pick Room'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'My Hostel', href: '/campus-living/my-hostel' },
-          { label: 'Premium Stay', href: '/campus-living/my-hostel/premium' },
+          { label: 'Premium Room', href: '/campus-living/my-hostel/premium' },
           { label: 'Pick Room' },
         ]}
       />
@@ -282,9 +294,27 @@ export default function PickRoomPage() {
           onSelectRoom={(roomId) => {
             setSelectedRoomId(roomId);
             setSelectedBedId(null);
+            // A tick belongs to one room only — a new room needs a new one.
+            setSoleOccupancyAck(false);
           }}
           onSelectBed={setSelectedBedId}
         />
+
+        {/* Sole-occupancy warning — what she'd owe alone vs. with the room full,
+            and a way to invite people in first. Renders itself away unless the
+            chosen room is multi-bed and empty. */}
+        {selectedRoom && (
+          <SoleOccupancyNotice
+            roomId={selectedRoom.room_id}
+            roomNumber={selectedRoom.room_number}
+            roomCategoryId={selectedRoom.category_id}
+            capacity={selectedRoom.capacity}
+            currentOccupancy={selectedRoom.current_occupancy}
+            messCategoryId={hostelSummary?.messCategory?.id ?? null}
+            acknowledged={soleOccupancyAck}
+            onAcknowledgedChange={setSoleOccupancyAck}
+          />
+        )}
 
         {/* Emergency contact form (shown when bed selected) */}
         {selectedBedId && (
@@ -341,6 +371,12 @@ export default function PickRoomPage() {
                   Reserving <strong>Bed {beds?.find((b) => b.id === selectedBedId)?.bed_number}</strong>{' '}
                   in <strong>{selectedRoom.block_name}</strong>, Room{' '}
                   <strong>{selectedRoom.room_number}</strong>
+                  {wouldBeSoleOccupant && !soleOccupancyAck && (
+                    <span className='mt-1 block text-amber-700 dark:text-amber-400'>
+                      Tick the box above to confirm you understand the cost of
+                      living in this room on your own.
+                    </span>
+                  )}
                 </span>
               ) : (
                 <span className='flex items-center gap-2'>

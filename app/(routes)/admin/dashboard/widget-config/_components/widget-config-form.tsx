@@ -82,6 +82,12 @@ const WIDGET_CATALOG: Array<{ id: string; label: string; consequence: string }> 
     label: 'SLA + conversion leaderboards',
     consequence: 'Daily SLA + monthly conversion rankings. Most useful for Director + Counselor.',
   },
+  {
+    id: 'daily_intel',
+    label: 'Daily intel brief',
+    consequence:
+      'Latest daily-intelligence brief pushed in from outside the platform. Off for every role until you tick it here; shows nothing until a brief has actually been sent.',
+  },
 ];
 
 // Roles surfaced as cards. `_default` is special — it's the catch-all for

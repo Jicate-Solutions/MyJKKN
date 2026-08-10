@@ -1,4 +1,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import {
+  CycleCalculationService,
+  type CycleDateMap
+} from '@/lib/services/academic/cycle-calculation-service';
 import { cache } from 'react';
 import { logger } from '@/lib/utils/enhanced-logger';
 import type { TimetableData } from '@/types/academics';
@@ -400,6 +404,7 @@ export class AttendanceDashboardService {
           semester_id,
           section_id,
           timetable_data,
+          timetable_format,
           periods,
           attendance_mode,
           class_incharge_id,
@@ -528,10 +533,38 @@ export class AttendanceDashboardService {
       }, {} as Record<string, any>);
 
       // Step 3: Extract scheduled periods for each date in range
+
+      // Added: 2026-08-05 - Cycle-format timetables key timetable_data by "cycle-N",
+      // not by weekday, so the weekday key below never matched and their periods were
+      // invisible to this surface entirely. Resolve each cycle timetable's date->cycle
+      // map up front (one RPC per timetable for the whole range) via the same
+      // CycleCalculationService the Mark Attendance page uses, so the two cannot drift.
+      const cycleMaps: Record<string, CycleDateMap> = {};
+      const cycleTimetables = (filteredTimetablesData ?? []).filter(
+        (t: any) => t.timetable_format === 'cycle'
+      );
+      if (cycleTimetables.length > 0 && filteredWorkingDates.length > 0) {
+        const rangeStart = filteredWorkingDates[0];
+        const rangeEnd = filteredWorkingDates[filteredWorkingDates.length - 1];
+        await Promise.all(
+          cycleTimetables.map(async (t: any) => {
+            cycleMaps[t.id] = await CycleCalculationService.getCycleMap(
+              t.id,
+              rangeStart,
+              rangeEnd
+            );
+          })
+        );
+      }
+
       const allScheduledPeriods = new Map<string, PendingAttendancePeriod>();
 
       filteredWorkingDates.forEach((date) => {
-        const dateObj = new Date(date);
+        // Updated: 2026-08-05 - Parse as local midnight, matching the sibling at
+        // line 382. `new Date("YYYY-MM-DD")` is UTC midnight, so at a negative UTC
+        // offset the weekday resolves one day early and the timetable_data day key
+        // never matches. No-op in IST; hygiene only.
+        const dateObj = new Date(date + 'T00:00:00');
         const dayOfWeek = dateObj
           .toLocaleDateString('en-US', { weekday: 'long' })
           .toUpperCase();
@@ -596,12 +629,36 @@ export class AttendanceDashboardService {
             return;
           }
 
-          if (timetableData && timetableData[dayOfWeek]) {
-            Object.entries(timetableData[dayOfWeek]).forEach(
+          // Updated: 2026-08-05 - Format-aware key: cycle timetables are keyed
+          // "cycle-N" (see the cycleMaps note above), everything else by weekday.
+          // A null cycle means that date has no classes (Sunday/holiday).
+          const cycleNum =
+            timetable.timetable_format === 'cycle'
+              ? cycleMaps[timetable.id]?.[date] ?? null
+              : null;
+          const dayKey =
+            timetable.timetable_format === 'cycle'
+              ? cycleNum !== null
+                ? `cycle-${cycleNum}`
+                : null
+              : dayOfWeek;
+
+          if (dayKey && timetableData && timetableData[dayKey]) {
+            Object.entries(timetableData[dayKey]).forEach(
               ([periodId, slot]) => {
                 if (slot && !slot.is_break_slot && slot.course_id) {
+                  // Updated: 2026-08-08 - `timetables.periods` stores each period's
+                  // identifier as `id`, not `period_id`. Matching only on `period_id`
+                  // therefore never resolved, and EVERY period-based row was dropped
+                  // before it could be listed — measured on production: 1,085 of 1,244
+                  // period rows carry only `id`, 159 carry only `period_id`, and none
+                  // carry both, so the two shapes are mutually exclusive and the
+                  // fallback is unambiguous. Mirrors the working lookup in
+                  // learners/student-timetable-service.ts:245 (`p.id === slot.period_id`).
                   const periodInfo = Array.isArray(periods)
-                    ? periods.find((p: any) => p.period_id === periodId)
+                    ? periods.find(
+                        (p: any) => (p?.id ?? p?.period_id) === periodId
+                      )
                     : null;
 
                   if (periodInfo && !periodInfo.is_break) {

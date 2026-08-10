@@ -55,6 +55,13 @@ import {
 } from '@/components/ui/tooltip';
 import { Info, Eye } from 'lucide-react';
 import { ImpactPreviewSheet } from '@/components/permissions-audit/impact-preview-sheet';
+import {
+  fetchPermissionHolderCounts,
+  keysNeedingHolderCounts,
+  resolvePermissionToggle,
+  type PermissionHolderCounts
+} from '@/lib/services/roles/permission-holder-counts';
+import { PermissionRemovalWarningDialog } from './permission-removal-warning-dialog';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -225,6 +232,17 @@ export function EditRoleDialog({
     Record<string, 'own_records' | 'own_institution' | 'all_institutions'>
   >((role?.module_scopes as any) ?? {});
   const [previewOpen, setPreviewOpen] = useState(false);
+  // How many real people currently hold each permission this role grants.
+  // Fetched ONCE per dialog open (one batched RPC, never one per checkbox) so a
+  // removal can be checked instantly against a live figure.
+  const [holderCounts, setHolderCounts] = useState<PermissionHolderCounts>({});
+  // The untick waiting on the admin's confirmation. Null when nothing is pending.
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    fieldName: string;
+    permissionKey: string;
+    permissionLabel: string;
+    holderCount: number;
+  } | null>(null);
   // Snapshot proposed permissions at the moment the preview is opened —
   // reading form.getValues() lazily lets us watch live edits without a
   // re-render on every keystroke.
@@ -323,6 +341,35 @@ export function EditRoleDialog({
     // Debug form values after reset
     console.log('Form values after reset:', form.getValues());
   }, [form, role, defaultFormValues]);
+
+  // One batched lookup of "how many real people hold this?" for every permission
+  // the role currently grants — those are the only ones that can be switched
+  // off. Failure (including the RPC not existing yet) leaves the map empty, and
+  // an unknown count never warns, so this can ship ahead of its migration.
+  useEffect(() => {
+    if (!open) return;
+
+    const keys = keysNeedingHolderCounts(role.permissions || {});
+    if (keys.length === 0) {
+      setHolderCounts({});
+      return;
+    }
+
+    let cancelled = false;
+    fetchPermissionHolderCounts(keys).then((counts) => {
+      if (!cancelled) setHolderCounts(counts);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, role]);
+
+  // Close the pending confirm whenever the dialog itself closes, so a stale
+  // question can never be answered against a different role.
+  useEffect(() => {
+    if (!open) setPendingRemoval(null);
+  }, [open]);
 
   // Adjusted handleSubmit to flatten permissions before calling onSubmit
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
@@ -924,12 +971,35 @@ export function EditRoleDialog({
                                           <Switch
                                             checked={Boolean(field.value)}
                                             onCheckedChange={(checked) => {
-                                              field.onChange(checked);
-                                              // Debug when a permission is toggled
-                                              console.log(
-                                                `Toggled ${permission.key} to:`,
-                                                checked
+                                              const previous = Boolean(
+                                                field.value
                                               );
+                                              const holderCount =
+                                                holderCounts[permission.key];
+
+                                              // Taking a permission away from
+                                              // people who are using it is the
+                                              // one move worth interrupting.
+                                              if (
+                                                resolvePermissionToggle({
+                                                  previous,
+                                                  next: checked,
+                                                  holderCount
+                                                }) === 'confirm-removal'
+                                              ) {
+                                                setPendingRemoval({
+                                                  fieldName,
+                                                  permissionKey:
+                                                    permission.key,
+                                                  permissionLabel:
+                                                    permission.label,
+                                                  holderCount:
+                                                    holderCount as number
+                                                });
+                                                return; // leave it on until confirmed
+                                              }
+
+                                              field.onChange(checked);
                                             }}
                                             disabled={
                                               isSuperAdmin || isSubmitting
@@ -1017,6 +1087,25 @@ export function EditRoleDialog({
               roleId={role.id}
               roleName={role.role_name}
               proposedPermissions={previewPermissions}
+            />
+
+            <PermissionRemovalWarningDialog
+              open={pendingRemoval !== null}
+              onOpenChange={(isOpen) => {
+                if (!isOpen) setPendingRemoval(null);
+              }}
+              permissionLabel={pendingRemoval?.permissionLabel ?? ''}
+              permissionKey={pendingRemoval?.permissionKey ?? ''}
+              holderCount={pendingRemoval?.holderCount ?? 0}
+              onConfirm={() => {
+                if (!pendingRemoval) return;
+                form.setValue(pendingRemoval.fieldName as `permissions.${string}.${string}`, false, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                  shouldTouch: false
+                });
+                setPendingRemoval(null);
+              }}
             />
           </form>
         </Form>

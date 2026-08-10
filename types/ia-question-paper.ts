@@ -32,6 +32,8 @@ export interface IaTemplatePart {
   instruction?: string;
   question_type_code: string;
   num_questions: number;
+  /** "Answer any N": only this many questions count toward the part total. Null = answer all. */
+  num_to_answer?: number | null;
   marks_per_question: number;
   has_choice: boolean;
   choice_group_size: number;
