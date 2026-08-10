@@ -275,6 +275,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
   '/users/permissions-audit': 'users.permissions_audit.view',
+  '/users/jkkn-id': 'users.jkkn_id.view',
   // Added 2026-06-19: dynamic user-detail routes were unguarded (no page guard,
   // no MENU_PERMISSIONS entry) so they rendered to any authenticated user. Now
   // declared canonically + enforced by RoutePermissionGuard (/users/layout.tsx).
@@ -1863,6 +1864,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/users/role-management', label: 'Role Management', active: pathname === '/users/role-management' },
             { href: '/users/activity', label: 'Activity Audit Logs', active: pathname === '/users/activity' },
             { href: '/users/permissions-audit', label: 'Permissions Audit', active: pathname === '/users/permissions-audit' },
+            { href: '/users/jkkn-id', label: 'JKKN ID', active: pathname === '/users/jkkn-id' },
           ]
         }
       ]
