@@ -1115,3 +1115,64 @@ FROM public.cohort_memberships m
 JOIN public.cohorts c            ON c.id = m.cohort_id
 LEFT JOIN public.cohort_outcomes o ON o.membership_id = m.id
 WHERE m.status = 'graduated';
+
+-- =====================================================
+-- v_learner_scope_violations — Added 2026-08-08
+--   Migration: 20260808150000_extend_learner_scope_guard_programme.sql
+--
+-- Standing integrity report for the learners_profiles academic hierarchy
+-- (institution -> degree -> department -> programme -> semester -> section).
+-- EMPTY IS THE HEALTHY STATE.
+--
+-- Why a view and not just the trigger: trg_validate_learner_semester_year_scope
+-- guards NEW writes only, and is change-triggered by design so that already-bad
+-- rows stay editable. It therefore can never surface damage already sitting in
+-- the table. The 2026-07-30 bulk write went unnoticed for nine days precisely
+-- because nothing looked. A same-named FK from another college renders
+-- perfectly in every list and export — only a uuid comparison exposes it — so
+-- this view, not the UI, is how that class of corruption gets found.
+--
+-- security_invoker: answers within the caller's RLS, so it cannot be used to
+-- read learners outside the caller's institution scope.
+-- =====================================================
+CREATE OR REPLACE VIEW public.v_learner_scope_violations
+WITH (security_invoker = true) AS
+SELECT lp.id AS learner_id,
+       lp.roll_number,
+       trim(lp.first_name || ' ' || COALESCE(lp.last_name, '')) AS learner_name,
+       lp.lifecycle_status,
+       lp.institution_id,
+       i.name AS institution_name,
+       p.program_name,
+       CASE
+         WHEN d.id   IS NOT NULL AND d.institution_id   IS DISTINCT FROM lp.institution_id THEN 'degree_wrong_institution'
+         WHEN dep.id IS NOT NULL AND dep.institution_id IS DISTINCT FROM lp.institution_id THEN 'department_wrong_institution'
+         WHEN p.id   IS NOT NULL AND p.institution_id   IS DISTINCT FROM lp.institution_id THEN 'program_wrong_institution'
+         WHEN ay.id  IS NOT NULL AND ay.institution_id  IS DISTINCT FROM lp.institution_id THEN 'academic_year_wrong_institution'
+         WHEN sem.id IS NOT NULL AND sem.institution_id IS DISTINCT FROM lp.institution_id THEN 'semester_wrong_institution'
+         WHEN sec.id IS NOT NULL AND sec.institution_id IS DISTINCT FROM lp.institution_id THEN 'section_wrong_institution'
+         WHEN sem.id IS NOT NULL AND sem.program_id     IS DISTINCT FROM lp.program_id     THEN 'semester_wrong_programme'
+         WHEN sec.id IS NOT NULL AND sec.program_id     IS DISTINCT FROM lp.program_id     THEN 'section_wrong_programme'
+         ELSE 'section_wrong_semester'
+       END AS violation,
+       sem.semester_name AS stored_semester_name,
+       sem.semester_code AS stored_semester_code,
+       sec.section_name  AS stored_section_name,
+       lp.updated_at
+FROM public.learners_profiles lp
+LEFT JOIN public.institutions   i   ON i.id   = lp.institution_id
+LEFT JOIN public.degrees        d   ON d.id   = lp.degree_id
+LEFT JOIN public.departments    dep ON dep.id = lp.department_id
+LEFT JOIN public.programs       p   ON p.id   = lp.program_id
+LEFT JOIN public.semesters      sem ON sem.id = lp.semester_id
+LEFT JOIN public.sections       sec ON sec.id = lp.section_id
+LEFT JOIN public.academic_years ay  ON ay.id  = lp.academic_year_id
+WHERE (d.id   IS NOT NULL AND d.institution_id   IS DISTINCT FROM lp.institution_id)
+   OR (dep.id IS NOT NULL AND dep.institution_id IS DISTINCT FROM lp.institution_id)
+   OR (p.id   IS NOT NULL AND p.institution_id   IS DISTINCT FROM lp.institution_id)
+   OR (ay.id  IS NOT NULL AND ay.institution_id  IS DISTINCT FROM lp.institution_id)
+   OR (sem.id IS NOT NULL AND sem.institution_id IS DISTINCT FROM lp.institution_id)
+   OR (sec.id IS NOT NULL AND sec.institution_id IS DISTINCT FROM lp.institution_id)
+   OR (sem.id IS NOT NULL AND lp.program_id IS NOT NULL AND sem.program_id IS DISTINCT FROM lp.program_id)
+   OR (sec.id IS NOT NULL AND lp.program_id IS NOT NULL AND sec.program_id IS DISTINCT FROM lp.program_id)
+   OR (sec.id IS NOT NULL AND lp.semester_id IS NOT NULL AND sec.semester_id IS DISTINCT FROM lp.semester_id);

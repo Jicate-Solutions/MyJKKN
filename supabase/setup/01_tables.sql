@@ -6838,3 +6838,103 @@ CREATE INDEX IF NOT EXISTS hr_shift_timings_lookup
 CREATE INDEX IF NOT EXISTS hr_shift_timings_category
   ON public.hr_shift_timings (employment_category_id)
   WHERE employment_category_id IS NOT NULL;
+
+-- Campus Living — Settle Then Bill (Director 2026-08-09)
+-- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
+-- FILE ONLY, apply is Director-gated). A hostel room is NOT billed at
+-- move-in: a settle window lets the room fill (5 days, restarting on each
+-- joiner, capped 20 days from first open, short-circuited when the room is
+-- full), then every resident is billed at the occupancy that exists at that
+-- moment. A later joiner produces CREDITS, never a refund or a bill rewrite.
+-- The whole mechanism is OFF by default (hostel.settle_bill.enabled = false
+-- in platform_policies).
+
+CREATE TABLE IF NOT EXISTS public.hostel_room_settle_windows (
+    id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id              uuid NOT NULL REFERENCES public.hostel_rooms(id),
+    hostel_year_id       uuid REFERENCES public.hostel_years(id),
+    opened_at            timestamptz NOT NULL DEFAULT now(),
+    restart_count        int NOT NULL DEFAULT 0,
+    current_deadline     timestamptz NOT NULL,
+    hard_deadline        timestamptz NOT NULL,
+    status               text NOT NULL DEFAULT 'open'
+                           CHECK (status IN ('open','billed','cancelled')),
+    billed_at            timestamptz,
+    occupants_at_billing int,
+    -- Joiner allocation ids whose late-join credit round has been PROCESSED.
+    -- Marked whether or not any credit row was written, so a round that credits
+    -- nobody (rounds to 0, co-residents unbilled) is still never re-processed.
+    credited_allocation_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    updated_at           timestamptz NOT NULL DEFAULT now()
+);
+
+-- Re-apply safety: the column was added after the table's first draft.
+ALTER TABLE public.hostel_room_settle_windows
+  ADD COLUMN IF NOT EXISTS credited_allocation_ids uuid[] NOT NULL DEFAULT '{}'::uuid[];
+
+-- One OPEN window per room per hostel year.
+-- COALESCE is load-bearing: Postgres treats NULLs as DISTINCT in a plain unique
+-- index, so a bare (room_id, hostel_year_id) would allow unlimited open windows
+-- on any room whose year is not yet set.
+CREATE UNIQUE INDEX IF NOT EXISTS hostel_room_settle_windows_open_uq
+    ON public.hostel_room_settle_windows (
+        room_id,
+        COALESCE(hostel_year_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    )
+    WHERE status = 'open';
+
+-- The due-sweep predicate.
+CREATE INDEX IF NOT EXISTS hostel_room_settle_windows_due
+    ON public.hostel_room_settle_windows (current_deadline, hard_deadline)
+    WHERE status = 'open';
+
+CREATE INDEX IF NOT EXISTS hostel_room_settle_windows_room
+    ON public.hostel_room_settle_windows (room_id, status);
+
+DROP TRIGGER IF EXISTS trg_hostel_room_settle_windows_touch
+    ON public.hostel_room_settle_windows;
+CREATE TRIGGER trg_hostel_room_settle_windows_touch
+    BEFORE UPDATE ON public.hostel_room_settle_windows
+    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+COMMENT ON TABLE public.hostel_room_settle_windows IS
+  'Settle-then-bill window per hostel room per hostel year (Director 2026-08-09). '
+  'A room is NOT billed at move-in; the window lets the room fill, restarts on '
+  'each new joiner up to hard_deadline, then bills everyone at the occupancy '
+  'that exists at close. Gated by platform policy hostel.settle_bill.enabled.';
+
+COMMENT ON COLUMN public.hostel_room_settle_windows.hard_deadline IS
+  'opened_at + hostel.settle_bill.outer_limit_days. Restarts may never push '
+  'current_deadline past this instant.';
+
+COMMENT ON COLUMN public.hostel_room_settle_windows.occupants_at_billing IS
+  'Active occupants at the moment the window closed. The denominator every '
+  'later late-join credit is measured against.';
+
+-- Updated: 2026-08-09 - Empty-bed intimation send ledger (Director interview 2026-08-09).
+-- One row per room per learner per IST calendar day, so a reminder about the
+-- same under-filled room cannot reach the same learner twice in one day.
+-- Written ONLY by the service-role cron (/api/cron/campus-living/empty-bed-notices);
+-- there is deliberately no INSERT/UPDATE/DELETE policy. See migration
+-- supabase/migrations/20260815060001_empty_bed_intimation.sql — FILE ONLY, NOT APPLIED.
+--
+-- sent_on exists because a UNIQUE constraint cannot span an expression and only
+-- a constraint (not a bare unique index) works as an ON CONFLICT target from
+-- PostgREST. It is pinned to Asia/Kolkata: a UTC cron run between 00:00 and
+-- 05:30 IST would otherwise bank the notice on yesterday and allow a second one
+-- the same Indian morning.
+CREATE TABLE IF NOT EXISTS public.hostel_empty_bed_notices (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id           UUID        NOT NULL REFERENCES public.hostel_rooms(id) ON DELETE CASCADE,
+    learner_id        UUID        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    sent_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sent_on           DATE        NOT NULL DEFAULT (now() AT TIME ZONE 'Asia/Kolkata')::date,
+    occupants_at_send INTEGER     NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT hostel_empty_bed_notices_one_per_day
+        UNIQUE (room_id, learner_id, sent_on)
+);
+
+CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
+    ON public.hostel_empty_bed_notices (learner_id, room_id, sent_at DESC);

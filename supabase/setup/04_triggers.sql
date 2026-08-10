@@ -1682,3 +1682,47 @@ CREATE TRIGGER trg_allocation_guard_reserved_bed
   BEFORE INSERT OR UPDATE OF bed_id, room_id ON public.hostel_allocations
   FOR EACH ROW
   EXECUTE FUNCTION public._on_allocation_guard_reserved_bed();
+
+
+-- Settle-then-bill arrival clock — a learner joining a room starts or restarts
+-- that room's settle window (Director 2026-08-10: "arrivals only"). A learner
+-- LEAVING never touches a clock; otherwise a departure would postpone the
+-- remaining residents' bills. A learner moving from room A to room B leaves
+-- A's clock alone and starts/restarts B's.
+--
+-- The arrival test lives in the WHEN clauses so a departure never even enters
+-- the function. Active occupancy is `status='active' AND check_out_date IS
+-- NULL` — the same pair v_hostel_room_occupancy and the whole settle engine
+-- count on; actual_vacate_date is deliberately not consulted.
+--
+-- AFTER, not BEFORE: trg_allocation_guard_reserved_bed (BEFORE) can reject the
+-- row, so these only ever run on allocations that survived it. Body lives in
+-- 02_functions.sql.
+-- Added: 2026-08-10 (migration 20260815070000_settle_window_trigger_and_scope.sql
+--        — FILE ONLY, apply is Director-gated)
+
+DROP TRIGGER IF EXISTS trg_allocation_settle_arrival_insert ON public.hostel_allocations;
+CREATE TRIGGER trg_allocation_settle_arrival_insert
+  AFTER INSERT ON public.hostel_allocations
+  FOR EACH ROW
+  WHEN (NEW.status = 'active'::allocation_status_enum
+        AND NEW.check_out_date IS NULL)
+  EXECUTE FUNCTION public._on_allocation_settle_arrival();
+
+DROP TRIGGER IF EXISTS trg_allocation_settle_arrival_update ON public.hostel_allocations;
+CREATE TRIGGER trg_allocation_settle_arrival_update
+  AFTER UPDATE ON public.hostel_allocations
+  FOR EACH ROW
+  WHEN (
+    -- It is an active occupancy NOW …
+    NEW.status = 'active'::allocation_status_enum
+    AND NEW.check_out_date IS NULL
+    AND (
+      -- … and it was not one before (came into active occupancy) …
+      OLD.status IS DISTINCT FROM 'active'::allocation_status_enum
+      OR OLD.check_out_date IS NOT NULL
+      -- … or it moved into a different room while active.
+      OR NEW.room_id IS DISTINCT FROM OLD.room_id
+    )
+  )
+  EXECUTE FUNCTION public._on_allocation_settle_arrival();

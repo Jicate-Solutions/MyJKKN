@@ -688,7 +688,7 @@ export interface BosLlcConferenceData {
 //                semester + credits + coded courses, Theory/Lab/Clinical workload
 //                split, per-unit outline, a PARALLEL clinical outline, and CO →
 //                10 INC core-competency mapping INSTEAD of CO-PO-PSO/Bloom.
-export type AcademicModel = 'anna_univ' | 'mgr_ahs' | 'mgr_pharmd' | 'pci_pharm' | 'inc_nursing';
+export type AcademicModel = 'anna_univ' | 'mgr_ahs' | 'mgr_pharmd' | 'pci_pharm' | 'inc_nursing' | 'mgr_bds';
 
 // ── Exam scheme (PCI / Dr. MGR) ──────────────────────────────────────
 // Replaces the Anna CO-PO/Bloom assessment blocks for pharmacy/AHS models.

@@ -73,6 +73,9 @@ export interface PremiumAvailableRoom {
   ac_status: string;
   has_attached_bathroom: boolean | null;
   tier_access: 'premium_only' | 'either';
+  /** hostel_rooms.category_id — the fee band the room is priced in. Needed to
+   *  quote what a sole occupant would owe before she confirms (2026-08-09). */
+  category_id: string | null;
 }
 
 /**
@@ -113,7 +116,7 @@ export async function listAvailableRoomsForPremium(
   const { data, error } = await supabase
     .from('hostel_rooms')
     .select(
-      'id, block_id, room_number, floor, capacity, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
+      'id, block_id, room_number, floor, capacity, category_id, ac_status, has_attached_bathroom, tier_access, hostel_blocks(name)',
     )
     .in('block_id', blockIds)
     .in('tier_access', ['premium_only', 'either']);
@@ -166,6 +169,7 @@ export async function listAvailableRoomsForPremium(
       ac_status: r.ac_status,
       has_attached_bathroom: r.has_attached_bathroom ?? null,
       tier_access: r.tier_access,
+      category_id: r.category_id ?? null,
     }));
 }
 

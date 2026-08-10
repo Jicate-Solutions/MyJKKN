@@ -461,7 +461,11 @@ const config: ModuleNavConfig = {
       label: 'Insights',
       icon: 'BarChart3',
       href: '/campus-living/analytics',
-      matchPaths: ['/campus-living/analytics', '/campus-living/reports'],
+      matchPaths: [
+        '/campus-living/analytics',
+        '/campus-living/reports',
+        '/campus-living/settle-preview',
+      ],
       children: [
         {
           label: 'Analytics Home',
@@ -504,6 +508,12 @@ const config: ModuleNavConfig = {
           icon: 'IndianRupee',
           href: '/campus-living/analytics/fees',
           matchPaths: ['/campus-living/analytics/fees'],
+        },
+        {
+          label: 'Bill Practice Run',
+          icon: 'BedDouble',
+          href: '/campus-living/settle-preview',
+          matchPaths: ['/campus-living/settle-preview'],
         },
         {
           label: 'Cross-Domain',
