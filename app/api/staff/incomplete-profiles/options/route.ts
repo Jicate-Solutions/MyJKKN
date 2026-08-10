@@ -92,6 +92,16 @@ export async function GET(request: NextRequest) {
 
     const safeRows = rows || [];
 
+    // A truncated scan yields dropdowns that silently omit real values — a
+    // designation that exists in the data simply is not offered, with no signal
+    // anywhere. Mirrors the PHASE_1_HARD_CAP warning in the sibling route.
+    if (safeRows.length >= MAX_ROWS) {
+      console.warn(
+        '[api/staff/incomplete-profiles/options] Hit the %d-row cap; filter option lists may be incomplete.',
+        MAX_ROWS
+      );
+    }
+
     // Only machines actually referenced by an employee in scope — the
     // institutions table also holds real colleges, which are not machines.
     const machineIds = Array.from(
