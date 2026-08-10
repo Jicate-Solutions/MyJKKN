@@ -258,4 +258,36 @@ describe('compareIncompleteRows', () => {
     expect(compareIncompleteRows(a, b, 'designation', 'asc')).toBeLessThan(0);
     expect(compareIncompleteRows(a, b, 'designation', 'desc')).toBeLessThan(0);
   });
+
+  // Two rows that both have a non-blank value on a real (non-missing_count)
+  // column — the primary `compared * direction` line, and the id tiebreak
+  // right after it, are only reachable when neither early return fires.
+  const c = { id: 'c', first_name: 'Chitra', missing_count: 3, designation: 'Assistant Professor' };
+  const d = { id: 'd', first_name: 'Deepak', missing_count: 1, designation: 'Professor' };
+
+  it('orders two populated values on a real column ascending', () => {
+    // 'Assistant Professor' < 'Professor' lexicographically.
+    expect(compareIncompleteRows(c, d, 'designation', 'asc')).toBeLessThan(0);
+  });
+
+  it('reverses two populated values on a real column for descending', () => {
+    expect(compareIncompleteRows(c, d, 'designation', 'desc')).toBeGreaterThan(0);
+  });
+
+  it('breaks a tie on a real column by id, the same way regardless of direction', () => {
+    const tieA = { id: 'tie-a', first_name: 'Elan', missing_count: 4, designation: 'Professor' };
+    const tieB = { id: 'tie-b', first_name: 'Farah', missing_count: 4, designation: 'Professor' };
+    // The id tiebreak line has no `* direction` — it is intentionally the
+    // same order both ways, so paging stays stable under either sort.
+    expect(compareIncompleteRows(tieA, tieB, 'designation', 'asc')).toBeLessThan(0);
+    expect(compareIncompleteRows(tieA, tieB, 'designation', 'desc')).toBeLessThan(0);
+  });
+
+  it('collates numerically, so "Item 10" sorts after "Item 9"', () => {
+    const nine = { id: 'nine', first_name: 'Nine', missing_count: 1, label: 'Item 9' };
+    const ten = { id: 'ten', first_name: 'Ten', missing_count: 1, label: 'Item 10' };
+    // Plain string comparison would put 'Item 10' first ('1' < '9'); the
+    // numeric:true collation option is what makes 9 sort before 10.
+    expect(compareIncompleteRows(nine, ten, 'label', 'asc')).toBeLessThan(0);
+  });
 });
