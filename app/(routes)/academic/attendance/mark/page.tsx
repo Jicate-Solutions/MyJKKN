@@ -1295,7 +1295,14 @@ export default function AttendanceMarkPage() {
       sectionId ||
       (contextData?.section_ids && contextData.section_ids.length > 0
         ? contextData.section_ids[0]
-        : null);
+        : null) ||
+      // Added: 2026-08-10 (BUG-003168) - A practical batch whose section_ids were
+      // never filled in leaves every prior fallback empty even though loadStudents
+      // already tolerates this case by falling back to the roster's degree/program/
+      // semester scope. Use the loaded roster's own section_id rather than blocking
+      // a save the student list already proves is valid.
+      students[0]?.section_id ||
+      null;
 
     if (!effectiveSectionId) {
       toast.error(
@@ -1456,7 +1463,12 @@ export default function AttendanceMarkPage() {
         sectionId ||
         (contextData?.section_ids && contextData.section_ids.length > 0
           ? contextData.section_ids[0]
-          : null);
+          : null) ||
+        // Added: 2026-08-10 (BUG-003168) - Same last-resort fallback as the
+        // pre-save validation above: a practical batch with unfilled section_ids
+        // otherwise has no section to save under even though the roster loaded.
+        students[0]?.section_id ||
+        null;
 
       if (!effectiveSectionId) {
         logger.error('academic/attendance/mark', 'No valid section ID found');
