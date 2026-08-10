@@ -13,7 +13,7 @@
 //   The number it shows comes from fn_aqs_attendance_unmarked_periods_range,
 //   the date-ranged sibling of the CURRENT_DATE-only function that feeds the
 //   attendance dashboard badge. Both count at TIMETABLE grain, so the two
-//   surfaces agree — see supabase/migrations/20260817040000_unmarked_periods_date_range.sql
+//   surfaces agree — see supabase/migrations/20260817043700_unmarked_periods_date_range.sql
 //   for the measured proof and for the one deliberate difference between them.
 //
 // Why this is a separate page from /academic/attendance/pending: that page lists
