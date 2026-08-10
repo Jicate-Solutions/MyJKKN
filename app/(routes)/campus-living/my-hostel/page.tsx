@@ -21,6 +21,7 @@ import { OverviewTab } from './_components/overview-tab';
 import { CategoryFeesTab } from './_components/category-fees-tab';
 import { ProfileTab } from './_components/profile-tab';
 import { RequestsTab } from './_components/requests-tab';
+import { PremiumInviteEntryCard } from './_components/premium-invite-entry-card';
 import {
   Loader2,
   AlertCircle,
@@ -124,6 +125,10 @@ export default function MyHostelPage() {
             </CardContent>
           </Card>
         </Link>
+
+        {/* Invite a roommate — the flow shipped in May 2026 and had never been
+            used because nothing linked to it. Self-gates to premium residents. */}
+        <PremiumInviteEntryCard />
 
         {/* URL-driven tabs — only the active tab body is mounted */}
         <Tabs

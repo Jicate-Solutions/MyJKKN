@@ -36,7 +36,10 @@ export interface UpgradeDimensionResult {
   target_category_name?: string | null;
   current_fee?: number | null;
   target_fee?: number | null;
+  /** PAYABLE after any configured upgrade discount. */
   upgrade_fee?: number | null;
+  upgrade_fee_original?: number | null;
+  upgrade_discount?: number | null;
   threshold_pct?: number | null;
   paid_pct?: number | null;
   meets_threshold?: boolean | null;

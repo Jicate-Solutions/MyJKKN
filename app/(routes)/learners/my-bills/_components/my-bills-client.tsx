@@ -26,7 +26,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { MyBill, MyBillsData, MyReceipt } from '@/types/billing';
+import type { MyBill, MyBillLateCharge, MyBillsData, MyReceipt } from '@/types/billing';
 import type { StudentBill } from '@/types/billing-schedule';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { useConnectedFeeHeads } from '@/hooks/billing/use-connected-fee-heads';
@@ -50,6 +50,12 @@ interface MyBillsClientProps {
   collegeEmail: string;
   institutionId: string | null;
   institutionName: string;
+  /**
+   * Late-payment charges keyed by bill id. null while the platform's
+   * billing.late_charge.enabled policy is false (today's state) — nothing
+   * late-charge-related renders then.
+   */
+  lateCharges?: Record<string, MyBillLateCharge> | null;
 }
 
 export function MyBillsClient({
@@ -60,6 +66,7 @@ export function MyBillsClient({
   collegeEmail,
   institutionId,
   institutionName,
+  lateCharges = null,
 }: MyBillsClientProps) {
   const { totalDue, totalBilled, totalPaid, bills, receipts } = data;
   const [activeTab, setActiveTab] = useTabParam('outstanding', MY_BILLS_TABS);
@@ -234,6 +241,7 @@ export function MyBillsClient({
                     <BillRow
                       key={bill.id}
                       bill={bill}
+                      lateCharge={lateCharges?.[bill.id]}
                       onPayOnline={canPayBill(bill) ? () => setPayBill(bill) : undefined}
                     />
                   ))}
@@ -256,6 +264,7 @@ export function MyBillsClient({
                       <BillRow
                         key={bill.id}
                         bill={bill}
+                        lateCharge={lateCharges?.[bill.id]}
                         onPayOnline={canPayBill(bill) ? () => setPayBill(bill) : undefined}
                       />
                     ))}
@@ -388,9 +397,16 @@ function YearSection({
 
 function BillRow({
   bill,
+  lateCharge,
   onPayOnline,
 }: {
   bill: MyBill;
+  /**
+   * Present only while the platform's late-payment charge is enabled AND this
+   * bill is overdue with a balance. Undefined today (the mechanism is OFF) —
+   * nothing late-charge-related renders.
+   */
+  lateCharge?: MyBillLateCharge;
   /** Present only when this bill's fee head has a connected payment account. */
   onPayOnline?: () => void;
 }) {
@@ -433,6 +449,69 @@ function BillRow({
             <span className='shrink-0 text-xs tabular-nums text-muted-foreground'>
               {paidPct}% paid
             </span>
+          </div>
+        )}
+        {lateCharge && (
+          <div className='rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs'>
+            <div className='font-medium text-destructive'>
+              Late payment charge so far: {inr(lateCharge.chargeAmount)} (
+              {lateCharge.months} {lateCharge.months === 1 ? 'month' : 'months'} overdue)
+            </div>
+            <div className='mt-0.5 text-muted-foreground'>
+              Settling this bill today means paying {inr(lateCharge.totalWithCharge)} — the
+              unpaid amount of {inr(bill.balanceAmount)} plus the late charge.
+            </div>
+            <Collapsible>
+              <CollapsibleTrigger className='mt-1.5 flex items-center gap-1 font-medium text-destructive underline-offset-2 hover:underline'>
+                How this was calculated
+                <ChevronDown className='h-3 w-3' aria-hidden='true' />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className='mt-2 space-y-2'>
+                  <p className='text-muted-foreground'>
+                    The charge is {lateCharge.ratePercent}% of the unpaid amount for every month
+                    the bill stays unpaid, and each month&apos;s charge is added to the amount the
+                    next month is calculated on. It is worked out on today&apos;s unpaid amount for
+                    all months — so any payment you make reduces every month&apos;s charge, not
+                    just the months after the payment.
+                  </p>
+                  <div className='overflow-x-auto'>
+                    <table className='w-full min-w-[26rem] text-xs'>
+                      <thead>
+                        <tr className='border-b text-left text-muted-foreground'>
+                          <th className='py-1 pr-3 font-medium'>Month</th>
+                          <th className='py-1 pr-3 font-medium'>Period</th>
+                          <th className='py-1 pr-3 text-right font-medium'>Amount it grows on</th>
+                          <th className='py-1 pr-3 text-right font-medium'>
+                            Charge ({lateCharge.ratePercent}%)
+                          </th>
+                          <th className='py-1 text-right font-medium'>Total charge so far</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lateCharge.derivation.map((m) => (
+                          <tr key={m.monthNumber} className='border-b last:border-0'>
+                            <td className='py-1 pr-3 tabular-nums'>{m.monthNumber}</td>
+                            <td className='py-1 pr-3 whitespace-nowrap'>
+                              {fmtDate(m.periodStart)} – {fmtDate(m.periodEnd)}
+                            </td>
+                            <td className='py-1 pr-3 text-right tabular-nums'>
+                              {inr(m.openingBase)}
+                            </td>
+                            <td className='py-1 pr-3 text-right tabular-nums'>
+                              {inr(m.monthCharge)}
+                            </td>
+                            <td className='py-1 text-right tabular-nums font-medium'>
+                              {inr(m.cumulativeCharge)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         )}
       </div>

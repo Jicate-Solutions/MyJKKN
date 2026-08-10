@@ -26,6 +26,10 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
+  learnerFacingError,
+  logWithReference,
+} from '@/lib/services/campus-living/error-sanitize';
+import {
   resolveUpgradePool,
   type PremiumVacancy,
 } from '@/lib/services/campus-living/premium-vacancy-service';
@@ -82,8 +86,13 @@ function annualize(amount: number, frequency: string | null | undefined): number
  * Build the pure FeeComputeInput primitives for one room + category in a hostel
  * year. Mirrors δ's quoteUpfrontFee fetch logic (per-bed rate × capacity, AC via
  * the effective-amenities view, live active-occupant count). Read-only.
+ *
+ * EXPORTED 2026-08-09 so the empty-bed notice service can reuse it instead of
+ * adding a THIRD copy of this fetch (δ's quoteUpfrontFee holds the second).
+ * It takes the client as an argument, so a service-role caller works unchanged.
+ * Behaviour is untouched.
  */
-async function buildFeeContext(
+export async function buildFeeContext(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
   roomId: string,
@@ -265,8 +274,10 @@ export async function acceptUpgrade(input: AcceptUpgradeInput): Promise<AcceptUp
     p_was_free: wasFree,
   });
   if (rpcErr) {
-    logger.error(LOG, 'fn_premium_upgrade_accept RPC error', rpcErr);
-    return fail('rpc_error', rpcErr.message || 'Bed reassignment failed.');
+    // Raw Postgres/PostgREST text (constraint names, SQLSTATE prose) must never
+    // reach a learner — full error logged with a reference id (2026-08-07).
+    const reference = logWithReference(LOG, 'fn_premium_upgrade_accept RPC error', rpcErr);
+    return fail('rpc_error', learnerFacingError('reassigning your bed', reference));
   }
   const verdict = (rpcData ?? {}) as {
     success?: boolean;
@@ -277,7 +288,29 @@ export async function acceptUpgrade(input: AcceptUpgradeInput): Promise<AcceptUp
     detail?: string;
   };
   if (!verdict.success) {
-    return fail(verdict.reason ?? 'unknown', verdict.detail ?? 'Upgrade could not be completed.');
+    const reason = verdict.reason ?? 'unknown';
+    // Details for these reasons are hand-written sentences inside the
+    // fn_premium_upgrade_accept RPC and safe to show. Any OTHER reason —
+    // notably 'unknown', whose detail is raw SQLERRM (this is the exact path
+    // that put `duplicate key value violates unique constraint
+    // "hostel_allocations_room_bed_active_uidx"` on a learner's phone) — is
+    // logged in full and replaced with a plain sentence + reference (2026-08-07).
+    const RPC_SAFE_DETAIL_REASONS = new Set([
+      'vacancy_not_found',
+      'vacancy_not_open',
+      'vacancy_no_bed',
+      'bed_locked_by_other',
+      'bed_unavailable',
+      'no_active_allocation',
+    ]);
+    if (RPC_SAFE_DETAIL_REASONS.has(reason)) {
+      return fail(reason, verdict.detail ?? 'Upgrade could not be completed.');
+    }
+    const reference = logWithReference(LOG, `fn_premium_upgrade_accept failed (reason: ${reason})`, {
+      reason,
+      detail: verdict.detail,
+    });
+    return fail(reason, learnerFacingError('completing your upgrade', reference));
   }
 
   // 7. If a pending entitlement was used, mark it fulfilled + link the vacancy.

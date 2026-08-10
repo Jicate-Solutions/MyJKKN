@@ -6,6 +6,10 @@ import {
   acceptUpgrade,
   type AcceptUpgradeInput,
 } from '@/lib/services/campus-living/premium-upgrade-service';
+import {
+  learnerFacingError,
+  logWithReference,
+} from '@/lib/services/campus-living/error-sanitize';
 
 /** Roles allowed to accept an upgrade on behalf of a learner (warden / admin). */
 const STAFF_ROLES = ['warden', 'admin', 'super_admin', 'administrator'];
@@ -79,7 +83,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Internal server error';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    // Never surface raw database/driver text to a learner — log the full error
+    // server-side, return a plain sentence + reference (2026-08-07).
+    const reference = logWithReference('campus-living', 'premium-upgrade accept route error', e);
+    return NextResponse.json(
+      { error: learnerFacingError('processing your upgrade', reference), reference },
+      { status: 500 }
+    );
   }
 }

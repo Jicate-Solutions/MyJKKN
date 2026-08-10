@@ -110,7 +110,9 @@ function ProgramEligibilityPageInner() {
                 categories those students may use (with an institution-wide default
                 + per-program overrides), and reserve specific blocks / floors /
                 rooms for cohorts under Physical Rooms. Rules from every institution
-                are listed together — pick the institution when you add one.
+                are listed together — pick the institution when you add one. The fee
+                a student is matched on is the one billed for their <strong>admission
+                year</strong>, so a band decision holds for their whole course.
               </p>
             </div>
 

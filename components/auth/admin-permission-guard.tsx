@@ -1,8 +1,8 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode } from 'react';
 import { usePermissions } from '@/hooks/use-permissions';
-import { UserService } from '@/lib/services/users/user-service';
+import { useAuth } from '@/hooks/use-auth';
 import { SYSTEM_ROLES } from '@/types/auth';
 
 interface AdminPermissionGuardProps {
@@ -39,33 +39,19 @@ export function AdminPermissionGuard({
   loading = null,
   adminRoles = [SYSTEM_ROLES.SUPER_ADMIN, SYSTEM_ROLES.ADMINISTRATOR]
 }: AdminPermissionGuardProps) {
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // The AuthProvider already holds the viewer's profiles row (fetched once,
+  // app-wide). Until 2026-08-02 this guard ALSO fired its own
+  // refreshSession() + getUser() + profiles select on every mount — three
+  // redundant network calls per guarded page — only to read profile.role,
+  // the exact field the shared context carries.
+  const { profile, isLoading: authLoading } = useAuth();
+  const userRole = profile?.role ?? null;
 
   // The permissions hook gives us admin status directly
-  const { isSuperAdmin } = usePermissions();
-
-  // Check user role for admin status
-  useEffect(() => {
-    const fetchUserRole = async () => {
-      try {
-        setIsLoading(true);
-        const { data: profile } = await UserService.getCurrentUserProfile();
-        if (profile) {
-          setUserRole(profile.role);
-        }
-      } catch (error) {
-        console.error('Error fetching user role:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUserRole();
-  }, []);
+  const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
 
   // Handle loading state
-  if (isLoading) {
+  if (authLoading || permissionsLoading) {
     return <>{loading}</>;
   }
 
