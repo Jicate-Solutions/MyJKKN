@@ -32374,3 +32374,25 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authenticated, service_role;
+
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+-- Defaults hr_leave_applications.hr_academic_year_id from start_date. Possible
+-- only because HR years are group-wide and non-overlapping, so exactly one year
+-- contains any given day -- the per-institution predecessor could not do this.
+CREATE OR REPLACE FUNCTION public.hr_trig_default_hr_academic_year()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public', 'extensions'
+AS $function$
+BEGIN
+  IF NEW.hr_academic_year_id IS NULL THEN
+    -- Aliased: unqualified start_date/end_date would sit next to NEW.start_date
+    -- and read ambiguously.
+    SELECT y.id INTO NEW.hr_academic_year_id
+    FROM public.hr_academic_years y
+    WHERE y.is_active AND NEW.start_date BETWEEN y.start_date AND y.end_date;
+  END IF;
+  RETURN NEW;
+END $function$;

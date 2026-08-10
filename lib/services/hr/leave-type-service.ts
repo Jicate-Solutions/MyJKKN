@@ -116,14 +116,14 @@ export class HRLeaveTypeService {
     supabase: SupabaseClient,
     employeeId: string,
     leaveTypeId: string,
-    academicYearId: string | null,
+    hrAcademicYearId: string | null,
     /** Request date; omitted means today. Must match what enforcement sees. */
     onDate?: string
   ): Promise<StoUsage> {
     const { data, error } = await supabase.rpc('hr_sto_usage', {
       p_staff_id: employeeId,
       p_leave_type_id: leaveTypeId,
-      p_academic_year_id: academicYearId,
+      p_hr_academic_year_id: hrAcademicYearId,
       ...(onDate ? { p_on: onDate } : {}),
     });
     if (error) throw error;
@@ -144,14 +144,14 @@ export class HRLeaveTypeService {
     supabase: SupabaseClient,
     employeeId: string,
     leaveTypeId: string,
-    academicYearId: string | null,
+    hrAcademicYearId: string | null,
     /** Request date; omitted means today. Must match what enforcement sees. */
     onDate?: string
   ): Promise<LeavePeriodUsage> {
     const { data, error } = await supabase.rpc('hr_leave_period_usage', {
       p_staff_id: employeeId,
       p_leave_type_id: leaveTypeId,
-      p_academic_year_id: academicYearId,
+      p_hr_academic_year_id: hrAcademicYearId,
       ...(onDate ? { p_on: onDate } : {}),
     });
     if (error) throw error;
@@ -174,22 +174,22 @@ export class HRLeaveTypeService {
   }
 
   /**
-   * Institution-wise provisioning analytics for the current (or named)
-   * academic year.
+   * Institution-wise provisioning analytics for one HR academic year.
    *
-   * `academicYearName` is a NAME, not an id — academic_years rows are
-   * per-institution, so one id cannot address a cross-institution view.
-   * Pass null to resolve "the year containing today" per institution.
+   * Pass null to resolve "the year containing today". An id is enough now that
+   * HR years are group-wide — this used to take the year NAME, because
+   * academic_years rows are per-institution and no single id could address a
+   * cross-institution view.
    *
    * The RPC self-authorizes on hr.leave.balance.manage and scopes rows with
    * role_has_institution_access, so callers get only their own institutions.
    */
   static async getBalanceAnalytics(
     supabase: SupabaseClient,
-    academicYearName: string | null
+    hrAcademicYearId: string | null
   ): Promise<HRLeaveBalanceAnalytics> {
     const { data, error } = await supabase.rpc('hr_leave_balance_analytics', {
-      p_academic_year_name: academicYearName,
+      p_hr_academic_year_id: hrAcademicYearId,
     });
     if (error) throw error;
     return data as HRLeaveBalanceAnalytics;
@@ -198,12 +198,12 @@ export class HRLeaveTypeService {
   static async generateBalances(
     supabase: SupabaseClient,
     hrOrgId: string,
-    academicYearId: string,
+    hrAcademicYearId: string,
     dryRun: boolean
   ): Promise<GenerateBalancesResult> {
     const { data, error } = await supabase.rpc('generate_hr_leave_balances', {
       p_hr_org_id: hrOrgId,
-      p_academic_year_id: academicYearId,
+      p_hr_academic_year_id: hrAcademicYearId,
       p_dry_run: dryRun,
     });
     if (error) throw error;

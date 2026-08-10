@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * The balance generator. Extracted verbatim from the page when the Analytics
- * tab was added — behaviour is unchanged.
+ * The balance generator. Extracted from the page when the Analytics tab was
+ * added; moved onto hr_academic_years on 2026-08-10.
  */
 
 import { useState } from 'react';
@@ -16,26 +16,28 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
-import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useHRAcademicYears } from '@/hooks/hr/use-hr-academic-years';
 import { useGenerateBalances } from '@/hooks/hr/use-hr-leave-types';
 import type { GenerateBalancesResult } from '@/lib/services/hr/leave-type-service';
 import { getErrorMessage } from '@/lib/utils';
 
 export function GenerateBalancesForm() {
-  const { mappings, institutionIdByOrg } = useHrOrgMappings();
+  const { mappings } = useHrOrgMappings();
   const [hrOrgId, setHrOrgId] = useState('');
-  const [academicYearId, setAcademicYearId] = useState('');
+  const [hrAcademicYearId, setHrAcademicYearId] = useState('');
   const [result, setResult] = useState<GenerateBalancesResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const institutionId = hrOrgId ? institutionIdByOrg.get(hrOrgId) : undefined;
-  const { data: yearsResp } = useAcademicYears(institutionId);
+  // Group-wide years, so the two selects are independent. This used to map
+  // hr_organization_id -> institution_id -> academic_years, which meant an org
+  // whose institution had no year configured could not be generated at all.
+  const { data: years = [] } = useHRAcademicYears({ isActive: true });
   const mutation = useGenerateBalances();
 
   const run = async (dryRun: boolean) => {
     setError(null);
     try {
-      const res = await mutation.mutateAsync({ hrOrgId, academicYearId, dryRun });
+      const res = await mutation.mutateAsync({ hrOrgId, hrAcademicYearId, dryRun });
       setResult(res);
     } catch (err) {
       // Supabase errors are plain objects, not Error instances.
@@ -44,12 +46,11 @@ export function GenerateBalancesForm() {
     }
   };
 
-  const canRun = !!hrOrgId && !!academicYearId && !mutation.isPending;
-  const years = yearsResp?.data ?? [];
+  const canRun = !!hrOrgId && !!hrAcademicYearId && !mutation.isPending;
 
   return (
     <Card>
-      <CardHeader><CardTitle>Generate balances for an academic year</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Generate balances for an HR academic year</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <Alert>
           <AlertCircle className="h-4 w-4" />
@@ -65,7 +66,7 @@ export function GenerateBalancesForm() {
             <Label>Organization</Label>
             <Select
               value={hrOrgId}
-              onValueChange={(v) => { setHrOrgId(v); setAcademicYearId(''); setResult(null); }}
+              onValueChange={(v) => { setHrOrgId(v); setResult(null); }}
             >
               <SelectTrigger><SelectValue placeholder="Select an organization" /></SelectTrigger>
               <SelectContent>
@@ -78,25 +79,22 @@ export function GenerateBalancesForm() {
             </Select>
           </div>
           <div>
-            <Label>Academic Year</Label>
+            <Label>HR Academic Year</Label>
             <Select
-              value={academicYearId}
-              onValueChange={(v) => { setAcademicYearId(v); setResult(null); }}
-              disabled={!hrOrgId}
+              value={hrAcademicYearId}
+              onValueChange={(v) => { setHrAcademicYearId(v); setResult(null); }}
             >
-              <SelectTrigger><SelectValue placeholder="Select an academic year" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Select an HR academic year" /></SelectTrigger>
               <SelectContent>
                 {years.map((y) => (
-                  <SelectItem key={y.id} value={y.id}>{y.academic_year_name}</SelectItem>
+                  <SelectItem key={y.id} value={y.id}>{y.year_name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {/* An org with no academic_years row cannot be generated at all —
-                say so instead of leaving an empty dropdown. */}
-            {hrOrgId && years.length === 0 && (
+            {years.length === 0 && (
               <p className="mt-1.5 text-xs text-destructive">
-                This organization has no academic years configured, so balances cannot be
-                generated. Create an academic year for it first.
+                No HR academic years are configured, so balances cannot be generated.
+                Create one under HR → Admin → HR Academic Years first.
               </p>
             )}
           </div>

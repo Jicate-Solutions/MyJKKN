@@ -35,7 +35,6 @@ import {
 import {
   AlertTriangle,
   Building2,
-  CalendarX2,
   CircleSlash,
   Info,
   Layers,
@@ -105,11 +104,6 @@ const STATUS_META: Record<
     tone: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-400',
     hint: 'Zero active leave types — the generator would write 0 rows and still report success.',
   },
-  no_academic_year: {
-    label: 'No academic year',
-    tone: 'border-red-600/30 bg-red-600/10 text-red-700 dark:text-red-400',
-    hint: 'No academic year covers this period, so the generator cannot run at all.',
-  },
   no_staff: {
     label: 'No team members',
     tone: 'border-muted-foreground/30 bg-muted text-muted-foreground',
@@ -120,8 +114,14 @@ const STATUS_META: Record<
 const nf = new Intl.NumberFormat('en-IN');
 const fmt = (n: number) => nf.format(Math.round(n));
 
-/** Blocking states — the generator physically cannot fix these. */
-const BLOCKED: HRLeaveCoverageStatus[] = ['no_types', 'no_academic_year'];
+/**
+ * Blocking states — the generator physically cannot fix these.
+ *
+ * 'no_academic_year' used to sit here too. It cannot occur now that one
+ * group-wide HR year serves every institution: a missing year is a page-level
+ * condition, handled once below, not a per-institution badge.
+ */
+const BLOCKED: HRLeaveCoverageStatus[] = ['no_types'];
 
 export function LeaveBalanceAnalytics() {
   const [year, setYear] = useState<string | null>(null);
@@ -201,7 +201,7 @@ export function LeaveBalanceAnalytics() {
       {/* ── Controls ─────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-[220px]">
-          <Label className="text-xs text-muted-foreground">Academic year</Label>
+          <Label className="text-xs text-muted-foreground">HR academic year</Label>
           <Select
             value={year ?? '__current__'}
             onValueChange={(v) => setYear(v === '__current__' ? null : v)}
@@ -211,14 +211,14 @@ export function LeaveBalanceAnalytics() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__current__">
-                Current year{data?.academic_year_name ? ` — ${data.academic_year_name}` : ''}
+                Current year{data?.year_name ? ` — ${data.year_name}` : ''}
               </SelectItem>
               {(data?.academic_years ?? []).map((y) => (
-                <SelectItem key={y.ay_name} value={y.ay_name}>
-                  {y.ay_name}
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {y.institutions} institution{y.institutions === 1 ? '' : 's'}
-                  </span>
+                <SelectItem key={y.id} value={y.id}>
+                  {y.year_name}
+                  {y.is_current && (
+                    <span className="ml-2 text-xs text-muted-foreground">current</span>
+                  )}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -294,7 +294,7 @@ export function LeaveBalanceAnalytics() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Leave days by institution</CardTitle>
             <CardDescription>
-              Total entitlement days provisioned for {data?.academic_year_name ?? 'the selected year'}
+              Total entitlement days provisioned for {data?.year_name ?? 'the selected year'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -457,7 +457,8 @@ export function LeaveBalanceAnalytics() {
                   <TableHead className="text-right">Types</TableHead>
                   <TableHead className="text-right">Days / head</TableHead>
                   <TableHead className="text-right">Total days</TableHead>
-                  <TableHead>Academic year</TableHead>
+                  {/* No per-row year column: one HR year covers every
+                      institution, and it is already named in the switcher. */}
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -494,9 +495,6 @@ export function LeaveBalanceAnalytics() {
                       </TableCell>
                       <TableCell className="text-right font-medium tabular-nums">
                         {i.entitled > 0 ? fmt(i.entitled) : '—'}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {i.ay_name ?? <span className="text-red-600 dark:text-red-400">none</span>}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -568,9 +566,7 @@ function GapRow({
   blocking?: boolean;
 }) {
   const meta = STATUS_META[inst.status];
-  const Icon = inst.status === 'no_academic_year' ? CalendarX2
-    : inst.status === 'no_types' ? CircleSlash
-    : AlertTriangle;
+  const Icon = inst.status === 'no_types' ? CircleSlash : AlertTriangle;
   const missing = inst.active_staff - inst.staff_covered;
 
   return (
