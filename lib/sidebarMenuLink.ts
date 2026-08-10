@@ -1141,6 +1141,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/safety/anti-ragging': 'campus_living.safety.anti_ragging.view',
   '/campus-living/safety/inspections': 'campus_living.safety.inspections.view',
   '/campus-living/analytics': 'campus_living.analytics.view',
+  // Read-only practice run for settle-then-bill. Gated on the same permission
+  // fn_settle_bill_close itself demands, so nobody reads the list who could not
+  // authorize the run.
+  '/campus-living/settle-preview': 'campus_living.fees.config',
   '/campus-living/reports': 'campus_living.reports.view',
   '/campus-living/settings': 'campus_living.settings.view',
   '/campus-living/settings/approval-chains': 'campus_living.approval_chains.view',

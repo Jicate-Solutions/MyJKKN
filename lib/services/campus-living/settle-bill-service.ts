@@ -71,12 +71,14 @@ export interface SettleCloseLine {
   learner_id?: string;
   profile_id?: string;
   action: 'would_bill' | 'billed' | 'skipped';
-  reason?: 'not_a_learner' | 'already_billed';
+  // 'flat_package' is emitted by fn_settle_bill_close for a learner whose hostel
+  // fee is one bundled package price; it was missing from this union.
+  reason?: 'not_a_learner' | 'already_billed' | 'flat_package';
   amount: number;
 }
 
 /** The compute primitives both money paths return so the canonical engine can re-derive them. */
-interface FeePrimitives {
+export interface FeePrimitives {
   capacity?: number;
   per_bed_annual_rate?: number;
   ac_tonnage?: number;
@@ -227,8 +229,12 @@ export async function openSettleWindow(
  * One resident's share at a given occupancy, straight from the canonical engine.
  * `messAnnualFee` is 0 on purpose — the settle bill covers only the
  * occupancy-sensitive room share.
+ *
+ * Exported so the read-only practice-run report prices a room through the very
+ * same derivation the parity gate uses to authorize the biller — rather than
+ * growing a second copy of the arithmetic.
  */
-function canonicalShare(p: FeePrimitives, occupants: number): number {
+export function canonicalShare(p: FeePrimitives, occupants: number): number {
   const tonnage = Number(p.ac_tonnage ?? 0);
   const perMonth = Number(p.ac_base_inr_per_month_24h ?? 0);
   return computeFeeBreakdown({
