@@ -1287,6 +1287,14 @@ export default function AttendanceMarkPage() {
     // section source: the parent slot carries no section_id/section_ids, so mirror the
     // student-load path (see loadStudents) and the section_ids save param below — otherwise
     // saving a practical batch fails with "Missing section information".
+    // Updated: 2026-08-10 (BUG-003168) - A practical batch whose own
+    // section_ids was never filled in at timetable setup (e.g. an Ortho
+    // practical drawing students by programme/semester rather than a fixed
+    // section) leaves every source above empty even though the roster loaded
+    // fine — fn_attendance_roster falls back to programme/semester when no
+    // section is given, and each returned student still carries their own
+    // real section_id. Fall back to that rather than blocking a save the
+    // page already let the user fill out.
     const effectiveSectionId =
       (practicalSelection?.section_ids && practicalSelection.section_ids.length > 0
         ? practicalSelection.section_ids[0]
@@ -1295,7 +1303,9 @@ export default function AttendanceMarkPage() {
       sectionId ||
       (contextData?.section_ids && contextData.section_ids.length > 0
         ? contextData.section_ids[0]
-        : null);
+        : null) ||
+      students.find((s: any) => s.section_id)?.section_id ||
+      null;
 
     if (!effectiveSectionId) {
       toast.error(
@@ -1448,6 +1458,10 @@ export default function AttendanceMarkPage() {
       // Use first section from section_ids array for multi-section periods
       // Updated: 2026-07-20 - Practical periods derive their section from the selected batch
       // (practicalSelection), matching loadStudents and the section_ids save param below.
+      // Updated: 2026-08-10 (BUG-003168) - Same fallback as the pre-check in
+      // handleSaveAttendance: a practical batch with no section_ids of its
+      // own still has real sections on its loaded students (fn_attendance_roster
+      // resolved them by programme/semester), so use those before giving up.
       const effectiveSectionId =
         (practicalSelection?.section_ids && practicalSelection.section_ids.length > 0
           ? practicalSelection.section_ids[0]
@@ -1456,7 +1470,9 @@ export default function AttendanceMarkPage() {
         sectionId ||
         (contextData?.section_ids && contextData.section_ids.length > 0
           ? contextData.section_ids[0]
-          : null);
+          : null) ||
+        students.find((s: any) => s.section_id)?.section_id ||
+        null;
 
       if (!effectiveSectionId) {
         logger.error('academic/attendance/mark', 'No valid section ID found');
