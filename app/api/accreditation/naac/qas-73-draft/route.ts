@@ -51,8 +51,7 @@ export async function GET(request: NextRequest) {
 
     // Permission gate — reuse the existing NAAC DCF/AQAR export key.
     const { data: canExport } = await (supabase as any).rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'accreditation.naac.dcf_export',
+      permission_name: 'accreditation.naac.dcf_export',
     });
     if (!canExport) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

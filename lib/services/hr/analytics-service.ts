@@ -121,7 +121,7 @@ export class HRAnalyticsService {
   ): Promise<HeadcountByInstitution[]> {
     let query = supabase
       .from('staff')
-      .select('id, institution_id, is_active, institutions!inner(name)');
+      .select('id, institution_id, is_active, institutions!staff_institution_id_fkey!inner(name)');
 
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
@@ -167,7 +167,7 @@ export class HRAnalyticsService {
   ): Promise<HeadcountTrend[]> {
     let query = supabase
       .from('staff')
-      .select('created_at, institution_id, institutions!inner(name)')
+      .select('created_at, institution_id, institutions!staff_institution_id_fkey!inner(name)')
       .gte('created_at', cutoff);
 
     if (institutionId) {
@@ -206,7 +206,7 @@ export class HRAnalyticsService {
     // Joined: staff created in period
     let joinedQuery = supabase
       .from('staff')
-      .select('institution_id, institutions!inner(name)')
+      .select('institution_id, institutions!staff_institution_id_fkey!inner(name)')
       .gte('created_at', cutoff);
 
     if (institutionId) joinedQuery = joinedQuery.eq('institution_id', institutionId);
@@ -218,7 +218,7 @@ export class HRAnalyticsService {
     // (proxy for termination — no separate termination_date column guaranteed)
     let leftQuery = supabase
       .from('staff')
-      .select('institution_id, institutions!inner(name)')
+      .select('institution_id, institutions!staff_institution_id_fkey!inner(name)')
       .eq('is_active', false)
       .gte('updated_at', cutoff);
 
@@ -333,7 +333,7 @@ export class HRAnalyticsService {
     let query = supabase
       .from('hr_leave_balances')
       .select(
-        'allocated, used, staff!inner(institution_id, institutions!inner(name))'
+        'allocated, used, staff!inner(institution_id, institutions!staff_institution_id_fkey!inner(name))'
       );
 
     if (institutionId) {

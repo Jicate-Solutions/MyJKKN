@@ -270,7 +270,7 @@ export const GUIDES: GuideBook = {
         'Set the foundations: years, hostels, categories, eligibility',
         'Configure fees and amenities',
         'Set up the mess and caterers',
-        'Configure premium stay and bed economics',
+        'Configure premium room and bed economics',
         'Set the rules: leave, curfew, approvals, SLAs',
       ],
       sections: [
@@ -376,7 +376,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'premium-economics',
-          title: '4. Premium stay and bed economics',
+          title: '4. Premium room and bed economics',
           steps: [
             {
               action: 'Set the **premium Allocation Rules** — who can book premium rooms and how.',
@@ -384,7 +384,7 @@ export const GUIDES: GuideBook = {
             },
             {
               action: 'Set the premium **Tier Policy**, and use **Override** for one-off admin adjustments.',
-              detail: 'The tier rules for premium stay, plus the override screen when you need to make an exception.',
+              detail: 'The tier rules for premium room, plus the override screen when you need to make an exception.',
               link: { label: 'Tier Policy', href: '/campus-living/premium/tier-policy' },
             },
             {
@@ -442,7 +442,7 @@ export const GUIDES: GuideBook = {
     ['Default allocation', 'The room and mess you are given automatically by your course and year — no booking needed.'],
     ['Tier / Plan', 'The level of your room or mess (Classic, Premium, and so on). Higher tiers cost more and offer more.'],
     ['Upgrade', 'Moving from your default to a higher room or mess tier, for a one-time fee shown on the page. There is no downgrade.'],
-    ['Premium Stay', 'The premium-room option where YOU choose your own room and roommate online, instead of being auto-allocated.'],
+    ['Premium Room', 'The premium-room option where YOU choose your own room and roommate online, instead of being auto-allocated.'],
     ['Mess plan', 'Which set of food you are on — Classic or Premium. It decides the menu you see in My Meals.'],
     ['Choose Your Menu', 'When switched on, lets eligible residents pick their own meals from the menu, instead of just eating the fixed menu.'],
     ['Minimum due', 'The smallest part of your year fee you must pay to confirm a booking or upgrade (the rest follows later).'],

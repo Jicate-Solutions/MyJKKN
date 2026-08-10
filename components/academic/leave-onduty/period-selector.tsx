@@ -27,6 +27,13 @@ interface PeriodSelectorProps {
   selectedPeriods: string[];
   onPeriodTypeChange: (type: PeriodType) => void;
   onPeriodsChange: (periods: string[]) => void;
+  /**
+   * Reports whether this date can actually be applied for. The server rejects
+   * an application whenever period detection fails (leave-onduty-service
+   * createApplication), so the form must gate submission on this rather than
+   * let the learner fill everything in and hit a throw.
+   */
+  onAvailabilityChange?: (available: boolean) => void;
   disabled?: boolean;
   className?: string;
 }
@@ -39,6 +46,7 @@ export function PeriodSelector({
   selectedPeriods,
   onPeriodTypeChange,
   onPeriodsChange,
+  onAvailabilityChange,
   disabled = false,
   className,
 }: PeriodSelectorProps) {
@@ -61,6 +69,18 @@ export function PeriodSelector({
     isLoading,
     error,
   });
+
+  const hasTimetable = !!periodDetection?.valid && !error;
+
+  // Tell the parent form whether this date is applicable-for. Until period
+  // detection succeeds the server will reject the application outright, so the
+  // submit button must be disabled rather than the learner being told the
+  // application "will be processed".
+  useEffect(() => {
+    if (isLoading) return;
+    onAvailabilityChange?.(hasTimetable);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasTimetable, isLoading, selectedDate]);
 
   // Auto-update selected periods when period type changes
   // Guard against redundant updates to prevent re-render cascades on mobile
@@ -106,7 +126,6 @@ export function PeriodSelector({
     );
   }
 
-  const hasTimetable = periodDetection?.valid && !error;
   const timetableData = periodDetection?.timetable || {};
   const availablePeriods = Object.keys(timetableData);
 
@@ -162,17 +181,24 @@ export function PeriodSelector({
         )}
       </div>
 
-      {/* Timetable Warning - Show if no timetable found */}
+      {/* No periods for this date — this BLOCKS submission.
+          The previous copy promised the application "will be processed based on
+          the selected period type", but createApplication throws whenever period
+          detection fails. Say what actually happens instead. */}
       {!isLoading && !hasTimetable && (
-        <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 p-3 sm:p-4">
+        <div className="rounded-md bg-red-50 dark:bg-red-900/20 p-3 sm:p-4">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-yellow-600 dark:text-yellow-500 mt-0.5 flex-shrink-0" />
+            <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-red-600 dark:text-red-500 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-xs sm:text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                No timetable found
+              <p className="text-xs sm:text-sm font-medium text-red-800 dark:text-red-200">
+                No classes found for this date
               </p>
-              <p className="text-[10px] sm:text-xs text-yellow-700 dark:text-yellow-300 mt-1">
-                {periodDetection?.error || 'No timetable found for selected date. Your application will be processed based on the selected period type.'}
+              <p className="text-[10px] sm:text-xs text-red-700 dark:text-red-300 mt-1">
+                {periodDetection?.error || 'No timetable found for the selected date.'}
+              </p>
+              <p className="text-[10px] sm:text-xs text-red-700 dark:text-red-300 mt-1">
+                You cannot submit an application for this date. Pick another date,
+                or contact your administrator if your timetable looks wrong.
               </p>
             </div>
           </div>

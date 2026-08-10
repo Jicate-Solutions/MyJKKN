@@ -28,6 +28,7 @@ import {
   Pencil,
   Loader2,
   ChevronRight,
+  Eye,
   Globe,
   Users,
 } from 'lucide-react';
@@ -60,7 +61,10 @@ import {
 import type { Event, EventStatus } from '@/types/events';
 import { SOI_EVENT_TYPE } from '@/lib/services/school-of-influence/constants';
 import { EditGeneralEventDialog } from '../_components/edit-general-event-dialog';
+import { canEditEvent } from '../_components/event-display';
 import { EventFormCards } from '@/components/events/registration/event-form-cards';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 /** 'cultural' → 'Cultural', 'sports_day' → 'Sports Day' (raw types render readable). */
@@ -130,7 +134,13 @@ function Fact({
  * here — it has no draft -> live edge, so a one-click activation gated on it
  * would be rejected server-side.
  */
-function GeneralEventStatusControl({ event }: { event: Event }) {
+function GeneralEventStatusControl({
+  event,
+  canEdit,
+}: {
+  event: Event;
+  canEdit: boolean;
+}) {
   const updateStatus = useUpdateGeneralEventStatus();
   const active = isGeneralEventActive(event.status);
   const target: EventStatus = active ? 'draft' : GENERAL_EVENT_ACTIVE_STATUS;
@@ -150,6 +160,8 @@ function GeneralEventStatusControl({ event }: { event: Event }) {
           <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
         )}
       </Badge>
+      {/* Read-only viewers keep the status badge and lose the lever. */}
+      {canEdit && (
       <Button
         size="sm"
         variant="outline"
@@ -165,6 +177,7 @@ function GeneralEventStatusControl({ event }: { event: Event }) {
         {updateStatus.isPending && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
         {active ? 'Move to Draft' : 'Make Active'}
       </Button>
+      )}
     </div>
   );
 }
@@ -175,7 +188,13 @@ function GeneralEventStatusControl({ event }: { event: Event }) {
  * create wizard files every general event with is_public = false — so
  * activating alone never makes an event publicly visible.
  */
-function PublicVisibilityToggle({ event }: { event: Event }) {
+function PublicVisibilityToggle({
+  event,
+  canEdit,
+}: {
+  event: Event;
+  canEdit: boolean;
+}) {
   const update = useUpdateGeneralEvent();
   const active = isGeneralEventActive(event.status);
 
@@ -197,7 +216,8 @@ function PublicVisibilityToggle({ event }: { event: Event }) {
       <Switch
         id="ge-public"
         checked={event.is_public}
-        disabled={update.isPending}
+        // Non-owners still see the current visibility — they just can't move it.
+        disabled={!canEdit || update.isPending}
         onCheckedChange={(next) =>
           update.mutate({ id: event.id, dto: { is_public: next } })
         }
@@ -213,7 +233,22 @@ export default function GeneralEventDetailPage() {
 
   const { data: event, isLoading, isError } = useGeneralEvent(id);
   const { institutions } = useInstitutionsWithAccess();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Whoever created the event edits it; everyone else reads it. Mirrors the
+  // events_auth_update policy — see canEditEvent. Every write lever on this page
+  // (status, public visibility, the Edit dialog) hangs off this one flag.
+  // profile.id is the auth uid (profiles.id = auth.uid()), so it is what
+  // events.created_by is compared against.
+  const canEdit =
+    !!event &&
+    canEditEvent(event, {
+      userId: profile?.id,
+      institutionId: profile?.institution_id,
+      isSuperAdmin,
+    });
 
   // A specialised event type reached through this URL belongs to its own
   // console — this page cannot manage divisions, sessions or race ops.
@@ -324,16 +359,25 @@ export default function GeneralEventDetailPage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <GeneralEventStatusControl event={event} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5"
-              onClick={() => setDialogOpen(true)}
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Button>
+            <GeneralEventStatusControl event={event} canEdit={canEdit} />
+            {canEdit ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setDialogOpen(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </Button>
+            ) : (
+              // Say why the lever is missing. An absent Edit button with no
+              // explanation reads as a broken page, not as a permission.
+              <Badge variant="outline" className="gap-1.5 text-[10px] font-normal">
+                <Eye className="h-3 w-3 opacity-60" />
+                View only — owned by its creator
+              </Badge>
+            )}
           </div>
         </div>
 
@@ -400,7 +444,7 @@ export default function GeneralEventDetailPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <PublicVisibilityToggle event={event} />
+              <PublicVisibilityToggle event={event} canEdit={canEdit} />
               <div className="space-y-2 rounded-lg border p-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground">External registration</span>

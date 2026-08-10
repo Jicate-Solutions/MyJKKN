@@ -90,6 +90,19 @@ export const createLearnerSchema = z
     // accommodation_type here always failed even on a valid pick.
     accommodation_type_id: z.string().uuid('Select a valid accommodation type'),
 
+    // ---- Optional: Tamil-script name (nullable text columns).
+    // Declared here purely so the strict z.object() does not STRIP them before
+    // the insert — same failure mode documented for tenth_marks below. Never
+    // required: a learner without a Tamil name must still save.
+    first_name_tamil: z.string().nullable().optional(),
+    last_name_tamil: z.string().nullable().optional(),
+
+    // ---- Optional: external identifiers (ABC / EMIS / UMIS).
+    // Declared so the strict z.object() does not STRIP them before the insert.
+    abc_id: z.string().nullable().optional(),
+    emis: z.string().nullable().optional(),
+    umis: z.string().nullable().optional(),
+
     // ---- Optional: 35 bulk-upload optional fields (passthrough)
     aadhar_number: z.string().optional(),
     blood_group: z.enum(asTuple(BLOOD_GROUP_VALUES)).optional().or(z.literal('')),

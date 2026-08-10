@@ -418,6 +418,10 @@
     {
       "path": "/api/cron/ai-lane-heartbeat?secret=${CRON_SECRET}",
       "schedule": "19 * * * *"
+    },
+    {
+      "schedule": "23 * * * *",
+      "path": "/api/cron/lc-broadcast-autosend?secret=${CRON_SECRET}"
     }
   ]
 }

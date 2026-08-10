@@ -15,15 +15,29 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Check, X, Minus, Users, BedDouble, AlertTriangle, Filter, RotateCcw } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Check,
+  X,
+  Minus,
+  Users,
+  BedDouble,
+  AlertTriangle,
+  Filter,
+  RotateCcw,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+} from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import type { AllocationCandidate, BillState } from '@/types/allocation-batch';
-
-const BILL_STATE_LABEL: Record<BillState, string> = {
-  matched: 'Admission year',
-  different_year: 'Fallback year',
-  untagged: 'No usable bill',
-  none: 'No bill',
-};
+import { BILL_STATE_LABEL } from './candidate-display';
 
 // Shows the fee the Category-Eligibility band was matched against, and which
 // academic year it was read from. 'matched' = the learner's admission year (the
@@ -127,9 +141,18 @@ function FilterSelect({
 export function CandidateValidationTable({
   candidates,
   availableBeds,
+  hostelType,
+  strict,
+  scope = [],
 }: {
   candidates: AllocationCandidate[];
   availableBeds: number;
+  /** 'boys' | 'girls' — stamped into the export header. */
+  hostelType: string;
+  /** The page's Strict physical rules toggle — stamped into the export header. */
+  strict: boolean;
+  /** Page-level cohort selection, pre-labelled. [] => no narrowing. */
+  scope?: string[];
 }) {
   // Summary stats reflect the FULL candidate set (filters only narrow the table).
   const eligible = candidates.filter((c) => c.verdict === 'in').length;
@@ -251,6 +274,57 @@ export function CandidateValidationTable({
     });
   }, [candidates, search, verdict, institution, program, semester, roomCat, messCat, billState, gender, targetBlock]);
 
+  // ── Export ────────────────────────────────────────────────────────────
+  // Human-readable form of whatever is currently narrowing the table. Stamped
+  // into both files so an exported subset can't be read as the full cohort.
+  const activeFilterLabels = useMemo(() => {
+    const out: string[] = [];
+    const q = search.trim();
+    if (q) out.push(`Search: "${q}"`);
+    if (verdict !== ALL) out.push(`Verdict: ${verdict === 'in' ? 'In (eligible)' : 'Out (excluded)'}`);
+    if (institution !== ALL) out.push(`Institution: ${institution}`);
+    if (program !== ALL) out.push(`Program: ${program}`);
+    if (semester !== ALL) out.push(`Semester: ${semester}`);
+    if (targetBlock !== ALL) out.push(`Goes to block: ${targetBlock}`);
+    if (roomCat !== ALL) out.push(`Room category: ${roomCat}`);
+    if (messCat !== ALL) out.push(`Mess category: ${messCat}`);
+    if (billState !== ALL) out.push(`Bill status: ${BILL_STATE_LABEL[billState as BillState] ?? billState}`);
+    if (gender !== ALL) out.push(`Gender: ${gender}`);
+    return out;
+  }, [search, verdict, institution, program, semester, targetBlock, roomCat, messCat, billState, gender]);
+
+  const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null);
+
+  const runExport = async (kind: 'excel' | 'pdf') => {
+    if (filtered.length === 0) {
+      toast.error('No rows to export — clear the filters and try again.');
+      return;
+    }
+    setExporting(kind);
+    try {
+      // Dynamic import keeps xlsx + jsPDF out of the Auto-Allocate page bundle.
+      const mod = await import('./candidates-export');
+      const ctx = {
+        hostelType,
+        strict,
+        scope,
+        filters: activeFilterLabels,
+        totalCandidates: candidates.length,
+        totalEligible: eligible,
+        availableBeds,
+      };
+      if (kind === 'excel') mod.exportCandidatesExcel(filtered, ctx);
+      else mod.exportCandidatesPdf(filtered, ctx);
+      toast.success(
+        `Exported ${filtered.length} row${filtered.length === 1 ? '' : 's'} to ${kind === 'excel' ? 'Excel' : 'PDF'}`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to export the preview');
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
@@ -293,11 +367,40 @@ export function CandidateValidationTable({
                 Showing {filtered.length} of {candidates.length}
               </span>
             </CardTitle>
-            {filtersActive && (
-              <Button variant="ghost" size="sm" onClick={resetFilters}>
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset filters
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {filtersActive && (
+                <Button variant="ghost" size="sm" onClick={resetFilters}>
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset filters
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={exporting !== null || filtered.length === 0}
+                  >
+                    {exporting ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Export
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      ({filtered.length})
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => runExport('excel')}>
+                    <FileSpreadsheet className="mr-2 h-4 w-4" /> Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => runExport('pdf')}>
+                    <FileText className="mr-2 h-4 w-4" /> PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
           {/* Advanced filters — one control per meaningful column */}

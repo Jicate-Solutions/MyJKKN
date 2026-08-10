@@ -83,6 +83,14 @@ const config: ModuleNavConfig = {
           icon: 'UserCheck',
           href: '/accreditation/manage/owners',
         },
+        // Which bodies exist, and which apply to which campus. Placed after
+        // Assign Owners because it is what that page's denominator now depends
+        // on: a college is measured only against the bodies mapped here.
+        {
+          label: 'Awarding Bodies',
+          icon: 'Landmark',
+          href: '/accreditation/manage/bodies',
+        },
       ],
     },
     {

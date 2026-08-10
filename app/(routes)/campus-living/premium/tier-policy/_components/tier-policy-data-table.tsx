@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay — Tier Policy Data Table (Director-facing)
+// Premium Room — Tier Policy Data Table (Director-facing)
 // ============================================================================
 // Created: 2026-05-16
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html

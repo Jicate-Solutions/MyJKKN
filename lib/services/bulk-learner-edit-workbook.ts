@@ -74,6 +74,12 @@ export function buildBulkEditColumns(resolvers: ReferenceResolvers): BulkEditCol
     // SECTION 1: Basic Details
     { header: 'First Name', value: (l: any) => l.first_name || '' },
     { header: 'Last Name', value: (l: any) => l.last_name || '' },
+    // Tamil-script name. Nullable columns, so most cells export blank until
+    // they are back-filled. Emitted as plain Unicode text — Excel stores the
+    // sheet as UTF-8 XML, so the glyphs survive a round-trip through the file
+    // regardless of which font the editor's machine renders them with.
+    { header: 'First Name (Tamil)', value: (l: any) => l.first_name_tamil || '' },
+    { header: 'Last Name (Tamil)', value: (l: any) => l.last_name_tamil || '' },
     { header: 'Date of Birth', value: (l: any) => l.date_of_birth || '' },
     { header: 'Gender', value: (l: any) => l.gender || '' },
     { header: 'Religion', value: (l: any) => l.religion || '' },
@@ -87,6 +93,11 @@ export function buildBulkEditColumns(resolvers: ReferenceResolvers): BulkEditCol
     { header: 'Caste', value: (l: any) => l.caste_ref?.name || '' },
     { header: 'Aadhar Number', value: (l: any) => l.aadhar_number || '' },
     { header: 'Blood Group', value: (l: any) => l.blood_group || '' },
+    // External identifiers. Plain text columns — no dropdown, no format check;
+    // most cells export blank until they are back-filled.
+    { header: 'ABC ID', value: (l: any) => l.abc_id || '' },
+    { header: 'EMIS Number', value: (l: any) => l.emis || '' },
+    { header: 'UMIS Number', value: (l: any) => l.umis || '' },
     { header: 'Admission Year ID', value: (l: any) => l.admission_year_id || '' },
     { header: 'Admission Year', value: (l: any) => l.admission_year_obj?.year ?? '' },
 
@@ -249,8 +260,27 @@ const INSTRUCTIONS = [
   '',
   'SECTION 1: Basic Details',
   '• First Name, Last Name, Date of Birth, Gender',
+  '• First Name (Tamil), Last Name (Tamil)',
   '• Religion, Community, Caste, Aadhar Number',
   '• Blood Group, Admission Year',
+  '• ABC ID, EMIS Number, UMIS Number',
+  '',
+  '🆔 ABC ID / EMIS / UMIS',
+  'Identifiers issued outside this system, so any mix of letters and',
+  'digits is accepted and no length is enforced (e.g. ED453871909686).',
+  'They are saved UPPERCASE with spaces removed, so pasting',
+  '"ED 4538 7190 9686" out of a PDF is fine.',
+  'Leave the cell blank for a learner who has not been issued one -',
+  'blank means "no change", so an existing value is never wiped.',
+  '',
+  '🔤 THE TAMIL NAME COLUMNS',
+  'Type or paste Tamil in Unicode - the same text you would type on a',
+  'Tamil (phonetic / Anjal / InScript) keyboard. Most rows export blank',
+  'because these are new fields being filled in over time.',
+  'Do NOT paste text typed in Bamini or SunTommy: those fonts store',
+  'English letters that only LOOK Tamil, so the upload would save the',
+  'letters, not the name. Convert it to Unicode first, or enter that',
+  'learner through Learners > Profiles > Edit, which converts for you.',
   '',
   'SECTION 2: Parent/Guardian Information',
   '• Father Name, Father Occupation, Father Mobile',

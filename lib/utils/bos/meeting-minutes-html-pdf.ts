@@ -2,6 +2,7 @@ import puppeteerCore, { type Browser } from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 import DOMPurify from 'isomorphic-dompurify';
 import { BosMeeting, BosMeetingAttendee, BosAgendaItem, BosMemberType } from '@/types/bos';
+import { PDF_FONT_STACK, pdfFontFaceCss } from './pdf-fonts';
 
 const MEMBER_TYPE_ORDER: Record<BosMemberType, number> = {
   chairman: 1, university_nominee: 2, subject_expert: 3, academic_expert: 4,
@@ -174,6 +175,13 @@ function memberTypeLabel(member?: {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+/** Topic / sub-topic / suggested-by are multi-selects stored as a string or an
+ * array depending on when the row was written. */
+function asList(value: string | string[] | null | undefined): string[] {
+  if (!value) return [];
+  return (Array.isArray(value) ? value : [value]).filter(Boolean);
+}
+
 function generateMinutesHtml({
   meeting,
   attendees,
@@ -196,6 +204,11 @@ function generateMinutesHtml({
   const present = attendees.filter(a => a.attendance_status === 'present');
   const sorted = sortAttendeesForPdf(attendees);
   const presentSorted = sorted.filter(a => a.attendance_status === 'present');
+
+  // Per-syllabus change entries written on the minutes tab. Printed here so the
+  // PDF carries the same section the Word export does — they were diverging,
+  // with the table only ever reaching the .docx.
+  const changesLog = meeting.minutes_content?.changes_log ?? [];
 
   const boardTitle = [boardType, boardName].filter(Boolean).join(' - ').toUpperCase() || 'BOARD OF STUDIES';
 
@@ -276,9 +289,14 @@ function generateMinutesHtml({
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Minutes of Board of Studies Meeting</title>
   <style>
+    /* Embedded faces — see lib/utils/bos/pdf-fonts.ts. Without these the
+       deployed renderer has only Open Sans and substitutes it for Times,
+       widening every column past its designed width. */
+    ${pdfFontFaceCss()}
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Times New Roman', serif;
+      font-family: ${PDF_FONT_STACK};
       line-height: 1.6;
       color: #000;
       background: white;
@@ -749,6 +767,36 @@ ${isCet ? `
       </div>
     ` : ''}
 
+    ${changesLog.length > 0 ? `
+      <div class="section-title">Suggested Changes</div>
+      <table class="changes-table" style="table-layout: fixed;">
+        <thead>
+          <tr>
+            <th style="width: 5.5%;">#</th>
+            <th style="width: 12%;">Course</th>
+            <th style="width: 15%;">Unit</th>
+            <th style="width: 15%;">Topics</th>
+            <th style="width: 15%;">Sub-topics</th>
+            <th style="width: 15%;">Suggested by</th>
+            <th style="width: 22.5%;">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${changesLog.map((row, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td>${htmlEscape(row.syllabus_code ?? '—')}</td>
+              <td>${htmlEscape(row.unit ?? '—')}</td>
+              <td>${htmlEscape(asList(row.topic).join(' · ') || '—')}</td>
+              <td>${htmlEscape(asList(row.sub_topic).join(' · ') || '—')}</td>
+              <td>${htmlEscape(asList(row.suggested_by_name).join(', ') || '—')}</td>
+              <td>${htmlEscape(row.suggestion_text ?? '')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    ` : ''}
+
   </div>
 
   <!-- Page 3: Signatures -->
@@ -866,6 +914,10 @@ export async function generateMinutesHtmlPdf(
 
       console.log('[PDF] Setting page content...');
       await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+      // The embedded faces decode off the main parse; printing before they are
+      // ready would lay the page out against the fallback metrics we are trying
+      // to get away from.
+      await page.evaluate(() => document.fonts.ready);
       console.log('[PDF] Content set, generating PDF...');
 
       // Margins are given in millimetres, not as bare numbers: a bare number is

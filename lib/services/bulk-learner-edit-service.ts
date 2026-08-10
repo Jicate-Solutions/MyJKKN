@@ -134,6 +134,8 @@ interface PreviewResult {
 const FIELD_LABELS: Record<string, string> = {
   first_name: 'First Name',
   last_name: 'Last Name',
+  first_name_tamil: 'First Name (Tamil)',
+  last_name_tamil: 'Last Name (Tamil)',
   date_of_birth: 'Date of Birth',
   gender: 'Gender',
   religion: 'Religion',
@@ -141,6 +143,9 @@ const FIELD_LABELS: Record<string, string> = {
   caste: 'Caste',
   aadhar_number: 'Aadhar Number',
   blood_group: 'Blood Group',
+  abc_id: 'ABC ID',
+  emis: 'EMIS Number',
+  umis: 'UMIS Number',
   admission_year: 'Admission Year',
   father_name: 'Father Name',
   father_occupation: 'Father Occupation',
