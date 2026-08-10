@@ -32109,3 +32109,141 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) TO authenticated, service_role;
+
+
+-- ============================================================================
+-- Campus Living — settle-then-bill: start the clock on every move-in.
+-- Added: 2026-08-10 (migration 20260815070000_settle_window_trigger_and_scope.sql
+--        — FILE ONLY, apply is Director-gated)
+--
+-- Trigger body for trg_allocation_settle_arrival_insert / _update (04_triggers.sql).
+-- Director 2026-08-10: ARRIVALS ONLY. A learner joining a room starts or
+-- restarts that room's settle clock; a learner LEAVING never touches a clock,
+-- because a departure must not postpone the remaining residents' bills. A
+-- learner who moves from room A to room B leaves A's clock alone and starts or
+-- restarts B's — she is only ever billed for where she ends up.
+--
+-- SECURITY DEFINER is load-bearing: a plain trigger runs under the writer's own
+-- RLS, and RLS denial is silent (0 rows, no error), so the window lookup inside
+-- fn_settle_window_open would read nothing and the clock would silently fail to
+-- restart for exactly the callers whose RLS is narrowest.
+--
+-- The EXCEPTION block is load-bearing too: fn_settle_window_open RAISEs 42501
+-- when the writer holds no campus-living permission, and the whole settle
+-- schema may be absent on an environment where the engine migration has not
+-- been applied. An AFTER trigger that raises ABORTS THE INSERT — a learner
+-- would fail to get a bed because a billing window could not be opened.
+-- Placing a learner in a bed outranks opening a billing window.
+--
+-- The hostel year is resolved INSIDE fn_settle_window_open (it COALESCEs a NULL
+-- to fn_settle_current_hostel_year()); one resolver means the trigger can never
+-- disagree with the close and credit paths about which year a window belongs to.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public._on_allocation_settle_arrival()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+BEGIN
+  -- Arrival-only is enforced by the triggers' WHEN clauses; by the time this
+  -- body runs, NEW is an active occupancy of a room it was not already
+  -- actively occupying.
+  BEGIN
+    PERFORM fn_settle_window_open(NEW.room_id);
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING
+      '[campus-living] settle window not opened for room % (allocation %): % [%]',
+      NEW.room_id, NEW.id, SQLERRM, SQLSTATE;
+  END;
+
+  RETURN NULL;  -- AFTER trigger: the return value is ignored.
+END;
+$function$;
+
+-- No GRANT TO authenticated on purpose: no legitimate direct caller, only the
+-- two triggers. Revoked anyway per the CLAUDE.md rule and the CI gate.
+REVOKE EXECUTE ON FUNCTION public._on_allocation_settle_arrival() FROM anon, PUBLIC;
+
+COMMENT ON FUNCTION public._on_allocation_settle_arrival() IS
+  'Starts or restarts a room''s settle window when a learner ARRIVES in it '
+  '(Director 2026-08-10). Departures never touch a clock. Failures are warned '
+  'and swallowed — placing a learner in a bed outranks opening a billing '
+  'window. Inert while hostel.settle_bill.enabled is false.';
+
+-- ============================================================================
+-- fn_settle_can_manage — 2026-08-10: SUPERSEDES THE DEFINITION ABOVE.
+-- (migration 20260815070000_settle_window_trigger_and_scope.sql — FILE ONLY,
+--  apply is Director-gated)
+--
+-- The definition above returns true on `is_super_admin() OR is_admin()` BEFORE
+-- it reads the room's institution, so any admin-flagged person could bill rooms
+-- in a college that is not theirs — and because every settle writer and both
+-- settle read lists route through this one function, that branch was the
+-- engine's entire cross-tenant surface. 45 lines before, 56 after; the only
+-- behavioural change is that a PLAIN is_admin() must now also satisfy
+-- role_has_institution_access() on the room's institution. is_super_admin()
+-- keeps unconditional reach (platform owner), including on a room that does
+-- not exist, so its answer is byte-for-byte what it was. The service_role cron
+-- bypass is unchanged — it was deliberately narrowed in PR #2954 and its
+-- reasoning is reproduced verbatim below.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.fn_settle_can_manage(
+  p_room_id    uuid,
+  p_permission text DEFAULT 'campus_living.fees.config'
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_institution_id uuid;
+BEGIN
+  -- The cron bypass is deliberately NARROW. "No resolvable auth.uid()" alone is
+  -- too broad: a token missing `sub`, a psql session holding EXECUTE, pg_cron,
+  -- or a nested SECURITY DEFINER that reset request.jwt.claims would all land
+  -- here and get unconditional cross-tenant write. The session role must ALSO
+  -- name itself. If the deployed cron runtime reports some other role this gate
+  -- refuses it — which is the correct direction to be wrong in: the mechanism
+  -- is OFF and unwired, so a too-tight gate surfaces in the first dry run,
+  -- whereas a too-loose one is a silent cross-tenant billing hole. Widen it
+  -- deliberately after observing the real role, never pre-emptively.
+  IF auth.uid() IS NULL THEN
+    RETURN COALESCE(
+             (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb)->>'role',
+             ''
+           ) = 'service_role'
+        OR COALESCE(current_setting('role', true), '') = 'service_role';
+  END IF;
+
+  -- 2026-08-10: the room's institution is resolved BEFORE the admin branch.
+  -- It used to be read after it, which is precisely why the admin branch could
+  -- not be scoped.
+  SELECT r.institution_id INTO v_institution_id
+  FROM hostel_rooms r WHERE r.id = p_room_id;
+
+  -- Platform owner: unconditional, and above the NULL-room test so a super
+  -- admin's answer is byte-for-byte what it was before this change.
+  IF is_super_admin() THEN
+    RETURN true;
+  END IF;
+
+  IF v_institution_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  -- 2026-08-10: a plain admin is an admin OF SOMEWHERE. Scoped to the room's
+  -- institution, exactly like the permission path below.
+  IF is_admin() THEN
+    RETURN role_has_institution_access(v_institution_id);
+  END IF;
+
+  RETURN user_has_permission(p_permission)
+     AND role_has_institution_access(v_institution_id);
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authenticated, service_role;
