@@ -32366,7 +32366,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authentica
 -- education_consultant WRITE-ONCE (never overwrite an existing link) and list
 -- the unlinked rows with any pre-existing lead-sync attribution surfaced so the
 -- UI can warn on a conflict before committing. Mirrors the migration
--- supabase/migrations/20260808230000_referral_link_referrer_rpc.sql.
+-- supabase/migrations/20260818010000_referral_link_referrer_rpc.sql.
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION public.fn_link_referral_referrer(
