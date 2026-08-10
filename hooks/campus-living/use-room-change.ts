@@ -10,10 +10,15 @@ const roomChangeKeys = {
   options: ['campus-living', 'room-change', 'options'] as const,
 };
 
-export function useRoomChangeStatus() {
+/** `enabled` lets a caller that only needs the status conditionally (e.g. the
+ *  sole-occupant card on the default Overview tab) skip the RPC entirely. The
+ *  query key is shared, so a second consumer with it enabled still populates
+ *  the same cache. */
+export function useRoomChangeStatus(enabled = true) {
   return useQuery({
     queryKey: roomChangeKeys.status,
     queryFn: () => RoomChangeService.getStatus(),
+    enabled,
   });
 }
 
