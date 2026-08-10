@@ -280,6 +280,20 @@ export const POLICY_KEYS = {
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_PCT: 'fractional_occupancy.empty_vacancy_drop_pct',
   FRACTIONAL_OCCUPANCY_EMPTY_VACANCY_DROP_INTERVAL_DAYS: 'fractional_occupancy.empty_vacancy_drop_interval_days',
 
+  // Hostel Fees — Settle Then Bill (Director 2026-08-09) ---------------------
+  // Don't bill at move-in: let the room fill for WINDOW_DAYS (restarting on
+  // each new joiner, capped at OUTER_LIMIT_DAYS from first open, and short-
+  // circuited the moment the room is full), then bill everyone at the
+  // occupancy that exists at that moment. Seeded global rows by
+  // supabase/migrations/20260815060000_hostel_settle_then_bill.sql:
+  // false / 5 / 20 / 5.
+  // HOSTEL_SETTLE_BILL_ENABLED is the MASTER SWITCH — while false the whole
+  // mechanism is inert (no window opens, nothing is billed, nothing credited).
+  HOSTEL_SETTLE_BILL_ENABLED: 'hostel.settle_bill.enabled',
+  HOSTEL_SETTLE_BILL_WINDOW_DAYS: 'hostel.settle_bill.window_days',
+  HOSTEL_SETTLE_BILL_OUTER_LIMIT_DAYS: 'hostel.settle_bill.outer_limit_days',
+  HOSTEL_SETTLE_BILL_BILL_DUE_DAYS: 'hostel.settle_bill.bill_due_days',
+
   // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
   // Seeded as global system rows by
   // supabase/migrations/20260607120000_bed_economics_substrate.sql (§3) and read
