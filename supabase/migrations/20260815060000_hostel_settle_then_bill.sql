@@ -1,3 +1,8 @@
+-- 2026-08-10 CORRECTION: hostel_rooms has NO institution_id column, so this
+-- file could not be applied at all (42703 on the first policy). A room's
+-- institution is carried by its beds; hostel_rooms' own RLS scopes with
+-- fn_user_can_access_room(id) / role_has_block_access(block_id). Corrected in
+-- place because this migration had never been applied to any environment.
 -- ============================================================================
 -- 20260815060000_hostel_settle_then_bill.sql
 -- Settle-then-bill for hostel rooms — let the room fill, THEN bill what is real.
@@ -167,7 +172,7 @@ CREATE POLICY settle_windows_select_admin ON public.hostel_room_settle_windows
             AND EXISTS (
                 SELECT 1 FROM public.hostel_rooms r
                 WHERE r.id = hostel_room_settle_windows.room_id
-                  AND role_has_institution_access(r.institution_id)))
+                  AND (fn_user_can_access_room(r.id) OR role_has_block_access(r.block_id))))
     );
 
 -- A resident may read the window of the room she actually lives in — that is
@@ -192,7 +197,7 @@ CREATE POLICY settle_windows_insert_admin ON public.hostel_room_settle_windows
             AND EXISTS (
                 SELECT 1 FROM public.hostel_rooms r
                 WHERE r.id = hostel_room_settle_windows.room_id
-                  AND role_has_institution_access(r.institution_id)))
+                  AND (fn_user_can_access_room(r.id) OR role_has_block_access(r.block_id))))
     );
 
 -- WITH CHECK is NOT optional here. Without it the post-image is never
@@ -208,7 +213,7 @@ CREATE POLICY settle_windows_update_admin ON public.hostel_room_settle_windows
             AND EXISTS (
                 SELECT 1 FROM public.hostel_rooms r
                 WHERE r.id = hostel_room_settle_windows.room_id
-                  AND role_has_institution_access(r.institution_id)))
+                  AND (fn_user_can_access_room(r.id) OR role_has_block_access(r.block_id))))
     )
     WITH CHECK (
         (SELECT is_super_admin() OR is_admin())
@@ -216,7 +221,7 @@ CREATE POLICY settle_windows_update_admin ON public.hostel_room_settle_windows
             AND EXISTS (
                 SELECT 1 FROM public.hostel_rooms r
                 WHERE r.id = hostel_room_settle_windows.room_id
-                  AND role_has_institution_access(r.institution_id)))
+                  AND (fn_user_can_access_room(r.id) OR role_has_block_access(r.block_id))))
     );
 
 DROP POLICY IF EXISTS settle_windows_delete_admin ON public.hostel_room_settle_windows;
@@ -227,7 +232,7 @@ CREATE POLICY settle_windows_delete_admin ON public.hostel_room_settle_windows
             AND EXISTS (
                 SELECT 1 FROM public.hostel_rooms r
                 WHERE r.id = hostel_room_settle_windows.room_id
-                  AND role_has_institution_access(r.institution_id)))
+                  AND (fn_user_can_access_room(r.id) OR role_has_block_access(r.block_id))))
     );
 
 -- ----------------------------------------------------------------------------
@@ -319,8 +324,10 @@ BEGIN
     RETURN true;
   END IF;
 
-  SELECT r.institution_id INTO v_institution_id
-  FROM hostel_rooms r WHERE r.id = p_room_id;
+  SELECT b.institution_id INTO v_institution_id
+  FROM hostel_beds b
+  WHERE b.room_id = p_room_id AND b.institution_id IS NOT NULL
+  LIMIT 1;
 
   IF v_institution_id IS NULL THEN
     RETURN false;
