@@ -8767,7 +8767,7 @@ CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_not
 -- Registrar's desk (commissions.manage). Writing a pair score directly is
 -- admin-only — the score is meant to be produced by the functions, not typed.
 -- The anon lock lives in the migration:
--- supabase/migrations/20260817020000_referral_reconciliation_and_pair_scoring.sql
+-- supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
 -- (FILE ONLY, NOT APPLIED).
 ALTER TABLE public.referral_reconciliation_sessions ENABLE ROW LEVEL SECURITY;
 

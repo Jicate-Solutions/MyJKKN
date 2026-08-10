@@ -12,7 +12,7 @@
 //
 // Nothing on this page pays, generates or approves anything. Freezing a pair is
 // an administrator action recorded with a reason; no payout path reads that flag
-// yet. See supabase/migrations/20260817020000_referral_reconciliation_and_pair_scoring.sql
+// yet. See supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
 
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';

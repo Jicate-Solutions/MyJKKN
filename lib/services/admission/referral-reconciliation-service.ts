@@ -15,7 +15,7 @@
 // act routed through an admin-only function; this service exposes it, it never
 // performs it on its own. consultant-service.ts is deliberately untouched.
 //
-// Companion migration: supabase/migrations/20260817020000_referral_reconciliation_and_pair_scoring.sql
+// Companion migration: supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
 // Companion UI:        app/(routes)/admission/consultants/reconciliation/page.tsx
 // ============================================================================
 

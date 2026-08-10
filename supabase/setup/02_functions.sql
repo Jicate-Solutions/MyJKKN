@@ -32368,7 +32368,7 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_can_manage(uuid, text) TO authentica
 -- All three are SECURITY DEFINER with an explicit in-body gate (DEFINER bypasses
 -- RLS) and an explicit anon revoke. None of them create, approve or pay a
 -- commission. Source migration:
--- supabase/migrations/20260817020000_referral_reconciliation_and_pair_scoring.sql
+-- supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
 -- (FILE ONLY, NOT APPLIED).
 
 CREATE OR REPLACE FUNCTION public.fn_reconcile_referral_session(p_session_id uuid)

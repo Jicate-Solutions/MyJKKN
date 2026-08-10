@@ -6945,7 +6945,7 @@ CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
 -- holds and surfaces the disagreements. referral_pair_scores is keyed on the
 -- (team member, agency) PAIR because one person spreading fabricated credits
 -- across several agencies looks clean on every individual agency row.
--- See migration supabase/migrations/20260817020000_referral_reconciliation_and_pair_scoring.sql
+-- See migration supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
 -- — FILE ONLY, NOT APPLIED. Nothing here pays, generates or approves anything.
 
 CREATE TABLE IF NOT EXISTS public.referral_reconciliation_sessions (
