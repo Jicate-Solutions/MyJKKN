@@ -73,8 +73,6 @@
 -- Contains no DELETE, UPDATE, TRUNCATE or DROP TABLE. Re-running is a no-op.
 -- ===========================================================================
 
-BEGIN;
-
 -- ---------------------------------------------------------------------------
 -- §0  Refuse to apply against a database that cannot hold this.
 --
@@ -342,8 +340,6 @@ AFTER UPDATE OF referral_type, referred_by_id, referred_by_name, quota_id, couns
 ON public.learners_profiles
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_audit_learner_referral_attribution();
-
-COMMIT;
 
 -- ===========================================================================
 -- NOT DONE HERE, ON PURPOSE
