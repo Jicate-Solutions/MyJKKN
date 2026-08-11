@@ -6862,6 +6862,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "children": []
               },
               {
+                "path": "/startup-studio/school-of-influence/admin/coordinators",
+                "label": "Coordinators",
+                "iconName": "FileText",
+                "children": []
+              },
+              {
                 "path": "/startup-studio/school-of-influence/admin/lifecycle",
                 "label": "Lifecycle",
                 "iconName": "FileText",
