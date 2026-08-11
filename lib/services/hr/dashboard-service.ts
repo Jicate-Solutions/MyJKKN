@@ -290,7 +290,7 @@ export class HRDashboardService {
     // deliberately not filtered here; only hr_organization_id narrows the set
     // (null = rolled up across orgs).
     let q = supabase
-      .from('hr_leave_balances')
+      .from('v_hr_leave_balance')
       .select('entitled, used, carried_forward');
     if (hrOrgId) q = q.eq('hr_organization_id', hrOrgId);
     const { data, error } = await q;
@@ -695,7 +695,7 @@ export class HRDashboardService {
             ),
             (async () => {
               const { data: b, error: bErr } = await supabase
-                .from('hr_leave_balances')
+                .from('v_hr_leave_balance')
                 .select('entitled, used, carried_forward')
                 .eq('hr_organization_id', org.id);
               if (bErr) throw bErr;
@@ -789,7 +789,7 @@ export class HRDashboardService {
 
       try {
         // "Staff with unused leave" = staff whose used < entitled in current FY
-        let q = supabase.from('hr_leave_balances').select('employee_id, entitled, used, carried_forward');
+        let q = supabase.from('v_hr_leave_balance').select('employee_id, entitled, used, carried_forward');
         if (institutionId) {
           // Not a direct institution_id column on hr_leave_balances; rely on the
           // shared hr_organization_id if institutionId resolves to an hr_org.
