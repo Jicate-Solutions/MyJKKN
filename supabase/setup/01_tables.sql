@@ -7356,3 +7356,52 @@ CREATE INDEX IF NOT EXISTS idx_jkkn_identity_aliases_identity
 CREATE INDEX IF NOT EXISTS idx_jkkn_identity_aliases_lookup
   ON public.jkkn_identity_aliases (lower(btrim(alias_value)));
 
+-- =====================================================================
+-- Added: 2026-08-11 - Derived leave entitlement (hr_leave_entitlement_overrides)
+-- Mirror of migration 20260811120000_hr_leave_entitlement_overrides.sql
+-- Spec: docs/superpowers/specs/2026-08-11-hr-leave-balance-derived-entitlement-design.md
+-- entitled becomes nullable (NULL = derive from hr_leave_types at read
+-- time); hr_academic_years gains frozen_at (non-NULL = year archived,
+-- balances served from stored rows, not derived). RLS policies ->
+-- setup/03_policies.sql.
+-- =====================================================================
+ALTER TABLE public.hr_leave_balances
+  ALTER COLUMN entitled DROP NOT NULL;
+
+COMMENT ON COLUMN public.hr_leave_balances.entitled IS
+  'NULL = derive from hr_leave_types.default_entitled_days at read time. '
+  'Non-NULL = frozen historical value, set by fn_hr_freeze_leave_year when the year ended.';
+
+CREATE TABLE public.hr_leave_entitlement_overrides (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id         uuid NOT NULL REFERENCES public.staff(id)             ON DELETE CASCADE,
+  leave_type_id       uuid NOT NULL REFERENCES public.hr_leave_types(id)    ON DELETE CASCADE,
+  hr_academic_year_id uuid NOT NULL REFERENCES public.hr_academic_years(id) ON DELETE CASCADE,
+  hr_organization_id  uuid NOT NULL REFERENCES public.hr_organizations(id),
+  entitled_days       numeric NOT NULL CHECK (entitled_days >= 0),
+  reason              text    NOT NULL CHECK (btrim(reason) <> ''),
+  created_by          uuid REFERENCES public.profiles(id),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  -- hr_academic_year_id is NOT NULL on purpose. A nullable "every year"
+  -- value would be invisible to this constraint (Postgres treats NULLs as
+  -- distinct) and duplicates would accumulate silently.
+  UNIQUE (employee_id, leave_type_id, hr_academic_year_id)
+);
+
+CREATE INDEX idx_hleo_lookup
+  ON public.hr_leave_entitlement_overrides (employee_id, leave_type_id, hr_academic_year_id);
+CREATE INDEX idx_hleo_org
+  ON public.hr_leave_entitlement_overrides (hr_organization_id);
+
+ALTER TABLE public.hr_leave_entitlement_overrides ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.hr_leave_entitlement_overrides FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_leave_entitlement_overrides TO authenticated;
+
+ALTER TABLE public.hr_academic_years
+  ADD COLUMN frozen_at timestamptz;
+
+COMMENT ON COLUMN public.hr_academic_years.frozen_at IS
+  'Non-NULL = this year is archived; balances are served from stored rows, not derived.';
+

@@ -8987,3 +8987,26 @@ CREATE POLICY jkkn_identity_aliases_update ON public.jkkn_identity_aliases
         COALESCE(is_super_admin(), false) OR is_admin()
         OR user_has_permission('users.jkkn_id.issue')
     );
+
+-- =====================================================================
+-- Added: 2026-08-11 - Derived leave entitlement (hr_leave_entitlement_overrides)
+-- Mirror of migration 20260811120000_hr_leave_entitlement_overrides.sql
+-- hleo_select mirrors hlb_select on hr_leave_balances verbatim. Write key
+-- is hr.leave.balance.manage (the key already guarding
+-- /hr/admin/leave-balances), NOT hr.leave.policies.write which guards
+-- hlb_write. Setting one person's exception is balance administration.
+-- =====================================================================
+CREATE POLICY hleo_select ON public.hr_leave_entitlement_overrides
+FOR SELECT USING (
+  (SELECT public.is_super_admin())
+  OR employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+  OR ((SELECT public.user_has_permission('hr.leave.approve'))
+      AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+);
+
+CREATE POLICY hleo_write ON public.hr_leave_entitlement_overrides
+FOR ALL USING (
+  (SELECT public.is_super_admin())
+  OR ((SELECT public.user_has_permission('hr.leave.balance.manage'))
+      AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+);
