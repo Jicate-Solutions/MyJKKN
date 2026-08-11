@@ -164,7 +164,9 @@ So attendance at programme-and-semester level is not hypothetical. A quarter of 
 
 There is also a warning in the code worth reading. A comment dated 6 August 2026 in the attendance marking screen records a live incident:
 
-> *"That is how a Semester V section listed the third years on a Semester III SDC lab… the wrong section yields a complete, plausible, wrong roster."*
+A Semester V class group was listed against a Semester III learning lab session, putting the wrong year on the register. The comment's own warning:
+
+> *"the wrong section yields a complete, plausible, wrong roster."*
 
 Class groups are not only useful — they are also a live source of error when they drift out of alignment. That argues for **fewer and cleaner** class groups, not for keeping all 504.
 
