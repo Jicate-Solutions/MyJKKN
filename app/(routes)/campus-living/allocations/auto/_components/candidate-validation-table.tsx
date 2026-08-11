@@ -165,7 +165,15 @@ export function CandidateValidationTable({
   // not in Campus Living.
   const feeResolved = candidates.filter((c) => c.band_fee != null).length;
   const noFee = candidates.length - feeResolved;
-  const willPlace = Math.min(eligible, availableBeds);
+  // Identical to `eligible` by construction: verdict 'in' now means the shared
+  // planner (the one Generate runs) actually assigned this learner a bed, with
+  // beds consumed as it goes. It used to be min(eligible, availableBeds), which
+  // was wrong in both directions — `eligible` was a per-learner reachability
+  // test that let a whole cohort claim the same free bed, and `availableBeds`
+  // is a cross-category whole-hostel-type total that counts Deluxe beds a
+  // Classic-band learner can never occupy. Kept as its own stat because "will
+  // place" is the number the operator acts on.
+  const willPlace = eligible;
   // How many of the eligible are only placeable because overflow is on — i.e.
   // every room reserved for their cohort was full. Worth surfacing: it is the
   // number a warden would otherwise have had to place by hand.
