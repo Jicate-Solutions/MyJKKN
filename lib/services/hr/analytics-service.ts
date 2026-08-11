@@ -22,6 +22,7 @@ import type {
   LeaveUtilizationByInstitution,
   HRAnalyticsSummary,
 } from '@/types/hr-analytics';
+import { HRAcademicYearService } from '@/lib/services/hr/hr-academic-year-service';
 
 // =====================================================================================
 // Helpers
@@ -352,9 +353,18 @@ export class HRAnalyticsService {
       });
     }
 
+    // v_hr_leave_balance derives a row for every OPEN year (frozen_at IS
+    // NULL), which includes years that have not started yet — HR opens next
+    // year's rows early for onboarding/planning. Scoping to the academic
+    // year containing today keeps this "where do we stand right now," not a
+    // blend that silently folds in next year's full, unused entitlement.
+    const currentYear = await HRAcademicYearService.getCurrent(supabase);
+    if (!currentYear) return [];
+
     let query = supabase
       .from('v_hr_leave_balance')
-      .select('entitled, used, hr_organization_id');
+      .select('entitled, used, hr_organization_id')
+      .eq('hr_academic_year_id', currentYear.id);
 
     if (institutionId) {
       const orgIds = Array.from(orgToInstitution.keys());
