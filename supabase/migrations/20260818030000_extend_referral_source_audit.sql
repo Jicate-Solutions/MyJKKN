@@ -113,8 +113,22 @@ BEGIN
   IF to_regprocedure('public.is_super_admin()') IS NULL THEN
     RAISE EXCEPTION 'REFUSING TO APPLY: is_super_admin() is absent.';
   END IF;
-  IF to_regprocedure('public.is_admin()') IS NULL THEN
-    RAISE EXCEPTION 'REFUSING TO APPLY: is_admin() is absent.';
+  -- is_admin is tested through pg_proc rather than to_regprocedure because
+  -- to_regprocedure matches an EXACT argument signature and cannot see default
+  -- arguments. The live helper is is_admin(user_id uuid DEFAULT auth.uid()), so
+  -- to_regprocedure('public.is_admin()') returns NULL even though bare is_admin()
+  -- is perfectly callable — and is in fact already called by the RLS policies on
+  -- this database. What the policy below actually needs is "a public function
+  -- named is_admin that can be invoked with zero arguments", which is what the
+  -- pronargs - pronargdefaults = 0 test asks.
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'is_admin'
+      AND p.pronargs - p.pronargdefaults = 0
+  ) THEN
+    RAISE EXCEPTION 'REFUSING TO APPLY: is_admin() is not callable with zero arguments.';
   END IF;
   IF to_regprocedure('public.user_has_permission(text)') IS NULL THEN
     RAISE EXCEPTION 'REFUSING TO APPLY: user_has_permission(text) is absent.';
