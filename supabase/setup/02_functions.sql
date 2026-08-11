@@ -36127,3 +36127,415 @@ REVOKE ALL ON FUNCTION public.fn_sweep_learner_status_promotions(integer)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_sweep_learner_status_promotions(integer)
   TO service_role;
+
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit on the LEARNER record.
+-- Writes one referral_attribution_audit row per watched field that actually
+-- changed on a learners_profiles UPDATE. Trigger declaration lives in
+-- 04_triggers.sql; migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- — FILE ONLY, NOT APPLIED.
+--
+-- SECURITY DEFINER for two reasons: the people who edit a learner's referral
+-- hold no INSERT on the audit table (nobody does), and an audit row must not be
+-- subject to the writer's own RLS. Running as the owner is what makes the trail
+-- both unforgeable and unavoidable.
+--
+-- 🔴 IT MUST NEVER BLOCK A LEGITIMATE UPDATE. Every error is downgraded to a
+-- WARNING and the update proceeds. The trade is explicit: a lost audit row is
+-- recoverable by asking; a blocked admission is not.
+--
+-- The distinctness test runs FIRST, outside the exception block. A plpgsql
+-- EXCEPTION block opens a subtransaction on every entry, and bulk learner edits
+-- mention these columns thousands of rows at a time while changing almost none
+-- of them — returning early keeps that cost off the common path.
+--
+-- 🔴 Purely additive. learners_profiles already carries
+-- trg_sync_learner_referral_to_attribution, which DELETES the prior
+-- consultant_lead_attributions row when referred_by_id changes. This function
+-- touches nothing but its own table and returns NEW unmodified, so it cannot
+-- interfere with that trigger whichever order the two fire in.
+CREATE OR REPLACE FUNCTION public.fn_audit_learner_referral_attribution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_actor uuid;
+BEGIN
+  -- Nothing actually moved: leave without opening a subtransaction. `UPDATE OF`
+  -- fires whenever a watched column is MENTIONED, not only when it changes.
+  IF NOT (
+       OLD.referral_type      IS DISTINCT FROM NEW.referral_type
+    OR OLD.referred_by_id     IS DISTINCT FROM NEW.referred_by_id
+    OR OLD.referred_by_name   IS DISTINCT FROM NEW.referred_by_name
+    OR OLD.quota_id           IS DISTINCT FROM NEW.quota_id
+    OR OLD.counseling_applied IS DISTINCT FROM NEW.counseling_applied
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    -- Inside the guard as well: with no JWT this is simply NULL, but a
+    -- malformed claim would raise, and losing the row is the correct outcome
+    -- there — never failing the learner's update.
+    v_actor := auth.uid();
+
+    INSERT INTO public.referral_attribution_audit
+      (learner_profile_id, changed_field, old_value, new_value, changed_by)
+    SELECT NEW.id, f.field, f.old_value, f.new_value, v_actor
+    -- Every value is cast to text EXPLICITLY, including the two columns that
+    -- are already text: a VALUES list resolves one common type per column, and
+    -- because the handler swallows errors, a future type change on
+    -- referral_type would turn the whole trail into a silent no-op rather than
+    -- a visible failure. The redundant casts remove that dependency for free.
+    FROM (
+      VALUES
+        ('referral_type',      OLD.referral_type::text,      NEW.referral_type::text),
+        ('referred_by_id',     OLD.referred_by_id::text,     NEW.referred_by_id::text),
+        ('referred_by_name',   OLD.referred_by_name::text,   NEW.referred_by_name::text),
+        ('quota_id',           OLD.quota_id::text,           NEW.quota_id::text),
+        ('counseling_applied', OLD.counseling_applied::text, NEW.counseling_applied::text)
+    ) AS f(field, old_value, new_value)
+    WHERE f.old_value IS DISTINCT FROM f.new_value;
+
+  EXCEPTION WHEN OTHERS THEN
+    -- Visible in the Postgres log, invisible to the person saving the form.
+    RAISE WARNING 'fn_audit_learner_referral_attribution: audit write skipped for learner_profile_id=% (%: %)',
+      NEW.id, SQLSTATE, SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- Supabase default privileges hand EXECUTE on every new function to anon, which
+-- is a separate grant from PUBLIC and survives a REVOKE FROM PUBLIC alone.
+REVOKE EXECUTE ON FUNCTION public.fn_audit_learner_referral_attribution() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_audit_learner_referral_attribution() TO authenticated;
+
+
+-- Updated: 2026-08-10 - Referral integrity: reconciliation + pair scoring functions.
+-- fn_reconcile_referral_session  : compares one agency's own submitted list against
+--   the credits the platform holds for it, writes the three-way bucket onto every
+--   claim row, returns a jsonb count summary.
+-- fn_recompute_referral_pair_score : recomputes a (team member, agency) score from
+--   reconciliation outcomes. NEVER freezes and never lifts a freeze.
+-- fn_set_referral_pair_freeze    : the human act — administrator only, reason
+--   mandatory, records who and why.
+-- All three are SECURITY DEFINER with an explicit in-body gate (DEFINER bypasses
+-- RLS) and an explicit anon revoke. None of them create, approve or pay a
+-- commission. Source migration:
+-- supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- (FILE ONLY, NOT APPLIED).
+
+CREATE OR REPLACE FUNCTION public.fn_reconcile_referral_session(p_session_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_consultant_id uuid;
+  v_year          integer;
+  v_summary       jsonb;
+BEGIN
+  -- SECURITY DEFINER bypasses RLS, so the gate has to be explicit here.
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('admission.consultants.commissions.manage')) THEN
+    RAISE EXCEPTION 'Not authorised to reconcile referral sessions';
+  END IF;
+
+  SELECT consultant_id, academic_year
+    INTO v_consultant_id, v_year
+    FROM public.referral_reconciliation_sessions
+   WHERE id = p_session_id;
+
+  IF v_consultant_id IS NULL THEN
+    RAISE EXCEPTION 'Reconciliation session % not found', p_session_id;
+  END IF;
+
+  -- (a) Every learner the platform currently credits to this agency for this year.
+  CREATE TEMP TABLE _credited ON COMMIT DROP AS
+  SELECT lp.id AS learner_id,
+         btrim(coalesce(lp.first_name, '') || ' ' || coalesce(lp.last_name, '')) AS learner_name,
+         right(regexp_replace(coalesce(lp.student_mobile, ''), '[^0-9]', '', 'g'), 10) AS phone10
+    FROM public.learners_profiles lp
+    JOIN public.admission_years ay ON ay.id = lp.admission_year_id AND ay.year = v_year
+   WHERE lp.referral_type = 'consultant'
+     AND lp.referred_by_id = v_consultant_id;
+
+  -- (b) Every learner of that intake year, for resolving the agency's claims.
+  CREATE TEMP TABLE _pool ON COMMIT DROP AS
+  SELECT lp.id AS learner_id,
+         lower(btrim(coalesce(lp.first_name, '') || ' ' || coalesce(lp.last_name, ''))) AS name_key,
+         right(regexp_replace(coalesce(lp.student_mobile, ''), '[^0-9]', '', 'g'), 10) AS phone10
+    FROM public.learners_profiles lp
+    JOIN public.admission_years ay ON ay.id = lp.admission_year_id AND ay.year = v_year;
+
+  -- (c) Resolve each row the Registrar typed to a learner, phone first then name.
+  --     Both keys are required to be UNAMBIGUOUS in the pool. Two learners of the
+  --     same intake can share a name, and UPDATE ... FROM would silently pick one
+  --     of them at random; an ambiguous key is not a match, it is a question for a
+  --     person, so it is left unmatched instead of guessed.
+  UPDATE public.referral_reconciliation_claims c
+     SET matched_learner_id = m.learner_id,
+         match_confidence   = m.confidence,
+         updated_at         = now()
+    FROM (
+      SELECT DISTINCT ON (claim_id) claim_id, learner_id, confidence
+        FROM (
+          SELECT c2.id AS claim_id, p.learner_id, 'phone'::text AS confidence, 1 AS rank
+            FROM public.referral_reconciliation_claims c2
+            JOIN _pool p
+              ON p.phone10 <> ''
+             AND p.phone10 = right(regexp_replace(coalesce(c2.claimed_phone, ''), '[^0-9]', '', 'g'), 10)
+           WHERE c2.session_id = p_session_id AND c2.source = 'agency'
+             AND (SELECT count(*) FROM _pool q WHERE q.phone10 = p.phone10) = 1
+           UNION ALL
+          SELECT c3.id, p.learner_id, 'name', 2
+            FROM public.referral_reconciliation_claims c3
+            JOIN _pool p
+              ON p.name_key <> ''
+             AND p.name_key = lower(btrim(coalesce(c3.claimed_name, '')))
+           WHERE c3.session_id = p_session_id AND c3.source = 'agency'
+             AND (SELECT count(*) FROM _pool q WHERE q.name_key = p.name_key) = 1
+        ) cand
+       ORDER BY claim_id, rank          -- a phone hit always beats a name hit
+    ) m
+   WHERE c.id = m.claim_id;
+
+  -- A claim that resolved to nothing is recorded as such rather than left blank,
+  -- so "not matched" is a stated outcome and not an unfinished run.
+  UPDATE public.referral_reconciliation_claims
+     SET match_confidence = 'none', updated_at = now()
+   WHERE session_id = p_session_id
+     AND source = 'agency'
+     AND matched_learner_id IS NULL;
+
+  -- (d) Bucket the agency's own rows.
+  UPDATE public.referral_reconciliation_claims c
+     SET bucket = CASE
+                    WHEN c.matched_learner_id IS NOT NULL
+                     AND EXISTS (SELECT 1 FROM _credited cr WHERE cr.learner_id = c.matched_learner_id)
+                    THEN 'agreed'
+                    ELSE 'claimed_not_credited'
+                  END,
+         updated_at = now()
+   WHERE c.session_id = p_session_id
+     AND c.source = 'agency';
+
+  -- (e) Rebuild the credited-but-unclaimed rows. Only 'system' rows are replaced;
+  --     anything a person typed or marked survives a re-run untouched.
+  DELETE FROM public.referral_reconciliation_claims
+   WHERE session_id = p_session_id AND source = 'system';
+
+  INSERT INTO public.referral_reconciliation_claims
+    (session_id, claimed_name, claimed_phone, matched_learner_id, match_confidence, bucket, source)
+  SELECT p_session_id, NULLIF(cr.learner_name, ''), NULLIF(cr.phone10, ''),
+         cr.learner_id, 'phone', 'credited_not_claimed', 'system'
+    FROM _credited cr
+   WHERE NOT EXISTS (
+     SELECT 1 FROM public.referral_reconciliation_claims c
+      WHERE c.session_id = p_session_id
+        AND c.source = 'agency'
+        AND c.matched_learner_id = cr.learner_id
+   );
+
+  SELECT jsonb_build_object(
+    'session_id',           p_session_id,
+    'consultant_id',        v_consultant_id,
+    'academic_year',        v_year,
+    'credited_by_platform', (SELECT count(*) FROM _credited),
+    'claimed_by_agency',    (SELECT count(*) FROM public.referral_reconciliation_claims
+                              WHERE session_id = p_session_id AND source = 'agency'),
+    'agreed',               (SELECT count(*) FROM public.referral_reconciliation_claims
+                              WHERE session_id = p_session_id AND bucket = 'agreed'),
+    'credited_not_claimed', (SELECT count(*) FROM public.referral_reconciliation_claims
+                              WHERE session_id = p_session_id AND bucket = 'credited_not_claimed'),
+    'claimed_not_credited', (SELECT count(*) FROM public.referral_reconciliation_claims
+                              WHERE session_id = p_session_id AND bucket = 'claimed_not_credited'),
+    'unmatched_claims',     (SELECT count(*) FROM public.referral_reconciliation_claims
+                              WHERE session_id = p_session_id AND source = 'agency'
+                                AND matched_learner_id IS NULL)
+  ) INTO v_summary;
+
+  RETURN v_summary;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_reconcile_referral_session(uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_reconcile_referral_session(uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_reconcile_referral_session(uuid) IS
+  'Compares one agency''s own submitted list against the credits the platform holds for that agency and intake year, writes the three-way bucket onto every claim row, and returns a jsonb count summary. Writes nothing outside the reconciliation tables — it never creates, approves or pays a commission.';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 5. Pair score — recompute from reconciliation outcomes
+--
+--    A credit is attributed to the team member who verified the attribution, and
+--    where nothing was verified, to whoever created the learner record. That
+--    fallback matters: a credit nobody verified is exactly the shape this loop is
+--    looking for, so it must not fall out of the count.
+--
+--    NEVER auto-freezes. Raising a risk level is a measurement; stopping money is
+--    a decision, and a decision needs a person's name on it.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_recompute_referral_pair_score(
+  p_team_member_id uuid,
+  p_consultant_id  uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_total     integer := 0;
+  v_confirmed integer := 0;
+  v_disputed  integer := 0;
+  v_risk      text;
+BEGIN
+  IF NOT (is_super_admin() OR is_admin()
+          OR user_has_permission('admission.consultants.commissions.manage')) THEN
+    RAISE EXCEPTION 'Not authorised to recompute referral pair scores';
+  END IF;
+
+  WITH pair_credits AS (
+    -- every credit this agency holds that traces back to this team member
+    SELECT lp.id AS learner_id
+      FROM public.learners_profiles lp
+      LEFT JOIN LATERAL (
+        SELECT cla.verified_by
+          FROM public.consultant_lead_attributions cla
+         WHERE cla.learner_profile_id = lp.id
+           AND cla.consultant_id = p_consultant_id
+           AND cla.verified_by IS NOT NULL
+         ORDER BY cla.verified_at DESC NULLS LAST
+         LIMIT 1
+      ) v ON true
+     WHERE lp.referral_type = 'consultant'
+       AND lp.referred_by_id = p_consultant_id
+       AND COALESCE(v.verified_by, lp.created_by) = p_team_member_id
+  ),
+  outcomes AS (
+    -- The most recent reconciliation verdict recorded for each of those credits.
+    -- One LATERAL, not two scalar subqueries: bucket and evidence_status must come
+    -- from the SAME claim row, and two independent ORDER BY ... LIMIT 1 can break a
+    -- tie differently and pair a bucket with another row's evidence.
+    SELECT pc.learner_id, v.bucket, v.evidence_status
+      FROM pair_credits pc
+      LEFT JOIN LATERAL (
+        SELECT c.bucket, c.evidence_status
+          FROM public.referral_reconciliation_claims c
+          JOIN public.referral_reconciliation_sessions s ON s.id = c.session_id
+         WHERE c.matched_learner_id = pc.learner_id
+           AND s.consultant_id = p_consultant_id
+         ORDER BY s.conducted_at DESC, c.updated_at DESC, c.id DESC
+         LIMIT 1
+      ) v ON true
+  )
+  SELECT count(*),
+         count(*) FILTER (
+           WHERE bucket = 'agreed'
+             AND evidence_status IS DISTINCT FROM 'agency_does_not_recognise'),
+         count(*) FILTER (
+           WHERE bucket = 'credited_not_claimed'
+              OR evidence_status = 'agency_does_not_recognise')
+    INTO v_total, v_confirmed, v_disputed
+    FROM outcomes;
+
+  -- Thresholds are deliberately blunt and readable. 'red' also fires on the ratio
+  -- so a small agency with 3 credits and 2 disputed is not hidden behind a count.
+  v_risk := CASE
+              WHEN v_disputed >= 4 THEN 'red'
+              WHEN v_total > 0 AND v_disputed::numeric > (v_total::numeric / 3.0) THEN 'red'
+              WHEN v_disputed >= 2 THEN 'watch'
+              ELSE 'normal'
+            END;
+
+  INSERT INTO public.referral_pair_scores AS s
+    (team_member_id, consultant_id, credits_total, credits_confirmed, credits_disputed,
+     risk_level, updated_at)
+  VALUES
+    (p_team_member_id, p_consultant_id, v_total, v_confirmed, v_disputed, v_risk, now())
+  ON CONFLICT ON CONSTRAINT referral_pair_scores_pair_unique DO UPDATE
+    SET credits_total     = EXCLUDED.credits_total,
+        credits_confirmed = EXCLUDED.credits_confirmed,
+        credits_disputed  = EXCLUDED.credits_disputed,
+        risk_level        = EXCLUDED.risk_level,
+        updated_at        = now();
+    -- frozen / frozen_at / frozen_by / frozen_reason are intentionally absent from
+    -- this SET list. Recomputing evidence must never lift or apply a human freeze.
+
+  RETURN jsonb_build_object(
+    'team_member_id',    p_team_member_id,
+    'consultant_id',     p_consultant_id,
+    'credits_total',     v_total,
+    'credits_confirmed', v_confirmed,
+    'credits_disputed',  v_disputed,
+    'risk_level',        v_risk
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_recompute_referral_pair_score(uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_recompute_referral_pair_score(uuid, uuid) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_recompute_referral_pair_score(uuid, uuid) IS
+  'Recomputes the (team member, agency) pair score from reconciliation outcomes and sets risk_level normal/watch/red. Never freezes and never lifts a freeze — freezing is a human act performed through fn_set_referral_pair_freeze.';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 6. Freeze / unfreeze — the human act, admin-only, always with a reason
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.fn_set_referral_pair_freeze(
+  p_team_member_id uuid,
+  p_consultant_id  uuid,
+  p_frozen         boolean,
+  p_reason         text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_row public.referral_pair_scores;
+BEGIN
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    RAISE EXCEPTION 'Only an administrator can freeze or unfreeze a referral pair';
+  END IF;
+
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION 'A reason is required to freeze or unfreeze a referral pair';
+  END IF;
+
+  INSERT INTO public.referral_pair_scores AS s
+    (team_member_id, consultant_id, frozen, frozen_at, frozen_by, frozen_reason, updated_at)
+  VALUES
+    (p_team_member_id, p_consultant_id, p_frozen,
+     CASE WHEN p_frozen THEN now() ELSE NULL END,
+     auth.uid(), btrim(p_reason), now())
+  ON CONFLICT ON CONSTRAINT referral_pair_scores_pair_unique DO UPDATE
+    SET frozen        = EXCLUDED.frozen,
+        frozen_at     = EXCLUDED.frozen_at,
+        frozen_by     = EXCLUDED.frozen_by,
+        frozen_reason = EXCLUDED.frozen_reason,
+        updated_at    = now()
+  RETURNING s.* INTO v_row;
+
+  RETURN jsonb_build_object(
+    'team_member_id', v_row.team_member_id,
+    'consultant_id',  v_row.consultant_id,
+    'frozen',         v_row.frozen,
+    'frozen_at',      v_row.frozen_at,
+    'frozen_by',      v_row.frozen_by,
+    'frozen_reason',  v_row.frozen_reason,
+    'risk_level',     v_row.risk_level
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text) IS
+  'Records an administrator freezing or unfreezing a (team member, agency) pair, with who and why. The flag is recorded and displayed only — no generator or payout path reads it yet.';
