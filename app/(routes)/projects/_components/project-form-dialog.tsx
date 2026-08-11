@@ -166,10 +166,21 @@ export function ProjectFormDialog({
       priority_id: values.priority_id === NONE ? null : values.priority_id ?? null,
       scope_model: values.scope_model,
       institution_id: values.institution_id === NONE ? null : values.institution_id ?? null,
-      client_id: values.client_id === NONE ? null : values.client_id ?? null,
-      solution_id: values.solution_id === NONE ? null : values.solution_id ?? null,
       start_date: values.start_date || null,
       due_date: values.end_date || null,
+      // Deploy-order safety: only send the bridge columns when they carry a
+      // value or clear an existing link — so create/edit keeps working even if
+      // this code reaches production before the bridge migration is applied.
+      ...(values.client_id && values.client_id !== NONE
+        ? { client_id: values.client_id }
+        : project?.client_id
+          ? { client_id: null }
+          : {}),
+      ...(values.solution_id && values.solution_id !== NONE
+        ? { solution_id: values.solution_id }
+        : project?.solution_id
+          ? { solution_id: null }
+          : {}),
     };
 
     try {
