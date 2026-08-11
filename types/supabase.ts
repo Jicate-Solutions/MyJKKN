@@ -42128,7 +42128,7 @@ export type Database = {
           carried_forward: number
           created_at: string
           employee_id: string
-          entitled: number
+          entitled: number | null
           hr_academic_year_id: string
           hr_organization_id: string
           leave_type_id: string
