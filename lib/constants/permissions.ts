@@ -1689,6 +1689,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
 
+      // 2026-08-12 — the accreditation.evidence.view / .create / .manage trio
+      // this PR originally registered here is NOT re-added: it landed on main
+      // independently on 2026-08-05 (see the "the evidence ledger itself" block
+      // further down this same list). Registering it twice would render the key
+      // twice in Role Management. The reasoning is identical and is preserved at
+      // its surviving site; only the duplicate is dropped.
+
       // Awarding-body registry + institution mapping (2026-08-06) —
       // /accreditation/manage/bodies. Which bodies a college answers to decides
       // its DENOMINATOR: before this existed, every institution was measured
