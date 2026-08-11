@@ -7358,7 +7358,7 @@ CREATE INDEX IF NOT EXISTS idx_jkkn_identity_aliases_lookup
 
 -- =====================================================================
 -- Added: 2026-08-11 - Derived leave entitlement (hr_leave_entitlement_overrides)
--- Mirror of migration 20260811120000_hr_leave_entitlement_overrides.sql
+-- Mirror of migration 20260811180000_hr_leave_entitlement_overrides.sql
 -- Spec: docs/superpowers/specs/2026-08-11-hr-leave-balance-derived-entitlement-design.md
 -- entitled becomes nullable (NULL = derive from hr_leave_types at read
 -- time); hr_academic_years gains frozen_at (non-NULL = year archived,

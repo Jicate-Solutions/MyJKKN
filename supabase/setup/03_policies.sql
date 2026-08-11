@@ -8990,7 +8990,7 @@ CREATE POLICY jkkn_identity_aliases_update ON public.jkkn_identity_aliases
 
 -- =====================================================================
 -- Added: 2026-08-11 - Derived leave entitlement (hr_leave_entitlement_overrides)
--- Mirror of migration 20260811120000_hr_leave_entitlement_overrides.sql
+-- Mirror of migration 20260811180000_hr_leave_entitlement_overrides.sql
 -- hleo_select mirrors hlb_select on hr_leave_balances verbatim. Write key
 -- is hr.leave.balance.manage (the key already guarding
 -- /hr/admin/leave-balances), NOT hr.leave.policies.write which guards
