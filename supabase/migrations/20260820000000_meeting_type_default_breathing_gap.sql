@@ -1,4 +1,4 @@
--- 20260816000000_meeting_type_default_breathing_gap.sql
+-- 20260820000000_meeting_type_default_breathing_gap.sql
 --
 -- WHY. Four leadership booking pages went public on 2026-08-05 with
 -- buffer_before_min = buffer_after_min = 0, which let a visitor book a slot
@@ -56,10 +56,10 @@ ALTER TABLE public.meeting_types
   ALTER COLUMN buffer_after_min SET DEFAULT 5;
 
 COMMENT ON COLUMN public.meeting_types.buffer_before_min IS
-  'Minutes of protected gap BEFORE the meeting. The slot engine pads the candidate slot by this amount when testing against busy time, so this is the value that stops a visitor booking straight onto the end of an existing commitment. Defaults to 5 (since 20260816000000); rows created before that date may still be 0 and were deliberately left alone.';
+  'Minutes of protected gap BEFORE the meeting. The slot engine pads the candidate slot by this amount when testing against busy time, so this is the value that stops a visitor booking straight onto the end of an existing commitment. Defaults to 5 (since 20260820000000); rows created before that date may still be 0 and were deliberately left alone.';
 
 COMMENT ON COLUMN public.meeting_types.buffer_after_min IS
-  'Minutes of protected gap AFTER the meeting. Defaults to 5 (since 20260816000000). Note this alone does not prevent back-to-back booking onto an existing commitment — buffer_before_min is the load-bearing guard.';
+  'Minutes of protected gap AFTER the meeting. Defaults to 5 (since 20260820000000). Note this alone does not prevent back-to-back booking onto an existing commitment — buffer_before_min is the load-bearing guard.';
 
 -- Make the changed defaults visible to PostgREST immediately.
 NOTIFY pgrst, 'reload schema';

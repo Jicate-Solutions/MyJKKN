@@ -457,7 +457,7 @@ function EventTypeDialog({
       // falls through only when `editing` is absent, so an existing type keeps
       // its own value — including a deliberate 0. The host can still change
       // either number here before saving. Matched by the column default
-      // (20260816000000) and by scripts/meetings/provision-*-native.ts.
+      // (20260820000000) and by scripts/meetings/provision-*-native.ts.
       bufferBeforeMin: editing?.bufferBeforeMin ?? 5,
       bufferAfterMin: editing?.bufferAfterMin ?? 5,
       minNoticeMin: editing?.minNoticeMin ?? 0,
