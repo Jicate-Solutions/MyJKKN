@@ -252,6 +252,22 @@ export async function createBellNotification(
      * database, not a read-then-write check, is the arbiter.
      */
     idempotencyKey?: string;
+    /**
+     * ISO timestamp written to `notifications.expires_at`. OPT-IN: when omitted
+     * (the default, and what every other caller in this file does) the column
+     * stays NULL and the row never expires — today's behaviour, unchanged.
+     *
+     * Set it only for a row that RESTATES a fact on a fixed cycle under a
+     * per-cycle idempotency key, per the rule in
+     * supabase/migrations/20260816040000_notification_expiry_director_categories.sql:
+     * expiring such a row hides nothing, because the next cycle restates it and
+     * the real work lives on a page. A row that is the ONLY record of a specific
+     * un-actioned item must NOT get one.
+     *
+     * Honoured by liveNotificationOrFilter() in the bell / inbox / rollup read
+     * path; admin/manage/stats reads deliberately still show lapsed rows.
+     */
+    expiresAt?: string;
   }
 ): Promise<string | null> {
   const row: Record<string, unknown> = {
@@ -272,6 +288,7 @@ export async function createBellNotification(
     row.action_config = opts.action.config;
   }
   if (opts.idempotencyKey) row.idempotency_key = opts.idempotencyKey;
+  if (opts.expiresAt) row.expires_at = opts.expiresAt;
 
   const { data: notif, error } = await db
     .from('notifications')
@@ -2120,6 +2137,8 @@ const BOOKING_MIN_NOTICE_MIN = 120;
 const CAMPUS_TZ = 'Asia/Kolkata';
 /** Where an un-connected participant goes to connect Google Calendar. */
 const CONNECT_CALENDAR_URL = '/meetings/availability';
+/** 1.5x the daily re-nudge cycle — see the expiresAt note at the fanout. */
+const CONNECT_NUDGE_TTL_MS = Math.round(24 * 3600_000 * 1.5);
 /** Free slots to try before giving up on a concurrent-booking race (23P01). */
 const SLOT_ATTEMPTS = 5;
 /** Bound the work of one cron pass. */
@@ -2592,6 +2611,17 @@ async function nudgeToConnectCalendar(
     url: CONNECT_CALENDAR_URL,
     category: 'meetings:calendar-connect-needed',
     idempotencyKey: nudgeKey,
+    // 2026-08-10 expiry: this row is re-emitted for every NEW day the breach
+    // stays unbooked (see the cap above), so it is a daily restatement, not the
+    // only record of the breach — the breach itself lives on
+    // meeting_trigger_events and surfaces in Meetings. Without a TTL, 47 of
+    // these accumulated unexpired in 14 days and never left anyone's bell.
+    // TTL = 1.5x the daily cadence, the same margin and the same reasoning as
+    // 20260816040000: 24h would kill the row at the moment its replacement is
+    // due, so any slip empties the bell. A literal is safe here (unlike the
+    // dispatcher-run routines) because this producer's cadence is pinned in
+    // vercel.json ('23 * * * *'), so a cadence change ships in the same deploy.
+    expiresAt: new Date(now.getTime() + CONNECT_NUDGE_TTL_MS).toISOString(),
     metadata: {
       event_ids: group.events.map((e) => e.id),
       institution_id: group.institutionId,
@@ -3270,6 +3300,8 @@ export async function bookPendingMeetings(
 // unindexed containment scan over 220,289 notification rows every hour.)
 
 const WEEKLY_SUMMARY_CATEGORY = 'meetings:calendar-connect-weekly';
+/** 1.5x the weekly restatement cycle — see the expiresAt note at the fanout. */
+const WEEKLY_SUMMARY_TTL_MS = Math.round(7 * 24 * 3600_000 * 1.5);
 
 export interface WeeklyConnectSummaryResult {
   ran: boolean;
@@ -3436,6 +3468,16 @@ export async function sendWeeklyCalendarConnectSummary(
               : ''),
           url: CONNECT_CALENDAR_URL,
           category: WEEKLY_SUMMARY_CATEGORY,
+          // 2026-08-10 expiry: a weekly restatement of who is still
+          // unconnected, keyed per ISO week — next Monday's edition recomputes
+          // the same list, and the list itself is on the Meetings surface. 37 of
+          // these had accumulated unexpired. TTL = 1.5x the WEEKLY cycle (not
+          // the hourly producer's tick): the row must outlive the gap to the
+          // next edition, so the cadence that matters is the one the
+          // idempotency key encodes.
+          expiresAt: new Date(
+            now.getTime() + WEEKLY_SUMMARY_TTL_MS
+          ).toISOString(),
           metadata: {
             iso_week: isoWeek,
             institution_id: institutionId,

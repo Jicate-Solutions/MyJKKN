@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 122 routes cannot be handed over at all; 355 declare
+// 119 routes cannot be handed over at all; 363 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -239,6 +239,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/billing/apportionment": { keys: ['billing.apportionment.view'], routeGuarded: true },
   "/billing/apportionment/rules": { keys: ['billing.apportionment.view'], routeGuarded: true },
   "/billing/coverage": { keys: ['billing.coverage.view'], routeGuarded: true },
+  "/billing/late-charges": { keys: ['billing.late_charges.view'], routeGuarded: true },
   "/billing/onboarding": { keys: ['billing.onboarding.view'], routeGuarded: true },
   "/billing/payment-accounts": { keys: ['billing.payment_accounts.view'], routeGuarded: true },
   "/billing/receipt-cancellations": { keys: ['billing.receipts.cancel.request'], routeGuarded: true },
@@ -284,6 +285,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/campus-living/settings/packages": { keys: ['campus_living.settings.view'] },
   "/campus-living/settings/policies-workflows": { keys: ['campus_living.settings.view'] },
   "/campus-living/settings/program-eligibility": { keys: ['campus_living.settings.view'] },
+  "/campus-living/settle-preview": { keys: ['campus_living.fees.config'] },
   "/cdc": { keys: ['cdc.view'] },
   "/cdc/bulletin": { keys: ['cdc.bulletin.view'] },
   "/cdc/bulletin/[id]": { keys: ['cdc.bulletin.view'] },
@@ -332,6 +334,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/health/admin/programs/[id]/impact": { keys: ['health.programs.manage'] },
   "/health/admin/programs/[id]/responses": { keys: ['health.programs.manage'] },
   "/hr/admin": { keys: ['hr.dashboard.view'], routeGuarded: true },
+  "/hr/admin/academic-years": { keys: ['hr.academic_years.manage'], routeGuarded: true },
   "/hr/admin/automation-rules": { blocked: 'superAdmin' },
   "/hr/admin/disciplinary": { blocked: 'superAdmin' },
   "/hr/admin/disciplinary/[id]": { blocked: 'superAdmin' },
@@ -423,7 +426,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/hr/admin/recruitment-need/weights": { blocked: 'adminRole' },
   "/hr/admin/required-documents": { blocked: 'adminRole' },
   "/hr/admin/sanctioned-posts": { keys: ['hr.sanctioned_posts.view'], routeGuarded: true },
-  "/hr/admin/shift-templates": { blocked: 'adminRole' },
+  "/hr/admin/shift-timings": { keys: ['hr.shift_timings.manage'], routeGuarded: true },
   "/hr/admin/terminations": { blocked: 'superAdmin' },
   "/hr/admin/terminations/[id]/initiate": { blocked: 'superAdmin' },
   "/hr/admin/terminations/[id]/review": { blocked: 'superAdmin' },
@@ -431,8 +434,8 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/hr/admin/training/[id]": { blocked: 'superAdmin' },
   "/hr/admin/training/new": { blocked: 'superAdmin' },
   "/hr/recruitment/jobs": { keys: ['hr.recruitment.view'], routeGuarded: true },
-  "/hr/shifts": { blocked: 'adminRole' },
-  "/hr/shifts/approvals": { blocked: 'adminRole' },
+  "/industry-partners": { keys: ['cdc.industry_partners.view'] },
+  "/industry-partners/[id]": { keys: ['cdc.industry_partners.view'] },
   "/internships/cycles": { keys: ['internship.cycles.view'] },
   "/internships/cycles/[id]": { keys: ['internship.cycles.view'] },
   "/internships/cycles/new": { keys: ['internship.cycles.create'] },
@@ -449,6 +452,8 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/learners/school-master": { keys: ['learners.school_master.view'] },
   "/meetings/analytics": { keys: ['meetings.analytics.view'] },
   "/meetings/contacts": { keys: ['meetings.contacts.view'] },
+  "/meetings/contacts/scan": { keys: ['meetings.contacts.scan'] },
+  "/meetings/contacts/scan/saved": { keys: ['meetings.contacts.scan'] },
   "/meetings/embed": { keys: ['meetings.embed.manage'] },
   "/meetings/polls": { keys: ['meetings.polls.view'] },
   "/meetings/polls/[id]": { keys: ['meetings.polls.view'] },

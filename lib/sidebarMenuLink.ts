@@ -494,6 +494,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
@@ -557,6 +558,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/pending': 'academic.attendance.view',
+  // Retrospective view of sessions that went unmarked. Gated on the DASHBOARD
+  // key, not the plain view key, and deliberately: it reads across a whole
+  // department or institution for months at a time, which is the dashboard's
+  // audience (10 roles hold it), not the per-session Senior Learner audience. The RPC
+  // behind it enforces the identical key server-side, so the page gate and the
+  // data gate cannot drift apart.
+  '/academic/attendance/history': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
@@ -2633,6 +2641,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
