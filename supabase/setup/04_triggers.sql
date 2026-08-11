@@ -1795,3 +1795,18 @@ CREATE TRIGGER trg_audit_learner_referral_attribution
   ON public.learners_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_audit_learner_referral_attribution();
+
+-- =====================================================================
+-- Updated: 2026-08-10 - JKKN permanent identity register: updated_at
+-- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
+-- FILE ONLY / NOT APPLIED to production as of 2026-08-10.
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_jkkn_identities_updated_at ON public.jkkn_identities;
+CREATE TRIGGER trg_jkkn_identities_updated_at
+  BEFORE UPDATE ON public.jkkn_identities
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_jkkn_identity_aliases_updated_at ON public.jkkn_identity_aliases;
+CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
+  BEFORE UPDATE ON public.jkkn_identity_aliases
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

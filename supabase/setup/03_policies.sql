@@ -8907,3 +8907,83 @@ DROP POLICY IF EXISTS referral_pair_scores_write ON public.referral_pair_scores;
 CREATE POLICY referral_pair_scores_write ON public.referral_pair_scores
     FOR ALL USING (is_super_admin() OR is_admin())
     WITH CHECK (is_super_admin() OR is_admin());
+
+-- =====================================================================
+-- Updated: 2026-08-10 - JKKN permanent identity register
+-- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
+-- FILE ONLY / NOT APPLIED to production as of 2026-08-10.
+-- =====================================================================
+-- `authenticated` is revoked alongside anon deliberately. Supabase ships
+-- ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated,
+-- service_role, so a new table arrives with authenticated ALREADY holding
+-- DELETE; revoking only anon leaves that in place and makes the GRANT below
+-- a no-op restating privileges already held. Measured on a throwaway
+-- PostgreSQL 16 cluster with those default privileges replicated.
+--
+-- There is NO DELETE grant and NO DELETE policy on either table, on purpose:
+-- deleting a row would release its number back into the pool, and a JKKN ID
+-- is never reused. Withdraw an identity with retired_at + retired_reason;
+-- close an alias with valid_to + is_current = false.
+ALTER TABLE public.jkkn_identities ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.jkkn_identities FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.jkkn_identities TO authenticated;
+
+DROP POLICY IF EXISTS jkkn_identities_select ON public.jkkn_identities;
+CREATE POLICY jkkn_identities_select ON public.jkkn_identities
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.view')
+    );
+
+DROP POLICY IF EXISTS jkkn_identities_insert ON public.jkkn_identities;
+CREATE POLICY jkkn_identities_insert ON public.jkkn_identities
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+DROP POLICY IF EXISTS jkkn_identities_update ON public.jkkn_identities;
+CREATE POLICY jkkn_identities_update ON public.jkkn_identities
+    FOR UPDATE TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    )
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+ALTER TABLE public.jkkn_identity_aliases ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.jkkn_identity_aliases FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.jkkn_identity_aliases TO authenticated;
+
+DROP POLICY IF EXISTS jkkn_identity_aliases_select ON public.jkkn_identity_aliases;
+CREATE POLICY jkkn_identity_aliases_select ON public.jkkn_identity_aliases
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.view')
+    );
+
+DROP POLICY IF EXISTS jkkn_identity_aliases_insert ON public.jkkn_identity_aliases;
+CREATE POLICY jkkn_identity_aliases_insert ON public.jkkn_identity_aliases
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+DROP POLICY IF EXISTS jkkn_identity_aliases_update ON public.jkkn_identity_aliases;
+CREATE POLICY jkkn_identity_aliases_update ON public.jkkn_identity_aliases
+    FOR UPDATE TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    )
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
