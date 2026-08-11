@@ -191,6 +191,8 @@ export type CandidateVerdict = 'in' | 'out';
 export interface AllocationCandidate {
   learner_id: string;
   full_name: string;
+  /** learners_profiles.roll_number — the identifier a warden matches the preview against. */
+  roll_number: string | null;
   email: string | null;
   institution_name: string | null;
   program_name: string | null;

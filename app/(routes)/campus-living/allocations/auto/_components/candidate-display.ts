@@ -32,6 +32,7 @@ export function toExportRow(c: AllocationCandidate): CandidateExportRow {
   const na = c.stage === 'prerequisite';
   return {
     Student: c.full_name,
+    'Roll No': c.roll_number ?? '',
     Email: c.email ?? '',
     Institution: c.institution_name ?? '',
     Program: c.program_name ?? '',
@@ -63,11 +64,12 @@ export function toExportRow(c: AllocationCandidate): CandidateExportRow {
 
 /**
  * The subset a landscape A4 page can hold and still stay legible. The full
- * 23-column schema only fits a spreadsheet — the PDF keeps the identity,
+ * 24-column schema only fits a spreadsheet — the PDF keeps the identity,
  * fee-basis and outcome columns and drops the per-condition Yes/No checks.
  */
 export const CANDIDATE_PDF_COLUMNS: string[] = [
   'Student',
+  'Roll No',
   'Institution',
   'Program',
   'Semester',
