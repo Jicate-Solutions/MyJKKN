@@ -85,6 +85,10 @@ const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
     fns: ['fn_handover_people_search'],
     why: 'Casts i.name::text — institutions.name is varchar(255) against a declared text OUT column, which raised 42804 and made the people picker return nothing. Found by the Director on production, not by CI.',
   },
+  '20260820100000': {
+    fns: ['fn_director_handover_create'],
+    why: "Scopes a super admin's handover to the RECEIVER's institution instead of the granter's. Create exempted super admins from the same-institution check but still stamped the granter's institution on the row; fn_handover_grants_key then required the two to match, which can never hold across colleges — so the row was born unusable and the receiver was told their access level was wrong. Measured live 2026-08-11: 3 of 3 handovers dead this way. Body machine-extracted from production via pg_get_functiondef; the only change is the v_inst assignment. The ordinary-director branch is untouched and still raises 42501.",
+  },
 };
 
 /** Version of the spine migration that defines them (specs/director-desk/SPEC.md). */

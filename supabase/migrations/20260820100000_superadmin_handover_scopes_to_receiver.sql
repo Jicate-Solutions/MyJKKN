@@ -192,6 +192,29 @@ $function$;
 
 
 -- ---------------------------------------------------------------------------
+-- RE-ASSERT THE ANON LOCK.
+--
+-- On production today this is a no-op, and that is the point. Measured
+-- 2026-08-11 against pg_proc.proacl, the live grants are exactly
+--   {postgres=X, authenticated=X, service_role=X}
+-- with no anon and no PUBLIC entry, because CREATE OR REPLACE preserves the ACL
+-- of a function that already exists at this signature.
+--
+-- It is written here because that preservation is the only thing holding the
+-- lock, and it holds only while the signature never changes and the function is
+-- never created fresh. On a new database, or the day this gains an argument, the
+-- same CREATE lands with Postgres's default PUBLIC EXECUTE plus Supabase's
+-- default anon grant, and the lock is gone with nothing to say so. A migration
+-- that depends on the state it finds is not a migration.
+--
+-- Revoking PUBLIC alone is insufficient: Supabase issues anon its own direct
+-- grant, and a direct grant survives a PUBLIC revoke. Both names are required.
+-- ---------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.fn_director_handover_create(text, text, text[], uuid, date, text, text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_director_handover_create(text, text, text[], uuid, date, text, text) TO authenticated, service_role;
+
+
+-- ---------------------------------------------------------------------------
 -- REPAIR the rows already written wrong — only those whose granter is a super
 -- admin AND whose institution differs from the receiver's, i.e. exactly the rows
 -- this bug produced. A cross-institution row from a NON-super-admin would be a
