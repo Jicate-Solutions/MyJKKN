@@ -35345,3 +35345,90 @@ AS $function$
   FROM scored s
   ORDER BY s.full_name;
 $function$;
+
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit on the LEARNER record.
+-- Writes one referral_attribution_audit row per watched field that actually
+-- changed on a learners_profiles UPDATE. Trigger declaration lives in
+-- 04_triggers.sql; migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- — FILE ONLY, NOT APPLIED.
+--
+-- SECURITY DEFINER for two reasons: the people who edit a learner's referral
+-- hold no INSERT on the audit table (nobody does), and an audit row must not be
+-- subject to the writer's own RLS. Running as the owner is what makes the trail
+-- both unforgeable and unavoidable.
+--
+-- 🔴 IT MUST NEVER BLOCK A LEGITIMATE UPDATE. Every error is downgraded to a
+-- WARNING and the update proceeds. The trade is explicit: a lost audit row is
+-- recoverable by asking; a blocked admission is not.
+--
+-- The distinctness test runs FIRST, outside the exception block. A plpgsql
+-- EXCEPTION block opens a subtransaction on every entry, and bulk learner edits
+-- mention these columns thousands of rows at a time while changing almost none
+-- of them — returning early keeps that cost off the common path.
+--
+-- 🔴 Purely additive. learners_profiles already carries
+-- trg_sync_learner_referral_to_attribution, which DELETES the prior
+-- consultant_lead_attributions row when referred_by_id changes. This function
+-- touches nothing but its own table and returns NEW unmodified, so it cannot
+-- interfere with that trigger whichever order the two fire in.
+CREATE OR REPLACE FUNCTION public.fn_audit_learner_referral_attribution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_actor uuid;
+BEGIN
+  -- Nothing actually moved: leave without opening a subtransaction. `UPDATE OF`
+  -- fires whenever a watched column is MENTIONED, not only when it changes.
+  IF NOT (
+       OLD.referral_type      IS DISTINCT FROM NEW.referral_type
+    OR OLD.referred_by_id     IS DISTINCT FROM NEW.referred_by_id
+    OR OLD.referred_by_name   IS DISTINCT FROM NEW.referred_by_name
+    OR OLD.quota_id           IS DISTINCT FROM NEW.quota_id
+    OR OLD.counseling_applied IS DISTINCT FROM NEW.counseling_applied
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    -- Inside the guard as well: with no JWT this is simply NULL, but a
+    -- malformed claim would raise, and losing the row is the correct outcome
+    -- there — never failing the learner's update.
+    v_actor := auth.uid();
+
+    INSERT INTO public.referral_attribution_audit
+      (learner_profile_id, changed_field, old_value, new_value, changed_by)
+    SELECT NEW.id, f.field, f.old_value, f.new_value, v_actor
+    -- Every value is cast to text EXPLICITLY, including the two columns that
+    -- are already text: a VALUES list resolves one common type per column, and
+    -- because the handler swallows errors, a future type change on
+    -- referral_type would turn the whole trail into a silent no-op rather than
+    -- a visible failure. The redundant casts remove that dependency for free.
+    FROM (
+      VALUES
+        ('referral_type',      OLD.referral_type::text,      NEW.referral_type::text),
+        ('referred_by_id',     OLD.referred_by_id::text,     NEW.referred_by_id::text),
+        ('referred_by_name',   OLD.referred_by_name::text,   NEW.referred_by_name::text),
+        ('quota_id',           OLD.quota_id::text,           NEW.quota_id::text),
+        ('counseling_applied', OLD.counseling_applied::text, NEW.counseling_applied::text)
+    ) AS f(field, old_value, new_value)
+    WHERE f.old_value IS DISTINCT FROM f.new_value;
+
+  EXCEPTION WHEN OTHERS THEN
+    -- Visible in the Postgres log, invisible to the person saving the form.
+    RAISE WARNING 'fn_audit_learner_referral_attribution: audit write skipped for learner_profile_id=% (%: %)',
+      NEW.id, SQLSTATE, SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- Supabase default privileges hand EXECUTE on every new function to anon, which
+-- is a separate grant from PUBLIC and survives a REVOKE FROM PUBLIC alone.
+REVOKE EXECUTE ON FUNCTION public.fn_audit_learner_referral_attribution() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_audit_learner_referral_attribution() TO authenticated;

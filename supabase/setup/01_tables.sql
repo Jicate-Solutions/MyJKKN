@@ -7009,3 +7009,55 @@ ALTER TABLE public.admission_lead_source_audit ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL   ON public.admission_lead_source_audit FROM anon, PUBLIC;
 GRANT  SELECT ON public.admission_lead_source_audit TO authenticated;
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit trail on the LEARNER
+-- record (referral_attribution_audit). Companion to admission_lead_source_audit,
+-- which watches the same kind of change on the lead; a credit attached directly
+-- on learners_profiles was invisible to that trigger because it is bound to a
+-- different table. Also covers quota_id + counseling_applied — the
+-- Direct-versus-Counselling distinction that decides whether a referral is
+-- payable at all.
+--
+-- The companion is live on production (hand-applied via the Management API on
+-- 2026-08-06, and it has already captured a real change) but is NOT yet in this
+-- repository — PR #2889 back-fills it, so grepping for it here returns nothing.
+-- Rebuilt from the repo alone today, neither trail would exist until #2889
+-- merges and both are applied.
+--
+-- One row per FIELD that actually changed, never one per UPDATE statement.
+-- learner_profile_id carries NO foreign key on purpose: ON DELETE CASCADE would
+-- erase the trail exactly when it matters and ON DELETE RESTRICT would let the
+-- trail block a legitimate deletion — an audit row must be able to outlive its
+-- subject. old_value/new_value are text for every field because uuid and boolean
+-- both render losslessly, so one pair of columns beats five typed pairs that are
+-- NULL four times in five.
+--
+-- Written ONLY by trg_audit_learner_referral_attribution (SECURITY DEFINER);
+-- no client holds INSERT, UPDATE or DELETE, and there is deliberately no policy
+-- for them. The anon lock and the narrow authenticated re-grant live with the
+-- policies in 03_policies.sql. See migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- — FILE ONLY, NOT APPLIED.
+CREATE TABLE IF NOT EXISTS public.referral_attribution_audit (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    learner_profile_id UUID        NOT NULL,
+    changed_field      TEXT        NOT NULL,
+    old_value          TEXT,
+    new_value          TEXT,
+    changed_by         UUID,
+    changed_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Three read shapes, three indexes: one learner's history, the recent-activity
+-- feed, and "what has this person been changing". The changed_by index is
+-- partial because system/cron writes are NULL by design and expected to be the
+-- bulk of the table.
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_learner_idx
+    ON public.referral_attribution_audit (learner_profile_id, changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_at_idx
+    ON public.referral_attribution_audit (changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_by_idx
+    ON public.referral_attribution_audit (changed_by, changed_at DESC)
+    WHERE changed_by IS NOT NULL;
