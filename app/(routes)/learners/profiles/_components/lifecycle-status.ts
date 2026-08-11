@@ -22,8 +22,21 @@ import type { LifecycleStatus } from '@/types/learner-profile';
  * returned "No results" with no way to switch the predicate off. That was 2,632
  * of 7,183 rows on production.
  */
+/**
+ * 2026-08-10: `reserved` and `admitted` promoted to first-class tabs.
+ *
+ * They were always reachable through "All Statuses", but only if you knew to
+ * look — and 994 learners live in those two statuses (870 reserved, 124
+ * admitted), the entire pre-enrolment pipeline. They sit BEFORE Active because
+ * that is their order in the lifecycle: account → reserved → admitted → active.
+ *
+ * The default tab is still Active (see `resolveLifecycleTab`), so no existing
+ * bookmark or workflow changes behaviour.
+ */
 export const LIFECYCLE_TABS = [
   { value: 'all', label: 'All Statuses' },
+  { value: 'reserved', label: 'Reserved' },
+  { value: 'admitted', label: 'Admitted' },
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive' },
   { value: 'exited', label: 'Exited' },

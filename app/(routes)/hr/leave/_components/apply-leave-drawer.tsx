@@ -106,7 +106,7 @@ export function ApplyLeaveDrawer({
   const { data: periodUsage } = useLeavePeriodUsage(
     ctx.employeeId || undefined,
     leaveTypeId || undefined,
-    ctx.academicYearId || null,
+    ctx.hrAcademicYearId || null,
     startDate || undefined
   );
 
@@ -132,7 +132,7 @@ export function ApplyLeaveDrawer({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         leave_type_id: leaveTypeId,
-        academic_year_id: ctx.academicYearId || null,
+        hr_academic_year_id: ctx.hrAcademicYearId || null,
         start_date: startDate,
         end_date: endDate,
         duration_type: effectiveDuration,
@@ -171,8 +171,8 @@ export function ApplyLeaveDrawer({
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                No academic year covers today for your institution, so leave cannot be
-                submitted. Please contact HR.
+                No HR academic year covers today, so leave cannot be submitted.
+                Please contact HR.
               </AlertDescription>
             </Alert>
           )}

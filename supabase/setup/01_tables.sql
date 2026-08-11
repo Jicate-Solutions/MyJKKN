@@ -6938,3 +6938,43 @@ CREATE TABLE IF NOT EXISTS public.hostel_empty_bed_notices (
 
 CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
     ON public.hostel_empty_bed_notices (learner_id, room_id, sent_at DESC);
+
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+-- The leave/payroll calendar HR owns. Deliberately NOT academic_years:
+--   * academic_years is scoped per institution, so '2026-2027' exists 11 times
+--     with 11 ids. HR is keyed on hr_organization_id and needed a dimension it
+--     could compare across institutions -- hr_leave_balance_analytics used to
+--     match on the trimmed NAME because no id was comparable.
+--   * academic_years runs Jun 1 -> Mar 31 (10 months), leaving April and May
+--     outside every year. hr_academic_years runs the financial year,
+--     Apr 1 -> Mar 31.
+-- One row per year for all of JKKN HR; tenancy stays on the referencing rows
+-- (hr_leave_balances.hr_organization_id).
+CREATE TABLE IF NOT EXISTS public.hr_academic_years (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    year_name   TEXT        NOT NULL,
+    start_date  DATE        NOT NULL,
+    end_date    DATE        NOT NULL,
+    is_active   BOOLEAN     NOT NULL DEFAULT true,
+    notes       TEXT,
+    created_by  UUID        REFERENCES public.profiles(id),
+    updated_by  UUID        REFERENCES public.profiles(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT hr_academic_years_name_uq  UNIQUE (year_name),
+    CONSTRAINT hr_academic_years_dates_ck CHECK (end_date > start_date),
+
+    -- The constraint academic_years lacks: two active years must never contain
+    -- the same day, because resolution is by date bracket. Its absence on
+    -- academic_years is how 'JKKN Dental 2026-2027 Additional 2' and three more
+    -- shadow rows came to exist there.
+    CONSTRAINT hr_academic_years_no_overlap
+        EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
+        WHERE (is_active)
+);
+
+CREATE INDEX IF NOT EXISTS hr_academic_years_dates_idx
+    ON public.hr_academic_years (start_date, end_date) WHERE is_active;

@@ -72,7 +72,7 @@ export function ApplyCompOffDrawer({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         leave_type_id: effectiveTypeId,
-        academic_year_id: ctx.academicYearId || null,
+        hr_academic_year_id: ctx.hrAcademicYearId || null,
         start_date: compOffDate,
         end_date: compOffDate,
         // Whole days only: credits are earned one full day per day worked,

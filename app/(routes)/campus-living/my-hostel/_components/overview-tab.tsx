@@ -58,7 +58,8 @@ export function OverviewTab() {
 
   // Display query includes a not-yet-approved (proposed) allocation so a freshly
   // allocated student sees "awaiting approval" instead of "no allocation yet".
-  // Distinct key from the active-only gating query in page.tsx (canRequestVacate).
+  // Distinct query key ('…by-learner-display') from the plain active-only lookup
+  // used elsewhere, so the wider status list here can't overwrite that cache.
   const { data: allocations, isLoading: allocLoading } = useQuery({
     queryKey: ['hostel-allocations', 'by-learner-display', profileId],
     queryFn: () =>

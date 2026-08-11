@@ -4,6 +4,29 @@
 --
 -- Created: 2026-08-09
 --
+-- ✅ APPLIED TO PRODUCTION 2026-08-10 by hand (Management API, single batch, with
+--    `SET myjkkn.apply_backfill='yes'` sent in the SAME request as the body).
+--    Recorded in supabase_migrations.schema_migrations as
+--    ('20260816040100','backfill_expire_stale_notification_digests').
+--    RESULT, read back from prod rather than inferred from an empty API
+--    response: 45,643 rows stamped; the Director's live unread count went
+--    746 -> 138; 43,775 dashboard:anomaly rows expired under the decision
+--    recorded below. Do NOT re-run: the selector is `expires_at IS NULL`, so a
+--    re-run is a no-op for these rows, but it would re-stamp anything that has
+--    accumulated since with a TTL measured from ITS created_at.
+--
+-- ⚠️ IF YOU HAND-APPLY A FILE LIKE THIS AGAIN, note two traps this one carries:
+--    1. It has its OWN `BEGIN;` ... `COMMIT;` (below). Wrapping it in your own
+--       BEGIN..ROLLBACK to "rehearse" does NOT roll it back — the inner COMMIT
+--       commits for real. Rehearse by running the selector as a SELECT COUNT
+--       instead, which is what was done here (predicted 140 live rows remaining;
+--       actual 138).
+--    2. The guard's miss path is RAISE NOTICE, which Supabase Studio does not
+--       surface, and Studio may run each execution on a DIFFERENT pooled
+--       session — so setting the flag in a separate execution can leave it unset
+--       here, stamp 0 rows, and still look like success. Send the SET and the
+--       body in ONE request, and verify with a row count afterwards.
+--
 -- ############################################################################
 -- ##  THIS FILE IS INERT UNLESS YOU DELIBERATELY ENABLE IT                  ##
 -- ############################################################################

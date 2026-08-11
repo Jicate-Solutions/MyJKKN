@@ -143,6 +143,7 @@ export function CandidateValidationTable({
   availableBeds,
   hostelType,
   strict,
+  allowOverflow = true,
   scope = [],
 }: {
   candidates: AllocationCandidate[];
@@ -151,6 +152,8 @@ export function CandidateValidationTable({
   hostelType: string;
   /** The page's Strict physical rules toggle — stamped into the export header. */
   strict: boolean;
+  /** The page's overflow toggle — stamped into the export header. */
+  allowOverflow?: boolean;
   /** Page-level cohort selection, pre-labelled. [] => no narrowing. */
   scope?: string[];
 }) {
@@ -163,6 +166,10 @@ export function CandidateValidationTable({
   const feeResolved = candidates.filter((c) => c.band_fee != null).length;
   const noFee = candidates.length - feeResolved;
   const willPlace = Math.min(eligible, availableBeds);
+  // How many of the eligible are only placeable because overflow is on — i.e.
+  // every room reserved for their cohort was full. Worth surfacing: it is the
+  // number a warden would otherwise have had to place by hand.
+  const overflowPlaced = candidates.filter((c) => c.placement_tier === 'overflow').length;
 
   // ── Advanced filters ──────────────────────────────────────────────
   const [search, setSearch] = useState('');
@@ -307,6 +314,7 @@ export function CandidateValidationTable({
       const ctx = {
         hostelType,
         strict,
+        allowOverflow,
         scope,
         filters: activeFilterLabels,
         totalCandidates: candidates.length,
@@ -327,12 +335,13 @@ export function CandidateValidationTable({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Stat icon={<Users className="h-4 w-4" />} label="Eligible" value={eligible} />
         <Stat icon={<BedDouble className="h-4 w-4" />} label="Available beds" value={availableBeds} />
         <Stat label="Will place" value={willPlace} />
         <Stat label="Excluded" value={excluded} muted />
         <Stat label="Fee resolved" value={feeResolved} muted />
+        <Stat label="Via overflow" value={overflowPlaced} muted />
       </div>
 
       {noFee > 0 && (
@@ -544,7 +553,21 @@ export function CandidateValidationTable({
                       <YesNo ok={c.physical_rule_ok} na={prereqFail} />
                     </td>
                     <td className="px-2 text-xs">
-                      {c.target_block_name ?? <span className="text-muted-foreground">—</span>}
+                      {c.target_block_name ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span>{c.target_block_name}</span>
+                          {c.placement_tier === 'overflow' && (
+                            <span
+                              className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800"
+                              title="Every room reserved for this cohort was full — placed in an unreserved room of the same category"
+                            >
+                              overflow
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-2 text-xs">{c.resolved_room_category_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-2 text-xs">{c.resolved_mess_category_name ?? <span className="text-muted-foreground">—</span>}</td>
