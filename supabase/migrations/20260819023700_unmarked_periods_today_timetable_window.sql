@@ -208,16 +208,41 @@
 -- RAISE EXCEPTION, never RAISE NOTICE: a guard whose miss path only notices stamps
 -- zero rows and reads as success, and Supabase Studio hides NOTICE entirely.
 --
+-- TWO EXACT HASHES, NO SUBSTRING FALLBACK. An earlier draft accepted "the body
+-- already mentions start_date and end_date" as proof that this migration had run.
+-- That is an escape hatch, not an idempotency check: ANY later body that happens to
+-- name those columns — this window plus a timezone fix, a re-hardened clamp, a
+-- scope correction — would satisfy it and then be silently reverted by the DDL
+-- below, which is the exact hazard the guard exists to stop. (`_` is a LIKE
+-- wildcard too, so the pattern was looser still.) Only two definitions are
+-- acceptable now: the captured pre-state, and this file's own post-state.
+--
+-- THE DDL IS INSIDE THE GUARD, ON PURPOSE — this is the load-bearing part.
+-- A standalone `DO` block followed by a bare `CREATE OR REPLACE` protects nothing
+-- under the apply path this file actually advertises. `psql -f` runs in autocommit
+-- with `ON_ERROR_STOP` OFF by default: the RAISE aborts only its own statement, one
+-- red line scrolls past, and the `CREATE OR REPLACE` then runs anyway and
+-- overwrites the drifted body. A test driver that sends the file as one implicit
+-- transaction hides this completely — the guard looks proven while being inert
+-- where it matters. Wrapping the DDL in `EXECUTE` inside the same `DO` makes guard
+-- and DDL ONE statement, so the abort is atomic under every apply path without
+-- reintroducing a `BEGIN`/`COMMIT` that would defeat a reviewer's ROLLBACK
+-- rehearsal. Belt and braces: apply with `psql -v ON_ERROR_STOP=1 -f <file>`.
+--
 -- Three outcomes, all explicit:
---   md5 matches the capture  -> the expected pre-state, proceed
---   body already windowed    -> this migration re-run, proceed (idempotent)
---   anything else            -> abort, naming the hash actually found
+--   md5 = pre-state   -> apply the change
+--   md5 = post-state  -> already applied, do nothing (idempotent re-run)
+--   anything else     -> abort, naming the hash actually found
 -- ────────────────────────────────────────────────────────────────────────────────
 DO $guard$
 DECLARE
-    v_expected CONSTANT TEXT := '913fa4a23631b8cee794d90be149ac0e';
-    v_def      TEXT;
-    v_md5      TEXT;
+    -- Hash of the body AS CAPTURED from production 2026-08-11 (9,252 chars).
+    v_pre  CONSTANT TEXT := '913fa4a23631b8cee794d90be149ac0e';
+    -- Hash of the body this file INSTALLS (10,181 chars). Both were reproduced
+    -- byte-for-byte on a local PostgreSQL 16 from these same migration sources.
+    v_post CONSTANT TEXT := 'd315ad4e56648263694bd0727b45d9e8';
+    v_def  TEXT;
+    v_md5  TEXT;
 BEGIN
     SELECT pg_get_functiondef(p.oid) INTO v_def
     FROM pg_proc p
@@ -233,25 +258,26 @@ BEGIN
 
     v_md5 := md5(v_def);
 
-    IF v_md5 = v_expected THEN
-        RETURN;  -- expected pre-state
+    IF v_md5 = v_post THEN
+        RETURN;  -- this migration has already been applied; nothing to do
     END IF;
 
-    IF v_def LIKE '%t.start_date%' AND v_def LIKE '%t.end_date%' THEN
-        RETURN;  -- already carries this migration's window
+    IF v_md5 <> v_pre THEN
+        RAISE EXCEPTION
+            'DRIFT GUARD: the live body of fn_aqs_attendance_unmarked_periods_today is neither the '
+            'body captured on 2026-08-11 (md5 %) nor the body this migration installs (md5 %). Found '
+            '%. Applying would silently REVERT whatever changed — including, if it touched them, the '
+            'identity guard and the p_institution_id security clamp added 2026-08-08, whose loss '
+            're-opens a cross-institution scope override on a function GRANTed to authenticated. '
+            'Re-capture the live body with pg_get_functiondef, re-apply the two window predicates to '
+            'it, re-measure, and update both hashes. NOTE: a PostgreSQL MAJOR VERSION change is also '
+            'a legitimate cause — pg_get_functiondef rendering is not guaranteed stable across '
+            'majors — so compare the definitions before assuming somebody edited the function.',
+            v_pre, v_post, v_md5;
     END IF;
 
-    RAISE EXCEPTION
-        'DRIFT GUARD: the live body of fn_aqs_attendance_unmarked_periods_today has changed since it '
-        'was captured on 2026-08-11 (expected md5 %, found %). Applying this file now would silently '
-        'REVERT that change — including, if it touched them, the identity guard and the '
-        'p_institution_id security clamp added 2026-08-08. Re-capture the live body with '
-        'pg_get_functiondef, re-apply the two window predicates to it, re-measure, and update this '
-        'guard''s hash.',
-        v_expected, v_md5;
-END
-$guard$;
-
+    -- ── The change itself. Same statement as the guard, so it cannot outlive it. ──
+    EXECUTE $ddl$
 CREATE OR REPLACE FUNCTION public.fn_aqs_attendance_unmarked_periods_today(
     p_user_id        UUID,
     p_institution_id UUID DEFAULT NULL
@@ -482,3 +508,6 @@ COMMENT ON FUNCTION public.fn_aqs_attendance_unmarked_periods_today(UUID, UUID) 
     'the same data. A NULL start_date or end_date means unbounded, not excluded. '
     'sample_period_ids holds up to 10 TIMETABLE UUIDs and carries the same window predicate as '
     'the count. Senior Learner and HOD scope: their department. super_admin: institution or all.';
+$ddl$;
+END
+$guard$;

@@ -1172,17 +1172,37 @@ describe('the unmarked count honours the timetable\'s own validity window', () =
       await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
     });
 
-    it('accepts the exact body it was captured from', async () => {
-      // The md5 in the migration was taken from PRODUCTION, and this local
-      // Postgres reproduces it byte-for-byte from the same migration source —
-      // which is the only reason a hash guard is testable here at all.
-      await db.query(readFileSync(MIGRATION, 'utf8'));
+    /** Both hashes are READ FROM the migration rather than duplicated here. A
+     *  PostgreSQL major upgrade can change how pg_get_functiondef renders, and a
+     *  second hardcoded copy would then disagree with the file for reasons that
+     *  have nothing to do with drift. */
+    function hashFromMigration(name: 'v_pre' | 'v_post'): string {
+      const m = readFileSync(WINDOW_MIGRATION, 'utf8').match(
+        new RegExp(`${name}\\s+CONSTANT TEXT := '([0-9a-f]{32})'`),
+      );
+      if (!m) throw new Error(`could not read ${name} out of ${WINDOW_MIGRATION}`);
+      return m[1];
+    }
+
+    async function liveMd5(): Promise<string> {
       const r = await db.query(
         `SELECT md5(pg_get_functiondef(
                   to_regprocedure('public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)'))) AS m`,
       );
-      expect(r.rows[0].m).toBe('913fa4a23631b8cee794d90be149ac0e');
-      await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).resolves.toBeDefined();
+      return r.rows[0].m as string;
+    }
+
+    it('accepts the exact body it was captured from, and installs the hash it claims', async () => {
+      // The pre-hash was taken from PRODUCTION and this local Postgres reproduces
+      // it byte-for-byte from the same migration source — the only reason a hash
+      // guard is testable here at all. The post-hash is asserted too, so an edit
+      // to the 9,252 verbatim characters (say, quietly turning the
+      // p_institution_id clamp back into an assignment) cannot pass unnoticed.
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      expect(await liveMd5()).toBe(hashFromMigration('v_pre'));
+
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+      expect(await liveMd5()).toBe(hashFromMigration('v_post'));
     });
 
     it('REFUSES to apply over a body that has drifted', async () => {
@@ -1195,17 +1215,102 @@ describe('the unmarked count honours the timetable\'s own validity window', () =
         `ALTER FUNCTION public.fn_aqs_attendance_unmarked_periods_today(uuid, uuid)
            SET search_path = public`,
       );
+      const drifted = await liveMd5();
+      await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).rejects.toThrow(
+        /DRIFT GUARD/,
+      );
+      // …and refusing means the drifted body is STILL THERE. A guard that raises
+      // and lets the DDL through anyway is the failure this test exists for.
+      expect(await liveMd5()).toBe(drifted);
+    });
+
+    it('REFUSES a windowed body that is not the one this file installs', async () => {
+      // Non-vacuity for the idempotency branch. An earlier draft accepted "the
+      // body mentions start_date and end_date" as proof this migration had run —
+      // so ANY later fix layered on top of the window would have satisfied it and
+      // then been silently reverted. This fixture is exactly that: windowed, and
+      // not this file's output.
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+      await db.query(
+        `ALTER FUNCTION public.fn_aqs_attendance_unmarked_periods_today(uuid, uuid)
+           SET search_path = public`,
+      );
+      const r = await db.query(
+        `SELECT pg_get_functiondef(
+                  to_regprocedure('public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)')) AS d`,
+      );
+      expect(r.rows[0].d).toContain('start_date'); // the substring test WOULD have passed
+      expect(r.rows[0].d).toContain('end_date');
+
       await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).rejects.toThrow(
         /DRIFT GUARD/,
       );
     });
 
-    it('is idempotent: re-applying over its own result is allowed', async () => {
+    it('is idempotent: re-applying over its own result is a no-op', async () => {
       await db.query(readFileSync(MIGRATION, 'utf8'));
       await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
-      // Second run: the hash no longer matches the captured one, but the body
-      // already carries this migration's window, so it must NOT raise.
+      const first = await liveMd5();
       await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).resolves.toBeDefined();
+      expect(await liveMd5()).toBe(first);
+    });
+
+    it('keeps the DDL INSIDE the guard, so an abort cannot be stepped over', () => {
+      // Structural, because node-pg cannot reproduce the failure it prevents: it
+      // sends the whole file as one implicit transaction, so a bare
+      // `CREATE OR REPLACE` after the DO block would look protected here while
+      // being inert under `psql -f`, which runs in autocommit with ON_ERROR_STOP
+      // OFF — there the RAISE aborts only its own statement and the DDL still
+      // runs. Verified by hand against a throwaway database: with the DDL outside
+      // the guard, applying over a drifted body printed the error AND overwrote
+      // the body; with it inside, the drifted body survived untouched.
+      const sql = readFileSync(WINDOW_MIGRATION, 'utf8');
+      const ddl = sql.indexOf('CREATE OR REPLACE FUNCTION public.fn_aqs_attendance_unmarked');
+      const exec = sql.indexOf('EXECUTE $ddl$');
+      const guard = sql.indexOf('DO $guard$');
+      expect(guard).toBeGreaterThan(-1);
+      expect(exec).toBeGreaterThan(guard);
+      expect(ddl).toBeGreaterThan(exec);
+      // Exactly one CREATE OR REPLACE of this function, and no stray transaction
+      // control that would defeat a reviewer's BEGIN … ROLLBACK rehearsal.
+      expect(
+        sql.match(/CREATE OR REPLACE FUNCTION public\.fn_aqs_attendance_unmarked/g),
+      ).toHaveLength(1);
+      expect(sql).not.toMatch(/^\s*(BEGIN|COMMIT)\s*;/m);
+    });
+
+    it('leaves the identity guard and the institution clamp intact in the applied body', async () => {
+      // Every scope and identity test above runs against the PRE-window body. The
+      // clamp and the identity guard are re-shipped verbatim by this file, so
+      // they need to be exercised against the body it actually installs — that is
+      // where a silent edit to those 9,252 characters would land.
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+
+      // Institution clamp: a HOD naming another college still gets their own.
+      const own = await db.query(
+        'SELECT public.fn_aqs_attendance_unmarked_periods_today($1::uuid) AS j',
+        [HOD],
+      );
+      const attempted = await db.query(
+        'SELECT public.fn_aqs_attendance_unmarked_periods_today($1::uuid, $2::uuid) AS j',
+        [HOD, OTHER_INST],
+      );
+      expect(attempted.rows[0].j.count).toBe(own.rows[0].j.count);
+
+      // Identity guard: with a JWT present, naming somebody else returns nothing.
+      // `false`, i.e. session-scoped, exactly as the identity tests above do it.
+      // `true` is transaction-local and node-pg autocommits each query, so the
+      // claim would be gone before the function is called and the guard would
+      // never be exercised — the test would pass for the wrong reason.
+      await db.query(`SELECT set_config('request.jwt.claim.sub', $1, false)`, [HOD]);
+      const spoofed = await db.query(
+        'SELECT public.fn_aqs_attendance_unmarked_periods_today($1::uuid) AS j',
+        [SUPER_ADMIN],
+      );
+      expect(spoofed.rows[0].j.count).toBe(0);
+      await db.query(`SELECT set_config('request.jwt.claim.sub', '', false)`);
     });
 
     it('REFUSES to create the function from nothing', async () => {
