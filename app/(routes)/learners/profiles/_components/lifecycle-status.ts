@@ -44,6 +44,26 @@ export const LIFECYCLE_TABS = [
 
 export type LifecycleTabValue = (typeof LIFECYCLE_TABS)[number]['value'];
 
+/**
+ * The lifecycle statuses this page is allowed to list.
+ *
+ * 2026-08-11: "All Statuses" stopped meaning "no predicate at all".
+ *
+ * It used to omit the lifecycle_status filter entirely, so the tab returned
+ * every label in the enum — 1,670 of 7,216 production rows were graduated
+ * (1,106), enquiry_submitted (367), account (84), rejected (54), enquiry (52),
+ * approved, withdrawal_pending and waitlisted learners. None of those belong on
+ * an enrolled-learner roster, and each already has its own module:
+ * /learners/enquiries, /learners/onboarding, /learners/alumni, /admission.
+ *
+ * DERIVED from LIFECYCLE_TABS rather than re-listed, so the two can never
+ * drift: "All Statuses" is by construction the union of the other tabs. Add a
+ * tab and it is included automatically.
+ */
+export const LIFECYCLE_TAB_STATUSES = LIFECYCLE_TABS.map((t) => t.value).filter(
+  (v) => v !== 'all'
+) as LifecycleStatus[];
+
 export function isLifecycleTabValue(v: unknown): v is LifecycleTabValue {
   return LIFECYCLE_TABS.some((t) => t.value === v);
 }
@@ -54,7 +74,12 @@ export function resolveLifecycleTab(raw: unknown): LifecycleTabValue {
 }
 
 /**
- * The lifecycle_status predicate for a tab, or undefined for "no predicate".
+ * The lifecycle_status predicate for a tab.
+ *
+ * Returns ONE status for a status tab and the whole allowed SET for 'all', so
+ * callers must handle both — `.eq()` for a string, `.in()` for an array.
+ * Never returns undefined: this page always constrains lifecycle_status, which
+ * is what keeps graduated / enquiry / rejected learners off it.
  *
  * MUST be used instead of casting the tab value: 'all' is not a member of the
  * lifecycle_status enum, and `.eq('lifecycle_status', 'all')` raises 22P02 —
@@ -63,6 +88,6 @@ export function resolveLifecycleTab(raw: unknown): LifecycleTabValue {
  */
 export function lifecycleFilterForTab(
   tab: LifecycleTabValue
-): LifecycleStatus | undefined {
-  return tab === 'all' ? undefined : (tab as LifecycleStatus);
+): LifecycleStatus | LifecycleStatus[] {
+  return tab === 'all' ? LIFECYCLE_TAB_STATUSES : (tab as LifecycleStatus);
 }

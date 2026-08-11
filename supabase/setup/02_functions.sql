@@ -34195,6 +34195,1245 @@ END $function$;
 REVOKE EXECUTE ON FUNCTION public.fn_audit_admission_lead_source() FROM anon, PUBLIC;
 
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Added: 2026-08-10 — Referral review worklist (read-only).
+-- Mirror of supabase/migrations/20260818050000_referral_review_worklist_rpc.sql
+-- ═══════════════════════════════════════════════════════════════════════════
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Referral review worklist — ONE read RPC behind the /admission/consultants/
+-- review-worklist screen. Created 2026-08-10.
+--
+-- WHY THIS EXISTS
+--   Three populations of 2026-27 consultant credits were found by audit and have
+--   never had a home in the UI. They are findings, not accusations, and none of
+--   them is payable today: referral_rate_config holds no active 2026 rate and
+--   consultant_commission_transactions has never held a row, so
+--   fn_generate_referral_commissions resolves no rate and writes nothing. This
+--   RPC exists so the Director can LOOK at all three on one screen BEFORE any
+--   rate is switched on — the moment a rate is set, these rows stop being
+--   curiosities and start being money.
+--
+--   A. walkin_credited    — the enquiry (admission_leads) is recorded as
+--                           source='walk_in' yet an agency is credited on it.
+--                           A walk-in CAN be genuinely agency-referred (the
+--                           person walks in because an agency sent them), so
+--                           this is a data-controls question about how the two
+--                           fields are captured, never a claim about anyone.
+--                           `days_after_enquiry` is carried through because it
+--                           is the whole diagnostic: 0 means the agency was
+--                           entered at enquiry creation, not attached later.
+--   B. unlinked           — learners_profiles.referral_type='consultant' with
+--                           referred_by_id IS NULL. The generator's candidate
+--                           set requires referred_by_id IS NOT NULL, so these
+--                           are skipped in silence and whoever is owed is never
+--                           recorded. The LINKING screen is a separate change
+--                           (PR #2793, /admission/consultants/unlinked-referrals);
+--                           this RPC only counts and lists them.
+--   C. no_enquiry_trail   — a credit with no admission_leads row behind it at
+--                           all. Defined here by the ABSENCE of an enquiry, not
+--                           by referral_source — 'auto_sync_learner' is what the
+--                           2026-27 rows happen to carry, and hardcoding it
+--                           would hide a trail-less credit that arrives by some
+--                           other route later. referral_source is returned as
+--                           data so the screen can still show it.
+--
+-- WHAT IT IS NOT
+--   Read-only, and STABLE so that is structurally enforced rather than merely
+--   promised: a STABLE function cannot write. No approve, no verify, no rate,
+--   no commission, no payment. Nothing here changes a single row.
+--
+-- Year scoping matches fn_generate_referral_commissions exactly — the join to
+-- admission_years (p_year 2026 = the 2026-27 intake). Any other definition of
+-- "this year" would list a different population from the one the generator will
+-- actually act on, which is the specific thing this screen must not do.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fn_referral_review_worklist(p_year integer)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_walkin   jsonb;
+  v_unlinked jsonb;
+  v_orphan   jsonb;
+BEGIN
+  -- SECURITY DEFINER bypasses RLS, so the gate is explicit. Read-only screen →
+  -- the read permission of the enquiry desk that owns this data.
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('admission.leads.view')) THEN
+    RAISE EXCEPTION 'Not authorised to view the referral review worklist';
+  END IF;
+
+  -- A. Agency credited on an enquiry recorded as a walk-in.
+  SELECT COALESCE(jsonb_agg(x ORDER BY x_created_at DESC), '[]'::jsonb)
+    INTO v_walkin
+  FROM (
+    SELECT
+      a.created_at AS x_created_at,
+      jsonb_build_object(
+        'attribution_id',      a.id,
+        'learner_profile_id',  lp.id,
+        'admission_lead_id',   al.id,
+        'learner_name',        COALESCE(NULLIF(btrim(concat_ws(' ', lp.first_name, lp.last_name)), ''),
+                                        NULLIF(btrim(al.full_name), '')),
+        'programme',           pr.program_name,
+        'institution',         inst.name,
+        'agency_name',         ec.name,
+        'credit_created_at',   a.created_at,
+        'is_verified',         COALESCE(a.is_verified, false),
+        'verified_by_name',    vp.full_name,
+        'enquiry_source',      al.source::text,
+        'enquiry_created_at',  al.created_at,
+        'referral_source',     a.referral_source,
+        -- 0 = the agency was on the enquiry the day it was created.
+        'days_after_enquiry',  CASE
+                                 WHEN al.created_at IS NULL OR a.created_at IS NULL THEN NULL
+                                 ELSE floor(EXTRACT(EPOCH FROM (a.created_at - al.created_at)) / 86400)::int
+                               END
+      ) AS x
+    FROM public.consultant_lead_attributions a
+    JOIN public.admission_leads       al   ON al.id   = a.admission_id
+    JOIN public.education_consultants ec   ON ec.id   = a.consultant_id
+    LEFT JOIN public.learners_profiles lp  ON lp.id   = COALESCE(a.learner_profile_id, al.learner_profile_id)
+    LEFT JOIN public.admission_years   ay  ON ay.id   = COALESCE(lp.admission_year_id, al.admission_year_id)
+    LEFT JOIN public.programs          pr  ON pr.id   = lp.program_id
+    LEFT JOIN public.institutions      inst ON inst.id = COALESCE(lp.institution_id, al.institution_id)
+    LEFT JOIN public.profiles          vp  ON vp.id   = a.verified_by
+    WHERE al.source::text = 'walk_in'
+      AND ay.year = p_year
+  ) s;
+
+  -- B. referral_type says consultant, but no agency is linked, so the generator
+  --    silently skips the row and nobody owed is ever recorded.
+  SELECT COALESCE(jsonb_agg(x ORDER BY x_created_at DESC), '[]'::jsonb)
+    INTO v_unlinked
+  FROM (
+    SELECT
+      lp.created_at AS x_created_at,
+      jsonb_build_object(
+        'attribution_id',      NULL,
+        'learner_profile_id',  lp.id,
+        'admission_lead_id',   al.id,
+        'learner_name',        NULLIF(btrim(concat_ws(' ', lp.first_name, lp.last_name)), ''),
+        'programme',           pr.program_name,
+        'institution',         inst.name,
+        -- No agency is linked — this is the free-text name that was typed, when
+        -- one was. NULL here means not even a name survives.
+        'agency_name',         NULLIF(btrim(lp.referred_by_name), ''),
+        'credit_created_at',   lp.created_at,
+        'is_verified',         NULL,
+        'verified_by_name',    NULL,
+        'enquiry_source',      al.source::text,
+        'enquiry_created_at',  al.created_at,
+        'referral_source',     NULL,
+        'days_after_enquiry',  NULL
+      ) AS x
+    FROM public.learners_profiles lp
+    JOIN public.admission_years ay   ON ay.id   = lp.admission_year_id
+    LEFT JOIN public.admission_leads al  ON al.learner_profile_id = lp.id
+    LEFT JOIN public.programs        pr  ON pr.id   = lp.program_id
+    LEFT JOIN public.institutions    inst ON inst.id = lp.institution_id
+    WHERE ay.year = p_year
+      AND lp.referral_type   = 'consultant'
+      AND lp.referred_by_id IS NULL
+  ) s;
+
+  -- C. A credit with no enquiry behind it at all.
+  SELECT COALESCE(jsonb_agg(x ORDER BY x_created_at DESC), '[]'::jsonb)
+    INTO v_orphan
+  FROM (
+    SELECT
+      a.created_at AS x_created_at,
+      jsonb_build_object(
+        'attribution_id',      a.id,
+        'learner_profile_id',  lp.id,
+        'admission_lead_id',   NULL,
+        'learner_name',        NULLIF(btrim(concat_ws(' ', lp.first_name, lp.last_name)), ''),
+        'programme',           pr.program_name,
+        'institution',         inst.name,
+        'agency_name',         ec.name,
+        'credit_created_at',   a.created_at,
+        'is_verified',         COALESCE(a.is_verified, false),
+        'verified_by_name',    vp.full_name,
+        'enquiry_source',      NULL,
+        'enquiry_created_at',  NULL,
+        'referral_source',     a.referral_source,
+        'days_after_enquiry',  NULL
+      ) AS x
+    FROM public.consultant_lead_attributions a
+    JOIN public.education_consultants ec   ON ec.id   = a.consultant_id
+    JOIN public.learners_profiles     lp   ON lp.id   = a.learner_profile_id
+    JOIN public.admission_years       ay   ON ay.id   = lp.admission_year_id
+    LEFT JOIN public.programs         pr   ON pr.id   = lp.program_id
+    LEFT JOIN public.institutions     inst ON inst.id = lp.institution_id
+    LEFT JOIN public.profiles         vp   ON vp.id   = a.verified_by
+    WHERE ay.year = p_year
+      AND a.admission_id IS NULL
+      AND NOT EXISTS (
+            SELECT 1 FROM public.admission_leads al2
+             WHERE al2.learner_profile_id = a.learner_profile_id)
+  ) s;
+
+  RETURN jsonb_build_object(
+    'academic_year',        p_year,
+    'generated_at',         now(),
+    'walkin_credited',      v_walkin,
+    'unlinked',             v_unlinked,
+    'no_enquiry_trail',     v_orphan,
+    'counts', jsonb_build_object(
+      'walkin_credited',  jsonb_array_length(v_walkin),
+      'unlinked',         jsonb_array_length(v_unlinked),
+      'no_enquiry_trail', jsonb_array_length(v_orphan)
+    ),
+    -- The money position, read live rather than asserted in prose, so the
+    -- screen's "nothing here is payable" banner can never go stale.
+    'money_position', jsonb_build_object(
+      'active_rate_count',
+        (SELECT count(*) FROM public.referral_rate_config
+          WHERE academic_year = p_year AND is_active),
+      'commission_row_count',
+        (SELECT count(*) FROM public.consultant_commission_transactions)
+    )
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_referral_review_worklist(integer) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_referral_review_worklist(integer) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_referral_review_worklist(integer) IS
+  'Read-only review worklist for consultant credits in an intake year: agency credited on a walk-in enquiry, referral_type=consultant with no agency linked, and credits with no enquiry behind them. STABLE, so it cannot write. Gated on admission.leads.view (or admin). Year scoping matches fn_generate_referral_commissions.';
+-- ============================================================================
+-- 2026-08-11 — Auto-Allocate: one shared planner; deterministic category
+-- priority. Supersedes every fn_auto_allocate_* definition above (those carry
+-- the retired block-scoped signatures). Mirrored from:
+--   20260811150000_hostel_room_categories_deterministic_priority.sql
+--   20260811150200_auto_allocate_shared_planner.sql
+--   20260811150300_auto_allocate_candidates_reads_the_plan.sql
+-- ============================================================================
+
+-- ============================================================================
+-- Campus Living — Category entitlement must come back in a DETERMINISTIC,
+-- cheapest-first order (2026-08-11)
+-- ============================================================================
+--
+-- fn_hostel_effective_room_categories returns EVERY eligibility row that shares
+-- the winning (program_id, quota_ids, fee_min, fee_max) tuple, so a cohort can
+-- legitimately hold more than one room category. Its final SELECT had no
+-- ORDER BY, so the array built by
+--
+--     array_agg(category_id) FROM fn_hostel_effective_room_categories(...)
+--
+-- came back in whatever order the planner produced.
+--
+-- That array is NOT just a set. Both engine functions sort candidate beds with
+--
+--     ORDER BY array_position(cand.room_cats, x.category_id), tier, ...
+--
+-- and the 20260810200000 header describes room_cats as "priority-ordered
+-- entitlement". It never was — the ordering was accidental. Today it cannot
+-- bite: measured on 2026-08-11, 693 of 696 active hostel learners resolve to
+-- exactly ONE category and 3 to none, so every array has at most one element
+-- and this change is a provable no-op.
+--
+-- It stops being a no-op in the very next migration, which grants the Nursing
+-- and B.Pharm girls a SECOND category (Deluxe) alongside Classic so they can be
+-- housed in Girls Hostel B / C. Without a defined order those learners could be
+-- sent to a ₹35,000 Deluxe bed while a ₹27,500 Classic bed they are entitled to
+-- sits free — and the preview and the allocator could even disagree with each
+-- other, because each evaluates the array in its own plan.
+--
+-- ORDER: hostel_categories.sort_order (Classic 1 → Deluxe 2 → Premium 3 →
+-- Premium Plus 4 → Premium+AC 5), i.e. cheapest entitled room first, then name
+-- as a stable tiebreak. Filling the base category before spilling upward is
+-- both the cheaper outcome for the learner and the one that preserves premium
+-- inventory.
+--
+-- DISTINCT: two rows of the winning tuple can map onto the SAME effective
+-- category once the gender-sibling remap runs (a 'both' row carrying the boys
+-- category and a 'girls' row carrying the girls one both resolve to the girls
+-- category). A duplicate would make array_position ambiguous. No such pair
+-- exists today; the guard is here so adding one later cannot corrupt priority.
+--
+-- Signature, volatility, security and search_path are unchanged, so this is a
+-- plain CREATE OR REPLACE: the EXECUTE grants to authenticated / service_role
+-- survive and no second overload is created.
+--
+-- fn_hostel_effective_mess_categories is deliberately NOT touched. It has the
+-- same shape, but mess entitlement is never intersected with physical rooms and
+-- nothing sorts by array_position over mess_cats — only mess_cats[1] is read.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_hostel_effective_room_categories(
+  p_institution uuid,
+  p_program uuid,
+  p_quota uuid,
+  p_fee numeric,
+  p_gender text DEFAULT NULL::text
+)
+RETURNS TABLE(category_id uuid)
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $function$
+  WITH candidates AS (
+    SELECT e.room_category_id AS cat,
+           e.program_id, e.quota_ids, e.fee_min, e.fee_max,
+           ( (e.program_id IS NOT NULL)::int * 4
+           + (e.quota_ids  IS NOT NULL)::int * 2
+           + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int * 1 ) AS specificity
+    FROM hostel_program_eligibility e
+    WHERE e.institution_id = p_institution
+      AND e.is_active
+      AND e.room_category_id IS NOT NULL
+      AND (p_gender IS NULL OR e.hostel_type = 'both' OR e.hostel_type = p_gender)
+      AND (e.program_id = p_program OR e.program_id IS NULL)
+      AND (e.quota_ids IS NULL OR p_quota = ANY(e.quota_ids))
+      AND (e.fee_min IS NULL OR p_fee >= e.fee_min)
+      AND (e.fee_max IS NULL OR p_fee <= e.fee_max)
+  ),
+  winner AS (
+    SELECT program_id, quota_ids, fee_min, fee_max
+    FROM candidates
+    ORDER BY specificity DESC,
+             (COALESCE(fee_max, 9.9e14::numeric) - COALESCE(fee_min, 0)) ASC
+    LIMIT 1
+  ),
+  -- Unchanged resolution, lifted into its own CTE so the result can be ordered
+  -- by the category it actually resolves to rather than the one it started as.
+  effective AS (
+    SELECT COALESCE(
+             CASE WHEN p_gender IS NOT NULL AND oc.type IS NOT NULL AND oc.type <> p_gender
+                  THEN (SELECT sib.id FROM hostel_categories sib
+                         WHERE sib.name = oc.name AND sib.type = p_gender LIMIT 1)
+                  ELSE NULL END,
+             c.cat) AS cat_id
+    FROM candidates c JOIN winner w
+      ON c.program_id IS NOT DISTINCT FROM w.program_id
+     AND c.quota_ids  IS NOT DISTINCT FROM w.quota_ids
+     AND c.fee_min    IS NOT DISTINCT FROM w.fee_min
+     AND c.fee_max    IS NOT DISTINCT FROM w.fee_max
+    LEFT JOIN hostel_categories oc ON oc.id = c.cat
+  ),
+  ranked AS (
+    SELECT DISTINCT e.cat_id, hc.sort_order, hc.name
+    FROM effective e
+    JOIN hostel_categories hc ON hc.id = e.cat_id
+  )
+  SELECT r.cat_id
+  FROM ranked r
+  ORDER BY r.sort_order NULLS LAST, r.name;
+$function$;
+
+
+-- ============================================================================
+-- Campus Living — Auto-Allocate: ONE planner, two consumers. The preview now
+-- rations beds instead of counting reachability (2026-08-11)
+-- ============================================================================
+--
+-- ── THE BUG ─────────────────────────────────────────────────────────────────
+-- Reported: the girls preview showed 32 eligible / 13 excluded, and Generate
+-- produced a batch of TWO.
+--
+-- Measured, batch 06fb2396-0792-45ee-b370-46a10674ba5e: exactly 2 allocations,
+-- both BSC (Nursing), both in Room 5 of Girls Hostel A. Room 5 held 2 free
+-- beds. All 32 "eligible" learners were Nursing girls pointing at THOSE SAME
+-- TWO BEDS.
+--
+-- CAUSE. fn_auto_allocate_candidates computed
+--
+--     (tgt.block_name IS NOT NULL) AS bed_available
+--
+-- from a LEFT JOIN LATERAL (... ORDER BY ... LIMIT 1) against the `free_beds`
+-- CTE — a snapshot taken once for the whole query. It is a PER-LEARNER
+-- existence test: "is there a free bed in a room this learner can reach". It
+-- never marks a bed as consumed, so N learners sharing one cohort all report
+-- true off the same single bed.
+--
+-- fn_auto_allocate_classic runs that identical query inside a FOR ... LOOP, and
+-- each INSERT removes the bed from the pool through
+-- NOT EXISTS (... status IN ('active','pending_approval')). It answers a
+-- different question: "is one still left when this learner's turn comes".
+--
+-- So `verdict = 'in'` never meant "will be placed". It meant "is not blocked by
+-- category, gender, fee band or room rules" — and the operator read the count
+-- as a placement forecast, which is exactly how it reads on the page.
+--
+-- This is the SECOND time the gap has been diagnosed (20260810210000 recorded
+-- "42 flipped to in against 3 reachable beds") and the first time it is fixed
+-- rather than documented.
+--
+-- ── THE FIX: delete one of the two implementations ─────────────────────────
+-- The preview did not merely *approximate* the allocator — it carried a
+-- hand-copied replica of its ORDER BY, kept in step by a comment reading "Same
+-- ORDER BY as fn_auto_allocate_classic, so this stays a real prediction". Every
+-- regression in this engine's history is a copy that drifted from its original
+-- (v_has_covering, the gender resolution sweep, the strict predicate).
+--
+-- fn_auto_allocate_plan now owns the decision ENTIRELY: it builds the candidate
+-- set, resolves the reachable rooms for both tiers, walks candidates in the
+-- allocator's order and hands each the best bed NOT ALREADY TAKEN BY AN EARLIER
+-- CANDIDATE IN THE SAME RUN. It returns one row per candidate — plan_bed_id
+-- NULL for anyone it could not place.
+--
+--     fn_auto_allocate_classic     loops the plan and writes it
+--     fn_auto_allocate_candidates  joins the plan and displays it
+--
+-- Neither one decides anything any more, so `verdict = 'in'` is now literally
+-- "the planner assigned this learner bed X", and the preview count equals the
+-- batch size by construction rather than by vigilance.
+--
+-- Within-run consumption is tracked in a temp table (_aap_taken) rather than by
+-- re-querying hostel_allocations, because the planner writes nothing.
+--
+-- ── SECOND FIX: learners with no block for their gender were INVISIBLE ──────
+-- raw_cohort filtered on
+--
+--     lp.institution_id IN (SELECT bi.institution_id FROM hostel_block_institutions ...)
+--
+-- inside the WHERE clause, so a learner whose college is linked to no block of
+-- that hostel type was dropped from the result entirely — counted as neither
+-- eligible nor excluded, and invisible on the page. Found on ABINAYA
+-- (8aa1e1e0-…), JKKN College of Arts and Science (Aided), the 44th unallocated
+-- girl: the preview reported 43 candidates and she was not one of them.
+--
+-- The filter becomes a reported flag (block_access_ok) with its own exclusion
+-- branch. `sigs` still excludes those learners, so the expensive per-signature
+-- CROSS JOIN against fn_learner_strictly_eligible_for_room does not grow; the
+-- join from base to sigs is now LEFT, which leaves s.rep NULL and correctly
+-- yields physical_rule_ok = false for them.
+--
+-- ── VOLATILITY ─────────────────────────────────────────────────────────────
+-- The planner creates temp tables, so it is VOLATILE, and a STABLE function may
+-- not sensibly call it — fn_auto_allocate_candidates therefore becomes VOLATILE
+-- too. PostgREST already reaches both through POST /rpc (supabase-js .rpc()),
+-- so no client change is required. Neither signature changes, so both are plain
+-- CREATE OR REPLACE and the EXECUTE grants survive.
+--
+-- fn_auto_allocate_plan is granted to NOBODY: both callers are SECURITY DEFINER
+-- owned by postgres and reach it as the owner. It bypasses the authorization
+-- check in fn_auto_allocate_classic, so EXECUTE is revoked from PUBLIC, anon
+-- and authenticated explicitly.
+--
+-- ── NOT FIXED HERE, REPORTED ───────────────────────────────────────────────
+-- fn_auto_allocate_candidates is SECURITY DEFINER, granted to `authenticated`,
+-- and carries NO authorization check of its own (fn_auto_allocate_classic
+-- does). Any logged-in user can therefore list every unallocated learner's
+-- name, email, gender, fee band and bill state. Gating it is a one-line change
+-- but 67 of 89 active roles already hold campus_living.allocations.view, so the
+-- real remedy is de-granting that key — an RBAC job with its own blast radius,
+-- deliberately not bundled into an allocation fix.
+-- ============================================================================
+
+
+-- ── 1. The planner — the single source of placement truth ──────────────────
+-- Output columns are prefixed plan_ so that none of them can collide with a
+-- column name inside the bodies below; an ambiguous bare reference in plpgsql
+-- is a runtime error, not a compile-time one.
+CREATE OR REPLACE FUNCTION public.fn_auto_allocate_plan(
+  p_hostel_type text,
+  p_strict boolean DEFAULT true,
+  p_institution_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_allow_overflow boolean DEFAULT true
+)
+RETURNS TABLE(
+  plan_seq integer,
+  plan_lp_id uuid,
+  plan_profile_id uuid,
+  plan_institution_id uuid,
+  plan_semester_id uuid,
+  plan_academic_year_id uuid,
+  plan_bed_id uuid,
+  plan_room_id uuid,
+  plan_block_id uuid,
+  plan_block_name text,
+  plan_room_category_id uuid,
+  plan_mess_category_id uuid,
+  plan_tier integer
+)
+LANGUAGE plpgsql
+VOLATILE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  cand record;
+  v_bed uuid; v_room uuid; v_block uuid; v_bname text; v_cat uuid;
+  v_tier int; v_ay uuid; v_seq int := 0;
+BEGIN
+  IF p_hostel_type IS NULL OR p_hostel_type NOT IN ('boys','girls') THEN
+    RAISE EXCEPTION 'Hostel type must be boys or girls';
+  END IF;
+
+  -- Both consumers may run in one transaction; ON COMMIT DROP alone would then
+  -- collide on the second call.
+  DROP TABLE IF EXISTS _aap_pool;
+  DROP TABLE IF EXISTS _aap_cand;
+  DROP TABLE IF EXISTS _aap_sig_rooms;
+  DROP TABLE IF EXISTS _aap_overflow_rooms;
+  DROP TABLE IF EXISTS _aap_taken;
+
+  -- Stage 1: the cheap, index-friendly predicates only. Splitting this out of
+  -- fn_auto_allocate_classic's single-WHERE candidate build is a pure
+  -- performance change — one WHERE clause is order-independent, so the result
+  -- set is identical — but it stops the four LATERALs in stage 2, two of which
+  -- recompute a learner's academic fee from scratch, from being evaluated for
+  -- every hostel learner of this gender instead of only the handful who still
+  -- need a bed. Measured on the girls run: 1,894 ms -> 399 ms, same 43 rows and
+  -- the same 43 beds. Generate carried this cost too and gets the same win.
+  CREATE TEMP TABLE _aap_pool ON COMMIT DROP AS
+    SELECT lp.id AS lp_id, p.id AS profile_id, lp.semester_id AS sem_id,
+           lp.academic_year_id AS ay_id, lp.institution_id AS inst,
+           lp.degree_id, lp.department_id, lp.program_id,
+           lower(btrim(COALESCE(NULLIF(btrim(p.gender), ''), lp.gender))) AS gender,
+           lower(coalesce(inst_t.name,'')) AS inst_name,
+           lower(coalesce(lp.first_name,'')) AS fname,
+           lower(coalesce(lp.last_name,''))  AS lname
+    FROM learners_profiles lp
+    JOIN profiles p ON p.learner_id = lp.id
+    JOIN institutions inst_t ON inst_t.id = lp.institution_id
+    WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
+      AND lp.lifecycle_status = 'active'
+      AND (COALESCE(NULLIF(btrim(p.gender), ''), NULLIF(btrim(lp.gender), '')) IS NULL
+           OR (p_hostel_type = 'boys'
+               AND lower(btrim(COALESCE(NULLIF(btrim(p.gender), ''), lp.gender))) IN ('male','m'))
+           OR (p_hostel_type = 'girls'
+               AND lower(btrim(COALESCE(NULLIF(btrim(p.gender), ''), lp.gender))) IN ('female','f')))
+      AND NOT EXISTS (SELECT 1 FROM hostel_allocations a WHERE a.learner_id=p.id AND a.status IN ('active','pending_approval'))
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+      AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id);
+
+  -- Stage 2: the expensive per-learner resolutions, over the narrow pool.
+  CREATE TEMP TABLE _aap_cand ON COMMIT DROP AS
+    SELECT c.lp_id, c.profile_id, c.sem_id, c.ay_id, c.inst,
+           c.degree_id, c.department_id, c.program_id, c.gender,
+           room_elig.cats AS room_cats, mess_elig.cats AS mess_cats,
+           COALESCE(sem_fill.rank, 1) AS fill_rank,
+           prim.is_primary,
+           c.inst_name, c.fname, c.lname
+    FROM _aap_pool c
+    LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_room_categories(c.lp_id)) room_elig ON true
+    LEFT JOIN LATERAL (SELECT array_agg(category_id) AS cats FROM fn_hostel_learner_mess_categories(c.lp_id)) mess_elig ON true
+    LEFT JOIN LATERAL (
+      SELECT bool_or(hbi.is_primary) AS is_primary
+      FROM hostel_block_institutions hbi
+      JOIN hostel_blocks hb ON hb.id = hbi.block_id
+      WHERE hb.hostel_type::text = p_hostel_type
+        AND hbi.institution_id = c.inst
+    ) prim ON true
+    LEFT JOIN LATERAL (
+      SELECT min(array_position(r.semester_ids, c.sem_id)) AS rank
+      FROM hostel_room_eligibility_rules r
+      JOIN hostel_blocks hb ON hb.id = r.block_id
+      WHERE r.is_active
+        AND hb.hostel_type::text = p_hostel_type
+        AND r.institution_id = c.inst
+        AND (r.degree_id     IS NULL OR r.degree_id     = c.degree_id)
+        AND (r.department_id IS NULL OR r.department_id = c.department_id)
+        AND (r.program_id    IS NULL OR r.program_id    = c.program_id)
+        AND cardinality(r.semester_ids) > 1
+        AND c.sem_id = ANY(r.semester_ids)
+    ) sem_fill ON true
+    WHERE room_elig.cats IS NOT NULL
+      AND prim.is_primary IS NOT NULL;
+
+  -- Tier 1: rooms the cohort's own physical rule covers. The predicate reads
+  -- only the 5-tuple off the learner, so it is evaluated once per distinct
+  -- signature rather than once per learner (see 20260810160000).
+  CREATE TEMP TABLE _aap_sig_rooms ON COMMIT DROP AS
+    SELECT s.inst, s.degree_id, s.department_id, s.program_id, s.sem_id,
+           r.id AS room_id, r.category_id, r.block_id, r.floor, r.room_number,
+           hb.name AS block_name, hc.type AS cat_type
+    FROM (SELECT DISTINCT c.inst, c.degree_id, c.department_id, c.program_id, c.sem_id,
+                 (array_agg(c.lp_id))[1] AS rep
+          FROM _aap_cand c
+          GROUP BY c.inst, c.degree_id, c.department_id, c.program_id, c.sem_id) s
+    CROSS JOIN LATERAL (
+      SELECT r.* FROM hostel_rooms r
+      JOIN hostel_blocks hb2 ON hb2.id = r.block_id
+      WHERE hb2.hostel_type::text = p_hostel_type AND r.room_purpose = 'student'
+    ) r
+    JOIN hostel_blocks hb ON hb.id = r.block_id
+    LEFT JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE fn_room_serves_institution(r.id, s.inst)
+      AND fn_learner_strictly_eligible_for_room(s.rep, r.id, p_strict);
+
+  CREATE INDEX ON _aap_sig_rooms (inst, degree_id, department_id, program_id, sem_id);
+
+  -- Tier 2: rooms NO active rule covers. The CASE is a verbatim copy of
+  -- v_has_covering in fn_learner_strictly_eligible_for_room and MUST stay
+  -- identical — if they drift, overflow hands out a bed the predicate says
+  -- belongs to another cohort.
+  CREATE TEMP TABLE _aap_overflow_rooms ON COMMIT DROP AS
+    SELECT i.inst, r.id AS room_id, r.category_id, r.block_id, r.floor, r.room_number,
+           hb.name AS block_name, hc.type AS cat_type
+    FROM (SELECT DISTINCT c.inst FROM _aap_cand c) i
+    CROSS JOIN LATERAL (
+      SELECT r.* FROM hostel_rooms r
+      JOIN hostel_blocks hb2 ON hb2.id = r.block_id
+      WHERE hb2.hostel_type::text = p_hostel_type AND r.room_purpose = 'student'
+    ) r
+    JOIN hostel_blocks hb ON hb.id = r.block_id
+    LEFT JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE p_allow_overflow
+      AND fn_room_serves_institution(r.id, i.inst)
+      AND NOT EXISTS (
+        SELECT 1 FROM hostel_room_eligibility_rules re
+        WHERE re.is_active AND re.block_id = r.block_id
+          AND CASE
+                WHEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr
+                             WHERE rr.rule_id = re.id)
+                  THEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr
+                               WHERE rr.rule_id = re.id AND rr.room_id = r.id)
+                ELSE (re.floor IS NULL OR re.floor = r.floor)
+              END
+      );
+
+  CREATE INDEX ON _aap_overflow_rooms (inst);
+
+  -- The whole point of this function: beds consumed EARLIER IN THIS RUN.
+  CREATE TEMP TABLE _aap_taken (bed_id uuid PRIMARY KEY) ON COMMIT DROP;
+
+  FOR cand IN
+    SELECT c.* FROM _aap_cand c
+    ORDER BY c.fill_rank, c.is_primary DESC, c.inst_name, c.fname, c.lname, c.lp_id
+  LOOP
+    v_seq := v_seq + 1;
+    v_bed := NULL; v_room := NULL; v_block := NULL;
+    v_bname := NULL; v_cat := NULL; v_tier := NULL;
+
+    v_ay := COALESCE(cand.ay_id,
+                     (SELECT id FROM academic_years
+                       WHERE institution_id = cand.inst AND is_active
+                       ORDER BY start_date DESC LIMIT 1));
+
+    -- No academic year is a hard skip in the allocator; report it as unplaced
+    -- rather than handing back a bed the writer would refuse.
+    IF v_ay IS NOT NULL THEN
+      SELECT b.id, x.room_id, x.block_id, x.block_name, x.category_id, x.tier
+        INTO v_bed, v_room, v_block, v_bname, v_cat, v_tier
+      FROM (
+        SELECT sr.room_id, sr.category_id, sr.block_id, sr.block_name,
+               sr.floor, sr.room_number, sr.cat_type, 1 AS tier
+        FROM _aap_sig_rooms sr
+        WHERE sr.inst           IS NOT DISTINCT FROM cand.inst
+          AND sr.degree_id      IS NOT DISTINCT FROM cand.degree_id
+          AND sr.department_id  IS NOT DISTINCT FROM cand.department_id
+          AND sr.program_id     IS NOT DISTINCT FROM cand.program_id
+          AND sr.sem_id         IS NOT DISTINCT FROM cand.sem_id
+        UNION ALL
+        SELECT o.room_id, o.category_id, o.block_id, o.block_name,
+               o.floor, o.room_number, o.cat_type, 2
+        FROM _aap_overflow_rooms o
+        WHERE o.inst IS NOT DISTINCT FROM cand.inst
+      ) x
+      JOIN hostel_beds b ON b.room_id = x.room_id AND b.status = 'available'
+      WHERE x.category_id = ANY(cand.room_cats)
+        AND (x.cat_type IS NULL
+             OR (x.cat_type='boys'  AND cand.gender IN ('male','m'))
+             OR (x.cat_type='girls' AND cand.gender IN ('female','f')))
+        AND NOT EXISTS (SELECT 1 FROM hostel_allocations a
+                        WHERE a.bed_id = b.id AND a.status IN ('active','pending_approval'))
+        AND NOT EXISTS (SELECT 1 FROM _aap_taken t WHERE t.bed_id = b.id)
+      ORDER BY array_position(cand.room_cats, x.category_id), x.tier,
+               x.block_name, x.floor, x.room_number, b.bed_number
+      LIMIT 1;
+    END IF;
+
+    IF v_bed IS NOT NULL THEN
+      INSERT INTO _aap_taken(bed_id) VALUES (v_bed);
+    END IF;
+
+    plan_seq              := v_seq;
+    plan_lp_id            := cand.lp_id;
+    plan_profile_id       := cand.profile_id;
+    plan_institution_id   := cand.inst;
+    plan_semester_id      := cand.sem_id;
+    plan_academic_year_id := v_ay;
+    plan_bed_id           := v_bed;
+    plan_room_id          := v_room;
+    plan_block_id         := v_block;
+    plan_block_name       := v_bname;
+    plan_room_category_id := v_cat;
+    plan_mess_category_id := CASE WHEN cand.mess_cats IS NOT NULL THEN cand.mess_cats[1] END;
+    plan_tier             := v_tier;
+    RETURN NEXT;
+  END LOOP;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_auto_allocate_plan(text, boolean, uuid, uuid, uuid, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_auto_allocate_plan(text, boolean, uuid, uuid, uuid, boolean) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_auto_allocate_plan(text, boolean, uuid, uuid, uuid, boolean) FROM authenticated;
+
+
+-- ── 2. The allocator now only WRITES the plan ──────────────────────────────
+-- Authorization, the hostel-year guard and the tier-policy lookup are unchanged
+-- and still run before anything is planned. Signature unchanged.
+CREATE OR REPLACE FUNCTION public.fn_auto_allocate_classic(
+  p_hostel_type text,
+  p_hostel_year_id uuid DEFAULT NULL::uuid,
+  p_strict boolean DEFAULT true,
+  p_institution_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_allow_overflow boolean DEFAULT true
+)
+RETURNS uuid
+LANGUAGE plpgsql
+VOLATILE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_batch uuid; v_tier uuid; v_actor uuid := auth.uid();
+  v_alloc int := 0; v_skip int := 0; v_overflow int := 0;
+  v_year uuid; v_mess uuid; pl record;
+BEGIN
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('campus_living.allocations.create')) THEN
+    RAISE EXCEPTION 'Not authorized to run auto-allocation';
+  END IF;
+
+  IF p_hostel_type IS NULL OR p_hostel_type NOT IN ('boys','girls') THEN
+    RAISE EXCEPTION 'Hostel type must be boys or girls';
+  END IF;
+
+  v_year := COALESCE(p_hostel_year_id, (SELECT id FROM hostel_years WHERE is_current LIMIT 1));
+  IF v_year IS NULL THEN
+    RAISE EXCEPTION 'No current hostel year is set — mark one under Campus Living → Settings → Hostel Years';
+  END IF;
+
+  SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND institution_id IS NULL AND is_active LIMIT 1;
+  IF v_tier IS NULL THEN SELECT id INTO v_tier FROM hostel_tier_policy WHERE tier_key='standard' AND is_active LIMIT 1; END IF;
+  IF v_tier IS NULL THEN RAISE EXCEPTION 'No standard tier policy found'; END IF;
+
+  INSERT INTO hostel_allocation_batches (block_id, category_id, hostel_year_id, status, created_by)
+  VALUES (NULL, NULL, v_year, 'pending_approval', v_actor)
+  RETURNING id INTO v_batch;
+
+  FOR pl IN
+    SELECT * FROM fn_auto_allocate_plan(
+      p_hostel_type, p_strict, p_institution_id, p_program_id, p_semester_id, p_allow_overflow)
+  LOOP
+    IF pl.plan_bed_id IS NULL THEN v_skip := v_skip + 1; CONTINUE; END IF;
+    IF pl.plan_tier = 2 THEN v_overflow := v_overflow + 1; END IF;
+
+    INSERT INTO hostel_allocations (
+      institution_id, learner_id, block_id, room_id, bed_id, academic_year_id, semester_id,
+      allocation_type, allocation_date, status,
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relation,
+      tier_id, batch_id, allocated_by, warden_id
+    ) VALUES (
+      pl.plan_institution_id, pl.plan_profile_id, pl.plan_block_id, pl.plan_room_id, pl.plan_bed_id,
+      pl.plan_academic_year_id, pl.plan_semester_id,
+      'fresh', CURRENT_DATE, 'pending_approval', '', '', '',
+      v_tier, v_batch, v_actor,
+      (SELECT user_id FROM user_block_access WHERE block_id = pl.plan_block_id AND revoked_at IS NULL LIMIT 1)
+    );
+
+    v_mess := pl.plan_mess_category_id;
+    UPDATE learners_profiles
+      SET hostel_category_id = pl.plan_room_category_id,
+          mess_category_id   = COALESCE(v_mess, mess_category_id),
+          updated_at = now()
+      WHERE id = pl.plan_lp_id;
+
+    v_alloc := v_alloc + 1;
+  END LOOP;
+
+  UPDATE hostel_allocation_batches
+    SET allocated_count = v_alloc, skipped_count = v_skip,
+        notes = format('%s allocated across all %s blocks (%s physical mode; rules-driven category + mess; block and room decided by the physical-room rules). %s of them overflowed into UNRESERVED rooms of their own category because every room reserved for their cohort was full (%s). %s skipped (no free bed they can occupy / reserved rooms hold no space for them / gender / no academic year). Strict: learners with no rule-resolved room category are excluded. Cohort: lifecycle_status = active only.',
+                       v_alloc, p_hostel_type,
+                       CASE WHEN p_strict THEN 'STRICT — only cohorts matching a physical rule' ELSE 'open — rule-free rooms shared' END,
+                       v_overflow,
+                       CASE WHEN p_allow_overflow THEN 'overflow ON; category never changed, no other cohort''s reserved room used' ELSE 'overflow OFF' END,
+                       v_skip)
+    WHERE id = v_batch;
+
+  RETURN v_batch;
+END
+$function$;
+
+
+-- ============================================================================
+-- Campus Living — the preview now REPORTS the plan instead of predicting it
+-- (2026-08-11). Companion to 20260811150200.
+-- ============================================================================
+--
+-- Two changes, no signature change (plain CREATE OR REPLACE, grants survive):
+--
+-- 1. bed_available / target_block_name / placement_tier come from
+--    fn_auto_allocate_plan, which walks candidates in the allocator's order and
+--    consumes beds as it goes. The old LEFT JOIN LATERAL over the static
+--    `free_beds` snapshot answered a per-learner reachability question and let
+--    32 learners claim the same 2 beds — see the header of 20260811150200 for
+--    the measured incident. `verdict = 'in'` now means "the planner assigned
+--    this learner a bed", so the preview count IS the batch size.
+--
+--    The `tgt` LATERAL is deleted rather than fixed. It was a hand-copy of the
+--    allocator's ORDER BY kept in step by a comment; deleting it removes the
+--    drift surface entirely.
+--
+-- 2. A learner whose institution is linked to NO block of this hostel type is
+--    no longer silently dropped. That filter lived in raw_cohort's WHERE
+--    clause, so such a learner was counted as neither eligible nor excluded and
+--    never appeared on the page at all. It is now the reported flag
+--    block_access_ok with its own exclusion branch.
+--
+--    `sigs` keeps the filter, so the expensive per-signature CROSS JOIN against
+--    fn_learner_strictly_eligible_for_room does not grow by a single row. The
+--    base→sigs join becomes LEFT, leaving s.rep NULL for those learners, which
+--    is exactly the value that makes physical_rule_ok resolve to false.
+--
+--    Found on ABINAYA (8aa1e1e0-…), JKKN College of Arts and Science (Aided) —
+--    the 44th unallocated girl, while the preview reported 43 candidates. She
+--    carries three independent blockers (no block link, no
+--    hostel_program_eligibility row for her college, and no usable academic
+--    bill so fn_learner_band_academic_fee returns NULL). The reason ladder
+--    reports the FIRST one — the missing fee band — which is correct: fixing
+--    the block link alone would not place her.
+--
+-- `free_beds` is retained: category_free_beds_anywhere still needs it to tell
+-- "beds exist but are reserved for other cohorts" apart from real exhaustion.
+-- `overflow_rooms` is retained: overflow_room_ok still reports tier-2
+-- reachability independently of whether a bed was actually won.
+--
+-- VOLATILE, not STABLE: the planner creates temp tables. PostgREST already
+-- POSTs to this RPC via supabase-js .rpc(), so no client change is needed.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_auto_allocate_candidates(
+  p_hostel_type text,
+  p_strict boolean DEFAULT true,
+  p_institution_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_allow_overflow boolean DEFAULT true
+)
+RETURNS TABLE(
+  learner_id uuid, full_name text, email text, institution_name text,
+  program_name text, semester_name text, gender text,
+  has_profile boolean, gender_ok boolean, not_allocated boolean,
+  physical_rule_ok boolean, overflow_room_ok boolean, placement_tier text,
+  bed_available boolean, target_block_name text,
+  academic_year_id uuid, academic_year_name text,
+  admission_academic_year_id uuid, admission_academic_year_name text,
+  band_academic_year_id uuid, band_academic_year_name text, band_fee numeric,
+  academic_bill_count integer, current_year_bill_count integer,
+  bill_other_year_name text, current_year_fee numeric,
+  resolved_room_category_id uuid, resolved_room_category_name text,
+  resolved_mess_category_id uuid, resolved_mess_category_name text,
+  bill_state text, stage text, verdict text, exclusion_reason text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  WITH blocks AS MATERIALIZED (
+    SELECT id, name FROM hostel_blocks WHERE hostel_type::text = p_hostel_type
+  ),
+  scope_rooms AS MATERIALIZED (
+    SELECT r.id, r.block_id, b.name AS block_name, r.floor, r.room_number,
+           r.category_id, hc.type AS cat_type
+    FROM hostel_rooms r
+    JOIN blocks b ON b.id = r.block_id
+    LEFT JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE r.room_purpose = 'student'
+  ),
+  -- The institution/block filter that used to live here is now the reported
+  -- flag block_access_ok in `base`. Dropping a learner from the result set is
+  -- never an acceptable way to say "this learner cannot be placed".
+  raw_cohort AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.degree_id, lp.department_id,
+           lp.program_id, lp.semester_id, lp.academic_year_id, lp.quota_id,
+           lp.first_name, lp.last_name,
+           CASE WHEN lower(lp.gender) LIKE 'm%' THEN 'boys'
+                WHEN lower(lp.gender) LIKE 'f%' THEN 'girls' END AS lp_gender_type,
+           lower(btrim(COALESCE(NULLIF(btrim(gp.gender), ''), lp.gender))) AS eff_gender
+    FROM learners_profiles lp
+    LEFT JOIN profiles gp ON gp.learner_id = lp.id
+    WHERE lp.accommodation_type_id IN (SELECT id FROM accommodation_types WHERE code = 'hostel')
+      AND lp.lifecycle_status = 'active'
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+      AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
+      AND (COALESCE(NULLIF(btrim(gp.gender), ''), NULLIF(btrim(lp.gender), '')) IS NULL
+           OR (p_hostel_type = 'boys'
+               AND lower(btrim(COALESCE(NULLIF(btrim(gp.gender), ''), lp.gender))) IN ('male','m'))
+           OR (p_hostel_type = 'girls'
+               AND lower(btrim(COALESCE(NULLIF(btrim(gp.gender), ''), lp.gender))) IN ('female','f')))
+      AND NOT EXISTS (
+        SELECT 1 FROM hostel_allocations ha2
+        JOIN profiles pr2 ON pr2.learner_id = lp.id
+        WHERE ha2.learner_id = pr2.id
+          AND ha2.status IN ('active', 'pending_approval')
+      )
+  ),
+  -- The placement decision itself. One row per candidate the planner saw;
+  -- plan_bed_id IS NULL means it could not seat them.
+  placement AS MATERIALIZED (
+    SELECT pl.plan_lp_id, pl.plan_bed_id, pl.plan_block_name, pl.plan_tier
+    FROM fn_auto_allocate_plan(
+           p_hostel_type, p_strict, p_institution_id,
+           p_program_id, p_semester_id, p_allow_overflow) pl
+  ),
+  unruled_rooms AS MATERIALIZED (
+    SELECT sr.id AS room_id, sr.category_id, sr.cat_type,
+           sr.block_name, sr.floor, sr.room_number
+    FROM scope_rooms sr
+    WHERE NOT EXISTS (
+      SELECT 1 FROM hostel_room_eligibility_rules re
+      WHERE re.is_active AND re.block_id = sr.block_id
+        AND CASE
+              WHEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr
+                           WHERE rr.rule_id = re.id)
+                THEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr
+                             WHERE rr.rule_id = re.id AND rr.room_id = sr.id)
+              ELSE (re.floor IS NULL OR re.floor = sr.floor)
+            END
+    )
+  ),
+  overflow_rooms AS MATERIALIZED (
+    SELECT i.institution_id, ur.room_id, ur.category_id, ur.cat_type,
+           ur.block_name, ur.floor, ur.room_number
+    FROM (SELECT DISTINCT institution_id FROM raw_cohort) i
+    CROSS JOIN unruled_rooms ur
+    WHERE p_allow_overflow
+      AND fn_room_serves_institution(ur.room_id, i.institution_id)
+  ),
+  -- Still gated on block access: a learner whose college uses no block of this
+  -- type can reach no room, so adding her signature would only cost two
+  -- plpgsql predicate calls per room to prove it.
+  sigs AS MATERIALIZED (
+    SELECT rc.institution_id, rc.degree_id, rc.department_id, rc.program_id,
+           rc.semester_id, (array_agg(rc.id))[1] AS rep
+    FROM raw_cohort rc
+    WHERE EXISTS (SELECT 1 FROM hostel_block_institutions bi
+                  WHERE bi.institution_id = rc.institution_id
+                    AND bi.block_id IN (SELECT id FROM blocks))
+    GROUP BY 1,2,3,4,5
+  ),
+  sig_rooms AS MATERIALIZED (
+    SELECT s.rep, sr.id AS room_id, sr.category_id, sr.cat_type,
+           sr.block_name, sr.floor, sr.room_number
+    FROM sigs s
+    CROSS JOIN scope_rooms sr
+    WHERE fn_room_serves_institution(sr.id, s.institution_id)
+      AND fn_learner_strictly_eligible_for_room(s.rep, sr.id, p_strict)
+  ),
+  free_beds AS MATERIALIZED (
+    SELECT bd.id, bd.room_id, bd.bed_number
+    FROM hostel_beds bd
+    JOIN scope_rooms sr ON sr.id = bd.room_id
+    WHERE bd.status = 'available'
+      AND NOT EXISTS (SELECT 1 FROM hostel_allocations a
+                      WHERE a.bed_id = bd.id AND a.status IN ('active','pending_approval'))
+  ),
+  fee AS MATERIALIZED (
+    SELECT c.id, adm.ay_id AS adm_ay,
+           bf.academic_year_id AS band_ay, bf.academic_year_name AS band_ay_name, bf.fee
+    FROM raw_cohort c
+    LEFT JOIN LATERAL (SELECT fn_learner_admission_academic_year(c.id) AS ay_id) adm ON true
+    LEFT JOIN LATERAL fn_learner_band_academic_fee(c.id) bf ON true
+  ),
+  cats AS MATERIALIZED (
+    SELECT c.id,
+      CASE WHEN c.institution_id IS NOT NULL AND c.program_id IS NOT NULL AND f.fee IS NOT NULL
+           THEN (SELECT array_agg(category_id) FROM fn_hostel_effective_room_categories(
+                   c.institution_id, c.program_id, c.quota_id, f.fee, c.lp_gender_type)) END AS room_cats,
+      CASE WHEN c.institution_id IS NOT NULL AND c.program_id IS NOT NULL AND f.fee IS NOT NULL
+           THEN (SELECT array_agg(category_id) FROM fn_hostel_effective_mess_categories(
+                   c.institution_id, c.program_id, c.quota_id, f.fee, c.lp_gender_type)) END AS mess_cats
+    FROM raw_cohort c JOIN fee f ON f.id = c.id
+  ),
+  base AS (
+    SELECT
+      c.id AS learner_id,
+      COALESCE(p.full_name,
+               NULLIF(btrim(coalesce(c.first_name,'') || ' ' || coalesce(c.last_name,'')), ''),
+               p.email, '—') AS full_name,
+      p.email, inst.name AS institution_name, prog.program_name, sem.semester_name,
+      c.eff_gender AS gender,
+      (p.id IS NOT NULL) AS has_profile,
+      c.academic_year_id, ay.academic_year_name,
+      ct.room_cats, ct.mess_cats,
+      f.adm_ay AS admission_academic_year_id,
+      aay.academic_year_name::text AS admission_academic_year_name,
+      f.band_ay AS band_academic_year_id,
+      f.band_ay_name AS band_academic_year_name,
+      f.fee AS band_fee,
+      ct.room_cats[1] AS resolved_room_category_id,
+      rc.name AS resolved_room_category_name, rc.type AS resolved_room_category_type,
+      ct.mess_cats[1] AS resolved_mess_category_id, mc.name AS resolved_mess_category_name,
+      (SELECT count(*)::int FROM billing_student_bills b
+         WHERE b.student_id = c.id AND b.fee_source = 'academic'
+           AND b.status NOT IN ('cancelled','superseded')) AS academic_bill_count,
+      (SELECT count(*)::int FROM billing_student_bills b
+         WHERE b.student_id = c.id AND b.fee_source = 'academic'
+           AND b.status NOT IN ('cancelled','superseded')
+           AND b.academic_year_id = c.academic_year_id) AS current_year_bill_count,
+      (SELECT ay2.academic_year_name
+         FROM billing_student_bills b JOIN academic_years ay2 ON ay2.id = b.academic_year_id
+        WHERE b.student_id = c.id AND b.fee_source = 'academic'
+          AND b.status NOT IN ('cancelled','superseded')
+          AND b.academic_year_id IS NOT NULL
+          AND b.academic_year_id IS DISTINCT FROM c.academic_year_id
+        ORDER BY b.created_at DESC LIMIT 1) AS bill_other_year_name,
+      fn_learner_current_year_academic_fee(c.id) AS current_year_fee,
+      true AS not_allocated,
+      -- Does this learner's college use ANY block of this hostel type? Was a
+      -- silent WHERE-clause filter; now reported so she can be seen and fixed.
+      EXISTS (SELECT 1 FROM hostel_block_institutions bi
+              WHERE bi.institution_id = c.institution_id
+                AND bi.block_id IN (SELECT id FROM blocks)) AS block_access_ok,
+      EXISTS (
+        SELECT 1 FROM sig_rooms sr
+        WHERE sr.rep = s.rep
+          AND sr.category_id = ANY(ct.room_cats)
+          AND (sr.cat_type IS NULL
+               OR (sr.cat_type = 'boys'  AND c.eff_gender IN ('male','m'))
+               OR (sr.cat_type = 'girls' AND c.eff_gender IN ('female','f')))
+      ) AS physical_rule_ok,
+      EXISTS (
+        SELECT 1 FROM sig_rooms sr
+        WHERE sr.rep = s.rep
+          AND NOT (sr.category_id = ANY(ct.room_cats))
+      ) AS physical_ok_other_category,
+      (SELECT count(*)::int
+         FROM free_beds bd2
+         JOIN scope_rooms sr2 ON sr2.id = bd2.room_id
+        WHERE sr2.category_id = ANY(ct.room_cats)
+          AND (sr2.cat_type IS NULL
+               OR (sr2.cat_type = 'boys'  AND c.eff_gender IN ('male','m'))
+               OR (sr2.cat_type = 'girls' AND c.eff_gender IN ('female','f')))
+      ) AS category_free_beds_anywhere,
+      EXISTS (
+        SELECT 1 FROM overflow_rooms orm
+        WHERE orm.institution_id = c.institution_id
+          AND orm.category_id = ANY(ct.room_cats)
+          AND (orm.cat_type IS NULL
+               OR (orm.cat_type = 'boys'  AND c.eff_gender IN ('male','m'))
+               OR (orm.cat_type = 'girls' AND c.eff_gender IN ('female','f')))
+      ) AS overflow_room_ok,
+      -- THE placement answer, taken from the planner that Generate also runs.
+      (pl.plan_bed_id IS NOT NULL) AS bed_available,
+      pl.plan_block_name AS target_block_name,
+      CASE pl.plan_tier WHEN 1 THEN 'rule' WHEN 2 THEN 'overflow' END AS placement_tier
+    FROM raw_cohort c
+    JOIN cats ct ON ct.id = c.id
+    JOIN fee  f  ON f.id  = c.id
+    LEFT JOIN sigs s ON s.institution_id IS NOT DISTINCT FROM c.institution_id
+                    AND s.degree_id      IS NOT DISTINCT FROM c.degree_id
+                    AND s.department_id  IS NOT DISTINCT FROM c.department_id
+                    AND s.program_id     IS NOT DISTINCT FROM c.program_id
+                    AND s.semester_id    IS NOT DISTINCT FROM c.semester_id
+    LEFT JOIN placement pl      ON pl.plan_lp_id = c.id
+    LEFT JOIN profiles p        ON p.learner_id = c.id
+    LEFT JOIN institutions inst ON inst.id = c.institution_id
+    LEFT JOIN programs prog     ON prog.id = c.program_id
+    LEFT JOIN semesters sem     ON sem.id = c.semester_id
+    LEFT JOIN academic_years ay ON ay.id = c.academic_year_id
+    LEFT JOIN academic_years aay ON aay.id = f.adm_ay
+    LEFT JOIN hostel_categories rc ON rc.id = ct.room_cats[1]
+    LEFT JOIN mess_categories   mc ON mc.id = ct.mess_cats[1]
+  ),
+  scored AS (
+    SELECT b.*,
+      (b.gender IS NOT NULL
+        AND (b.resolved_room_category_type IS NULL
+          OR (b.resolved_room_category_type = 'boys'  AND b.gender IN ('male','m'))
+          OR (b.resolved_room_category_type = 'girls' AND b.gender IN ('female','f')))) AS gender_ok
+    FROM base b
+  )
+  SELECT
+    s.learner_id, s.full_name, s.email, s.institution_name, s.program_name, s.semester_name,
+    s.gender, s.has_profile, s.gender_ok, s.not_allocated, s.physical_rule_ok,
+    s.overflow_room_ok, s.placement_tier,
+    s.bed_available, s.target_block_name,
+    s.academic_year_id, s.academic_year_name,
+    s.admission_academic_year_id, s.admission_academic_year_name,
+    s.band_academic_year_id, s.band_academic_year_name, s.band_fee,
+    s.academic_bill_count, s.current_year_bill_count, s.bill_other_year_name, s.current_year_fee,
+    s.resolved_room_category_id, s.resolved_room_category_name,
+    s.resolved_mess_category_id, s.resolved_mess_category_name,
+    CASE
+      WHEN s.band_fee IS NOT NULL
+       AND s.band_academic_year_id IS NOT DISTINCT FROM s.admission_academic_year_id THEN 'matched'
+      WHEN s.band_fee IS NOT NULL          THEN 'different_year'
+      WHEN s.academic_bill_count > 0       THEN 'untagged'
+      ELSE 'none'
+    END AS bill_state,
+    CASE
+      WHEN s.band_fee  IS NULL THEN 'prerequisite'
+      WHEN s.room_cats IS NULL THEN 'prerequisite'
+      WHEN NOT s.has_profile OR NOT s.gender_ok OR NOT s.block_access_ok
+        OR NOT (s.physical_rule_ok OR s.overflow_room_ok) OR NOT s.bed_available
+                               THEN 'eligibility'
+      ELSE 'ok'
+    END AS stage,
+    CASE
+      WHEN s.band_fee  IS NULL THEN 'out'
+      WHEN s.room_cats IS NULL THEN 'out'
+      WHEN NOT s.has_profile OR NOT s.gender_ok OR NOT s.block_access_ok
+        OR NOT (s.physical_rule_ok OR s.overflow_room_ok) OR NOT s.bed_available
+                               THEN 'out'
+      ELSE 'in'
+    END AS verdict,
+    CASE
+      WHEN s.band_fee IS NULL THEN
+        CASE
+          WHEN s.academic_bill_count = 0 THEN
+            'No academic bill for this student — nothing to read a fee band from'
+          ELSE
+            'Academic bills exist but none is usable: either untagged to an academic year, or the tagged year totals ₹0'
+        END
+      WHEN s.room_cats IS NULL THEN
+        'No Category-Eligibility band covers ₹'
+        || to_char(s.band_fee, 'FM999,999,999')
+        || ' (read from ' || COALESCE(s.band_academic_year_name, 'their admission year') || ')'
+        || ' for this program / quota — add or widen a band'
+      WHEN NOT s.has_profile   THEN 'No login profile'
+      WHEN s.gender IS NULL    THEN
+        'Gender is not set on this learner — set it on the learner profile, then re-run the preview'
+      WHEN NOT s.gender_ok     THEN 'Gender does not match the resolved room category'
+      -- Ahead of the room-rule branches: without a block for their college no
+      -- rule could ever reach them, so "add a room rule" would be wrong advice.
+      WHEN NOT s.block_access_ok THEN
+        COALESCE(s.institution_name, 'This learner''s institution')
+        || ' is not linked to any ' || p_hostel_type || ' block — link it under'
+        || ' Campus Living → Blocks → Institutions before this learner can be placed'
+      WHEN NOT (s.physical_rule_ok OR s.overflow_room_ok) AND s.physical_ok_other_category THEN
+        'Rooms they may occupy are a different room category than their eligible '
+        || COALESCE(s.resolved_room_category_name, 'category')
+        || ' — fix the reservation rooms or the Category-Eligibility band'
+      WHEN NOT (s.physical_rule_ok OR s.overflow_room_ok) THEN
+        CASE WHEN p_strict
+          THEN 'No physical-room rule reserves a room for this cohort in any ' || p_hostel_type || ' block (strict mode)'
+          ELSE 'No room they can occupy in their category — every room is reserved for other cohorts'
+        END
+      -- Reachable, but the planner ran out of beds before reaching them. This
+      -- branch used to be unreachable-by-contention: bed_available was a
+      -- per-learner test, so a cohort of 32 competing for 2 beds all reported
+      -- true and 30 of them were skipped by Generate with no explanation here.
+      WHEN NOT s.bed_available THEN
+        CASE
+          WHEN s.category_free_beds_anywhere > 0 THEN
+            COALESCE(s.resolved_room_category_name, 'Their category')
+            || ': ' || s.category_free_beds_anywhere::text
+            || ' free bed' || CASE WHEN s.category_free_beds_anywhere = 1 THEN '' ELSE 's' END
+            || ' exist in the ' || p_hostel_type || ' blocks, but none is left for this learner'
+            || ' — every one is either reserved for another cohort or already taken by an'
+            || ' earlier learner in this same run'
+            || CASE WHEN p_allow_overflow
+                 THEN '. Add this cohort to a physical-room rule that covers free rooms,'
+                      || ' or free more beds in the rooms they already reach'
+                 ELSE ' (overflow is off, so unreserved rooms were not considered)'
+               END
+          ELSE
+            COALESCE(s.resolved_room_category_name, 'Their category')
+            || ' is exhausted in every ' || p_hostel_type
+            || ' block — no free bed in any '
+            || COALESCE(s.resolved_room_category_name, 'eligible')
+            || ' room, reserved or unreserved'
+        END
+      ELSE NULL
+    END AS exclusion_reason
+  FROM scored s
+  ORDER BY s.full_name;
+$function$;
+
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit on the LEARNER record.
+-- Writes one referral_attribution_audit row per watched field that actually
+-- changed on a learners_profiles UPDATE. Trigger declaration lives in
+-- 04_triggers.sql; migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- — FILE ONLY, NOT APPLIED.
+--
+-- SECURITY DEFINER for two reasons: the people who edit a learner's referral
+-- hold no INSERT on the audit table (nobody does), and an audit row must not be
+-- subject to the writer's own RLS. Running as the owner is what makes the trail
+-- both unforgeable and unavoidable.
+--
+-- 🔴 IT MUST NEVER BLOCK A LEGITIMATE UPDATE. Every error is downgraded to a
+-- WARNING and the update proceeds. The trade is explicit: a lost audit row is
+-- recoverable by asking; a blocked admission is not.
+--
+-- The distinctness test runs FIRST, outside the exception block. A plpgsql
+-- EXCEPTION block opens a subtransaction on every entry, and bulk learner edits
+-- mention these columns thousands of rows at a time while changing almost none
+-- of them — returning early keeps that cost off the common path.
+--
+-- 🔴 Purely additive. learners_profiles already carries
+-- trg_sync_learner_referral_to_attribution, which DELETES the prior
+-- consultant_lead_attributions row when referred_by_id changes. This function
+-- touches nothing but its own table and returns NEW unmodified, so it cannot
+-- interfere with that trigger whichever order the two fire in.
+CREATE OR REPLACE FUNCTION public.fn_audit_learner_referral_attribution()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $function$
+DECLARE
+  v_actor uuid;
+BEGIN
+  -- Nothing actually moved: leave without opening a subtransaction. `UPDATE OF`
+  -- fires whenever a watched column is MENTIONED, not only when it changes.
+  IF NOT (
+       OLD.referral_type      IS DISTINCT FROM NEW.referral_type
+    OR OLD.referred_by_id     IS DISTINCT FROM NEW.referred_by_id
+    OR OLD.referred_by_name   IS DISTINCT FROM NEW.referred_by_name
+    OR OLD.quota_id           IS DISTINCT FROM NEW.quota_id
+    OR OLD.counseling_applied IS DISTINCT FROM NEW.counseling_applied
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    -- Inside the guard as well: with no JWT this is simply NULL, but a
+    -- malformed claim would raise, and losing the row is the correct outcome
+    -- there — never failing the learner's update.
+    v_actor := auth.uid();
+
+    INSERT INTO public.referral_attribution_audit
+      (learner_profile_id, changed_field, old_value, new_value, changed_by)
+    SELECT NEW.id, f.field, f.old_value, f.new_value, v_actor
+    -- Every value is cast to text EXPLICITLY, including the two columns that
+    -- are already text: a VALUES list resolves one common type per column, and
+    -- because the handler swallows errors, a future type change on
+    -- referral_type would turn the whole trail into a silent no-op rather than
+    -- a visible failure. The redundant casts remove that dependency for free.
+    FROM (
+      VALUES
+        ('referral_type',      OLD.referral_type::text,      NEW.referral_type::text),
+        ('referred_by_id',     OLD.referred_by_id::text,     NEW.referred_by_id::text),
+        ('referred_by_name',   OLD.referred_by_name::text,   NEW.referred_by_name::text),
+        ('quota_id',           OLD.quota_id::text,           NEW.quota_id::text),
+        ('counseling_applied', OLD.counseling_applied::text, NEW.counseling_applied::text)
+    ) AS f(field, old_value, new_value)
+    WHERE f.old_value IS DISTINCT FROM f.new_value;
+
+  EXCEPTION WHEN OTHERS THEN
+    -- Visible in the Postgres log, invisible to the person saving the form.
+    RAISE WARNING 'fn_audit_learner_referral_attribution: audit write skipped for learner_profile_id=% (%: %)',
+      NEW.id, SQLSTATE, SQLERRM;
+  END;
+
+  RETURN NEW;
+END;
+$function$;
+
+-- Supabase default privileges hand EXECUTE on every new function to anon, which
+-- is a separate grant from PUBLIC and survives a REVOKE FROM PUBLIC alone.
+REVOKE EXECUTE ON FUNCTION public.fn_audit_learner_referral_attribution() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_audit_learner_referral_attribution() TO authenticated;
+
+
 -- Updated: 2026-08-10 - Referral integrity: reconciliation + pair scoring functions.
 -- fn_reconcile_referral_session  : compares one agency's own submitted list against
 --   the credits the platform holds for it, writes the three-way bucket onto every
