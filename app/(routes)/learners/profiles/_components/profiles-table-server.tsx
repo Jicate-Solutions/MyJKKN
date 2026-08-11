@@ -39,7 +39,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerExportDialog } from './learner-export-dialog';
 import type { ProfilesSearchParams } from './data-table-schema';
-import type { LifecycleTabValue } from './lifecycle-status';
+import { lifecycleFilterForTab, type LifecycleTabValue } from './lifecycle-status';
 
 const SORT_OPTIONS = [
   { value: 'first_name_asc',   label: 'Name (A → Z)',        sortBy: 'first_name',  sortOrder: 'asc'  },
@@ -95,10 +95,13 @@ export function ProfilesTableServer({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // 'all' is a TAB value, not a lifecycle_status enum label. The export dialog
-  // feeds this straight into `.eq('lifecycle_status', …)`, where 'all' would
-  // raise 22P02 and export nothing — so it becomes "no status filter" here.
-  const exportStatusFilter = statusFilter === 'all' ? undefined : statusFilter;
+  // 'all' is a TAB value, not a lifecycle_status enum label — fed straight into
+  // `.eq('lifecycle_status', …)` it would raise 22P02 and export nothing.
+  //
+  // It maps to the five statuses the page lists, NOT to "no status filter":
+  // exporting from "All Statuses" used to pull graduated / enquiry / rejected
+  // learners that the table on screen had never shown.
+  const exportStatusFilter = lifecycleFilterForTab(statusFilter ?? 'all');
 
   const currentFilters: ProfilesSearchParams = {
     page: Number(searchParams.get('page')) || 1,
