@@ -164,10 +164,6 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/dashboard/cron/super-admin-digest",
-      "schedule": "3 3 * * *"
-    },
-    {
       "path": "/api/dashboard/cron/decisions-verdict-check",
       "schedule": "0 4 * * *"
     },
