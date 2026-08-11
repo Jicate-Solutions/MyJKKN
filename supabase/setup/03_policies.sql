@@ -8845,3 +8845,65 @@ CREATE POLICY referral_attribution_audit_select ON public.referral_attribution_a
         OR COALESCE(public.is_admin(), false)
         OR COALESCE(public.user_has_permission('admission.leads.view'), false)
     );
+
+-- Updated: 2026-08-10 - Referral integrity: reconciliation + pair scoring RLS.
+-- Read is the same key that gates the page (commissions.view) so a user never
+-- sees the page and is then denied its data. Writing a reconciliation is the
+-- Registrar's desk (commissions.manage). Writing a pair score directly is
+-- admin-only — the score is meant to be produced by the functions, not typed.
+-- The anon lock lives in the migration:
+-- supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- (FILE ONLY, NOT APPLIED).
+ALTER TABLE public.referral_reconciliation_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_recon_sessions_read ON public.referral_reconciliation_sessions;
+CREATE POLICY referral_recon_sessions_read ON public.referral_reconciliation_sessions
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_recon_sessions_write ON public.referral_reconciliation_sessions;
+CREATE POLICY referral_recon_sessions_write ON public.referral_reconciliation_sessions
+    FOR ALL USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    );
+
+ALTER TABLE public.referral_reconciliation_claims ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_recon_claims_read ON public.referral_reconciliation_claims;
+CREATE POLICY referral_recon_claims_read ON public.referral_reconciliation_claims
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_recon_claims_write ON public.referral_reconciliation_claims;
+CREATE POLICY referral_recon_claims_write ON public.referral_reconciliation_claims
+    FOR ALL USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    );
+
+ALTER TABLE public.referral_pair_scores ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_pair_scores_read ON public.referral_pair_scores;
+CREATE POLICY referral_pair_scores_read ON public.referral_pair_scores
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_pair_scores_write ON public.referral_pair_scores;
+CREATE POLICY referral_pair_scores_write ON public.referral_pair_scores
+    FOR ALL USING (is_super_admin() OR is_admin())
+    WITH CHECK (is_super_admin() OR is_admin());

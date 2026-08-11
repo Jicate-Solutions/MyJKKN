@@ -7061,3 +7061,64 @@ CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_at_idx
 CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_by_idx
     ON public.referral_attribution_audit (changed_by, changed_at DESC)
     WHERE changed_by IS NOT NULL;
+
+-- Updated: 2026-08-10 - Referral integrity: Registrar reconciliation + pair scoring.
+-- The Registrar (a different office from the admission desk) enters an agency's
+-- OWN list of learners; the platform compares it against the credits it already
+-- holds and surfaces the disagreements. referral_pair_scores is keyed on the
+-- (team member, agency) PAIR because one person spreading fabricated credits
+-- across several agencies looks clean on every individual agency row.
+-- See migration supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- — FILE ONLY, NOT APPLIED. Nothing here pays, generates or approves anything.
+
+CREATE TABLE IF NOT EXISTS public.referral_reconciliation_sessions (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    consultant_id UUID        NOT NULL REFERENCES public.education_consultants(id),
+    academic_year INTEGER     NOT NULL,               -- 2025 = the "2025-26" intake
+    conducted_by  UUID        REFERENCES public.profiles(id),
+    conducted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes         TEXT,
+    status        TEXT        NOT NULL DEFAULT 'draft'
+                              CHECK (status IN ('draft', 'submitted')),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- source: 'agency' rows are typed in from the agency's list; 'system' rows are
+-- added by fn_reconcile_referral_session to represent learners the platform
+-- credits but the agency never claimed — without them the three buckets would
+-- not be a complete partition. Re-running reconcile replaces only 'system' rows.
+CREATE TABLE IF NOT EXISTS public.referral_reconciliation_claims (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id         UUID        NOT NULL REFERENCES public.referral_reconciliation_sessions(id) ON DELETE CASCADE,
+    claimed_name       TEXT,
+    claimed_phone      TEXT,
+    matched_learner_id UUID        REFERENCES public.learners_profiles(id),
+    match_confidence   TEXT,       -- 'phone' | 'name' | 'none'
+    bucket             TEXT        CHECK (bucket IN ('agreed', 'credited_not_claimed', 'claimed_not_credited')),
+    evidence_note      TEXT,
+    has_dated_proof    BOOLEAN     NOT NULL DEFAULT false,
+    evidence_status    TEXT        CHECK (evidence_status IN
+                                   ('agency_confirmed', 'agency_does_not_recognise', 'agency_has_dated_proof')),
+    source             TEXT        NOT NULL DEFAULT 'agency' CHECK (source IN ('agency', 'system')),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.referral_pair_scores (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_member_id    UUID        NOT NULL REFERENCES public.profiles(id),
+    consultant_id     UUID        NOT NULL REFERENCES public.education_consultants(id),
+    credits_total     INTEGER     NOT NULL DEFAULT 0,
+    credits_confirmed INTEGER     NOT NULL DEFAULT 0,
+    credits_disputed  INTEGER     NOT NULL DEFAULT 0,
+    risk_level        TEXT        NOT NULL DEFAULT 'normal'
+                                  CHECK (risk_level IN ('normal', 'watch', 'red')),
+    frozen            BOOLEAN     NOT NULL DEFAULT false,
+    frozen_at         TIMESTAMPTZ,
+    frozen_by         UUID        REFERENCES public.profiles(id),
+    frozen_reason     TEXT,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT referral_pair_scores_pair_unique UNIQUE (team_member_id, consultant_id)
+);
