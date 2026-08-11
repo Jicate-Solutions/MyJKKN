@@ -1,6 +1,6 @@
 // Client-safe constant (NO server imports) — shared by the roster service and
 // the attendance-marking UI. Its SQL counterpart is
-// supabase/migrations/20260817000000_attendance_roster_provisional_freshers.sql.
+// supabase/migrations/20260821010000_attendance_roster_provisional_freshers.sql.
 // Spec: specs/provisional-freshers-spec-2026-08-05.md (§7.1–7.2)
 //
 // A PROVISIONAL learner has reserved or been offered a seat for the CURRENT

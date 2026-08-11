@@ -5,7 +5,7 @@
  *
  * Spec: specs/provisional-freshers-spec-2026-08-05.md §7.4
  *
- * Migration 20260817000000 puts current-intake learners whose fees are still
+ * Migration 20260821010000 puts current-intake learners whose fees are still
  * pending onto the roster. Without a marker that widening trades one silent
  * behaviour for another: today they are missing with no signal, and afterwards
  * they would be present with no signal. The person marking has no other way to

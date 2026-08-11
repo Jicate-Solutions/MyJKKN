@@ -59,7 +59,7 @@ export function buildRosterLifecycleFilter(
   if (usable.length === 0) return ACTIVE_ONLY_LIFECYCLE_FILTER;
 
   // Statuses come from the shared constant, never a literal — this expression
-  // and the SQL in 20260817000000 must always name the same set, and a copy here
+  // and the SQL in 20260821010000 must always name the same set, and a copy here
   // is exactly how the induction tier's mirrored list is warned about drifting.
   const statuses = PROVISIONAL_ATTENDANCE_LIFECYCLE_STATUSES.join(',');
 
