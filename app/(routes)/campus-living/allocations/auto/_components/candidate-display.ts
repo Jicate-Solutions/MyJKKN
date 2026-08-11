@@ -50,6 +50,9 @@ export function toExportRow(c: AllocationCandidate): CandidateExportRow {
     'Physical Access': yn(c.physical_rule_ok, na),
     'Bed Available': yn(c.bed_available, na),
     'Goes To Block': c.target_block_name ?? '',
+    // 'Overflow' = every room reserved for their cohort was full, so an
+    // unreserved room of the SAME category was used.
+    Placement: c.placement_tier === 'overflow' ? 'Overflow' : c.placement_tier === 'rule' ? 'Rule' : '',
     'Room Category': c.resolved_room_category_name ?? '',
     'Mess Category': c.resolved_mess_category_name ?? '',
     Stage: c.stage,
@@ -72,6 +75,7 @@ export const CANDIDATE_PDF_COLUMNS: string[] = [
   'Band Fee',
   'Bill Status',
   'Goes To Block',
+  'Placement',
   'Room Category',
   'Mess Category',
   'Verdict',
