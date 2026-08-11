@@ -46,10 +46,19 @@ AS $function$
   );
 $function$;
 
--- MUST be explicit. A SECURITY DEFINER function that authenticated cannot
--- EXECUTE makes every policy referencing it fail closed — the exact way
--- user_has_permission(uuid,text) once 403'd users who genuinely held the
--- permission after a DROP+CREATE dropped its ACL.
+-- BOTH halves must be explicit, and the revoke is the one that closes the door.
+-- Postgres grants EXECUTE to PUBLIC by default and Supabase grants anon
+-- directly, so a SECURITY DEFINER function is reachable by an unauthenticated
+-- client until it is revoked. anon has no business asking who created an event
+-- (for anon auth.uid() is NULL, so the answer is always false — but a function
+-- that always returns false to the public is still a function the public can
+-- call, and the next edit to its body would inherit that reach silently).
+REVOKE EXECUTE ON FUNCTION public.fn_is_event_creator(uuid) FROM anon, PUBLIC;
+-- The grant is equally non-negotiable in the other direction. A SECURITY
+-- DEFINER function that authenticated cannot EXECUTE makes every policy
+-- referencing it fail closed — the exact way user_has_permission(uuid,text)
+-- once 403'd users who genuinely held the permission after a DROP+CREATE
+-- dropped its ACL.
 GRANT EXECUTE ON FUNCTION public.fn_is_event_creator(uuid) TO authenticated;
 
 DROP POLICY IF EXISTS event_registration_forms_manage ON public.event_registration_forms;
