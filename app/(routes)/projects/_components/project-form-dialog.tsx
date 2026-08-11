@@ -51,6 +51,8 @@ import {
   useProjectPriorities,
 } from '@/hooks/projects/use-projects';
 import { useInstitutions } from '@/hooks/hr/recruitment-need/use-data-entry';
+import { useClients } from '@/hooks/solutions/use-clients';
+import { useSolutions } from '@/hooks/solutions/use-solutions';
 import type {
   Project,
   ProjectInsert,
@@ -74,6 +76,8 @@ const formSchema = z
     priority_id: z.string().optional(),
     scope_model: z.enum(['single_institution', 'cross_institution', 'global']),
     institution_id: z.string().optional(),
+    client_id: z.string().optional(),
+    solution_id: z.string().optional(),
     start_date: z.string().optional().or(z.literal('')),
     end_date: z.string().optional().or(z.literal('')),
   })
@@ -95,6 +99,8 @@ function defaultValues(project?: Project | null): FormValues {
     priority_id: project?.priority_id ?? NONE,
     scope_model: (project?.scope_model as ProjectScopeModel) ?? 'single_institution',
     institution_id: project?.institution_id ?? NONE,
+    client_id: project?.client_id ?? NONE,
+    solution_id: project?.solution_id ?? NONE,
     start_date: project?.start_date ?? '',
     end_date: project?.due_date ?? '',
   };
@@ -119,6 +125,10 @@ export function ProjectFormDialog({
   const { data: types = [] } = useProjectTypes();
   const { data: priorities = [] } = useProjectPriorities();
   const { data: institutions = [] } = useInstitutions();
+  // Solutions Hub bridge — both optional; a failed fetch (no solutions-hub
+  // permission) just leaves the pickers empty.
+  const { data: clientsData } = useClients({ limit: 100 });
+  const clients = clientsData?.data ?? [];
 
   const createMut = useCreateProject();
   const updateMut = useUpdateProject();
@@ -128,6 +138,17 @@ export function ProjectFormDialog({
     resolver: zodResolver(formSchema),
     defaultValues: defaultValues(project),
   });
+
+  const watchedClientId = form.watch('client_id');
+  const hasClient = !!watchedClientId && watchedClientId !== NONE;
+  const { data: solutionsData } = useSolutions({
+    client_id: hasClient ? watchedClientId : undefined,
+    limit: 100,
+  });
+  // Defensive re-filter: the API ignores an undefined client_id and returns all.
+  const clientSolutions = (solutionsData?.data ?? []).filter(
+    (s) => hasClient && s.client_id === watchedClientId
+  );
 
   // Reset form whenever the dialog opens or the target project changes.
   useEffect(() => {
@@ -145,6 +166,8 @@ export function ProjectFormDialog({
       priority_id: values.priority_id === NONE ? null : values.priority_id ?? null,
       scope_model: values.scope_model,
       institution_id: values.institution_id === NONE ? null : values.institution_id ?? null,
+      client_id: values.client_id === NONE ? null : values.client_id ?? null,
+      solution_id: values.solution_id === NONE ? null : values.solution_id ?? null,
       start_date: values.start_date || null,
       due_date: values.end_date || null,
     };
@@ -304,6 +327,74 @@ export function ProjectFormDialog({
                         {institutions.map((i) => (
                           <SelectItem key={i.id} value={i.id}>
                             {i.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="client_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Client</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        // A solution belongs to one client — changing the client
+                        // invalidates the previous solution choice.
+                        form.setValue('solution_id', NONE);
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Internal (no client)" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Internal (no client)</SelectItem>
+                        {clients.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="solution_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Solution</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={!hasClient}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue
+                            placeholder={hasClient ? 'Select solution' : 'Pick a client first'}
+                          />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NONE}>None</SelectItem>
+                        {clientSolutions.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.title}
                           </SelectItem>
                         ))}
                       </SelectContent>

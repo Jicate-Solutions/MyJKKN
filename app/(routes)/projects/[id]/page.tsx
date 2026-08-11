@@ -35,6 +35,7 @@ import { BoardView } from '@/components/projects/board/board-view';
 import { ProjectFormDialog } from '../_components/project-form-dialog';
 import { ProjectDetailNav } from './_components/project-detail-nav';
 import { ProjectDetailSkeleton } from './_components/project-detail-skeleton';
+import { ProjectClientChip } from './_components/project-client-chip';
 import type { RagStatus } from '@/types/projects';
 
 const RAG_BADGE: Record<RagStatus, { label: string; className: string }> = {
@@ -129,6 +130,10 @@ function ProjectDetailPageInner({
                     <Badge variant="outline">{project.project_type.name}</Badge>
                   )}
                   {project.priority && <Badge variant="outline">{project.priority.name}</Badge>}
+                  <ProjectClientChip
+                    clientId={project.client_id ?? null}
+                    solutionId={project.solution_id ?? null}
+                  />
                 </div>
                 {project.code && (
                   <p className="text-xs text-muted-foreground">{project.code}</p>
