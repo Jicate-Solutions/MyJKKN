@@ -101131,6 +101131,33 @@ export type Database = {
           },
         ]
       }
+      v_hr_leave_balance: {
+        Row: {
+          employee_id: string | null
+          leave_type_id: string | null
+          hr_academic_year_id: string | null
+          hr_organization_id: string | null
+          leave_type_name: string | null
+          leave_type_code: string | null
+          request_category: string | null
+          color_code: string | null
+          display_order: number | null
+          duration_type: string | null
+          allow_half_day: boolean | null
+          allow_hourly: boolean | null
+          max_continuous_days: number | null
+          min_advance_notice_days: number | null
+          requires_documents: boolean | null
+          entitled: number | null
+          used: number | null
+          carried_forward: number | null
+          available: number | null
+          entitlement_source: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
       v_institutions_needing_admission_counselors: {
         Row: {
           active_counselors: number | null
