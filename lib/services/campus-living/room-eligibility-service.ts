@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { getErrorMessage } from '@/lib/utils';
 import type {
   RoomEligibilityRule,
   RoomEligibilityRuleRow,
@@ -30,7 +31,6 @@ export class RoomEligibilityService {
          degree:degrees(degree_name),
          department:departments(department_name),
          program:programs(program_name),
-         semester:semesters(semester_name),
          rooms:hostel_room_eligibility_rule_rooms(room_id)`
       )
       .order('institution_id', { ascending: true })
@@ -41,17 +41,53 @@ export class RoomEligibilityService {
     const { data, error } = await query;
 
     if (error) {
-      logger.error(LOG, 'Database error listing room eligibility rules', error);
-      throw new Error(error.message || 'Failed to fetch room eligibility rules');
+      // Spread the fields explicitly: PostgrestError extends Error, so message /
+      // code / details / hint are NON-ENUMERABLE and logging the object whole
+      // serialises to a useless `{}`.
+      logger.error(LOG, 'Database error listing room eligibility rules', {
+        message: getErrorMessage(error),
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw new Error(getErrorMessage(error));
     }
 
-    return (data ?? []).map((r: Record<string, unknown>) => {
+    const rules = (data ?? []) as Record<string, unknown>[];
+
+    // semester_ids is a uuid[] with no foreign key, so PostgREST cannot embed
+    // the names the way it does for degree/department/program. Resolve them in
+    // one follow-up query keyed by the union of ids, then map back PER RULE in
+    // that rule's own order — the array order is the allocation fill priority
+    // and must survive the round-trip unsorted.
+    const allSemesterIds = [
+      ...new Set(rules.flatMap((r) => (r.semester_ids as string[] | null) ?? [])),
+    ];
+    const semesterNames = new Map<string, string>();
+    if (allSemesterIds.length > 0) {
+      const { data: sems, error: semErr } = await this.supabase
+        .from('semesters')
+        .select('id, semester_name')
+        .in('id', allSemesterIds);
+      if (semErr) {
+        // Non-fatal: the rules still list correctly, just without semester labels.
+        logger.error(LOG, 'Failed to resolve rule semester names', {
+          message: getErrorMessage(semErr),
+          code: semErr.code,
+        });
+      } else {
+        (sems ?? []).forEach((s: Record<string, unknown>) =>
+          semesterNames.set(s.id as string, s.semester_name as string)
+        );
+      }
+    }
+
+    return rules.map((r: Record<string, unknown>) => {
       const institution = r.institution as { name?: string } | null;
       const block = r.block as { name?: string } | null;
       const degree = r.degree as { degree_name?: string } | null;
       const department = r.department as { department_name?: string } | null;
       const program = r.program as { program_name?: string } | null;
-      const semester = r.semester as { semester_name?: string } | null;
       const rooms = (r.rooms as { room_id: string }[] | null) ?? [];
       const {
         institution: _i,
@@ -59,19 +95,20 @@ export class RoomEligibilityService {
         degree: _d,
         department: _dept,
         program: _p,
-        semester: _s,
         rooms: _r,
         ...rest
       } = r;
       const roomIds = rooms.map((x) => x.room_id);
+      const semesterIds = (r.semester_ids as string[] | null) ?? [];
       return {
         ...(rest as RoomEligibilityRule),
+        semester_ids: semesterIds,
         institution_name: institution?.name ?? null,
         block_name: block?.name ?? null,
         degree_name: degree?.degree_name ?? null,
         department_name: department?.department_name ?? null,
         program_name: program?.program_name ?? null,
-        semester_name: semester?.semester_name ?? null,
+        semester_names: semesterIds.map((id) => semesterNames.get(id) ?? 'Unknown semester'),
         room_ids: roomIds,
         room_count: roomIds.length,
       };
@@ -91,7 +128,8 @@ export class RoomEligibilityService {
           degree_id: ruleFields.degree_id ?? null,
           department_id: ruleFields.department_id ?? null,
           program_id: ruleFields.program_id ?? null,
-          semester_id: ruleFields.semester_id ?? null,
+          // Column is NOT NULL DEFAULT '{}' — empty array means "any semester".
+          semester_ids: ruleFields.semester_ids ?? [],
           rule_name: ruleFields.rule_name ?? null,
         },
       ])

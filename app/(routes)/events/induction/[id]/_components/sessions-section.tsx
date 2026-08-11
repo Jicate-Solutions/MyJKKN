@@ -18,7 +18,12 @@ import { AttendanceCoverageBanner } from './attendance-coverage-banner';
 import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
 import { SessionPollDialog } from './session-poll-dialog';
+import { SessionShareDialog } from './session-share-dialog';
 import { SessionSpeakerPicker } from './session-speaker-picker';
+import {
+  InductionSharingService,
+  type SessionShareRow,
+} from '@/lib/services/induction/induction-sharing-service';
 import { VenueRoomPicker } from '@/app/(routes)/meetings/manage/_components/venue-room-picker';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,7 +37,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, Settings2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, MapPin, User, Users, Target, LinkIcon, X, Star, CalendarDays, Settings2, Share2 } from 'lucide-react';
 
 interface Batch { id: string; label: string; }
 const COMBINED = '__combined__';
@@ -60,6 +65,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   const [sessions, setSessions] = useState<InductionSessionRow[]>([]);
   // session id → linked resource persons (shown on the card + drives per-session access)
   const [sessionSpeakers, setSessionSpeakers] = useState<Record<string, DirectoryUser[]>>({});
+  // session id → OTHER colleges this session is co-conducted with (Director D2).
+  // Labelling only — sharing carries no attendance/completion meaning yet.
+  const [sessionShares, setSessionShares] = useState<Record<string, SessionShareRow[]>>({});
   const [feedback, setFeedback] = useState<Record<string, { avg: number; count: number }>>({});
   const [dayFeedback, setDayFeedback] = useState<Record<number, { avg: number; count: number }>>({});
   // per-day past-vs-marked attendance coverage (drives the back-mark nudge; empty for non-managers)
@@ -98,6 +106,19 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
   // after a failed speaker-write updates the same row instead of duplicating it.
   const lastCreatedIdRef = useRef<string | null>(null);
 
+  // Re-read cross-college shares on their own. Separated from load() so the
+  // share dialog can refresh just this slice after an add/remove without
+  // re-fetching the whole schedule (and without flashing the loading state).
+  const loadShares = useCallback(() => {
+    InductionSharingService.listEventShares(eventId)
+      .then((rows) => {
+        const byId: Record<string, SessionShareRow[]> = {};
+        InductionSharingService.groupBySession(rows).forEach((v, k) => { byId[k] = v; });
+        setSessionShares(byId);
+      })
+      .catch(() => setSessionShares({}));
+  }, [eventId]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -125,6 +146,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       InductionSpeakersService.getSpeakersBySession(rows.map((r) => r.id))
         .then(setSessionSpeakers)
         .catch(() => setSessionSpeakers({}));
+      // cross-college shares, one call for the whole event (non-blocking, same
+      // reasoning as speakers: a failure hides the badges, never the schedule)
+      loadShares();
       const fb: Record<string, { avg: number; count: number }> = {};
       for (const s of summary) fb[s.session_id] = { avg: Number(s.avg_rating), count: s.response_count };
       setFeedback(fb);
@@ -143,7 +167,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
       toast.error(`Couldn't load sessions: ${e.message ?? e}`);
     }
     finally { setLoading(false); }
-  }, [eventId]);
+  }, [eventId, loadShares]);
   useEffect(() => { load(); }, [load]);
 
   // Access model: admins / induction.manage holders / per-event coordinators manage
@@ -507,6 +531,17 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                                 {feedback[s.id].avg.toFixed(1)} · {feedback[s.id].count}
                               </Badge>
                             )}
+                            {/* co-conducted with other colleges (D2). Names in the
+                                tooltip so a 4-college share doesn't wrap the row. */}
+                            {(sessionShares[s.id]?.length ?? 0) > 0 && (
+                              <Badge variant="outline" className="gap-1"
+                                title={`Shared with ${sessionShares[s.id].map((x) => x.institution_name).join(', ')}`}>
+                                <Share2 className="h-3 w-3" />
+                                {sessionShares[s.id].length === 1
+                                  ? sessionShares[s.id][0].institution_name
+                                  : `${sessionShares[s.id].length} colleges`}
+                              </Badge>
+                            )}
                           </div>
                           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                             {s.venue_text && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.venue_text}</span>}
@@ -552,6 +587,14 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           )}
                           {canManage && (
                             <>
+                              {/* D10: only the HOST college manages sharing, so this
+                                  sits behind the same gate as edit/delete. */}
+                              <SessionShareDialog
+                                sessionId={s.id}
+                                sessionTitle={s.title}
+                                shares={sessionShares[s.id] ?? []}
+                                onChanged={loadShares}
+                              />
                               <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                               <Button size="icon" variant="ghost" onClick={() => remove(s)}><Trash2 className="h-4 w-4" /></Button>
                             </>

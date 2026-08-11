@@ -24,7 +24,10 @@ export type BillingCategoryKind =
   | 'other'
   | 'university_fee'
   | 'mess'
-  | 'establishment';
+  | 'establishment'
+  // Late-payment charge head (2026-08-07). Penalty bills are created only by
+  // fn_late_charge_accrue — never hand-picked in the category form.
+  | 'penalty';
 
 /**
  * Who the money ultimately belongs to.
@@ -138,6 +141,32 @@ export interface MyBill {
   academicYear: string;
   /** True when academicYear was inferred from due_date, not stored on the bill. */
   yearInferred: boolean;
+}
+
+/**
+ * One month of the late-payment-charge derivation for an overdue bill —
+ * a row from fn_late_charge_derivation. Present on /learners/my-bills ONLY
+ * while the billing.late_charge.enabled policy is true (OFF today).
+ */
+export interface MyBillLateChargeMonth {
+  monthNumber: number;
+  periodStart: string;
+  periodEnd: string;
+  openingBase: number;
+  ratePercent: number;
+  monthCharge: number;
+  cumulativeCharge: number;
+}
+
+/** The late-payment charge on one overdue bill, with its full derivation. */
+export interface MyBillLateCharge {
+  months: number;
+  ratePercent: number;
+  /** Total late charge accrued so far (the last month's cumulative figure). */
+  chargeAmount: number;
+  /** Unpaid balance + late charge — what settling the bill today would cost. */
+  totalWithCharge: number;
+  derivation: MyBillLateChargeMonth[];
 }
 
 /** One receipt line — which bill this payment settled (drives the PDF table). */

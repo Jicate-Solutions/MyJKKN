@@ -14,6 +14,7 @@ import { AutoBreadcrumbs } from '@/components/navigation/auto-breadcrumbs';
 import { SentryUserSync } from '@/hooks/use-sentry-user-sync';
 import { UsageBeacon } from '@/components/analytics/usage-beacon';
 import { Navbar } from '@/components/Navbar/Navbar';
+import { HandoverLauncher } from '@/components/director-desk/handover-launcher';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -82,6 +83,13 @@ const Dashboardlayout = ({ children }: DashboardLayoutProps) => {
         />
         <BugReporterWidget key='bug-reporter' />
         <WorkPulseFab key='work-pulse' />
+        {/*
+          HandoverLauncher: the Director's "hand this page over" control.
+          Renders null for everyone else — visibility is fn_can_hand_over(),
+          a server answer, not a CSS class. Mounted here so it reaches every
+          current and future authenticated page with no per-route wiring.
+         */}
+        <HandoverLauncher key='director-handover' />
       </AdminPanelLayout>
       </AcknowledgmentGate>
     </QueryClientProvider>

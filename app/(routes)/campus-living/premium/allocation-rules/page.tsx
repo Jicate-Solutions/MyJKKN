@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// /campus-living/premium/allocation-rules — Premium-stay allocation rules editor (relocated from /admin/hostel 2026-06-01)
+// /campus-living/premium/allocation-rules — Premium-room allocation rules editor (relocated from /admin/hostel 2026-06-01)
 // ============================================================================
 // Surfaces the 7 hostel.premium.* / hostel.premium_plus.* platform_policies
 // rows as English-consequence widgets per Director's D-lock 2026-05-26.
@@ -161,7 +161,7 @@ export default function HostelAllocationRulesPage() {
         <ContentLayout>
           <div className="rounded-md border border-border bg-muted/30 p-6 text-sm text-muted-foreground">
             This page is restricted to super administrators. Allocation rules
-            govern how the Premium-Stay tier of hostel allocation behaves
+            govern how the Premium-Room tier of hostel allocation behaves
             across all colleges.
           </div>
         </ContentLayout>
@@ -182,7 +182,7 @@ export default function HostelAllocationRulesPage() {
               Hostel Allocation Rules
             </h1>
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Premium-stay knobs that govern how a learner can opt into the
+              Premium-room knobs that govern how a learner can opt into the
               paid premium tier, how long their bed is held, how invites to
               roommates expire, and how late-return passes work for
               premium-plus residents. Changes take effect within ~1 hour

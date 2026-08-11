@@ -358,6 +358,13 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
         currentBlockId={alloc.block_id}
         currentRoomId={alloc.room_id}
         currentBedId={alloc.bed_id}
+        current={{
+          learnerName,
+          blockName,
+          roomNumber,
+          bedNumber,
+          roomCategory: academic?.room_category?.name ?? null,
+        }}
         open={transferOpen}
         onOpenChange={setTransferOpen}
       />

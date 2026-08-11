@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — INVITE ROOMMATE (learner-facing, Phase 2)
+// PREMIUM ROOM — INVITE ROOMMATE (learner-facing, Phase 2)
 // ============================================================================
 // Created: 2026-05-19
 //
@@ -17,7 +17,7 @@
 'use client';
 
 export const navMeta = {
-  label: 'Premium Stay — Invite Roommate',
+  label: 'Premium Room — Invite Roommate',
   icon: 'Users',
   invokedFrom: '/campus-living/my-hostel/premium',
 } as const;
@@ -162,7 +162,7 @@ export default function InviteRoommatePage() {
 
   if (allocLoading) {
     return (
-      <ContentLayout title='Premium Stay — Invite Roommate'>
+      <ContentLayout title='Premium Room — Invite Roommate'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
         </div>
@@ -174,13 +174,13 @@ export default function InviteRoommatePage() {
   const isPremiumAllocation = !!activeAllocation?.tier_id;
 
   return (
-    <ContentLayout title='Premium Stay — Invite Roommate'>
+    <ContentLayout title='Premium Room — Invite Roommate'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'My Hostel', href: '/campus-living/my-hostel' },
-          { label: 'Premium Stay', href: '/campus-living/my-hostel/premium' },
+          { label: 'Premium Room', href: '/campus-living/my-hostel/premium' },
           { label: 'Invite Roommate' },
         ]}
       />

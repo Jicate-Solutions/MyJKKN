@@ -765,10 +765,22 @@ export interface PublicationContributor extends BaseEntity {
 }
 
 /**
- * All 10 JKKN accreditation / ranking / regulatory bodies per Compliance
- * Unification Program (specs/one-jkkn-one-data/unification-program/MASTER-PLAN.md).
- * Values are UPPERCASE to match sh_accreditation_metrics.metric_type and
- * quality_evidence_mappings.body_code CHECK constraints.
+ * Every JKKN accreditation / ranking / regulatory body. Values are UPPERCASE
+ * to match `sh_accreditation_metrics.metric_type` and the `body_code` column
+ * on five tables.
+ *
+ * ⚠️ THIS UNION IS A CONVENIENCE, NOT THE SOURCE OF TRUTH. From migration
+ * 20260816010000 the authority is the `accreditation_bodies` table, and the
+ * five `body_code` CHECK constraints that used to enumerate ten codes are
+ * foreign keys to it — precisely so a sixteenth body is one INSERT rather than
+ * a migration against five tables plus a deploy of this file. Code that reads
+ * bodies at runtime should read the registry (`useAccreditationBodyRegistry`)
+ * and treat an unknown code as displayable, not invalid.
+ *
+ * The union stays because ~40 call sites type a literal against it, and it is
+ * still useful for catching a typo in a hardcoded 'NACC'. It is widened here
+ * to the fifteen the Director locked on 2026-08-06 — the original ten plus
+ * NCAHP, CBSE, MATRIC, ABET and THE.
  */
 export type AccreditationBodyCode =
   | 'NAAC'
@@ -780,7 +792,13 @@ export type AccreditationBodyCode =
   | 'INC'
   | 'AICTE'
   | 'NCTE'
-  | 'UGC';
+  | 'UGC'
+  // Added 2026-08-06. None of these five has any metric defined yet.
+  | 'NCAHP'
+  | 'CBSE'
+  | 'MATRIC'
+  | 'ABET'
+  | 'THE';
 
 export interface AccreditationMetric extends BaseEntity {
   metric_type: AccreditationBodyCode;

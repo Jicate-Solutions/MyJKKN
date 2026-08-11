@@ -308,12 +308,13 @@ Suggested phasing: **Phase 1** = resolver + syllabus migration + types + syllabu
 
 ## 8. Open decisions / confirmations needed
 
-- **O-1** — Exact `institution_code`(s) for the JKKN AHS college (and any CAS-style Aided/SF sibling) to seed `MGR_AHS_CODES`.
+- **O-1** — ~~Exact `institution_code`(s) for the JKKN AHS college.~~ **ANSWERED (2026-08-07):** institution `9c1554e8-12a2-4b76-a9d6-8242bb05eba1`, `institution_code = 'AHS'`, single shared `board_code = 'AHS'`, `regulation_code = 'R-2017'`. Still needed: the `board_id` + `regulation_id` UUIDs, and confirmation the institution UUID is the COE-side id (not MyJKKN). Seeds live at `scripts/bos-ahs-courses-seed.sql` + `scripts/bos-ahs-course-mapping-seed.sql`.
 - **O-2** — Syllabus row granularity: **one row per paper** (keeps existing course→syllabus 1:1; recommended) vs **one row per year** (fewer rows, but breaks the per-course linkage the rest of BoS assumes).
 - **O-3** — Are AHS courses in scope for BoS **meeting agenda / course-review** flows (`bos_course_reviews`) like engineering courses, or syllabus-only?
 - **O-4** — Temp-code generator specifics: the program-abbreviation table (RT, CT, CCT, MRS, PA, RIT, OTAT, AECT, DT), and whether to flag placeholders via a `TMP-` prefix (no schema change) or a COE `is_temp_code` boolean (cleaner, needs a COE column). Also: the official-code scheme that eventually replaces them (`BMRSc 1-1` year-subject pattern universally, or per-program?).
 - **O-5** — Do AHS boards/regulations already exist in COE for these 9 programs, or must they be created first (courses can't be created without a board_code + regulation_code)?
 - **O-6** — Whether `mark_distribution` (per-subject split within a paper, seen in MRS/Cardiac) is required now or a later enhancement.
+- **O-7** — COE `course_mapping` year ordering: does the COE **scheme UI** bucket the year-wise view by `semester_code` or by `courses.academic_year`? The mapping seed currently sets `semester_code = NULL` and orders by `course_order`; if the UI groups by `semester_code`, populate it with a year token (`YEAR-1/2/3`) instead.
 
 ---
 
