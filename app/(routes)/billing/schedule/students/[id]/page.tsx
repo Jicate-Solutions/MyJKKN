@@ -51,6 +51,7 @@ import { StudentTransactionHistory } from './_components/student-transaction-his
 import { StudentReceiptsTable } from './_components/student-receipts-table';
 import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
 import { StudentRefundHistory } from './_components/student-refund-history';
+import { ReevaluateStatusButton } from './_components/reevaluate-status-button';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { toast } from 'react-hot-toast';
@@ -106,6 +107,12 @@ export default function StudentBillingDetailPage() {
   const canViewBills = isSuperAdmin || canAccess('billing.schedule', 'view');
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
+  // bulk_create rather than create/update: those two are held by 68 roles each
+  // (the billing namespace is broadly over-granted), while bulk_create is the
+  // narrow operator-batch key — 13 roles, the accounts/admin set. Re-running the
+  // automatic status check is that same kind of operator action.
+  const canReevaluateStatus =
+    isSuperAdmin || canAccess('billing.schedule', 'bulk_create');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -373,6 +380,17 @@ export default function StudentBillingDetailPage() {
                     Schedule Bill
                   </Link>
                 </Button>
+              )}
+              {canReevaluateStatus && (
+                <ReevaluateStatusButton
+                  studentId={studentId}
+                  lifecycleStatus={student.lifecycle_status}
+                  onEvaluated={() => {
+                    // The lifecycle badge in this header is driven by the
+                    // summary query, so a promotion is invisible without this.
+                    refetchSummary();
+                  }}
+                />
               )}
               <RefundInitiateDialog
                 studentId={studentId}

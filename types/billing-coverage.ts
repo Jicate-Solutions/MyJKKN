@@ -141,6 +141,10 @@ export interface BillCoverageRow {
   uses_transport: boolean;
   bill_count: number;
   total_billed: number;
+  /** Settled amount across the SAME live bills total_billed sums, i.e.
+   *  final_amount - balance_amount. Never a receipts-side figure: paid must
+   *  agree with the PDF export, which computes it exactly this way. */
+  total_paid: number;
   coverage_state: CoverageState;
   /** Window-function total across all pages; identical on every row. */
   total_count: number;

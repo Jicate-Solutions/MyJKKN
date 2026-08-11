@@ -1744,6 +1744,7 @@ CREATE TRIGGER trg_hla_aa_default_hr_ay
     BEFORE INSERT OR UPDATE ON public.hr_leave_applications
     FOR EACH ROW EXECUTE FUNCTION public.hr_trig_default_hr_academic_year();
 
+<<<<<<< Updated upstream
 
 -- =====================================================================
 -- Added: 2026-08-06 - admission_leads source/referral audit trail
@@ -1758,3 +1759,37 @@ CREATE TRIGGER trg_audit_admission_lead_source
 AFTER UPDATE OF source, source_detail, referral_type, referred_by_id, referred_by_name
 ON public.admission_leads
 FOR EACH ROW EXECUTE FUNCTION public.fn_audit_admission_lead_source();
+=======
+-- ============================================================================
+-- 2026-08-11 — learner lifecycle auto-promotion pipeline
+-- ============================================================================
+-- Supersedes the earlier entry in this file, which still read
+-- `AFTER UPDATE OF bill_amount ON billing_student_bills` — a column name that
+-- no longer exists. This file is append-ordered, so the definitions below win.
+--
+-- Rationale: supabase/migrations/20260811140000_fix_learner_status_auto_promotion.sql
+--   * the evaluation must fire on ANY movement in a bill's paid position, not
+--     only on a full settlement — instalments are how learners cross 30%;
+--   * the receipt-side evaluation is GONE, not merely redundant. Postgres fires
+--     row triggers alphabetically, and `trg_evaluate_status_after_payment`
+--     sorted before `trigger_update_bill_status_on_payment` ('g' < 'i'), so it
+--     ran before the bill was written and could never see its own payment;
+--   * update_bill_balance_on_amount_change() mutates NEW and returns it, so it
+--     MUST be BEFORE. Registered AFTER, every mutation was silently discarded.
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_evaluate_status_after_bill_paid
+  ON public.billing_student_bills;
+CREATE TRIGGER trg_evaluate_status_after_bill_paid
+  AFTER UPDATE OF status, balance_amount ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.fn_evaluate_status_after_bill_paid();
+
+DROP TRIGGER IF EXISTS trg_evaluate_status_after_payment
+  ON public.billing_receipt_items;
+
+DROP TRIGGER IF EXISTS trigger_update_bill_balance_on_amount_change
+  ON public.billing_student_bills;
+CREATE TRIGGER trigger_update_bill_balance_on_amount_change
+  BEFORE UPDATE ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.update_bill_balance_on_amount_change();
+>>>>>>> Stashed changes

@@ -641,6 +641,61 @@ export class OnboardingService {
     return { promoted: true };
   }
 
+  // ── 5b. reevaluateStatus (operator re-run of the automatic promotion) ────
+
+  /**
+   * Re-runs the automatic lifecycle evaluation for one learner and reports what
+   * it decided. This is the manual counterpart to the payment triggers: the
+   * accounts team reaches for it when a learner's status looks behind their
+   * payments.
+   *
+   * PROMOTION ONLY, and never a bypass. The RPC applies exactly the thresholds
+   * configured in `admission_statuses` — it cannot move a learner who has not
+   * actually paid, it returns `no_op_for_status` outside account/reserved, and
+   * it re-asserts the from-status inside every UPDATE. So the worst a stray
+   * click can do is nothing.
+   *
+   * Unlike `markAsApproved`, this reports rather than throws: "nothing changed"
+   * is the expected answer most of the time, not an error. The returned
+   * `paid_pct`/`threshold` are what the caller should show — "paid 12%, needs
+   * 30%" is the answer the operator actually wants.
+   */
+  static async reevaluateStatus(learnerId: string): Promise<{
+    updated: boolean;
+    finalStatus?: string;
+    paidPct?: number;
+    threshold?: number;
+    reason?: string;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC, same as the
+    // sibling methods in this file.
+    const supabase = this.supabase as any;
+
+    const { data, error } = await supabase.rpc(
+      'evaluate_learner_status_after_payment',
+      { p_learner_id: learnerId }
+    );
+    // Supabase errors are plain objects, not Error instances — getErrorMessage
+    // surfaces the real code/message instead of "[object Object]".
+    if (error) throw new Error(getErrorMessage(error));
+
+    const result = (data ?? {}) as {
+      updated?: boolean;
+      final_status?: string;
+      paid_pct?: number;
+      threshold?: number;
+      reason?: string;
+    };
+
+    return {
+      updated: result.updated === true,
+      finalStatus: result.final_status,
+      paidPct: Number(result.paid_pct ?? 0),
+      threshold: result.threshold == null ? undefined : Number(result.threshold),
+      reason: result.reason
+    };
+  }
+
   // ── 6. revertToApproved ──────────────────────────────────────────────────
 
   /**
