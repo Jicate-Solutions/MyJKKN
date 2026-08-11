@@ -230,9 +230,13 @@
 -- rehearsal. Belt and braces: apply with `psql -v ON_ERROR_STOP=1 -f <file>`.
 --
 -- Three outcomes, all explicit:
---   md5 = pre-state   -> apply the change
---   md5 = post-state  -> already applied, do nothing (idempotent re-run)
+--   md5 = pre-state   -> replace the body, then re-assert privileges
+--   md5 = post-state  -> body already correct; STILL re-assert privileges
 --   anything else     -> abort, naming the hash actually found
+--
+-- The idempotent path re-asserts privileges rather than returning early, because
+-- pg_get_functiondef does not render the ACL: a hash that says "already applied"
+-- is blind to `anon` having been re-granted since. See the block below the DDL.
 -- ────────────────────────────────────────────────────────────────────────────────
 DO $guard$
 DECLARE
@@ -258,11 +262,7 @@ BEGIN
 
     v_md5 := md5(v_def);
 
-    IF v_md5 = v_post THEN
-        RETURN;  -- this migration has already been applied; nothing to do
-    END IF;
-
-    IF v_md5 <> v_pre THEN
+    IF v_md5 <> v_pre AND v_md5 <> v_post THEN
         RAISE EXCEPTION
             'DRIFT GUARD: the live body of fn_aqs_attendance_unmarked_periods_today is neither the '
             'body captured on 2026-08-11 (md5 %) nor the body this migration installs (md5 %). Found '
@@ -277,6 +277,8 @@ BEGIN
     END IF;
 
     -- ── The change itself. Same statement as the guard, so it cannot outlive it. ──
+    -- Skipped when the body is already at post-state; the ACL block below is NOT.
+    IF v_md5 = v_pre THEN
     EXECUTE $ddl$
 CREATE OR REPLACE FUNCTION public.fn_aqs_attendance_unmarked_periods_today(
     p_user_id        UUID,
@@ -480,7 +482,27 @@ BEGIN
     );
 END;
 $function$;
+$ddl$;
+    END IF;
 
+    -- ── PRIVILEGES — RE-ASSERTED ON EVERY PATH, INCLUDING THE IDEMPOTENT ONE ────
+    -- Deliberately OUTSIDE the IF above. `pg_get_functiondef` does not render the
+    -- ACL, so the hash that decides "already applied" is blind to privileges: a
+    -- body already at post-state whose `anon` grant has since been restored — by
+    -- Supabase's ALTER DEFAULT PRIVILEGES, or by re-running the 155-name grant
+    -- loop in 20260605191101, which this index already flags as re-opening holes —
+    -- would otherwise be waved straight through by a guard whose own header
+    -- promises it re-asserts the revoke.
+    --
+    -- The cost of getting that wrong is not theoretical for THIS function. Reached
+    -- as `anon`, `auth.uid()` is NULL, and the identity guard reads a NULL
+    -- auth.uid() as "service_role or internal caller, already fully trusted" and
+    -- then honours whatever `p_user_id` it was handed. So an anon caller holding
+    -- the public key that ships in every browser bundle could pass a known
+    -- super-admin UUID and read cluster-wide unmarked counts and timetable UUIDs.
+    -- Re-asserting is also strictly better than merely checking: it repairs the
+    -- ACL rather than reporting it.
+    EXECUTE $acl$
 -- Supabase runs ALTER DEFAULT PRIVILEGES ... GRANT EXECUTE ON FUNCTIONS TO anon,
 -- so anon holds a direct grant SEPARATE from PUBLIC. Revoking PUBLIC alone leaves
 -- the function callable by any unauthenticated client holding the public anon key,
@@ -508,6 +530,6 @@ COMMENT ON FUNCTION public.fn_aqs_attendance_unmarked_periods_today(UUID, UUID) 
     'the same data. A NULL start_date or end_date means unbounded, not excluded. '
     'sample_period_ids holds up to 10 TIMETABLE UUIDs and carries the same window predicate as '
     'the count. Senior Learner and HOD scope: their department. super_admin: institution or all.';
-$ddl$;
+$acl$;
 END
 $guard$;

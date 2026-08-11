@@ -1248,12 +1248,53 @@ describe('the unmarked count honours the timetable\'s own validity window', () =
       );
     });
 
-    it('is idempotent: re-applying over its own result is a no-op', async () => {
+    it('is idempotent: re-applying over its own result leaves the body alone', async () => {
       await db.query(readFileSync(MIGRATION, 'utf8'));
       await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
       const first = await liveMd5();
       await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).resolves.toBeDefined();
       expect(await liveMd5()).toBe(first);
+    });
+
+    it('re-asserts the anon revoke on the IDEMPOTENT path, not only when it rewrites', async () => {
+      // pg_get_functiondef renders no ACL, so the hash that decides "already
+      // applied" is blind to privileges. An early RETURN on that path would skip
+      // the REVOKE entirely — and a body already at post-state whose anon grant
+      // had since been restored (Supabase's ALTER DEFAULT PRIVILEGES, or a re-run
+      // of the 155-name grant loop in 20260605191101) would sail through a guard
+      // that promises the opposite.
+      //
+      // It matters for THIS function specifically: as anon, auth.uid() is NULL,
+      // which the identity guard treats as a fully-trusted internal caller and
+      // then honours any p_user_id handed to it — so a forged super-admin UUID
+      // would return cluster-wide counts to anyone holding the public browser key.
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+      const settled = await liveMd5();
+
+      await db.query(
+        `GRANT EXECUTE ON FUNCTION
+           public.fn_aqs_attendance_unmarked_periods_today(uuid, uuid) TO anon`,
+      );
+      const before = await db.query(
+        `SELECT has_function_privilege('anon',
+           'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS c`,
+      );
+      expect(before.rows[0].c).toBe(true); // non-vacuous: anon really did hold it
+
+      // The body is untouched, so this takes the IDEMPOTENT branch…
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+      expect(await liveMd5()).toBe(settled);
+
+      // …and the revoke must still have run.
+      const after = await db.query(
+        `SELECT has_function_privilege('anon',
+           'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS anon_can,
+                has_function_privilege('authenticated',
+           'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS auth_can`,
+      );
+      expect(after.rows[0].anon_can).toBe(false);
+      expect(after.rows[0].auth_can).toBe(true);
     });
 
     it('keeps the DDL INSIDE the guard, so an abort cannot be stepped over', () => {
