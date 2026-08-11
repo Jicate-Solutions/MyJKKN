@@ -82,7 +82,7 @@ export function MyBroadcastsClient({
               ok: false,
               message:
                 (typeof payload?.error === 'string' && payload.error) ||
-                `That message could not be withdrawn (the server answered ${response.status}). It is still on its way unless you try again.`,
+                `That message could not be withdrawn (the server answered ${response.status}). It is still waiting, and will still send itself when the window closes, unless you try again.`,
             },
           ]);
           return;
