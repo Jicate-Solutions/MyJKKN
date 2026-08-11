@@ -200,3 +200,49 @@ describe('PaperAuthoring autosave regression', () => {
     });
   });
 });
+
+/** "Answer any N" parts: only num_to_answer questions may be earned. */
+describe('PaperAuthoring "answer any N" parts', () => {
+  beforeEach(() => {
+    mutate.mockReset();
+    // PART B: 2 questions × 5 marks, answer any 1 → the part is worth 5, not 10.
+    paperSnapshot = buildPaper({
+      max_marks: 5,
+      questions: [
+        { ...buildPaper().questions[0], id: 'q6', part_label: 'B', question_number: 6, marks: 5, options: null },
+        { ...buildPaper().questions[0], id: 'q7', part_label: 'B', question_number: 7, marks: 5, options: null, display_order: 2 },
+      ],
+      template_parts: [
+        {
+          ...buildPaper().template_parts[0],
+          id: 'part-b',
+          part_label: 'B',
+          part_title: 'PART B',
+          question_type_code: 'short_answer',
+          num_questions: 2,
+          num_to_answer: 1,
+          marks_per_question: 5,
+          part_max_marks: 5,
+        },
+      ],
+    });
+  });
+
+  it('shows the answerable count in the part header, not the question count', async () => {
+    render(
+      <PaperAuthoring paperId='paper-1' onBack={() => {}} canEnter canApprove={false} canExport={false} />
+    );
+
+    expect(await screen.findByText(/1 × 5 = 5 marks · answer 1 of 2/)).toBeInTheDocument();
+  });
+
+  it('counts only the answerable questions toward entered marks', async () => {
+    render(
+      <PaperAuthoring paperId='paper-1' onBack={() => {}} canEnter canApprove={false} canExport={false} />
+    );
+
+    await screen.findByText('Q6');
+    expect(screen.getByText('5')).toBeInTheDocument(); // entered marks, not 10
+    expect(screen.queryByText(/do not match the template total/)).not.toBeInTheDocument();
+  });
+});

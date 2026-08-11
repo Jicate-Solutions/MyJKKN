@@ -45,8 +45,7 @@ export async function GET(
 
   // 2. Permission gate
   const { data: canView } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: 'admission.enquiries.activities.view',
+    permission_name: 'admission.enquiries.activities.view',
   });
   if (!canView) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -134,8 +133,7 @@ export async function POST(
 
   // 2. Permission gate — separate key for write
   const { data: canCreate } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: 'admission.enquiries.activities.create',
+    permission_name: 'admission.enquiries.activities.create',
   });
   if (!canCreate) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

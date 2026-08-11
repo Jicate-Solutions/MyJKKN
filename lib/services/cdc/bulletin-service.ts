@@ -2,6 +2,7 @@
 // Service layer for CDC External Opportunities Bulletin
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { istBusinessDate } from '@/lib/utils/date-format';
 import type {
   CdcExternalOpportunity,
   CreateOpportunityDto,
@@ -31,10 +32,22 @@ export class BulletinService {
 
     // Status filter mapped to DB fields
     if (filters?.status === 'active') {
-      query = query.eq('is_active', true).is('archived_at', null);
+      // Auto-hide past-deadline items (Director decision 2026-08-04): an
+      // opportunity whose deadline has passed is not "active" — it is only
+      // reachable through the 'expired'/'all' filters. No-deadline items stay.
+      // istBusinessDate() (not toISOString()) because deadlines are calendar
+      // dates in IST: a UTC "today" keeps yesterday's expired items visible
+      // until 05:30 IST every morning.
+      query = query
+        .eq('is_active', true)
+        .is('archived_at', null)
+        .or(`deadline_date.gte.${istBusinessDate()},deadline_date.is.null`);
     } else if (filters?.status === 'expired') {
       // deadline in the past, not archived
-      query = query.lt('deadline_date', new Date().toISOString().split('T')[0]).is('archived_at', null);
+      // IST for the same reason as the 'active' branch above — the two must
+      // agree, or between 00:00 and 05:30 IST an item just past its deadline
+      // is in neither list and disappears from the board entirely.
+      query = query.lt('deadline_date', istBusinessDate()).is('archived_at', null);
     } else if (filters?.status === 'archived') {
       query = query.not('archived_at', 'is', null);
     }
@@ -119,6 +132,6 @@ export class BulletinService {
 function deriveStatus(opp: CdcExternalOpportunity): 'draft' | 'published' | 'expired' {
   if (opp.archived_at) return 'expired';
   if (!opp.is_active) return 'draft';
-  if (opp.deadline_date && opp.deadline_date < new Date().toISOString().split('T')[0]) return 'expired';
+  if (opp.deadline_date && opp.deadline_date < istBusinessDate()) return 'expired';
   return 'published';
 }

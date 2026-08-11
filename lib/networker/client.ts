@@ -202,3 +202,94 @@ export async function notifySolutionEvent(
 export function isNetworkerConfigured(): boolean {
   return Boolean(NETWORKER_URL && NETWORKER_KEY);
 }
+
+// ============================================
+// CARD INGEST (business-card scanner)
+// ============================================
+
+/**
+ * Fields a scanned card may supply. Mirrors Networker's CARD_FIELDS exactly —
+ * anything not in this list is ignored server-side, so keeping the two in step
+ * is what stops a field being silently dropped on the wire.
+ */
+export interface CardIngestFields {
+  name: string;
+  organization?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  linkedin?: string;
+  location?: string;
+  sector?: string;
+  notes?: string;
+  card_photo_url?: string;
+  date_met?: string;
+  /** Provenance — the event/place the card was collected at (decision 14). */
+  introduced_by?: string;
+  /** Audit trail: the MyJKKN user who scanned it (decision 11). */
+  scanned_by?: string;
+}
+
+export interface CardIngestResult {
+  success: boolean;
+  mode: 'created' | 'enriched' | 'no_change';
+  data: NetworkerContact;
+  /** PATCH only — fields actually written. */
+  filled?: string[];
+  /**
+   * PATCH only — fields the card disagreed with that were LEFT ALONE.
+   * PATCH is fill-only by design: it never overwrites a value a human already
+   * recorded. This list must be shown to the user ("card says X, we have Y")
+   * rather than swallowed, or the scan silently appears to have worked while
+   * the disagreement goes unrecorded.
+   */
+  skipped?: string[];
+  message?: string;
+}
+
+/**
+ * Create a NEW contact in Networker from a scanned card.
+ * Called only after a human has confirmed the extracted fields (decision 5).
+ */
+export async function ingestContact(fields: CardIngestFields): Promise<CardIngestResult> {
+  const res = await fetch(`${getBaseUrl()}/api/contacts/ingest`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(fields),
+    cache: 'no-store',
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      `Networker ingest failed (${res.status}): ${json?.error || res.statusText}`
+    );
+  }
+  return { ...json, mode: json.mode ?? 'created' } as CardIngestResult;
+}
+
+/**
+ * ENRICH an existing contact — fill-only. Used when the human chose "update the
+ * existing person" on a duplicate warning (decision 6 / 23) rather than
+ * creating a twin.
+ */
+export async function enrichContact(
+  id: string,
+  fields: Omit<CardIngestFields, 'name'> & { name?: string }
+): Promise<CardIngestResult> {
+  const res = await fetch(`${getBaseUrl()}/api/contacts/ingest`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify({ id, ...fields }),
+    cache: 'no-store',
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      `Networker enrich failed (${res.status}): ${json?.error || res.statusText}`
+    );
+  }
+  return json as CardIngestResult;
+}

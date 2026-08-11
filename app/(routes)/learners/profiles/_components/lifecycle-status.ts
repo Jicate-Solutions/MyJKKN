@@ -10,7 +10,33 @@
 
 import type { LifecycleStatus } from '@/types/learner-profile';
 
+/**
+ * `all` is deliberately FIRST and is NOT a lifecycle_status enum value.
+ *
+ * The three status tabs only cover active / inactive / exited, but
+ * learners_profiles.lifecycle_status has fifteen labels. Every learner in the
+ * other twelve (graduated, reserved, admitted, enquiry_submitted, account,
+ * rejected, …) was unreachable from this page: the server ANDs
+ * `lifecycle_status = <tab>` into the query, so filtering by
+ * institution/degree/department/programme for, say, a graduated learner
+ * returned "No results" with no way to switch the predicate off. That was 2,632
+ * of 7,183 rows on production.
+ */
+/**
+ * 2026-08-10: `reserved` and `admitted` promoted to first-class tabs.
+ *
+ * They were always reachable through "All Statuses", but only if you knew to
+ * look — and 994 learners live in those two statuses (870 reserved, 124
+ * admitted), the entire pre-enrolment pipeline. They sit BEFORE Active because
+ * that is their order in the lifecycle: account → reserved → admitted → active.
+ *
+ * The default tab is still Active (see `resolveLifecycleTab`), so no existing
+ * bookmark or workflow changes behaviour.
+ */
 export const LIFECYCLE_TABS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'reserved', label: 'Reserved' },
+  { value: 'admitted', label: 'Admitted' },
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive' },
   { value: 'exited', label: 'Exited' },
@@ -23,6 +49,20 @@ export function isLifecycleTabValue(v: unknown): v is LifecycleTabValue {
 }
 
 /** Narrow a raw `status` search param to a tab value, defaulting to Active. */
-export function resolveLifecycleTab(raw: unknown): LifecycleStatus {
-  return (isLifecycleTabValue(raw) ? raw : 'active') as LifecycleStatus;
+export function resolveLifecycleTab(raw: unknown): LifecycleTabValue {
+  return isLifecycleTabValue(raw) ? raw : 'active';
+}
+
+/**
+ * The lifecycle_status predicate for a tab, or undefined for "no predicate".
+ *
+ * MUST be used instead of casting the tab value: 'all' is not a member of the
+ * lifecycle_status enum, and `.eq('lifecycle_status', 'all')` raises 22P02 —
+ * which getLearnerProfiles catches and turns into an empty table, i.e. exactly
+ * the silent failure this tab exists to remove.
+ */
+export function lifecycleFilterForTab(
+  tab: LifecycleTabValue
+): LifecycleStatus | undefined {
+  return tab === 'all' ? undefined : (tab as LifecycleStatus);
 }

@@ -1,5 +1,5 @@
 // ============================================================================
-// PREMIUM STAY — LEARNER OPT-IN PAGE (Phase 2)
+// PREMIUM ROOM — LEARNER OPT-IN PAGE (Phase 2)
 // ============================================================================
 // Created: 2026-05-19
 // Spec lineage: PR #953 Phase 1 substrate + service stubs documented the
@@ -21,7 +21,7 @@
 'use client';
 
 export const navMeta = {
-  label: 'Premium Stay — Opt-in',
+  label: 'Premium Room — Opt-in',
   icon: 'Sparkles',
   invokedFrom: '/campus-living/my-hostel',
 } as const;
@@ -37,6 +37,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useHostelTiers } from '@/hooks/campus-living/use-hostel-tier-policy';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { TierEligibilityCard } from './_components/tier-eligibility-card';
+import { PremiumInviteEntryCard } from '../_components/premium-invite-entry-card';
 import {
   Sparkles,
   BedDouble,
@@ -78,7 +79,7 @@ export default function PremiumOptInPage() {
 
   if (loading) {
     return (
-      <ContentLayout title='Premium Stay — Opt-in'>
+      <ContentLayout title='Premium Room — Opt-in'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
         </div>
@@ -92,13 +93,13 @@ export default function PremiumOptInPage() {
   const standardTier = tiers.find((t) => t.tier_key === 'standard');
 
   return (
-    <ContentLayout title='Premium Stay — Opt-in'>
+    <ContentLayout title='Premium Room — Opt-in'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'My Hostel', href: '/campus-living/my-hostel' },
-          { label: 'Premium Stay' },
+          { label: 'Premium Room' },
         ]}
       />
 
@@ -106,9 +107,9 @@ export default function PremiumOptInPage() {
         <div className='flex items-start gap-3'>
           <Sparkles className='h-7 w-7 text-amber-500 mt-1' />
           <div>
-            <h1 className='text-2xl font-bold py-1'>Upgrade to Premium Stay</h1>
+            <h1 className='text-2xl font-bold py-1'>Upgrade to Premium Room</h1>
             <p className='text-sm text-muted-foreground max-w-2xl'>
-              Premium Stay gives you self-pick over your block, room, bed, and
+              Premium Room gives you self-pick over your block, room, bed, and
               roommate (with their consent). Premium Plus adds an extended
               curfew quota and faster maintenance response. Fee uplift is
               charged on top of your standard hostel fee.
@@ -153,7 +154,7 @@ export default function PremiumOptInPage() {
                   You don't have an active hostel allocation yet.
                 </p>
                 <p className='text-amber-700 mt-1'>
-                  Premium Stay requires an active allocation. Visit the{' '}
+                  Premium Room requires an active allocation. Visit the{' '}
                   <Link
                     href='/campus-living/my-hostel'
                     className='underline underline-offset-2'
@@ -166,6 +167,10 @@ export default function PremiumOptInPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Invite entry — a premium resident's cheapest way to cut her own bill.
+            Renders nothing for anyone without a premium allocation. */}
+        <PremiumInviteEntryCard />
 
         {/* Premium tier cards */}
         {premiumTiers.length === 0 ? (

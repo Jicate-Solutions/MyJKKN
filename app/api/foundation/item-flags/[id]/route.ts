@@ -55,7 +55,7 @@ export async function PATCH(
 
     const { data: canManage } = await (supabase as any).rpc(
       'user_has_permission',
-      { user_id: user.id, permission_key: 'foundation.items.manage' },
+      { permission_name: 'foundation.items.manage' },
     );
     if (!canManage) {
       return NextResponse.json(

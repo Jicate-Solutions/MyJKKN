@@ -253,6 +253,10 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         // Basic Details (Optional)
         'Aadhar Number': '123456789012',
         'Blood Group': 'O+',
+        // External identifiers — alphanumeric, no fixed length enforced.
+        'ABC ID': 'ED453871909686',
+        'EMIS Number': '33150200123',
+        'UMIS Number': 'UM2024005567',
         'Admission Year': '2024',
 
         // Parent/Guardian (Optional)
@@ -314,7 +318,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
         { '📊 FIELD REQUIREMENTS': '' },
         { 'Required Fields (28)': 'Must be filled for every student - marked with * in template' },
-        { 'Optional Fields (35)': 'Can be left blank - no asterisk in template' },
+        { 'Optional Fields (38)': 'Can be left blank - no asterisk in template' },
         { '': '' },
 
         { '✅ DROPDOWN FIELDS - VALID VALUES ONLY': '' },
@@ -340,6 +344,10 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { 'College Email': 'Must end with @jkkn.ac.in  (Example: john.doe@jkkn.ac.in)' },
         { 'Academic Year': 'YYYY-YYYY  (Example: 2024-2025)' },
         { 'Aadhar Number': '12 digits  (Example: 123456789012)' },
+        { 'ABC ID': 'Letters + digits, any length  (Example: ED453871909686)' },
+        { 'EMIS Number': 'Letters + digits, any length  (Example: 33150200123)' },
+        { 'UMIS Number': 'Letters + digits, any length  (Example: UM2024005567)' },
+        { '  ↳ all three': 'Saved UPPERCASE with spaces removed. Leave blank if not issued yet.' },
         { '10th/12th Marks': 'JSON format  (Example: {"overall": "95", "maths": "98"})' },
         { '': '' },
 

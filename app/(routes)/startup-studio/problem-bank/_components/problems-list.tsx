@@ -24,31 +24,27 @@ import {
   Filter,
 } from 'lucide-react';
 import { useProblems } from '@/hooks/startup-studio';
+import { PROBLEM_THEMES, type ProblemTheme } from '@/types/startup-studio';
 
-const THEMES = [
-  'all',
-  'healthcare',
-  'education',
-  'agriculture',
-  'fintech',
-  'environment',
-  'logistics',
-  'social',
-  'energy',
-  'other',
-];
+// Built from the enum itself — see PROBLEM_THEMES. The previous hardcoded
+// list offered four themes the database has never had (fintech, logistics,
+// social, energy), each of which returned HTTP 500 when selected, and hid
+// three it does have (community, operations, productivity).
+const THEMES = ['all', ...PROBLEM_THEMES];
 
 const STATUSES = ['all', 'open', 'claimed', 'in_progress', 'solved', 'archived'];
 
-const THEME_COLORS: Record<string, string> = {
+// One colour per real enum value. Record<ProblemTheme, string> (not
+// Record<string, string>) so adding a theme to the enum without a colour is a
+// compile error rather than an unstyled chip discovered in production.
+const THEME_COLORS: Record<ProblemTheme, string> = {
   healthcare: 'bg-red-100 text-red-800',
   education: 'bg-blue-100 text-blue-800',
   agriculture: 'bg-green-100 text-green-800',
-  fintech: 'bg-amber-100 text-amber-800',
   environment: 'bg-emerald-100 text-emerald-800',
-  logistics: 'bg-purple-100 text-purple-800',
-  social: 'bg-pink-100 text-pink-800',
-  energy: 'bg-orange-100 text-orange-800',
+  community: 'bg-pink-100 text-pink-800',
+  operations: 'bg-purple-100 text-purple-800',
+  productivity: 'bg-amber-100 text-amber-800',
   other: 'bg-gray-100 text-gray-800',
 };
 

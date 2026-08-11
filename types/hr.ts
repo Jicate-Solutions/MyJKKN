@@ -295,7 +295,12 @@ export interface HRLeaveApplication {
   hr_organization_id: string;
   employee_id: string;
   leave_type_id: string;
-  academic_year_id: string | null;
+  /**
+   * The HR year (Apr 1 -> Mar 31), not academic_years. Nullable in the schema
+   * but effectively always set: trg_hla_aa_default_hr_ay resolves it from
+   * start_date on insert when the client omits it.
+   */
+  hr_academic_year_id: string | null;
 
   start_date: string;
   end_date: string;
@@ -325,7 +330,8 @@ export interface HRLeaveApplicationInsert {
   hr_organization_id: string;
   employee_id: string;
   leave_type_id: string;
-  academic_year_id?: string | null;
+  /** Omit to let trg_hla_aa_default_hr_ay resolve it from start_date. */
+  hr_academic_year_id?: string | null;
   start_date: string;
   end_date: string;
   duration_type: LeaveDurationType;
@@ -342,7 +348,7 @@ export interface HRLeaveApplicationInsert {
 export interface HRLeaveBalance {
   employee_id: string;
   leave_type_id: string;
-  academic_year_id: string;
+  hr_academic_year_id: string;
   hr_organization_id: string;
   entitled: number;
   used: number;
@@ -388,7 +394,7 @@ export interface HRLeaveEncashment {
   id: string;
   hr_organization_id: string;
   employee_id: string;
-  academic_year_id: string;
+  hr_academic_year_id: string;
   leave_type_id: string;
   days_encashed: number;
   per_diem_rate: number;

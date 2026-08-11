@@ -48,6 +48,7 @@ import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { PushSubscribeButton } from '@/components/dashboard/push-subscribe-button';
 import { MorningBriefCard } from '@/components/dashboard/morning-brief';
 import { getMorningBrief } from '@/lib/services/dashboard/morning-brief-service';
+import { DailyIntelCard } from '@/components/dashboard/daily-intel-card';
 import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
 import {
   getSlaDailyLeaderboard,
@@ -386,6 +387,22 @@ export default async function DashboardV2Page({
               </Suspense>
             </DashboardErrorBoundary>
           </div>
+        )}
+
+        {/* Daily Intel brief — DORMANT BY DEFAULT. 'daily_intel' is registered in
+            WIDGET_IDS but is in no role's default widget list, so showsWidget()
+            is false for everyone until the Director ticks it in
+            /admin/dashboard/widget-config. Self-scoped: the card reads only the
+            viewer's own user_notifications rows under RLS, so there is no
+            cross-scope leak and no persona gate is needed. It also returns null
+            whenever no live brief exists. Silent boundary: an optional card must
+            never break the dashboard. */}
+        {showsWidget('daily_intel') && (
+          <DashboardErrorBoundary label='Daily intel' mode='silent'>
+            <Suspense fallback={null}>
+              <DailyIntelCard />
+            </Suspense>
+          </DashboardErrorBoundary>
         )}
 
         {/* Counselor Staffing Alert — Director + Counselor/Admission.

@@ -39,6 +39,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { LearnerExportDialog } from './learner-export-dialog';
 import type { ProfilesSearchParams } from './data-table-schema';
+import type { LifecycleTabValue } from './lifecycle-status';
 
 const SORT_OPTIONS = [
   { value: 'first_name_asc',   label: 'Name (A → Z)',        sortBy: 'first_name',  sortOrder: 'asc'  },
@@ -55,7 +56,9 @@ interface ProfilesTableServerProps {
     limit: number;
     total_pages: number;
   };
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  // Derived from LIFECYCLE_TABS rather than re-listed: this union was a
+  // hand-maintained copy that silently went stale the moment a tab was added.
+  statusFilter?: LifecycleTabValue;
 }
 
 /**
@@ -91,6 +94,11 @@ export function ProfilesTableServer({
 
   const router = useRouter();
   const searchParams = useSearchParams();
+
+  // 'all' is a TAB value, not a lifecycle_status enum label. The export dialog
+  // feeds this straight into `.eq('lifecycle_status', …)`, where 'all' would
+  // raise 22P02 and export nothing — so it becomes "no status filter" here.
+  const exportStatusFilter = statusFilter === 'all' ? undefined : statusFilter;
 
   const currentFilters: ProfilesSearchParams = {
     page: Number(searchParams.get('page')) || 1,
@@ -375,7 +383,7 @@ export function ProfilesTableServer({
         open={showExportDialog}
         onOpenChange={setShowExportDialog}
         filters={currentFilters}
-        statusFilter={statusFilter}
+        statusFilter={exportStatusFilter}
       />
 
       {/* Bulk ID-card Print Dialog (Phase 2) */}

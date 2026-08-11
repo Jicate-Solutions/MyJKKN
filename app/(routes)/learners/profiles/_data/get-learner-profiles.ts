@@ -180,33 +180,28 @@ export async function getLearnerProfiles(
     // Validate sortBy against whitelist to prevent DB errors from URL tampering
     const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
 
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
+    const pageQuery = (targetPage: number) =>
+      applyLearnerFilters(
+        supabase
+          .from('learners_profiles')
+          .select(LIST_SELECT, { count: 'exact' }),
+        params
+      )
+        .order(sortBy, { ascending: sortOrder === 'asc' })
+        .range((targetPage - 1) * limit, targetPage * limit - 1);
 
-    const query = applyLearnerFilters(
-      supabase
-        .from('learners_profiles')
-        .select(LIST_SELECT, { count: 'exact' }),
-      params
-    )
-      .order(sortBy, { ascending: sortOrder === 'asc' })
-      .range(from, to);
-
-    const { data, error, count } = await query;
+    let effectivePage = page;
+    let { data, error, count } = await pageQuery(effectivePage);
 
     let total = count ?? 0;
 
     if (error) {
       // PGRST103: "Requested range not satisfiable" - happens when offset > total
-      // rows, e.g. the user is on page 2 and a filter cuts the result to 1 row.
+      // rows, e.g. the user is on page 6 and a filter cuts the result to 1 page.
       // The row count does not come back with this error, so this is the ONE case
       // that still needs a dedicated count round-trip. The happy path uses the
       // count returned by the query above instead of re-counting every time.
       if (error.code === 'PGRST103') {
-        console.warn(
-          '[getLearnerProfiles] Pagination range exceeds available rows, returning empty result'
-        );
-
         const { count: fallbackCount, error: countError } =
           await applyLearnerFilters(
             supabase
@@ -219,9 +214,43 @@ export async function getLearnerProfiles(
           console.error('[getLearnerProfiles] Error fetching count:', countError);
         }
         total = fallbackCount ?? 0;
+
+        // Clamp to the last page that actually exists and REFETCH, rather than
+        // returning [] alongside a non-zero count. Returning both is what made
+        // this look like a broken filter: the table rendered "No results" while
+        // the pager underneath it read "435 items", so the user concluded the
+        // filters had matched nothing when they had in fact matched 435 rows and
+        // only the stale page offset was out of range.
+        const lastPage = total > 0 ? Math.ceil(total / limit) : 1;
+        if (total > 0 && effectivePage > lastPage) {
+          console.warn(
+            `[getLearnerProfiles] page ${effectivePage} exceeds ${lastPage} page(s) for the current filters; serving page ${lastPage}`
+          );
+          effectivePage = lastPage;
+          const retry = await pageQuery(effectivePage);
+          if (retry.error) {
+            console.error(
+              '[getLearnerProfiles] Clamped refetch failed:',
+              retry.error
+            );
+          } else {
+            data = retry.data;
+            total = retry.count ?? total;
+          }
+        }
       } else {
-        console.error('[getLearnerProfiles] Error fetching profiles:', error);
-        throw new Error(`Failed to fetch learner profiles: ${error.message}`);
+        // Surface the Postgres/PostgREST code — Supabase errors are plain
+        // objects, so a bare `error.message` drops the code that identifies the
+        // failure (57014 timeout, 22P02 bad enum/uuid, 42501 RLS).
+        console.error('[getLearnerProfiles] Error fetching profiles:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw new Error(
+          `Failed to fetch learner profiles: ${error.message} (${error.code})`
+        );
       }
     }
 
@@ -229,7 +258,7 @@ export async function getLearnerProfiles(
       data: (data as LearnerProfile[]) || [],
       metadata: {
         total_items: total,
-        page,
+        page: effectivePage,
         limit,
         total_pages: total ? Math.ceil(total / limit) : 0,
       },

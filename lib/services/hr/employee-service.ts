@@ -51,7 +51,7 @@ export class HRPersonService {
         `
           id, first_name, last_name, institution_email, phone, staff_id, department_id,
           date_of_joining, is_active, institution_id,
-          institution:institutions ( id, name ),
+          institution:institutions!staff_institution_id_fkey ( id, name ),
           department:departments ( id, department_name ),
           ${detailsJoin} (
             staff_id, hr_organization_id, designation_id, cadre_id, hr_employee_code,
@@ -182,7 +182,7 @@ export class HRPersonService {
       .select(`
         id, first_name, last_name, institution_email, phone, staff_id, institution_id, department_id,
         date_of_joining, is_active,
-        institution:institutions ( id, name ),
+        institution:institutions!staff_institution_id_fkey ( id, name ),
         department:departments ( id, department_name ),
         hr_staff_details!hr_staff_details_staff_id_fkey (
           hr_organization_id, designation_id, cadre_id, reports_to_staff_id, hr_employee_code,

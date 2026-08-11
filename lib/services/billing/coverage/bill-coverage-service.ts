@@ -37,6 +37,7 @@ interface RawCoverageRow {
   out_bill_count: number;
   out_total_billed: number | string;
   out_coverage_state: string;
+  out_target_academic_year_name: string | null;
   out_total_count: number | string;
 }
 
@@ -46,6 +47,10 @@ export class BillCoverageService extends BaseService {
    *  through as a real parameter value. */
   private static baseParams(filters: BillCoverageFilters) {
     return {
+      // Null is meaningful, not merely "unset": the RPC resolves each
+      // institution's current academic year by date. Do NOT default this to a
+      // year client-side — the page spans institutions whose current year can
+      // differ, and one guessed year would mismeasure the rest.
       p_academic_year_id: filters.academic_year_id ?? null,
       p_institution_ids:
         filters.institution_ids && filters.institution_ids.length > 0
@@ -175,6 +180,7 @@ export class BillCoverageService extends BaseService {
       semester_section: r.out_semester_section,
       academic_year_id: r.out_academic_year_id,
       academic_year_name: r.out_academic_year_name,
+      target_academic_year_name: r.out_target_academic_year_name,
       accommodation_type: r.out_accommodation_type,
       uses_transport: r.out_uses_transport === true,
       bill_count: Number(r.out_bill_count),

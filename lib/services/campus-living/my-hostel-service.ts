@@ -14,6 +14,13 @@ export interface MyHostelSummary {
   institutionId: string | null;
 }
 
+/** Bed count + fee band of the room the current user is allocated to. */
+export interface MyRoomDetails {
+  id: string;
+  capacity: number;
+  category_id: string | null;
+}
+
 /** A co-resident of the current user's assigned room (from fn_my_roommates). */
 export interface Roommate {
   full_name: string;
@@ -64,6 +71,22 @@ export class MyHostelService {
     const { data, error } = await (supabase as any).rpc('fn_my_roommates');
     if (error) { logger.error('campus-living/my-hostel', 'getMyRoommates', error); throw error; }
     return (data ?? []) as Roommate[];
+  }
+
+  // Bed count + fee band of the resident's OWN room. Readable under
+  // hostel_rooms_select_own_allocation (20260610120000) — a resident may read
+  // any room their own allocation points at, so no new policy is needed.
+  // Drives "you are the only one in a room built for N" (2026-08-09).
+  static async getMyRoomDetails(roomId: string): Promise<MyRoomDetails | null> {
+    if (!roomId) return null;
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await supabase
+      .from('hostel_rooms')
+      .select('id, capacity, category_id')
+      .eq('id', roomId)
+      .maybeSingle();
+    if (error) { logger.error('campus-living/my-hostel', 'getMyRoomDetails', error); throw error; }
+    return (data as MyRoomDetails | null) ?? null;
   }
 
   // Fee breakdown (additive room+mess) for the resident's hostel

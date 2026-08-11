@@ -1,18 +1,21 @@
 /**
  * Server-side data fetching for the Learner Onboarding page.
  *
- * Returns incomplete-profile learners with missing-field metadata, optionally
- * narrowed by severity tier (critical / needs_work / almost) and the same
- * cascading filters as /learners/profiles.
+ * Returns pre-active learners (reserved + admitted) with missing-field metadata,
+ * optionally narrowed by tier and the same cascading filters as
+ * /learners/profiles.
  *
  * Strategy:
- *   1. SQL applies all filters EXCEPT tier (institution → section, gender, search).
- *   2. JS enriches each row with computed missing_fields + tier.
+ *   1. SQL applies all filters EXCEPT tier (status, institution → section,
+ *      gender, search).
+ *   2. JS enriches each row with computed missing_fields + tier + activation
+ *      eligibility.
  *   3. JS applies the tier filter and paginates.
  *
- * Stale `is_profile_complete = false` flags (where all 4 fields are actually
- * present) are auto-corrected in the background, mirroring the analytics API
- * at app/api/learners/analytics/incomplete-profiles/route.ts:138-151.
+ * Tier is derived from the four required columns on every request — never read
+ * from `is_profile_complete`. Stale flags are repaired in the background
+ * instead, mirroring the analytics API at
+ * app/api/learners/analytics/incomplete-profiles/route.ts:138-151.
  */
 
 import { createClient } from '@/lib/supabase/server';
@@ -21,11 +24,15 @@ import type { LearnerProfile } from '@/types/learner-profile';
 import type {
   OnboardingProfileRow,
   OnboardingTier,
+  OnboardingStatus,
   MissingField
 } from '@/types/learner-onboarding';
 import {
   computeMissingFields,
-  tierFromFilledCount,
+  resolveOnboardingTier,
+  activationBlockedReason,
+  ONBOARDING_STATUSES,
+  INCOMPLETE_TIERS,
   MISSING_FIELD_LABELS
 } from '@/types/learner-onboarding';
 
@@ -38,6 +45,8 @@ interface GetOnboardingLearnersParams {
   search_fields?: string[];
   tier?: OnboardingTier;
   missing_field?: MissingField;
+  /** Narrow to one onboarding status; omit to include both reserved + admitted. */
+  lifecycle_status?: OnboardingStatus;
   institution_id?: string;
   degree_id?: string;
   department_id?: string;
@@ -96,6 +105,7 @@ export async function getOnboardingLearners(
       search_fields,
       tier = 'all',
       missing_field,
+      lifecycle_status,
       institution_id,
       degree_id,
       department_id,
@@ -111,31 +121,39 @@ export async function getOnboardingLearners(
 
     const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
 
-    // 2026-05-20: Scope the onboarding workspace to learners who have crossed
-    // the fees threshold (lifecycle_status='admitted'). They're the cohort that
-    // needs academic-assignment fields filled before LearnerProfileService
-    // auto-activates them to 'active'. Other statuses with stale completion
-    // flags (legacy 'active' rows) are handled by the auto-correction at the
-    // bottom of this function rather than surfacing in the triage workspace.
+    // 2026-08-10: The workspace covers BOTH pre-active statuses.
+    //
+    //   'reserved' — universal fees (application + university) paid
+    //   'admitted' — balance fees cleared the configured threshold
+    //
+    // It used to be 'admitted' alone, which hid 673 of the 761 learners who
+    // actually need these fields filled. Widening the queue does NOT widen the
+    // fee gate: only 'admitted' rows land in the `ready_to_activate` tier, and
+    // LearnerProfileService.activateIfReady refuses 'reserved' outright.
+    //
+    // The `is_profile_complete` predicate is deliberately GONE. That flag drifts
+    // (the staleIds auto-correction below exists because of it — ~20 reserved
+    // rows are flagged incomplete while holding all four fields), and the two
+    // terminal tiers need the complete rows anyway. Tier is now derived from the
+    // four real columns every time, so the flag is an output, never an input.
+    //
+    // Embeds are limited to what columns.tsx renders (institution, program,
+    // admission_year_obj). Each embed re-evaluates the joined table's RLS ONCE
+    // PER ROW — measured at ~140ms per embed per 50 rows (see the note in
+    // profiles/_data/get-learner-profiles.ts). The seven unused embeds that used
+    // to be here cost nothing at 88 rows and would have been a timeout risk at
+    // ~994.
     let query = supabase
       .from('learners_profiles')
       .select(
         `
         *,
         institution:institutions(id, name, counselling_code),
-        degree:degrees(id, degree_name, degree_id),
-        department:departments(id, department_name),
         program:programs(id, program_name),
-        semester:semesters(id, semester_name, semester_code),
-        section:sections(id, section_name),
-        academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
-        regulation:regulations(id, regulation_code, regulation_year),
-        batch:batches(id, batch_name, batch_code),
         admission_year_obj:admission_years!admission_year_id(id, admission_year_name, year)
       `
       )
-      .eq('lifecycle_status', 'admitted')
-      .or('is_profile_complete.eq.false,is_profile_complete.is.null');
+      .in('lifecycle_status', lifecycle_status ? [lifecycle_status] : [...ONBOARDING_STATUSES]);
 
     if (search) {
       const searchConditions = buildLearnerSearchConditions(search, {
@@ -173,16 +191,21 @@ export async function getOnboardingLearners(
       return EMPTY_RESULT;
     }
 
+    // Rows whose four fields are all set but whose flag still says otherwise.
+    // They are NO LONGER dropped — they belong in a terminal tier — but the flag
+    // is still repaired so every other consumer of is_profile_complete agrees.
     const staleIds: string[] = [];
     const enriched: OnboardingProfileRow[] = [];
 
     for (const row of (data || []) as LearnerProfile[]) {
       const missing = computeMissingFields(row);
-      if (missing.length === 0) {
-        staleIds.push(row.id);
-        continue;
-      }
       const filled = 4 - missing.length;
+
+      if (missing.length === 0 && row.is_profile_complete !== true) {
+        staleIds.push(row.id);
+      }
+
+      const blockedReason = activationBlockedReason(row, missing.length);
       enriched.push({
         ...row,
         missing_fields: missing,
@@ -190,7 +213,9 @@ export async function getOnboardingLearners(
         missing_count: missing.length,
         filled_count: filled,
         completion_percent: Math.round((filled / 4) * 100),
-        tier: tierFromFilledCount(filled)
+        tier: resolveOnboardingTier(filled, row.lifecycle_status),
+        can_activate: !blockedReason,
+        activation_blocked_reason: blockedReason
       });
     }
 
@@ -208,7 +233,13 @@ export async function getOnboardingLearners(
         });
     }
 
-    const tierFiltered = tier === 'all' ? enriched : enriched.filter((r) => r.tier === tier);
+    // 'all' keeps its original meaning — the three INCOMPLETE tiers. The two
+    // terminal tiers are reachable only by selecting them, so the default view
+    // stays the triage queue it has always been.
+    const tierFiltered =
+      tier === 'all'
+        ? enriched.filter((r) => (INCOMPLETE_TIERS as readonly string[]).includes(r.tier))
+        : enriched.filter((r) => r.tier === tier);
 
     const total_items = tierFiltered.length;
     const total_pages = Math.ceil(total_items / limit);
