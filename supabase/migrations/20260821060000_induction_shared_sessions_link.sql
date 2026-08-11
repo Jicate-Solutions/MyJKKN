@@ -180,7 +180,12 @@ SET search_path = public
 AS $$
 DECLARE v_host UUID;
 BEGIN
-  SELECT institution_id INTO v_host FROM public.induction_programs WHERE event_id = p_event_id;
+  -- Qualify with an alias: `institution_id` is ALSO one of this function's OUT
+  -- columns (RETURNS TABLE), so the bare name is ambiguous to PL/pgSQL and the
+  -- function raises 42702 on every call. Creating cleanly proves nothing here —
+  -- the ambiguity only bites at execution time.
+  SELECT ip.institution_id INTO v_host
+  FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
   IF v_host IS NULL THEN
     RAISE EXCEPTION 'fn_induction_event_session_shares: not an induction event';
   END IF;
