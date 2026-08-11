@@ -51,6 +51,8 @@ type RawStudentData = {
   lifecycle_status?: string;
   // Accommodation type. Selected by getStudentForBilling only.
   accommodation_type_id?: string;
+  // Admission year. Selected by getStudentForBilling only.
+  admission_year_id?: string;
   institution?: any;
   academic_year?: any;
   degree?: any;
@@ -59,6 +61,7 @@ type RawStudentData = {
   semester?: any;
   section?: any;
   accommodation_type?: any;
+  admission_year?: any;
 };
 
 export class StudentSearchService {
@@ -111,6 +114,11 @@ export class StudentSearchService {
       },
       accommodation_type_id: rawData.accommodation_type_id,
       accommodation_type: rawData.accommodation_type || undefined,
+      // searchStudentsForBilling does not select these, so they stay undefined
+      // there rather than being defaulted to an empty shell — the detail page
+      // is the only caller that renders them.
+      admission_year_id: rawData.admission_year_id,
+      admission_year: rawData.admission_year || undefined,
       lifecycle_status: rawData.lifecycle_status,
       outstanding_amount: outstandingAmount
     };
@@ -271,6 +279,7 @@ export class StudentSearchService {
           college_email,
           lifecycle_status,
           accommodation_type_id,
+          admission_year_id,
           institution_id,
           academic_year_id,
           degree_id,
@@ -285,7 +294,8 @@ export class StudentSearchService {
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name),
           section:sections!section_id(id, section_name),
-          accommodation_type:accommodation_types!accommodation_type_id(id, code, name)
+          accommodation_type:accommodation_types!accommodation_type_id(id, code, name),
+          admission_year:admission_years!admission_year_id(id, admission_year_name, year)
         `
         )
         .eq('id', studentId);

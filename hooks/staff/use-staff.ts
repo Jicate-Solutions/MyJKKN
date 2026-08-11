@@ -15,8 +15,13 @@ import {
   UpdateStaffDto,
   StaffDashboardFilters,
   StaffDashboardStats,
-  IncompleteStaffResponse
+  IncompleteStaffResponse,
+  IncompleteStaffFilterOptions
 } from '@/types/staff';
+import {
+  buildIncompleteStaffQuery,
+  type IncompleteStaffQuery
+} from '@/lib/utils/staff/incomplete-profile-filters';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { getErrorMessage } from '@/lib/utils';
 import { useAuth } from '../use-auth';
@@ -232,36 +237,50 @@ export function useStaffDashboardStats(filters: StaffDashboardFilters = {}) {
 // ============================================
 
 /**
- * Fetch staff members with incomplete profiles for drill-down table
- * Used by Staff Dashboard → Profiles Tab to show WHO has missing fields
+ * Fetch one page of employees with incomplete profiles.
+ *
+ * Exported as a plain function, not only a hook: the shared DataTable owns
+ * page / pageSize / search / sort and calls a fetch callback, so the table
+ * cannot drive a useQuery.
  */
-export function useIncompleteStaffProfiles(
-  filters: {
-    institutionId?: string;
-    departmentId?: string;
-    categoryId?: string;
-    requiredOnly?: boolean;
-    limit?: number;
-  } = {},
-  options?: Omit<import('@tanstack/react-query').UseQueryOptions<IncompleteStaffResponse, Error>, 'queryKey' | 'queryFn'>
+export async function fetchIncompleteStaffProfiles(
+  query: IncompleteStaffQuery
+): Promise<IncompleteStaffResponse> {
+  const res = await fetch(
+    `/api/staff/incomplete-profiles?${buildIncompleteStaffQuery(query)}`
+  );
+  if (!res.ok) {
+    throw new Error('Failed to fetch incomplete employee profiles');
+  }
+  return res.json();
+}
+
+/**
+ * Dropdown lists for the incomplete-profiles filter bar. Keyed on institution
+ * only, so paging or changing any other filter never refetches them.
+ */
+export function useIncompleteStaffFilterOptions(
+  institutionId?: string,
+  options?: Omit<
+    import('@tanstack/react-query').UseQueryOptions<IncompleteStaffFilterOptions, Error>,
+    'queryKey' | 'queryFn'
+  >
 ) {
-  return useQuery<IncompleteStaffResponse, Error>({
-    queryKey: ['staff', 'incomplete-profiles', filters],
+  return useQuery<IncompleteStaffFilterOptions, Error>({
+    queryKey: ['staff', 'incomplete-profiles', 'options', institutionId ?? ''],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (filters.institutionId) params.set('institutionId', filters.institutionId);
-      if (filters.departmentId) params.set('departmentId', filters.departmentId);
-      if (filters.categoryId) params.set('categoryId', filters.categoryId);
-      if (filters.requiredOnly) params.set('requiredOnly', 'true');
-      if (filters.limit) params.set('limit', String(filters.limit));
+      if (institutionId) params.set('institutionId', institutionId);
 
-      const res = await fetch(`/api/staff/incomplete-profiles?${params.toString()}`);
+      const res = await fetch(
+        `/api/staff/incomplete-profiles/options?${params.toString()}`
+      );
       if (!res.ok) {
-        throw new Error('Failed to fetch incomplete staff profiles');
+        throw new Error('Failed to fetch employee filter options');
       }
       return res.json();
     },
-    staleTime: 5 * 60 * 1000,
-    ...options,
+    staleTime: 10 * 60 * 1000,
+    ...options
   });
 }

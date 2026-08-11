@@ -1,48 +1,58 @@
--- Restore EXECUTE on user_has_permission(uuid, text) to `authenticated`.
+-- NO-OP. This migration is intentionally empty. Do not restore its body.
 --
--- Symptom: an Admission user at JKKN Main Office clicked "Move to Counselor" on
--- /admission/leads/<id> and got a "Forbidden" toast, while her role
--- (custom_roles.role_key = 'admission') genuinely carries
--- admission.leads.convert_to_admitted = true. Same for every other caller of
--- this overload — the button was dead for everyone, not just for her.
+-- It previously read:
+--     GRANT EXECUTE ON FUNCTION public.user_has_permission(uuid, text)
+--       TO authenticated;
 --
--- Cause: the two overloads have DIFFERENT grants, and only one of them was
--- maintained.
+-- It was never applied to any environment (absent from
+-- supabase_migrations.schema_migrations), and it must never be. Neutralised
+-- 2026-08-08 rather than deleted so the version stays claimed and a future
+-- `db push` cannot resurrect the file.
 --
---   user_has_permission(permission_name text)     -- reads auth.uid()
---       acl {postgres, authenticated, service_role}   <- fine
---   user_has_permission(user_id uuid, key text)   -- takes the id explicitly
---       acl {postgres, service_role}                  <- authenticated LOST
+-- WHY IT WAS WRONG
+-- ----------------
+-- Its premise was that 20260811100100 lost the grant accidentally, via
+-- DROP FUNCTION + CREATE FUNCTION discarding the ACL. That is a real hazard in
+-- this repo, but it is not what happened here. 20260811100100 line 273 issues
+-- an explicit, reasoned
+--     REVOKE EXECUTE ON FUNCTION public.user_has_permission(uuid, text)
+--       FROM authenticated, anon, PUBLIC;
+-- backed by an apply-time assert, to close a permission oracle: that overload
+-- is SECURITY DEFINER, accepts a CALLER-SUPPLIED uuid, and never compares it to
+-- auth.uid(), so any signed-in account could POST
+--     {"user_id":"<anybody>","permission_key":"<anything>"}
+-- and read back true/false — a complete map of who holds what across ~7,231
+-- profiles x ~1,393 keys, director-handover delegations included, harvested by
+-- an account holding nothing itself.
 --
--- 20251210_fix_security_and_performance_issues.sql:687 granted the (uuid, text)
--- form to authenticated. The director-handover work later gave that overload a
--- new body (it now falls through to fn_handover_grants_key). Renaming or
--- retyping an argument cannot be done with CREATE OR REPLACE, so the change
--- went out as DROP + CREATE — and DROP takes the ACL with it. The replacement
--- was applied straight to production with no file under supabase/migrations
--- (there is still none for `user_has_permission_reads_handovers`), so nothing
--- in review ever showed the grant going missing.
+-- Re-granting would reopen exactly that hole. The author of this file could not
+-- have seen the reasoning: they noted "there is still none for
+-- user_has_permission_reads_handovers" under supabase/migrations. That file
+-- exists now, and its comment block is the authority on this decision.
 --
--- Mechanism of the user-visible failure: /api/admission/bridge/convert (and 15
--- sibling routes) call this overload through the COOKIE-scoped client, which
--- executes as `authenticated`. PostgREST answered 42501 "permission denied for
--- function user_has_permission". The routes destructure `{ data }` only, so the
--- error vanished and `undefined` read as "no permission" -> 403 Forbidden. The
--- companion commit teaches the convert route to tell a failed CHECK apart from
--- a genuine DENIAL, so a lost grant can never again be reported to a user as
--- "you are not allowed".
+-- WHAT THE REAL DEFECT WAS, AND HOW IT WAS FIXED
+-- ----------------------------------------------
+-- 20260811100100's safety evidence claimed:
+--     "TypeScript/PostgREST callers of the 2-arg form ... 0"
+-- That count was wrong. There were 18 call sites; 16 of them ran through a
+-- cookie/session-scoped client (i.e. as `authenticated`) and so began returning
+-- 42501 -> 403/500 for every user, including super admins. The user-visible
+-- symptom was "Move to Counselor" on /admission/leads/<id> failing with
+-- "Permission check failed. Please report this to support."
 --
--- Safety: this restores previously-granted state, is read-only (the function
--- only SELECTs from profiles / user_roles / custom_roles / handover tables),
--- and is reversible with REVOKE. It does widen who may ask "does user X hold
--- permission Y" from service_role to any signed-in user; that was the
--- pre-existing posture and the answer is not sensitive on its own.
+-- Fixed 2026-08-08 in application code, not by widening the grant: those 16
+-- callers now use the ONE-ARG overload user_has_permission(permission_name text),
+-- which resolves auth.uid() internally and retains its grant to `authenticated`.
+-- Every one of them was passing user.id -- the caller's own id -- so the two
+-- forms are semantically identical there. Verified before the change: 0 profiles
+-- sit in the super-admin gap between the overloads (all 14 rows with
+-- role = 'super_admin' also carry is_super_admin = true).
+--
+-- The two legitimate 2-arg callers run under service_role, which kept EXECUTE,
+-- and are deliberately unchanged:
+--     app/api/admission/leads/program-counts/route.ts
+--     lib/auth/bulk-receipt-access.ts
+-- They must keep the 2-arg form: under service_role auth.uid() is NULL, so the
+-- one-arg overload would answer false for everyone.
 
-GRANT EXECUTE ON FUNCTION public.user_has_permission(uuid, text) TO authenticated;
-
--- fn_handover_grants_key is the last-resort branch INSIDE the function above.
--- It is intentionally NOT granted: SECURITY DEFINER means the branch runs as
--- the owner regardless of who called the wrapper, so `authenticated` never
--- needs EXECUTE on it directly.
-
-NOTIFY pgrst, 'reload schema';
+SELECT 1 WHERE false;

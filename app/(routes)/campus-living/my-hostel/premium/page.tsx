@@ -37,6 +37,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useHostelTiers } from '@/hooks/campus-living/use-hostel-tier-policy';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { TierEligibilityCard } from './_components/tier-eligibility-card';
+import { PremiumInviteEntryCard } from '../_components/premium-invite-entry-card';
 import {
   Sparkles,
   BedDouble,
@@ -166,6 +167,10 @@ export default function PremiumOptInPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Invite entry — a premium resident's cheapest way to cut her own bill.
+            Renders nothing for anyone without a premium allocation. */}
+        <PremiumInviteEntryCard />
 
         {/* Premium tier cards */}
         {premiumTiers.length === 0 ? (

@@ -170,6 +170,10 @@ export class BulkStaffEditService extends BaseService {
     }
 
     // ── name -> id lookups ──
+    // labelById is the reverse of all three, built from the same rows so it cannot drift.
+    // Display-only: it turns the UUIDs in a preview change line back into readable names.
+    const labelById = new Map<string, string>();
+
     const departmentsByInstitution = new Map<string, Map<string, string>>();
     {
       const { data, error } = await supabase
@@ -184,6 +188,7 @@ export class BulkStaffEditService extends BaseService {
         departmentsByInstitution
           .get(d.institution_id)!
           .set(String(d.department_name).trim().toLowerCase(), d.id);
+        labelById.set(d.id, String(d.department_name));
       }
     }
 
@@ -194,7 +199,10 @@ export class BulkStaffEditService extends BaseService {
         .select('id, category_name')
         .range(0, LOOKUP_RANGE_END);
       if (error) throw new Error(getErrorMessage(error));
-      for (const c of data ?? []) categoriesByName.set(String(c.category_name).trim().toLowerCase(), c.id);
+      for (const c of data ?? []) {
+        categoriesByName.set(String(c.category_name).trim().toLowerCase(), c.id);
+        labelById.set(c.id, String(c.category_name));
+      }
     }
 
     // ALL institutions — a biometric machine may belong to another institution.
@@ -205,7 +213,10 @@ export class BulkStaffEditService extends BaseService {
         .select('id, name')
         .range(0, LOOKUP_RANGE_END);
       if (error) throw new Error(getErrorMessage(error));
-      for (const i of data ?? []) institutionsByName.set(String(i.name).trim().toLowerCase(), i.id);
+      for (const i of data ?? []) {
+        institutionsByName.set(String(i.name).trim().toLowerCase(), i.id);
+        labelById.set(i.id, String(i.name));
+      }
     }
 
     return {
@@ -215,7 +226,8 @@ export class BulkStaffEditService extends BaseService {
       institutionsByName,
       emailOwner,
       staffIdOwner,
-      biometricOwner
+      biometricOwner,
+      labelById
     };
   }
 
@@ -235,6 +247,15 @@ export class BulkStaffEditService extends BaseService {
     const writes = new Map<string, Partial<Record<StaffEditableField, string | null>>>();
 
     const headerOf = new Map(EDITABLE_COLUMNS.map(c => [c.field, c.header] as const));
+    // A `lookup` column stores a UUID but the sheet speaks names, so a change line for one
+    // has to be translated back or it reads as gibberish. Driven off the column contract's
+    // own `kind` rather than a hand-listed set of fields, so a lookup column added later is
+    // covered automatically.
+    const kindOf = new Map(EDITABLE_COLUMNS.map(c => [c.field, c.kind] as const));
+    const display = (field: StaffEditableField, value: string | null) => {
+      if (value == null || value === '') return null;
+      return kindOf.get(field) === 'lookup' ? (ctx.labelById?.get(value) ?? value) : value;
+    };
 
     for (const row of rows) {
       const key = row.institutionEmail.trim().toLowerCase();
@@ -251,8 +272,8 @@ export class BulkStaffEditService extends BaseService {
 
       const changes = Object.entries(updates).map(([field, to]) => ({
         field: headerOf.get(field as StaffEditableField) ?? field,
-        from: (staff?.[field] as string | null) ?? null,
-        to: (to as string | null) ?? null
+        from: display(field as StaffEditableField, (staff?.[field] as string | null) ?? null),
+        to: display(field as StaffEditableField, (to as string | null) ?? null)
       }));
 
       if (changes.length === 0) {

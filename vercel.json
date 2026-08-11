@@ -164,10 +164,6 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/dashboard/cron/super-admin-digest",
-      "schedule": "3 3 * * *"
-    },
-    {
       "path": "/api/dashboard/cron/decisions-verdict-check",
       "schedule": "0 4 * * *"
     },
@@ -418,6 +414,10 @@
     {
       "path": "/api/cron/ai-lane-heartbeat?secret=${CRON_SECRET}",
       "schedule": "19 * * * *"
+    },
+    {
+      "schedule": "23 * * * *",
+      "path": "/api/cron/lc-broadcast-autosend?secret=${CRON_SECRET}"
     }
   ]
 }

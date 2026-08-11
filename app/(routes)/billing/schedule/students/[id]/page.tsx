@@ -10,6 +10,7 @@ import {
   RefreshCw,
   FileText,
   Calendar,
+  CalendarDays,
   Phone,
   Mail,
   User,
@@ -51,6 +52,7 @@ import { StudentTransactionHistory } from './_components/student-transaction-his
 import { StudentReceiptsTable } from './_components/student-receipts-table';
 import { RefundInitiateDialog } from './_components/refund-initiate-dialog';
 import { StudentRefundHistory } from './_components/student-refund-history';
+import { ReevaluateStatusButton } from './_components/reevaluate-status-button';
 import { PaymentSelectionModal } from '@/components/billing/payment-selection-modal';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { toast } from 'react-hot-toast';
@@ -106,6 +108,12 @@ export default function StudentBillingDetailPage() {
   const canViewBills = isSuperAdmin || canAccess('billing.schedule', 'view');
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
+  // bulk_create rather than create/update: those two are held by 68 roles each
+  // (the billing namespace is broadly over-granted), while bulk_create is the
+  // narrow operator-batch key — 13 roles, the accounts/admin set. Re-running the
+  // automatic status check is that same kind of operator action.
+  const canReevaluateStatus =
+    isSuperAdmin || canAccess('billing.schedule', 'bulk_create');
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -374,6 +382,17 @@ export default function StudentBillingDetailPage() {
                   </Link>
                 </Button>
               )}
+              {canReevaluateStatus && (
+                <ReevaluateStatusButton
+                  studentId={studentId}
+                  lifecycleStatus={student.lifecycle_status}
+                  onEvaluated={() => {
+                    // The lifecycle badge in this header is driven by the
+                    // summary query, so a promotion is invisible without this.
+                    refetchSummary();
+                  }}
+                />
+              )}
               <RefundInitiateDialog
                 studentId={studentId}
                 institutionId={student.institution_id}
@@ -446,6 +465,24 @@ export default function StudentBillingDetailPage() {
                       </p>
                       <p className='text-sm text-muted-foreground truncate'>
                         {student.institution?.name || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  {/* Admission year is the cohort the learner joined in and
+                      never changes; Academic Year below is the year they are
+                      currently billed against. Accounts need both to tell an
+                      arrears bill from a current-year one. */}
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <CalendarDays className='h-4 w-4 text-rose-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Admission Year
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.admission_year?.admission_year_name ||
+                          (student.admission_year?.year != null
+                            ? String(student.admission_year.year)
+                            : 'N/A')}
                       </p>
                     </div>
                   </div>

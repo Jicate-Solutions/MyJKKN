@@ -34,10 +34,18 @@ name: Migration version collision
 # Kept as a SEPARATE workflow on purpose so it reports as its own status check and
 # cannot change the pass/fail meaning of an existing one.
 #
-# Not covered here: two PRs open simultaneously, each adding the same brand-new
-# version. Neither branch contains the other's file, so both pass; the loser reds
-# only once its checks re-run against the updated main tip. "Require branches to be
-# up to date before merging" is what closes that window — this workflow cannot.
+# The `audit` job below does not cover this: two PRs open simultaneously, each
+# adding the same brand-new version. Neither branch contains the other's file, so
+# both pass; the loser reds only once its checks re-run against the updated main
+# tip. That hole is what the SECOND job, `cross-pr`, closes — it asks the GitHub
+# API which versions other OPEN pull requests are claiming. It is a separate job
+# on purpose: its own status-check name, its own pass/fail meaning, and it fails
+# OPEN on an API outage so a GitHub incident cannot red every build (see the
+# script header for the full justification).
+#
+# Measured 2026-08-11, with `audit` green on every one of them: 20260810120000 was
+# claimed by #2959, by #2961 AND by a file already on main; 20260817000000 was
+# claimed by #2936 and #2945. `cross-pr` reports all of them.
 
 on:
   pull_request:
@@ -46,9 +54,13 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'scripts/ci/check-migration-version-collision.mjs'
+      - 'scripts/ci/check-migration-version-cross-pr.sh'
 
 permissions:
   contents: read
+  # Read-only. Required by the `cross-pr` job to enumerate open pull requests and
+  # their changed files. It grants nothing the `audit` job can act on.
+  pull-requests: read
 
 jobs:
   audit:
@@ -67,3 +79,27 @@ jobs:
 
       - name: Run guard
         run: node scripts/ci/check-migration-version-collision.mjs --base "origin/${{ github.base_ref }}"
+
+  cross-pr:
+    name: No sibling PR claims the same migration version
+    runs-on: ubuntu-latest
+    # One GraphQL sweep of all open PRs plus one REST call per PR that touches
+    # supabase/migrations/. Measured ~40 s against 94 open PRs, 40 of them
+    # carrying migrations. The ceiling is generous because the cost scales with
+    # how many PRs are open, which is not under this workflow's control.
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout PR head (full history for base diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "${{ github.base_ref }}"
+
+      - name: Run cross-PR guard
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: scripts/ci/check-migration-version-cross-pr.sh --base "origin/${{ github.base_ref }}"

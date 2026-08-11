@@ -123,10 +123,13 @@ export function CoverageFilterBar({
       (i) => i.institution_id === selectedInstitutionId
     )?.institution_name;
     if (inst) parts.push(inst);
+    // Always stated, even unfiltered. "Not generated" is meaningless without
+    // the year it was measured against, and a printed document has no filter
+    // bar for the reader to check.
     const ay = (academicYears?.data ?? []).find(
       (y: any) => y.id === filters.academic_year_id
     )?.academic_year_name;
-    if (ay) parts.push(`AY ${ay}`);
+    parts.push(ay ? `AY ${ay}` : "AY: each institution's current year");
     const push = (label: string, v?: string) => v && parts.push(`${label}: ${v}`);
     push('Degree', nameOf(hierarchy.degrees, filters.degree_id));
     push('Department', nameOf(hierarchy.departments, filters.department_id));
@@ -233,10 +236,13 @@ export function CoverageFilterBar({
             disabled={!selectedInstitutionId}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Each learner's own year" />
+              <SelectValue placeholder='Current academic year' />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>Each learner&apos;s own year</SelectItem>
+              {/* Was "Each learner's own year" — which is exactly what made the
+                  report wrong. The default now measures every learner against
+                  their institution's current year, resolved by date in SQL. */}
+              <SelectItem value={ALL}>Current academic year</SelectItem>
               {(academicYears?.data ?? []).map((y: any) => (
                 <SelectItem key={y.id} value={y.id}>
                   {y.academic_year_name}
