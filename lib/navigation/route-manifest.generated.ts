@@ -53,6 +53,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/attendance/history",
+            "label": "History",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/academic/attendance/mark",
             "label": "Mark",
             "iconName": "CheckSquare",
@@ -436,6 +442,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Manage",
         "iconName": "Settings",
         "children": [
+          {
+            "path": "/accreditation/manage/bodies",
+            "label": "Bodies",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/accreditation/manage/collaborations",
             "label": "Collaborations",
@@ -3006,6 +3018,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/settle-preview",
+        "label": "Settle Preview",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-living/vacate-requests",
         "label": "Vacate Requests",
         "iconName": "LogOut",
@@ -3645,6 +3663,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Admin",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/hr/admin/academic-years",
+            "label": "Academic Years",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/hr/admin/automation-rules",
             "label": "Automation Rules",

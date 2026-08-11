@@ -442,6 +442,30 @@ export class StudentBillService {
     }
   }
 
+  /**
+   * Resolve an admission-year NAME (e.g. '2025-2026') to every matching
+   * admission_years id. Unlike accommodation_types, this catalog is
+   * per-institution — one row per year per college — so a name maps to many
+   * ids and filtering on a single id would scope the result to one college.
+   * Returns [] on error (caller forces a no-match).
+   */
+  private static async resolveAdmissionYearIds(
+    yearName: string
+  ): Promise<string[]> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('admission_years')
+        .select('id')
+        .eq('admission_year_name', yearName);
+
+      if (error) throw error;
+      return (data || []).map((row: { id: string }) => row.id);
+    } catch (error) {
+      console.error('Error resolving admission year ids:', error);
+      return [];
+    }
+  }
+
   static async getStudentBills(
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {
@@ -464,6 +488,14 @@ export class StudentBillService {
         ? await this.resolveAccommodationTypeIds(filters.accommodation_type)
         : null;
 
+      // Admission-year filter. The UI sends a year NAME ('2025-2026') because
+      // admission_years is keyed per institution; resolve it to every matching
+      // id so the filter spans all colleges. Same contract as above:
+      // null = filter inactive; [] = name matched nothing.
+      const admissionYearIds: string[] | null = filters.admission_year
+        ? await this.resolveAdmissionYearIds(filters.admission_year)
+        : null;
+
       // Any filter that targets a column on the embedded learner requires the
       // INNER-join variant of the select. lifecycle_status lives on
       // learners_profiles, so it joins the same club as the academic +
@@ -471,6 +503,7 @@ export class StudentBillService {
       const hasStudentFilters =
         hasAcademicFilters ||
         accommodationTypeIds !== null ||
+        admissionYearIds !== null ||
         !!filters.lifecycle_status;
 
       let query;
@@ -517,6 +550,7 @@ export class StudentBillService {
               semester_id,
               section_id,
               accommodation_type_id,
+              admission_year_id,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -597,16 +631,31 @@ export class StudentBillService {
 
         const orParts: string[] = [`bill_description.ilike.${like}`];
 
-        if (term.length > 0) {
-          const { data: matchedStudents, error: studentLookupErr } = await (
-            this.supabase as any
-          )
+        // Multi-word terms are AND-ed token by token. Matching the WHOLE phrase
+        // against each column individually made "AKASH V" return nothing — no
+        // single column holds it (first_name is 'AKASH', last_name is 'V').
+        // Chained .or() calls are AND-ed by PostgREST, so each token must hit
+        // SOME searchable column while different tokens may land on different
+        // columns. Order is irrelevant ("V AKASH" works), and mixed terms like
+        // "AKASH PB25" (name + roll fragment) now work too. A single token
+        // produces exactly one .or(), i.e. the previous behaviour unchanged.
+        // Capped at 5 tokens so a pasted sentence can't build a huge URL.
+        const tokens = term.split(/\s+/).filter(Boolean).slice(0, 5);
+
+        if (tokens.length > 0) {
+          let learnerQuery = (this.supabase as any)
             .from('learners_profiles')
-            .select('id')
-            .or(
-              `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`
-            )
-            .limit(1000);
+            .select('id');
+
+          for (const token of tokens) {
+            const tokenLike = `%${token}%`;
+            learnerQuery = learnerQuery.or(
+              `first_name.ilike.${tokenLike},last_name.ilike.${tokenLike},roll_number.ilike.${tokenLike},college_email.ilike.${tokenLike}`
+            );
+          }
+
+          const { data: matchedStudents, error: studentLookupErr } =
+            await learnerQuery.limit(1000);
 
           if (studentLookupErr) throw studentLookupErr;
 
@@ -745,6 +794,17 @@ export class StudentBillService {
             'student.accommodation_type_id',
             accommodationTypeIds.length > 0
               ? accommodationTypeIds
+              : ['00000000-0000-0000-0000-000000000000']
+          );
+        }
+
+        // Admission-year name resolved to ids above (one per institution).
+        // Empty array means the name matched no catalog row → force a no-match.
+        if (admissionYearIds !== null) {
+          query = query.in(
+            'student.admission_year_id',
+            admissionYearIds.length > 0
+              ? admissionYearIds
               : ['00000000-0000-0000-0000-000000000000']
           );
         }

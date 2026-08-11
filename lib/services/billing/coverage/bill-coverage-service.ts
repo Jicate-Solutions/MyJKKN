@@ -36,6 +36,7 @@ interface RawCoverageRow {
   out_uses_transport: boolean | null;
   out_bill_count: number;
   out_total_billed: number | string;
+  out_total_paid: number | string;
   out_coverage_state: string;
   out_target_academic_year_name: string | null;
   out_total_count: number | string;
@@ -185,6 +186,9 @@ export class BillCoverageService extends BaseService {
       uses_transport: r.out_uses_transport === true,
       bill_count: Number(r.out_bill_count),
       total_billed: Number(r.out_total_billed),
+      // numeric arrives as a string over PostgREST — Number(), like every other
+      // money column here, or the export writes text cells Excel cannot sum.
+      total_paid: Number(r.out_total_paid ?? 0),
       coverage_state: r.out_coverage_state as BillCoverageRow['coverage_state'],
       total_count: Number(r.out_total_count)
     }));

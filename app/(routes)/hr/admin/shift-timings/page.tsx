@@ -32,6 +32,7 @@ import { useEmploymentCategories } from '@/hooks/hr/use-shift-timings';
 
 import { WeeklyTimingGrid } from './_components/weekly-timing-grid';
 import { CoverageWarning } from './_components/coverage-warning';
+import { RecomputeAttendanceCard } from './_components/recompute-attendance-card';
 
 export default function ShiftTimingsPage() {
   // entityType 'all' is deliberate. The default ('institution') returns only 9
@@ -165,6 +166,21 @@ export default function ShiftTimingsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Backfill surface. Saving a week already recomputes that institution;
+            this covers a sweep across institutions after a rule change, and
+            lets an operator preview before writing. Gated on the same
+            permission the API enforces (hr.attendance.override) rather than the
+            page's hr.shift_timings.manage — configuring hours and rewriting
+            imported attendance are different amounts of trust. */}
+        <div className="mt-6">
+          <PermissionGuard module="hr.attendance" action="override">
+            <RecomputeAttendanceCard
+              institutions={institutions}
+              defaultInstitutionId={institutionId}
+            />
+          </PermissionGuard>
+        </div>
       </ContentLayout>
     </PermissionGuard>
   );

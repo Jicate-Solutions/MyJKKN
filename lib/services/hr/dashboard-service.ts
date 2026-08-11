@@ -286,9 +286,9 @@ export class HRDashboardService {
     supabase: SupabaseClient,
     hrOrgId: string | null
   ): Promise<DashboardKPI[]> {
-    // Sum entitled + used across all balances in current FY.
-    // hr_leave_balances.academic_year_id is the FK; we pick rows where
-    // hr_organization_id matches (or any if null = rolled up).
+    // Sum entitled + used across ALL balance rows, every year — the year is
+    // deliberately not filtered here; only hr_organization_id narrows the set
+    // (null = rolled up across orgs).
     let q = supabase
       .from('hr_leave_balances')
       .select('entitled, used, carried_forward');
