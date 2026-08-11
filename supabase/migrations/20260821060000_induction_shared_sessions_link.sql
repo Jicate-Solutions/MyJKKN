@@ -56,6 +56,13 @@ DROP POLICY IF EXISTS event_session_institutions_admin ON public.event_session_i
 CREATE POLICY event_session_institutions_admin ON public.event_session_institutions FOR ALL
   USING (is_super_admin() OR is_admin()) WITH CHECK (is_super_admin() OR is_admin());
 
+-- Table-level ACL. RLS + an admin-only policy is NOT sufficient on its own:
+-- Supabase's `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon` hands
+-- anon a direct grant on every new table, separate from PUBLIC and independent
+-- of RLS. Revoke it explicitly; `authenticated` reaches this data only through
+-- the SECURITY DEFINER RPCs above, so it needs no table grant either.
+REVOKE ALL ON TABLE public.event_session_institutions FROM anon, PUBLIC;
+
 -- ── 2. internal helper: the HOST institution of a session's event ────────────
 CREATE OR REPLACE FUNCTION public._fn_induction_session_host_inst(p_session_id UUID)
 RETURNS TABLE (event_id UUID, host_institution_id UUID)
