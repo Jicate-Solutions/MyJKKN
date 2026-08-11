@@ -164,7 +164,7 @@ So attendance at programme-and-semester level is not hypothetical. A quarter of 
 
 There is also a warning in the code worth reading. A comment dated 6 August 2026 in the attendance marking screen records a live incident:
 
-A Semester V class group was listed against a Semester III learning lab session, putting the wrong year on the register. The comment's own warning:
+A Semester V class group was listed against a Semester III practical session, putting the wrong year on the register. The comment's own warning:
 
 > *"the wrong section yields a complete, plausible, wrong roster."*
 
