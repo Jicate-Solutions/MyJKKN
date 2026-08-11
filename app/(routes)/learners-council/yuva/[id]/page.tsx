@@ -21,15 +21,7 @@ import {
   Sprout,
   Mountain
 } from 'lucide-react';
-
-const roleColors: Record<string, string> = {
-  chapter_chair: 'bg-amber-100 text-amber-800 border-amber-200',
-  chapter_co_chair: 'bg-amber-50 text-amber-700 border-amber-200',
-  stakeholder_chair: 'bg-purple-100 text-purple-800 border-purple-200',
-  stakeholder_co_chair: 'bg-purple-50 text-purple-700 border-purple-200',
-  vertical_chair: 'bg-blue-100 text-blue-800 border-blue-200',
-  vertical_co_chair: 'bg-blue-50 text-blue-700 border-blue-200'
-};
+import { VerticalMembersPanel } from '../_components/vertical-members-panel';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -227,8 +219,6 @@ export default async function YUVAChapterDetailPage({ params }: PageProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {regularVerticals.map((v: any) => {
               const vMembers = membersByVertical[v.id] || [];
-              const vChair = vMembers.find((m: any) => m.role === 'vertical_chair');
-              const vCoChairs = vMembers.filter((m: any) => m.role === 'vertical_co_chair');
 
               return (
                 <Card key={v.id} className="hover:shadow-md transition-shadow">
@@ -244,39 +234,19 @@ export default async function YUVAChapterDetailPage({ params }: PageProps) {
                     {v.description && (
                       <p className="text-xs text-muted-foreground mb-3">{v.description}</p>
                     )}
-                    <div className="space-y-2">
-                      {/* Vertical Chair */}
-                      {vChair ? (
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-800">
-                            {(vChair.user as any)?.full_name?.charAt(0) || '?'}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate">{(vChair.user as any)?.full_name}</p>
-                            <Badge variant="outline" className={`text-[10px] ${roleColors.vertical_chair}`}>Chair</Badge>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground italic">Chair: Vacant</p>
-                      )}
-
-                      {/* Vertical Co-Chairs */}
-                      {vCoChairs.map((cc: any) => (
-                        <div key={cc.id} className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-blue-50 flex items-center justify-center text-xs font-medium text-blue-700">
-                            {(cc.user as any)?.full_name?.charAt(0) || '?'}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate">{(cc.user as any)?.full_name}</p>
-                            <Badge variant="outline" className={`text-[10px] ${roleColors.vertical_co_chair}`}>Co-Chair</Badge>
-                          </div>
-                        </div>
-                      ))}
-
-                      {vMembers.length === 0 && (
-                        <p className="text-xs text-muted-foreground italic">No members assigned</p>
-                      )}
-                    </div>
+                    <VerticalMembersPanel
+                      chapterId={id}
+                      verticalId={v.id}
+                      verticalName={v.name}
+                      verticalType={v.type}
+                      academicYear={chapter.academic_year}
+                      members={vMembers.map((m: any) => ({
+                        id: m.id,
+                        role: m.role,
+                        full_name: (m.user as any)?.full_name ?? null
+                      }))}
+                      canManage={isStaffOrAdmin}
+                    />
                   </CardContent>
                 </Card>
               );
@@ -295,8 +265,6 @@ export default async function YUVAChapterDetailPage({ params }: PageProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {stakeholderVerticals.map((v: any) => {
               const vMembers = membersByVertical[v.id] || [];
-              const vChair = vMembers.find((m: any) => m.role === 'stakeholder_chair');
-              const vCoChairs = vMembers.filter((m: any) => m.role === 'stakeholder_co_chair');
 
               return (
                 <Card key={v.id} className="hover:shadow-md transition-shadow">
@@ -320,37 +288,19 @@ export default async function YUVAChapterDetailPage({ params }: PageProps) {
                     {v.description && (
                       <p className="text-xs text-muted-foreground mb-3">{v.description}</p>
                     )}
-                    <div className="space-y-2">
-                      {vChair ? (
-                        <div className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-purple-100 flex items-center justify-center text-xs font-medium text-purple-800">
-                            {(vChair.user as any)?.full_name?.charAt(0) || '?'}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate">{(vChair.user as any)?.full_name}</p>
-                            <Badge variant="outline" className={`text-[10px] ${roleColors.stakeholder_chair}`}>Chair</Badge>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground italic">Chair: Vacant</p>
-                      )}
-
-                      {vCoChairs.map((cc: any) => (
-                        <div key={cc.id} className="flex items-center gap-2">
-                          <div className="h-7 w-7 rounded-full bg-purple-50 flex items-center justify-center text-xs font-medium text-purple-700">
-                            {(cc.user as any)?.full_name?.charAt(0) || '?'}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium truncate">{(cc.user as any)?.full_name}</p>
-                            <Badge variant="outline" className={`text-[10px] ${roleColors.stakeholder_co_chair}`}>Co-Chair</Badge>
-                          </div>
-                        </div>
-                      ))}
-
-                      {vMembers.length === 0 && (
-                        <p className="text-xs text-muted-foreground italic">No members assigned</p>
-                      )}
-                    </div>
+                    <VerticalMembersPanel
+                      chapterId={id}
+                      verticalId={v.id}
+                      verticalName={v.name}
+                      verticalType={v.type}
+                      academicYear={chapter.academic_year}
+                      members={vMembers.map((m: any) => ({
+                        id: m.id,
+                        role: m.role,
+                        full_name: (m.user as any)?.full_name ?? null
+                      }))}
+                      canManage={isStaffOrAdmin}
+                    />
                   </CardContent>
                 </Card>
               );

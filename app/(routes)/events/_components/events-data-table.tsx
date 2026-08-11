@@ -14,9 +14,14 @@
 // whole set client-side is cheaper than a round trip per keystroke.
 //
 // Permissions: Edit is offered to every page viewer, unchanged from the card
-// list it replaces. The catalog has no events.edit / events.delete key; DB
-// authority is the existing events_auth_update RLS policy, and a denied update
-// surfaces an error toast (an UPDATE policy exists, so no silent 0-row no-op).
+// list it replaces. The catalog has no events.edit key; DB authority is the
+// existing events_auth_update RLS policy, and a denied update surfaces an error
+// toast (an UPDATE policy exists, so no silent 0-row no-op).
+//
+// Delete IS key-gated — `events.delete`, added 2026-08-06 along with an RLS
+// policy that replaced one granting DELETE to every user carrying an
+// institution_id. The gate lives in row-actions.tsx (canAccess) so the check
+// runs per row; this component only owns the mutation and the in-flight row id.
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -32,8 +37,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
-import { useUpdateGeneralEventStatus } from '@/hooks/events/use-general-events';
+import {
+  useDeleteEvent,
+  useUpdateGeneralEventStatus,
+} from '@/hooks/events/use-general-events';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import type { Event, EventStatus } from '@/types/events';
 import { getColumns } from './columns';
@@ -59,6 +69,26 @@ const SORT_ACCESSORS: Record<string, (e: Event) => unknown> = {
 export function EventsDataTable() {
   const router = useRouter();
   const updateStatus = useUpdateGeneralEventStatus();
+  const deleteEvent = useDeleteEvent();
+
+  // Ownership is per row, but the viewer is not — resolve them once here and
+  // pass down, rather than resolving identity in every rendered row action.
+  //
+  // Two hooks on purpose: useAuth() carries only { profile, isLoading, error },
+  // and isSuperAdmin is `role === 'super_admin' || is_super_admin === true`,
+  // which usePermissions() already computes. `profile.id` IS the auth uid —
+  // profiles.id = auth.uid() is an invariant here — so it is the right value to
+  // compare against events.created_by.
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const viewer = useMemo(
+    () => ({
+      userId: profile?.id,
+      institutionId: profile?.institution_id,
+      isSuperAdmin,
+    }),
+    [profile?.id, profile?.institution_id, isSuperAdmin]
+  );
 
   // The general-event mutation hooks invalidate ['general-events', …]; bridge
   // those into this fetchDataFn-mode table (it bypasses React Query entirely).
@@ -88,9 +118,23 @@ export function EventsDataTable() {
     [updateStatus]
   );
 
+  const handleDelete = useCallback((id: string) => deleteEvent.mutate(id), [deleteEvent]);
+
+  // The mutation's own isPending is table-wide; pairing it with the id being
+  // deleted keeps the spinner on the row that was clicked.
+  const deletingId = deleteEvent.isPending ? (deleteEvent.variables ?? null) : null;
+
   const columns = useMemo(
-    () => getColumns({ onOpen: handleOpen, onEdit: handleEdit, onStatusChange: handleStatusChange }),
-    [handleOpen, handleEdit, handleStatusChange]
+    () =>
+      getColumns({
+        viewer,
+        onOpen: handleOpen,
+        onEdit: handleEdit,
+        onStatusChange: handleStatusChange,
+        onDelete: handleDelete,
+        deletingId,
+      }),
+    [viewer, handleOpen, handleEdit, handleStatusChange, handleDelete, deletingId]
   );
 
   const fetchData = useCallback(

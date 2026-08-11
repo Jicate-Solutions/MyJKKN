@@ -35,6 +35,7 @@ import { IMS_POS_FEE_HEAD } from '@/lib/services/payments/fee-heads';
 import { payerDetailsFrom } from '@/lib/services/payments/razorpay/payer-details';
 import { toPaise } from '@/lib/services/payments/amount';
 import { priceCart, type PriceableSaleLine } from '@/lib/services/ims/sale-pricing';
+import { resolveCheckoutPrefill } from '@/lib/services/ims/checkout-prefill';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 /** How long a counter QR stays payable. Razorpay enforces its own minimum too. */
@@ -45,6 +46,25 @@ const MIN_AMOUNT_PAISE = 100;
 const MAX_AMOUNT_PAISE = 100_000 * 100;
 /** Don't ask Razorpay again more often than this while the cashier's screen polls. */
 const INQUIRY_COOLDOWN_MS = 5_000;
+
+/**
+ * SQLSTATEs from ims_gateway_finalize_sale that retrying cannot fix.
+ *
+ * Each describes a state of the world rather than a moment in it: the store has
+ * no counter, the cashier lacks the permission, the item is not sold here or is
+ * not in stock. Polling harder changes none of them.
+ *
+ * Everything NOT listed is treated as transient and keeps being retried —
+ * 40001 (serialisation), lock timeouts and connection blips genuinely do resolve,
+ * and abandoning those would strand a customer's money.
+ */
+const FATAL_FINALIZE_CODES = new Set([
+  '22023', // invalid_parameter_value — e.g. "does not have a selling counter"
+  '22004', // null_value_not_allowed — no store on the payment
+  '42501', // insufficient_privilege — no permission / no access to the store
+  '23503', // foreign_key_violation — the item no longer exists
+  'P0002', // no_data_found — not stocked here, insufficient stock, all expired
+]);
 
 export interface GatewayCartLine {
   item_id: string;
@@ -72,6 +92,12 @@ export interface GatewayPaymentStatus {
   expires_at: string;
   late_credit: boolean;
   finalize_error: string | null;
+  /**
+   * The booking failed for a reason retrying will not fix. The screen should stop
+   * polling and say what is wrong, instead of spinning on a call that is refused
+   * identically every time.
+   */
+  finalize_fatal: boolean;
 }
 
 export class ImsGatewayPaymentService {
@@ -119,16 +145,26 @@ export class ImsGatewayPaymentService {
    * Mirrors the ownership check ImsPaymentService.generateUpiQr makes, and the one
    * ims_pos_checkout enforces in SQL — a route that opens a payment must not be
    * weaker than the function that later books the sale.
+   *
+   * Returns the cashier's own contact details alongside the store, because the
+   * profiles row has to be read here anyway for the ownership check. See the
+   * prefill note in createPaymentSession for what they are used for — and, just as
+   * importantly, what they are NOT written to.
    */
   private static async assertStoreAccess(
-     
+
     supabase: any,
     storeId: string,
     userId: string,
-  ): Promise<{ institutionId: string; storeName: string; storeCode: string }> {
+  ): Promise<{
+    institutionId: string;
+    storeName: string;
+    storeCode: string;
+    cashier: { fullName: string | null; phone: string | null; email: string | null };
+  }> {
     const { data: store } = await supabase
       .from('ims_stores')
-      .select('id, name, code, institution_id, is_active')
+      .select('id, name, code, institution_id, is_active, is_pos_store')
       .eq('id', storeId)
       .maybeSingle();
 
@@ -136,7 +172,7 @@ export class ImsGatewayPaymentService {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id, role')
+      .select('institution_id, role, full_name, phone_number, email')
       .eq('id', userId)
       .maybeSingle();
 
@@ -145,10 +181,43 @@ export class ImsGatewayPaymentService {
       throw new Error('You do not have access to this store');
     }
 
+    // ── Pre-flight: can this sale be BOOKED at all? ─────────────────────────
+    //
+    // These two conditions are checked inside ims_pos_checkout — which runs AFTER
+    // the customer has paid. That ordering produced the worst failure this module
+    // can have: Razorpay captured the money, ims_assert_pos_store refused the sale
+    // ("Dental Student Store does not have a selling counter"), and because the
+    // condition is permanent the poller retried the identical booking every second
+    // forever while the cashier watched a spinner. The money was ours and the
+    // customer had nothing.
+    //
+    // A condition that will refuse the sale afterwards must refuse the PAYMENT
+    // first. Checked here because assertStoreAccess runs before pricing and long
+    // before any Razorpay order exists, so failing costs nothing but a message.
+    if (!store.is_pos_store) {
+      throw new Error(
+        `${store.name} is not set up as a selling counter, so a sale cannot be booked ` +
+          `against it. Ask a super admin to enable the counter for this store in ` +
+          `Settings → Stores, or switch to a store that has one.`,
+      );
+    }
+
+    const { data: canSell } = await supabase.rpc('user_has_permission', {
+      permission_name: 'ims.sales.create',
+    });
+    if (!canSell) {
+      throw new Error('You do not have permission to create sales');
+    }
+
     return {
       institutionId: store.institution_id,
       storeName: store.name,
       storeCode: store.code,
+      cashier: {
+        fullName: profile?.full_name ?? null,
+        phone: profile?.phone_number ?? null,
+        email: profile?.email ?? null,
+      },
     };
   }
 
@@ -178,13 +247,17 @@ export class ImsGatewayPaymentService {
     const ids = [...new Set(lines.map((l) => l.item_id))];
 
     // Same filter getSellableItems uses, so anything the POS could not legitimately
-    // have shown cannot be bought either.
+    // have shown cannot be bought either. That means THIS store's listing: since
+    // 20260804090000 the sellable flag is per-counter, and checking the old
+    // institution-wide column here would accept an item a different store sells.
     const { data: items, error } = await supabase
       .from('ims_items')
-      .select('id, name, selling_price, cost_price')
+      .select('id, name, selling_price, cost_price, store_link:ims_store_items!inner(store_id)')
       .in('id', ids)
       .eq('is_active', true)
-      .eq('is_sellable_to_students', true)
+      .eq('store_link.store_id', storeId)
+      .eq('store_link.is_sellable_to_students', true)
+      .eq('store_link.is_active', true)
       .eq('institution_id', institutionId);
 
     if (error) throw new Error(`Could not read items: ${error.message}`);
@@ -239,7 +312,7 @@ export class ImsGatewayPaymentService {
      
     const supabase = (await createServerSupabaseClient()) as any;
 
-    const { institutionId, storeName, storeCode } = await this.assertStoreAccess(
+    const { institutionId, storeName, storeCode, cashier } = await this.assertStoreAccess(
       supabase,
       input.storeId,
       userId,
@@ -277,7 +350,7 @@ export class ImsGatewayPaymentService {
     const isProduction = (process.env.VERCEL_ENV ?? process.env.NODE_ENV) === 'production';
     if (isProduction && creds.source !== 'institution') {
       throw new Error(
-        'Verified UPI is not set up for this store yet — use the UPI QR tab.',
+        'UPI is not set up for this store yet — take payment by cash or card.',
       );
     }
 
@@ -370,10 +443,16 @@ export class ImsGatewayPaymentService {
         razorpayKeyId: order.clientKeyId ?? '',
         storeName,
         description: `${storeCode} · ${transactionRef}`,
-        customer: {
-          name: input.customerName ?? '',
-          phone: input.customerPhone ?? '',
-        },
+        // WHAT RAZORPAY'S PAGE IS PREFILLED WITH — not what the sale records. The
+        // row inserted above keeps taking input.customerName/Phone only, so the
+        // cashier fallback resolved here can never be mistaken for the buyer. See
+        // checkout-prefill.ts for why that separation matters.
+        customer: resolveCheckoutPrefill({
+          customerName: input.customerName,
+          customerPhone: input.customerPhone,
+          cashier,
+          storeName,
+        }),
         expiresAt: expiresAt.toISOString(),
       };
     } catch (err) {
@@ -462,6 +541,11 @@ export class ImsGatewayPaymentService {
       expires_at: current.expires_at,
       late_credit: !!current.late_credit,
       finalize_error: current.finalize_error ?? null,
+      // Set only by the finalize attempt made on THIS request. Deliberately not
+      // persisted: the moment the underlying cause is fixed — the store is given a
+      // counter, stock arrives — the next attempt succeeds, and a stored flag would
+      // have to be cleared by hand before that could happen.
+      finalize_fatal: !!current.finalize_fatal,
     };
   }
 
@@ -572,6 +656,18 @@ export class ImsGatewayPaymentService {
 
     if (rpcError) {
       const message = rpcError.message || 'Booking the sale failed';
+
+      // Will retrying this exact call ever succeed?
+      //
+      // Not all failures are alike, and treating them alike is what turned one
+      // misconfigured store into an endless spinner: ims_assert_pos_store refuses
+      // for a reason nothing about waiting can change, yet the poller re-issued
+      // the same booking every second indefinitely.
+      //
+      // Transient by default — a lock timeout or a contended lease genuinely does
+      // resolve itself, and giving up on those would strand money. Only the codes
+      // that describe a STATE OF THE WORLD, not a moment in it, are terminal.
+      const fatal = FATAL_FINALIZE_CODES.has(rpcError.code ?? '');
       // Record why, and say so loudly. The row stays 'paid' — the money IS ours, so
       // the cashier must never be told to collect again; the screen offers to retry
       // BOOKING only.
@@ -584,6 +680,7 @@ export class ImsGatewayPaymentService {
         details: rpcError.details,
         hint: rpcError.hint,
         error: message,
+        fatal,
       });
 
       const { error: noteErr } = await service
@@ -596,7 +693,7 @@ export class ImsGatewayPaymentService {
         });
       }
 
-      return { ...row, finalize_error: message };
+      return { ...row, finalize_error: message, finalize_fatal: fatal };
     }
 
     // Not claimed means someone else got there first — normally the previous poll,

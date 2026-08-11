@@ -273,6 +273,31 @@ export class CommitteeMeetingService {
     return data as CommitteeMeeting;
   }
 
+  /**
+   * Write minutes_summary WITHOUT touching status. Used when the Chairman /
+   * Coordinator compiles the members' own accounts of a sitting into the
+   * official minutes — which can happen while the meeting is still 'held', and
+   * again after it is 'minuted'. closeMeeting stays the only writer that also
+   * advances the status, so the loop's state machine is unchanged.
+   *
+   * The overwrite question ("this meeting already has minutes") is settled in
+   * the UI before this is called — see lib/services/accreditation/
+   * meeting-minutes-compiler.ts. This method writes exactly what it is given.
+   */
+  static async updateMinutesSummary(
+    meetingId: string,
+    minutesSummary: string,
+  ): Promise<CommitteeMeeting> {
+    const { data, error } = await (this.supabase as any)
+      .from('accreditation_committee_meetings')
+      .update({ minutes_summary: minutesSummary })
+      .eq('id', meetingId)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data as CommitteeMeeting;
+  }
+
   static async cancelMeeting(meetingId: string): Promise<CommitteeMeeting> {
     const { data, error } = await (this.supabase as any)
       .from('accreditation_committee_meetings')

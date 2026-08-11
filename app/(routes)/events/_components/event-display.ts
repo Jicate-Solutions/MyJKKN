@@ -21,6 +21,38 @@ export const formatEventType = (type: string) =>
 export const isGeneralEvent = (event: Event) =>
   !DEDICATED_EVENT_CONSOLES[event.event_type as string];
 
+/** The viewer, as much of them as an ownership decision needs. */
+export interface EventEditViewer {
+  userId?: string | null;
+  institutionId?: string | null;
+  isSuperAdmin?: boolean;
+}
+
+/**
+ * May this viewer edit this event? Everyone else gets read-only.
+ *
+ * DELIBERATELY MIRRORS `events_auth_update` CLAUSE FOR CLAUSE (see
+ * supabase/migrations/20260806_events_creator_owned_edit.sql):
+ *
+ *   super admin  OR  created_by = me  OR  (created_by IS NULL AND same institution)
+ *
+ * The third arm is the grandfather clause — `created_by` is NULL on the 37
+ * events that predate ownership, and without it they would be editable by
+ * nobody but a super admin. Guessing "NULL means anyone" instead would show an
+ * Edit button to users in other institutions that the database then refuses,
+ * so the institution check is carried here too rather than left to RLS.
+ *
+ * NOT modelled here: `events_incharge_update`. A tournament in-charge writes
+ * from the tournament console, and this hub never offers Edit for tournaments
+ * (see isGeneralEvent) — so mirroring it would add a branch that can't be
+ * reached. The DB remains the authority either way.
+ */
+export function canEditEvent(event: Event, viewer: EventEditViewer): boolean {
+  if (viewer.isSuperAdmin) return true;
+  if (event.created_by) return event.created_by === viewer.userId;
+  return !!viewer.institutionId && event.institution_id === viewer.institutionId;
+}
+
 /**
  * Where "open this event" goes. Specialised types get their own console —
  * /events/[id] would only redirect there anyway (see DEDICATED_EVENT_CONSOLES),

@@ -889,6 +889,33 @@ CREATE TABLE IF NOT EXISTS public.billing_student_bills (
     academic_year_id uuid REFERENCES public.academic_years(id) ON DELETE SET NULL
 );
 
+-- Billing Late Charges (platform-wide late-payment charge ledger)
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql —
+-- FILE ONLY, apply is Director-gated). One row per (bill, monthly period) of
+-- accrued late charge; UNIQUE (bill_id, period_start) is the idempotency
+-- contract. The mechanism is OFF by default (billing.late_charge.enabled =
+-- false in platform_policies). billing_categories.kind gained the 'penalty'
+-- enum value in companion migration 20260815009000.
+CREATE TABLE IF NOT EXISTS public.billing_late_charges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bill_id UUID NOT NULL REFERENCES public.billing_student_bills(id),
+    student_id UUID NOT NULL,
+    institution_id UUID NOT NULL,
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    base_amount NUMERIC(15,2) NOT NULL,
+    charge_amount NUMERIC(15,2) NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','charged','waived')),
+    penalty_bill_id UUID REFERENCES public.billing_student_bills(id),
+    waived_by UUID,
+    waived_at TIMESTAMPTZ,
+    waiver_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_billing_late_charges_bill_period UNIQUE (bill_id, period_start)
+);
+
 -- Billing Invoices
 CREATE TABLE IF NOT EXISTS public.billing_invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -3457,7 +3484,12 @@ CREATE TABLE IF NOT EXISTS public.events (
   venue_coordinates JSONB,  -- {lat, lng}
 
   -- Audit
-  created_by UUID REFERENCES public.profiles(id),
+  -- created_by is also the OWNER: the only non-super-admin who may edit the row
+  -- (events_auth_update). The default is what makes that model work — there are
+  -- four insert paths (wizard, tournament, marathon, induction) and none of them
+  -- set it explicitly. NULL on pre-2026-08-06 rows and on service-role inserts,
+  -- both of which fall back to the old same-institution rule.
+  created_by UUID REFERENCES public.profiles(id) DEFAULT auth.uid(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -5392,6 +5424,28 @@ ALTER TABLE public.hostel_categories
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS requires_explicit_upgrade boolean NOT NULL DEFAULT false;
 
+-- 20260807150000: a category may sell access to ANOTHER category's room stock.
+-- "Deluxe Plus" owns zero rooms — it is the self-pick tier over the Deluxe pool
+-- (pay the add-on, choose your own Deluxe room instead of being auto-allocated).
+-- Resolved ONE level via COALESCE(room_source_category_id, id) in fn_my_room_options,
+-- fn_my_upgrade_room_options and _cl_room_options. NULL = own rooms (all other
+-- categories), so behaviour elsewhere is unchanged. Must point at a category of the
+-- SAME type (gender) — not expressible as a CHECK, so seed it carefully.
+-- 20260807180000: residents of this category may self-change their room ONCE per
+-- academic year (same category, different room). For self-picked tiers where a wrong
+-- choice would otherwise need office intervention. The allowance is counted from the
+-- allocation audit trail (metadata->>'self_room_change'), not a separate flag.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS allow_self_room_change boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS room_source_category_id uuid REFERENCES public.hostel_categories(id);
+ALTER TABLE public.hostel_categories
+  DROP CONSTRAINT IF EXISTS chk_room_source_not_self;
+ALTER TABLE public.hostel_categories
+  ADD CONSTRAINT chk_room_source_not_self
+  CHECK (room_source_category_id IS NULL OR room_source_category_id <> id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_hostel_waitlist_active_upgrade
   ON public.hostel_waitlist (learner_id, target_hostel_category_id)
   WHERE entry_kind = 'upgrade' AND status = 'waiting';
@@ -5417,9 +5471,14 @@ CREATE INDEX IF NOT EXISTS ix_accommodation_types_active
   ON public.accommodation_types (is_active, sort_order);
 
 -- ============================================================================
--- hostel_category_upgrade_fees (migration 20260610210000)
+-- hostel_category_upgrade_fees (migration 20260610210000;
+--   discount columns 20260807120000)
 -- Explicit from→to upgrade pricing (room OR mess), per hostel year. Drives the
 -- My Hostel upgrade options + flat-fee upgrade billing.
+--
+-- amount is the GROSS list price; net_amount is the GENERATED payable after any
+-- discount. All NINE plpgsql read sites bill/display net_amount — never amount —
+-- so the discount cannot drift between what a resident is shown and charged.
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -5429,6 +5488,24 @@ CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
   from_mess_category_id   uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
   to_mess_category_id     uuid REFERENCES public.mess_categories(id)  ON DELETE CASCADE,
   amount numeric(12,2) NOT NULL CHECK (amount >= 0),
+  discount_type  text          NOT NULL DEFAULT 'amount',
+  discount_value numeric(12,2) NOT NULL DEFAULT 0,
+  net_amount numeric(12,2) GENERATED ALWAYS AS (
+    GREATEST(0::numeric, round(
+      CASE WHEN discount_type = 'percent'
+           THEN amount - (amount * LEAST(discount_value, 100::numeric) / 100)
+           ELSE amount - discount_value
+      END, 2))
+  ) STORED,
+  -- 20260807170000: per-PAIR override — this upgrade ignores the physical-room
+  -- eligibility rules (hostel_room_eligibility_rules), so the resident may pick ANY
+  -- available room in the target pool. Those rules steer AUTO-ALLOCATION cohorts and
+  -- are the wrong constraint for a paid self-service move inside a tier the resident
+  -- already occupies (Deluxe -> Deluxe Plus, Premium -> Premium + AC). Institution
+  -- scoping, gender and bed availability remain enforced.
+  -- Read by fn_my_room_options / fn_my_upgrade_room_options / _cl_room_options —
+  -- ALL THREE must agree, or the picker offers rooms the bed validator rejects.
+  skip_room_eligibility boolean NOT NULL DEFAULT false,
   is_active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
@@ -5444,6 +5521,14 @@ CREATE TABLE IF NOT EXISTS public.hostel_category_upgrade_fees (
   CONSTRAINT chk_upgrade_distinct CHECK (
     (from_hostel_category_id IS NULL OR from_hostel_category_id <> to_hostel_category_id)
     AND (from_mess_category_id IS NULL OR from_mess_category_id <> to_mess_category_id)
+  ),
+  CONSTRAINT chk_upgrade_discount_type CHECK (discount_type IN ('amount', 'percent')),
+  CONSTRAINT chk_upgrade_discount_bounds CHECK (
+    discount_value >= 0
+    AND CASE WHEN discount_type = 'percent'
+             THEN discount_value <= 100
+             ELSE discount_value <= amount
+        END
   )
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_upgrade_fee_pair ON public.hostel_category_upgrade_fees (
@@ -6267,6 +6352,40 @@ CREATE TABLE IF NOT EXISTS hr_recruitment_job_notes (
 CREATE INDEX IF NOT EXISTS idx_hr_rec_job_notes_job
   ON hr_recruitment_job_notes(job_id, created_at);
 
+-- =====================================================================================
+-- hr_recruitment_purge_log — PII-free tombstone for super-admin purges of a REJECTED
+-- applicant (migration 20260810170000). Deliberately stores NO name/email/phone/
+-- qualification/resume URL: the whole point of the purge is that those are gone.
+--
+-- No FKs — every id it holds points at a row that has been deleted by design.
+--
+-- drive_file_id is operational, not identifying (an opaque Drive handle that resolves
+-- only for the service account). It is kept ONLY until the resume is confirmed deleted,
+-- then nulled by fn_clear_recruitment_purge_drive_ref. A row still carrying one
+-- therefore means "orphaned resume, needs a Drive sweep".
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hr_recruitment_purge_log (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id     uuid,
+  candidate_id       uuid,
+  job_id             uuid,
+  institution_id     uuid,
+  hr_organization_id uuid,
+  stage              text NOT NULL
+                       CHECK (stage IN ('screening_rejected', 'pipeline_rejected')),
+  had_resume         boolean NOT NULL DEFAULT false,
+  drive_file_id      text,
+  drive_cleared_at   timestamptz,
+  purged_by          uuid NOT NULL,
+  purged_at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_purge_log_purged_at
+  ON hr_recruitment_purge_log (purged_at DESC);
+-- Orphan-resume sweep: purges whose Drive file was never confirmed gone.
+CREATE INDEX IF NOT EXISTS idx_hr_recruitment_purge_log_pending_drive
+  ON hr_recruitment_purge_log (purged_at DESC)
+  WHERE drive_file_id IS NOT NULL;
+
 -- ── Cohort Core — M7.2 experiments + M7.3 proposals (Phase 7 · THE MOAT) ─────
 -- Migrations: 20260731093000_cohort_experiments.sql, 20260731094000_cohort_feedforward.sql (2026-07-06)
 -- cohort_experiments: one causal-lift result per cohort (control-group A/B).
@@ -6598,3 +6717,642 @@ ALTER TABLE public.billing_receipt_cancel_request_actions
 -- 20260615233000_session_feedback_substrate.sql, not in this file.
 CREATE INDEX IF NOT EXISTS idx_session_feedback_faculty_email_lower
   ON public.session_feedback (lower(faculty_email), attendance_date);
+
+
+-- =====================================================================
+-- hr_shift_timings — table, constraints and indexes
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.hr_shift_timings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  institution_id uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+
+  -- Most specific wins at resolution:
+  --   'category'     -> exact employment_category_id
+  --   'teaching'     -> employment_categories.is_teaching = true
+  --   'non_teaching' -> employment_categories.is_teaching = false
+  staff_scope text NOT NULL CHECK (staff_scope IN ('teaching','non_teaching','category')),
+  employment_category_id uuid NULL REFERENCES public.employment_categories(id) ON DELETE CASCADE,
+
+  -- ISO-8601: 1=Mon .. 7=Sun. Matches EXTRACT(ISODOW FROM date) exactly.
+  day_of_week smallint NOT NULL CHECK (day_of_week BETWEEN 1 AND 7),
+
+  is_working_day boolean NOT NULL DEFAULT true,
+
+  -- The two half-day session windows. They MAY overlap (09:00-13:00 / 12:30-16:30)
+  -- — that is the real JKKN pattern, and the reason lunch_start/lunch_end on
+  -- hr_work_schedules could not be reused: a lunch gap and a session overlap
+  -- are opposites.
+  first_half_start  time NULL,
+  first_half_end    time NULL,
+  second_half_start time NULL,
+  second_half_end   time NULL,
+
+  -- Applies to first_half_start ONLY. Confirmed requirement: morning punch only.
+  grace_minutes integer NOT NULL DEFAULT 0 CHECK (grace_minutes BETWEEN 0 AND 240),
+
+  -- 2nd Saturday of the month is non-working. Only meaningful when day_of_week = 6.
+  second_saturday_holiday boolean NOT NULL DEFAULT false,
+
+  effective_from date NOT NULL DEFAULT CURRENT_DATE,
+  effective_until date NULL,
+
+  notes text NULL,
+  is_active boolean NOT NULL DEFAULT true,
+
+  created_by uuid NULL REFERENCES public.profiles(id),
+  updated_by uuid NULL REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_shift_timings_scope_category_chk CHECK (
+    (staff_scope =  'category' AND employment_category_id IS NOT NULL) OR
+    (staff_scope <> 'category' AND employment_category_id IS NULL)
+  ),
+
+  CONSTRAINT hr_shift_timings_times_present_chk CHECK (
+    (is_working_day = false
+       AND first_half_start IS NULL AND first_half_end IS NULL
+       AND second_half_start IS NULL AND second_half_end IS NULL)
+    OR
+    (is_working_day = true
+       AND first_half_start IS NOT NULL AND first_half_end IS NOT NULL
+       AND second_half_start IS NOT NULL AND second_half_end IS NOT NULL)
+  ),
+
+  -- Overlap between the halves is ALLOWED; inversion is not.
+  CONSTRAINT hr_shift_timings_order_chk CHECK (
+    is_working_day = false OR (
+      first_half_end    >  first_half_start  AND
+      second_half_end   >  second_half_start AND
+      second_half_start >= first_half_start  AND
+      second_half_end   >= first_half_end
+    )
+  ),
+
+  CONSTRAINT hr_shift_timings_second_saturday_chk CHECK (
+    second_saturday_holiday = false OR day_of_week = 6
+  ),
+
+  CONSTRAINT hr_shift_timings_effective_chk CHECK (
+    effective_until IS NULL OR effective_until > effective_from
+  )
+);
+
+COMMENT ON TABLE public.hr_shift_timings IS
+  'Institution-wise shift timing config, grained on (institution, staff scope, weekday) and effective-dated. Two half-day session windows that may overlap; grace_minutes applies to first_half_start ONLY. Resolution is most-specific-wins: a staff_scope=category row beats teaching/non_teaching. Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md';
+
+COMMENT ON COLUMN public.hr_shift_timings.day_of_week IS 'ISO-8601 weekday: 1=Mon .. 7=Sun. Matches EXTRACT(ISODOW FROM date).';
+COMMENT ON COLUMN public.hr_shift_timings.grace_minutes IS 'Late allowance on first_half_start ONLY. Punching within grace is on time; beyond it is flagged late but the day still counts full.';
+COMMENT ON COLUMN public.hr_shift_timings.second_saturday_holiday IS 'When true and day_of_week=6, the 2nd Saturday of each month resolves as non-working.';
+
+-- One live row per (institution, scope, category, weekday).
+-- COALESCE is load-bearing: Postgres treats NULLs as DISTINCT in a plain UNIQUE
+-- index, which would allow unlimited duplicate 'teaching' rows through.
+-- Note none of hr_shift_templates / hr_shift_assignments / hr_work_schedules /
+-- hr_biometric_punches has any unique constraint at all — do not repeat that.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_shift_timings_current_uq
+  ON public.hr_shift_timings (
+    institution_id,
+    staff_scope,
+    COALESCE(employment_category_id, '00000000-0000-0000-0000-000000000000'::uuid),
+    day_of_week
+  )
+  WHERE effective_until IS NULL AND is_active;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_lookup
+  ON public.hr_shift_timings (institution_id, day_of_week, effective_from DESC)
+  WHERE is_active;
+
+CREATE INDEX IF NOT EXISTS hr_shift_timings_category
+  ON public.hr_shift_timings (employment_category_id)
+  WHERE employment_category_id IS NOT NULL;
+
+-- Campus Living — Settle Then Bill (Director 2026-08-09)
+-- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
+-- FILE ONLY, apply is Director-gated). A hostel room is NOT billed at
+-- move-in: a settle window lets the room fill (5 days, restarting on each
+-- joiner, capped 20 days from first open, short-circuited when the room is
+-- full), then every resident is billed at the occupancy that exists at that
+-- moment. A later joiner produces CREDITS, never a refund or a bill rewrite.
+-- The whole mechanism is OFF by default (hostel.settle_bill.enabled = false
+-- in platform_policies).
+
+CREATE TABLE IF NOT EXISTS public.hostel_room_settle_windows (
+    id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id              uuid NOT NULL REFERENCES public.hostel_rooms(id),
+    hostel_year_id       uuid REFERENCES public.hostel_years(id),
+    opened_at            timestamptz NOT NULL DEFAULT now(),
+    restart_count        int NOT NULL DEFAULT 0,
+    current_deadline     timestamptz NOT NULL,
+    hard_deadline        timestamptz NOT NULL,
+    status               text NOT NULL DEFAULT 'open'
+                           CHECK (status IN ('open','billed','cancelled')),
+    billed_at            timestamptz,
+    occupants_at_billing int,
+    -- Joiner allocation ids whose late-join credit round has been PROCESSED.
+    -- Marked whether or not any credit row was written, so a round that credits
+    -- nobody (rounds to 0, co-residents unbilled) is still never re-processed.
+    credited_allocation_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
+    created_at           timestamptz NOT NULL DEFAULT now(),
+    updated_at           timestamptz NOT NULL DEFAULT now()
+);
+
+-- Re-apply safety: the column was added after the table's first draft.
+ALTER TABLE public.hostel_room_settle_windows
+  ADD COLUMN IF NOT EXISTS credited_allocation_ids uuid[] NOT NULL DEFAULT '{}'::uuid[];
+
+-- One OPEN window per room per hostel year.
+-- COALESCE is load-bearing: Postgres treats NULLs as DISTINCT in a plain unique
+-- index, so a bare (room_id, hostel_year_id) would allow unlimited open windows
+-- on any room whose year is not yet set.
+CREATE UNIQUE INDEX IF NOT EXISTS hostel_room_settle_windows_open_uq
+    ON public.hostel_room_settle_windows (
+        room_id,
+        COALESCE(hostel_year_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    )
+    WHERE status = 'open';
+
+-- The due-sweep predicate.
+CREATE INDEX IF NOT EXISTS hostel_room_settle_windows_due
+    ON public.hostel_room_settle_windows (current_deadline, hard_deadline)
+    WHERE status = 'open';
+
+CREATE INDEX IF NOT EXISTS hostel_room_settle_windows_room
+    ON public.hostel_room_settle_windows (room_id, status);
+
+DROP TRIGGER IF EXISTS trg_hostel_room_settle_windows_touch
+    ON public.hostel_room_settle_windows;
+CREATE TRIGGER trg_hostel_room_settle_windows_touch
+    BEFORE UPDATE ON public.hostel_room_settle_windows
+    FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+COMMENT ON TABLE public.hostel_room_settle_windows IS
+  'Settle-then-bill window per hostel room per hostel year (Director 2026-08-09). '
+  'A room is NOT billed at move-in; the window lets the room fill, restarts on '
+  'each new joiner up to hard_deadline, then bills everyone at the occupancy '
+  'that exists at close. Gated by platform policy hostel.settle_bill.enabled.';
+
+COMMENT ON COLUMN public.hostel_room_settle_windows.hard_deadline IS
+  'opened_at + hostel.settle_bill.outer_limit_days. Restarts may never push '
+  'current_deadline past this instant.';
+
+COMMENT ON COLUMN public.hostel_room_settle_windows.occupants_at_billing IS
+  'Active occupants at the moment the window closed. The denominator every '
+  'later late-join credit is measured against.';
+
+-- Updated: 2026-08-09 - Empty-bed intimation send ledger (Director interview 2026-08-09).
+-- One row per room per learner per IST calendar day, so a reminder about the
+-- same under-filled room cannot reach the same learner twice in one day.
+-- Written ONLY by the service-role cron (/api/cron/campus-living/empty-bed-notices);
+-- there is deliberately no INSERT/UPDATE/DELETE policy. See migration
+-- supabase/migrations/20260815060001_empty_bed_intimation.sql — FILE ONLY, NOT APPLIED.
+--
+-- sent_on exists because a UNIQUE constraint cannot span an expression and only
+-- a constraint (not a bare unique index) works as an ON CONFLICT target from
+-- PostgREST. It is pinned to Asia/Kolkata: a UTC cron run between 00:00 and
+-- 05:30 IST would otherwise bank the notice on yesterday and allow a second one
+-- the same Indian morning.
+CREATE TABLE IF NOT EXISTS public.hostel_empty_bed_notices (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    room_id           UUID        NOT NULL REFERENCES public.hostel_rooms(id) ON DELETE CASCADE,
+    learner_id        UUID        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    sent_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sent_on           DATE        NOT NULL DEFAULT (now() AT TIME ZONE 'Asia/Kolkata')::date,
+    occupants_at_send INTEGER     NOT NULL,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT hostel_empty_bed_notices_one_per_day
+        UNIQUE (room_id, learner_id, sent_on)
+);
+
+CREATE INDEX IF NOT EXISTS hostel_empty_bed_notices_recent
+    ON public.hostel_empty_bed_notices (learner_id, room_id, sent_at DESC);
+
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+-- The leave/payroll calendar HR owns. Deliberately NOT academic_years:
+--   * academic_years is scoped per institution, so '2026-2027' exists 11 times
+--     with 11 ids. HR is keyed on hr_organization_id and needed a dimension it
+--     could compare across institutions -- hr_leave_balance_analytics used to
+--     match on the trimmed NAME because no id was comparable.
+--   * academic_years runs Jun 1 -> Mar 31 (10 months), leaving April and May
+--     outside every year. hr_academic_years runs the financial year,
+--     Apr 1 -> Mar 31.
+-- One row per year for all of JKKN HR; tenancy stays on the referencing rows
+-- (hr_leave_balances.hr_organization_id).
+CREATE TABLE IF NOT EXISTS public.hr_academic_years (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    year_name   TEXT        NOT NULL,
+    start_date  DATE        NOT NULL,
+    end_date    DATE        NOT NULL,
+    is_active   BOOLEAN     NOT NULL DEFAULT true,
+    notes       TEXT,
+    created_by  UUID        REFERENCES public.profiles(id),
+    updated_by  UUID        REFERENCES public.profiles(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT hr_academic_years_name_uq  UNIQUE (year_name),
+    CONSTRAINT hr_academic_years_dates_ck CHECK (end_date > start_date),
+
+    -- The constraint academic_years lacks: two active years must never contain
+    -- the same day, because resolution is by date bracket. Its absence on
+    -- academic_years is how 'JKKN Dental 2026-2027 Additional 2' and three more
+    -- shadow rows came to exist there.
+    CONSTRAINT hr_academic_years_no_overlap
+        EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&)
+        WHERE (is_active)
+);
+
+CREATE INDEX IF NOT EXISTS hr_academic_years_dates_idx
+    ON public.hr_academic_years (start_date, end_date) WHERE is_active;
+
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL; this records it so
+--  the repo is not amnesiac and survives a DB rebuild).
+-- Records who/when/old->new for every change to source, source_detail,
+-- referral_type, referred_by_id, referred_by_name on admission_leads.
+-- RLS policy -> setup/03_policies.sql; audit fn -> setup/02_functions.sql;
+-- trigger -> setup/04_triggers.sql.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.admission_lead_source_audit (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id            uuid NOT NULL,
+  learner_profile_id uuid,
+  changed_field      text NOT NULL,   -- source | source_detail | referral_type | referred_by_id | referred_by_name
+  old_value          text,
+  new_value          text,
+  changed_by         uuid,            -- auth.uid() of the editor (NULL for system/service-role writes)
+  changed_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alsa_lead       ON public.admission_lead_source_audit(lead_id);
+CREATE INDEX IF NOT EXISTS idx_alsa_changed_at ON public.admission_lead_source_audit(changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alsa_changed_by ON public.admission_lead_source_audit(changed_by);
+
+ALTER TABLE public.admission_lead_source_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL   ON public.admission_lead_source_audit FROM anon, PUBLIC;
+GRANT  SELECT ON public.admission_lead_source_audit TO authenticated;
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit trail on the LEARNER
+-- record (referral_attribution_audit). Companion to admission_lead_source_audit,
+-- which watches the same kind of change on the lead; a credit attached directly
+-- on learners_profiles was invisible to that trigger because it is bound to a
+-- different table. Also covers quota_id + counseling_applied — the
+-- Direct-versus-Counselling distinction that decides whether a referral is
+-- payable at all.
+--
+-- The companion is live on production (hand-applied via the Management API on
+-- 2026-08-06, and it has already captured a real change) but is NOT yet in this
+-- repository — PR #2889 back-fills it, so grepping for it here returns nothing.
+-- Rebuilt from the repo alone today, neither trail would exist until #2889
+-- merges and both are applied.
+--
+-- One row per FIELD that actually changed, never one per UPDATE statement.
+-- learner_profile_id carries NO foreign key on purpose: ON DELETE CASCADE would
+-- erase the trail exactly when it matters and ON DELETE RESTRICT would let the
+-- trail block a legitimate deletion — an audit row must be able to outlive its
+-- subject. old_value/new_value are text for every field because uuid and boolean
+-- both render losslessly, so one pair of columns beats five typed pairs that are
+-- NULL four times in five.
+--
+-- Written ONLY by trg_audit_learner_referral_attribution (SECURITY DEFINER);
+-- no client holds INSERT, UPDATE or DELETE, and there is deliberately no policy
+-- for them. The anon lock and the narrow authenticated re-grant live with the
+-- policies in 03_policies.sql. See migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- — FILE ONLY, NOT APPLIED.
+CREATE TABLE IF NOT EXISTS public.referral_attribution_audit (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    learner_profile_id UUID        NOT NULL,
+    changed_field      TEXT        NOT NULL,
+    old_value          TEXT,
+    new_value          TEXT,
+    changed_by         UUID,
+    changed_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Three read shapes, three indexes: one learner's history, the recent-activity
+-- feed, and "what has this person been changing". The changed_by index is
+-- partial because system/cron writes are NULL by design and expected to be the
+-- bulk of the table.
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_learner_idx
+    ON public.referral_attribution_audit (learner_profile_id, changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_at_idx
+    ON public.referral_attribution_audit (changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_by_idx
+    ON public.referral_attribution_audit (changed_by, changed_at DESC)
+    WHERE changed_by IS NOT NULL;
+
+-- Updated: 2026-08-10 - Referral integrity: Registrar reconciliation + pair scoring.
+-- The Registrar (a different office from the admission desk) enters an agency's
+-- OWN list of learners; the platform compares it against the credits it already
+-- holds and surfaces the disagreements. referral_pair_scores is keyed on the
+-- (team member, agency) PAIR because one person spreading fabricated credits
+-- across several agencies looks clean on every individual agency row.
+-- See migration supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- — FILE ONLY, NOT APPLIED. Nothing here pays, generates or approves anything.
+
+CREATE TABLE IF NOT EXISTS public.referral_reconciliation_sessions (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    consultant_id UUID        NOT NULL REFERENCES public.education_consultants(id),
+    academic_year INTEGER     NOT NULL,               -- 2025 = the "2025-26" intake
+    conducted_by  UUID        REFERENCES public.profiles(id),
+    conducted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes         TEXT,
+    status        TEXT        NOT NULL DEFAULT 'draft'
+                              CHECK (status IN ('draft', 'submitted')),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- source: 'agency' rows are typed in from the agency's list; 'system' rows are
+-- added by fn_reconcile_referral_session to represent learners the platform
+-- credits but the agency never claimed — without them the three buckets would
+-- not be a complete partition. Re-running reconcile replaces only 'system' rows.
+CREATE TABLE IF NOT EXISTS public.referral_reconciliation_claims (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id         UUID        NOT NULL REFERENCES public.referral_reconciliation_sessions(id) ON DELETE CASCADE,
+    claimed_name       TEXT,
+    claimed_phone      TEXT,
+    matched_learner_id UUID        REFERENCES public.learners_profiles(id),
+    match_confidence   TEXT,       -- 'phone' | 'name' | 'none'
+    bucket             TEXT        CHECK (bucket IN ('agreed', 'credited_not_claimed', 'claimed_not_credited')),
+    evidence_note      TEXT,
+    has_dated_proof    BOOLEAN     NOT NULL DEFAULT false,
+    evidence_status    TEXT        CHECK (evidence_status IN
+                                   ('agency_confirmed', 'agency_does_not_recognise', 'agency_has_dated_proof')),
+    source             TEXT        NOT NULL DEFAULT 'agency' CHECK (source IN ('agency', 'system')),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.referral_pair_scores (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_member_id    UUID        NOT NULL REFERENCES public.profiles(id),
+    consultant_id     UUID        NOT NULL REFERENCES public.education_consultants(id),
+    credits_total     INTEGER     NOT NULL DEFAULT 0,
+    credits_confirmed INTEGER     NOT NULL DEFAULT 0,
+    credits_disputed  INTEGER     NOT NULL DEFAULT 0,
+    risk_level        TEXT        NOT NULL DEFAULT 'normal'
+                                  CHECK (risk_level IN ('normal', 'watch', 'red')),
+    frozen            BOOLEAN     NOT NULL DEFAULT false,
+    frozen_at         TIMESTAMPTZ,
+    frozen_by         UUID        REFERENCES public.profiles(id),
+    frozen_reason     TEXT,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT referral_pair_scores_pair_unique UNIQUE (team_member_id, consultant_id)
+);
+
+-- =====================================================================
+-- Updated: 2026-08-10 - JKKN permanent identity register
+-- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
+-- FILE ONLY / NOT APPLIED to production as of 2026-08-10.
+-- =====================================================================
+-- One permanent number per person, for life: six digits + a Damm check
+-- digit, written 348295-7. Learners and team members share ONE pool, so a
+-- learner who returns as a Senior Learner keeps the same number. Nothing
+-- that can change is encoded in it — no college code, no year, no course.
+-- The width is char(8), not char(7): seven DIGITS, eight CHARACTERS once
+-- the dash is stored.
+--
+-- WHY THE TWO CHECK-DIGIT FUNCTIONS ARE DECLARED HERE AND NOT IN
+-- 02_functions.sql: jkkn_identities has a CHECK constraint that calls
+-- fn_jkkn_id_validate, and 00_master_setup runs 01_tables BEFORE
+-- 02_functions — so declaring them there would make a clean setup run fail
+-- on this table. They are pure and IMMUTABLE with no dependencies, so they
+-- are safe to declare this early. 02_functions carries the three SECURITY
+-- DEFINER RPCs, which have no such ordering constraint.
+-- ---------------------------------------------------------------------
+-- Damm, not Luhn. Luhn misses the 09 <-> 90 transposition, which is
+-- exactly the error a human makes reading a number off an ID card.
+-- Damm's totally anti-symmetric quasigroup catches 100% of single-digit
+-- errors AND 100% of adjacent transpositions with a single check digit.
+--
+-- Proven exhaustively over the whole issuing range before this migration
+-- was written: all 900,000 six-digit numbers, every one of their 48.6M
+-- single-digit mutations and 4.1M adjacent transpositions — zero
+-- undetected. The table below is Damm's standard 10x10 operation table;
+-- its rows and columns are each a permutation of 0-9 and its diagonal is
+-- all zeros, which is what makes the scheme work. Do not "tidy" it.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_jkkn_id_check_digit(p_six_digits text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+AS $fn$
+DECLARE
+  -- Damm quasigroup, flattened row-major. Index = interim*10 + digit + 1
+  -- (PostgreSQL arrays are 1-based).
+  k_damm CONSTANT int[] := ARRAY[
+    0,3,1,7,5,9,8,6,4,2,
+    7,0,9,2,1,5,4,8,6,3,
+    4,2,0,6,8,7,1,3,5,9,
+    1,7,5,0,9,8,3,4,2,6,
+    6,1,2,3,0,4,5,9,7,8,
+    3,6,7,4,2,0,9,5,8,1,
+    5,8,6,9,7,2,0,1,3,4,
+    8,9,4,5,3,6,2,0,1,7,
+    9,4,3,8,6,1,7,2,0,5,
+    2,5,8,1,4,3,6,7,9,0
+  ];
+  v_interim int := 0;
+  i         int;
+BEGIN
+  -- Anything that is not exactly six digits has no check digit. Return
+  -- NULL rather than guessing, so a caller that forgets to check gets a
+  -- NULL comparison (false) instead of a plausible wrong answer.
+  IF p_six_digits IS NULL OR p_six_digits !~ '^[0-9]{6}$' THEN
+    RETURN NULL;
+  END IF;
+
+  FOR i IN 1..6 LOOP
+    v_interim := k_damm[v_interim * 10 + substr(p_six_digits, i, 1)::int + 1];
+  END LOOP;
+
+  RETURN v_interim::text;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_id_check_digit(text) IS
+  'Damm check digit for the six-digit body of a JKKN ID. Returns NULL unless the input is exactly six digits. Catches every single-digit error and every adjacent transposition — including 09 <-> 90, which Luhn misses. Verified exhaustively over all 900,000 six-digit values.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_id_check_digit(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_check_digit(text) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2. Whole-ID validation
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_jkkn_id_validate(p_id text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $fn$
+  SELECT CASE
+    WHEN p_id IS NULL                       THEN false
+    WHEN btrim(p_id) !~ '^[0-9]{6}-[0-9]$'  THEN false
+    ELSE public.fn_jkkn_id_check_digit(left(btrim(p_id), 6)) = right(btrim(p_id), 1)
+  END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_id_validate(text) IS
+  'True only for a well-formed JKKN ID whose check digit is correct, e.g. 348295-7. A mistyped digit or a swapped pair returns false — this is what lets the resolver reject a bad number before it searches.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_id_validate(text) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_validate(text) TO authenticated;
+-- ---------------------------------------------------------------------
+-- 3. jkkn_identities — the permanent register
+-- ---------------------------------------------------------------------
+-- One row per PERSON, for life. A number is never reused, not even after
+-- retirement: retired rows stay here and keep holding their number, so
+-- the UNIQUE constraint below is what enforces "never reused". Deleting
+-- a row would release the number back into the pool — do not do it.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.jkkn_identities (
+    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    jkkn_id             char(8) NOT NULL UNIQUE,
+    person_kind         text NOT NULL,
+    learner_profile_id  uuid REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
+    team_member_id      uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+    issued_at           timestamptz NOT NULL DEFAULT now(),
+    issued_by           uuid,
+    retired_at          timestamptz,
+    retired_reason      text,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT jkkn_identities_person_kind_chk
+      CHECK (person_kind IN ('learner', 'team_member', 'both')),
+
+    -- Format is pinned here, not by the column width alone.
+    CONSTRAINT jkkn_identities_format_chk
+      CHECK (jkkn_id ~ '^[0-9]{6}-[0-9]$'),
+
+    -- A stored ID whose check digit is wrong is a corrupt row, not a
+    -- typo to be tolerated. fn_jkkn_id_validate is IMMUTABLE, so it is
+    -- legal in a CHECK.
+    CONSTRAINT jkkn_identities_check_digit_chk
+      CHECK (public.fn_jkkn_id_validate(jkkn_id)),
+
+    -- person_kind constrains WHICH link column may be filled. It does
+    -- not demand that one IS filled: an ON DELETE SET NULL above can
+    -- orphan a link years later, and the number must survive that. The
+    -- "must actually point at a real person" rule belongs to issuance
+    -- (fn_issue_jkkn_id), which verifies the target exists.
+    CONSTRAINT jkkn_identities_link_shape_chk CHECK (
+         (person_kind = 'learner'     AND team_member_id     IS NULL)
+      OR (person_kind = 'team_member' AND learner_profile_id IS NULL)
+      OR (person_kind = 'both')
+    ),
+
+    CONSTRAINT jkkn_identities_retirement_chk
+      CHECK (retired_at IS NULL OR retired_reason IS NOT NULL)
+);
+
+COMMENT ON TABLE public.jkkn_identities IS
+  'The permanent JKKN ID register. One row per person for life, shared by learners and team members — someone who studies here and later joins the team keeps the same number. Numbers are never reused; retired rows stay to hold their number.';
+COMMENT ON COLUMN public.jkkn_identities.jkkn_id IS
+  'The identifier in its one canonical written form: six digits, a dash, then the Damm check digit — 348295-7. Eight characters for seven digits.';
+COMMENT ON COLUMN public.jkkn_identities.person_kind IS
+  'learner | team_member | both. "both" is a person who is currently on the register in both capacities; it is a fact about them, not a second number.';
+COMMENT ON COLUMN public.jkkn_identities.retired_at IS
+  'Set when an identity is withdrawn (issued in error, duplicate found). The number stays parked on this row forever and is never handed to anyone else.';
+
+-- One person, one number — enforced structurally, not only in the issuer.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_learner
+  ON public.jkkn_identities (learner_profile_id)
+  WHERE learner_profile_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_team_member
+  ON public.jkkn_identities (team_member_id)
+  WHERE team_member_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_jkkn_identities_active
+  ON public.jkkn_identities (person_kind)
+  WHERE retired_at IS NULL;
+
+-- ---------------------------------------------------------------------
+-- 4. jkkn_identity_aliases — every other number the world uses
+-- ---------------------------------------------------------------------
+-- Rows are CLOSED, never deleted: set valid_to and is_current = false.
+-- A roll number issued in 2026 must still resolve to the right person in
+-- 2040, long after the person has stopped using it.
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.jkkn_identity_aliases (
+    id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    jkkn_identity_id   uuid NOT NULL REFERENCES public.jkkn_identities(id) ON DELETE CASCADE,
+    alias_type         text NOT NULL,
+    alias_value        text NOT NULL,
+    institution_id     uuid REFERENCES public.institutions(id) ON DELETE SET NULL,
+    academic_year      int,
+    valid_from         date,
+    valid_to           date,
+    is_current         boolean NOT NULL DEFAULT true,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT jkkn_identity_aliases_type_chk
+      CHECK (alias_type IN (
+        'roll_number', 'team_code', 'register_number',
+        'application_number', 'neet_roll', 'abc_id', 'legacy'
+      )),
+
+    CONSTRAINT jkkn_identity_aliases_value_chk
+      CHECK (btrim(alias_value) <> ''),
+
+    CONSTRAINT jkkn_identity_aliases_window_chk
+      CHECK (valid_from IS NULL OR valid_to IS NULL OR valid_to >= valid_from),
+
+    -- A closed row is not current. Enforcing it here means a reader can
+    -- trust is_current without also re-deriving it from the dates.
+    CONSTRAINT jkkn_identity_aliases_current_chk
+      CHECK (valid_to IS NULL OR is_current = false)
+);
+
+COMMENT ON TABLE public.jkkn_identity_aliases IS
+  'Every other number a person is known by — roll number, Team Code, university register number, application number, NEET roll, ABC ID, legacy. The JKKN ID does not replace these; externally mandated numbers such as Anna University register numbers are owned by the awarding body and only ever mirrored here.';
+COMMENT ON COLUMN public.jkkn_identity_aliases.alias_type IS
+  'roll_number | team_code | register_number | application_number | neet_roll | abc_id | legacy. "team_code" is the identifier for a team member (the term "Staff ID" is not used).';
+COMMENT ON COLUMN public.jkkn_identity_aliases.is_current IS
+  'False once the alias has been closed. Rows are never deleted, so a 2026 roll number still resolves in 2040.';
+
+-- The spec's UNIQUE(alias_type, alias_value, academic_year, institution_id)
+-- would NOT hold: in a plain UNIQUE constraint two NULLs are distinct, so
+-- two identical roll numbers with no year recorded would both be accepted
+-- — which is the exact collision the constraint exists to stop. COALESCE
+-- sentinels make it enforceable on every PostgreSQL version (no reliance
+-- on 15+ NULLS NOT DISTINCT), and folding case/whitespace means 24ubac12
+-- and ' 24UBAC12 ' cannot both be issued.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identity_aliases_natural
+  ON public.jkkn_identity_aliases (
+    alias_type,
+    lower(btrim(alias_value)),
+    COALESCE(academic_year, -1),
+    COALESCE(institution_id, '00000000-0000-0000-0000-000000000000'::uuid)
+  );
+
+CREATE INDEX IF NOT EXISTS idx_jkkn_identity_aliases_identity
+  ON public.jkkn_identity_aliases (jkkn_identity_id);
+CREATE INDEX IF NOT EXISTS idx_jkkn_identity_aliases_lookup
+  ON public.jkkn_identity_aliases (lower(btrim(alias_value)));
+

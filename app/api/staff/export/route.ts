@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
         id, 
         category_name
       ),
-      institution:institutions(
+      institution:institutions!staff_institution_id_fkey(
         id, 
         name, 
         counselling_code

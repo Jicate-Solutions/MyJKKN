@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 2 — usePremiumAudit hooks (React Query wrappers)
+// Premium Room Phase 2 — usePremiumAudit hooks (React Query wrappers)
 // ============================================================================
 // Service: lib/services/campus-living/hostel-premium-audit-service.ts
 // ============================================================================
