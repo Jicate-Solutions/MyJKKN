@@ -18,7 +18,8 @@ import type { BillCoverageRow } from '@/types/billing-coverage';
 // Any column outside the whitelist is therefore enableSorting: false.
 // Whitelist: full_name, roll_number, register_number, institution_name,
 // program_name, semester_section, academic_year_name, accommodation_type,
-// lifecycle_status, gender, coverage_state, bill_count, total_billed.
+// lifecycle_status, gender, coverage_state, bill_count, total_billed,
+// total_paid.
 
 // ── Sizing ─────────────────────────────────────────────────────────────────
 // Widths are set per column rather than left to auto so the grid is readable
@@ -323,6 +324,29 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
       <div className='text-right font-medium tabular-nums'>
         {row.original.total_billed > 0 ? (
           formatCurrency(row.original.total_billed)
+        ) : (
+          <span className='font-normal text-muted-foreground'>—</span>
+        )}
+      </div>
+    )
+  },
+  {
+    accessorKey: 'total_paid',
+    id: 'total_paid',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Total Paid' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 190,
+    // Settled against the SAME bills Total Billed sums, so the two read as a
+    // pair and the balance is the difference. A learner with bills but no
+    // receipt shows ₹0, not an em dash — "nothing paid yet" is a real finding
+    // on this screen, while "no bill at all" is what the dash means.
+    cell: ({ row }) => (
+      <div className='text-right font-medium tabular-nums'>
+        {row.original.bill_count > 0 ? (
+          formatCurrency(row.original.total_paid)
         ) : (
           <span className='font-normal text-muted-foreground'>—</span>
         )}

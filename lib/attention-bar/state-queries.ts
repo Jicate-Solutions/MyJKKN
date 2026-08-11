@@ -220,6 +220,23 @@ function paramsFor(fnName: string, ctx: StateQueryContext): Record<string, unkno
       return { p_institution_id: ctx.institutionId ?? null };
     case 'fn_aqs_attendance_faculty_compliance_today':
       return { p_user_id: ctx.userId };
+    // fn_aqs_attendance_unmarked_periods_range is DELIBERATELY ABSENT.
+    //
+    // It shares the fn_aqs_ prefix and the timetable grain of the today
+    // function above, so it looks like it belongs here — it does not, for two
+    // reasons that would each break something if it were added:
+    //
+    //   1. It takes REQUIRED p_from / p_to dates. StateQueryContext carries
+    //      only userId / role / institutionId, so this switch would have to
+    //      invent a range, and every Layer-2 rule reading the key would then
+    //      be evaluating a window nobody chose.
+    //   2. Layer 2 runs on an 80ms total budget (TOTAL_BUDGET_MS below). The
+    //      range function fans a timetable scan out across up to 366 days and
+    //      is built for a page the user waits on, not for the attention bar.
+    //
+    // It is called directly from
+    // app/(routes)/academic/attendance/history/_components/unmarked-history-client.tsx,
+    // through the browser client so its identity guard sees the real auth.uid().
     default:
       return {};
   }

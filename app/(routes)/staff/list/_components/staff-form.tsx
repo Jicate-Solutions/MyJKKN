@@ -34,7 +34,7 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CategoryService } from '@/lib/services/staff/category-service';
 
@@ -552,17 +552,66 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     } catch (error) {
       console.error('Form submission error:', error);
 
-      // Extract the error message
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to save staff';
+      // getErrorMessage, NOT `error instanceof Error`. Supabase errors are
+      // plain objects ({code, details, hint, message}), so the instanceof test
+      // is always false and every branch below used to compare against the
+      // literal fallback string — the whole ladder was dead code and a
+      // constraint violation surfaced as "Failed to save staff: Failed to save
+      // staff". (2026-08-09, reported against staff_biometric_uq.)
+      const errorMessage = getErrorMessage(error);
 
-      // Handle specific validation errors
-      if (
+      // Named-constraint branches first: the index name is the only reliable
+      // discriminator. A substring test on the prose ("duplicate key … staff_id")
+      // also matches staff_biometric_uq, whose definition contains no field
+      // list at all.
+      if (errorMessage.includes('staff_biometric_uq')) {
+        // Resolve who holds the code before reporting. The normaliser folds
+        // leading zeros, so the operator can collide with a code they never
+        // typed; naming the holder is the difference between an error and an
+        // instruction.
+        const code = (form.getValues('biometric_id') ?? '').trim();
+        const machineId = form.getValues('biometric_institution_id') ?? '';
+        const machine = institutions.find((i) => i.id === machineId);
+        const holder = await StaffService.findBiometricConflict(code, machineId).catch(
+          () => null
+        );
+
+        form.setError('biometric_id', {
+          type: 'manual',
+          message: holder
+            ? `Already used by ${holder.name}${holder.staff_id ? ` (${holder.staff_id})` : ''} on this machine.`
+            : 'Already used by another staff member on this machine.'
+        });
+
+        toast.error(
+          holder
+            ? `Biometric code "${code}" is already enrolled to ${holder.name}${
+                holder.staff_id ? ` (${holder.staff_id})` : ''
+              }${machine ? ` on ${machine.name}` : ''}. Leading zeros are ignored, so 00002 and 2 are the same code.`
+            : `Biometric code "${code}" is already enrolled on this machine. Leading zeros are ignored, so 00002 and 2 are the same code.`
+        );
+      } else if (
         errorMessage.includes('staff_staff_id_key') ||
         (errorMessage.includes('duplicate key') &&
           errorMessage.includes('staff_id'))
       ) {
+        form.setError('staff_id', {
+          type: 'manual',
+          message: 'This Staff ID is already taken.'
+        });
         toast.error('Staff ID already exists. Please use a different ID.');
+      } else if (errorMessage.includes('staff_institution_email_key')) {
+        form.setError('institution_email', {
+          type: 'manual',
+          message: 'This institution email is already registered.'
+        });
+        toast.error('That institution email is already registered to another staff member.');
+      } else if (errorMessage.includes('staff_email_key')) {
+        form.setError('email', {
+          type: 'manual',
+          message: 'This email is already registered.'
+        });
+        toast.error('That email is already registered to another staff member.');
       }
       // Check for other common validation patterns
       else if (
