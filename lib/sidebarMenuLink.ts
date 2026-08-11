@@ -897,7 +897,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
+  '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
+  // Added 2026-08-10 — read-only review worklist for agency credits that need a
+  // human look. Gated on the enquiry-desk read permission, matching its RPC.
+  '/admission/consultants/review-worklist': 'admission.leads.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
   // Schools Network (2026-06-30) — track external K-12 schools the org engages
@@ -2260,9 +2264,21 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/payouts'
             },
             {
+              href: '/admission/consultants/reconciliation',
+              label: 'Reconciliation',
+              active: pathname === '/admission/consultants/reconciliation'
+            },
+            {
               href: '/admission/consultants/referrals',
               label: 'Referrals',
               active: pathname === '/admission/consultants/referrals'
+            },
+            {
+              // Added 2026-08-10 — read-only queue of agency credits to review
+              // before any referral rate is switched on.
+              href: '/admission/consultants/review-worklist',
+              label: 'Review Worklist',
+              active: pathname === '/admission/consultants/review-worklist'
             },
             {
               href: '/admission/consultants/rewards',

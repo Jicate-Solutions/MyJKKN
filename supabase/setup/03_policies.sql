@@ -8809,6 +8809,105 @@ DROP POLICY IF EXISTS alsa_select ON public.admission_lead_source_audit;
 CREATE POLICY alsa_select ON public.admission_lead_source_audit
 FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('admission.leads.view'));
 
+-- Updated: 2026-08-10 - Referral attribution + quota audit trail
+-- (referral_attribution_audit). READ-ONLY policy by design. The table is written
+-- exclusively by trg_audit_learner_referral_attribution, whose SECURITY DEFINER
+-- function runs as the owner; a trail a client can write to, edit or delete is
+-- not evidence of anything, so no INSERT/UPDATE/DELETE policy is granted and no
+-- write privilege is held. See migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- (FILE ONLY, NOT APPLIED).
+--
+-- Supabase default-grants ALL on every new table to anon AND authenticated, so a
+-- bare GRANT SELECT is a silent no-op. Revoke both first, then grant back only
+-- SELECT.
+REVOKE ALL ON TABLE public.referral_attribution_audit FROM anon, PUBLIC, authenticated;
+GRANT SELECT ON TABLE public.referral_attribution_audit TO authenticated;
+
+ALTER TABLE public.referral_attribution_audit ENABLE ROW LEVEL SECURITY;
+
+-- Read is gated on the same key that opens the leads the trail is about, so
+-- nobody gains sight of referral attribution here that they could not already
+-- see on the lead itself.
+--
+-- 🔴 Deliberately NOT institution-scoped. The table holds no institution_id (its
+-- subject is a learner id and nothing else), so this is a flat permission test:
+-- whoever holds admission.leads.view sees every institution's rows. That matches
+-- how the admission desk already works — admission and counselor roles are
+-- institution_scope='all' — but an own-scoped role granted this key in future
+-- would read across colleges. Scoping it later means joining
+-- learners_profiles.institution_id, which is a change to make deliberately.
+DROP POLICY IF EXISTS referral_attribution_audit_select ON public.referral_attribution_audit;
+CREATE POLICY referral_attribution_audit_select ON public.referral_attribution_audit
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(public.is_super_admin(), false)
+        OR COALESCE(public.is_admin(), false)
+        OR COALESCE(public.user_has_permission('admission.leads.view'), false)
+    );
+
+-- Updated: 2026-08-10 - Referral integrity: reconciliation + pair scoring RLS.
+-- Read is the same key that gates the page (commissions.view) so a user never
+-- sees the page and is then denied its data. Writing a reconciliation is the
+-- Registrar's desk (commissions.manage). Writing a pair score directly is
+-- admin-only — the score is meant to be produced by the functions, not typed.
+-- The anon lock lives in the migration:
+-- supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- (FILE ONLY, NOT APPLIED).
+ALTER TABLE public.referral_reconciliation_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_recon_sessions_read ON public.referral_reconciliation_sessions;
+CREATE POLICY referral_recon_sessions_read ON public.referral_reconciliation_sessions
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_recon_sessions_write ON public.referral_reconciliation_sessions;
+CREATE POLICY referral_recon_sessions_write ON public.referral_reconciliation_sessions
+    FOR ALL USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    );
+
+ALTER TABLE public.referral_reconciliation_claims ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_recon_claims_read ON public.referral_reconciliation_claims;
+CREATE POLICY referral_recon_claims_read ON public.referral_reconciliation_claims
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_recon_claims_write ON public.referral_reconciliation_claims;
+CREATE POLICY referral_recon_claims_write ON public.referral_reconciliation_claims
+    FOR ALL USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    );
+
+ALTER TABLE public.referral_pair_scores ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_pair_scores_read ON public.referral_pair_scores;
+CREATE POLICY referral_pair_scores_read ON public.referral_pair_scores
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_pair_scores_write ON public.referral_pair_scores;
+CREATE POLICY referral_pair_scores_write ON public.referral_pair_scores
+    FOR ALL USING (is_super_admin() OR is_admin())
+    WITH CHECK (is_super_admin() OR is_admin());
+
 -- =====================================================================
 -- Updated: 2026-08-10 - JKKN permanent identity register
 -- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql

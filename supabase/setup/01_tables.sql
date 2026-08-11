@@ -7010,6 +7010,119 @@ ALTER TABLE public.admission_lead_source_audit ENABLE ROW LEVEL SECURITY;
 REVOKE ALL   ON public.admission_lead_source_audit FROM anon, PUBLIC;
 GRANT  SELECT ON public.admission_lead_source_audit TO authenticated;
 
+-- Updated: 2026-08-10 - Referral attribution + quota audit trail on the LEARNER
+-- record (referral_attribution_audit). Companion to admission_lead_source_audit,
+-- which watches the same kind of change on the lead; a credit attached directly
+-- on learners_profiles was invisible to that trigger because it is bound to a
+-- different table. Also covers quota_id + counseling_applied — the
+-- Direct-versus-Counselling distinction that decides whether a referral is
+-- payable at all.
+--
+-- The companion is live on production (hand-applied via the Management API on
+-- 2026-08-06, and it has already captured a real change) but is NOT yet in this
+-- repository — PR #2889 back-fills it, so grepping for it here returns nothing.
+-- Rebuilt from the repo alone today, neither trail would exist until #2889
+-- merges and both are applied.
+--
+-- One row per FIELD that actually changed, never one per UPDATE statement.
+-- learner_profile_id carries NO foreign key on purpose: ON DELETE CASCADE would
+-- erase the trail exactly when it matters and ON DELETE RESTRICT would let the
+-- trail block a legitimate deletion — an audit row must be able to outlive its
+-- subject. old_value/new_value are text for every field because uuid and boolean
+-- both render losslessly, so one pair of columns beats five typed pairs that are
+-- NULL four times in five.
+--
+-- Written ONLY by trg_audit_learner_referral_attribution (SECURITY DEFINER);
+-- no client holds INSERT, UPDATE or DELETE, and there is deliberately no policy
+-- for them. The anon lock and the narrow authenticated re-grant live with the
+-- policies in 03_policies.sql. See migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- — FILE ONLY, NOT APPLIED.
+CREATE TABLE IF NOT EXISTS public.referral_attribution_audit (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    learner_profile_id UUID        NOT NULL,
+    changed_field      TEXT        NOT NULL,
+    old_value          TEXT,
+    new_value          TEXT,
+    changed_by         UUID,
+    changed_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Three read shapes, three indexes: one learner's history, the recent-activity
+-- feed, and "what has this person been changing". The changed_by index is
+-- partial because system/cron writes are NULL by design and expected to be the
+-- bulk of the table.
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_learner_idx
+    ON public.referral_attribution_audit (learner_profile_id, changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_at_idx
+    ON public.referral_attribution_audit (changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS referral_attribution_audit_changed_by_idx
+    ON public.referral_attribution_audit (changed_by, changed_at DESC)
+    WHERE changed_by IS NOT NULL;
+
+-- Updated: 2026-08-10 - Referral integrity: Registrar reconciliation + pair scoring.
+-- The Registrar (a different office from the admission desk) enters an agency's
+-- OWN list of learners; the platform compares it against the credits it already
+-- holds and surfaces the disagreements. referral_pair_scores is keyed on the
+-- (team member, agency) PAIR because one person spreading fabricated credits
+-- across several agencies looks clean on every individual agency row.
+-- See migration supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- — FILE ONLY, NOT APPLIED. Nothing here pays, generates or approves anything.
+
+CREATE TABLE IF NOT EXISTS public.referral_reconciliation_sessions (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    consultant_id UUID        NOT NULL REFERENCES public.education_consultants(id),
+    academic_year INTEGER     NOT NULL,               -- 2025 = the "2025-26" intake
+    conducted_by  UUID        REFERENCES public.profiles(id),
+    conducted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes         TEXT,
+    status        TEXT        NOT NULL DEFAULT 'draft'
+                              CHECK (status IN ('draft', 'submitted')),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- source: 'agency' rows are typed in from the agency's list; 'system' rows are
+-- added by fn_reconcile_referral_session to represent learners the platform
+-- credits but the agency never claimed — without them the three buckets would
+-- not be a complete partition. Re-running reconcile replaces only 'system' rows.
+CREATE TABLE IF NOT EXISTS public.referral_reconciliation_claims (
+    id                 UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id         UUID        NOT NULL REFERENCES public.referral_reconciliation_sessions(id) ON DELETE CASCADE,
+    claimed_name       TEXT,
+    claimed_phone      TEXT,
+    matched_learner_id UUID        REFERENCES public.learners_profiles(id),
+    match_confidence   TEXT,       -- 'phone' | 'name' | 'none'
+    bucket             TEXT        CHECK (bucket IN ('agreed', 'credited_not_claimed', 'claimed_not_credited')),
+    evidence_note      TEXT,
+    has_dated_proof    BOOLEAN     NOT NULL DEFAULT false,
+    evidence_status    TEXT        CHECK (evidence_status IN
+                                   ('agency_confirmed', 'agency_does_not_recognise', 'agency_has_dated_proof')),
+    source             TEXT        NOT NULL DEFAULT 'agency' CHECK (source IN ('agency', 'system')),
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.referral_pair_scores (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_member_id    UUID        NOT NULL REFERENCES public.profiles(id),
+    consultant_id     UUID        NOT NULL REFERENCES public.education_consultants(id),
+    credits_total     INTEGER     NOT NULL DEFAULT 0,
+    credits_confirmed INTEGER     NOT NULL DEFAULT 0,
+    credits_disputed  INTEGER     NOT NULL DEFAULT 0,
+    risk_level        TEXT        NOT NULL DEFAULT 'normal'
+                                  CHECK (risk_level IN ('normal', 'watch', 'red')),
+    frozen            BOOLEAN     NOT NULL DEFAULT false,
+    frozen_at         TIMESTAMPTZ,
+    frozen_by         UUID        REFERENCES public.profiles(id),
+    frozen_reason     TEXT,
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT referral_pair_scores_pair_unique UNIQUE (team_member_id, consultant_id)
+);
+
 -- =====================================================================
 -- Updated: 2026-08-10 - JKKN permanent identity register
 -- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
