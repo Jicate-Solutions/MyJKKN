@@ -165,7 +165,15 @@ export function CandidateValidationTable({
   // not in Campus Living.
   const feeResolved = candidates.filter((c) => c.band_fee != null).length;
   const noFee = candidates.length - feeResolved;
-  const willPlace = Math.min(eligible, availableBeds);
+  // Identical to `eligible` by construction: verdict 'in' now means the shared
+  // planner (the one Generate runs) actually assigned this learner a bed, with
+  // beds consumed as it goes. It used to be min(eligible, availableBeds), which
+  // was wrong in both directions — `eligible` was a per-learner reachability
+  // test that let a whole cohort claim the same free bed, and `availableBeds`
+  // is a cross-category whole-hostel-type total that counts Deluxe beds a
+  // Classic-band learner can never occupy. Kept as its own stat because "will
+  // place" is the number the operator acts on.
+  const willPlace = eligible;
   // How many of the eligible are only placeable because overflow is on — i.e.
   // every room reserved for their cohort was full. Worth surfacing: it is the
   // number a warden would otherwise have had to place by hand.
@@ -265,7 +273,8 @@ export function CandidateValidationTable({
     const q = search.trim().toLowerCase();
     return candidates.filter((c) => {
       if (q) {
-        const hay = `${c.full_name} ${c.email ?? ''} ${c.program_name ?? ''}`.toLowerCase();
+        const hay =
+          `${c.full_name} ${c.roll_number ?? ''} ${c.email ?? ''} ${c.program_name ?? ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (verdict !== ALL && c.verdict !== verdict) return false;
@@ -423,7 +432,7 @@ export function CandidateValidationTable({
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Name, email or program"
+                  placeholder="Name, roll no, email or program"
                   className="h-9"
                 />
               </div>
@@ -524,6 +533,11 @@ export function CandidateValidationTable({
                   <tr key={c.learner_id} className="border-b align-middle last:border-0">
                     <td className="py-2 pr-3">
                       <div className="font-medium">{c.full_name}</div>
+                      {/* Names collide and get re-typed across bulk uploads — the roll
+                          number is the key a warden reconciles this preview against. */}
+                      <div className="font-mono text-xs text-foreground/70">
+                        {c.roll_number ?? '—'}
+                      </div>
                       <div className="text-xs text-muted-foreground">{c.program_name ?? '—'}</div>
                       {c.institution_name && (
                         <div className="text-xs text-muted-foreground/80">{c.institution_name}</div>

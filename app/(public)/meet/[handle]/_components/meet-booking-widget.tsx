@@ -26,7 +26,11 @@ import {
   Video,
 } from 'lucide-react';
 import { getBookingPixelConfig } from '@/lib/services/analytics/booking-pixel-service';
-import { groupPurposes, type PurposeChoice } from '@/lib/services/meetings/group-purposes';
+import {
+  groupPurposes,
+  purposeDurationLabel,
+  type PurposeChoice,
+} from '@/lib/services/meetings/group-purposes';
 
 interface MeetingTypeOption {
   id: string;
@@ -677,7 +681,7 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                 <span className="flex items-center justify-between gap-2">
                   <span className="text-sm font-semibold">{p.label}</span>
                   <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
-                    <Clock className="h-3.5 w-3.5" aria-hidden /> {p.durationMin} min
+                    <Clock className="h-3.5 w-3.5" aria-hidden /> {purposeDurationLabel(p)}
                   </span>
                 </span>
                 {p.description && (
@@ -711,7 +715,11 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
             >
               <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> {selectedPurpose.label}
             </button>
-            <p className="text-sm font-medium">How would you like to meet?</p>
+            <p className="text-sm font-medium">
+              {selectedPurpose.hasMixedDurations
+                ? 'How long, and how would you like to meet?'
+                : 'How would you like to meet?'}
+            </p>
             {selectedPurpose.options.map((mt) => (
               <button
                 key={mt.id}
@@ -721,6 +729,10 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                 className="rounded-lg border border-[#0E4D34]/20 bg-white px-4 py-3.5 text-left transition-colors hover:border-[#0E4D34]/60 disabled:opacity-60"
               >
                 <span className="block text-sm font-semibold">
+                  {/* The purpose card lists every length this purpose offers,
+                      so each option has to say which one IT is — otherwise the
+                      booker picks a length without being told. */}
+                  {selectedPurpose.hasMixedDurations && <>{mt.durationMin} min · </>}
                   <LocationLine mt={mt} />
                 </span>
                 <span className="mt-1.5 block text-xs text-[#1C2B24]/60">

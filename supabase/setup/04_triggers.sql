@@ -1791,3 +1791,55 @@ DROP TRIGGER IF EXISTS trigger_update_bill_balance_on_amount_change
 CREATE TRIGGER trigger_update_bill_balance_on_amount_change
   BEFORE UPDATE ON public.billing_student_bills
   FOR EACH ROW EXECUTE FUNCTION public.update_bill_balance_on_amount_change();
+
+
+-- Referral attribution + quota audit on the LEARNER record. A referral credit
+-- can be attached in two places — on the lead (audited into
+-- admission_lead_source_audit) and directly on learners_profiles, which nothing
+-- watched. Also covers quota_id + counseling_applied, the Direct-versus-
+-- Counselling distinction that decides whether a referral is payable at all.
+--
+-- Note on the lead-side trail: it is live on production (hand-applied via the
+-- Management API on 2026-08-06, and it has already captured a real change) but
+-- is NOT yet in this repository — PR #2889 back-fills it. Grepping for
+-- admission_lead_source_audit here returns nothing, and that is expected. This
+-- trigger is its sibling; rebuilt from the repo alone today, neither would
+-- exist until #2889 merges and both are applied.
+--
+-- AFTER, so the row is already final and no failure here can undo it. UPDATE OF
+-- the five watched columns, so an unrelated edit never enters the function.
+--
+-- INSERT is deliberately not watched: a learner created with a referrer already
+-- attached has changed nothing, and auditing creation would file every
+-- conversion as an attribution edit and bury the real ones. DELETE is not
+-- watched either — there would be no learner left to read the row back against.
+--
+-- 🔴 Purely additive, so it cannot interfere with
+-- trg_sync_learner_referral_to_attribution on the same table, which DELETES the
+-- prior attribution row when referred_by_id changes. Body lives in
+-- 02_functions.sql.
+-- Added: 2026-08-10 (migration
+--        supabase/migrations/20260818030000_extend_referral_source_audit.sql
+--        — FILE ONLY, NOT APPLIED)
+
+DROP TRIGGER IF EXISTS trg_audit_learner_referral_attribution ON public.learners_profiles;
+CREATE TRIGGER trg_audit_learner_referral_attribution
+  AFTER UPDATE OF referral_type, referred_by_id, referred_by_name, quota_id, counseling_applied
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_audit_learner_referral_attribution();
+
+-- =====================================================================
+-- Updated: 2026-08-10 - JKKN permanent identity register: updated_at
+-- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
+-- FILE ONLY / NOT APPLIED to production as of 2026-08-10.
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_jkkn_identities_updated_at ON public.jkkn_identities;
+CREATE TRIGGER trg_jkkn_identities_updated_at
+  BEFORE UPDATE ON public.jkkn_identities
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_jkkn_identity_aliases_updated_at ON public.jkkn_identity_aliases;
+CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
+  BEFORE UPDATE ON public.jkkn_identity_aliases
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
