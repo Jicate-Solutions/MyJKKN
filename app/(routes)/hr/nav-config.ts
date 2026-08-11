@@ -274,6 +274,7 @@ const config: ModuleNavConfig = {
         '/hr/admin',
         '/hr/admin/leave-types',
         '/hr/admin/leave-balances',
+        '/hr/admin/academic-years',
         '/hr/admin/sanctioned-posts',
         '/hr/attendance/import',
         '/hr/attendance/regularize/approvals',

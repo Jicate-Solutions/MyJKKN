@@ -176,11 +176,16 @@ export function AllPulseTable({ institutions, departments }: AllPulseTableProps)
         getColumns={() => getPulseColumns(handleView) as any}
         exportConfig={{
           entityName: 'work-pulse-submissions',
+          // `headers` are DATA KEYS; `columnMapping` supplies the labels.
+          // Declaring the labels here matched nothing on the row and exported
+          // an empty file — the same defect fixed on
+          // /academic/attendance/pending. user/department/institution live on
+          // nested relations, so transformFunction flattens them first.
           columnMapping: {
-            user: 'User',
+            user_name: 'User',
             role: 'Role',
-            department: 'Department',
-            institution: 'Institution',
+            department_name: 'Department',
+            institution_name: 'Institution',
             week_of: 'Week Of',
             talent_waste_category: 'Talent Waste Category',
             talent_waste_description: 'Talent Waste Description',
@@ -192,10 +197,22 @@ export function AllPulseTable({ institutions, departments }: AllPulseTableProps)
             { wch: 12 }, { wch: 25 }, { wch: 40 }, { wch: 25 }, { wch: 40 },
           ],
           headers: [
-            'User', 'Role', 'Department', 'Institution', 'Week Of',
-            'Talent Waste Category', 'Talent Waste Description',
-            'Repetition Category', 'Repetition Description',
+            'user_name', 'role', 'department_name', 'institution_name', 'week_of',
+            'talent_waste_category', 'talent_waste_description',
+            'repetition_category', 'repetition_description',
           ],
+          transformFunction: ((row: AdminPulseEntry) => ({
+            user_name: row.profiles?.full_name ?? '',
+            role: row.role ?? '',
+            department_name: row.departments?.department_name ?? '',
+            institution_name: row.institutions?.name ?? '',
+            week_of: row.week_of ?? '',
+            talent_waste_category: row.talent_waste_category ?? '',
+            talent_waste_description: row.talent_waste_description ?? '',
+            repetition_category: row.repetition_category ?? '',
+            repetition_description: row.repetition_description ?? '',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          })) as any,
         }}
         idField="id"
         config={{

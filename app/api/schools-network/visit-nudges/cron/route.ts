@@ -29,6 +29,17 @@ import { fanoutNotification } from '@/lib/services/_shared/notifications/notify'
 
 const REALERT_DAYS = 7;
 const WORKLIST_URL = '/admission/schools-network/worklist';
+// 2026-08-10 expiry. 148 of these accumulated unexpired in 14 days: the cron
+// runs daily, so a school still needing a visit is restated every REALERT_DAYS
+// forever, and every edition stayed in the bell.
+//
+// The TTL is DERIVED from REALERT_DAYS rather than written as a literal, because
+// the re-nudge gap — not the daily cron tick — is the cycle this row restates,
+// and the two must never drift: a TTL shorter than the realert window would
+// leave the coordinator with no live nudge for the remaining days of it, which
+// is worse than the accumulation being fixed here. 1.5x buys the same tolerance
+// of a late run as 20260816040000, and caps the stack at 2.
+const NUDGE_TTL_MS = Math.round(REALERT_DAYS * 24 * 3600_000 * 1.5);
 
 type Candidate = {
   school_id: string;
@@ -104,6 +115,13 @@ export async function GET(request: NextRequest): Promise<Response> {
         idempotencyKey: `sn_visit_nudge:${c.school_id}:${today}`,
         source: 'schools-network-visit-nudges',
         metadata: { school_id: c.school_id, reason: c.reason, cycle_delta: c.cycle_delta },
+        // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
+        // admin/manage/stats reads deliberately still show lapsed rows. Passed
+        // through extraColumns because fanoutNotification has no first-class
+        // expiry field — same shape as app/api/cron/loop-watchdog/route.ts.
+        extraColumns: {
+          expires_at: new Date(Date.now() + NUDGE_TTL_MS).toISOString(),
+        },
       });
       if (res.skipped === 'idempotent') skipped++;
       else notified++;

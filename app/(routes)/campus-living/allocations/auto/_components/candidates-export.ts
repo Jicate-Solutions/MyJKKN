@@ -26,6 +26,8 @@ export interface CandidatesExportContext {
   hostelType: string;
   /** The Strict physical rules toggle at the time of the preview. */
   strict: boolean;
+  /** The overflow toggle the preview ran with — changes which rows are 'In'. */
+  allowOverflow: boolean;
   /** Page-level cohort selection, pre-labelled (e.g. 'Institution: JKKN Dental'). */
   scope: string[];
   /** Table-level active filters, pre-labelled. [] => none. */
@@ -61,6 +63,7 @@ function contextLines(ctx: CandidatesExportContext, exported: number): string[][
   return [
     ['Hostel type', typeLabel(ctx.hostelType)],
     ['Strict physical rules', ctx.strict ? 'On' : 'Off'],
+    ['Overflow to unreserved rooms', ctx.allowOverflow ? 'On' : 'Off'],
     ['Cohort selection', ctx.scope.length ? ctx.scope.join('  ·  ') : 'All institutions / programs / semesters'],
     ['Table filters', ctx.filters.length ? ctx.filters.join('  ·  ') : 'None (all preview rows)'],
     ['Rows exported', `${exported} of ${ctx.totalCandidates} candidates`],

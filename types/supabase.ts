@@ -39232,6 +39232,60 @@ export type Database = {
         }
         Relationships: []
       }
+      hr_academic_years: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          end_date: string
+          id: string
+          is_active: boolean
+          notes: string | null
+          start_date: string
+          updated_at: string
+          updated_by: string | null
+          year_name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          end_date: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          start_date: string
+          updated_at?: string
+          updated_by?: string | null
+          year_name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          end_date?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          start_date?: string
+          updated_at?: string
+          updated_by?: string | null
+          year_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_academic_years_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_academic_years_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_additional_role_types: {
         Row: {
           created_at: string
@@ -41889,6 +41943,7 @@ export type Database = {
           end_time: string | null
           final_approver_id: string | null
           final_decided_at: string | null
+          hr_academic_year_id: string | null
           hr_organization_id: string
           id: string
           is_emergency: boolean
@@ -41915,6 +41970,7 @@ export type Database = {
           end_time?: string | null
           final_approver_id?: string | null
           final_decided_at?: string | null
+          hr_academic_year_id?: string | null
           hr_organization_id: string
           id?: string
           is_emergency?: boolean
@@ -41941,6 +41997,7 @@ export type Database = {
           end_time?: string | null
           final_approver_id?: string | null
           final_decided_at?: string | null
+          hr_academic_year_id?: string | null
           hr_organization_id?: string
           id?: string
           is_emergency?: boolean
@@ -41960,6 +42017,13 @@ export type Database = {
             columns: ["academic_year_id"]
             isOneToOne: false
             referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_applications_hr_academic_year_id_fkey"
+            columns: ["hr_academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "hr_academic_years"
             referencedColumns: ["id"]
           },
           {
@@ -42057,33 +42121,36 @@ export type Database = {
       }
       hr_leave_balances: {
         Row: {
-          academic_year_id: string
+          academic_year_id: string | null
           carried_forward: number
           created_at: string
           employee_id: string
           entitled: number
+          hr_academic_year_id: string
           hr_organization_id: string
           leave_type_id: string
           updated_at: string
           used: number
         }
         Insert: {
-          academic_year_id: string
+          academic_year_id?: string | null
           carried_forward?: number
           created_at?: string
           employee_id: string
           entitled?: number
+          hr_academic_year_id: string
           hr_organization_id: string
           leave_type_id: string
           updated_at?: string
           used?: number
         }
         Update: {
-          academic_year_id?: string
+          academic_year_id?: string | null
           carried_forward?: number
           created_at?: string
           employee_id?: string
           entitled?: number
+          hr_academic_year_id?: string
           hr_organization_id?: string
           leave_type_id?: string
           updated_at?: string
@@ -42095,6 +42162,13 @@ export type Database = {
             columns: ["academic_year_id"]
             isOneToOne: false
             referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_balances_hr_academic_year_id_fkey"
+            columns: ["hr_academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "hr_academic_years"
             referencedColumns: ["id"]
           },
           {
@@ -42201,12 +42275,13 @@ export type Database = {
       }
       hr_leave_encashments: {
         Row: {
-          academic_year_id: string
+          academic_year_id: string | null
           approved_at: string | null
           approved_by: string | null
           created_at: string
           days_encashed: number
           employee_id: string
+          hr_academic_year_id: string
           hr_organization_id: string
           id: string
           leave_type_id: string
@@ -42218,12 +42293,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          academic_year_id: string
+          academic_year_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           created_at?: string
           days_encashed: number
           employee_id: string
+          hr_academic_year_id: string
           hr_organization_id: string
           id?: string
           leave_type_id: string
@@ -42235,12 +42311,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          academic_year_id?: string
+          academic_year_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           created_at?: string
           days_encashed?: number
           employee_id?: string
+          hr_academic_year_id?: string
           hr_organization_id?: string
           id?: string
           leave_type_id?: string
@@ -42257,6 +42334,13 @@ export type Database = {
             columns: ["academic_year_id"]
             isOneToOne: false
             referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_encashments_hr_academic_year_id_fkey"
+            columns: ["hr_academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "hr_academic_years"
             referencedColumns: ["id"]
           },
           {

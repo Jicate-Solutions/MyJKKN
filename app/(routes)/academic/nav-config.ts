@@ -134,6 +134,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/academic/attendance/pending'],
         },
         {
+          label: 'Unmarked History',
+          icon: 'History',
+          href: '/academic/attendance/history',
+          matchPaths: ['/academic/attendance/history'],
+        },
+        {
           label: 'Reports',
           icon: 'FileBarChart',
           href: '/academic/attendance/reports',
