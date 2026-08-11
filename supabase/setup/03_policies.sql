@@ -8795,6 +8795,20 @@ CREATE POLICY hr_academic_years_delete_manage ON public.hr_academic_years
         OR (SELECT user_has_permission('hr.academic_years.manage'))
     );
 
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
+-- Read-only to admission-lead viewers; the table is written only by the
+-- SECURITY DEFINER trigger fn_audit_admission_lead_source (bypasses RLS),
+-- so there is no INSERT/UPDATE/DELETE policy by design.
+-- Table -> setup/01_tables.sql; fn -> setup/02_functions.sql.
+-- =====================================================================
+DROP POLICY IF EXISTS alsa_select ON public.admission_lead_source_audit;
+CREATE POLICY alsa_select ON public.admission_lead_source_audit
+FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('admission.leads.view'));
+
 -- Updated: 2026-08-10 - Referral attribution + quota audit trail
 -- (referral_attribution_audit). READ-ONLY policy by design. The table is written
 -- exclusively by trg_audit_learner_referral_attribution, whose SECURITY DEFINER

@@ -893,6 +893,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
@@ -2240,6 +2241,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/referral-rates',
               label: 'Rates & Generate',
               active: pathname === '/admission/consultants/referral-rates'
+            },
+            {
+              href: '/admission/consultants/unlinked-referrals',
+              label: 'Unlinked Referrals',
+              active: pathname === '/admission/consultants/unlinked-referrals'
             },
             {
               href: '/admission/consultants/import',
