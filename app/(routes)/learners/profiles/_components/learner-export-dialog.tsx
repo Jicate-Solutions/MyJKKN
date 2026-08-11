@@ -289,8 +289,14 @@ interface LearnerExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filters: ProfilesSearchParams;
-  /** Passed from parent to lock lifecycle_status (e.g. 'active' | 'inactive' | 'exited') */
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  /**
+   * Passed from the parent to lock lifecycle_status to the selected tab.
+   * Typed as the full LifecycleStatus union rather than a hand-listed subset —
+   * the old three-value copy silently excluded 'reserved' and 'admitted' once
+   * those became tabs, and it feeds straight into `.eq('lifecycle_status', …)`.
+   * The parent maps the 'all' tab to undefined before this point.
+   */
+  statusFilter?: LifecycleStatus;
 }
 
 // ============================================

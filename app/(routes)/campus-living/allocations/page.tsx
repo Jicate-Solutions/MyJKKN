@@ -22,12 +22,16 @@ import {
 import { NotAllocatedTab } from './_components/not-allocated-tab';
 import { AllAllocationsTab } from './_components/all-allocations-tab';
 import {
-  Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck, Eye,
+  Plus, BedDouble, Loader2, Users, ArrowRightLeft, History, UserCheck, Eye,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   active: { label: 'Active', variant: 'success' },
-  vacated: { label: 'Vacated', variant: 'secondary' },
+  // 'vacated' is the DB status, but on this screen it only ever means "this row
+  // was superseded by a later allocation" — the learner is still resident. Label
+  // it as history so the status badge, the filter chip and the summary card all
+  // say the same thing.
+  vacated: { label: 'Past Allocation', variant: 'secondary' },
   transferred: { label: 'Transferred', variant: 'outline' },
   pending_approval: { label: 'Pending', variant: 'default' },
   pending_vacate: { label: 'Pending Vacate', variant: 'default' },
@@ -245,7 +249,21 @@ function AllocationsPageInner() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <SummaryCard icon={<UserCheck className="h-8 w-8 text-green-600" />} value={counts.active} label="Active" />
               <SummaryCard icon={<ArrowRightLeft className="h-8 w-8 text-blue-600" />} value={counts.transfers} label="Transfers" />
-              <SummaryCard icon={<LogOut className="h-8 w-8 text-amber-600" />} value={counts.vacated} label="Vacated" />
+              {/* Labelled "Past Allocations", not "Vacated": these rows are the
+                  superseded PREVIOUS bed of a learner who has since been moved,
+                  not learners who left the hostel. hostel_allocations is
+                  append-only — a room change or transfer writes a new row and
+                  flips the old one to 'vacated' (see room-change-card.tsx). As
+                  of 2026-08-10 all 167 such rows belong to learners holding a
+                  current active allocation on a different bed, and every one has
+                  a NULL vacate_reason. Read as "vacated" it looks like a queue
+                  of departing learners, which it is not. */}
+              <SummaryCard
+                icon={<History className="h-8 w-8 text-amber-600" />}
+                value={counts.vacated}
+                label="Past Allocations"
+                hint="Superseded by a room change"
+              />
               <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
             </div>
 
@@ -310,14 +328,15 @@ export default function AllocationsPage() {
   );
 }
 
-function SummaryCard({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
+function SummaryCard({ icon, value, label, hint }: { icon: React.ReactNode; value: number; label: string; hint?: string }) {
   return (
     <Card>
       <CardContent className="p-4 flex items-center gap-3">
         {icon}
-        <div>
+        <div className="min-w-0">
           <p className="text-2xl font-bold">{value}</p>
           <p className="text-xs text-muted-foreground">{label}</p>
+          {hint && <p className="text-[11px] leading-tight text-muted-foreground/70">{hint}</p>}
         </div>
       </CardContent>
     </Card>

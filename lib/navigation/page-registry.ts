@@ -148,6 +148,10 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['unmarked attendance', 'pending', 'not yet marked'],
     description: 'View classes with pending attendance'
   },
+  '/academic/attendance/history': {
+    keywords: ['unmarked history', 'not marked', 'missed attendance', 'past unmarked', 'attendance gaps', 'last week unmarked'],
+    description: 'Sessions that went unmarked over a chosen date range'
+  },
   '/academic/attendance/reports': {
     keywords: ['attendance report', 'absence report', 'attendance export'],
     description: 'Generate attendance reports and exports'
