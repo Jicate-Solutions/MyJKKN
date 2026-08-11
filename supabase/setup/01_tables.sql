@@ -6979,6 +6979,37 @@ CREATE TABLE IF NOT EXISTS public.hr_academic_years (
 CREATE INDEX IF NOT EXISTS hr_academic_years_dates_idx
     ON public.hr_academic_years (start_date, end_date) WHERE is_active;
 
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL; this records it so
+--  the repo is not amnesiac and survives a DB rebuild).
+-- Records who/when/old->new for every change to source, source_detail,
+-- referral_type, referred_by_id, referred_by_name on admission_leads.
+-- RLS policy -> setup/03_policies.sql; audit fn -> setup/02_functions.sql;
+-- trigger -> setup/04_triggers.sql.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.admission_lead_source_audit (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_id            uuid NOT NULL,
+  learner_profile_id uuid,
+  changed_field      text NOT NULL,   -- source | source_detail | referral_type | referred_by_id | referred_by_name
+  old_value          text,
+  new_value          text,
+  changed_by         uuid,            -- auth.uid() of the editor (NULL for system/service-role writes)
+  changed_at         timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alsa_lead       ON public.admission_lead_source_audit(lead_id);
+CREATE INDEX IF NOT EXISTS idx_alsa_changed_at ON public.admission_lead_source_audit(changed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alsa_changed_by ON public.admission_lead_source_audit(changed_by);
+
+ALTER TABLE public.admission_lead_source_audit ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL   ON public.admission_lead_source_audit FROM anon, PUBLIC;
+GRANT  SELECT ON public.admission_lead_source_audit TO authenticated;
+
 -- =====================================================================
 -- Updated: 2026-08-10 - JKKN permanent identity register
 -- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
