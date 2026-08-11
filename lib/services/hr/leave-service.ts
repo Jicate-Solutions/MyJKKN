@@ -294,20 +294,44 @@ export class LeaveService {
     //   2. `error` was not destructured, so that 22P02 was swallowed, `balance`
     //      came back undefined, and `if (balance)` skipped the whole check.
     // Net effect once the module became reachable: employees could exceed
-    // their entitlement with no error at all. Null academic year now means
-    // `IS NULL`, not '', and the error is surfaced.
-    let balanceQuery = supabase
-      .from('hr_leave_balances')
-      .select('*')
-      .eq('employee_id', payload.employee_id)
-      .eq('leave_type_id', payload.leave_type_id);
+    // their entitlement with no error at all. Never reintroduce a `?? ''`
+    // here, and keep the error destructured.
+    //
+    // hr_leave_balances.hr_academic_year_id is part of the primary key and so
+    // is never null. When the caller omits the year, resolve the same one
+    // trg_hla_aa_default_hr_ay will stamp on the row — from start_date. Without
+    // this the trigger would file the application under a year whose balance
+    // this check never looked at, and the over-draw guard would be skipped for
+    // exactly the requests that most need it.
+    let resolvedYearId = payload.hr_academic_year_id ?? null;
 
-    balanceQuery = payload.academic_year_id
-      ? balanceQuery.eq('academic_year_id', payload.academic_year_id)
-      : balanceQuery.is('academic_year_id', null);
+    if (!resolvedYearId) {
+      const { data: yearRow, error: yearError } = await supabase
+        .from('hr_academic_years')
+        .select('id')
+        .eq('is_active', true)
+        .lte('start_date', payload.start_date)
+        .gte('end_date', payload.start_date)
+        .maybeSingle();
 
-    const { data: balance, error: balanceError } = await balanceQuery.maybeSingle();
-    if (balanceError) throw balanceError;
+      if (yearError) throw yearError;
+      resolvedYearId = yearRow?.id ?? null;
+    }
+
+    let balance: { entitled?: number; carried_forward?: number; used?: number } | null = null;
+
+    if (resolvedYearId) {
+      const { data, error: balanceError } = await supabase
+        .from('hr_leave_balances')
+        .select('*')
+        .eq('employee_id', payload.employee_id)
+        .eq('leave_type_id', payload.leave_type_id)
+        .eq('hr_academic_year_id', resolvedYearId)
+        .maybeSingle();
+
+      if (balanceError) throw balanceError;
+      balance = data;
+    }
 
     if (balance) {
       const available = (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
@@ -326,7 +350,11 @@ export class LeaveService {
       hr_organization_id: payload.hr_organization_id,
       employee_id: payload.employee_id,
       leave_type_id: payload.leave_type_id,
-      academic_year_id: payload.academic_year_id ?? null,
+      // Resolved above from start_date when the caller omitted it, so the row
+      // is filed under the same year the balance check just examined. Still
+      // safe if null — trg_hla_aa_default_hr_ay stamps it before the
+      // period-cap triggers read it.
+      hr_academic_year_id: resolvedYearId,
       start_date: payload.start_date,
       end_date: payload.end_date,
       duration_type: payload.duration_type,
@@ -504,7 +532,7 @@ export class LeaveService {
       hr_organization_id: app.hr_organization_id,
       employee_id: app.employee_id,
       leave_type_id: app.leave_type_id,
-      academic_year_id: app.academic_year_id,
+      hr_academic_year_id: app.hr_academic_year_id,
       start_date: app.start_date,
       end_date: app.end_date,
       duration_type: app.duration_type,
@@ -622,7 +650,7 @@ export class LeaveService {
   static async getBalance(
     supabase: SupabaseClient,
     employeeId: string,
-    academicYearId: string
+    hrAcademicYearId: string
   ): Promise<HRLeaveBalanceWithType[]> {
     const { data, error } = await supabase
       .from('hr_leave_balances')
@@ -641,7 +669,7 @@ export class LeaveService {
         )
       `)
       .eq('employee_id', employeeId)
-      .eq('academic_year_id', academicYearId);
+      .eq('hr_academic_year_id', hrAcademicYearId);
     if (error) throw error;
 
     return (data ?? []).map((row: Record<string, unknown>) => {
@@ -659,7 +687,7 @@ export class LeaveService {
       return {
         employee_id: row.employee_id as string,
         leave_type_id: row.leave_type_id as string,
-        academic_year_id: row.academic_year_id as string,
+        hr_academic_year_id: row.hr_academic_year_id as string,
         hr_organization_id: row.hr_organization_id as string,
         entitled: Number(row.entitled),
         used: Number(row.used),
@@ -733,7 +761,7 @@ export class LeaveService {
     payload: {
       hr_organization_id: string;
       employee_id: string;
-      academic_year_id: string;
+      hr_academic_year_id: string;
       leave_type_id: string;
       days_encashed: number;
       per_diem_rate: number;

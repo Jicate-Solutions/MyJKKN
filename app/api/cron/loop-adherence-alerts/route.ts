@@ -64,11 +64,17 @@ import { findingsFingerprint, staleThresholdMs } from '@/lib/ai-routines/loop-go
 // with no deploy, so a hardcoded 36h would silently invert the safety margin the
 // moment someone slowed the cadence down.
 // 1.5x absorbs a LATE run (up to half a cycle of slip still overlaps the
-// previous row) and caps the stack at 2. It does NOT cover a fully skipped
-// cycle: emissions would then be 2 cycles apart while the surviving row dies at
-// 1.5, leaving a half-cycle window with no live row. Accepted — the cost is a
-// bounded under-count of the bell on a day the routine did not run at all, and
-// the findings themselves live on /admin/ai-routines, not in the notification.
+// previous row). It does NOT cover a fully skipped cycle: emissions would then
+// be 2 cycles apart while the surviving row dies at 1.5, leaving a half-cycle
+// window with no live row. Accepted — the cost is a bounded under-count of the
+// bell on a day the routine did not run at all, and the findings themselves
+// live on /admin/ai-routines, not in the notification.
+// NB (corrected 2026-08-10): this does NOT "cap the stack at 2" for THIS
+// routine. That reasoning holds only for purely per-day keys (digest, hr_brief,
+// accreditation). Here the idempotency key is
+// `loop-adherence:<istDay>:<findingsFingerprint>`, so N distinct finding-sets in
+// one day produce N independently-expiring rows. The TTL bounds each row's
+// lifetime, not the count per day.
 const TTL_CYCLE_MULTIPLIER = 1.5;
 const OWN_ROUTINE_ID = 'loop-adherence';
 
@@ -318,7 +324,9 @@ export async function GET(request: NextRequest) {
       // expiry every edition stayed unread forever (25 of the Director's 680).
       // TTL = own cadence x 1.5, read from this routine's dispatcher row rather
       // than hardcoded (today: daily -> 25h x 1.5 = 37.5h). That absorbs a LATE
-      // run and caps the stack at 2; it does NOT cover a fully skipped cycle
+      // run; it does NOT cover a fully skipped cycle, and it does NOT cap the
+      // stack at 2 here — the key embeds a findings fingerprint, so N distinct
+      // finding-sets in a day yield N rows (see TTL_CYCLE_MULTIPLIER above)
       // (see TTL_CYCLE_MULTIPLIER above). The point of deriving it is that the
       // margin follows a cadence edit made on /admin/ai-routines with no deploy.
       // Honoured by liveNotificationOrFilter() in the bell/inbox read path;
