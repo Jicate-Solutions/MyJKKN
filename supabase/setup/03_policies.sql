@@ -8761,6 +8761,40 @@ DROP POLICY IF EXISTS hostel_empty_bed_notices_select_own ON public.hostel_empty
 CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices
     FOR SELECT USING (learner_id = auth.uid());
 
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+-- SELECT is open to authenticated on purpose: this is a four-row calendar with
+-- no PII, and every staff member's apply-leave drawer has to resolve the
+-- current year. Gating it on a key would mean granting that key to 5,000+
+-- users. Writes are what needs guarding.
+ALTER TABLE public.hr_academic_years ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_academic_years_select_authenticated ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_select_authenticated ON public.hr_academic_years
+    FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS hr_academic_years_insert_manage ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_insert_manage ON public.hr_academic_years
+    FOR INSERT TO authenticated WITH CHECK (
+        (SELECT is_super_admin())
+        OR (SELECT user_has_permission('hr.academic_years.manage'))
+    );
+
+DROP POLICY IF EXISTS hr_academic_years_update_manage ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_update_manage ON public.hr_academic_years
+    FOR UPDATE TO authenticated USING (
+        (SELECT is_super_admin())
+        OR (SELECT user_has_permission('hr.academic_years.manage'))
+    );
+
+DROP POLICY IF EXISTS hr_academic_years_delete_manage ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_delete_manage ON public.hr_academic_years
+    FOR DELETE TO authenticated USING (
+        (SELECT is_super_admin())
+        OR (SELECT user_has_permission('hr.academic_years.manage'))
+    );
+
 
 -- =====================================================================
 -- Added: 2026-08-06 - admission_leads source/referral audit trail

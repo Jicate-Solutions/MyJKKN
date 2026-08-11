@@ -77,7 +77,7 @@ export function ApplyShortTimeOffDrawer({
   const { data: usage } = useStoUsage(
     ctx.employeeId || undefined,
     effectiveTypeId || undefined,
-    ctx.academicYearId || null,
+    ctx.hrAcademicYearId || null,
     date || undefined
   );
   const limited = !!usage && usage.limit_mode !== 'none' && !usage.window_unresolved;
@@ -147,7 +147,7 @@ export function ApplyShortTimeOffDrawer({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         leave_type_id: effectiveTypeId,
-        academic_year_id: ctx.academicYearId || null,
+        hr_academic_year_id: ctx.hrAcademicYearId || null,
         // An hourly request is same-day by definition.
         start_date: date,
         end_date: date,
