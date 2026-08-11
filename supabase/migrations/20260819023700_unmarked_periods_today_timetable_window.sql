@@ -9,8 +9,20 @@
 -- Body captured VERBATIM from production `pg_get_functiondef`
 --   (project kvizhngldtiuufknvehv, 2026-08-11, 9,252 chars,
 --    md5 913fa4a23631b8cee794d90be149ac0e)
--- and edited in exactly two places, both marked "ADDED 2026-08-11". Nothing else
--- moved — not a comment, not a whitespace run, not the grants.
+-- The md5 above is the hash of the body AS CAPTURED, i.e. the PRE-state this file
+-- expects to find and the value the drift guard below checks. It is deliberately
+-- NOT the hash of the SQL in this file, which differs from it by two predicate
+-- pairs and two explanatory comments — one `ADDED 2026-08-11` marker beside each
+-- pair, plus a paragraph above the query. No executable statement other than those
+-- two predicate pairs was added, moved or removed; the grants, the scope clamp,
+-- the identity guard and the whitespace are byte-for-byte the captured body.
+--
+-- One consequence of that verbatimness is worth flagging before it misleads
+-- somebody: the copied security-clamp comment below says "The re-grain in this
+-- migration WIDENS what that exposes". "This migration" there means
+-- 20260816030000, where the sentence was written. THIS file contains no re-grain.
+-- The prose is left untouched precisely so the body stays byte-comparable with
+-- production; correcting it would trade a checkable property for a nicer comment.
 --
 -- --------------------------------------------------------------------------------
 -- THE BUG, AND WHY IT HAS A DATE ON IT
@@ -109,6 +121,19 @@
 -- already carried by production. This repository corrects a migration with a new
 -- migration rather than rewriting a file that has run.
 --
+-- `CURRENT_DATE` IS THE UTC DATE, AND THAT IS DELIBERATE HERE. Verified on
+-- production 2026-08-11: the database `TimeZone` is `UTC`, so between 00:00 and
+-- 05:30 IST `CURRENT_DATE` is still the previous Indian day. The window predicate
+-- inherits that. It is not corrected in this file because the function is ALREADY
+-- built on the UTC day everywhere else — `v_today_dow` is derived from
+-- `CURRENT_DATE`, and the clearing test compares `sa.attendance_date =
+-- CURRENT_DATE`. Pinning only the new predicate to `Asia/Kolkata` would make the
+-- validity window disagree with the day-of-week and with the attendance lookup
+-- inside one query, which is strictly worse than a consistent 5.5-hour skew.
+-- Moving the whole function (and its siblings, and `attendance_date`'s own
+-- semantics) onto the institution's local day is a real question and a separate
+-- one; it is recorded here so the next reader does not have to rediscover it.
+--
 -- `SET search_path` KEPT AT ITS LIVE VALUE, `public, pg_catalog`. The range
 -- function's header argues that bare `public` is strictly stronger (an unlisted
 -- pg_catalog is searched first and cannot be shadowed), and that argument is
@@ -125,13 +150,28 @@
 -- 2026-08-17, cluster-wide: 176 timetables without the window, 173 with it, so it
 -- will over-report by the same 3 from the same date.
 --
--- It is NOT fixed here. 20260816030000 moved the two together because they shared
--- a GRAIN, and a pending figure and a compliance figure at different grains on one
--- screen is worse than both being wrong. This is not that: the window narrows both
--- identically and correcting one does not make the other newly inconsistent, it
--- leaves it as wrong as it already is. Fixing it is a one-line follow-up whose
--- own before/after numbers deserve their own review rather than being smuggled in
--- under a header about a different function.
+-- It is NOT fixed here, and the honest statement of the cost is that this file
+-- CREATES a same-screen divergence rather than merely declining to close one.
+-- Today the two agree, because neither reads the window and nothing is outside
+-- it. From 2026-08-15 the pending badge will exclude the three retired timetables
+-- and the compliance badge will still include them. An earlier draft of this
+-- header claimed "correcting one does not make the other newly inconsistent" —
+-- that claim is false and has been removed rather than softened.
+--
+-- What is true is that the divergence this file removes is the worse of the two.
+-- `_today` and `_range` are the SAME measurement — unmarked teaching sessions —
+-- rendered on the same screen, one as a badge and one as its own history; two
+-- numbers there are self-contradictory on their face. `_today` and
+-- `_faculty_compliance_today` are different measurements at different scopes
+-- (cluster pending count vs one department's compliance), so a reader is not
+-- comparing them digit for digit.
+--
+-- That is a reason to sequence, not a reason to skip. **The compliance follow-up
+-- should land before or together with this file**; both are Director-gated and
+-- therefore apply by hand, so they can be applied in one sitting. It is kept out
+-- of this migration because it is a second function with its own before/after
+-- numbers (176 → 173 for 2026-08-17) that deserve their own review, not because
+-- it is optional.
 --
 -- --------------------------------------------------------------------------------
 -- NO `BEGIN` / `COMMIT` IN THIS FILE — ON PURPOSE
@@ -152,6 +192,65 @@
 -- note is unaffected and still belongs in the dedicated attendance index PR —
 -- CREATE INDEX CONCURRENTLY cannot run inside a migration's transaction anyway.
 -- ================================================================================
+
+-- ────────────────────────────────────────────────────────────────────────────────
+-- DRIFT GUARD — refuse to apply over a body that is no longer the one we edited.
+--
+-- This file re-ships a COMPLETE 9,252-character SECURITY DEFINER body captured on
+-- 2026-08-11, and it is applied later, by hand, under a Director gate. That delay
+-- is the hazard: `CREATE OR REPLACE` overwrites whatever is there, so anything
+-- changed on the live function between capture and apply is silently REVERTED and
+-- nothing in the diff would show it. This is not theoretical for this particular
+-- function — it gained its identity guard and its `p_institution_id` security
+-- clamp only on 2026-08-08, and reverting those re-opens a cross-institution scope
+-- override on a function GRANTed to `authenticated`.
+--
+-- RAISE EXCEPTION, never RAISE NOTICE: a guard whose miss path only notices stamps
+-- zero rows and reads as success, and Supabase Studio hides NOTICE entirely.
+--
+-- Three outcomes, all explicit:
+--   md5 matches the capture  -> the expected pre-state, proceed
+--   body already windowed    -> this migration re-run, proceed (idempotent)
+--   anything else            -> abort, naming the hash actually found
+-- ────────────────────────────────────────────────────────────────────────────────
+DO $guard$
+DECLARE
+    v_expected CONSTANT TEXT := '913fa4a23631b8cee794d90be149ac0e';
+    v_def      TEXT;
+    v_md5      TEXT;
+BEGIN
+    SELECT pg_get_functiondef(p.oid) INTO v_def
+    FROM pg_proc p
+    WHERE p.oid = to_regprocedure('public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)');
+
+    IF v_def IS NULL THEN
+        RAISE EXCEPTION
+            'DRIFT GUARD: public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid) does not exist. '
+            'This migration REPLACES a shipped body (20260816030000); it must never be the file that '
+            'creates one, because then these 9,252 characters are not a correction of anything that '
+            'was reviewed.';
+    END IF;
+
+    v_md5 := md5(v_def);
+
+    IF v_md5 = v_expected THEN
+        RETURN;  -- expected pre-state
+    END IF;
+
+    IF v_def LIKE '%t.start_date%' AND v_def LIKE '%t.end_date%' THEN
+        RETURN;  -- already carries this migration's window
+    END IF;
+
+    RAISE EXCEPTION
+        'DRIFT GUARD: the live body of fn_aqs_attendance_unmarked_periods_today has changed since it '
+        'was captured on 2026-08-11 (expected md5 %, found %). Applying this file now would silently '
+        'REVERT that change — including, if it touched them, the identity guard and the '
+        'p_institution_id security clamp added 2026-08-08. Re-capture the live body with '
+        'pg_get_functiondef, re-apply the two window predicates to it, re-measure, and update this '
+        'guard''s hash.',
+        v_expected, v_md5;
+END
+$guard$;
 
 CREATE OR REPLACE FUNCTION public.fn_aqs_attendance_unmarked_periods_today(
     p_user_id        UUID,

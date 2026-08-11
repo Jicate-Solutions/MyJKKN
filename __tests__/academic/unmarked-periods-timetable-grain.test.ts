@@ -47,7 +47,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { Client } from 'pg';
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 
 const REPO = path.resolve(__dirname, '..', '..');
 const MIGRATION = path.join(
@@ -110,12 +110,13 @@ const TT = {
   otherDepartment: '00000000-0000-4000-8000-0000000000ea',
 
   // ── Validity-window fixtures (20260819023700) ────────────────────────────────
-  // All four are scheduled today by selected_days, active, not templates and
-  // unmarked, so selected_days can never be the reason one of them is absent —
-  // only the window can. Section is NULL on all four (the semester-level shape)
-  // so they stay invisible to the section-keyed controls, whose COUNT(DISTINCT
-  // section_id) would otherwise shift and make those assertions about this
-  // change rather than about the grain they exist to police.
+  // Every one is scheduled today by selected_days, active, not a template and
+  // unmarked, so selected_days can never be the reason one is absent — only the
+  // window can. They live in WINDOW_INST/WINDOW_DEPT and are created inside the
+  // final describe's own beforeAll, so no test above can see them: dropping six
+  // more unmarked timetables into the shared estate would shift every count and
+  // scope assertion in this file and push `sample_period_ids` (ORDER BY id
+  // LIMIT 10) past its cap, silently turning those arrays into partial answers.
   /** Stopped teaching yesterday. Production has three of these, ending 2026-08-14. */
   windowRetired: '00000000-0000-4000-8000-0000000000eb',
   /** Starts teaching tomorrow — a session that has not happened yet. */
@@ -124,7 +125,18 @@ const TT = {
   windowOpen: '00000000-0000-4000-8000-0000000000ed',
   /** Squarely inside its window: started yesterday, ends tomorrow. */
   windowInside: '00000000-0000-4000-8000-0000000000ee',
+  /** ON the lower boundary: starts TODAY. `<` instead of `<=` drops it. */
+  windowStartsToday: '00000000-0000-4000-8000-0000000000ef',
+  /** ON the upper boundary: ends TODAY — its real last teaching day. `>` instead
+   *  of `>=` drops it, which on production would have discarded all three of the
+   *  timetables ending 2026-08-14 a day early. */
+  windowEndsToday: '00000000-0000-4000-8000-0000000000f0',
 } as const;
+
+/** A dedicated institution + department for the window fixtures, so they cannot
+ *  enter the scope of any test above. */
+const WINDOW_INST = '00000000-0000-4000-8000-0000000000a3';
+const WINDOW_DEPT = '00000000-0000-4000-8000-0000000000b3';
 
 /** Minimal shape of the four tables the functions read, plus the registry. */
 const SCHEMA = `
@@ -470,39 +482,11 @@ beforeAll(async () => {
   // empty registry above; both statements are idempotent by design).
   await db.query(readFileSync(MIGRATION, 'utf8'));
 
-  // ── THE VALIDITY WINDOW: fixtures, then a BEFORE/AFTER taken from the real
-  //    shipped function rather than from a model of it ─────────────────────────
-  //
-  // Everything above this point is running the PRE-WINDOW body — the one
-  // production carries today. So the control for "does the window actually bite?"
-  // does not need to be re-implemented in TypeScript or approximated by a
-  // hand-written control function: it can simply be a call to the shipped
-  // function, made before the follow-up migration is applied and remembered.
-  // A test that re-implements the SQL only proves the model agrees with itself.
-  for (const [id, start, end] of [
-    [TT.windowRetired, '-2 days', '-1 day'],
-    [TT.windowNotStarted, '+1 day', '+2 days'],
-    [TT.windowOpen, null, null],
-    [TT.windowInside, '-1 day', '+1 day'],
-  ] as Array<[string, string | null, string | null]>) {
-    await db.query(
-      `INSERT INTO public.timetables
-         (id, section_id, is_active, is_template, selected_days,
-          institution_id, department_id, start_date, end_date)
-       VALUES ($1::uuid, NULL, true, false, $2::jsonb, $3::uuid, $4::uuid,
-               CASE WHEN $5::text IS NULL THEN NULL ELSE CURRENT_DATE + $5::interval END,
-               CASE WHEN $6::text IS NULL THEN NULL ELSE CURRENT_DATE + $6::interval END)`,
-      [id, JSON.stringify([today]), INST, DEPT, start, end],
-    );
-  }
-
-  preWindow = await unmarkedFor(SUPER_ADMIN);
-
-  // Now the fix. Applied AFTER the second MIGRATION run above, which re-creates
-  // this same function from the pre-window body — apply them the other way round
-  // and the suite would silently be testing the bug.
-  await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
-  postWindow = await unmarkedFor(SUPER_ADMIN);
+  // NOTE: the validity-window migration is deliberately NOT applied here, and its
+  // fixtures are deliberately NOT inserted here. Everything above runs against the
+  // PRE-WINDOW body that production carries, and every test in the describes below
+  // — except the last one — is written against exactly this estate. See the final
+  // describe for why that separation is load-bearing.
 }, 60_000);
 
 afterAll(async () => {
@@ -940,16 +924,128 @@ describe('the registry copy stops saying sections', () => {
  * rostering timetables that had stopped teaching while the history screen would
  * not, rendering two numbers from one dataset on one screen.
  *
- * `preWindow` is the SHIPPED function's own answer, read in beforeAll while the
- * pre-window body was still installed. So non-vacuity is established by the real
- * thing rather than by a control that re-states the SQL.
+ * WHY THIS DESCRIBE OWNS ITS OWN ESTATE AND ITS OWN MIGRATION STATE
+ * -----------------------------------------------------------------
+ * Everything above runs against the PRE-WINDOW body. The control for "does the
+ * window actually bite?" is therefore the SHIPPED FUNCTION ITSELF, called before
+ * the follow-up migration is applied — not a control function that re-states the
+ * SQL, which would only prove the model agrees with itself.
+ *
+ * The fixtures live in their own institution and are created here rather than in
+ * the shared beforeAll. Six more unmarked timetables in the common estate would
+ * shift every count and scope assertion in this file, and `sample_period_ids` is
+ * `ORDER BY t2.id LIMIT 10` — these UUIDs sort last, so they would be the first
+ * truncated, quietly turning those arrays into partial answers.
  */
 describe('the unmarked count honours the timetable\'s own validity window', () => {
+  /** Scoped to WINDOW_INST. SUPER_ADMIN may redirect scope (the clamp allows it
+   *  for a cluster-scoped caller), so this reads ONLY the window fixtures. */
+  async function windowScoped(): Promise<Unmarked> {
+    const r = await db.query(
+      'SELECT public.fn_aqs_attendance_unmarked_periods_today($1::uuid, $2::uuid) AS j',
+      [SUPER_ADMIN, WINDOW_INST],
+    );
+    return r.rows[0].j as Unmarked;
+  }
+
+  /**
+   * The UNIVERSE this describe operates over, read straight from the table with
+   * no LIMIT: every timetable in WINDOW_INST that is active, not a template,
+   * scheduled today and unmarked. It deliberately does NOT apply the validity
+   * window — it is not a prediction of what the function should return, which
+   * would just be the SQL re-implemented in TypeScript. It is the set the
+   * function must choose FROM, so "the function added nothing" and "the function
+   * removed exactly these two" can both be asked without ever consulting the
+   * capped `sample_period_ids` array.
+   */
+  async function scheduledUnmarkedUniverse(): Promise<string[]> {
+    const r = await db.query(
+      `SELECT t.id::text AS id FROM public.timetables t
+        WHERE t.is_active = true
+          AND NOT COALESCE(t.is_template, false)
+          AND t.institution_id = $1::uuid
+          AND t.selected_days ? TRIM(UPPER(TO_CHAR(CURRENT_DATE,'DAY')))
+          AND NOT EXISTS (SELECT 1 FROM public.student_attendance sa
+                          WHERE sa.timetable_id = t.id
+                            AND sa.attendance_date = CURRENT_DATE)
+        ORDER BY t.id`,
+      [WINDOW_INST],
+    );
+    return r.rows.map((x: { id: string }) => x.id);
+  }
+
+  beforeAll(async () => {
+    const today = (
+      await db.query(`SELECT TRIM(UPPER(TO_CHAR(CURRENT_DATE,'DAY'))) AS d`)
+    ).rows[0].d as string;
+
+    // Re-assert the pre-window body so this describe does not depend on which
+    // migration the block above happened to leave installed last.
+    await db.query(readFileSync(MIGRATION, 'utf8'));
+
+    // Six fixtures, identical in every respect the function looks at EXCEPT the
+    // window: same institution, same department, no section, active, not a
+    // template, scheduled today, unmarked. Two of them sit exactly ON a boundary,
+    // which is what distinguishes `<=` from `<` and `>=` from `>` — an off-by-one
+    // there would discard a timetable on its real last teaching day, and on
+    // production that is all three of the rows ending 2026-08-14.
+    for (const [id, start, end] of [
+      [TT.windowRetired, '-2 days', '-1 day'],
+      [TT.windowNotStarted, '+1 day', '+2 days'],
+      [TT.windowOpen, null, null],
+      [TT.windowInside, '-1 day', '+1 day'],
+      [TT.windowStartsToday, '0 days', '+5 days'],
+      [TT.windowEndsToday, '-5 days', '0 days'],
+    ] as Array<[string, string | null, string | null]>) {
+      await db.query(
+        `INSERT INTO public.timetables
+           (id, section_id, is_active, is_template, selected_days,
+            institution_id, department_id, start_date, end_date)
+         VALUES ($1::uuid, NULL, true, false, $2::jsonb, $3::uuid, $4::uuid,
+                 CASE WHEN $5::text IS NULL THEN NULL ELSE CURRENT_DATE + $5::interval END,
+                 CASE WHEN $6::text IS NULL THEN NULL ELSE CURRENT_DATE + $6::interval END)`,
+        [id, JSON.stringify([today]), WINDOW_INST, WINDOW_DEPT, start, end],
+      );
+    }
+
+    preWindow = await windowScoped();
+
+    // Hand `anon` the EXECUTE grant the migration is supposed to take away.
+    // CREATE OR REPLACE PRESERVES an existing ACL, so without this the revoke
+    // assertion below would pass on the grant the EARLIER migration made and
+    // would still pass with this file's REVOKE/GRANT lines deleted.
+    await db.query(
+      `GRANT EXECUTE ON FUNCTION
+         public.fn_aqs_attendance_unmarked_periods_today(uuid, uuid) TO anon`,
+    );
+
+    await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+    postWindow = await windowScoped();
+  }, 60_000);
+
+  afterAll(async () => {
+    // Leave the estate as it was found; nothing below this describe should
+    // inherit six extra timetables or a different institution.
+    await db.query(`DELETE FROM public.timetables WHERE institution_id = $1::uuid`, [
+      WINDOW_INST,
+    ]);
+  });
+
+  it('neither snapshot was truncated by the LIMIT 10 on sample_period_ids', () => {
+    // FIRST, on purpose. Every set comparison below reads the id array, which the
+    // function caps at 10. If either snapshot is truncated those comparisons stop
+    // being about the window and start being about the cap — so this fails first
+    // and names the real cause instead of letting five confusing failures land.
+    expect(preWindow.count).toBe(preWindow.sample_period_ids.length);
+    expect(postWindow.count).toBe(postWindow.sample_period_ids.length);
+  });
+
   it('is non-vacuous: the shipped body really did count both out-of-window rows', () => {
     // If this ever fails, every assertion below would be passing against an
     // absence the fixture created rather than one the migration caused.
     expect(preWindow.sample_period_ids).toContain(TT.windowRetired);
     expect(preWindow.sample_period_ids).toContain(TT.windowNotStarted);
+    expect(preWindow.count).toBe(6);
   });
 
   it('drops a timetable that stopped teaching before today', () => {
@@ -971,10 +1067,17 @@ describe('the unmarked count honours the timetable\'s own validity window', () =
     expect(postWindow.sample_period_ids).toContain(TT.windowInside);
   });
 
+  it('keeps a timetable ON either boundary — the comparison is inclusive', () => {
+    // `<` instead of `<=`, or `>` instead of `>=`, still passes every other test
+    // in this describe. These two are the only thing standing between the shipped
+    // predicate and an off-by-one that retires a timetable a day early.
+    expect(postWindow.sample_period_ids).toContain(TT.windowStartsToday);
+    expect(postWindow.sample_period_ids).toContain(TT.windowEndsToday);
+  });
+
   it('removes exactly the two out-of-window rows and nothing else', () => {
     // The headline safety property, and the same one proved read-only against
-    // production: a window predicate must not move any other row. Anything else
-    // disappearing means more than the window changed.
+    // production: a window predicate must not move any other row.
     const removed = preWindow.sample_period_ids.filter(
       (id) => !postWindow.sample_period_ids.includes(id),
     );
@@ -982,74 +1085,55 @@ describe('the unmarked count honours the timetable\'s own validity window', () =
     expect(postWindow.count).toBe(preWindow.count - 2);
   });
 
-  it('adds nothing', () => {
-    const added = postWindow.sample_period_ids.filter(
-      (id) => !preWindow.sample_period_ids.includes(id),
-    );
-    expect(added).toEqual([]);
-  });
+  it('adds nothing, and removes exactly two — measured without the LIMIT 10', async () => {
+    // Both directions asked against an UNBOUNDED read of the table rather than
+    // against the capped array, because an id missing from both capped snapshots
+    // would satisfy an includes()-equality test while being invisible to it.
+    const universe = await scheduledUnmarkedUniverse();
+    // Non-vacuity of the universe itself: all six fixtures are genuinely
+    // scheduled today and unmarked, so the window is the ONLY thing that can
+    // separate them.
+    expect(universe).toHaveLength(6);
 
-  it('neither snapshot was truncated by the LIMIT 10 on sample_period_ids', () => {
-    // The comparisons above read the id ARRAY, which the function caps at 10. If a
-    // future fixture pushes either snapshot past that cap the arrays silently stop
-    // being the full answer and the set comparisons start lying. Fail here first.
-    expect(preWindow.count).toBe(preWindow.sample_period_ids.length);
-    expect(postWindow.count).toBe(postWindow.sample_period_ids.length);
+    // Nothing the function returns is outside the universe.
+    for (const id of postWindow.sample_period_ids) expect(universe).toContain(id);
+
+    // And what it withheld is exactly the out-of-window pair.
+    const withheld = universe.filter((id) => !postWindow.sample_period_ids.includes(id));
+    expect(withheld.sort()).toEqual([TT.windowRetired, TT.windowNotStarted].sort());
   });
 
   it('applies the window to the sample list, not only to the count', async () => {
     // The count and the id array are computed by two separate queries over the
     // same table. Predicate in one but not the other = a badge reading 173 whose
     // "show me which" names 176, including a timetable that stopped teaching.
-    const r = await db.query(
-      `SELECT (public.fn_aqs_attendance_unmarked_periods_today($1::uuid)->>'count')::int AS c,
-              jsonb_array_length(
-                public.fn_aqs_attendance_unmarked_periods_today($1::uuid)->'sample_period_ids') AS n`,
-      [SUPER_ADMIN],
-    );
-    expect(r.rows[0].n).toBe(r.rows[0].c);
+    const r = await windowScoped();
+    expect(r.sample_period_ids).toHaveLength(r.count);
+    expect(r.sample_period_ids).not.toContain(TT.windowRetired);
+    expect(r.sample_period_ids).not.toContain(TT.windowNotStarted);
   });
 
   it('still clears an in-window timetable once it is marked', async () => {
     // The grain must survive the window. `sa.timetable_id = t.id` is the clearing
     // key; if the window had been bolted on by re-keying anything, a marked
     // semester-level timetable would go back to reading unmarked forever.
-    const before = await unmarkedFor(SUPER_ADMIN);
+    const before = await windowScoped();
     expect(before.sample_period_ids).toContain(TT.windowInside);
 
-    await mark(TT.windowInside);
-    const after = await unmarkedFor(SUPER_ADMIN);
+    await mark(TT.windowInside, WINDOW_INST);
+    const after = await windowScoped();
     expect(after.sample_period_ids).not.toContain(TT.windowInside);
     expect(after.count).toBe(before.count - 1);
 
     await unmark(TT.windowInside);
-    const restored = await unmarkedFor(SUPER_ADMIN);
+    const restored = await windowScoped();
     expect(restored.count).toBe(before.count);
   });
 
-  it('leaves every timetable that carries no window at all exactly where it was', () => {
-    // Nine of the original fixture rows set neither bound. Production is in the
-    // same state today, which is why the live before/after both read 176: this is
-    // the fixture-scale statement of that measurement.
-    for (const id of [
-      TT.sectionUnmarked,
-      TT.semesterUnmarked,
-      TT.sectionSibling,
-      TT.otherInstitution,
-      TT.otherDepartment,
-    ]) {
-      expect(preWindow.sample_period_ids.includes(id)).toBe(
-        postWindow.sample_period_ids.includes(id),
-      );
-    }
-  });
-
-  it('re-asserts the anon revoke in the same file that replaces the function', async () => {
-    // CREATE OR REPLACE does not re-run the original migration's grants, and
-    // Supabase's ALTER DEFAULT PRIVILEGES hands `anon` a direct EXECUTE separate
-    // from PUBLIC. A follow-up that replaces a SECURITY DEFINER body without
-    // re-revoking is how a function quietly becomes callable with the anon key
-    // that ships in every browser bundle.
+  it('re-asserts the anon revoke, provably — anon held EXECUTE before it ran', async () => {
+    // beforeAll granted anon EXECUTE immediately before applying the migration,
+    // so this can only be false because THIS file's REVOKE executed. Delete those
+    // two lines from 20260819023700 and this test fails.
     const r = await db.query(
       `SELECT has_function_privilege('anon',
                 'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS anon_can,
@@ -1072,5 +1156,68 @@ describe('the unmarked count honours the timetable\'s own validity window', () =
     expect(r.rows).toHaveLength(1);
     expect(r.rows[0].prosecdef).toBe(true);
     expect(r.rows[0].proconfig).toContain('search_path=public, pg_catalog');
+  });
+
+  /**
+   * The drift guard. This file re-ships a full 9,252-char SECURITY DEFINER body
+   * captured on 2026-08-11 and is applied later, by hand, under a Director gate.
+   * Anything changed on the live function in between would be silently REVERTED —
+   * and that body only gained its identity guard and its p_institution_id security
+   * clamp on 2026-08-08, so a revert re-opens a cross-institution scope override.
+   */
+  describe('the drift guard', () => {
+    afterEach(async () => {
+      // Whatever a probe did to the function, put the fixed body back.
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+    });
+
+    it('accepts the exact body it was captured from', async () => {
+      // The md5 in the migration was taken from PRODUCTION, and this local
+      // Postgres reproduces it byte-for-byte from the same migration source —
+      // which is the only reason a hash guard is testable here at all.
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      const r = await db.query(
+        `SELECT md5(pg_get_functiondef(
+                  to_regprocedure('public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)'))) AS m`,
+      );
+      expect(r.rows[0].m).toBe('913fa4a23631b8cee794d90be149ac0e');
+      await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).resolves.toBeDefined();
+    });
+
+    it('REFUSES to apply over a body that has drifted', async () => {
+      // Proven by MUTATION, not by assertion. ALTER FUNCTION ... SET changes what
+      // pg_get_functiondef emits, so the hash no longer matches while the body
+      // still carries no window — exactly the shape of "somebody changed this
+      // function after we captured it".
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      await db.query(
+        `ALTER FUNCTION public.fn_aqs_attendance_unmarked_periods_today(uuid, uuid)
+           SET search_path = public`,
+      );
+      await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).rejects.toThrow(
+        /DRIFT GUARD/,
+      );
+    });
+
+    it('is idempotent: re-applying over its own result is allowed', async () => {
+      await db.query(readFileSync(MIGRATION, 'utf8'));
+      await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+      // Second run: the hash no longer matches the captured one, but the body
+      // already carries this migration's window, so it must NOT raise.
+      await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).resolves.toBeDefined();
+    });
+
+    it('REFUSES to create the function from nothing', async () => {
+      // This migration REPLACES a shipped body. If the function is absent, the
+      // 9,252 chars here are not a correction of anything and applying them would
+      // invent a definition nobody reviewed in this PR.
+      await db.query(
+        `DROP FUNCTION public.fn_aqs_attendance_unmarked_periods_today(uuid, uuid)`,
+      );
+      await expect(db.query(readFileSync(WINDOW_MIGRATION, 'utf8'))).rejects.toThrow(
+        /DRIFT GUARD/,
+      );
+    });
   });
 });
