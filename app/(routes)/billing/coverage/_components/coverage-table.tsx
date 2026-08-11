@@ -51,7 +51,11 @@ function transformCoverageForExport(
     transport: r.uses_transport ? 'Bus' : '',
     lifecycleStatus: r.lifecycle_status,
     bills: r.bill_count,
+    // Both stay raw numbers, never formatCurrency strings — the point of the
+    // sheet is that accounts can SUM these columns and subtract one from the
+    // other to get the balance. A "₹1,40,000" cell is text to Excel.
     totalBilled: r.total_billed,
+    totalPaid: r.total_paid,
     coverage: COVERAGE_EXPORT_LABELS[r.coverage_state] ?? r.coverage_state,
     coverageYear: r.target_academic_year_name ?? ''
   };
@@ -148,15 +152,18 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           lifecycleStatus: 'Lifecycle Status',
           bills: 'Bills',
           totalBilled: 'Total Billed',
+          totalPaid: 'Total Paid',
           coverage: 'Coverage',
           coverageYear: 'Measured For (AY)'
         },
-        // One entry per header, in the same order.
+        // One entry per header, in the same order — the widths are applied by
+        // INDEX, so inserting a header without inserting its width here shifts
+        // every column after it.
         columnWidths: [
           { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 10 },
           { wch: 28 }, { wch: 26 }, { wch: 20 }, { wch: 14 },
           { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 8 },
-          { wch: 14 }, { wch: 16 }, { wch: 18 }
+          { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
         ],
         headers: [
           'rollNumber',
@@ -172,6 +179,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           'lifecycleStatus',
           'bills',
           'totalBilled',
+          'totalPaid',
           'coverage',
           'coverageYear'
         ],
