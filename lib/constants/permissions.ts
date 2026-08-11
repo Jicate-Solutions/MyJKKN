@@ -1704,7 +1704,7 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.evidence.view', label: 'View Evidence-to-Body Mappings' },
       { key: 'accreditation.evidence.create', label: 'Map Evidence to an Accreditation Body' },
       { key: 'accreditation.evidence.manage', label: 'Edit Evidence-to-Body Mappings' },
-=======
+
       // Awarding-body registry + institution mapping (2026-08-06) —
       // /accreditation/manage/bodies. Which bodies a college answers to decides
       // its DENOMINATOR: before this existed, every institution was measured
