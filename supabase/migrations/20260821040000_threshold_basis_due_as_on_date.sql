@@ -322,3 +322,9 @@ $function$
 -- rule: Supabase default privileges hand anon EXECUTE on new functions).
 REVOKE EXECUTE ON FUNCTION public.evaluate_learner_status_after_payment(uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.evaluate_learner_status_after_payment(uuid) TO authenticated, service_role;
+
+-- §5 View grant hygiene. security_invoker=true already makes RLS apply, but the
+-- CI anon-lock gate (rightly) demands the explicit revoke as well: without it a
+-- future edit dropping security_invoker would silently serve rows to anon.
+REVOKE ALL ON TABLE public.vw_learner_payment_progress FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.vw_learner_payment_progress TO authenticated, service_role;
