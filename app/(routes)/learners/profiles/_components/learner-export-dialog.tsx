@@ -258,11 +258,22 @@ interface FilterBadge {
   value: string;
 }
 
-function buildFilterBadges(filters: ProfilesSearchParams, statusFilter?: string): FilterBadge[] {
+function buildFilterBadges(
+  filters: ProfilesSearchParams,
+  statusFilter?: LifecycleStatus | LifecycleStatus[]
+): FilterBadge[] {
   const badges: FilterBadge[] = [];
 
   const effectiveStatus = statusFilter || filters.lifecycle_status;
-  if (effectiveStatus) badges.push({ label: 'Status', value: effectiveStatus });
+  if (effectiveStatus)
+    badges.push({
+      label: 'Status',
+      // The "All Statuses" tab passes its whole set. Naming the members keeps
+      // the badge honest about what the download will contain.
+      value: Array.isArray(effectiveStatus)
+        ? effectiveStatus.join(', ')
+        : effectiveStatus,
+    });
   if (filters.institution_id) badges.push({ label: 'Institution', value: 'Filtered' });
   if (filters.degree_id) badges.push({ label: 'Degree', value: 'Filtered' });
   if (filters.department_id) badges.push({ label: 'Department', value: 'Filtered' });
@@ -294,9 +305,12 @@ interface LearnerExportDialogProps {
    * Typed as the full LifecycleStatus union rather than a hand-listed subset —
    * the old three-value copy silently excluded 'reserved' and 'admitted' once
    * those became tabs, and it feeds straight into `.eq('lifecycle_status', …)`.
-   * The parent maps the 'all' tab to undefined before this point.
+   *
+   * An ARRAY on the "All Statuses" tab: the parent maps that tab to the five
+   * statuses the page lists (LearnerProfileService applies it with `.in()`),
+   * so the download matches the rows on screen instead of every enum label.
    */
-  statusFilter?: LifecycleStatus;
+  statusFilter?: LifecycleStatus | LifecycleStatus[];
 }
 
 // ============================================
@@ -389,7 +403,7 @@ export function LearnerExportDialog({
         limit: 10000,
         lifecycle_status: (statusFilter ||
           filters.lifecycle_status ||
-          undefined) as LifecycleStatus | undefined,
+          undefined) as LifecycleStatus | LifecycleStatus[] | undefined,
         institution_id: filters.institution_id,
         degree_id: filters.degree_id,
         department_id: filters.department_id,
