@@ -48,12 +48,12 @@ All three are inert today (0, 0, and 1 test row), so preserving them changes not
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/20260811120000_hr_leave_entitlement_overrides.sql` | Schema: nullable `entitled`, overrides table + RLS, `frozen_at` |
-| `supabase/migrations/20260811120100_hr_leave_balance_view.sql` | `v_hr_leave_balance_src` (derivation) + `v_hr_leave_balance` (secured) |
-| `supabase/migrations/20260811120200_hr_leave_balance_data_migration.sql` | Migrate 3 divergent rows → overrides; NULL out open years; backfill `frozen_at` |
-| `supabase/migrations/20260811120300_hr_trig_update_leave_balance_null.sql` | Trigger: insert `entitled = NULL`, not `0` |
-| `supabase/migrations/20260811120400_fn_hr_freeze_leave_year.sql` | Freeze RPC |
-| `supabase/migrations/20260811120500_hr_leave_balance_analytics_view.sql` | Point the analytics RPC at the view |
+| `supabase/migrations/20260811180000_hr_leave_entitlement_overrides.sql` | Schema: nullable `entitled`, overrides table + RLS, `frozen_at` |
+| `supabase/migrations/20260811180100_hr_leave_balance_view.sql` | `v_hr_leave_balance_src` (derivation) + `v_hr_leave_balance` (secured) |
+| `supabase/migrations/20260811180200_hr_leave_balance_data_migration.sql` | Migrate 3 divergent rows → overrides; NULL out open years; backfill `frozen_at` |
+| `supabase/migrations/20260811180300_hr_trig_update_leave_balance_null.sql` | Trigger: insert `entitled = NULL`, not `0` |
+| `supabase/migrations/20260811180400_fn_hr_freeze_leave_year.sql` | Freeze RPC |
+| `supabase/migrations/20260811180500_hr_leave_balance_analytics_view.sql` | Point the analytics RPC at the view |
 | `types/hr-leave-overrides.ts` | Override row / insert / update types |
 | `types/hr.ts` (modify) | `entitlement_source` on `HRLeaveBalanceWithType` |
 | `types/supabase.ts` (modify) | Register the new table + both views |
@@ -78,7 +78,7 @@ All three are inert today (0, 0, and 1 test row), so preserving them changes not
 ## Task 1: Schema migration
 
 **Files:**
-- Create: `supabase/migrations/20260811120000_hr_leave_entitlement_overrides.sql`
+- Create: `supabase/migrations/20260811180000_hr_leave_entitlement_overrides.sql`
 - Modify: `supabase/setup/01_tables.sql`, `supabase/setup/03_policies.sql` (append)
 
 **Interfaces:**
@@ -106,7 +106,7 @@ Expected: `open_rows = 4289`. If it differs, **stop** — the data moved since t
 
 - [ ] **Step 2: Write the migration**
 
-Create `supabase/migrations/20260811120000_hr_leave_entitlement_overrides.sql`:
+Create `supabase/migrations/20260811180000_hr_leave_entitlement_overrides.sql`:
 
 ```sql
 -- =====================================================================
@@ -220,7 +220,7 @@ Append the `CREATE TABLE` + indexes to `supabase/setup/01_tables.sql`, the two p
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/20260811120000_hr_leave_entitlement_overrides.sql supabase/setup/01_tables.sql supabase/setup/03_policies.sql
+git add supabase/migrations/20260811180000_hr_leave_entitlement_overrides.sql supabase/setup/01_tables.sql supabase/setup/03_policies.sql
 git commit -m "feat(hr/leave): schema for derived entitlement
 
 entitled becomes nullable (NULL = derive from the leave type), plus an
@@ -401,7 +401,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 3: `v_hr_leave_balance`
 
 **Files:**
-- Create: `supabase/migrations/20260811120100_hr_leave_balance_view.sql`
+- Create: `supabase/migrations/20260811180100_hr_leave_balance_view.sql`
 - Modify: `types/supabase.ts` (register both views), `supabase/setup/05_views.sql` (append)
 
 **Interfaces:**
@@ -410,7 +410,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the migration**
 
-Create `supabase/migrations/20260811120100_hr_leave_balance_view.sql`:
+Create `supabase/migrations/20260811180100_hr_leave_balance_view.sql`:
 
 ```sql
 -- =====================================================================
@@ -670,7 +670,7 @@ Add to the `Views` block:
 Append both `CREATE VIEW` statements to `supabase/setup/05_views.sql`.
 
 ```bash
-git add supabase/migrations/20260811120100_hr_leave_balance_view.sql supabase/setup/05_views.sql types/supabase.ts
+git add supabase/migrations/20260811180100_hr_leave_balance_view.sql supabase/setup/05_views.sql types/supabase.ts
 git commit -m "feat(hr/leave): v_hr_leave_balance derives entitlement
 
 Returns a row per eligible staff x leave type whether or not a ledger row
@@ -685,7 +685,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 4: Data migration
 
 **Files:**
-- Create: `supabase/migrations/20260811120200_hr_leave_balance_data_migration.sql`
+- Create: `supabase/migrations/20260811180200_hr_leave_balance_data_migration.sql`
 
 **Interfaces:**
 - Consumes: Tasks 1 and 3.
@@ -693,7 +693,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the migration**
 
-Create `supabase/migrations/20260811120200_hr_leave_balance_data_migration.sql`:
+Create `supabase/migrations/20260811180200_hr_leave_balance_data_migration.sql`:
 
 ```sql
 -- =====================================================================
@@ -831,7 +831,7 @@ Expected: `staff_now_on_99` ≈ 91 (Engineering's active staff). This is D2 work
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/20260811120200_hr_leave_balance_data_migration.sql
+git add supabase/migrations/20260811180200_hr_leave_balance_data_migration.sql
 git commit -m "feat(hr/leave): migrate balances to derived entitlement
 
 Preserves the 3 cadre-derived values as explicit overrides, releases open
@@ -846,7 +846,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 5: Trigger — stop writing `entitled = 0`
 
 **Files:**
-- Create: `supabase/migrations/20260811120300_hr_trig_update_leave_balance_null.sql`
+- Create: `supabase/migrations/20260811180300_hr_trig_update_leave_balance_null.sql`
 - Modify: `supabase/setup/02_functions.sql` (append)
 
 **Interfaces:**
@@ -857,7 +857,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 The function body below is the current live definition with **one value changed** (`0` → `NULL` in the INSERT's `entitled` position) and a comment added. Do not restructure it.
 
-Create `supabase/migrations/20260811120300_hr_trig_update_leave_balance_null.sql`:
+Create `supabase/migrations/20260811180300_hr_trig_update_leave_balance_null.sql`:
 
 ```sql
 -- =====================================================================
@@ -947,7 +947,7 @@ Expected: `inserts_null = true`.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/20260811120300_hr_trig_update_leave_balance_null.sql supabase/setup/02_functions.sql
+git add supabase/migrations/20260811180300_hr_trig_update_leave_balance_null.sql supabase/setup/02_functions.sql
 git commit -m "fix(hr/leave): approval trigger inserts entitled NULL not 0
 
 Approving leave for someone with no balance row created a permanently
@@ -1154,7 +1154,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 8: `fn_hr_freeze_leave_year`
 
 **Files:**
-- Create: `supabase/migrations/20260811120400_fn_hr_freeze_leave_year.sql`
+- Create: `supabase/migrations/20260811180400_fn_hr_freeze_leave_year.sql`
 - Modify: `supabase/setup/02_functions.sql` (append)
 
 **Interfaces:**
@@ -1163,7 +1163,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the migration**
 
-Create `supabase/migrations/20260811120400_fn_hr_freeze_leave_year.sql`:
+Create `supabase/migrations/20260811180400_fn_hr_freeze_leave_year.sql`:
 
 ```sql
 -- =====================================================================
@@ -1297,7 +1297,7 @@ Expected: `NULL`. If it is not null, the current year is wrongly archived — `U
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/20260811120400_fn_hr_freeze_leave_year.sql supabase/setup/02_functions.sql
+git add supabase/migrations/20260811180400_fn_hr_freeze_leave_year.sql supabase/setup/02_functions.sql
 git commit -m "feat(hr/leave): fn_hr_freeze_leave_year archives a closed year
 
 Materializes the derived entitlement into the ledger and stamps frozen_at,
@@ -1733,7 +1733,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ## Task 11: Make the Analytics tab tell the truth
 
 **Files:**
-- Create: `supabase/migrations/20260811120500_hr_leave_balance_analytics_view.sql`
+- Create: `supabase/migrations/20260811180500_hr_leave_balance_analytics_view.sql`
 - Modify: `app/(routes)/hr/admin/leave-balances/_components/leave-balance-analytics.tsx`
 
 **Interfaces:**
@@ -1756,7 +1756,7 @@ WHERE n.nspname = 'public' AND p.proname = 'hr_leave_balance_analytics';
 
 In that body, replace every `FROM public.hr_leave_balances` / `JOIN public.hr_leave_balances` with `public.v_hr_leave_balance_src`, keeping the aliases and every other line byte-identical. The view exposes `entitled`, `used`, `carried_forward`, `employee_id`, `leave_type_id`, `hr_academic_year_id`, `hr_organization_id` under the same names, so no column reference changes.
 
-Save the result as `supabase/migrations/20260811120500_hr_leave_balance_analytics_view.sql` with this header, and apply it via `apply_migration` (name `hr_leave_balance_analytics_view`):
+Save the result as `supabase/migrations/20260811180500_hr_leave_balance_analytics_view.sql` with this header, and apply it via `apply_migration` (name `hr_leave_balance_analytics_view`):
 
 ```sql
 -- =====================================================================
@@ -1832,7 +1832,7 @@ Expected: utilisation renders, coverage shows 100%, no status badges, no console
 - [ ] **Step 5: Commit**
 
 ```bash
-git add supabase/migrations/20260811120500_hr_leave_balance_analytics_view.sql "app/(routes)/hr/admin/leave-balances/_components/leave-balance-analytics.tsx"
+git add supabase/migrations/20260811180500_hr_leave_balance_analytics_view.sql "app/(routes)/hr/admin/leave-balances/_components/leave-balance-analytics.tsx"
 git commit -m "fix(hr/leave): analytics reads the derived view, drops coverage UI
 
 Coverage cannot be incomplete once balances derive, so the gap reporting
