@@ -39237,6 +39237,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           end_date: string
+          frozen_at: string | null
           id: string
           is_active: boolean
           notes: string | null
@@ -39249,6 +39250,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           end_date: string
+          frozen_at?: string | null
           id?: string
           is_active?: boolean
           notes?: string | null
@@ -39261,6 +39263,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           end_date?: string
+          frozen_at?: string | null
           id?: string
           is_active?: boolean
           notes?: string | null
@@ -42400,6 +42403,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      hr_leave_entitlement_overrides: {
+        Row: {
+          id: string
+          employee_id: string
+          leave_type_id: string
+          hr_academic_year_id: string
+          hr_organization_id: string
+          entitled_days: number
+          reason: string
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          employee_id: string
+          leave_type_id: string
+          hr_academic_year_id: string
+          hr_organization_id: string
+          entitled_days: number
+          reason: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          employee_id?: string
+          leave_type_id?: string
+          hr_academic_year_id?: string
+          hr_organization_id?: string
+          entitled_days?: number
+          reason?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       hr_leave_policies: {
         Row: {
