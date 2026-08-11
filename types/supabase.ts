@@ -32382,12 +32382,14 @@ export type Database = {
       hostel_categories: {
         Row: {
           allocation_mode: string
+          allow_self_room_change: boolean
           created_at: string
           description: string | null
           id: string
           is_active: boolean
           name: string
           requires_explicit_upgrade: boolean
+          room_source_category_id: string | null
           sort_order: number
           type: string
           updated_at: string
@@ -32397,12 +32399,14 @@ export type Database = {
         }
         Insert: {
           allocation_mode?: string
+          allow_self_room_change?: boolean
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
           name: string
           requires_explicit_upgrade?: boolean
+          room_source_category_id?: string | null
           sort_order?: number
           type: string
           updated_at?: string
@@ -32412,12 +32416,14 @@ export type Database = {
         }
         Update: {
           allocation_mode?: string
+          allow_self_room_change?: boolean
           created_at?: string
           description?: string | null
           id?: string
           is_active?: boolean
           name?: string
           requires_explicit_upgrade?: boolean
+          room_source_category_id?: string | null
           sort_order?: number
           type?: string
           updated_at?: string
@@ -32432,11 +32438,15 @@ export type Database = {
           amount: number
           created_at: string
           created_by: string | null
+          discount_type: string
+          discount_value: number
           from_hostel_category_id: string | null
           from_mess_category_id: string | null
           hostel_year_id: string
           id: string
           is_active: boolean
+          net_amount: number | null
+          skip_room_eligibility: boolean
           to_hostel_category_id: string | null
           to_mess_category_id: string | null
           updated_at: string
@@ -32446,11 +32456,14 @@ export type Database = {
           amount: number
           created_at?: string
           created_by?: string | null
+          discount_type?: string
+          discount_value?: number
           from_hostel_category_id?: string | null
           from_mess_category_id?: string | null
           hostel_year_id: string
           id?: string
           is_active?: boolean
+          skip_room_eligibility?: boolean
           to_hostel_category_id?: string | null
           to_mess_category_id?: string | null
           updated_at?: string
@@ -32460,11 +32473,14 @@ export type Database = {
           amount?: number
           created_at?: string
           created_by?: string | null
+          discount_type?: string
+          discount_value?: number
           from_hostel_category_id?: string | null
           from_mess_category_id?: string | null
           hostel_year_id?: string
           id?: string
           is_active?: boolean
+          skip_room_eligibility?: boolean
           to_hostel_category_id?: string | null
           to_mess_category_id?: string | null
           updated_at?: string
@@ -38082,7 +38098,7 @@ export type Database = {
           is_active: boolean
           program_id: string | null
           rule_name: string | null
-          semester_id: string | null
+          semester_ids: string[]
           updated_at: string
           updated_by: string | null
         }
@@ -38098,7 +38114,7 @@ export type Database = {
           is_active?: boolean
           program_id?: string | null
           rule_name?: string | null
-          semester_id?: string | null
+          semester_ids?: string[]
           updated_at?: string
           updated_by?: string | null
         }
@@ -38114,7 +38130,7 @@ export type Database = {
           is_active?: boolean
           program_id?: string | null
           rule_name?: string | null
-          semester_id?: string | null
+          semester_ids?: string[]
           updated_at?: string
           updated_by?: string | null
         }
@@ -38145,13 +38161,6 @@ export type Database = {
             columns: ["program_id"]
             isOneToOne: false
             referencedRelation: "programs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hostel_room_eligibility_rules_semester_id_fkey"
-            columns: ["semester_id"]
-            isOneToOne: false
-            referencedRelation: "semesters"
             referencedColumns: ["id"]
           },
         ]
@@ -39223,6 +39232,60 @@ export type Database = {
         }
         Relationships: []
       }
+      hr_academic_years: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          end_date: string
+          id: string
+          is_active: boolean
+          notes: string | null
+          start_date: string
+          updated_at: string
+          updated_by: string | null
+          year_name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          end_date: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          start_date: string
+          updated_at?: string
+          updated_by?: string | null
+          year_name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          end_date?: string
+          id?: string
+          is_active?: boolean
+          notes?: string | null
+          start_date?: string
+          updated_at?: string
+          updated_by?: string | null
+          year_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hr_academic_years_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_academic_years_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_additional_role_types: {
         Row: {
           created_at: string
@@ -39734,6 +39797,15 @@ export type Database = {
       }
       hr_attendance_records: {
         Row: {
+          biometric_code: string | null
+          biometric_institution_id: string | null
+          break_minutes: number | null
+          device_status: string | null
+          first_half_attended: boolean | null
+          late_minutes: number | null
+          overtime_minutes: number | null
+          second_half_attended: boolean | null
+          shift_timing_id: string | null
           created_at: string | null
           day_calc: string | null
           employee_id: string
@@ -39756,6 +39828,15 @@ export type Database = {
           work_date: string
         }
         Insert: {
+          biometric_code?: string | null
+          biometric_institution_id?: string | null
+          break_minutes?: number | null
+          device_status?: string | null
+          first_half_attended?: boolean | null
+          late_minutes?: number | null
+          overtime_minutes?: number | null
+          second_half_attended?: boolean | null
+          shift_timing_id?: string | null
           created_at?: string | null
           day_calc?: string | null
           employee_id: string
@@ -39778,6 +39859,15 @@ export type Database = {
           work_date: string
         }
         Update: {
+          biometric_code?: string | null
+          biometric_institution_id?: string | null
+          break_minutes?: number | null
+          device_status?: string | null
+          first_half_attended?: boolean | null
+          late_minutes?: number | null
+          overtime_minutes?: number | null
+          second_half_attended?: boolean | null
+          shift_timing_id?: string | null
           created_at?: string | null
           day_calc?: string | null
           employee_id?: string
@@ -40188,161 +40278,6 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_biometric_devices: {
-        Row: {
-          config: Json | null
-          created_at: string | null
-          device_name: string
-          device_serial: string | null
-          device_token: string | null
-          gps_lat: number | null
-          gps_lng: number | null
-          hr_organization_id: string | null
-          id: string
-          institution_id: string | null
-          is_active: boolean | null
-          last_seen_at: string | null
-          location_label: string | null
-          updated_at: string | null
-          vendor: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Insert: {
-          config?: Json | null
-          created_at?: string | null
-          device_name: string
-          device_serial?: string | null
-          device_token?: string | null
-          gps_lat?: number | null
-          gps_lng?: number | null
-          hr_organization_id?: string | null
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean | null
-          last_seen_at?: string | null
-          location_label?: string | null
-          updated_at?: string | null
-          vendor: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Update: {
-          config?: Json | null
-          created_at?: string | null
-          device_name?: string
-          device_serial?: string | null
-          device_token?: string | null
-          gps_lat?: number | null
-          gps_lng?: number | null
-          hr_organization_id?: string | null
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean | null
-          last_seen_at?: string | null
-          location_label?: string | null
-          updated_at?: string | null
-          vendor?: Database["public"]["Enums"]["hr_biometric_vendor"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_biometric_devices_hr_organization_id_fkey"
-            columns: ["hr_organization_id"]
-            isOneToOne: false
-            referencedRelation: "hr_organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "institutions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_devices_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-        ]
-      }
-      hr_biometric_punches: {
-        Row: {
-          biometric_id: string | null
-          device_id: string | null
-          employee_id: string | null
-          id: string
-          ingested_at: string | null
-          punch_at: string
-          punch_kind: string | null
-          raw_payload: Json | null
-          reconciled_to_record_id: string | null
-        }
-        Insert: {
-          biometric_id?: string | null
-          device_id?: string | null
-          employee_id?: string | null
-          id?: string
-          ingested_at?: string | null
-          punch_at: string
-          punch_kind?: string | null
-          raw_payload?: Json | null
-          reconciled_to_record_id?: string | null
-        }
-        Update: {
-          biometric_id?: string | null
-          device_id?: string | null
-          employee_id?: string | null
-          id?: string
-          ingested_at?: string | null
-          punch_at?: string
-          punch_kind?: string | null
-          raw_payload?: Json | null
-          reconciled_to_record_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_biometric_punches_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "hr_biometric_devices"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_punches_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "hr_employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_biometric_punches_reconciled_to_record_id_fkey"
-            columns: ["reconciled_to_record_id"]
-            isOneToOne: false
-            referencedRelation: "hr_attendance_records"
             referencedColumns: ["id"]
           },
         ]
@@ -42008,6 +41943,7 @@ export type Database = {
           end_time: string | null
           final_approver_id: string | null
           final_decided_at: string | null
+          hr_academic_year_id: string | null
           hr_organization_id: string
           id: string
           is_emergency: boolean
@@ -42034,6 +41970,7 @@ export type Database = {
           end_time?: string | null
           final_approver_id?: string | null
           final_decided_at?: string | null
+          hr_academic_year_id?: string | null
           hr_organization_id: string
           id?: string
           is_emergency?: boolean
@@ -42060,6 +41997,7 @@ export type Database = {
           end_time?: string | null
           final_approver_id?: string | null
           final_decided_at?: string | null
+          hr_academic_year_id?: string | null
           hr_organization_id?: string
           id?: string
           is_emergency?: boolean
@@ -42079,6 +42017,13 @@ export type Database = {
             columns: ["academic_year_id"]
             isOneToOne: false
             referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_applications_hr_academic_year_id_fkey"
+            columns: ["hr_academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "hr_academic_years"
             referencedColumns: ["id"]
           },
           {
@@ -42176,33 +42121,36 @@ export type Database = {
       }
       hr_leave_balances: {
         Row: {
-          academic_year_id: string
+          academic_year_id: string | null
           carried_forward: number
           created_at: string
           employee_id: string
           entitled: number
+          hr_academic_year_id: string
           hr_organization_id: string
           leave_type_id: string
           updated_at: string
           used: number
         }
         Insert: {
-          academic_year_id: string
+          academic_year_id?: string | null
           carried_forward?: number
           created_at?: string
           employee_id: string
           entitled?: number
+          hr_academic_year_id: string
           hr_organization_id: string
           leave_type_id: string
           updated_at?: string
           used?: number
         }
         Update: {
-          academic_year_id?: string
+          academic_year_id?: string | null
           carried_forward?: number
           created_at?: string
           employee_id?: string
           entitled?: number
+          hr_academic_year_id?: string
           hr_organization_id?: string
           leave_type_id?: string
           updated_at?: string
@@ -42214,6 +42162,13 @@ export type Database = {
             columns: ["academic_year_id"]
             isOneToOne: false
             referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_balances_hr_academic_year_id_fkey"
+            columns: ["hr_academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "hr_academic_years"
             referencedColumns: ["id"]
           },
           {
@@ -42320,12 +42275,13 @@ export type Database = {
       }
       hr_leave_encashments: {
         Row: {
-          academic_year_id: string
+          academic_year_id: string | null
           approved_at: string | null
           approved_by: string | null
           created_at: string
           days_encashed: number
           employee_id: string
+          hr_academic_year_id: string
           hr_organization_id: string
           id: string
           leave_type_id: string
@@ -42337,12 +42293,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          academic_year_id: string
+          academic_year_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           created_at?: string
           days_encashed: number
           employee_id: string
+          hr_academic_year_id: string
           hr_organization_id: string
           id?: string
           leave_type_id: string
@@ -42354,12 +42311,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          academic_year_id?: string
+          academic_year_id?: string | null
           approved_at?: string | null
           approved_by?: string | null
           created_at?: string
           days_encashed?: number
           employee_id?: string
+          hr_academic_year_id?: string
           hr_organization_id?: string
           id?: string
           leave_type_id?: string
@@ -42376,6 +42334,13 @@ export type Database = {
             columns: ["academic_year_id"]
             isOneToOne: false
             referencedRelation: "academic_years"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_leave_encashments_hr_academic_year_id_fkey"
+            columns: ["hr_academic_year_id"]
+            isOneToOne: false
+            referencedRelation: "hr_academic_years"
             referencedColumns: ["id"]
           },
           {
@@ -45752,6 +45717,51 @@ export type Database = {
           },
         ]
       }
+      hr_recruitment_purge_log: {
+        Row: {
+          application_id: string | null
+          candidate_id: string | null
+          drive_cleared_at: string | null
+          drive_file_id: string | null
+          had_resume: boolean
+          hr_organization_id: string | null
+          id: string
+          institution_id: string | null
+          job_id: string | null
+          purged_at: string
+          purged_by: string
+          stage: string
+        }
+        Insert: {
+          application_id?: string | null
+          candidate_id?: string | null
+          drive_cleared_at?: string | null
+          drive_file_id?: string | null
+          had_resume?: boolean
+          hr_organization_id?: string | null
+          id?: string
+          institution_id?: string | null
+          job_id?: string | null
+          purged_at?: string
+          purged_by: string
+          stage: string
+        }
+        Update: {
+          application_id?: string | null
+          candidate_id?: string | null
+          drive_cleared_at?: string | null
+          drive_file_id?: string | null
+          had_resume?: boolean
+          hr_organization_id?: string | null
+          id?: string
+          institution_id?: string | null
+          job_id?: string | null
+          purged_at?: string
+          purged_by?: string
+          stage?: string
+        }
+        Relationships: []
+      }
       hr_recruitment_signal_cache: {
         Row: {
           blocked_inputs: string[] | null
@@ -46464,394 +46474,100 @@ export type Database = {
           },
         ]
       }
-      hr_shift_assignments: {
+      hr_shift_timings: {
         Row: {
           created_at: string
           created_by: string | null
+          day_of_week: number
           effective_from: string
           effective_until: string | null
-          end_time_override: string | null
+          employment_category_id: string | null
+          first_half_end: string | null
+          first_half_start: string | null
+          grace_minutes: number
           id: string
+          institution_id: string
+          is_active: boolean
+          is_working_day: boolean
           notes: string | null
-          rotation_pattern: Json | null
-          rotation_weeks: number
-          staff_id: string
-          start_time_override: string | null
-          template_id: string | null
+          second_half_end: string | null
+          second_half_start: string | null
+          second_saturday_holiday: boolean
+          staff_scope: string
           updated_at: string
           updated_by: string | null
         }
         Insert: {
           created_at?: string
           created_by?: string | null
-          effective_from: string
-          effective_until?: string | null
-          end_time_override?: string | null
-          id?: string
-          notes?: string | null
-          rotation_pattern?: Json | null
-          rotation_weeks?: number
-          staff_id: string
-          start_time_override?: string | null
-          template_id?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
+          day_of_week: number
           effective_from?: string
           effective_until?: string | null
-          end_time_override?: string | null
+          employment_category_id?: string | null
+          first_half_end?: string | null
+          first_half_start?: string | null
+          grace_minutes?: number
           id?: string
+          institution_id: string
+          is_active?: boolean
+          is_working_day?: boolean
           notes?: string | null
-          rotation_pattern?: Json | null
-          rotation_weeks?: number
-          staff_id?: string
-          start_time_override?: string | null
-          template_id?: string | null
+          second_half_end?: string | null
+          second_half_start?: string | null
+          second_saturday_holiday?: boolean
+          staff_scope: string
           updated_at?: string
           updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_staff_id_fkey"
-            columns: ["staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_template_id_fkey"
-            columns: ["template_id"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_templates"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_assignments_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_shift_swap_requests: {
-        Row: {
-          counterparty_assignment_id: string | null
-          counterparty_consent_at: string | null
-          counterparty_staff_id: string | null
-          created_at: string
-          hr_approved_at: string | null
-          hr_approved_by: string | null
-          hr_review_notes: string | null
-          id: string
-          reason: string | null
-          requested_at: string
-          requester_assignment_id: string
-          requester_staff_id: string
-          status: string
-          swap_date: string
-          updated_at: string
-        }
-        Insert: {
-          counterparty_assignment_id?: string | null
-          counterparty_consent_at?: string | null
-          counterparty_staff_id?: string | null
-          created_at?: string
-          hr_approved_at?: string | null
-          hr_approved_by?: string | null
-          hr_review_notes?: string | null
-          id?: string
-          reason?: string | null
-          requested_at?: string
-          requester_assignment_id: string
-          requester_staff_id: string
-          status?: string
-          swap_date: string
-          updated_at?: string
         }
         Update: {
-          counterparty_assignment_id?: string | null
-          counterparty_consent_at?: string | null
-          counterparty_staff_id?: string | null
           created_at?: string
-          hr_approved_at?: string | null
-          hr_approved_by?: string | null
-          hr_review_notes?: string | null
+          created_by?: string | null
+          day_of_week?: number
+          effective_from?: string
+          effective_until?: string | null
+          employment_category_id?: string | null
+          first_half_end?: string | null
+          first_half_start?: string | null
+          grace_minutes?: number
           id?: string
-          reason?: string | null
-          requested_at?: string
-          requester_assignment_id?: string
-          requester_staff_id?: string
-          status?: string
-          swap_date?: string
+          institution_id?: string
+          is_active?: boolean
+          is_working_day?: boolean
+          notes?: string | null
+          second_half_end?: string | null
+          second_half_start?: string | null
+          second_saturday_holiday?: boolean
+          staff_scope?: string
           updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "hr_shift_swap_requests_counterparty_assignment_id_fkey"
-            columns: ["counterparty_assignment_id"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_assignments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_counterparty_staff_id_fkey"
-            columns: ["counterparty_staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_hr_approved_by_fkey"
-            columns: ["hr_approved_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_requester_assignment_id_fkey"
-            columns: ["requester_assignment_id"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_assignments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_swap_requests_requester_staff_id_fkey"
-            columns: ["requester_staff_id"]
-            isOneToOne: false
-            referencedRelation: "staff"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      hr_shift_templates: {
-        Row: {
-          category: string | null
-          created_at: string
-          created_by: string | null
-          end_time: string
-          id: string
-          institution_id: string | null
-          is_active: boolean
-          is_global: boolean
-          notes: string | null
-          start_time: string
-          superseded_by: string | null
-          template_code: string
-          template_name: string
-          updated_at: string
-          updated_by: string | null
-          valid_from: string
-          valid_until: string | null
-        }
-        Insert: {
-          category?: string | null
-          created_at?: string
-          created_by?: string | null
-          end_time: string
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean
-          is_global?: boolean
-          notes?: string | null
-          start_time: string
-          superseded_by?: string | null
-          template_code: string
-          template_name: string
-          updated_at?: string
-          updated_by?: string | null
-          valid_from?: string
-          valid_until?: string | null
-        }
-        Update: {
-          category?: string | null
-          created_at?: string
-          created_by?: string | null
-          end_time?: string
-          id?: string
-          institution_id?: string | null
-          is_active?: boolean
-          is_global?: boolean
-          notes?: string | null
-          start_time?: string
-          superseded_by?: string | null
-          template_code?: string
-          template_name?: string
-          updated_at?: string
-          updated_by?: string | null
-          valid_from?: string
-          valid_until?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users_profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "case_graduation_readiness"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
+            foreignKeyName: "hr_shift_timings_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
             referencedRelation: "institutions"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
+            foreignKeyName: "hr_shift_timings_employment_category_id_fkey"
+            columns: ["employment_category_id"]
             isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_colleges"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "semester_hierarchy_health"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_institution_id_fkey"
-            columns: ["institution_id"]
-            isOneToOne: false
-            referencedRelation: "v_institutions_needing_admission_counselors"
-            referencedColumns: ["institution_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_superseded_by_fkey"
-            columns: ["superseded_by"]
-            isOneToOne: false
-            referencedRelation: "hr_shift_templates"
+            referencedRelation: "employment_categories"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "bug_reporters_leaderboard"
-            referencedColumns: ["user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "mv_cluster_leaderboard_hods"
-            referencedColumns: ["hod_user_id"]
-          },
-          {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
-            columns: ["updated_by"]
+            foreignKeyName: "hr_shift_timings_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "hr_shift_templates_updated_by_fkey"
+            foreignKeyName: "hr_shift_timings_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
-            referencedRelation: "users_profiles"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -59956,6 +59672,7 @@ export type Database = {
       learners_profiles: {
         Row: {
           aadhar_number: string | null
+          abc_id: string | null
           academic_year_id: string | null
           accommodation_type_id: string | null
           account_verification_notes: string | null
@@ -59986,6 +59703,7 @@ export type Database = {
           dayscholar_fee: number | null
           degree_id: string | null
           department_id: string | null
+          emis: string | null
           engineering_cutoff_marks: string | null
           enquiry_date: string | null
           entry_type: string
@@ -59997,6 +59715,7 @@ export type Database = {
           fees_confirmed: boolean
           first_graduate: boolean | null
           first_name: string
+          first_name_tamil: string | null
           gender: string
           hospital_training_fee: number | null
           hostel_category_id: string | null
@@ -60007,6 +59726,7 @@ export type Database = {
           institution_id: string | null
           is_profile_complete: boolean
           last_name: string | null
+          last_name_tamil: string | null
           last_school: string
           last_school_id: string | null
           learner_type: string | null
@@ -60058,6 +59778,7 @@ export type Database = {
           transport_stop_id: string | null
           tuition_fee: number | null
           twelfth_marks: Json
+          umis: string | null
           uniform_fee: number | null
           university_reg_fee: number | null
           updated_at: string
@@ -60065,6 +59786,7 @@ export type Database = {
         }
         Insert: {
           aadhar_number?: string | null
+          abc_id?: string | null
           academic_year_id?: string | null
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
@@ -60095,6 +59817,7 @@ export type Database = {
           dayscholar_fee?: number | null
           degree_id?: string | null
           department_id?: string | null
+          emis?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
           entry_type: string
@@ -60106,6 +59829,7 @@ export type Database = {
           fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name: string
+          first_name_tamil?: string | null
           gender: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
@@ -60116,6 +59840,7 @@ export type Database = {
           institution_id?: string | null
           is_profile_complete?: boolean
           last_name?: string | null
+          last_name_tamil?: string | null
           last_school: string
           last_school_id?: string | null
           learner_type?: string | null
@@ -60167,6 +59892,7 @@ export type Database = {
           transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks: Json
+          umis?: string | null
           uniform_fee?: number | null
           university_reg_fee?: number | null
           updated_at?: string
@@ -60174,6 +59900,7 @@ export type Database = {
         }
         Update: {
           aadhar_number?: string | null
+          abc_id?: string | null
           academic_year_id?: string | null
           accommodation_type_id?: string | null
           account_verification_notes?: string | null
@@ -60204,6 +59931,7 @@ export type Database = {
           dayscholar_fee?: number | null
           degree_id?: string | null
           department_id?: string | null
+          emis?: string | null
           engineering_cutoff_marks?: string | null
           enquiry_date?: string | null
           entry_type?: string
@@ -60215,6 +59943,7 @@ export type Database = {
           fees_confirmed?: boolean
           first_graduate?: boolean | null
           first_name?: string
+          first_name_tamil?: string | null
           gender?: string
           hospital_training_fee?: number | null
           hostel_category_id?: string | null
@@ -60225,6 +59954,7 @@ export type Database = {
           institution_id?: string | null
           is_profile_complete?: boolean
           last_name?: string | null
+          last_name_tamil?: string | null
           last_school?: string
           last_school_id?: string | null
           learner_type?: string | null
@@ -60276,6 +60006,7 @@ export type Database = {
           transport_stop_id?: string | null
           tuition_fee?: number | null
           twelfth_marks?: Json
+          umis?: string | null
           uniform_fee?: number | null
           university_reg_fee?: number | null
           updated_at?: string
@@ -92764,6 +92495,8 @@ export type Database = {
       }
       staff: {
         Row: {
+          biometric_id: string | null
+          biometric_institution_id: string | null
           achievements: Json
           address: string | null
           awards: Json
@@ -92829,6 +92562,8 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          biometric_id?: string | null
+          biometric_institution_id?: string | null
           achievements?: Json
           address?: string | null
           awards?: Json
@@ -92894,6 +92629,8 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          biometric_id?: string | null
+          biometric_institution_id?: string | null
           achievements?: Json
           address?: string | null
           awards?: Json
@@ -106127,6 +105864,19 @@ export type Database = {
       hr_policy_restore: {
         Args: { p_table_name: string; p_user_id: string; p_version_id: string }
         Returns: string
+      }
+      hr_staff_payroll_directory: {
+        Args: never
+        Returns: {
+          payer_org_id: string
+          payer_org_name: string
+          person_name: string
+          role_title: string
+          staff_code: string
+          staff_uuid: string
+          works_at_id: string
+          works_at_name: string
+        }[]
       }
       hr_staff_without_payer: {
         Args: never

@@ -120,6 +120,9 @@ import type { BillingCategory, BillingCategoryKind } from '@/types/billing';
 // Exported so the clone page applies the same filter.
 export const FEE_STRUCTURE_EXCLUDED_CATEGORY_KINDS: BillingCategoryKind[] = [
   'transport',
+  // A late-payment charge is never an admission fee line item — penalty bills
+  // are created only by the late-charge accrual mechanism (2026-08-07).
+  'penalty',
 ];
 
 export function filterFeeStructureCategories(

@@ -18,7 +18,8 @@ import type { BillCoverageRow } from '@/types/billing-coverage';
 // Any column outside the whitelist is therefore enableSorting: false.
 // Whitelist: full_name, roll_number, register_number, institution_name,
 // program_name, semester_section, academic_year_name, accommodation_type,
-// lifecycle_status, gender, coverage_state, bill_count, total_billed.
+// lifecycle_status, gender, coverage_state, bill_count, total_billed,
+// total_paid.
 
 // ── Sizing ─────────────────────────────────────────────────────────────────
 // Widths are set per column rather than left to auto so the grid is readable
@@ -26,26 +27,40 @@ import type { BillCoverageRow } from '@/types/billing-coverage';
 // people actually scan, so they get the most room; identifiers and counts are
 // kept narrow to buy that space back. All remain resizable.
 
-/** Coverage is the column the page exists for — highest-contrast treatment. */
-function coverageBadge(state: BillCoverageRow['coverage_state']) {
-  if (state === 'generated') {
-    return (
+/**
+ * Coverage is the column the page exists for — highest-contrast treatment.
+ *
+ * The measured year rides underneath the badge on purpose. "Not generated" is
+ * meaningless without the year it is relative to, and the row's own Academic
+ * Year column is the LEARNER's year, which can differ. Showing only that is how
+ * the 2026-08-08 bug stayed invisible: rows read "2025-2026 / Not generated"
+ * while the bill sat in 2026-2027, and looked perfectly self-consistent.
+ */
+function coverageBadge(row: BillCoverageRow) {
+  const badge =
+    row.coverage_state === 'generated' ? (
       <Badge className='border-transparent bg-emerald-600 text-white hover:bg-emerald-700'>
         Generated
       </Badge>
-    );
-  }
-  if (state === 'cannot_evaluate') {
-    return (
+    ) : row.coverage_state === 'cannot_evaluate' ? (
       <Badge className='border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300'>
         Cannot evaluate
       </Badge>
+    ) : (
+      <Badge className='border-transparent bg-orange-500 text-white hover:bg-orange-600'>
+        Not generated
+      </Badge>
     );
-  }
+
   return (
-    <Badge className='border-transparent bg-orange-500 text-white hover:bg-orange-600'>
-      Not generated
-    </Badge>
+    <div className='space-y-0.5'>
+      {badge}
+      {row.target_academic_year_name && (
+        <div className='text-[11px] text-muted-foreground'>
+          for {row.target_academic_year_name}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -151,7 +166,7 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
     size: 165,
     minSize: 145,
     maxSize: 220,
-    cell: ({ row }) => coverageBadge(row.original.coverage_state)
+    cell: ({ row }) => coverageBadge(row.original)
   },
   {
     accessorKey: 'institution_name',
@@ -207,8 +222,12 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
   {
     accessorKey: 'academic_year_name',
     id: 'academic_year_name',
+    // "Learner Year", not "Academic Year": this is the year on the LEARNER's
+    // profile, which routinely lags the year their bills are raised for. The
+    // year coverage is measured against sits under the Coverage badge. The id
+    // must stay academic_year_name — it is in the RPC's sort whitelist.
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title='Academic Year' />
+      <DataTableColumnHeader column={column} title='Learner Year' />
     ),
     size: 135,
     minSize: 115,
@@ -305,6 +324,29 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
       <div className='text-right font-medium tabular-nums'>
         {row.original.total_billed > 0 ? (
           formatCurrency(row.original.total_billed)
+        ) : (
+          <span className='font-normal text-muted-foreground'>—</span>
+        )}
+      </div>
+    )
+  },
+  {
+    accessorKey: 'total_paid',
+    id: 'total_paid',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Total Paid' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 190,
+    // Settled against the SAME bills Total Billed sums, so the two read as a
+    // pair and the balance is the difference. A learner with bills but no
+    // receipt shows ₹0, not an em dash — "nothing paid yet" is a real finding
+    // on this screen, while "no bill at all" is what the dash means.
+    cell: ({ row }) => (
+      <div className='text-right font-medium tabular-nums'>
+        {row.original.bill_count > 0 ? (
+          formatCurrency(row.original.total_paid)
         ) : (
           <span className='font-normal text-muted-foreground'>—</span>
         )}

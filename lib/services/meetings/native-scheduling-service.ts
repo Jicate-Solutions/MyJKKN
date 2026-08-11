@@ -189,6 +189,28 @@ export class NativeSchedulingService {
   }
 
   /**
+   * Whether this host wants the guest's discussion note echoed in the calendar
+   * event TITLE as well as the body. Opt-in, default false: the Google event is
+   * shared with the guest, so the title shows on their lock screen — the body is
+   * the safe place, the title is a deliberate choice.
+   *
+   * Read on its own (NOT folded into resolveVideoProvider) so that a database
+   * without the show_note_in_title column — the migration is Director-gated —
+   * fails only this flag to false and never disturbs provider resolution.
+   */
+  private static async resolveShowNoteInTitle(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<boolean> {
+    const { data } = await (supabase as any)
+      .from('meeting_host_integration_prefs')
+      .select('show_note_in_title')
+      .eq('host_profile_id', hostProfileId)
+      .maybeSingle();
+    return (data?.show_note_in_title as boolean | undefined) === true;
+  }
+
+  /**
    * Wave-3 (A): mint a join URL from a platform-level provider (Zoom / Teams).
    * Reads the host's provider identity from meeting_host_integration_prefs
    * (zoom → host email; teams → informational only). Each service is env-gated
@@ -845,10 +867,22 @@ export class NativeSchedulingService {
     // Meet link) and the video link comes from the chosen provider below.
     const conn = await GoogleCalendarService.getConnection(supabase, primaryHost);
     if (conn?.status === 'active') {
+      // What the guest said the meeting is about. It was captured at booking
+      // and shown nowhere, so the host walked in blind. It always rides in the
+      // event body; the title is per-host opt-in (default off) because the
+      // guest is an attendee and the title is their lock-screen surface.
+      const discussionNote = (input.answers?.note ?? '').trim();
+      const noteInTitle = discussionNote
+        ? await this.resolveShowNoteInTitle(supabase, primaryHost)
+        : false;
+
       const event = await GoogleCalendarService.createEvent(supabase, primaryHost, {
-        summary: `${mt.title} — ${input.attendeeName}`,
+        summary: noteInTitle
+          ? `${mt.title} — ${input.attendeeName} — ${discussionNote}`
+          : `${mt.title} — ${input.attendeeName}`,
         description: [
           `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
+          discussionNote ? `Discussion note: ${discussionNote}` : '',
           input.attendeePhone ? `Attendee phone: ${input.attendeePhone}` : '',
           cancelUrl || rescheduleUrl ? '\nNeed to make changes to this meeting?' : '',
           cancelUrl ? `Cancel: ${cancelUrl}` : '',

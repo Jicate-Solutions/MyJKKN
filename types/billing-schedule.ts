@@ -179,6 +179,12 @@ export interface StudentBillFilters {
   section_id?: string;
   // accommodation_types.code (hostel | dayscholar | pg | not_applicable)
   accommodation_type?: string;
+  // admission_years.admission_year_name (e.g. '2025-2026') — NOT an id.
+  // admission_years is per-institution (79 rows, only 9 distinct names across
+  // 11 colleges), so filtering by a single id would silently scope the result
+  // to one college. The service resolves the name to every matching id and
+  // applies them as student.admission_year_id IN (...).
+  admission_year?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -638,6 +644,11 @@ export interface StudentForBilling {
   // /billing/schedule/students/[id] detail page (Accommodation card) and used by
   // the accommodation-type filter on the list pages.
   accommodation_type_id?: string;
+  // Admission year off learners_profiles. Shown on the
+  // /billing/schedule/students/[id] Academic Information card — the accounts
+  // team reads it alongside Academic Year, which is a different thing: the
+  // admission year is the cohort the learner joined in and never changes.
+  admission_year_id?: string;
   // 2026-05-21: shown on /billing/schedule/students/[id] header so the
   // accounts team sees the learner's current state (account → reserved →
   // admitted → active) at a glance.
@@ -677,6 +688,14 @@ export interface StudentForBilling {
     id: string;
     code: string;
     name: string;
+  };
+  // admission_year_name is the display label ("2024-2025"); year is the plain
+  // integer the rest of the platform keys cohorts on. Both carried so the UI
+  // can fall back when a row was created without a name.
+  admission_year?: {
+    id: string;
+    admission_year_name: string | null;
+    year: number | null;
   };
 }
 

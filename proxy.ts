@@ -9,6 +9,7 @@ import {
   type VerifiedTokenUser
 } from './lib/auth/token-validation-cache';
 import { routeMatcher } from './lib/auth/route-matcher';
+import { routeAllowedByHandover } from './lib/auth/handover-route-access';
 import { FEATURE_FLAGS } from './lib/config/feature-flags';
 import { StudentValidationService } from './lib/services/auth/student-validation-service';
 import { PARENT_SESSION_COOKIE, verifyParentSession } from './lib/auth/parent-jwt';
@@ -184,6 +185,16 @@ const PUBLIC_PATH_PREFIXES = [
   '/api/calendar/feed/', // ICS calendar feed — token-keyed bearer secret, no login (Google Calendar polls this)
   '/verify/', // Public certificate verification (/verify/[number]) — QR-scanned by recruiters, no login. Also the LinkedIn "See credential" target. Page under app/verify/ is public-by-design but was never allowlisted (307→login bug); pde_certificates was empty so it stayed latent.
   '/proof/', // Verified Skills Record verify-links (/proof/[token]) — employer-facing, no login; token-validated server-side (fn_vsr_shared_record), learner-revocable.
+  '/r/', // Routing forms (/r/[slug]) — a visitor answers one question and is sent
+  //        to the right booking link. Public by definition: the whole point is that
+  //        somebody with no account can use it. Lives under app/(public)/r/[slug]/
+  //        and was never allowlisted, so it 307'd to login — exactly the failure
+  //        already recorded against '/verify/' above. It stayed latent because
+  //        routing_forms held zero rows until 2026-08-05; the first form ever
+  //        created surfaced it within the hour.
+  '/embed/', // Embeddable booking widget (/embed/[handle]) — same story. An embed
+  //        that demands a login is not an embed: it is loaded in an iframe on
+  //        somebody else's website, where the visitor has no JKKN session at all.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
@@ -669,7 +680,33 @@ export async function proxy(request: NextRequest) {
 
     // Check access with both role and permissions
     if (!routeMatcher.hasAccess(currentPath, profile.role, userPermissions)) {
-      return NextResponse.redirect(new URL('/unauthorized', request.url));
+      // ── FIFTH LAYER — Director's Desk handovers ──────────────────────────
+      // specs/director-desk/SPEC.md counts four layers a handover unlocks
+      // (page gate / RLS / RPC / API route). This middleware is the fifth and
+      // it runs FIRST, so until now a handover never reached any of them: the
+      // check above reads custom_roles.permissions for profiles.role alone and
+      // redirected the receiver before the page rendered.
+      //
+      // Reached ONLY here — after the role-derived check has already decided
+      // to redirect. A user who holds this page by role does no extra work.
+      //
+      // Fails closed on error, on timeout (300 ms ceiling), and on the state
+      // that is true in production today: the spine migration is unapplied, so
+      // fn_my_handover_permissions() does not exist and this changes nothing.
+      // See lib/auth/handover-route-access.ts.
+      const grantedByHandover = await routeAllowedByHandover(
+        supabase,
+        user.id,
+        currentPath
+      );
+
+      if (!grantedByHandover) {
+        return NextResponse.redirect(new URL('/unauthorized', request.url));
+      }
+
+      // Diagnostic only — lets an operator (and the persona test) see WHY a
+      // request that the role matrix denies was nonetheless served.
+      res.headers.set('x-access-via', 'director-handover');
     }
 
     // Add role info to headers if route is protected
