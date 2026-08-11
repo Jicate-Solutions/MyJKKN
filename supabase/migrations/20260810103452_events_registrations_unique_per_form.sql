@@ -1,3 +1,13 @@
+-- VERSION NOTE: numbered 20260810103452 because that is the version this
+-- migration was actually applied under on production. It previously claimed
+-- 20260810120000, which main already holds three times over
+-- (backfill_leadership_schedules_and_types, hr_academic_years,
+-- revoke_learner_side_hostel_vacate_requests). schema_migrations keys on
+-- `version` ALONE, so this file could never own a ledger row and would be
+-- skipped forever by any ledger-driven apply. Do NOT "fix" this by renumbering
+-- forward to one tick past the newest version on main — that is precisely how
+-- the collision was produced. See scripts/ci/check-migration-version-cross-pr.sh.
+--
 -- Uniqueness for self-service event submissions moves from
 --   one per PERSON per EVENT   →   one per PERSON per FORM.
 --

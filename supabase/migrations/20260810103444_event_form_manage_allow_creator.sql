@@ -1,3 +1,12 @@
+-- VERSION NOTE: numbered 20260810103444 because that is the version this
+-- migration was actually applied under on production. It previously claimed
+-- 20260810130000, which main already holds
+-- (google_connection_calendar_list_scope). schema_migrations keys on `version`
+-- ALONE, so this file could never own a ledger row and would be skipped forever
+-- by any ledger-driven apply. Do NOT "fix" this by renumbering forward to one
+-- tick past the newest version on main — that is precisely how the collision
+-- was produced. See scripts/ci/check-migration-version-cross-pr.sh.
+--
 -- The person who CREATED an event may manage that event's forms.
 --
 -- WHY
