@@ -54,6 +54,16 @@ const MIGRATION = path.join(
   REPO,
   'supabase/migrations/20260816030000_unmarked_periods_regrain_to_timetable.sql',
 );
+/**
+ * The follow-up that adds the timetable's own start_date/end_date validity window
+ * to the today function, so it stops counting timetables that have finished
+ * teaching. Applied AFTER `MIGRATION` every time, because MIGRATION re-creates the
+ * same function from the pre-window body and would otherwise undo it.
+ */
+const WINDOW_MIGRATION = path.join(
+  REPO,
+  'supabase/migrations/20260819023700_unmarked_periods_today_timetable_window.sql',
+);
 
 const PGHOST = process.env.UNMARKED_TEST_PGHOST ?? 'localhost';
 const PGPORT = Number(process.env.UNMARKED_TEST_PGPORT ?? 5432);
@@ -98,6 +108,22 @@ const TT = {
   /** Same institution, DIFFERENT department — visible to a cluster/institution
    *  caller, hidden from one narrowed to DEPT. */
   otherDepartment: '00000000-0000-4000-8000-0000000000ea',
+
+  // ── Validity-window fixtures (20260819023700) ────────────────────────────────
+  // All four are scheduled today by selected_days, active, not templates and
+  // unmarked, so selected_days can never be the reason one of them is absent —
+  // only the window can. Section is NULL on all four (the semester-level shape)
+  // so they stay invisible to the section-keyed controls, whose COUNT(DISTINCT
+  // section_id) would otherwise shift and make those assertions about this
+  // change rather than about the grain they exist to police.
+  /** Stopped teaching yesterday. Production has three of these, ending 2026-08-14. */
+  windowRetired: '00000000-0000-4000-8000-0000000000eb',
+  /** Starts teaching tomorrow — a session that has not happened yet. */
+  windowNotStarted: '00000000-0000-4000-8000-0000000000ec',
+  /** Both bounds NULL. Production has 3 such rows; they must stay counted. */
+  windowOpen: '00000000-0000-4000-8000-0000000000ed',
+  /** Squarely inside its window: started yesterday, ends tomorrow. */
+  windowInside: '00000000-0000-4000-8000-0000000000ee',
 } as const;
 
 /** Minimal shape of the four tables the functions read, plus the registry. */
@@ -141,7 +167,14 @@ CREATE TABLE public.timetables (
   section_id UUID,                       -- nullable: NULL means semester-level
   institution_id UUID,
   department_id UUID,
-  selected_days JSONB
+  selected_days JSONB,
+  -- The timetable's own teaching window. Both nullable in production, and both
+  -- ACTUALLY NULL on some live rows, which is why every predicate that reads
+  -- them has to be NULL-tolerant. Absent from this fixture until 2026-08-11,
+  -- so 20260819023700 would have failed here with "column does not exist" —
+  -- a schema stand-in that omits a column cannot prove a predicate over it.
+  start_date DATE,
+  end_date DATE
 );
 -- Mirrors production exactly: every one of these columns is NOT NULL there,
 -- which is why a marked semester-level timetable stores a REAL section id while
@@ -242,6 +275,12 @@ $ctl$;
 
 let admin: Client;
 let db: Client;
+
+/** The shipped (pre-window) function's answer over the full fixture, and the
+ *  same function's answer after 20260819023700 is applied. Captured in beforeAll
+ *  because the "before" can only be read while the old body is still installed. */
+let preWindow: Unmarked;
+let postWindow: Unmarked;
 
 type Unmarked = { count: number; sample_period_ids: string[] };
 type Compliance = {
@@ -430,6 +469,40 @@ beforeAll(async () => {
   // Re-run the copy half now that the rows exist (the migration ran against an
   // empty registry above; both statements are idempotent by design).
   await db.query(readFileSync(MIGRATION, 'utf8'));
+
+  // ── THE VALIDITY WINDOW: fixtures, then a BEFORE/AFTER taken from the real
+  //    shipped function rather than from a model of it ─────────────────────────
+  //
+  // Everything above this point is running the PRE-WINDOW body — the one
+  // production carries today. So the control for "does the window actually bite?"
+  // does not need to be re-implemented in TypeScript or approximated by a
+  // hand-written control function: it can simply be a call to the shipped
+  // function, made before the follow-up migration is applied and remembered.
+  // A test that re-implements the SQL only proves the model agrees with itself.
+  for (const [id, start, end] of [
+    [TT.windowRetired, '-2 days', '-1 day'],
+    [TT.windowNotStarted, '+1 day', '+2 days'],
+    [TT.windowOpen, null, null],
+    [TT.windowInside, '-1 day', '+1 day'],
+  ] as Array<[string, string | null, string | null]>) {
+    await db.query(
+      `INSERT INTO public.timetables
+         (id, section_id, is_active, is_template, selected_days,
+          institution_id, department_id, start_date, end_date)
+       VALUES ($1::uuid, NULL, true, false, $2::jsonb, $3::uuid, $4::uuid,
+               CASE WHEN $5::text IS NULL THEN NULL ELSE CURRENT_DATE + $5::interval END,
+               CASE WHEN $6::text IS NULL THEN NULL ELSE CURRENT_DATE + $6::interval END)`,
+      [id, JSON.stringify([today]), INST, DEPT, start, end],
+    );
+  }
+
+  preWindow = await unmarkedFor(SUPER_ADMIN);
+
+  // Now the fix. Applied AFTER the second MIGRATION run above, which re-creates
+  // this same function from the pre-window body — apply them the other way round
+  // and the suite would silently be testing the bug.
+  await db.query(readFileSync(WINDOW_MIGRATION, 'utf8'));
+  postWindow = await unmarkedFor(SUPER_ADMIN);
 }, 60_000);
 
 afterAll(async () => {
@@ -853,5 +926,151 @@ describe('the registry copy stops saying sections', () => {
         WHERE id='11111111-1111-4111-8111-100000000004'`,
     );
     expect(r.rows[0].cta).toBe('Mark now');
+  });
+});
+
+/**
+ * Behavioural proof for
+ * supabase/migrations/20260819023700_unmarked_periods_today_timetable_window.sql
+ *
+ * A timetable carries the window during which it is actually teaching. The today
+ * function never read it; its date-ranged sibling always did. Production is
+ * currently inside every window, so the two agree by luck — the earliest active
+ * end_date is 2026-08-14, and from 2026-08-15 the badge would have started
+ * rostering timetables that had stopped teaching while the history screen would
+ * not, rendering two numbers from one dataset on one screen.
+ *
+ * `preWindow` is the SHIPPED function's own answer, read in beforeAll while the
+ * pre-window body was still installed. So non-vacuity is established by the real
+ * thing rather than by a control that re-states the SQL.
+ */
+describe('the unmarked count honours the timetable\'s own validity window', () => {
+  it('is non-vacuous: the shipped body really did count both out-of-window rows', () => {
+    // If this ever fails, every assertion below would be passing against an
+    // absence the fixture created rather than one the migration caused.
+    expect(preWindow.sample_period_ids).toContain(TT.windowRetired);
+    expect(preWindow.sample_period_ids).toContain(TT.windowNotStarted);
+  });
+
+  it('drops a timetable that stopped teaching before today', () => {
+    expect(postWindow.sample_period_ids).not.toContain(TT.windowRetired);
+  });
+
+  it('drops a timetable that has not started teaching yet', () => {
+    expect(postWindow.sample_period_ids).not.toContain(TT.windowNotStarted);
+  });
+
+  it('keeps a timetable whose window is open at both ends', () => {
+    // NULL means "no bound", never "excluded". A bare `start_date <= CURRENT_DATE`
+    // evaluates to NULL for these rows and would silently drop them — the failure
+    // direction that HIDES unmarked attendance, which nobody would report.
+    expect(postWindow.sample_period_ids).toContain(TT.windowOpen);
+  });
+
+  it('keeps a timetable sitting inside its window', () => {
+    expect(postWindow.sample_period_ids).toContain(TT.windowInside);
+  });
+
+  it('removes exactly the two out-of-window rows and nothing else', () => {
+    // The headline safety property, and the same one proved read-only against
+    // production: a window predicate must not move any other row. Anything else
+    // disappearing means more than the window changed.
+    const removed = preWindow.sample_period_ids.filter(
+      (id) => !postWindow.sample_period_ids.includes(id),
+    );
+    expect(removed.sort()).toEqual([TT.windowRetired, TT.windowNotStarted].sort());
+    expect(postWindow.count).toBe(preWindow.count - 2);
+  });
+
+  it('adds nothing', () => {
+    const added = postWindow.sample_period_ids.filter(
+      (id) => !preWindow.sample_period_ids.includes(id),
+    );
+    expect(added).toEqual([]);
+  });
+
+  it('neither snapshot was truncated by the LIMIT 10 on sample_period_ids', () => {
+    // The comparisons above read the id ARRAY, which the function caps at 10. If a
+    // future fixture pushes either snapshot past that cap the arrays silently stop
+    // being the full answer and the set comparisons start lying. Fail here first.
+    expect(preWindow.count).toBe(preWindow.sample_period_ids.length);
+    expect(postWindow.count).toBe(postWindow.sample_period_ids.length);
+  });
+
+  it('applies the window to the sample list, not only to the count', async () => {
+    // The count and the id array are computed by two separate queries over the
+    // same table. Predicate in one but not the other = a badge reading 173 whose
+    // "show me which" names 176, including a timetable that stopped teaching.
+    const r = await db.query(
+      `SELECT (public.fn_aqs_attendance_unmarked_periods_today($1::uuid)->>'count')::int AS c,
+              jsonb_array_length(
+                public.fn_aqs_attendance_unmarked_periods_today($1::uuid)->'sample_period_ids') AS n`,
+      [SUPER_ADMIN],
+    );
+    expect(r.rows[0].n).toBe(r.rows[0].c);
+  });
+
+  it('still clears an in-window timetable once it is marked', async () => {
+    // The grain must survive the window. `sa.timetable_id = t.id` is the clearing
+    // key; if the window had been bolted on by re-keying anything, a marked
+    // semester-level timetable would go back to reading unmarked forever.
+    const before = await unmarkedFor(SUPER_ADMIN);
+    expect(before.sample_period_ids).toContain(TT.windowInside);
+
+    await mark(TT.windowInside);
+    const after = await unmarkedFor(SUPER_ADMIN);
+    expect(after.sample_period_ids).not.toContain(TT.windowInside);
+    expect(after.count).toBe(before.count - 1);
+
+    await unmark(TT.windowInside);
+    const restored = await unmarkedFor(SUPER_ADMIN);
+    expect(restored.count).toBe(before.count);
+  });
+
+  it('leaves every timetable that carries no window at all exactly where it was', () => {
+    // Nine of the original fixture rows set neither bound. Production is in the
+    // same state today, which is why the live before/after both read 176: this is
+    // the fixture-scale statement of that measurement.
+    for (const id of [
+      TT.sectionUnmarked,
+      TT.semesterUnmarked,
+      TT.sectionSibling,
+      TT.otherInstitution,
+      TT.otherDepartment,
+    ]) {
+      expect(preWindow.sample_period_ids.includes(id)).toBe(
+        postWindow.sample_period_ids.includes(id),
+      );
+    }
+  });
+
+  it('re-asserts the anon revoke in the same file that replaces the function', async () => {
+    // CREATE OR REPLACE does not re-run the original migration's grants, and
+    // Supabase's ALTER DEFAULT PRIVILEGES hands `anon` a direct EXECUTE separate
+    // from PUBLIC. A follow-up that replaces a SECURITY DEFINER body without
+    // re-revoking is how a function quietly becomes callable with the anon key
+    // that ships in every browser bundle.
+    const r = await db.query(
+      `SELECT has_function_privilege('anon',
+                'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS anon_can,
+              has_function_privilege('authenticated',
+                'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS auth_can,
+              has_function_privilege('service_role',
+                'public.fn_aqs_attendance_unmarked_periods_today(uuid,uuid)','EXECUTE') AS svc_can`,
+    );
+    expect(r.rows[0].anon_can).toBe(false);
+    expect(r.rows[0].auth_can).toBe(true);
+    expect(r.rows[0].svc_can).toBe(true);
+  });
+
+  it('keeps the function SECURITY DEFINER with a pinned search_path', async () => {
+    const r = await db.query(
+      `SELECT p.prosecdef, p.proconfig FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname='public' AND p.proname='fn_aqs_attendance_unmarked_periods_today'`,
+    );
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0].prosecdef).toBe(true);
+    expect(r.rows[0].proconfig).toContain('search_path=public, pg_catalog');
   });
 });
