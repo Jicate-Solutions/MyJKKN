@@ -80,7 +80,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       let query = (svc as any)
         .from('staff')
         .select(
-          'id, profile_id, first_name, last_name, designation, institution_email, department:departments(department_name), institution:institutions(name)'
+          'id, profile_id, first_name, last_name, designation, institution_email, department:departments(department_name), institution:institutions!staff_institution_id_fkey(name)'
         )
         .eq('is_active', true);
       if (institutionId) query = query.eq('institution_id', institutionId);

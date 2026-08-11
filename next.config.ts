@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
     // the PDF call letter. Keep externalised — never remove.
     '@sparticuz/chromium',
     'puppeteer-core',
+    // Full `puppeteer` is only ever imported lazily, in the local-dev branch of
+    // the PDF launchers. Bundling it crashed the Next dev render worker on the
+    // BoS minutes-pdf route ("Jest worker encountered 2 child process
+    // exceptions") — the route 500'd before its own try/catch could run.
+    'puppeteer',
     // `pg` (node-postgres) does dynamic require()s for optional native bindings +
     // connection internals that webpack/turbopack cannot bundle. Without this it
     // fails to bundle (dev: "can't resolve 'pg'") and can fail at runtime in prod.
@@ -64,12 +69,25 @@ const nextConfig: NextConfig = {
   //
   // Pattern verified against COE app's vercel-chromium-fix.md. The `*`
   // matches the [id] dynamic segment in the App Router file paths.
+  //
+  // public/fonts/pdf rides along for the same reason: lib/utils/bos/pdf-fonts.ts
+  // reads those .woff2 files at runtime through a path built from
+  // process.cwd(), which the tracer cannot follow either. Drop them and the
+  // deployed renderer falls back to the only font @sparticuz/chromium ships
+  // (Open Sans), which is what made the minutes' narrative box overflow in
+  // production while looking correct locally.
   outputFileTracingIncludes: {
     '/api/bos/meetings/*/notify-members': [
       './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
     ],
     '/api/bos/meetings/*/preview-pdf': [
       './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
+    ],
+    '/api/bos/meetings/*/minutes-pdf': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './public/fonts/pdf/**/*',
     ],
   },
 

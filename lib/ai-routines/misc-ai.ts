@@ -2,6 +2,23 @@ import { type AIRoutine } from './types';
 // Populated 2026-07-01 from the parallel discovery swarm (deep-read of jicate/main).
 export const MISC_AI_ROUTINES: AIRoutine[] = [
   {
+    "id": "super-admin-daily-digest",
+    "name": "Super Admin Daily Digest",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 08:30 IST (editable via dispatcher)",
+    "cronExpr": "3 3 * * * (retired from vercel.json 2026-08-11)",
+    "triggerPath": "/api/dashboard/cron/super-admin-digest",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based SQL digest (fn_generate_super_admin_daily_digest); the route resolves no model.",
+    "whatItDoes": "Builds the once-a-day super-admin / Director digest work item from the platform's own counters. Revived 2026-08-10 by migration 20260816040000 after being dead since 2026-05-08.",
+    "configKnobs": "None in code. Day/time now editable at /admin/ai-routines (ai_routine_schedules row 'super-admin-daily-digest').",
+    "sideEffects": "WRITES a dashboard work item + notification fan-out to super admins. Idempotent per user per day via its idempotency key.",
+    "safeToManualTrigger": false,
+    "notes": "MOVED off vercel.json 2026-08-11 to free a cron slot: the file had hit Vercel's hard 100-cron limit (101 entries) and EVERY production build was failing schema validation. Fires via the AI-routine dispatcher instead \u2014 same endpoint, same CRON_SECRET, only the clock moved. Auth: this route accepts Authorization: Bearer ONLY (no ?secret= fallback), which is exactly what the dispatcher sends. TIMEZONE: vercel.json crons are UTC, ai_routine_schedules.minute_of_day is IST (fn_ai_routine_claim_due uses now() AT TIME ZONE 'Asia/Kolkata'), so 03:03 UTC = 08:33 IST = minute_of_day 513, which floors to the 08:30 IST slot. Naively copying 3:03 as minute_of_day 183 would have moved the Director's digest 5.5 hours."
+  },
+  {
     "id": "social-engagement-nudges",
     "name": "Department IG Engagement Nudges",
     "category": "misc-ai",
@@ -401,5 +418,21 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to each undecided college's approver(s), and stamps last_nudged_at on that approval row. Writes NO approval status of any kind. No external messages (no email/WhatsApp/push).",
     "safeToManualTrigger": false,
     "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_health_tournament_nudge_stale_approvals (service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'health-sports-approval-nudge' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real notifications to real Principals; re-running is safe (idempotent per college per day). Reports no_approver rather than pretending a reminder landed when a college has nobody holding health.sports.approve."
+  },
+  {
+    "id": "committee-term-reminders",
+    "name": "Committee Chair / Coordinator — Term Expiry Warning",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 09:07 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/committee-term-reminders",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based date sweep over committee roster terms; the route resolves no model.",
+    "whatItDoes": "Director decision 8: a committee must not be left leaderless overnight. Warns 30 days before, and again 7 days before, an accreditation committee Chair's or Coordinator's roster term ends, so a successor can be appointed while the outgoing leader is still in post. Two notices go out per warning — one to the outgoing leader, and one to the people who can actually appoint a replacement, with the outgoing leader deliberately excluded from that second list because the person who could fix it may be the one whose term is ending.",
+    "configKnobs": "Thresholds 30 and 7 days, both ranges (<=30 AND >7, <=7 AND >=0) so a missed night still fires. Seats: role IN (chair, coordinator) only, is_active, on an is_active committee, term_end NOT NULL and not already past. Recipients = holders of accreditation.naac.committees.edit resolved via user_roles AND legacy profiles.role, institution-scoped the way role_has_institution_access scopes, minus the outgoing leader; falls back to super admins if that empties the set. ?dryRun=1 counts exactly what would be sent and writes nothing. No model, no LLM.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) only, each carrying an expires_at of the term end date so an unattended warning ages out of the bell instead of accumulating. Changes NO committee, roster row or permission, and revokes nobody's access — no term_end cut-off exists in the database today, so this warning is currently the only thing that would tell anyone the date is coming. No email, WhatsApp or push.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_accreditation_committee_term_warnings (migration 20260809103200, service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'committee-term-reminders' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent on notifications.idempotency_key keyed by (member, term_end, threshold, audience), so each warning is sent exactly ONCE EVER rather than once per day — an extended term produces new keys and is warned again. Marked unsafe-to-manual because a run delivers notifications naming real people to real cluster officers. Every real term today ends 2027-03-31, so the honest nightly answer is 'nothing due' — the response therefore always reports `examined` alongside `candidates`, and `unreachable` when a warning had nobody who could act, because a quiet zero must not be mistakable for a quiet failure."
   }
 ];

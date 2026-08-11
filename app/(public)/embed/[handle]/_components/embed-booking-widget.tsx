@@ -21,6 +21,7 @@
 // slot shows under the correct local day.
 
 import { useMemo, useState } from 'react';
+import { groupPurposes, purposeDurationLabel } from '@/lib/services/meetings/group-purposes';
 import {
   CalendarDays,
   CheckCircle2,
@@ -43,6 +44,8 @@ interface MeetingTypeOption {
   locationText: string | null;
   /** PR1: full directions from the linked room (name + building/floor/room). */
   locationDetails: string | null;
+  /** Types sharing a value are ONE purpose card; the value is its label. */
+  purposeGroup: string | null;
 }
 
 interface EmbedBookingWidgetProps {
@@ -139,6 +142,8 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
 
   const accent = props.themeColor;
   const accentFg = useMemo(() => readableForeground(accent), [accent]);
+  /** Shared with /meet/[handle] so the embed cannot drift from the page. */
+  const purposes = useMemo(() => groupPurposes(props.meetingTypes), [props.meetingTypes]);
 
   // The whole widget is themed off two CSS variables so every accent surface
   // (selected slot, confirm button, header rule, step dots) follows the host's
@@ -304,32 +309,72 @@ export function EmbedBookingWidget(props: EmbedBookingWidgetProps) {
           </div>
         )}
 
-        {/* ── Step 1: meeting type ─────────────────────────────────────── */}
+        {/* ── Step 1: purpose (formats inline) ─────────────────────────── */}
+        {/* Same grouping as /meet/[handle], but the embed is a narrow iframe,
+            so a purpose with two formats offers them as chips on the card
+            rather than costing a whole extra step. */}
         {step === 'type' && (
           <div className="flex flex-col gap-3">
-            <p className="text-sm font-medium">What would you like to book?</p>
-            {props.meetingTypes.map((mt) => (
-              <button
-                key={mt.id}
-                type="button"
-                disabled={busy}
-                onClick={() => pickType(mt)}
-                className="rounded-lg border border-[#1C2B24]/15 bg-white px-4 py-3.5 text-left transition-colors hover:border-[var(--meet-accent)] disabled:opacity-60"
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold">{mt.title}</span>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
-                    <Clock className="h-3.5 w-3.5" aria-hidden /> {mt.durationMin} min
+            <p className="text-sm font-medium">What do you need?</p>
+            {purposes.map((p) =>
+              p.options.length === 1 ? (
+                <button
+                  key={p.key}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => pickType(p.options[0])}
+                  className="rounded-lg border border-[#1C2B24]/15 bg-white px-4 py-3.5 text-left transition-colors hover:border-[var(--meet-accent)] disabled:opacity-60"
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">{p.label}</span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
+                      <Clock className="h-3.5 w-3.5" aria-hidden /> {purposeDurationLabel(p)}
+                    </span>
                   </span>
-                </span>
-                {mt.description && (
-                  <span className="mt-1 block text-xs text-[#1C2B24]/65">{mt.description}</span>
-                )}
-                <span className="mt-1.5 block text-xs text-[#1C2B24]/60">
-                  <LocationLine mt={mt} />
-                </span>
-              </button>
-            ))}
+                  {p.description && (
+                    <span className="mt-1 block text-xs text-[#1C2B24]/65">{p.description}</span>
+                  )}
+                  <span className="mt-1.5 block text-xs text-[#1C2B24]/60">
+                    <LocationLine mt={p.options[0]} />
+                  </span>
+                </button>
+              ) : (
+                <div
+                  key={p.key}
+                  className="rounded-lg border border-[#1C2B24]/15 bg-white px-4 py-3.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">{p.label}</span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
+                      <Clock className="h-3.5 w-3.5" aria-hidden /> {purposeDurationLabel(p)}
+                    </span>
+                  </div>
+                  {p.description && (
+                    <p className="mt-1 text-xs text-[#1C2B24]/65">{p.description}</p>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {p.options.map((mt) => (
+                      <button
+                        key={mt.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => pickType(mt)}
+                        className="rounded-md border border-[#1C2B24]/20 px-2.5 py-1.5 text-xs transition-colors hover:border-[var(--meet-accent)] disabled:opacity-60"
+                      >
+                        {/* When the purpose spans several lengths the card
+                            header shows all of them, so each option must say
+                            which one IT is — otherwise the booker is choosing
+                            a length blind. */}
+                        {p.hasMixedDurations && (
+                          <span className="mr-1.5 font-medium">{mt.durationMin} min ·</span>
+                        )}
+                        <LocationLine mt={mt} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ),
+            )}
             {busy && (
               <p className="flex items-center gap-2 text-xs text-[#1C2B24]/60">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading available times…

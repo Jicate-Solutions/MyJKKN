@@ -17,7 +17,11 @@ import { ProfilesTableServer } from './_components/profiles-table-server';
 import { LearnerFilterBar } from './_components/learner-filter-bar';
 import { ProfilesSearchWrapper } from './_components/profiles-search-wrapper';
 import { LifecycleTabs } from './_components/lifecycle-tabs';
-import { resolveLifecycleTab } from './_components/lifecycle-status';
+import {
+  resolveLifecycleTab,
+  lifecycleFilterForTab,
+  type LifecycleTabValue,
+} from './_components/lifecycle-status';
 import { profilesSearchParamsSchema } from './_components/data-table-schema';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-profiles-dialog-enhanced';
@@ -26,7 +30,6 @@ import { BulkEditActiveDialog } from './_components/bulk-edit-exited-dialog';
 import { getLearnerProfiles } from './_data/get-learner-profiles';
 import { TableSkeleton } from '@/components/Loading';
 import { createClient } from '@/lib/supabase/server';
-import type { LifecycleStatus } from '@/types/learner-profile';
 
 type RawSearchParams = { [key: string]: string | string[] | undefined };
 
@@ -47,7 +50,7 @@ async function ProfilesContent({
   learnerIdFilter,
 }: {
   searchParams: RawSearchParams;
-  statusFilter: LifecycleStatus;
+  statusFilter: LifecycleTabValue;
   learnerIdFilter?: string;
 }) {
   const str = (key: string) => (searchParams[key] as string) || undefined;
@@ -67,7 +70,9 @@ async function ProfilesContent({
     search_case_sensitive: bool('search_case_sensitive'),
     search_exact_match: bool('search_exact_match'),
     search_fields,
-    lifecycle_status: statusFilter,
+    // One status for a status tab; the five allowed statuses on "All Statuses".
+    // Never undefined — this page never lists enquiry / graduated / rejected.
+    lifecycle_status: lifecycleFilterForTab(statusFilter),
     institution_id: str('institution_id'),
     degree_id: str('degree_id'),
     department_id: str('department_id'),
@@ -86,7 +91,7 @@ async function ProfilesContent({
     <ProfilesTableServer
       initialData={profiles}
       metadata={metadata}
-      statusFilter={statusFilter as any}
+      statusFilter={statusFilter}
     />
   );
 }
@@ -219,10 +224,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
               key={suspenseKey}
               fallback={<TableSkeleton rows={10} columns={10} />}
             >
-              <ProfilesContent
-                searchParams={params}
-                statusFilter={activeTab as LifecycleStatus}
-              />
+              <ProfilesContent searchParams={params} statusFilter={activeTab} />
             </Suspense>
           </div>
         )}

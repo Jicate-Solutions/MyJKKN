@@ -8,6 +8,7 @@
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
+import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -220,16 +221,39 @@ export function mergeBoardSmtpConfig(
 
 // ── Transporter cache ─────────────────────────────────────────────────────────
 // nodemailer's createTransport spins up a connection pool. Caching by
-// (host:port:user) so repeated sends in the same request lifecycle reuse the
-// same pool. Keys are local to the process, so they don't survive cold starts
-// — that's fine; each invocation rebuilds and drops the pool.
+// (host:port:user:password-fingerprint) so repeated sends in the same request
+// lifecycle reuse the same pool. Keys are local to the process, so they don't
+// survive cold starts — that's fine; each invocation rebuilds and drops the pool.
+//
+// The password fingerprint is part of the key on purpose. nodemailer bakes the
+// `auth` credentials into the transporter at createTransport time, so a key of
+// only (host:port:user) would pin the FIRST password this process ever saw for
+// that mailbox. An admin who fixes a wrong password at /bos/email-settings would
+// keep getting `535-5.7.8 Username and Password not accepted` from the cached
+// transporter until the server restarted — the DB row correct, every send still
+// failing. Fingerprinting the secret makes a credential change mint a new
+// transporter immediately.
 
 const transporterCache = new Map<string, Transporter>();
 
+/** Short, non-reversible fingerprint of a secret — safe to embed in a cache key. */
+function secretFingerprint(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex').slice(0, 12);
+}
+
 function getTransporter(cfg: BosSmtpConfig): Transporter {
-  const key = `${cfg.smtp_host}:${cfg.smtp_port}:${cfg.smtp_user}`;
+  const account = `${cfg.smtp_host}:${cfg.smtp_port}:${cfg.smtp_user}`;
+  const key = `${account}:${secretFingerprint(cfg.smtp_password_encrypted ?? '')}`;
   let t = transporterCache.get(key);
   if (!t) {
+    // Credentials for this mailbox changed — drop the transporter built on the
+    // old secret so we don't leak its (unpooled but still open-able) handle.
+    for (const staleKey of transporterCache.keys()) {
+      if (staleKey !== key && staleKey.startsWith(`${account}:`)) {
+        transporterCache.get(staleKey)?.close?.();
+        transporterCache.delete(staleKey);
+      }
+    }
     t = nodemailer.createTransport({
       host: cfg.smtp_host,
       port: cfg.smtp_port,

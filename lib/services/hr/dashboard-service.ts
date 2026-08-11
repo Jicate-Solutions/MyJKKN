@@ -286,9 +286,9 @@ export class HRDashboardService {
     supabase: SupabaseClient,
     hrOrgId: string | null
   ): Promise<DashboardKPI[]> {
-    // Sum entitled + used across all balances in current FY.
-    // hr_leave_balances.academic_year_id is the FK; we pick rows where
-    // hr_organization_id matches (or any if null = rolled up).
+    // Sum entitled + used across ALL balance rows, every year — the year is
+    // deliberately not filtered here; only hr_organization_id narrows the set
+    // (null = rolled up across orgs).
     let q = supabase
       .from('hr_leave_balances')
       .select('entitled, used, carried_forward');
@@ -512,25 +512,13 @@ export class HRDashboardService {
     if (hrOrgId) encashments = encashments.eq('hr_organization_id', hrOrgId);
     const encashmentCount = await safeCount(() => encashments);
 
-    // T8.6 — active shift assignments today (Director view). Counts shift
-    // assignments where today falls within [effective_from, effective_until]
-    // (effective_until null = ongoing). Scoped via institution_id resolved
-    // from hr_organization_id (assignments table has no hr_organization_id).
-    let shiftsToday = supabase
-      .from('hr_shift_assignments')
-      .select('id', { count: 'exact', head: true })
-      .lte('effective_from', today)
-      .or(`effective_until.is.null,effective_until.gte.${today}`);
-    if (hrOrgId) {
-      const { data: org } = await supabase
-        .from('hr_organizations')
-        .select('institution_id')
-        .eq('id', hrOrgId)
-        .maybeSingle();
-      const instId = (org as { institution_id: string | null } | null)?.institution_id ?? null;
-      if (instId) shiftsToday = shiftsToday.eq('institution_id', instId);
-    }
-    const shiftsTodayCount = await safeCount(() => shiftsToday);
+    // The "Active Shifts Today" KPI lived here until 2026-08-06. It counted rows
+    // in hr_shift_assignments, which the shift module replacement dropped along
+    // with the /hr/shifts route it drilled into. There is no equivalent count in
+    // hr_shift_timings: that table is working-hours CONFIG (institution x
+    // category x weekday), not a per-person assignment, so "how many staff are
+    // on shift today" is not a number it can answer. Reinstating the KPI needs a
+    // real source, not a renamed query.
 
     return [
       {
@@ -546,13 +534,6 @@ export class HRDashboardService {
         value: encashmentCount,
         drill_url: '/hr/leave/encashment?status=pending',
         icon: 'Wallet',
-      },
-      {
-        name: 'active_shifts_today',
-        label: 'Active Shifts Today',
-        value: shiftsTodayCount,
-        drill_url: '/hr/shifts',
-        icon: 'CalendarClock',
       },
     ];
   }

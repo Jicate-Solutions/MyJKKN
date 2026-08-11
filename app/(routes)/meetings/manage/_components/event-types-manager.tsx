@@ -82,6 +82,7 @@ const formSchema = z.object({
     .positive('Must be greater than 0')
     .max(1440, 'Max 24 hours (1440 min)'),
   description: z.string().trim().max(5000).optional().or(z.literal('')),
+  purposeGroup: z.string().trim().max(80, 'Keep the group label short').optional().or(z.literal('')),
   hidden: z.boolean(),
   locationMode: z.enum(['in_person', 'phone', 'online']),
   locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
@@ -446,12 +447,19 @@ function EventTypeDialog({
       slug: editing?.slug ?? '',
       lengthInMinutes: editing?.lengthInMinutes ?? 30,
       description: editing?.description ?? '',
+      purposeGroup: editing?.purposeGroup ?? '',
       hidden: editing?.hidden ?? false,
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
       locationResourceId: editing?.locationResourceId ?? '',
-      bufferBeforeMin: editing?.bufferBeforeMin ?? 0,
-      bufferAfterMin: editing?.bufferAfterMin ?? 0,
+      // A NEW type starts with a 5-minute gap on each side, so a stranger
+      // cannot chain-book straight onto the end of an existing meeting. `??`
+      // falls through only when `editing` is absent, so an existing type keeps
+      // its own value — including a deliberate 0. The host can still change
+      // either number here before saving. Matched by the column default
+      // (20260820000000) and by scripts/meetings/provision-*-native.ts.
+      bufferBeforeMin: editing?.bufferBeforeMin ?? 5,
+      bufferAfterMin: editing?.bufferAfterMin ?? 5,
       minNoticeMin: editing?.minNoticeMin ?? 0,
       // null in the DB ↔ 0 in the form ("back-to-back").
       slotIntervalMin: editing?.slotIntervalMin ?? 0,
@@ -499,6 +507,7 @@ function EventTypeDialog({
       slug: (values.slug && values.slug.trim()) || slugify(values.title),
       lengthInMinutes: values.lengthInMinutes,
       description: values.description?.trim() || undefined,
+      purposeGroup: values.purposeGroup?.trim() || null,
       hidden: values.hidden,
       locationMode: values.locationMode,
       locationText: values.locationText?.trim() || undefined,
@@ -792,6 +801,27 @@ function EventTypeDialog({
               />
               {errors.description && (
                 <p className="text-xs text-destructive">{errors.description.message}</p>
+              )}
+            </div>
+
+            {/* Purpose group — collapses formats of the same meeting into one
+                choice on the public page (added 2026-08-03). */}
+            <div className="space-y-1.5">
+              <Label htmlFor="et-purpose-group">
+                Group with <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="et-purpose-group"
+                placeholder='e.g. "Full review"'
+                {...register('purposeGroup')}
+              />
+              <p className="text-xs text-muted-foreground">
+                Give two meetings the same label to show them as ONE choice on your
+                booking page — the visitor picks the purpose first, then whether to
+                meet in person or online. Leave blank to list this on its own.
+              </p>
+              {errors.purposeGroup && (
+                <p className="text-xs text-destructive">{errors.purposeGroup.message}</p>
               )}
             </div>
 

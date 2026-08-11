@@ -6,7 +6,9 @@
 const lakh = (n: number) => `${Number((n / 100000).toFixed(2))}L`;
 
 // Academic-fee band is closed [fee_min, fee_max] in rupees (both bounds
-// inclusive); either bound null => unbounded. Both null => "Any".
+// inclusive); either bound null => unbounded. Both null => "Any". The fee a
+// learner is matched against is their ADMISSION-year academic bill total
+// (fn_learner_admission_year_academic_fee), not the current year's.
 export function formatFeeBand(min: number | null, max: number | null): string {
   if (min == null && max == null) return 'Any';
   if (min == null) return `< ${lakh(max!)}`;

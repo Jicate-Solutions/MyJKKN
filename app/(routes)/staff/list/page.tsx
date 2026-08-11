@@ -24,6 +24,7 @@ import DownloadStaffTemplateButton from './_components/download-staff-template';
 import BulkUploadStaff from './_components/bulk-upload-staff';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
 import { BulkUploadStaffImages } from './_components/bulk-upload-staff-images';
+import { BulkEditStaffDialog } from './_components/bulk-edit-staff-dialog';
 import { StaffFilters as StaffFiltersType, Staff } from '@/types/staff';
 import { StaffProfileCompletionCard } from './_components/staff-profile-completion-card';
 import { calculateStaffProfileCompletion } from '@/lib/utils/staff-profile-completion';
@@ -76,6 +77,11 @@ export default function StaffPage() {
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canCreateStaff = isSuperAdmin || canAccess('staff', 'create');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
+  // Mirrors the bulk-edit routes' server-side gate exactly. All three
+  // (template/preview/apply) use withAuth(..., { requirePermission: 'staff.manage_imports' }),
+  // so gating the button on anything looser — e.g. staff.edit, held by 72 of 88 roles —
+  // would show a button that 403s.
+  const canManageStaffImports = isSuperAdmin || canAccess('staff', 'manage_imports');
   // const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
 
   const staffList = staffData?.data || [];
@@ -264,6 +270,7 @@ export default function StaffPage() {
               <div className='flex flex-wrap items-center gap-2 mb-6'>
                 {canViewStaff && <DownloadStaffTemplateButton />}
                 {canCreateStaff && <BulkUploadStaff />}
+                {canManageStaffImports && <BulkEditStaffDialog />}
                 {isSuperAdmin && <CreateMissingProfilesButton />}
                 {canEditStaff && <BulkUploadStaffImages />}
               </div>

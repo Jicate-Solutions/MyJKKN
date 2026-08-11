@@ -37,11 +37,22 @@ import { useAuth } from '@/hooks/use-auth';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useAcademicCascade } from '@/hooks/organization/use-academic-tree';
 import type { ProfilesSearchParams } from './data-table-schema';
+import {
+  LIFECYCLE_TABS,
+  resolveLifecycleTab,
+  type LifecycleTabValue,
+} from './lifecycle-status';
 
 /**
  * Every query-string key owned by this panel. Apply and Clear must agree on
  * this list exactly — when they drifted apart, a "cleared" filter could survive
  * in the URL and reappear on the next page load.
+ *
+ * `status` is deliberately NOT here even though this panel now edits it. These
+ * keys are all "absent = unfiltered", so Apply can delete-then-rewrite them
+ * blindly; `status` has no absent state (it falls back to the Active tab) and
+ * its cleared value is the real tab value 'all'. It is handled explicitly in
+ * handleApply/handleClear instead.
  */
 const FILTER_PARAM_KEYS = [
   'institution_id',
@@ -111,6 +122,23 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
     !isSuperAdmin && institutions.length === 1 ? institutions[0].id : undefined;
 
   const [draft, setDraft] = useState<Draft>(() => draftFromParams(searchParams));
+
+  /**
+   * Lifecycle status is the SAME `status` param the tab strip owns, so the two
+   * controls can never disagree — picking "Reserved" here moves the tab, and
+   * clicking the Reserved tab moves this select.
+   *
+   * Modelling it as an independent predicate was the alternative and it is a
+   * trap: "Active" tab AND "Reserved" filter ANDs to zero rows, and this page's
+   * failure mode is always a silent empty table rather than an error.
+   */
+  const [statusDraft, setStatusDraft] = useState<LifecycleTabValue>(() =>
+    resolveLifecycleTab(searchParams.status)
+  );
+
+  useEffect(() => {
+    setStatusDraft(resolveLifecycleTab(searchParams.status));
+  }, [searchParams.status]);
 
   // Sync draft when the URL changes. Depend on the individual values, NOT the
   // searchParams object: the parent rebuilds that object on every render, so an
@@ -201,6 +229,9 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
     for (const [key, value] of Object.entries(draft)) {
       if (value) params.set(key, value);
     }
+    // Always written, never deleted: 'all' is a real tab, so an absent `status`
+    // would silently resolve back to Active instead of the user's pick.
+    params.set('status', statusDraft);
     params.set('page', '1');
 
     startTransition(() => {
@@ -245,9 +276,13 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
   const handleClear = () => {
     setIsClearing(true);
     setDraft({});
+    setStatusDraft('all');
 
     const params = new URLSearchParams(currentSearchParams.toString());
     for (const key of FILTER_PARAM_KEYS) params.delete(key);
+    // Every other control clears to "All X", so status clears to "All Statuses"
+    // — not to Active, which would be applying a filter rather than clearing one.
+    params.set('status', 'all');
     params.set('page', '1');
 
     const query = params.toString();
@@ -389,6 +424,20 @@ export function LearnerFilterBar({ searchParams }: LearnerFilterBarProps) {
               searchPlaceholder='Search academic years…'
               loading={treeLoading}
               disabled={!draft.institution_id}
+            />
+
+            {/* Lifecycle status. Options come straight from LIFECYCLE_TABS so
+                the labels here and on the tab strip can never diverge, and so
+                this list stays limited to the five statuses the page shows. */}
+            <SearchableSelect
+              value={statusDraft}
+              onValueChange={(v) => setStatusDraft(v as LifecycleTabValue)}
+              options={LIFECYCLE_TABS.map((t) => ({
+                value: t.value,
+                label: t.label,
+              }))}
+              placeholder='Lifecycle Status'
+              searchPlaceholder='Search statuses…'
             />
 
             <SearchableSelect
