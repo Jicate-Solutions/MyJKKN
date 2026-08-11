@@ -112,12 +112,30 @@ type ProblemTheme =
  * and 'principal' is the institution-head key.
  */
 const LEADERSHIP_ROLES = [
-  // PILOT (Director decision 2026-08-04): the daily brief goes to the
-  // super_admin bucket only while it proves itself. Widening is deliberate:
-  // restore 'administrator', 'admin', 'cao', 'principal' here when the
-  // Director asks for the full leadership audience.
+  // The full leadership audience, kept here for the eventual widening.
+  // NOT used while BRIEF_PILOT_PROFILE_IDS below is non-empty.
   'super_admin',
+  'administrator',
+  'admin',
+  'cao',
+  'principal',
 ] as const;
+
+/**
+ * PILOT recipients, by profile id — overrides LEADERSHIP_ROLES entirely.
+ *
+ * The Director asked for the brief to reach "just me first". The first
+ * attempt expressed that as `role = 'super_admin'`, which READ like one
+ * person and turned out to be **14 active profiles** — all 14 received the
+ * 2026-08-08 brief before anyone noticed. A role is a job description, not a
+ * person; the only way to say "one person" is to name them.
+ *
+ * Widening is deliberate and reviewable: empty this array to fall back to
+ * LEADERSHIP_ROLES, or add further ids.
+ */
+const BRIEF_PILOT_PROFILE_IDS: readonly string[] = [
+  'b2bcb548-6b4c-4c75-a6b3-72dd5e9a94f1', // Director
+];
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -401,13 +419,17 @@ async function handleBrief(
     );
   }
 
-  // Role targeting — same resolution findTargetUsers() applies for a
-  // role-only `target_roles` audience.
-  const { data: recipients, error: recipientsErr } = await supabase
-    .from('profiles')
-    .select('id')
-    .in('role', LEADERSHIP_ROLES as unknown as string[])
-    .eq('is_active', true);
+  // Pilot ids win outright; otherwise fall back to role targeting, the same
+  // resolution findTargetUsers() applies for a role-only audience.
+  const pilot = BRIEF_PILOT_PROFILE_IDS.length > 0;
+  const audience = pilot
+    ? `profile ids [${BRIEF_PILOT_PROFILE_IDS.join(', ')}]`
+    : `roles ${LEADERSHIP_ROLES.join(', ')}`;
+
+  const query = supabase.from('profiles').select('id').eq('is_active', true);
+  const { data: recipients, error: recipientsErr } = pilot
+    ? await query.in('id', BRIEF_PILOT_PROFILE_IDS as string[])
+    : await query.in('role', LEADERSHIP_ROLES as unknown as string[]);
 
   if (recipientsErr) throw recipientsErr;
 
@@ -416,11 +438,10 @@ async function handleBrief(
     .filter(Boolean);
 
   if (userIds.length === 0) {
-    // Loud, not silent: with the pilot audience narrowed to super_admin, an
-    // environment with no active super_admin would otherwise swallow every
-    // brief behind a cheerful 200.
+    // Loud, not silent: a pilot id that is deactivated or mistyped would
+    // otherwise swallow every brief behind a cheerful 200.
     console.error(
-      `[cdc/bulletin/ingest/brief] no active recipients for roles ${LEADERSHIP_ROLES.join(', ')} — brief for ${date} reached nobody`
+      `[cdc/bulletin/ingest/brief] no active recipients for ${audience} — brief for ${date} reached nobody`
     );
     return NextResponse.json({ type: 'brief', notified: 0, skipped: 'no_recipients' });
   }
@@ -433,8 +454,15 @@ async function handleBrief(
     kind: 'announcement',
     idempotencyKey: `daily-intel:${date}`,
     ...(url ? { url } : {}),
-    targeting: { target_roles: [...LEADERSHIP_ROLES] },
-    metadata: { date, roles: [...LEADERSHIP_ROLES] },
+    // Record the audience that was ACTUALLY used, not the role list — an
+    // audit trail that says "roles: super_admin" while the delivery went to
+    // one named profile is worse than none.
+    targeting: pilot
+      ? { target_users: [...BRIEF_PILOT_PROFILE_IDS] }
+      : { target_roles: [...LEADERSHIP_ROLES] },
+    metadata: pilot
+      ? { date, pilot_profile_ids: [...BRIEF_PILOT_PROFILE_IDS] }
+      : { date, roles: [...LEADERSHIP_ROLES] },
     source: 'daily-intel-ingest',
     // fanoutNotification has no expiry option; expires_at is a real column on
     // notifications and the user-facing read path honours it (see

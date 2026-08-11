@@ -14,6 +14,14 @@ export const UPGRADE_FEE_GENDER_LABELS: Record<UpgradeFeeGender, string> = {
   mixed: 'Mixed',
 };
 
+/** How a concession on an upgrade is expressed: a flat rupee cut or a percentage. */
+export type UpgradeDiscountType = 'amount' | 'percent';
+
+export const UPGRADE_DISCOUNT_TYPE_LABELS: Record<UpgradeDiscountType, string> = {
+  amount: 'Flat (₹)',
+  percent: 'Percent (%)',
+};
+
 export interface UpgradeFee {
   id: string;
   hostel_year_id: string;
@@ -21,7 +29,16 @@ export interface UpgradeFee {
   to_hostel_category_id: string | null;
   from_mess_category_id: string | null;
   to_mess_category_id: string | null;
+  /** GROSS — the pre-discount list price, shown struck through when discounted. */
   amount: number;
+  discount_type: UpgradeDiscountType;
+  discount_value: number;
+  /** Payable after discount. Generated in Postgres — every read site bills THIS. */
+  net_amount: number;
+  /** When true this pair ignores the physical-room eligibility rules, so the resident
+   *  may pick ANY available room in the target pool. Institution scoping and gender
+   *  are still enforced. Set per-pair in SQL; not editable from the dialog yet. */
+  skip_room_eligibility: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -46,12 +63,30 @@ export interface CreateUpgradeFeeDto {
   from_mess_category_id?: string | null;
   to_mess_category_id?: string | null;
   amount: number;
+  discount_type?: UpgradeDiscountType;
+  discount_value?: number;
   is_active?: boolean;
 }
 
 export interface UpdateUpgradeFeeDto {
   amount?: number;
+  discount_type?: UpgradeDiscountType;
+  discount_value?: number;
   is_active?: boolean;
+}
+
+/** Mirrors the Postgres `net_amount` generated column so the dialog can preview the
+ *  payable before saving. Keep the two formulas identical — a drift here shows the
+ *  operator one price and bills the resident another. */
+export function computeUpgradeNetAmount(
+  amount: number,
+  discountType: UpgradeDiscountType,
+  discountValue: number
+): number {
+  const gross = Number.isFinite(amount) ? amount : 0;
+  const value = Number.isFinite(discountValue) ? discountValue : 0;
+  const off = discountType === 'percent' ? (gross * Math.min(value, 100)) / 100 : value;
+  return Math.max(0, Math.round((gross - off) * 100) / 100);
 }
 
 /** Which kind a row is (exactly one pair is set). */

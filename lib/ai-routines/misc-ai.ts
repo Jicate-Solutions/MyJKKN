@@ -2,6 +2,23 @@ import { type AIRoutine } from './types';
 // Populated 2026-07-01 from the parallel discovery swarm (deep-read of jicate/main).
 export const MISC_AI_ROUTINES: AIRoutine[] = [
   {
+    "id": "super-admin-daily-digest",
+    "name": "Super Admin Daily Digest",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 08:30 IST (editable via dispatcher)",
+    "cronExpr": "3 3 * * * (retired from vercel.json 2026-08-11)",
+    "triggerPath": "/api/dashboard/cron/super-admin-digest",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based SQL digest (fn_generate_super_admin_daily_digest); the route resolves no model.",
+    "whatItDoes": "Builds the once-a-day super-admin / Director digest work item from the platform's own counters. Revived 2026-08-10 by migration 20260816040000 after being dead since 2026-05-08.",
+    "configKnobs": "None in code. Day/time now editable at /admin/ai-routines (ai_routine_schedules row 'super-admin-daily-digest').",
+    "sideEffects": "WRITES a dashboard work item + notification fan-out to super admins. Idempotent per user per day via its idempotency key.",
+    "safeToManualTrigger": false,
+    "notes": "MOVED off vercel.json 2026-08-11 to free a cron slot: the file had hit Vercel's hard 100-cron limit (101 entries) and EVERY production build was failing schema validation. Fires via the AI-routine dispatcher instead \u2014 same endpoint, same CRON_SECRET, only the clock moved. Auth: this route accepts Authorization: Bearer ONLY (no ?secret= fallback), which is exactly what the dispatcher sends. TIMEZONE: vercel.json crons are UTC, ai_routine_schedules.minute_of_day is IST (fn_ai_routine_claim_due uses now() AT TIME ZONE 'Asia/Kolkata'), so 03:03 UTC = 08:33 IST = minute_of_day 513, which floors to the 08:30 IST slot. Naively copying 3:03 as minute_of_day 183 would have moved the Director's digest 5.5 hours."
+  },
+  {
     "id": "social-engagement-nudges",
     "name": "Department IG Engagement Nudges",
     "category": "misc-ai",

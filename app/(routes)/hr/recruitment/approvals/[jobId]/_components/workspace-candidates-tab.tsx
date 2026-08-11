@@ -39,6 +39,7 @@ import {
   useRejectCandidate,
   useInterviews,
   usePurgeRejectedApplicant,
+  useJobApprovalFlow,
 } from '@/hooks/hr/use-recruitment';
 import { Input } from '@/components/ui/input';
 import { useCompleteInterview, useMarkNoShow } from '@/hooks/hr/use-recruitment-interviews';
@@ -108,6 +109,10 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
     useJobApplications({ job_id: jobId, pageSize: 100 });
   const { data: candidates, isLoading: candLoading, error: candError } =
     useCandidatesForJob(jobId);
+  // The chain applicants will enter on promotion. Fetched once for the job and
+  // passed down, so every pre-promotion row can show the configured route —
+  // rows only get their own (frozen) chain once a candidate record exists.
+  const { data: flowPreview } = useJobApprovalFlow(jobId);
   // Step-interview gating: one fetch of all this job's sittings, mapped by id.
   const { data: interviewsData } = useInterviews({ job_id: jobId, pageSize: 100 });
   const interviewById = useMemo(
@@ -266,6 +271,7 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
                   userId={userId}
                   stepInterview={stepIvId ? interviewById.get(stepIvId) ?? null : null}
                   alumniSignal={alumniMap ? alumniMap[row.email.toLowerCase().trim()] : null}
+                  flowPreview={flowPreview}
                 />
               );
             })}
@@ -278,13 +284,16 @@ export function WorkspaceCandidatesTab({ jobId }: { jobId: string }) {
 
 // ---- Row + actions -------------------------------------------------------------------
 
+type FlowPreview = ReturnType<typeof useJobApprovalFlow>['data'];
+
 function CandidateRow({
-  row, userId, stepInterview, alumniSignal,
+  row, userId, stepInterview, alumniSignal, flowPreview,
 }: {
   row: UnifiedRow;
   userId: string | null;
   stepInterview: HRRecruitmentInterview | null;
   alumniSignal: Parameters<typeof AlumniSignalLine>[0]['signal'];
+  flowPreview: FlowPreview;
 }) {
   const { app, candidate } = row;
   // Defence in depth: a bad stage must not take the whole page down.
@@ -304,9 +313,16 @@ function CandidateRow({
           {/* Identity + profile */}
           <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            {candidate ? (
+            {/* Promoted rows own a candidacy; screening rows only have the
+                application, which has its own detail page. Either way the name
+                is a link — an unclickable name reads as a broken row. */}
+            {candidate || app ? (
               <Link
-                href={`/hr/recruitment/candidates/${candidate.id}`}
+                href={
+                  candidate
+                    ? `/hr/recruitment/candidates/${candidate.id}`
+                    : `/hr/recruitment/applications/${app!.id}`
+                }
                 className="text-sm font-semibold text-foreground hover:text-primary hover:underline"
               >
                 {row.name}
@@ -357,8 +373,12 @@ function CandidateRow({
 
           <AlumniSignalLine signal={alumniSignal} />
 
-          {/* Approval-chain cascade for pipeline rows */}
-          {candidate && <ApprovalChainCascade candidate={candidate} userId={userId} />}
+          {/* Frozen chain once promoted; the configured route before that. */}
+          {candidate ? (
+            <ApprovalChainCascade candidate={candidate} userId={userId} />
+          ) : (
+            <PlannedApprovalChain preview={flowPreview} stage={row.stage} />
+          )}
 
           {/* Step-interview chip — visible to every viewer, actions live on the right */}
           {stepInterview && (
@@ -393,6 +413,72 @@ function CandidateRow({
 
         {/* Actions — full width on mobile, fixed column on sm+ */}
         <RowActions row={row} userId={userId} stepInterview={stepInterview} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The approval route an applicant will enter when promoted.
+ *
+ * Shown from the moment someone applies. Until Promote there is no candidate
+ * record and therefore no frozen chain, which used to leave this area blank and
+ * read as "the approval flow isn't configured" even when it was.
+ *
+ * Styled flat and dashed on purpose: these steps are NOT in flight. A strip
+ * that looked like the live cascade would imply approvals had already started.
+ */
+function PlannedApprovalChain({
+  preview, stage,
+}: { preview: FlowPreview; stage: StageKey }) {
+  // A screening rejection ends the journey — don't advertise a route nobody walks.
+  if (stage === 'rejected' || stage === 'closed') return null;
+  if (!preview) return null;
+
+  if (preview.reason !== 'ok') {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-500/50 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 text-xs font-medium">
+          <AlertTriangle className="h-3 w-3" />
+          {preview.reason === 'no_flows'
+            ? 'No approval flow configured for this organisation'
+            : 'No approval flow routes this role category'}
+        </span>
+        <Link
+          href="/hr/admin/recruitment-approval-flows"
+          className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Settings className="h-3 w-3" />
+          Configure flow
+        </Link>
+      </div>
+    );
+  }
+
+  if (preview.steps.length === 0) return null;
+
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-muted-foreground">
+        Approval checklist on promotion &middot;{' '}
+        <span className="tabular-nums font-medium text-foreground">{preview.steps.length}</span>{' '}
+        {preview.steps.length === 1 ? 'step' : 'steps'}
+      </p>
+      <div className="flex flex-wrap items-center gap-1">
+        {preview.steps.map((step, idx) => (
+          <span
+            key={`planned-step-${idx}`}
+            className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/40 bg-muted/20 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+            title={`Step ${idx + 1}: ${step.approver_role}${
+              step.step_type === 'final' ? ' (final approval)' : ''
+            }${step.interview_required ? ' — interview required' : ''}`}
+          >
+            <span className="tabular-nums opacity-60">{idx + 1}</span>
+            {step.approver_role}
+            {step.interview_required && <CalendarClock className="h-3 w-3 opacity-70" />}
+            {step.step_type === 'final' && <CheckCircle2 className="h-3 w-3 opacity-70" />}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -866,9 +952,13 @@ function RowActions({
         </Button>
       )}
 
-      {candidate && (
+      {(candidate || app) && (
         <Link
-          href={`/hr/recruitment/candidates/${candidate.id}`}
+          href={
+            candidate
+              ? `/hr/recruitment/candidates/${candidate.id}`
+              : `/hr/recruitment/applications/${app!.id}`
+          }
           className="text-xs text-primary hover:underline text-center pt-0.5"
         >
           View detail

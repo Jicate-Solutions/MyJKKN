@@ -13,6 +13,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import { DataTable } from '@/components/data-table/data-table';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,10 +23,11 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
-import { ArrowRight, ArrowUpDown } from 'lucide-react';
+import { ArrowRight, ArrowUpDown, UserCheck, Loader2 } from 'lucide-react';
 import { onboardingColumns } from './columns';
 import type { OnboardingProfileRow, OnboardingTier } from '@/types/learner-onboarding';
 import { usePermissions } from '@/hooks/use-permissions';
+import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 
 const SORT_OPTIONS = [
   { value: 'first_name_asc', label: 'Name (A → Z)', sortBy: 'first_name', sortOrder: 'asc' },
@@ -57,6 +59,83 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
 
   const [localData, setLocalData] = useState<OnboardingProfileRow[]>(initialData);
   const [localMetadata, setLocalMetadata] = useState(metadata);
+  const [isActivating, setIsActivating] = useState(false);
+
+  /**
+   * Bulk activate, run SEQUENTIALLY rather than with Promise.all.
+   *
+   * Each activation is two round trips (RPC, then login provisioning through
+   * POST /api/learners/complete-onboarding, which itself talks to GoTrue).
+   * Firing 200 of those concurrently would hammer the auth admin API, and a
+   * partial failure mid-flight would leave no way to say which learners were
+   * actually done. Sequential is slower and reportable; that trade is correct
+   * for an operation that creates user accounts.
+   */
+  const handleBulkActivate = async (
+    rows: OnboardingProfileRow[],
+    resetSelection: () => void
+  ) => {
+    if (isActivating) return;
+
+    const eligible = rows.filter((r) => r.can_activate);
+    const skipped = rows.length - eligible.length;
+
+    if (eligible.length === 0) {
+      toast.error(
+        skipped > 0
+          ? `None of the ${skipped} selected learner(s) can be activated yet.`
+          : 'No learners selected.'
+      );
+      return;
+    }
+
+    setIsActivating(true);
+    const progress = toast.loading(`Activating 0 / ${eligible.length}...`);
+
+    let activated = 0;
+    let loginsCreated = 0;
+    const failures: string[] = [];
+
+    for (const [index, learner] of eligible.entries()) {
+      const name = `${learner.first_name} ${learner.last_name || ''}`.trim();
+      try {
+        const result = await LearnerProfileService.activateIfReady(learner.id);
+        if (result.activated) {
+          activated++;
+          if (result.loginCreated) loginsCreated++;
+        } else {
+          failures.push(`${name}: ${result.message}`);
+        }
+      } catch (err) {
+        console.error('[onboarding] bulk activate failed for', learner.id, err);
+        failures.push(`${name}: unexpected error`);
+      }
+      toast.loading(`Activating ${index + 1} / ${eligible.length}...`, { id: progress });
+    }
+
+    toast.dismiss(progress);
+    setIsActivating(false);
+
+    // Activated and logins-created are reported separately on purpose: a learner
+    // who is active without an account is a real problem that a single
+    // "N activated" message would bury.
+    if (activated > 0) {
+      toast.success(`Activated ${activated} learner(s); ${loginsCreated} login(s) created.`);
+    }
+    if (loginsCreated < activated) {
+      toast.error(`${activated - loginsCreated} learner(s) activated WITHOUT a login — check their college email.`);
+    }
+    if (failures.length > 0) {
+      console.warn('[onboarding] activation failures:', failures);
+      toast.error(`${failures.length} could not be activated. See console for details.`);
+    }
+    if (skipped > 0) {
+      toast(`${skipped} selected learner(s) were skipped as not yet eligible.`);
+    }
+
+    resetSelection();
+    router.refresh();
+  };
 
   useEffect(() => {
     setLocalData(initialData);
@@ -94,6 +173,9 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
     resetSelection: () => void;
   }) => {
     const selectedIds = props.allSelectedIds.join(',');
+    const selected = props.selectedRows as OnboardingProfileRow[];
+    const activatable = selected.filter((r) => r?.can_activate).length;
+
     return (
       <div className="flex items-center gap-2">
         <Select value={currentSort} onValueChange={handleSortChange}>
@@ -110,7 +192,31 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
           </SelectContent>
         </Select>
 
-        {props.selectedRows.length > 0 && canBulkUpdate && (
+        {/* On the Ready to Activate tier the useful bulk action is activation,
+            not "assign academic info" — those fields are already filled, which
+            is precisely why the rows are in this tier. */}
+        {selected.length > 0 && canBulkUpdate && tier === 'ready_to_activate' && (
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={activatable === 0 || isActivating}
+            title={
+              activatable === 0
+                ? 'None of the selected learners are eligible for activation'
+                : 'Promote to Active and create their logins'
+            }
+            onClick={() => handleBulkActivate(selected, props.resetSelection)}
+          >
+            {isActivating ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <UserCheck className="mr-2 h-4 w-4" />
+            )}
+            Activate ({activatable})
+          </Button>
+        )}
+
+        {selected.length > 0 && canBulkUpdate && tier !== 'ready_to_activate' && (
           <Button asChild size="sm" className="h-8">
             <Link
               href={`/learners/profiles/promotion?ids=${selectedIds}`}
@@ -118,7 +224,7 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
               title="Open promotion form to assign Academic Year / Semester / Section in bulk"
             >
               <ArrowRight className="mr-2 h-4 w-4" />
-              Assign Academic Info ({props.selectedRows.length})
+              Assign Academic Info ({selected.length})
             </Link>
           </Button>
         )}

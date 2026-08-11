@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -43,6 +43,11 @@ export default function AutoAllocatePage() {
   // Strict physical rules: only allocate cohorts that match a physical-room rule (default
   // on). Physical condition first, then category. Off = today's fail-open catch-all.
   const [strict, setStrict] = useState(true);
+  // Overflow: when every room RESERVED for a learner's cohort in their eligible
+  // category is full, fall back to rooms of that SAME category that no rule
+  // reserves. Default on — it is the behaviour operators expect, and off
+  // reproduces the pre-2026-08-10 engine exactly for comparison.
+  const [allowOverflow, setAllowOverflow] = useState(true);
 
   // ── Cohort filters (which learners get placed).
   // Cascade: institution → program → semester. Blank = no filter.
@@ -79,13 +84,27 @@ export default function AutoAllocatePage() {
 
   const canGenerate = isSuperAdmin || can('campus_living.allocations.create');
 
+  // Cohort selection in words, for the preview export header. Safe to read from
+  // live state: every one of these selects clears `candidates`, so the table
+  // (and its export) only exists while the selection still matches the preview.
+  const scopeLabels = useMemo(() => {
+    const out: string[] = [];
+    const inst = typeInstitutions.find((i) => i.id === institutionId)?.name;
+    const prog = programs.find((p) => p.id === programId)?.program_name;
+    const sem = semesters.find((s) => s.id === semesterId)?.semester_name;
+    if (inst) out.push(`Institution: ${inst}`);
+    if (prog) out.push(`Program: ${prog}`);
+    if (sem) out.push(`Semester: ${sem}`);
+    return out;
+  }, [typeInstitutions, institutionId, programs, programId, semesters, semesterId]);
+
   const runPreview = async () => {
     if (!genderType) return;
     setPreviewing(true);
     setCandidates(null);
     try {
       const [cands, agg] = await Promise.all([
-        AllocationBatchService.previewCandidates(genderType, strict, instParam, progParam, semParam),
+        AllocationBatchService.previewCandidates(genderType, strict, instParam, progParam, semParam, allowOverflow),
         AllocationBatchService.preview(genderType, instParam, progParam, semParam),
       ]);
       setCandidates(cands);
@@ -102,7 +121,9 @@ export default function AutoAllocatePage() {
     if (!genderType) return;
     setGenerating(true);
     try {
-      const batchId = await generate(genderType, strict, instParam, progParam, semParam);
+      // Same allowOverflow the preview ran with — otherwise Generate places a
+      // different set than the operator just approved on screen.
+      const batchId = await generate(genderType, strict, instParam, progParam, semParam, allowOverflow);
       toast.success('Proposed allocation generated — awaiting warden approval');
       router.push(`/campus-living/allocations/batches/${batchId}`);
     } catch (e) {
@@ -218,6 +239,22 @@ export default function AutoAllocatePage() {
           <Switch checked={strict} onCheckedChange={(v) => { setStrict(v); setCandidates(null); }} />
         </div>
 
+        <div className="flex items-center justify-between rounded-lg border p-3 sm:max-w-xl">
+          <div className="space-y-0.5 pr-3">
+            <Label className="text-sm">Allow overflow when reserved rooms are full</Label>
+            <p className="text-xs text-muted-foreground">
+              If every room a physical rule reserves for a learner&apos;s cohort is full, place
+              them in a room of the <strong>same category</strong> that no rule reserves. Their
+              category is never changed, and a room reserved for another cohort is never used.
+              Turn off to reproduce the engine&apos;s previous behaviour exactly.
+            </p>
+          </div>
+          <Switch
+            checked={allowOverflow}
+            onCheckedChange={(v) => { setAllowOverflow(v); setCandidates(null); }}
+          />
+        </div>
+
         <div className="flex flex-wrap gap-3">
           <Button variant="outline" onClick={runPreview} disabled={!genderType || previewing}>
             {previewing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Preview
@@ -231,7 +268,14 @@ export default function AutoAllocatePage() {
         </div>
 
         {candidates && (
-          <CandidateValidationTable candidates={candidates} availableBeds={availableBeds} />
+          <CandidateValidationTable
+            candidates={candidates}
+            availableBeds={availableBeds}
+            hostelType={genderType}
+            strict={strict}
+            allowOverflow={allowOverflow}
+            scope={scopeLabels}
+          />
         )}
       </div>
     </ContentLayout>

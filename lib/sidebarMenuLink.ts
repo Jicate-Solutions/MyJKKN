@@ -275,6 +275,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
   '/users/permissions-audit': 'users.permissions_audit.view',
+  '/users/jkkn-id': 'users.jkkn_id.view',
   // Added 2026-06-19: dynamic user-detail routes were unguarded (no page guard,
   // no MENU_PERMISSIONS entry) so they rendered to any authenticated user. Now
   // declared canonically + enforced by RoutePermissionGuard (/users/layout.tsx).
@@ -493,6 +494,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
@@ -556,6 +558,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/pending': 'academic.attendance.view',
+  // Retrospective view of sessions that went unmarked. Gated on the DASHBOARD
+  // key, not the plain view key, and deliberately: it reads across a whole
+  // department or institution for months at a time, which is the dashboard's
+  // audience (10 roles hold it), not the per-session Senior Learner audience. The RPC
+  // behind it enforces the identical key server-side, so the page gate and the
+  // data gate cannot drift apart.
+  '/academic/attendance/history': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
@@ -885,9 +894,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
+  '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
+  // Added 2026-08-10 — read-only review worklist for agency credits that need a
+  // human look. Gated on the enquiry-desk read permission, matching its RPC.
+  '/admission/consultants/review-worklist': 'admission.leads.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
   // Schools Network (2026-06-30) — track external K-12 schools the org engages
@@ -1141,6 +1155,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/safety/anti-ragging': 'campus_living.safety.anti_ragging.view',
   '/campus-living/safety/inspections': 'campus_living.safety.inspections.view',
   '/campus-living/analytics': 'campus_living.analytics.view',
+  // Read-only practice run for settle-then-bill. Gated on the same permission
+  // fn_settle_bill_close itself demands, so nobody reads the list who could not
+  // authorize the run.
+  '/campus-living/settle-preview': 'campus_living.fees.config',
   '/campus-living/reports': 'campus_living.reports.view',
   '/campus-living/settings': 'campus_living.settings.view',
   '/campus-living/settings/approval-chains': 'campus_living.approval_chains.view',
@@ -1189,6 +1207,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // gates writes on accreditation.naac.narrative.manage — so the page gate uses
   // the same key rather than a second one that could drift away from the table.
   '/accreditation/manage/owners': 'accreditation.naac.narrative.view',
+  // Which bodies apply to which campus. Gated on VIEW, not manage: the page
+  // shows a college which bodies it answers to, and that is worth reading even
+  // to somebody who may not change it. The write policies on both tables are
+  // the actual guard.
+  '/accreditation/manage/bodies': 'accreditation.bodies.view',
 
   // Events — Propose (Stream C, 2026-04-26)
   '/events/propose': 'events.proposals.view',
@@ -1517,6 +1540,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/cdc/industry-mentors': 'cdc.industry_mentors.view',
   '/cdc/industry-mentors/new': 'cdc.industry_mentors.create',
   '/cdc/industry-mentors/[id]': 'cdc.industry_mentors.view',
+
+  // Industry Partners directory (public.industry_partners — the COMPANIES).
+  // Top-level route, but CDC-owned: the table is already documented as
+  // CDC-owned in lib/services/pde-employer-briefing-service.ts, so the
+  // permission key and the sidebar entry both live under CDC.
+  '/industry-partners': 'cdc.industry_partners.view',
+  '/industry-partners/[id]': 'cdc.industry_partners.view',
 
   // CDC — Reports & Exports
   '/cdc/exports': 'cdc.exports.view',
@@ -1847,6 +1877,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/users/role-management', label: 'Role Management', active: pathname === '/users/role-management' },
             { href: '/users/activity', label: 'Activity Audit Logs', active: pathname === '/users/activity' },
             { href: '/users/permissions-audit', label: 'Permissions Audit', active: pathname === '/users/permissions-audit' },
+            { href: '/users/jkkn-id', label: 'JKKN ID', active: pathname === '/users/jkkn-id' },
           ]
         }
       ]
@@ -2218,6 +2249,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/referral-rates'
             },
             {
+              href: '/admission/consultants/unlinked-referrals',
+              label: 'Unlinked Referrals',
+              active: pathname === '/admission/consultants/unlinked-referrals'
+            },
+            {
               href: '/admission/consultants/import',
               label: 'Import Referrals',
               active: pathname === '/admission/consultants/import'
@@ -2228,9 +2264,21 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/payouts'
             },
             {
+              href: '/admission/consultants/reconciliation',
+              label: 'Reconciliation',
+              active: pathname === '/admission/consultants/reconciliation'
+            },
+            {
               href: '/admission/consultants/referrals',
               label: 'Referrals',
               active: pathname === '/admission/consultants/referrals'
+            },
+            {
+              // Added 2026-08-10 — read-only queue of agency credits to review
+              // before any referral rate is switched on.
+              href: '/admission/consultants/review-worklist',
+              label: 'Review Worklist',
+              active: pathname === '/admission/consultants/review-worklist'
             },
             {
               href: '/admission/consultants/rewards',
@@ -2615,6 +2663,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
@@ -3441,11 +3490,38 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          // Industry Relations — one accordion row over the two industry
+          // directories. They are DIFFERENT TABLES with the same first word:
+          //   • Industry Mentors  → industry_mentors  (individual people)
+          //   • Industry Partners → industry_partners (companies)
+          //
+          // Nested rather than flat because the CDC group was already sitting
+          // on the hard cap of 14 top-level items (lib/sidebar-validator.ts);
+          // adding a 15th flat row fails `npm run check:sidebar`. Both URLs are
+          // unchanged, so no bookmark breaks.
+          //
+          // The parent row carries no permission of its own — GetRoleBasedPages
+          // shows a parent when ANY submenu is accessible, and menu.tsx attaches
+          // MENU_PERMISSIONS[sub.href] to each child, so a viewer who holds only
+          // one of the two keys sees only that one child.
           href: '/cdc/industry-mentors',
-          label: 'Industry Mentors',
-          active: pathname.startsWith('/cdc/industry-mentors'),
+          label: 'Industry Relations',
+          active:
+            pathname.startsWith('/cdc/industry-mentors') ||
+            pathname.startsWith('/industry-partners'),
           icon: Factory,
-          submenus: []
+          submenus: [
+            {
+              href: '/cdc/industry-mentors',
+              label: 'Industry Mentors',
+              active: pathname.startsWith('/cdc/industry-mentors')
+            },
+            {
+              href: '/industry-partners',
+              label: 'Industry Partners',
+              active: pathname.startsWith('/industry-partners')
+            }
+          ]
         },
         {
           href: '/cdc/exports',

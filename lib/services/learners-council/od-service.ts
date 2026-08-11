@@ -108,6 +108,18 @@ export class LCODService {
     institutionId: string,
     eventId: string | null
   ): Promise<{ id: string; name: string; steps: unknown }> {
+    // A request is approved by YOUR COLLEGE's chain, so the college has to be known first.
+    // The page passes `profile.institution_id || ''`, and an empty string is not a valid
+    // UUID -- without this guard Postgres answers 22P02 and the learner is shown the raw
+    // text 'invalid input syntax for type uuid: ""', which tells them nothing.
+    if (!institutionId || !institutionId.trim()) {
+      throw new Error(
+        'Your profile is not linked to a college yet, so we cannot work out who should '
+        + 'approve this request. Ask the Learners Council office to add your college to '
+        + 'your profile, then try again.'
+      );
+    }
+
     // Derive the event scope, if this request is tied to an event.
     let eventScope: string | null = null;
     if (eventId) {
@@ -131,7 +143,10 @@ export class LCODService {
         .limit(1);
       if (scopedErr) {
         console.error('[learners-council/od] Error matching chain by scope:', scopedErr);
-        throw new Error(`Failed to match approval chain: ${scopedErr.message}`);
+        throw new Error(
+          'We could not look up the approval steps for this event just now. Please try '
+          + 'again in a minute. If it keeps happening, tell the Learners Council office.'
+        );
       }
       if (scoped && scoped.length > 0) return scoped[0] as { id: string; name: string; steps: unknown };
     }
@@ -147,13 +162,24 @@ export class LCODService {
       .limit(1);
     if (fbErr) {
       console.error('[learners-council/od] Error fetching fallback chain:', fbErr);
-      throw new Error(`Failed to fetch approval chain: ${fbErr.message}`);
+      throw new Error(
+        'We could not look up your college\'s approval steps just now. Please try again '
+        + 'in a minute. If it keeps happening, tell the Learners Council office.'
+      );
     }
     if (fallback && fallback.length > 0) return fallback[0] as { id: string; name: string; steps: unknown };
 
+    // Two different situations, and the learner can only act on the right one. The old
+    // single message talked about "this event" even when the learner had deliberately
+    // chosen "No linked event", which sent people looking for a problem that was not there.
     throw new Error(
-      'No approval chain is set up for this event. Ask a Learners Council office bearer to '
-      + 'configure a chain for this event type, or mark a default (fallback) chain for your college.'
+      eventId
+        ? 'No approval steps are set up for this event yet. Ask a Learners Council office '
+          + 'bearer to add an approval chain for this kind of event, or to mark one chain as '
+          + 'your college\'s default.'
+        : 'Your college has no default approval chain, so a request with no linked event has '
+          + 'nobody to go to. Ask a Learners Council office bearer to open Approval Chains and '
+          + 'mark one chain as the default for your college, then try again.'
     );
   }
 
@@ -199,7 +225,10 @@ export class LCODService {
 
     if (error) {
       console.error('[learners-council/od] Error creating OD request:', error);
-      throw new Error(`Failed to create OD request: ${error.message}`);
+      throw new Error(
+        'We could not save your OD request. Please check the dates and the reason, then '
+        + 'try again. If it keeps happening, tell the Learners Council office.'
+      );
     }
 
     return data as unknown as LCODRequest;

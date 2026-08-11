@@ -132,6 +132,12 @@ export default function LearnerEditPage({ params }: LearnerEditPageProps) {
             // departments and overwrote real semesters (it also forced the
             // Freshers holding pen, removed entirely on 2026-08-05).
             enforceAdmissionRules={false}
+            // Tamil-script name inputs on Basic Details. Scoped to the Learner
+            // Profiles screens — the enquiry and student self-fill flows that
+            // share this form stay as they were.
+            showTamilNames
+            // ABC ID / EMIS / UMIS — same Profiles-only scoping.
+            showLearnerIdentifiers
             // Two explicit choices on every step, nothing else:
             //   "Save & Next"      — commit this step, advance to the next tab
             //   "Update & Finish"  — validate every tab, commit, redirect to

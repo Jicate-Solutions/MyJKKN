@@ -43,6 +43,16 @@ const INC_NURSING_CODES = new Set(['CNR']);
 /** Nursing board name pattern (B.Sc / M.Sc / Post-B.Sc Nursing). */
 const NURSING_NAME_RE = /\bnursing\b|\bb\.?\s*sc\.?\s*\(?\s*n(ursing)?\s*\)?/i;
 
+/** Dental (BDS — DCI / Dr. MGR). Known BoS board UUID(s) win; the name regex and
+ *  DCH institution_code are fallbacks. Seed additional BDS board ids here. */
+const BDS_BOARD_IDS = new Set<string>([
+  'dcddfa03-d654-4f8e-a1e5-10a0e8072ca6', // JKKN Dental College & Hospital — BDS
+]);
+/** Dental institution code(s) — confirm the real DCH institution_code. */
+const MGR_BDS_CODES = new Set(['DCH']);
+/** Dental board name pattern (BDS / Bachelor of Dental Surgery). */
+const BDS_NAME_RE = /\bb\.?\s*d\.?\s*s\b|bachelor\s+of\s+dental|dental\s+surgery/i;
+
 export interface ResolveModelInput {
   institutionCode?: string | null;
   boardId?: string | null;
@@ -59,17 +69,20 @@ export function resolveAcademicModel(input: ResolveModelInput): AcademicModel {
   const boardId = (input.boardId ?? '').trim();
   if (boardId && PHARMD_BOARD_IDS.has(boardId)) return 'mgr_pharmd';
   if (boardId && BPHARM_BOARD_IDS.has(boardId)) return 'pci_pharm';
+  if (boardId && BDS_BOARD_IDS.has(boardId)) return 'mgr_bds';
 
   const hay = `${input.boardName ?? ''} ${input.boardCode ?? ''}`.trim();
   if (hay) {
     if (PHARMD_NAME_RE.test(hay)) return 'mgr_pharmd';
     if (BPHARM_NAME_RE.test(hay)) return 'pci_pharm';
     if (NURSING_NAME_RE.test(hay)) return 'inc_nursing';
+    if (BDS_NAME_RE.test(hay)) return 'mgr_bds';
   }
 
   const code = (input.institutionCode ?? '').trim().toUpperCase();
   if (MGR_AHS_CODES.has(code)) return 'mgr_ahs';
   if (INC_NURSING_CODES.has(code)) return 'inc_nursing';
+  if (MGR_BDS_CODES.has(code)) return 'mgr_bds';
   return 'anna_univ';
 }
 
@@ -86,6 +99,14 @@ export const isYearBasedModel = (m?: AcademicModel | null): boolean =>
 /** Nursing model (B.Sc / M.Sc / Post-B.Sc Nursing — INC reg / TNMGRMU exam). */
 export const isNursingModel = (m?: AcademicModel | null): boolean =>
   m === 'inc_nursing';
+
+/** Dental model (BDS — DCI / Dr. MGR): year-based, MUST/DESIRABLE/NICE grid. */
+export const isBdsModel = (m?: AcademicModel | null): boolean =>
+  m === 'mgr_bds';
+
+/** Models whose content tree is the BDS competency body (bds_content column). */
+export const modelUsesBdsContent = (m?: AcademicModel | null): boolean =>
+  m === 'mgr_bds';
 
 /** Semester-based models — B.Pharm + Nursing + Anna. */
 export const isSemesterModel = (m?: AcademicModel | null): boolean =>
@@ -123,6 +144,7 @@ export function modelUniversityHeader(m?: AcademicModel | null): string {
     case 'mgr_pharmd': return 'The Tamil Nadu Dr. M.G.R. Medical University, Chennai';
     case 'mgr_ahs':    return 'The Tamil Nadu Dr. M.G.R. Medical University, Chennai';
     case 'inc_nursing': return 'The Tamil Nadu Dr. M.G.R. Medical University, Chennai';
+    case 'mgr_bds':    return 'The Tamil Nadu Dr. M.G.R. Medical University, Chennai';
     default:           return 'Anna University';
   }
 }

@@ -29,8 +29,7 @@ export async function GET(
   // should be admission-only.
   const { data: hasPerm } = await (supabase as any)
     .rpc('user_has_permission', {
-      user_id: user.id,
-      permission_key: 'admission.leads.student_form.generate'
+      permission_name: 'admission.leads.student_form.generate'
     });
   if (!hasPerm) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
