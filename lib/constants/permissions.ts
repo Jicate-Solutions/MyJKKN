@@ -1714,7 +1714,6 @@ export const PERMISSION_CATEGORIES = [
       // different powers, and the second one changes every total on the screen.
       { key: 'accreditation.bodies.view', label: 'View Awarding Bodies & Institution Mapping' },
       { key: 'accreditation.bodies.manage', label: 'Manage Awarding Bodies & Institution Mapping' },
->>>>>>> jicate/main
 
       // MoU / Grants register (C6, 2026-07-26) — /accreditation/manage/collaborations.
       // Rows auto-emit NAAC 7.9 (MoUs / industry collaborations) + 9.1 (grants) evidence.
