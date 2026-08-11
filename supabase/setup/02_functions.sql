@@ -9339,21 +9339,38 @@ $$;
 --   Extended 2026-07-31 by 20260731100100_extend_learner_scope_guard_section_id.sql
 --   to also cover section_id — the column the first two waves never checked,
 --   which left 179 learners on another institution's same-named section.
+--   Extended 2026-08-08 by 20260808150000_extend_learner_scope_guard_programme.sql
+--   to cover program_id (which had NO validation at all) and to add PROGRAMME
+--   scope for semester_id and section_id.
 -- Wired by trg_validate_learner_semester_year_scope in 04_triggers.sql.
 --
--- Rejects a learners_profiles row whose degree_id, department_id, semester_id,
--- academic_year_id or section_id belongs to a DIFFERENT institution. These tables are all
--- institution-scoped and carry duplicate NAMES across institutions (nine rows
--- named 'Undergraduate', one per institution), so a mis-pointed FK renders
--- identically in the UI and is invisible until a filter silently returns zero
--- rows. Two separate bulk writes on 2026-07-30 did exactly that.
+-- Rejects a learners_profiles row whose degree_id, department_id, program_id,
+-- semester_id, academic_year_id or section_id belongs to a DIFFERENT
+-- institution. These tables are all institution-scoped and carry duplicate
+-- NAMES across institutions (nine rows named 'Undergraduate', one per
+-- institution), so a mis-pointed FK renders identically in the UI and is
+-- invisible until a filter silently returns zero rows. Two separate bulk writes
+-- on 2026-07-30 did exactly that.
 --
--- Validates only on INSERT or when the value (or institution_id) ACTUALLY
--- CHANGES — unlike validate_learner_admission_year_scope, which validates
--- unconditionally. That is safe there because no bad rows exist. Here 319
--- known-unresolvable semester rows deliberately remain, and an unconditional
--- guard would make those learners impossible to edit at all, including to fix
--- them.
+-- ALSO rejects a semester_id or section_id belonging to another PROGRAMME of
+-- the same institution (added 2026-08-08). Institution scope alone was never
+-- sufficient: `semesters` and `sections` are programme-scoped, so Dental holds
+-- six distinct rows named '1 Year', one per programme. KESTER R (DB23029) was
+-- reported holding 'Semester IV' / code MPHARM-RA-SEM-4 — a Pharmacy M.Pharm
+-- row — and 25 further rows held a right-institution/WRONG-PROGRAMME semester
+-- that institution scope waved straight through.
+--
+-- NOT enforced: section.semester_id = learner.semester_id. That has a
+-- legitimate failure mode (learner promoted, section not yet moved), so it is
+-- reported through v_learner_scope_violations rather than blocked.
+--
+-- Validates only on INSERT or when a participating column ACTUALLY CHANGES —
+-- unlike validate_learner_admission_year_scope, which validates
+-- unconditionally. That is safe there because no bad rows exist. Here 3
+-- known-unresolvable 'reserved' rows deliberately remain (JKKN College of
+-- Pharmacy, PHARM D PB entry year is an admissions decision), and an
+-- unconditional guard would make those learners impossible to edit at all,
+-- including to fix them.
 -- =====================================================
 CREATE OR REPLACE FUNCTION public.validate_learner_semester_year_scope()
 RETURNS TRIGGER
@@ -9363,6 +9380,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_inst uuid;
+  v_prog uuid;
 BEGIN
   -- Cannot judge scope without an institution on the learner.
   IF NEW.institution_id IS NULL THEN
@@ -9393,6 +9411,25 @@ BEGIN
       RAISE EXCEPTION
         'department_id % belongs to institution %, not the learner''s institution %',
         NEW.department_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- Added 2026-08-08 — program_id had NO validation of any kind before today.
+  -- That is exactly why 21 Arts&Sci (Self) M.COM learners kept Arts&Sci
+  -- (Aided)'s programme through THREE repair waves: every wave searched for the
+  -- correct semester inside (learner institution, learner program_id), and the
+  -- program_id was itself the foreign value, so every candidate count was 0.
+  IF NEW.program_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.program_id     IS DISTINCT FROM OLD.program_id
+          OR NEW.institution_id IS DISTINCT FROM OLD.institution_id) THEN
+    SELECT pr.institution_id INTO v_inst
+      FROM public.programs pr WHERE pr.id = NEW.program_id;
+    IF FOUND AND v_inst IS DISTINCT FROM NEW.institution_id THEN
+      RAISE EXCEPTION
+        'program_id % belongs to institution %, not the learner''s institution %',
+        NEW.program_id, v_inst, NEW.institution_id
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -9438,6 +9475,38 @@ BEGIN
       RAISE EXCEPTION
         'section_id % belongs to institution %, not the learner''s institution %',
         NEW.section_id, v_inst, NEW.institution_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  -- ── programme scope (added 2026-08-08) ───────────────────────────────────
+  -- Institution scope cannot separate 'Semester I of B.Sc CS' from 'Semester I
+  -- of B.A. English': both are real rows of the right college and both render
+  -- the identical label. Only this check does.
+  IF NEW.semester_id IS NOT NULL AND NEW.program_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.semester_id IS DISTINCT FROM OLD.semester_id
+          OR NEW.program_id  IS DISTINCT FROM OLD.program_id) THEN
+    SELECT s.program_id INTO v_prog
+      FROM public.semesters s WHERE s.id = NEW.semester_id;
+    IF FOUND AND v_prog IS DISTINCT FROM NEW.program_id THEN
+      RAISE EXCEPTION
+        'semester_id % belongs to programme %, not the learner''s programme %',
+        NEW.semester_id, v_prog, NEW.program_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  IF NEW.section_id IS NOT NULL AND NEW.program_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR NEW.section_id IS DISTINCT FROM OLD.section_id
+          OR NEW.program_id IS DISTINCT FROM OLD.program_id) THEN
+    SELECT sc.program_id INTO v_prog
+      FROM public.sections sc WHERE sc.id = NEW.section_id;
+    IF FOUND AND v_prog IS DISTINCT FROM NEW.program_id THEN
+      RAISE EXCEPTION
+        'section_id % belongs to programme %, not the learner''s programme %',
+        NEW.section_id, v_prog, NEW.program_id
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -27100,7 +27169,45 @@ BEGIN
       );
 
     ELSIF p_effective_from <= v_current.effective_from THEN
-      -- Correction: overwrite the live row, keep its effective_from.
+      -- Correction. Reworked 2026-08-10 (migration 20260810091000): this branch
+      -- used to overwrite the live row and KEEP its effective_from, silently
+      -- discarding the caller's earlier date. Once a save had superseded, the
+      -- closed row was unreachable from the UI and history could never be
+      -- corrected — three attendance incidents in two days each needed a
+      -- hand-written migration to repair.
+
+      -- 1. Retire whatever started inside the span we are about to claim.
+      --    is_active = false, never DELETE: the row records what the rule used
+      --    to say, and the partial unique index ignores inactive rows. Leaving
+      --    them active would put two rows over the same date, with the
+      --    resolver's `ORDER BY effective_from DESC LIMIT 1` picking arbitrarily.
+      UPDATE public.hr_shift_timings h
+         SET is_active  = false,
+             updated_by = v_actor
+       WHERE h.institution_id = p_institution_id
+         AND h.staff_scope    = p_staff_scope
+         AND h.day_of_week    = v_day.day_of_week
+         AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+         AND h.id <> v_current.id
+         AND h.is_active
+         AND h.effective_from >= p_effective_from;
+
+      -- 2. A row that predates the span keeps its earlier life, clipped to end
+      --    where the correction begins. effective_from < p_effective_from, so
+      --    hr_shift_timings_effective_chk (until > from) still holds.
+      UPDATE public.hr_shift_timings h
+         SET effective_until = p_effective_from,
+             updated_by      = v_actor
+       WHERE h.institution_id = p_institution_id
+         AND h.staff_scope    = p_staff_scope
+         AND h.day_of_week    = v_day.day_of_week
+         AND h.employment_category_id IS NOT DISTINCT FROM p_employment_category_id
+         AND h.id <> v_current.id
+         AND h.is_active
+         AND h.effective_from < p_effective_from
+         AND (h.effective_until IS NULL OR h.effective_until > p_effective_from);
+
+      -- 3. The live row takes the new values and really does start here.
       UPDATE public.hr_shift_timings
          SET is_working_day          = v_day.is_working_day,
              first_half_start        = v_day.first_half_start,
@@ -27109,6 +27216,7 @@ BEGIN
              second_half_end         = v_day.second_half_end,
              grace_minutes           = COALESCE(v_day.grace_minutes, 0),
              second_saturday_holiday = COALESCE(v_day.second_saturday_holiday, false),
+             effective_from          = p_effective_from,
              updated_by              = v_actor
        WHERE id = v_current.id;
 
@@ -27143,7 +27251,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) IS
-  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). Corrections update in place; a future effective_from closes the live rows and inserts successors. Self-authorizing on hr.shift_timings.manage.';
+  'Atomically write a full week of hr_shift_timings for one (institution, scope, category). An effective_from at or before the live row CORRECTS history: overlapping earlier rows are retired or clipped and the live row moves back to that date, so already-imported attendance can be recomputed against it. A later effective_from SCHEDULES: the live rows close and successors are inserted, leaving history judged by the rule that was in force. Self-authorizing on hr.shift_timings.manage.';
 
 REVOKE ALL ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_save_shift_timing_week(uuid, text, uuid, date, jsonb) TO authenticated;

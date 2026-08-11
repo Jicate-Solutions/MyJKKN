@@ -71,6 +71,62 @@ export class StaffService {
   private static supabase = createClientSupabaseClient();
   private static adminClient = createAdminClient();
 
+  /**
+   * Who already holds this biometric code on this machine?
+   *
+   * `staff_biometric_uq` is UNIQUE on (biometric_institution_id,
+   * fn_norm_biometric_code(biometric_id)), and the normaliser strips leading
+   * zeros from all-digit codes — so 00002, 002 and 2 are one code. That makes
+   * the 23505 genuinely baffling from the form: the operator typed a value
+   * they have never seen before and the raw Postgres message names an index,
+   * not a person. Resolving the holder turns it into an answer.
+   *
+   * Best-effort by design. Called only from an error path, so a failure here
+   * must degrade to the generic message rather than mask the real error.
+   */
+  static async findBiometricConflict(
+    biometricId: string,
+    biometricInstitutionId: string
+  ): Promise<{ id: string; staff_id: string | null; name: string } | null> {
+    if (!biometricId?.trim() || !biometricInstitutionId) return null;
+
+    // Normalise client-side with the same rule as fn_norm_biometric_code so
+    // the lookup finds 00002 when the operator typed 2. Digit-only codes lose
+    // leading zeros; anything else is upper-cased.
+    const trimmed = biometricId.trim();
+    const normalized = /^[0-9]{1,18}$/.test(trimmed)
+      ? String(BigInt(trimmed))
+      : trimmed.toUpperCase();
+
+    const { data, error } = await this.supabase
+      .from('staff')
+      .select('id, staff_id, first_name, last_name, biometric_id')
+      .eq('biometric_institution_id', biometricInstitutionId)
+      .not('biometric_id', 'is', null)
+      .limit(500);
+
+    if (error) {
+      console.warn('[StaffService] biometric conflict lookup failed:', error);
+      return null;
+    }
+
+    const match = (data ?? []).find((row: Record<string, unknown>) => {
+      const raw = String(row.biometric_id ?? '').trim();
+      if (!raw) return false;
+      const norm = /^[0-9]{1,18}$/.test(raw) ? String(BigInt(raw)) : raw.toUpperCase();
+      return norm === normalized;
+    });
+
+    if (!match) return null;
+    return {
+      id: match.id as string,
+      staff_id: (match.staff_id as string) ?? null,
+      name:
+        [match.first_name, match.last_name].filter(Boolean).join(' ').trim() ||
+        'another staff member'
+    };
+  }
+
   static async createStaff(
     data: CreateStaffDto,
     suppressToast: boolean = false
@@ -1161,6 +1217,8 @@ export class StaffService {
     'district',
     'pincode',
     'institution_email',
+    // attendance enrolment — a missing code means this person's punches cannot be
+    // resolved by the biometric import, so the Profiles tab tracks them as fields.
     'biometric_id',
     'biometric_institution_id',
     'blood_group',
@@ -1745,6 +1803,10 @@ export class StaffService {
       'pincode',
       'institution_email',
       'blood_group',
+      // Both halves of the biometric enrolment are tracked, not just the code.
+      // staff_biometric_scope_chk only forces a machine when a code is present, so
+      // "machine set, code blank" is a legal state the pair-count exposes; today
+      // the two numbers are identical, and any divergence is a real gap.
       'biometric_id',
       'biometric_institution_id'
     ];
