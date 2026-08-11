@@ -199,7 +199,21 @@ export interface AllocationCandidate {
   has_profile: boolean;
   gender_ok: boolean;
   not_allocated: boolean;
+  /** A physical-room RULE covers a room of their eligible category. */
   physical_rule_ok: boolean;
+  /**
+   * A room of their eligible category that NO rule reserves is reachable by
+   * their institution. Deliberately separate from physical_rule_ok so the
+   * preview can still report truthfully whether a rule covers them; the verdict
+   * accepts either. Always false when the overflow toggle is off.
+   */
+  overflow_room_ok: boolean;
+  /**
+   * Which tier produced target_block_name: 'rule' = a room reserved for their
+   * own cohort, 'overflow' = an unreserved room of the same category, used
+   * because every reserved one was full. null => no bed found.
+   */
+  placement_tier: 'rule' | 'overflow' | null;
   bed_available: boolean;
   /**
    * The block their first free eligible bed sits in — what auto-allocate would

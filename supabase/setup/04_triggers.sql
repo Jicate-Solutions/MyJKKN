@@ -1726,3 +1726,20 @@ CREATE TRIGGER trg_allocation_settle_arrival_update
     )
   )
   EXECUTE FUNCTION public._on_allocation_settle_arrival();
+
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+DROP TRIGGER IF EXISTS hr_academic_years_updated_at ON public.hr_academic_years;
+CREATE TRIGGER hr_academic_years_updated_at
+    BEFORE UPDATE ON public.hr_academic_years
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Group-wide, non-overlapping years mean start_date alone identifies the year,
+-- so a leave application can no longer be yearless. Named trg_hla_aa_*
+-- deliberately: BEFORE triggers fire in name order and this must run before
+-- trg_hla_leave_period_cap and trg_hla_sto_limits, which read the column.
+DROP TRIGGER IF EXISTS trg_hla_aa_default_hr_ay ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_aa_default_hr_ay
+    BEFORE INSERT OR UPDATE ON public.hr_leave_applications
+    FOR EACH ROW EXECUTE FUNCTION public.hr_trig_default_hr_academic_year();

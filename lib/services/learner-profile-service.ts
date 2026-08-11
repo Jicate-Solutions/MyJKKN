@@ -1208,6 +1208,99 @@ export class LearnerProfileService {
   }
 
   /**
+   * Activate an ONBOARDED learner: admitted → active, then provision their login.
+   *
+   * Exists because the last lifecycle hop is split across two runtimes and
+   * neither can complete it alone:
+   *
+   *   - Postgres owns everything up to 'admitted'. Triggers on
+   *     billing_receipt_items / billing_student_bills call
+   *     evaluate_learner_status_after_payment. No TypeScript is involved.
+   *   - Only the app can create the login (POST /api/learners/complete-onboarding).
+   *     The sync_learner_status_to_profile trigger merely flips is_active on an
+   *     EXISTING profiles row — it cannot create an auth user.
+   *
+   * So a payment that promoted an already-complete profile to 'admitted' left
+   * the learner stranded: eligible for activation, but nothing ran to activate
+   * them, and the onboarding page hid them because it listed only INCOMPLETE
+   * profiles. This method is the bridge, surfaced as the "Ready to Activate"
+   * tier.
+   *
+   * Every guard (permission, admitted-only, four fields, email domain) lives in
+   * the SECURITY DEFINER RPC rather than here, so no other call site can bypass
+   * them — and the RPC is the only thing that can write the audit row, since
+   * learners_profile_status_history has RLS with no INSERT policy.
+   *
+   * `activated: true` with `loginCreated: false` is a real, reportable outcome:
+   * the status change committed in Postgres but account provisioning failed.
+   * Callers MUST surface that rather than treating it as success.
+   */
+  static async activateIfReady(id: string): Promise<{
+    activated: boolean;
+    loginCreated: boolean;
+    reason?: string;
+    message: string;
+    paidPct?: number;
+    metConfiguredThreshold?: boolean;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC (2026-08-10).
+    const supabase = createClientSupabaseClient() as any;
+
+    const { data, error } = await supabase.rpc('fn_activate_learner_from_onboarding', {
+      p_learner_id: id,
+    });
+
+    // RLS denials and constraint violations arrive in `error`, never as a throw.
+    if (error) {
+      console.error('[learner-profile-service] activateIfReady RPC failed:', error);
+      return {
+        activated: false,
+        loginCreated: false,
+        reason: 'rpc_error',
+        message: getErrorMessage(error),
+      };
+    }
+
+    const result = (data ?? {}) as {
+      activated?: boolean;
+      reason?: string;
+      message?: string;
+      paid_pct?: number;
+      met_configured_threshold?: boolean;
+    };
+
+    if (!result.activated) {
+      return {
+        activated: false,
+        loginCreated: false,
+        reason: result.reason,
+        message: result.message || 'Learner could not be activated.',
+      };
+    }
+
+    // Status is committed at this point. A login failure below must NOT be
+    // reported as an overall failure — that would tell the operator to retry
+    // something that already happened.
+    const profile = await this.getLearnerProfile(id);
+    let loginCreated = false;
+    let loginMessage = 'Activated, but the login could not be created.';
+
+    if (profile) {
+      const userCreation = await this.triggerUserCreation(id, profile);
+      loginCreated = userCreation.success;
+      loginMessage = userCreation.message;
+    }
+
+    return {
+      activated: true,
+      loginCreated,
+      message: loginCreated ? loginMessage : `Activated — ${loginMessage}`,
+      paidPct: result.paid_pct,
+      metConfiguredThreshold: result.met_configured_threshold,
+    };
+  }
+
+  /**
    * Enroll learner (pending/approved → active)
    */
   static async enrollLearner(id: string, enrollment: EnrollmentDto): Promise<LearnerProfile> {
