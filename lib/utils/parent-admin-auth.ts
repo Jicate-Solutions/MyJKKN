@@ -28,8 +28,15 @@ export interface PPAuthUser {
   isSuperAdmin: boolean;
 }
 
-/** Resolve the signed-in user with the UNION of role sources + merged perms. */
-async function currentUser(): Promise<PPAuthUser | null> {
+/**
+ * Resolve the signed-in user with the UNION of role sources + merged perms.
+ *
+ * Despite this file's name the resolver itself is module-agnostic — it just
+ * answers "who is this and what may they do". Exported so other modules' gates
+ * (see lib/utils/procurement-auth.ts) can reuse it instead of re-deriving the
+ * profiles.role + user_roles union.
+ */
+export async function currentUser(): Promise<PPAuthUser | null> {
   const auth = await createClient();
   const {
     data: { user },

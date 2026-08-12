@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Plus, Trash2, FileText, Award, X, ExternalLink } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function RfqQuotationsPage() {
   const router = useRouter();
@@ -62,7 +63,7 @@ export default function RfqQuotationsPage() {
       toast.success(`Generated ${pos.length} purchase order${pos.length === 1 ? '' : 's'}`);
       router.push('/procurement/purchase-orders');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to generate POs');
+      toast.error(errorMessage(e, 'Failed to generate POs'));
     }
   };
 
@@ -71,7 +72,7 @@ export default function RfqQuotationsPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 
