@@ -642,6 +642,10 @@ export function CoverageFilterBar({
               <SelectContent>
                 <SelectItem value='not_generated'>Not generated</SelectItem>
                 <SelectItem value='generated'>Generated</SelectItem>
+                {/* Learners whose course had already finished by the measured
+                    year — carved out of "Not generated", not out of
+                    "Generated". */}
+                <SelectItem value='not_applicable'>Programme ended</SelectItem>
                 <SelectItem value='cannot_evaluate'>Cannot evaluate</SelectItem>
                 <SelectItem value='all'>All learners</SelectItem>
               </SelectContent>

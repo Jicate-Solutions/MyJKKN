@@ -43,11 +43,21 @@ function stateBadge(row: MissingYearAuditRow) {
       <Badge className='border-transparent bg-orange-500 text-white hover:bg-orange-600'>
         {row.missing_years} missing
       </Badge>
-      {/* The distinguishing detail: this learner's CURRENT year is billed, so
-          the gap is a backlog rather than a learner nobody has billed at all. */}
+      {/* The distinguishing detail: this learner's LATEST EXPECTED year is
+          billed, so the gap is a backlog rather than a learner nobody has
+          billed at all. For a finished cohort that year is their course's last
+          year, not the institution's current one. */}
       {row.has_current_year && (
         <div className='text-[11px] text-muted-foreground'>
-          current year billed
+          latest year billed
+        </div>
+      )}
+      {/* The window could not be capped, so the tail of the Missing Years list
+          is unproven rather than confirmed. Said on the row, not just in a KPI
+          — whoever works this queue reads rows, not tiles. */}
+      {!row.duration_configured && (
+        <div className='text-[11px] text-amber-600 dark:text-amber-500'>
+          duration not set
         </div>
       )}
     </div>
@@ -209,6 +219,44 @@ export const missingYearColumns: ColumnDef<MissingYearAuditRow>[] = [
         {row.original.first_missing_year ?? '—'}
       </span>
     )
+  },
+  {
+    // The upper bound of the audited window, next to Admission Year which is
+    // its lower bound. Together they are the whole rule, so a reader can check
+    // the Missing Years list rather than take it on trust.
+    accessorKey: 'programme_end_year',
+    id: 'programme_end_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Programme Ends' />
+    ),
+    size: 155,
+    minSize: 130,
+    maxSize: 200,
+    cell: ({ row }) => {
+      const r = row.original;
+      if (!r.duration_configured) {
+        return (
+          <Badge
+            variant='outline'
+            className='border-amber-300 bg-amber-50 font-normal text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300'
+            title='Set Programme Duration (Yrs) on this programme to bound the audited window'
+          >
+            No duration set
+          </Badge>
+        );
+      }
+      return (
+        <span className='whitespace-nowrap tabular-nums'>
+          {r.programme_end_year ?? '—'}
+          {r.program_duration_yrs != null && (
+            <span className='text-muted-foreground'>
+              {' '}
+              ({r.program_duration_yrs}y)
+            </span>
+          )}
+        </span>
+      );
+    }
   },
   {
     accessorKey: 'institution_name',

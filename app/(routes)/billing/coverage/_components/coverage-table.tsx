@@ -28,6 +28,7 @@ interface CoverageTableProps {
 const COVERAGE_EXPORT_LABELS: Record<string, string> = {
   generated: 'Generated',
   not_generated: 'Not Generated',
+  not_applicable: 'Programme Ended',
   cannot_evaluate: 'Cannot Evaluate'
 };
 
@@ -60,7 +61,11 @@ function transformCoverageForExport(
     totalBilled: r.total_billed,
     totalPaid: r.total_paid,
     coverage: COVERAGE_EXPORT_LABELS[r.coverage_state] ?? r.coverage_state,
-    coverageYear: r.target_academic_year_name ?? ''
+    coverageYear: r.target_academic_year_name ?? '',
+    // Without these a "Programme Ended" row in the sheet is an assertion the
+    // reader cannot check. Duration stays a raw number so it can be sorted.
+    programmeDuration: r.program_duration_yrs ?? '',
+    programmeEnds: r.programme_end_year ?? ''
   };
 }
 
@@ -160,7 +165,9 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           totalBilled: 'Total Billed',
           totalPaid: 'Total Paid',
           coverage: 'Coverage',
-          coverageYear: 'Measured For (AY)'
+          coverageYear: 'Measured For (AY)',
+          programmeDuration: 'Programme Duration (Yrs)',
+          programmeEnds: 'Programme Ends'
         },
         // One entry per header, in the same order — the widths are applied by
         // INDEX, so inserting a header without inserting its width here shifts
@@ -170,7 +177,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           { wch: 28 }, { wch: 26 }, { wch: 20 }, { wch: 14 },
           { wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
           { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
-          { wch: 18 }
+          { wch: 18 }, { wch: 22 }, { wch: 16 }
         ],
         headers: [
           'rollNumber',
@@ -189,7 +196,9 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           'totalBilled',
           'totalPaid',
           'coverage',
-          'coverageYear'
+          'coverageYear',
+          'programmeDuration',
+          'programmeEnds'
         ],
         transformFunction: transformCoverageForExport
       }}

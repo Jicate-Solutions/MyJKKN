@@ -52,6 +52,9 @@ interface RawMissingYearRow {
   out_total_paid: number | string;
   out_unassigned_tuition_bills: number;
   out_audit_state: string;
+  out_program_duration_yrs: number | string | null;
+  out_programme_end_year: string | null;
+  out_duration_configured: boolean | null;
   out_total_count: number | string;
 }
 
@@ -75,6 +78,8 @@ interface RawDuplicateYearRow {
   out_outstanding: number | string;
   out_created_same_day: boolean | null;
   out_due_year_span: number;
+  out_programme_end_year: string | null;
+  out_is_past_programme_end: boolean | null;
   out_total_count: number | string;
 }
 
@@ -168,6 +173,14 @@ export class BillCoverageAuditService extends BaseService {
       total_paid: Number(r.out_total_paid ?? 0),
       unassigned_tuition_bills: Number(r.out_unassigned_tuition_bills ?? 0),
       audit_state: r.out_audit_state as MissingYearAuditRow['audit_state'],
+      // Keep NULL as null: Number(null) is 0, which would read as a zero-year
+      // programme and imply every learner's course had already finished.
+      program_duration_yrs:
+        r.out_program_duration_yrs == null
+          ? null
+          : Number(r.out_program_duration_yrs),
+      programme_end_year: r.out_programme_end_year,
+      duration_configured: r.out_duration_configured === true,
       total_count: Number(r.out_total_count ?? 0)
     }));
 
@@ -218,6 +231,8 @@ export class BillCoverageAuditService extends BaseService {
       outstanding: Number(r.out_outstanding ?? 0),
       created_same_day: r.out_created_same_day === true,
       due_year_span: Number(r.out_due_year_span ?? 0),
+      programme_end_year: r.out_programme_end_year,
+      is_past_programme_end: r.out_is_past_programme_end === true,
       total_count: Number(r.out_total_count ?? 0)
     }));
 

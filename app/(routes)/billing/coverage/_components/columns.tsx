@@ -46,6 +46,13 @@ function coverageBadge(row: BillCoverageRow) {
       <Badge className='border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300'>
         Cannot evaluate
       </Badge>
+    ) : row.coverage_state === 'not_applicable' ? (
+      // Not a gap and not a pass: the measured year is simply outside this
+      // learner's course. Muted so it never competes with the orange that
+      // marks actual work.
+      <Badge className='border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400'>
+        Programme ended
+      </Badge>
     ) : (
       <Badge className='border-transparent bg-orange-500 text-white hover:bg-orange-600'>
         Not generated
@@ -58,6 +65,13 @@ function coverageBadge(row: BillCoverageRow) {
       {row.target_academic_year_name && (
         <div className='text-[11px] text-muted-foreground'>
           for {row.target_academic_year_name}
+        </div>
+      )}
+      {/* The reason the badge above says what it says. Without the end year on
+          the row, "Programme ended" is an assertion the reader cannot check. */}
+      {row.coverage_state === 'not_applicable' && row.programme_end_year && (
+        <div className='text-[11px] text-muted-foreground'>
+          course ran to {row.programme_end_year}
         </div>
       )}
     </div>
@@ -256,6 +270,44 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
         {row.original.admission_year ?? '—'}
       </span>
     )
+  },
+  {
+    // Sits beside Admission Year because the two together are the whole rule:
+    // cohort + duration is what decides whether a year is owed at all. Not
+    // sortable — outside the RPC's sort whitelist.
+    accessorKey: 'programme_end_year',
+    id: 'programme_end_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Programme Ends' />
+    ),
+    size: 150,
+    minSize: 125,
+    maxSize: 190,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const r = row.original;
+      if (!r.programme_end_year) {
+        return (
+          <span
+            className='text-xs text-muted-foreground'
+            title='programs.program_duration_yrs is not set for this programme, so its end year cannot be derived'
+          >
+            No duration set
+          </span>
+        );
+      }
+      return (
+        <span className='whitespace-nowrap tabular-nums'>
+          {r.programme_end_year}
+          {r.program_duration_yrs != null && (
+            <span className='text-muted-foreground'>
+              {' '}
+              ({r.program_duration_yrs}y)
+            </span>
+          )}
+        </span>
+      );
+    }
   },
   {
     accessorKey: 'accommodation_type',

@@ -39,6 +39,8 @@ function transformForExport(
         : 'Needs review',
     createdSameDay: r.created_same_day ? 'Yes' : 'No',
     dueYearSpan: r.due_year_span,
+    programmeEnds: r.programme_end_year ?? '',
+    pastProgrammeEnd: r.is_past_programme_end ? 'Yes' : 'No',
     // Raw numbers, never formatCurrency strings — the point of the sheet is that
     // accounts can sum these and see what unwinding the duplicates costs.
     totalBilled: r.total_billed,
@@ -149,6 +151,8 @@ export function AuditDuplicateYearsTable({ filters, canExport }: Props) {
           likelyCause: 'Likely Cause',
           createdSameDay: 'Created Same Day',
           dueYearSpan: 'Due Date Year Span',
+          programmeEnds: 'Programme Ends',
+          pastProgrammeEnd: 'Past Programme End',
           totalBilled: 'Billed (Year)',
           totalPaid: 'Paid',
           outstanding: 'Outstanding'
@@ -157,8 +161,8 @@ export function AuditDuplicateYearsTable({ filters, canExport }: Props) {
           { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 28 },
           { wch: 26 }, { wch: 20 }, { wch: 16 }, { wch: 15 },
           { wch: 15 }, { wch: 8 }, { wch: 12 }, { wch: 52 },
-          { wch: 18 }, { wch: 17 }, { wch: 18 }, { wch: 15 },
-          { wch: 15 }, { wch: 15 }
+          { wch: 18 }, { wch: 17 }, { wch: 18 }, { wch: 16 },
+          { wch: 19 }, { wch: 15 }, { wch: 15 }, { wch: 15 }
         ],
         headers: [
           'rollNumber',
@@ -176,6 +180,8 @@ export function AuditDuplicateYearsTable({ filters, canExport }: Props) {
           'likelyCause',
           'createdSameDay',
           'dueYearSpan',
+          'programmeEnds',
+          'pastProgrammeEnd',
           'totalBilled',
           'totalPaid',
           'outstanding'

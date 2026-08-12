@@ -40,6 +40,8 @@ interface RawCoverageRow {
   out_total_paid: number | string;
   out_coverage_state: string;
   out_target_academic_year_name: string | null;
+  out_program_duration_yrs: number | string | null;
+  out_programme_end_year: string | null;
   out_total_count: number | string;
 }
 
@@ -199,6 +201,14 @@ export class BillCoverageService extends BaseService {
       // money column here, or the export writes text cells Excel cannot sum.
       total_paid: Number(r.out_total_paid ?? 0),
       coverage_state: r.out_coverage_state as BillCoverageRow['coverage_state'],
+      // numeric over PostgREST arrives as a string, but a NULL duration must
+      // stay null — Number(null) is 0, which would read as a zero-year course
+      // and mark every learner's programme as already finished.
+      program_duration_yrs:
+        r.out_program_duration_yrs == null
+          ? null
+          : Number(r.out_program_duration_yrs),
+      programme_end_year: r.out_programme_end_year,
       total_count: Number(r.out_total_count)
     }));
 

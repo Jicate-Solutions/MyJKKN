@@ -8,7 +8,7 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import type { LifecycleStatus } from '@/types/learner-profile';
 import { formatCurrency } from '@/lib/utils';
-import { Building, GraduationCap } from 'lucide-react';
+import { AlertTriangle, Building, GraduationCap } from 'lucide-react';
 import type { DuplicateYearAuditRow } from '@/types/billing-coverage';
 
 // ── Column ids MUST match the RPC's sort whitelist ─────────────────────────
@@ -76,14 +76,31 @@ export const duplicateYearColumns: ColumnDef<DuplicateYearAuditRow>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title='Academic Year' />
     ),
-    size: 140,
-    minSize: 120,
-    maxSize: 180,
-    cell: ({ row }) => (
-      <span className='whitespace-nowrap font-medium tabular-nums'>
-        {row.original.academic_year_name}
-      </span>
-    )
+    size: 150,
+    minSize: 125,
+    maxSize: 200,
+    cell: ({ row }) => {
+      const r = row.original;
+      return (
+        <div className='space-y-0.5'>
+          <span className='whitespace-nowrap font-medium tabular-nums'>
+            {r.academic_year_name}
+          </span>
+          {/* The inverse finding, flagged where it is discovered rather than
+              only in a KPI: tuition raised for a year this learner's course no
+              longer runs. */}
+          {r.is_past_programme_end && (
+            <div
+              className='flex items-center gap-1 text-[11px] text-orange-600 dark:text-orange-500'
+              title={`This learner's programme ended in ${r.programme_end_year}`}
+            >
+              <AlertTriangle className='h-3 w-3 shrink-0' />
+              past course end
+            </div>
+          )}
+        </div>
+      );
+    }
   },
   {
     accessorKey: 'bill_count',
@@ -188,6 +205,41 @@ export const duplicateYearColumns: ColumnDef<DuplicateYearAuditRow>[] = [
         {row.original.admission_year ?? '—'}
       </span>
     )
+  },
+  {
+    accessorKey: 'programme_end_year',
+    id: 'programme_end_year',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Programme Ends' />
+    ),
+    size: 150,
+    minSize: 125,
+    maxSize: 190,
+    enableSorting: false,
+    cell: ({ row }) => {
+      const r = row.original;
+      if (!r.programme_end_year) {
+        return (
+          <span
+            className='text-xs text-muted-foreground'
+            title='programs.program_duration_yrs is not set, so the course end year cannot be derived'
+          >
+            No duration set
+          </span>
+        );
+      }
+      return (
+        <span
+          className={`whitespace-nowrap tabular-nums ${
+            r.is_past_programme_end
+              ? 'font-medium text-orange-600 dark:text-orange-500'
+              : ''
+          }`}
+        >
+          {r.programme_end_year}
+        </span>
+      );
+    }
   },
   {
     accessorKey: 'institution_name',

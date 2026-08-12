@@ -26,9 +26,14 @@ function TileGrid({
   isLoading: boolean;
   notes: (string | null)[];
 }) {
+  // Driven by tile count rather than hardcoded: the two sub-tabs carry
+  // different numbers of KPIs, and a fixed 4-column grid would orphan the
+  // fifth tile on its own row.
+  const cols = tiles.length >= 5 ? 'lg:grid-cols-5' : 'lg:grid-cols-4';
+
   if (isLoading) {
     return (
-      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${cols}`}>
         {Array.from({ length: tiles.length }).map((_, i) => (
           <Skeleton key={i} className='h-24 w-full' />
         ))}
@@ -38,7 +43,7 @@ function TileGrid({
 
   return (
     <div className='space-y-2'>
-      <div className='grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${cols}`}>
         {tiles.map((t) => (
           <Card key={t.label}>
             <CardContent className='p-4'>
@@ -96,10 +101,12 @@ export function MissingYearSummaryCards({
     },
     {
       // The reported symptom, and the subset most likely to be a generation bug
-      // rather than a learner who simply joined mid-programme.
+      // rather than a learner who simply joined mid-programme. "Latest expected"
+      // rather than "current": for a cohort that has finished, the last year of
+      // their course is the last year they were ever owed a bill for.
       label: 'Backlog Only',
       value: nf.format(summary?.backlog_only ?? 0),
-      hint: 'current year billed, earlier year missing',
+      hint: 'latest expected year billed, earlier one missing',
       tone: 'text-amber-600 dark:text-amber-500'
     }
   ];
@@ -107,6 +114,14 @@ export function MissingYearSummaryCards({
   const notes = [
     (summary?.no_tuition_at_all ?? 0) > 0
       ? `${nf.format(summary!.no_tuition_at_all)} of the gap learners have no tuition bill in any audited year.`
+      : null,
+    // The audited window is capped at the programme's end year. Without a
+    // duration there is no cap, so those learners are still measured all the
+    // way to the current year and any tail they show is unproven.
+    (summary?.duration_not_set ?? 0) > 0
+      ? `${nf.format(summary!.duration_not_set)} learner${
+          summary!.duration_not_set === 1 ? '' : 's'
+        } belong to a programme with no duration configured, so their window runs to the current academic year rather than to the end of their course. Set Programme Duration (Yrs) on those programmes to bound them.`
       : null,
     (summary?.excluded_institutions ?? 0) > 0
       ? `${nf.format(summary!.excluded_institutions)} institution${
@@ -171,6 +186,24 @@ export function DuplicateYearSummaryCards({
       value: nf.format(summary?.generator_signature ?? 0),
       hint: 'one run, due dates years apart',
       tone: 'text-muted-foreground'
+    },
+    {
+      // The inverse of the missing-year finding: tuition raised for a year the
+      // learner is no longer enrolled in. Counted over ALL tuition bills in
+      // scope, not only the duplicated ones, so it is a genuine second check
+      // sharing this tab rather than a facet of the duplicates above.
+      label: 'Billed Past Programme End',
+      value: nf.format(summary?.past_end_bills ?? 0),
+      hint:
+        (summary?.past_end_bills ?? 0) > 0
+          ? `${nf.format(summary!.past_end_learners)} learner${
+              summary!.past_end_learners === 1 ? '' : 's'
+            } · ${formatCurrency(summary!.past_end_outstanding)} outstanding`
+          : 'no tuition billed beyond a course end',
+      tone:
+        (summary?.past_end_bills ?? 0) > 0
+          ? 'text-orange-600 dark:text-orange-500'
+          : 'text-green-600 dark:text-green-500'
     }
   ];
 

@@ -47,7 +47,12 @@ function transformForExport(
     // The column the sheet is taken for: exactly which bills to raise.
     missingYearNames: r.missing_year_names ?? '',
     firstMissingYear: r.first_missing_year ?? '',
-    currentYearBilled: r.has_current_year ? 'Yes' : 'No',
+    // Raw number so the sheet can be filtered on it; blank when unset rather
+    // than 0, which would read as a zero-year course.
+    programmeDuration: r.program_duration_yrs ?? '',
+    programmeEnds: r.programme_end_year ?? '',
+    durationConfigured: r.duration_configured ? 'Yes' : 'No',
+    latestYearBilled: r.has_current_year ? 'Yes' : 'No',
     tuitionBills: r.tuition_bill_count,
     unassignedBills: r.unassigned_tuition_bills,
     totalBilled: r.total_billed,
@@ -163,7 +168,10 @@ export function AuditMissingYearsTable({ filters, canExport }: Props) {
           missingYears: 'Missing Years',
           missingYearNames: 'Missing Academic Years',
           firstMissingYear: 'First Missing Year',
-          currentYearBilled: 'Current Year Billed',
+          programmeDuration: 'Programme Duration (Yrs)',
+          programmeEnds: 'Programme Ends',
+          durationConfigured: 'Duration Configured',
+          latestYearBilled: 'Latest Expected Year Billed',
           tuitionBills: 'Tuition Bills',
           unassignedBills: 'Bills Without Academic Year',
           totalBilled: 'Tuition Billed',
@@ -175,8 +183,9 @@ export function AuditMissingYearsTable({ filters, canExport }: Props) {
           { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 28 },
           { wch: 26 }, { wch: 20 }, { wch: 16 }, { wch: 15 },
           { wch: 16 }, { wch: 15 }, { wch: 13 }, { wch: 14 },
-          { wch: 46 }, { wch: 16 }, { wch: 18 }, { wch: 13 },
-          { wch: 24 }, { wch: 15 }, { wch: 15 }
+          { wch: 46 }, { wch: 16 }, { wch: 22 }, { wch: 16 },
+          { wch: 19 }, { wch: 26 }, { wch: 13 }, { wch: 24 },
+          { wch: 15 }, { wch: 15 }
         ],
         headers: [
           'rollNumber',
@@ -193,7 +202,10 @@ export function AuditMissingYearsTable({ filters, canExport }: Props) {
           'missingYears',
           'missingYearNames',
           'firstMissingYear',
-          'currentYearBilled',
+          'programmeDuration',
+          'programmeEnds',
+          'durationConfigured',
+          'latestYearBilled',
           'tuitionBills',
           'unassignedBills',
           'totalBilled',
