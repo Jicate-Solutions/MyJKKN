@@ -34,6 +34,7 @@ import { useSolutions } from '@/hooks/solutions/use-solutions';
 import { useProspectsByClientId } from '@/hooks/solutions/use-prospects';
 import { ClientForm } from '@/components/solutions/clients/client-form';
 import { ProspectOriginCard } from '@/components/solutions/clients/prospect-origin-card';
+import { ClientProjectsCard } from '@/components/solutions/clients/client-projects-card';
 import type { PartnerStatus } from '@/hooks/solutions/use-clients';
 
 interface ClientDetailPageProps {
@@ -358,6 +359,12 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Projects & Tasks — PM projects delivering for this client */}
+        <ClientProjectsCard
+          clientId={id}
+          solutionIds={solutions.map((s: any) => s.id)}
+        />
 
         {/* Pipeline History - shows all related prospects */}
         {(prospectsLoading || (relatedProspects && relatedProspects.length > 0)) && (

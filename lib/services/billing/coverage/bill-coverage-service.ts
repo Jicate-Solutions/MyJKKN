@@ -32,6 +32,7 @@ interface RawCoverageRow {
   out_semester_section: string | null;
   out_academic_year_id: string | null;
   out_academic_year_name: string | null;
+  out_admission_year: number | null;
   out_accommodation_type: string | null;
   out_uses_transport: boolean | null;
   out_bill_count: number;
@@ -39,6 +40,8 @@ interface RawCoverageRow {
   out_total_paid: number | string;
   out_coverage_state: string;
   out_target_academic_year_name: string | null;
+  out_program_duration_yrs: number | string | null;
+  out_programme_end_year: string | null;
   out_total_count: number | string;
 }
 
@@ -53,6 +56,11 @@ export class BillCoverageService extends BaseService {
       // year client-side — the page spans institutions whose current year can
       // differ, and one guessed year would mismeasure the rest.
       p_academic_year_id: filters.academic_year_id ?? null,
+      // The opposite kind of parameter to the one above: this one selects which
+      // LEARNERS are in scope, not which year they are measured against. An
+      // integer cohort year, so it works across institutions — admission_years
+      // has one row per institution per year.
+      p_admission_year: filters.admission_year ?? null,
       p_institution_ids:
         filters.institution_ids && filters.institution_ids.length > 0
           ? filters.institution_ids
@@ -181,6 +189,9 @@ export class BillCoverageService extends BaseService {
       semester_section: r.out_semester_section,
       academic_year_id: r.out_academic_year_id,
       academic_year_name: r.out_academic_year_name,
+      // integer over PostgREST, not numeric — no string coercion needed, but
+      // keep the null rather than defaulting to 0, which would read as a year.
+      admission_year: r.out_admission_year ?? null,
       target_academic_year_name: r.out_target_academic_year_name,
       accommodation_type: r.out_accommodation_type,
       uses_transport: r.out_uses_transport === true,
@@ -190,6 +201,14 @@ export class BillCoverageService extends BaseService {
       // money column here, or the export writes text cells Excel cannot sum.
       total_paid: Number(r.out_total_paid ?? 0),
       coverage_state: r.out_coverage_state as BillCoverageRow['coverage_state'],
+      // numeric over PostgREST arrives as a string, but a NULL duration must
+      // stay null — Number(null) is 0, which would read as a zero-year course
+      // and mark every learner's programme as already finished.
+      program_duration_yrs:
+        r.out_program_duration_yrs == null
+          ? null
+          : Number(r.out_program_duration_yrs),
+      programme_end_year: r.out_programme_end_year,
       total_count: Number(r.out_total_count)
     }));
 

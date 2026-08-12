@@ -16,6 +16,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -118,7 +119,11 @@ export function GenerateBalancesForm({ year }: { year: string | null }) {
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
           No HR academic year is selected or configured, so balances cannot be generated.
-          Use <strong>New year</strong> above to create one.
+          Create one in{' '}
+          <Link href="/hr/admin/academic-years" className="underline underline-offset-2">
+            HR Academic Years
+          </Link>
+          , then select it above.
         </AlertDescription>
       </Alert>
     );
