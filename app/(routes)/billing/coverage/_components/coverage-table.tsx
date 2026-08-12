@@ -47,6 +47,9 @@ function transformCoverageForExport(
     // routinely differ, and a sheet showing only the first makes a "Not
     // Generated" row impossible to reconcile against the learner's bills.
     learnerYear: r.academic_year_name ?? '',
+    // A third year on the same row, and the only one that never rolls over.
+    // Stays a raw number so the sheet can be grouped and sorted by cohort.
+    admissionYear: r.admission_year ?? '',
     accommodation: r.accommodation_type ?? '',
     transport: r.uses_transport ? 'Bus' : '',
     lifecycleStatus: r.lifecycle_status,
@@ -70,6 +73,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
     () =>
       JSON.stringify([
         filters.academic_year_id ?? null,
+        filters.admission_year ?? null,
         filters.institution_ids ?? null,
         filters.lifecycle_statuses ?? null,
         filters.billing_category_id ?? null,
@@ -88,6 +92,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
       ]),
     [
       filters.academic_year_id,
+      filters.admission_year,
       filters.institution_ids,
       filters.lifecycle_statuses,
       filters.billing_category_id,
@@ -147,6 +152,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           programme: 'Programme',
           semesterSection: 'Semester · Section',
           learnerYear: 'Learner Year',
+          admissionYear: 'Admission Year',
           accommodation: 'Accommodation',
           transport: 'Transport',
           lifecycleStatus: 'Lifecycle Status',
@@ -162,8 +168,9 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
         columnWidths: [
           { wch: 14 }, { wch: 16 }, { wch: 24 }, { wch: 10 },
           { wch: 28 }, { wch: 26 }, { wch: 20 }, { wch: 14 },
-          { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 8 },
-          { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 18 }
+          { wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 16 },
+          { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 16 },
+          { wch: 18 }
         ],
         headers: [
           'rollNumber',
@@ -174,6 +181,7 @@ export function CoverageTable({ filters, canExport }: CoverageTableProps) {
           'programme',
           'semesterSection',
           'learnerYear',
+          'admissionYear',
           'accommodation',
           'transport',
           'lifecycleStatus',
