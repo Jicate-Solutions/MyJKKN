@@ -27,10 +27,38 @@ export interface GroupablePurposeType {
 export interface PurposeChoice<T extends GroupablePurposeType> {
   key: string;
   label: string;
+  /**
+   * SHORTEST length in the group, kept for stable sorting only.
+   *
+   * Do NOT render this as "the" duration of the card when `hasMixedDurations`
+   * is true — it is one option's number standing in for several, which is
+   * exactly the thing that misleads a booker. Render `durationsMin`, or the
+   * per-option `durationMin`, instead.
+   */
   durationMin: number;
+  /** Every distinct length this purpose is offered in, ascending. */
+  durationsMin: number[];
+  /** True when the purpose is offered in more than one length. */
+  hasMixedDurations: boolean;
   description: string | null;
   /** Every format this purpose is offered in — usually one, sometimes two. */
   options: T[];
+}
+
+/**
+ * The length label for a purpose card: `"15 min"` when there is one length,
+ * `"2 / 5 / 10 / 15 min"` when the purpose spans several.
+ *
+ * A purpose that spans lengths must never advertise a single number — the
+ * booker would pick a card believing it is one length and land on another.
+ * Where the individual formats are listed, show each option's own length too.
+ */
+export function purposeDurationLabel(choice: {
+  durationsMin: readonly number[];
+  durationMin: number;
+}): string {
+  const lengths = choice.durationsMin.length ? choice.durationsMin : [choice.durationMin];
+  return `${lengths.join(' / ')} min`;
 }
 
 export function groupPurposes<T extends GroupablePurposeType>(
@@ -54,9 +82,26 @@ export function groupPurposes<T extends GroupablePurposeType>(
       key,
       label: group ?? mt.title,
       durationMin: mt.durationMin,
+      durationsMin: [],
+      hasMixedDurations: false,
       description: mt.description,
       options: [mt],
     });
   }
+
+  // Derive the length set once every option is in. A purpose deliberately
+  // spans several lengths ("Quick question" is 2/5/10/15), so a card cannot
+  // carry a single number: the first record's duration would be wrong for the
+  // other three. durationMin collapses to the SHORTEST purely so the sort
+  // below stays stable and puts the quickest purposes first.
+  for (const choice of byKey.values()) {
+    const lengths = [...new Set(choice.options.map((o) => o.durationMin))].sort(
+      (a, b) => a - b,
+    );
+    choice.durationsMin = lengths;
+    choice.hasMixedDurations = lengths.length > 1;
+    choice.durationMin = lengths[0] ?? choice.durationMin;
+  }
+
   return [...byKey.values()].sort((a, b) => a.durationMin - b.durationMin);
 }

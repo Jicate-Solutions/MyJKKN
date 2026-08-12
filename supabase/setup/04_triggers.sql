@@ -1758,6 +1758,7 @@ CREATE TRIGGER trg_audit_admission_lead_source
 AFTER UPDATE OF source, source_detail, referral_type, referred_by_id, referred_by_name
 ON public.admission_leads
 FOR EACH ROW EXECUTE FUNCTION public.fn_audit_admission_lead_source();
+
 -- ============================================================================
 -- 2026-08-11 — learner lifecycle auto-promotion pipeline
 -- ============================================================================

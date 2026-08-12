@@ -56,6 +56,7 @@ import {
 import { ArrowLeft, FileDown, FileText, Send, Check, X, PackageCheck } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 /** item_extra.<key> -> <key> */
 function extraFieldKey(source: string): string {
@@ -174,7 +175,7 @@ export default function PurchaseOrderDetailPage() {
 
   const handleItemExtraBlur = (itemId: string, key: string, value: string) => {
     updateItemExtra.mutateAsync({ poId: id, itemId, extraFields: { [key]: value } }).catch((e) => {
-      toast.error(e instanceof Error ? e.message : 'Failed to save field');
+      toast.error(errorMessage(e, 'Failed to save field'));
     });
   };
 
@@ -182,7 +183,7 @@ export default function PurchaseOrderDetailPage() {
     const unitPrice = Number(value);
     if (!(unitPrice >= 0)) return;
     updateItemPrice.mutateAsync({ poId: id, itemId, unitPrice }).catch((e) => {
-      toast.error(e instanceof Error ? e.message : 'Failed to save price');
+      toast.error(errorMessage(e, 'Failed to save price'));
     });
   };
 
@@ -231,7 +232,7 @@ export default function PurchaseOrderDetailPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 
