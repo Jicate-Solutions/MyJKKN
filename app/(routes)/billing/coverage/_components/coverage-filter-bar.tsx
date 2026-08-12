@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FileDown } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useQuery } from '@tanstack/react-query';
@@ -30,6 +30,18 @@ interface CoverageFilterBarProps {
   onChange: (next: Partial<BillCoverageFilters>) => void;
   /** billing.coverage.export — granted separately from .view. */
   canExport?: boolean;
+  /**
+   * Which tab is using the bar. Every dimension filter is shared; three
+   * controls differ because the two tabs ask different questions:
+   *
+   *  - Academic Year is the single year Coverage MEASURES against. The audits
+   *    span every year from admission to today, so that slot becomes "Earliest
+   *    Academic Year" — a floor on the audited window, not a target.
+   *  - Billing Category is dropped: the audits ARE the tuition-category check,
+   *    so narrowing to one category would ask a question neither answers.
+   *  - "Show" and the institution toggle carry audit-specific values.
+   */
+  variant?: 'coverage' | 'audit';
 }
 
 const ALL = '__all__';
@@ -44,8 +56,10 @@ const STATUS_LABELS: Record<string, string> = {
 export function CoverageFilterBar({
   filters,
   onChange,
-  canExport = false
+  canExport = false,
+  variant = 'coverage'
 }: CoverageFilterBarProps) {
+  const isAudit = variant === 'audit';
   const [exporting, setExporting] = useState(false);
   const { institutions, loading: institutionsLoading } =
     useUserInstitutionAccess();
@@ -67,6 +81,26 @@ export function CoverageFilterBar({
   );
 
   const { categories } = useBillingCategories({ isActive: true, limit: 1000 });
+
+  // Options for the audit's "Earliest Academic Year" floor. Read UNSCOPED (no
+  // institution argument) and deduped to one entry per start year, so — like
+  // Admission Year and unlike Academic Year — the control stays usable in "All
+  // accessible institutions" mode. Years are the same integers everywhere.
+  const { data: allAcademicYears } = useAcademicYears();
+  const earliestYearOptions = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const years = new Set<number>();
+    for (const y of (allAcademicYears?.data ?? []) as any[]) {
+      // Derived from start_date, never academic_year_name: the name is TEXT,
+      // several rows carry trailing spaces, and institutions pre-create years
+      // years ahead. A future year cannot be a floor on work already due.
+      if (!y?.start_date || String(y.start_date) > today) continue;
+      years.add(Number(String(y.start_date).slice(0, 4)));
+    }
+    return Array.from(years)
+      .sort((a, b) => b - a)
+      .map((year) => ({ year, label: `${year}-${year + 1}` }));
+  }, [allAcademicYears]);
 
   // accommodation_types is a small global lookup (4 active rows) — no
   // institution scoping, so it is safe to cache for the session.
@@ -246,37 +280,74 @@ export function CoverageFilterBar({
           </Select>
         </div>
 
-        {/* Academic year */}
-        <div className='space-y-1.5'>
-          <Label className='text-xs'>Academic Year</Label>
-          <Select
-            value={filters.academic_year_id ?? ALL}
-            onValueChange={(v) =>
-              onChange({ academic_year_id: v === ALL ? null : v })
-            }
-            disabled={!selectedInstitutionId}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder='Current academic year' />
-            </SelectTrigger>
-            <SelectContent>
-              {/* Was "Each learner's own year" — which is exactly what made the
-                  report wrong. The default now measures every learner against
-                  their institution's current year, resolved by date in SQL. */}
-              <SelectItem value={ALL}>Current academic year</SelectItem>
-              {(academicYears?.data ?? []).map((y: any) => (
-                <SelectItem key={y.id} value={y.id}>
-                  {y.academic_year_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {!selectedInstitutionId && (
+        {/* Academic year (Coverage) / Earliest academic year (Audit).
+            One slot, two opposite meanings — see the variant doc above. */}
+        {isAudit ? (
+          <div className='space-y-1.5'>
+            <Label className='text-xs'>Earliest Academic Year</Label>
+            <Select
+              value={
+                filters.earliest_academic_year != null
+                  ? String(filters.earliest_academic_year)
+                  : ALL
+              }
+              onValueChange={(v) =>
+                onChange({
+                  earliest_academic_year: v === ALL ? null : Number(v)
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='From admission year' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>From admission year</SelectItem>
+                {earliestYearOptions.map((y) => (
+                  <SelectItem key={y.year} value={String(y.year)}>
+                    {y.label} onwards
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className='text-[11px] text-muted-foreground'>
-              Pick an institution to choose a specific year
+              Floors the audited window. Default audits every year back to each
+              learner&apos;s admission year, including years that pre-date the
+              institution&apos;s use of the system.
             </p>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className='space-y-1.5'>
+            <Label className='text-xs'>Academic Year</Label>
+            <Select
+              value={filters.academic_year_id ?? ALL}
+              onValueChange={(v) =>
+                onChange({ academic_year_id: v === ALL ? null : v })
+              }
+              disabled={!selectedInstitutionId}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='Current academic year' />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Was "Each learner's own year" — which is exactly what made
+                    the report wrong. The default now measures every learner
+                    against their institution's current year, resolved by date
+                    in SQL. */}
+                <SelectItem value={ALL}>Current academic year</SelectItem>
+                {(academicYears?.data ?? []).map((y: any) => (
+                  <SelectItem key={y.id} value={y.id}>
+                    {y.academic_year_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!selectedInstitutionId && (
+              <p className='text-[11px] text-muted-foreground'>
+                Pick an institution to choose a specific year
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Admission year (cohort).
             Sits next to Academic Year because the two are easily confused and
@@ -436,28 +507,33 @@ export function CoverageFilterBar({
           </Select>
         </div>
 
-        {/* Billing category */}
-        <div className='space-y-1.5'>
-          <Label className='text-xs'>Billing Category</Label>
-          <Select
-            value={filters.billing_category_id ?? ALL}
-            onValueChange={(v) =>
-              onChange({ billing_category_id: v === ALL ? null : v })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder='Any category' />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>Any category</SelectItem>
-              {(categories ?? []).map((c: any) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.category_name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Billing category — Coverage only. Both audits are defined over the
+            tuition categories as a set, so narrowing to one of them would ask
+            "is the 3 Year fee missing from every year", which is not a question
+            either check answers. */}
+        {!isAudit && (
+          <div className='space-y-1.5'>
+            <Label className='text-xs'>Billing Category</Label>
+            <Select
+              value={filters.billing_category_id ?? ALL}
+              onValueChange={(v) =>
+                onChange({ billing_category_id: v === ALL ? null : v })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder='Any category' />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>Any category</SelectItem>
+                {(categories ?? []).map((c: any) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.category_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Accommodation */}
         <div className='space-y-1.5'>
@@ -525,27 +601,52 @@ export function CoverageFilterBar({
           </Select>
         </div>
 
-        {/* Coverage state */}
+        {/* Verdict filter. The two tabs have disjoint value spaces, so they
+            write to different fields — sending 'not_generated' to an RPC that
+            only understands 'gap' would silently return nothing. Applies to the
+            Missing Year Bills check; the duplicates list has no such states,
+            since a row exists there only because it is a violation. */}
         <div className='space-y-1.5'>
           <Label className='text-xs'>Show</Label>
-          <Select
-            value={filters.coverage_state ?? 'not_generated'}
-            onValueChange={(v) =>
-              onChange({
-                coverage_state: v as BillCoverageFilters['coverage_state']
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value='not_generated'>Not generated</SelectItem>
-              <SelectItem value='generated'>Generated</SelectItem>
-              <SelectItem value='cannot_evaluate'>Cannot evaluate</SelectItem>
-              <SelectItem value='all'>All learners</SelectItem>
-            </SelectContent>
-          </Select>
+          {isAudit ? (
+            <Select
+              value={filters.audit_state ?? 'gap'}
+              onValueChange={(v) =>
+                onChange({
+                  audit_state: v as BillCoverageFilters['audit_state']
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='gap'>Missing years</SelectItem>
+                <SelectItem value='complete'>Complete</SelectItem>
+                <SelectItem value='cannot_evaluate'>Cannot evaluate</SelectItem>
+                <SelectItem value='all'>All learners</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select
+              value={filters.coverage_state ?? 'not_generated'}
+              onValueChange={(v) =>
+                onChange({
+                  coverage_state: v as BillCoverageFilters['coverage_state']
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='not_generated'>Not generated</SelectItem>
+                <SelectItem value='generated'>Generated</SelectItem>
+                <SelectItem value='cannot_evaluate'>Cannot evaluate</SelectItem>
+                <SelectItem value='all'>All learners</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         </div>
       </div>
 
@@ -569,18 +670,43 @@ export function CoverageFilterBar({
 
       {/* Search, sorting, paging and export live in the DataTable toolbar. */}
       <div className='flex items-center gap-2'>
-        <Switch
-          id='include-non-billing'
-          checked={filters.include_non_billing_institutions ?? false}
-          onCheckedChange={(checked) =>
-            onChange({ include_non_billing_institutions: checked })
-          }
-        />
-        <Label htmlFor='include-non-billing' className='text-xs'>
-          Include institutions that have never billed
-        </Label>
+        {/* Two different guards. Coverage asks "has this institution ever
+            billed ANYTHING"; the audits ask "has it ever billed TUITION" —
+            JKKN College of Arts and Science (Aided) passes the first on its
+            transport bills alone and would contribute 490 phantom gaps. */}
+        {isAudit ? (
+          <>
+            <Switch
+              id='include-non-tuition'
+              checked={filters.include_non_tuition_institutions ?? false}
+              onCheckedChange={(checked) =>
+                onChange({ include_non_tuition_institutions: checked })
+              }
+            />
+            <Label htmlFor='include-non-tuition' className='text-xs'>
+              Include institutions that have never billed tuition
+            </Label>
+          </>
+        ) : (
+          <>
+            <Switch
+              id='include-non-billing'
+              checked={filters.include_non_billing_institutions ?? false}
+              onCheckedChange={(checked) =>
+                onChange({ include_non_billing_institutions: checked })
+              }
+            />
+            <Label htmlFor='include-non-billing' className='text-xs'>
+              Include institutions that have never billed
+            </Label>
+          </>
+        )}
 
-        {canExport && (
+        {/* The PDF is built from get_billing_coverage_learner_bills, which
+            reports ONE academic year. It cannot describe an audit that spans
+            every year from admission to today, so the audit tab offers only the
+            table's own XLS export. */}
+        {canExport && !isAudit && (
           <Button
             type='button'
             size='sm'
@@ -594,12 +720,20 @@ export function CoverageFilterBar({
           </Button>
         )}
       </div>
-      {canExport && (
+      {canExport && !isAudit && (
         <p className='text-[11px] text-muted-foreground'>
           The PDF lists every learner in the current filter with each of their
           bills — academic year, due date, total, paid and pending — plus a
           per-learner and grand total. The table&apos;s own Export button gives
           the flat one-row-per-learner sheet instead.
+        </p>
+      )}
+      {isAudit && (
+        <p className='text-[11px] text-muted-foreground'>
+          Both checks cover the tuition categories only (1–6 Year Tuition Fee)
+          and ignore cancelled and superseded bills. Academic years are matched
+          by the year they start, so a bill stamped against an
+          &ldquo;Additional&rdquo; copy of a year still counts for that year.
         </p>
       )}
     </div>
