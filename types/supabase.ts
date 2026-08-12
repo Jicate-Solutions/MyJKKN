@@ -39237,6 +39237,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           end_date: string
+          frozen_at: string | null
           id: string
           is_active: boolean
           notes: string | null
@@ -39249,6 +39250,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           end_date: string
+          frozen_at?: string | null
           id?: string
           is_active?: boolean
           notes?: string | null
@@ -39261,6 +39263,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           end_date?: string
+          frozen_at?: string | null
           id?: string
           is_active?: boolean
           notes?: string | null
@@ -42125,7 +42128,7 @@ export type Database = {
           carried_forward: number
           created_at: string
           employee_id: string
-          entitled: number
+          entitled: number | null
           hr_academic_year_id: string
           hr_organization_id: string
           leave_type_id: string
@@ -42400,6 +42403,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      hr_leave_entitlement_overrides: {
+        Row: {
+          id: string
+          employee_id: string
+          leave_type_id: string
+          hr_academic_year_id: string
+          hr_organization_id: string
+          entitled_days: number
+          reason: string
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          employee_id: string
+          leave_type_id: string
+          hr_academic_year_id: string
+          hr_organization_id: string
+          entitled_days: number
+          reason: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          employee_id?: string
+          leave_type_id?: string
+          hr_academic_year_id?: string
+          hr_organization_id?: string
+          entitled_days?: number
+          reason?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       hr_leave_policies: {
         Row: {
@@ -101088,6 +101130,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      v_hr_leave_balance: {
+        Row: {
+          employee_id: string | null
+          leave_type_id: string | null
+          hr_academic_year_id: string | null
+          hr_organization_id: string | null
+          leave_type_name: string | null
+          leave_type_code: string | null
+          request_category: string | null
+          color_code: string | null
+          display_order: number | null
+          duration_type: string | null
+          allow_half_day: boolean | null
+          allow_hourly: boolean | null
+          max_continuous_days: number | null
+          min_advance_notice_days: number | null
+          requires_documents: boolean | null
+          entitled: number | null
+          used: number | null
+          carried_forward: number | null
+          available: number | null
+          entitlement_source: string | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Relationships: []
       }
       v_institutions_needing_admission_counselors: {
         Row: {
