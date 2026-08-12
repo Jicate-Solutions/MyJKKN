@@ -86,6 +86,32 @@ export interface BillCoverageFilters {
   coverage_state?: CoverageState | 'all';
   /** Institutions with zero bills in ANY year are hidden unless this is true. */
   include_non_billing_institutions?: boolean;
+  /**
+   * AUDIT TAB ONLY — the floor of the audited window, as a year number (2024
+   * meaning "2024-2025 onwards"). Null audits from each learner's admission
+   * cohort, which is the stated rule but reaches back into years that pre-date
+   * the institution's use of the system.
+   *
+   * An integer for the same reason admission_year is one: academic_years holds
+   * one row per (institution, year), so a uuid would break multi-institution
+   * mode.
+   */
+  earliest_academic_year?: number | null;
+  /**
+   * AUDIT TAB ONLY — the audit's own verdict filter. Deliberately separate from
+   * coverage_state: the two dropdowns occupy the same slot in the filter bar but
+   * have disjoint value spaces, and sharing one field would send 'not_generated'
+   * to an RPC that only understands 'gap'.
+   */
+  audit_state?: MissingYearAuditState | 'all';
+  /**
+   * AUDIT TAB ONLY — the tuition-specific counterpart to
+   * include_non_billing_institutions. That flag tests for a bill of ANY kind,
+   * which JKKN College of Arts and Science (Aided) passes on 24 transport bills
+   * despite having never raised a single tuition bill — 490 learners that would
+   * read as gaps. The audit needs "has ever billed TUITION" instead.
+   */
+  include_non_tuition_institutions?: boolean;
   search?: string | null;
   page?: number;
   page_size?: number;
@@ -185,4 +211,163 @@ export interface BillCoverageSummary {
   excluded_institutions: number;
   excluded_learners: number;
   by_institution: BillCoverageInstitutionRow[];
+}
+
+// ============================================================================
+// AUDIT TAB
+// ============================================================================
+// Two integrity checks over tuition billing, both read-only. They share the
+// coverage page's filter bar but answer different questions from the Coverage
+// tab, which only ever looks at ONE academic year:
+//
+//   A. Missing year bills  — a learner admitted in cohort Y should hold one
+//      tuition bill per academic year from Y to their institution's current
+//      year. Some only ever got the current year's.
+//   B. Duplicate year bills — at most ONE tuition bill per learner per academic
+//      year. A multi-year fee plan generated in one run stamps every instalment
+//      with the year current at generation time and lands 2-3 in one year.
+//
+// Both compare years as the INTEGER START YEAR of the academic year, never as
+// academic_year_id: institutions carry duplicate rows on one start_date (an
+// active '2025-2026' beside an inactive '2025-2026 Additional 1'), and a bill
+// stamped against either covers the same session.
+
+/** 'cannot_evaluate' means no admission cohort on file, or an institution with
+ *  no active academic year that has started — an unknown, never a confirmed
+ *  gap. Only 5 learners group-wide, but folding them into the gap count would
+ *  overstate the work by exactly that much. */
+export type MissingYearAuditState = 'gap' | 'complete' | 'cannot_evaluate';
+
+/** One row per learner. */
+export interface MissingYearAuditRow {
+  learner_id: string;
+  roll_number: string | null;
+  register_number: string | null;
+  full_name: string;
+  lifecycle_status: string;
+  gender: string | null;
+  institution_id: string;
+  institution_name: string | null;
+  program_name: string | null;
+  semester_section: string | null;
+  /** The admission cohort. The audit's lower bound, and the only year on this
+   *  row that never rolls over. */
+  admission_year: number | null;
+  /** Academic years the learner SHOULD hold a tuition bill for. Counts only
+   *  years an active academic_years row exists for — a session the institution
+   *  never opened is never expected. */
+  expected_years: number;
+  billed_years: number;
+  missing_years: number;
+  /** The missing years spelled out, e.g. "2023-2024, 2024-2025". Null when
+   *  nothing is missing. This is the column that says what to actually raise. */
+  missing_year_names: string | null;
+  /** Earliest missing year — the sortable form of the column above. */
+  first_missing_year: string | null;
+  /** The current year IS billed but an earlier one is not: the reported
+   *  symptom, and the subset most likely to be a generation bug rather than a
+   *  learner who simply joined late. */
+  has_current_year: boolean;
+  /** Live tuition bills across ALL years — context, not the audited window. */
+  tuition_bill_count: number;
+  total_billed: number;
+  /** final_amount - balance_amount over the same bills, matching every other
+   *  paid figure on this page. Never a receipts-side number. */
+  total_paid: number;
+  /** Tuition bills with no academic_year_id at all. They can satisfy no year
+   *  check, so a learner can read as a clean gap while the bill exists. Shown
+   *  as a warning on the row rather than silently ignored. */
+  unassigned_tuition_bills: number;
+  audit_state: MissingYearAuditState;
+  /** Window-function total across all pages; identical on every row. */
+  total_count: number;
+}
+
+/** One row per (learner, academic year) that holds more than one tuition bill. */
+export interface DuplicateYearAuditRow {
+  /** `${learner_id}:${startYear}` — the DataTable idField. A learner can appear
+   *  for several years, so learner_id alone is not unique here. */
+  audit_row_id: string;
+  learner_id: string;
+  roll_number: string | null;
+  register_number: string | null;
+  full_name: string;
+  lifecycle_status: string;
+  institution_id: string;
+  institution_name: string | null;
+  program_name: string | null;
+  semester_section: string | null;
+  admission_year: number | null;
+  /** Rendered from the start year ("2026-2027"), so bills stamped against an
+   *  "Additional" variant of the same session collapse into one row. */
+  academic_year_name: string;
+  bill_count: number;
+  /** The tuition categories involved, e.g. "2 Year Tuition Fee, 3 Year Tuition
+   *  Fee". Two different year-of-study categories in one academic year is the
+   *  signature once_per_learner cannot catch — that trigger keys on
+   *  (student, category) with no year predicate. */
+  category_names: string | null;
+  total_billed: number;
+  total_paid: number;
+  outstanding: number;
+  /** Together these two identify the multi-year-plan artefact: bills created in
+   *  one run (same day) whose due dates fall in different calendar years. A
+   *  genuine double-charge looks different, so they are shown rather than used
+   *  to filter rows out. */
+  created_same_day: boolean;
+  due_year_span: number;
+  total_count: number;
+}
+
+export interface AuditInstitutionRow {
+  institution_id: string;
+  institution_name: string;
+}
+
+export interface MissingYearAuditSummary {
+  in_scope: number;
+  gap: number;
+  complete: number;
+  cannot_evaluate: number;
+  /** Missing (learner, year) pairs — the number of bills to raise. Always
+   *  larger than `gap`, which counts learners, so the two are labelled apart. */
+  missing_slots: number;
+  /** Gap learners whose current year IS billed. */
+  backlog_only: number;
+  /** Gap learners with no tuition bill in any audited year. */
+  no_tuition_at_all: number;
+  /** Hidden because the institution has never raised a tuition bill. */
+  excluded_institutions: number;
+  excluded_learners: number;
+  by_institution: (AuditInstitutionRow & {
+    in_scope: number;
+    gap: number;
+    missing_slots: number;
+  })[];
+  /** Options for the Earliest Academic Year filter, newest first. Computed
+   *  server-side and NOT narrowed by that filter — a control must not remove
+   *  its own options once used. */
+  available_academic_years: { year: number; label: string }[];
+}
+
+export interface DuplicateYearAuditSummary {
+  /** (learner, year) pairs in violation. */
+  combos: number;
+  learners: number;
+  bills: number;
+  /** Every bill past the first in each year — what would have to be removed. */
+  extra_bills: number;
+  total_billed: number;
+  outstanding: number;
+  /** Combos matching the same-day-creation / spread-due-date generator
+   *  signature. */
+  generator_signature: number;
+  /** Live tuition bills with no academic year — invisible to this check under
+   *  every filter, so stated rather than left to look like a clean result. */
+  unassigned_tuition_bills: number;
+  by_institution: (AuditInstitutionRow & {
+    combos: number;
+    learners: number;
+    extra_bills: number;
+  })[];
 }
