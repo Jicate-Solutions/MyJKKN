@@ -104,7 +104,8 @@ export async function POST(req: NextRequest) {
   // and toasts `error`, so this needs no UI change to degrade cleanly.
   return NextResponse.json(
     {
-      error: 'AI invoice reading is unavailable — please enter the invoice details manually.',
+      error:
+        'AI invoice reading is not built yet — please enter the invoice details manually.',
       unavailable: true,
     },
     { status: 503 },
