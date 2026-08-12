@@ -35,6 +35,7 @@ import {
 import { Plus, MoreHorizontal, Pencil, Trash2, Star, FileStack, Truck } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function PoFormatsPage() {
   const router = useRouter();
@@ -62,7 +63,7 @@ export default function PoFormatsPage() {
       });
       toast.success('Vendor default format updated');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update vendor default format');
+      toast.error(errorMessage(error, 'Failed to update vendor default format'));
     }
   };
 
@@ -71,7 +72,7 @@ export default function PoFormatsPage() {
       await deleteFormat.mutateAsync(id);
       toast.success(`"${name}" deactivated`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to deactivate format');
+      toast.error(errorMessage(error, 'Failed to deactivate format'));
     }
   };
 
@@ -81,7 +82,7 @@ export default function PoFormatsPage() {
       await setDefault.mutateAsync({ institutionId, formatId });
       toast.success('Default format updated');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to set default');
+      toast.error(errorMessage(error, 'Failed to set default'));
     }
   };
 

@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 // is_new is local UI state only — never sent to the server. domain_item_id
 // (null = new item) is what the service actually derives request_type from.
@@ -159,7 +160,7 @@ export default function NewPurchaseRequestPage() {
       toast.success(`Purchase request ${created.request_number} created`);
       router.push(`/procurement/requests/${created.id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create request');
+      toast.error(errorMessage(e, 'Failed to create request'));
     }
   };
 
