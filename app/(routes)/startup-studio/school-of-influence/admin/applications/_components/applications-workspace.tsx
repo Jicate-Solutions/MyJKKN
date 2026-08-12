@@ -9,6 +9,14 @@
 //     never assumes either mode — it renders whichever the database reports.
 // D5  A batch that filled between apply and accept refuses with a sentence
 //     naming the batches that still have room. Nothing over-fills silently.
+// A3  A coordinator MAY go over soi.batch_capacity — but only from a separate,
+//     deliberate confirmation, and the database records who did it and how full
+//     the batch already was. Full batches are therefore listed and selectable
+//     rather than hidden: filtering them out did not prevent an over-fill, it
+//     only made the decision unreachable from this screen.
+// A7  Before that confirmation, the coordinator is shown how many people are
+//     already on the waiting list. Counted by the database (a browser-side count
+//     would need cohort.view and would read 0). It WARNS; it never blocks.
 // D12 A rejection needs the coordinator's actual words, and those words land on
 //     the applicant's own application record.
 //
@@ -32,6 +40,7 @@ import {
   Loader2,
   RefreshCw,
   UserCheck,
+  Users,
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -71,6 +80,7 @@ import {
   type SoiReviewBatch,
   type SoiReviewContext,
   type SoiReviewScope,
+  type SoiWaitingCount,
 } from '@/lib/services/school-of-influence/review-service';
 
 function messageOf(error: unknown): string {
@@ -145,6 +155,7 @@ export function ApplicationsWorkspace({ eventId }: Props) {
 
   const [context, setContext] = useState<SoiReviewContext | null>(null);
   const [batches, setBatches] = useState<SoiReviewBatch[]>([]);
+  const [waiting, setWaiting] = useState<SoiWaitingCount[]>([]);
   const [rows, setRows] = useState<SoiApplicationRow[]>([]);
   const [scope, setScope] = useState<SoiReviewScope>('awaiting');
   const [loading, setLoading] = useState(true);
@@ -155,6 +166,15 @@ export function ApplicationsWorkspace({ eventId }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<SoiApplicationRow | null>(null);
   const [reason, setReason] = useState('');
+  /**
+   * A3/A7 — the application and the full batch a coordinator has asked to accept
+   * into, held here until they confirm they mean to go over the limit. Nothing
+   * is sent while this is set.
+   */
+  const [overLimit, setOverLimit] = useState<{
+    row: SoiApplicationRow;
+    batch: SoiReviewBatch;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     if (!eventId) {
@@ -173,20 +193,24 @@ export function ApplicationsWorkspace({ eventId }: Props) {
         setDenied(NO_ACCESS_MESSAGE);
         setRows([]);
         setBatches([]);
+        setWaiting([]);
         return;
       }
 
-      const [batchRows, applicationRows] = await Promise.all([
+      const [batchRows, applicationRows, waitingRows] = await Promise.all([
         SoiReviewService.listBatches(eventId),
         SoiReviewService.listApplications(eventId, scope),
+        SoiReviewService.listWaitingCounts(eventId),
       ]);
       setBatches(batchRows);
       setRows(applicationRows);
+      setWaiting(waitingRows);
     } catch (error) {
       if (isDenied(error)) setDenied(messageOf(error));
       else toast.error(messageOf(error));
       setRows([]);
       setBatches([]);
+      setWaiting([]);
     } finally {
       setLoading(false);
     }
@@ -197,10 +221,24 @@ export function ApplicationsWorkspace({ eventId }: Props) {
   }, [refresh]);
 
   const reviewerPicksBatch = context?.batch_choice_mode === 'staff_assign';
+
+  /**
+   * A3 — FULL batches stay in the picker, clearly marked. They used to be
+   * filtered out, which made an over-limit accept unreachable from the screen at
+   * all. They are selectable now, but choosing one routes through the
+   * confirmation below rather than straight to the database.
+   */
   const openBatches = useMemo(() => batches.filter((b) => !b.is_full), [batches]);
 
-  const handleAccept = useCallback(
-    async (row: SoiApplicationRow) => {
+  /** Waiting-list numbers for one batch (A7). */
+  const waitingFor = useCallback(
+    (cohortId: string | null | undefined) =>
+      waiting.find((w) => w.cohort_id === cohortId) ?? null,
+    [waiting]
+  );
+
+  const doAccept = useCallback(
+    async (row: SoiApplicationRow, overrideCapacity: boolean) => {
       setBusyId(row.application_id);
       try {
         const outcome = await SoiReviewService.accept({
@@ -211,8 +249,11 @@ export function ApplicationsWorkspace({ eventId }: Props) {
             ? (chosenBatch[row.application_id] ?? null)
             : null,
           joinedBy: userProfile?.id ?? null,
+          overrideCapacity,
         });
-        toast.success(outcome.message);
+        // An over-limit accept is never reported as an ordinary one.
+        if (outcome.capacityOverridden) toast.warning(outcome.message);
+        else toast.success(outcome.message);
         await refresh();
       } catch (error) {
         if (isDenied(error)) setDenied(messageOf(error));
@@ -222,6 +263,37 @@ export function ApplicationsWorkspace({ eventId }: Props) {
       }
     },
     [chosenBatch, refresh, reviewerPicksBatch, userProfile?.id]
+  );
+
+  /**
+   * The batch this accept would land in — the one the reviewer picked under
+   * staff-assign, or the one the applicant asked for under participant-choose.
+   * Resolved here so the full-batch warning is driven by the SAME batch the
+   * database will use, not by whichever one happens to be on screen.
+   */
+  const targetBatchFor = useCallback(
+    (row: SoiApplicationRow): SoiReviewBatch | null => {
+      const id = reviewerPicksBatch
+        ? chosenBatch[row.application_id]
+        : row.requested_batch_id;
+      return batches.find((b) => b.cohort_id === id) ?? null;
+    },
+    [batches, chosenBatch, reviewerPicksBatch]
+  );
+
+  const handleAccept = useCallback(
+    async (row: SoiApplicationRow) => {
+      const target = targetBatchFor(row);
+      // A7 — a full batch must be confirmed, with the waiting list in view,
+      // before anything is sent. Proceeding is allowed; doing it unknowingly is
+      // not.
+      if (target?.is_full) {
+        setOverLimit({ row, batch: target });
+        return;
+      }
+      await doAccept(row, false);
+    },
+    [doAccept, targetBatchFor]
   );
 
   const handleReject = useCallback(async () => {
@@ -312,7 +384,8 @@ export function ApplicationsWorkspace({ eventId }: Props) {
             <ClipboardList className="h-4 w-4 text-muted-foreground" /> Batches
           </CardTitle>
           <CardDescription>
-            Batches run at the same time. Accepting somebody into a full batch is refused.
+            Batches run at the same time. A full batch has to be confirmed before
+            anybody goes over its limit, and going over is recorded.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
@@ -339,6 +412,13 @@ export function ApplicationsWorkspace({ eventId }: Props) {
                 {!b.intake_open && (
                   <Badge variant="outline" className="text-[10px] font-normal">
                     Applications closed
+                  </Badge>
+                )}
+                {/* A7 — say how many are waiting, wherever the batch is shown. */}
+                {(waitingFor(b.cohort_id)?.waiting_total ?? 0) > 0 && (
+                  <Badge variant="outline" className="gap-1 text-[10px] font-normal">
+                    <Users className="h-3 w-3" />
+                    {waitingFor(b.cohort_id)!.waiting_total} waiting
                   </Badge>
                 )}
               </div>
@@ -470,15 +550,20 @@ export function ApplicationsWorkspace({ eventId }: Props) {
                               <SelectValue placeholder="Choose a batch" />
                             </SelectTrigger>
                             <SelectContent>
-                              {openBatches.length === 0 ? (
+                              {batches.length === 0 ? (
                                 <SelectItem value="__none" disabled>
-                                  Every batch is full
+                                  No batch has been set up yet
                                 </SelectItem>
                               ) : (
-                                openBatches.map((b) => (
+                                /* Full batches are listed and selectable (A3) —
+                                   picking one leads to the over-limit
+                                   confirmation, not straight to an accept. */
+                                batches.map((b) => (
                                   <SelectItem key={b.cohort_id} value={b.cohort_id}>
-                                    {b.batch_name} — {b.capacity - b.occupancy} of{' '}
-                                    {b.capacity} left
+                                    {b.batch_name} —{' '}
+                                    {b.is_full
+                                      ? `FULL, ${b.occupancy} of ${b.capacity}`
+                                      : `${b.capacity - b.occupancy} of ${b.capacity} left`}
                                   </SelectItem>
                                 ))
                               )}
@@ -523,6 +608,82 @@ export function ApplicationsWorkspace({ eventId }: Props) {
           })}
         </div>
       )}
+
+      {/* A3 + A7 — the batch is full. Say so in words, say how many people are
+          already waiting, and make going over the limit a separate, deliberate
+          click. Proceeding is allowed; the database records who did it. */}
+      <Dialog open={!!overLimit} onOpenChange={(open) => !open && setOverLimit(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              {overLimit?.batch.batch_name} is full
+            </DialogTitle>
+            <DialogDescription>
+              This exceeds the batch limit of {overLimit?.batch.capacity}. It already
+              holds {overLimit?.batch.occupancy} of {overLimit?.batch.capacity} places,
+              and accepting {overLimit?.row.applicant_name ?? 'this applicant'} puts it
+              over.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            {(() => {
+              const w = waitingFor(overLimit?.batch.cohort_id);
+              const total = w?.waiting_total ?? 0;
+              if (total === 0) {
+                return (
+                  <p className="text-muted-foreground">
+                    Nobody is on the waiting list for this programme.
+                  </p>
+                );
+              }
+              return (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                  <Users className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    {total === 1
+                      ? '1 person is already on the waiting list'
+                      : `${total} people are already on the waiting list`}{' '}
+                    for this programme. Accepting somebody now puts them ahead of
+                    everyone waiting.
+                  </p>
+                </div>
+              );
+            })()}
+
+            {openBatches.length > 0 && (
+              <p className="text-muted-foreground">
+                These batches still have room:{' '}
+                {openBatches.map((b) => b.batch_name).join(', ')}.
+              </p>
+            )}
+
+            <p className="text-muted-foreground">
+              If you go ahead, your name and this batch are recorded against the
+              override.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOverLimit(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={!!busyId}
+              onClick={() => {
+                const pending = overLimit;
+                setOverLimit(null);
+                if (pending) void doAccept(pending.row, true);
+              }}
+            >
+              {busyId ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Accept over the limit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* D12 — the coordinator writes the actual reason, and the applicant is
           shown exactly what is typed here. */}
