@@ -19,7 +19,7 @@ import type { BillCoverageRow } from '@/types/billing-coverage';
 // Whitelist: full_name, roll_number, register_number, institution_name,
 // program_name, semester_section, academic_year_name, accommodation_type,
 // lifecycle_status, gender, coverage_state, bill_count, total_billed,
-// total_paid.
+// total_paid, admission_year.
 
 // ── Sizing ─────────────────────────────────────────────────────────────────
 // Widths are set per column rather than left to auto so the grid is readable
@@ -235,6 +235,25 @@ export const columns: ColumnDef<BillCoverageRow>[] = [
     cell: ({ row }) => (
       <span className='whitespace-nowrap tabular-nums'>
         {row.original.academic_year_name ?? '—'}
+      </span>
+    )
+  },
+  {
+    accessorKey: 'admission_year',
+    id: 'admission_year',
+    // The third year on this row, and the only one that never rolls over — it
+    // is what the Admission Year filter narrows on. Kept next to Learner Year
+    // so a mismatch between the two (a 2023 cohort still sitting in a first-year
+    // academic year) is visible rather than something you have to go looking for.
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title='Admission Year' />
+    ),
+    size: 140,
+    minSize: 120,
+    maxSize: 180,
+    cell: ({ row }) => (
+      <span className='whitespace-nowrap tabular-nums'>
+        {row.original.admission_year ?? '—'}
       </span>
     )
   },

@@ -19,6 +19,7 @@ export function CoverageClient() {
   // shared DataTable, which owns its own URL state.
   const [filters, setFilters] = useState<BillCoverageFilters>({
     academic_year_id: null,
+    admission_year: null,
     institution_ids: null,
     lifecycle_statuses: [...LEARNER_SCOPE_DEFAULT],
     billing_category_id: null,

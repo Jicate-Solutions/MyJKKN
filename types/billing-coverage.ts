@@ -50,6 +50,19 @@ export interface BillCoverageFilters {
    * bills are raised per year, and profile rollover lags behind bill generation.
    */
   academic_year_id?: string | null;
+  /**
+   * Admission cohort, as the YEAR NUMBER (2025), not an admission_years id.
+   *
+   * admission_years holds one row per (institution, year), so a uuid would only
+   * be meaningful once an institution was picked — the very limitation that
+   * forces academic_year_id to disable itself in "All accessible institutions"
+   * mode. The integer is the same in every institution, so this filter composes
+   * with the page's default multi-institution scope.
+   *
+   * Unlike academic_year_id this IS a population filter: it selects which
+   * learners appear and has no bearing on which bills count as coverage.
+   */
+  admission_year?: number | null;
   institution_ids?: string[] | null;
   lifecycle_statuses?: string[] | null;
   /** When set, coverage means "a live bill in this category". */
@@ -134,6 +147,11 @@ export interface BillCoverageRow {
    *  2026-2027, so the row looked self-consistent. */
   academic_year_id: string | null;
   academic_year_name: string | null;
+  /** The cohort the learner was admitted in (admission_years.year). Unlike both
+   *  year columns above it never rolls over, so it is the stable way to read a
+   *  row as fresh intake vs continuing. Null for the handful of learners with no
+   *  admission year on file. */
+  admission_year: number | null;
   /** The year coverage was actually measured against: the explicitly filtered
    *  year, else the institution's current one. */
   target_academic_year_name: string | null;

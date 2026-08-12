@@ -18,6 +18,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { useAcademicYears } from '@/hooks/use-academic-years';
+import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-years';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAcademicHierarchyFilters } from '@/hooks/organization/use-academic-hierarchy-filters';
 import { useBillingCategories } from '@/hooks/billing/use-billing-categories';
@@ -55,6 +56,16 @@ export function CoverageFilterBar({
   const selectedInstitutionId = filters.institution_ids?.[0];
 
   const { data: academicYears } = useAcademicYears(selectedInstitutionId);
+
+  // Admission cohorts, deduped to one entry per YEAR across institutions — so
+  // unlike Academic Year this stays usable in "All accessible institutions"
+  // mode. Reads admission_years directly, which is gated on
+  // admission.settings.years.view; every role holding billing.coverage.view
+  // also holds that key today, so no separate RPC is warranted.
+  const { data: admissionYears } = useGroupAdmissionYears(
+    filters.institution_ids ?? null
+  );
+
   const { categories } = useBillingCategories({ isActive: true, limit: 1000 });
 
   // accommodation_types is a small global lookup (4 active rows) — no
@@ -131,6 +142,16 @@ export function CoverageFilterBar({
     )?.academic_year_name;
     parts.push(ay ? `AY ${ay}` : "AY: each institution's current year");
     const push = (label: string, v?: string) => v && parts.push(`${label}: ${v}`);
+    // Stated by its own label so a reader cannot mistake the cohort for the AY
+    // printed just above it — the two are different years on the same document.
+    push(
+      'Admission Year',
+      filters.admission_year != null
+        ? ((admissionYears ?? []).find(
+            (y) => y.programStartYear === filters.admission_year
+          )?.label ?? String(filters.admission_year))
+        : undefined
+    );
     push('Degree', nameOf(hierarchy.degrees, filters.degree_id));
     push('Department', nameOf(hierarchy.departments, filters.department_id));
     push('Programme', nameOf(hierarchy.programs, filters.program_id));
@@ -255,6 +276,41 @@ export function CoverageFilterBar({
               Pick an institution to choose a specific year
             </p>
           )}
+        </div>
+
+        {/* Admission year (cohort).
+            Sits next to Academic Year because the two are easily confused and
+            do opposite things: Academic Year is the year coverage is MEASURED
+            against, this one narrows WHICH LEARNERS are counted. Deliberately
+            not disabled without an institution — the options are cohort year
+            numbers, which are shared across every college. */}
+        <div className='space-y-1.5'>
+          <Label className='text-xs'>Admission Year</Label>
+          <Select
+            value={
+              filters.admission_year != null
+                ? String(filters.admission_year)
+                : ALL
+            }
+            onValueChange={(v) =>
+              onChange({ admission_year: v === ALL ? null : Number(v) })
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder='Any admission year' />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any admission year</SelectItem>
+              {(admissionYears ?? []).map((y) => (
+                <SelectItem
+                  key={y.programStartYear}
+                  value={String(y.programStartYear)}
+                >
+                  {y.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Degree → Department → Programme → Semester → Section.
