@@ -121,6 +121,12 @@ CREATE TRIGGER trg_billing_instalment_plan_lines_updated_at
 ALTER TABLE public.billing_instalment_plans      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.billing_instalment_plan_lines ENABLE ROW LEVEL SECURITY;
 
+-- Supabase default privileges grant ALL on every new table to anon (holder of
+-- the public key embedded in every bundle) — lock both tables explicitly.
+-- authenticated keeps its grant; RLS above is what scopes it.
+REVOKE ALL ON TABLE public.billing_instalment_plans      FROM anon, PUBLIC;
+REVOKE ALL ON TABLE public.billing_instalment_plan_lines FROM anon, PUBLIC;
+
 CREATE POLICY "billing_instalment_plans_select" ON public.billing_instalment_plans
 FOR SELECT USING (
   is_super_admin() OR is_admin()
