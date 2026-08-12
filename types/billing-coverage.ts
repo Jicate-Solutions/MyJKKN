@@ -10,8 +10,21 @@
  *  measure against — reported separately so they are never miscounted as a real
  *  gap. Since 2026-08-08 the year is resolved per INSTITUTION rather than per
  *  learner, so this is now rare: it means the institution has no active academic
- *  year that has started yet, not merely that a learner's own year is unset. */
-export type CoverageState = 'generated' | 'not_generated' | 'cannot_evaluate';
+ *  year that has started yet, not merely that a learner's own year is unset.
+ *
+ *  'not_applicable' means the measured year falls AFTER the learner's programme
+ *  ends (cohort + CEIL(programs.program_duration_yrs) - 1). A 4-year BPharm
+ *  admitted in 2022 finishes in 2025-26, so no bill is owed for 2026-27 and
+ *  reporting one as missing was a phantom.
+ *
+ *  It is assessed only on rows that would otherwise be 'not_generated' — a live
+ *  bill always wins. That keeps in_scope and `generated` unchanged, so the only
+ *  figure that moves is not_generated, down by exactly the count reclassified. */
+export type CoverageState =
+  | 'generated'
+  | 'not_generated'
+  | 'not_applicable'
+  | 'cannot_evaluate';
 
 /** The lifecycle statuses treated as "should have a bill". */
 export const LEARNER_SCOPE_DEFAULT = [
@@ -181,6 +194,13 @@ export interface BillCoverageRow {
   /** The year coverage was actually measured against: the explicitly filtered
    *  year, else the institution's current one. */
   target_academic_year_name: string | null;
+  /** programs.program_duration_yrs. NUMERIC, not integer — ten learners sit in a
+   *  1.5-year programme, so the window uses CEIL. Null means the programme has
+   *  no duration on file and the learner is therefore never 'not_applicable'. */
+  program_duration_yrs: number | null;
+  /** The last academic year the programme runs, as a session label
+   *  ("2025-2026"). Null when the duration or the cohort is unknown. */
+  programme_end_year: string | null;
   accommodation_type: string | null;
   uses_transport: boolean;
   bill_count: number;
@@ -200,6 +220,7 @@ export interface BillCoverageInstitutionRow {
   in_scope: number;
   generated: number;
   not_generated: number;
+  not_applicable: number;
 }
 
 export interface BillCoverageSummary {
@@ -207,6 +228,14 @@ export interface BillCoverageSummary {
   generated: number;
   not_generated: number;
   cannot_evaluate: number;
+  /** Measured year falls after the learner's programme ends. Carved out of
+   *  not_generated, never out of generated, so the four states still sum to
+   *  in_scope and the change is fully reconcilable. */
+  not_applicable: number;
+  /** Data hygiene, not a verdict: learners whose programme has no duration on
+   *  file. Their window runs to the current year for want of a bound, so any
+   *  tail years they show are unproven rather than confirmed gaps. */
+  duration_not_set: number;
   /** Institutions hidden because they have never generated a bill. */
   excluded_institutions: number;
   excluded_learners: number;
@@ -279,6 +308,14 @@ export interface MissingYearAuditRow {
    *  as a warning on the row rather than silently ignored. */
   unassigned_tuition_bills: number;
   audit_state: MissingYearAuditState;
+  /** programs.program_duration_yrs — the upper bound of the audited window. */
+  program_duration_yrs: number | null;
+  /** Last academic year the programme runs, as a session label ("2025-2026"). */
+  programme_end_year: string | null;
+  /** False when the programme has no duration on file. The window then runs to
+   *  the institution's current year exactly as before, so any tail years on
+   *  this row are UNPROVEN — hence the badge rather than a silent guess. */
+  duration_configured: boolean;
   /** Window-function total across all pages; identical on every row. */
   total_count: number;
 }
@@ -316,6 +353,13 @@ export interface DuplicateYearAuditRow {
    *  to filter rows out. */
   created_same_day: boolean;
   due_year_span: number;
+  /** Last academic year the programme runs. Null when duration or cohort is
+   *  unknown. */
+  programme_end_year: string | null;
+  /** This academic year falls AFTER the programme ends — a tuition bill for a
+   *  year the learner is no longer enrolled in. The inverse of the missing-year
+   *  finding, and the least explicable row on the screen, so it sorts first. */
+  is_past_programme_end: boolean;
   total_count: number;
 }
 
@@ -336,6 +380,10 @@ export interface MissingYearAuditSummary {
   backlog_only: number;
   /** Gap learners with no tuition bill in any audited year. */
   no_tuition_at_all: number;
+  /** Learners whose programme has no duration on file, so their window could
+   *  not be capped. Surfaced as its own tile: without it a phantom tail looks
+   *  like a finding rather than missing configuration. */
+  duration_not_set: number;
   /** Hidden because the institution has never raised a tuition bill. */
   excluded_institutions: number;
   excluded_learners: number;
@@ -365,6 +413,14 @@ export interface DuplicateYearAuditSummary {
   /** Live tuition bills with no academic year — invisible to this check under
    *  every filter, so stated rather than left to look like a clean result. */
   unassigned_tuition_bills: number;
+  /** The inverse finding: live TUITION bills stamped for a year after the
+   *  programme ends. Tuition-kind only, deliberately — widening it to every
+   *  kind returns 62 learners, but a CRRI intern legitimately still carries
+   *  hostel and mess bills once the taught years finish, so that would report
+   *  normal operation as an anomaly. */
+  past_end_bills: number;
+  past_end_learners: number;
+  past_end_outstanding: number;
   by_institution: (AuditInstitutionRow & {
     combos: number;
     learners: number;
