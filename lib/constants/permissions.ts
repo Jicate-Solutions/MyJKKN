@@ -731,6 +731,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.categories.create', label: 'Create Billing Categories' },
       { key: 'billing.categories.edit', label: 'Edit Billing Categories' },
       { key: 'billing.categories.delete', label: 'Delete Billing Categories' },
+      // Instalment plans (2026-08-13): config rows that let bill generation
+      // split a yearly fee into N instalment bills, per programme x billing
+      // category x academic year (migration 20260825010000 — Director-gated).
+      // DORMANT until plans are configured; zero plans = single-bill behaviour
+      // everywhere. These keys gate the RLS on billing_instalment_plans(_lines).
+      // No admin page yet — the keys are registered now so the RLS lanes are
+      // grantable from day one instead of being permanently super-admin-only.
+      { key: 'billing.instalment_plans.view', label: 'View Instalment Plans' },
+      { key: 'billing.instalment_plans.manage', label: 'Manage Instalment Plans' },
       { key: 'billing.schedule.view', label: 'View Schedule' },
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
