@@ -433,7 +433,7 @@ export class SoiBatchService {
     const staffOnly = await this.getTransferStaffOnly(toCohortId);
 
     if (staffOnly) {
-      const allowed = await this.callerCanTransfer();
+      const allowed = await this.callerCanTransfer(toCohortId);
       if (!allowed) {
         const err = new Error(
           'Only a coordinator can move someone between School of Influence ' +
@@ -453,27 +453,100 @@ export class SoiBatchService {
   }
 
   /**
-   * Does the signed-in caller hold the transfer permission? Uses the self-scoped
+   * May the signed-in caller move somebody between batches? Uses the self-scoped
    * one-argument user_has_permission(permission_name) — NOT the two-argument
    * overload that takes a caller-supplied user_id, which is the IDOR shape.
    *
-   * Fails CLOSED: if the check itself errors we treat the caller as not permitted,
-   * so an infrastructure problem can never widen access.
+   * A2 — soi.transfer_staff_only = true means "not the learners themselves", and
+   * an appointed programme coordinator IS staff for that purpose. So an ACTIVE
+   * appointment satisfies the policy as an ALTERNATIVE to the permission key.
+   * The key check is untouched and is tried first: everybody who passes today
+   * still passes, and nobody who fails both gets through. The database is still
+   * the floor either way (cohort_memberships' UPDATE policy), so this only
+   * decides whether the refusal is a readable sentence or an RLS silence.
+   *
+   * Fails CLOSED: if the checks themselves error we treat the caller as not
+   * permitted, so an infrastructure problem can never widen access.
    */
-  private static async callerCanTransfer(): Promise<boolean> {
+  private static async callerCanTransfer(toCohortId: string): Promise<boolean> {
     try {
       const { data, error } = await (this.supabase as any).rpc('user_has_permission', {
         permission_name: SOI_TRANSFER_PERMISSION,
       });
       if (error) throw error;
+      if (data === true) return true;
+    } catch (error) {
+      console.error(
+        'SoiBatchService: transfer permission check failed — falling through to the appointment check',
+        error
+      );
+    }
+
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_is_cohort_programme_coordinator',
+        { p_cohort_id: toCohortId }
+      );
+      if (error) throw error;
       return data === true;
     } catch (error) {
       console.error(
-        'SoiBatchService: transfer permission check failed — refusing the transfer',
+        'SoiBatchService: coordinator appointment check failed — refusing the transfer',
         error
       );
       return false;
     }
+  }
+
+  /**
+   * A1 — take somebody out of a batch, softly, with a reason on the record.
+   *
+   * SOFT: the database sets the membership to 'removed' and KEEPS the row. The
+   * place becomes history, not a hole — cohort-core/lifecycle.ts calls 'removed'
+   * the archived-equivalent terminal and the row is never deleted.
+   *
+   * The reason is checked HERE as well as in the RPC, deliberately. The database
+   * is the floor that cannot be skipped; this check is what stops a caller
+   * round-tripping to the server only to be told what the form already knew, and
+   * it is what makes "a reason is required" true of every future screen that
+   * calls this method rather than only of the ones that remember to ask.
+   */
+  static async removeMember(
+    membershipId: string,
+    reason: string
+  ): Promise<{ message: string; batchName: string | null }> {
+    const trimmed = (reason ?? '').trim();
+    if (trimmed.length === 0) {
+      const err = new Error(
+        'Write why this person is being removed from the batch. The reason is kept ' +
+          'on their record so anyone reviewing it later can see who decided and why.'
+      );
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    }
+
+    const { data, error } = await (this.supabase as any).rpc('fn_soi_remove_member', {
+      p_membership_id: membershipId,
+      p_reason: trimmed,
+    });
+    if (error) {
+      const message = (error as { message?: string })?.message?.trim();
+      const explained = new Error(
+        message && message.length > 0
+          ? message
+          : 'This person could not be removed from the batch.'
+      );
+      (explained as Error & { status?: number }).status =
+        (error as { code?: string })?.code === '42501' ? 403 : 400;
+      (explained as Error & { cause?: unknown }).cause = error;
+      throw explained;
+    }
+
+    const result = (data ?? {}) as { message?: string; batch_name?: string };
+    return {
+      message: result.message ?? 'They have been removed from the batch.',
+      batchName: result.batch_name ?? null,
+    };
   }
 
   /**
