@@ -9,6 +9,7 @@ import {
   parseYearEndMmdd,
   parseValidityPolicy,
   resolveValidUntilLabel,
+  svgCoverImageDataUrl,
   DEFAULT_VALIDITY_POLICY,
   truncateForCard,
   parseFieldMappings,
@@ -369,5 +370,44 @@ describe('resolveValidUntilLabel', () => {
     expect(resolveValidUntilLabel({ kind: 'learner', courseEndDate: '2028', now: NOW })).toBe(
       defaultValidUntilLabel(NOW)
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2026-08-13 — the inlined bitmap must be named ONCE.
+// Naming it on both `href` and `xlink:href` doubled the payload: a 3.6 MB photo
+// became ~10.2 MB of XML, the rasteriser refused it ("Buffer size limit
+// exceeded") and the whole card 500-ed. 467 learner photos are over 2 MB.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('svgCoverImageDataUrl payload size', () => {
+  // A real 1x1 PNG — the helper parses the header for dimensions and returns
+  // null for anything it cannot read, so a synthetic payload will not do.
+  const PNG_1x1 =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+  function decode(dataUrl: string | null): string {
+    expect(dataUrl).not.toBeNull();
+    return Buffer.from(
+      (dataUrl as string).replace('data:image/svg+xml;base64,', ''),
+      'base64'
+    ).toString('utf8');
+  }
+
+  it('inlines the bitmap exactly once, not twice', () => {
+    const svg = decode(svgCoverImageDataUrl(PNG_1x1, 300, 380));
+    expect(svg.split(PNG_1x1).length - 1).toBe(1);
+  });
+
+  it('never emits a bare href alongside xlink:href for the same bitmap', () => {
+    const svg = decode(svgCoverImageDataUrl(PNG_1x1, 300, 380));
+    expect(svg).toContain(`xlink:href="${PNG_1x1}"`);
+    expect(svg).not.toContain(` href="${PNG_1x1}"`);
+    expect(svg).toContain('xmlns:xlink=');
+  });
+
+  it('rounded variant also inlines the bitmap once', () => {
+    const svg = decode(svgCoverImageDataUrl(PNG_1x1, 300, 380, 12));
+    expect(svg.split(PNG_1x1).length - 1).toBe(1);
+    expect(svg).toContain('clipPath');
   });
 });
