@@ -40922,9 +40922,15 @@ GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years(
 -- built. Bill generation (Phase 4) refuses such a package separately.
 -- Rejecting it here would force every package insert to carry its whole
 -- schedule in the same statement.
+-- Corrected 2026-08-13: INVOKER -> SECURITY DEFINER. RLS otherwise
+-- filters the cross-table SELECT/UPDATEs silently for a caller who
+-- lacks the target table's permission (see fn_course_recompute_balances
+-- below for the full reasoning). Mirrors migration 20260813100450.
 CREATE OR REPLACE FUNCTION public.fn_course_package_amounts_chk()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $fn$
 DECLARE
   v_package_id uuid;
@@ -40989,10 +40995,18 @@ $fn$;
 --     payment_overdue.
 --   * withdrawn / cancelled / completed are TERMINAL. The money columns
 --     still refresh, but the status is not recomputed over the top.
+--
+-- Corrected 2026-08-13: INVOKER -> SECURITY DEFINER. A trigger function
+-- runs with the caller's privileges and RLS applies; a role holding
+-- courses.billing.manage but not courses.enrollments.manage had the
+-- UPDATE on course_enrollments silently filtered to zero rows with no
+-- error. Mirrors migration 20260813100450.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_course_recompute_balances()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $fn$
 DECLARE
   v_bill_id       uuid;

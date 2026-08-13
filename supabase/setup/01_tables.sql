@@ -7649,8 +7649,12 @@ CREATE TABLE IF NOT EXISTS public.course_applications (
   package_id              uuid REFERENCES public.course_packages(id) ON DELETE SET NULL,
   applicant_type          text NOT NULL CHECK (applicant_type IN ('learner','staff','external')),
   profile_id              uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-  learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
-  external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE SET NULL,
+  -- Corrected 2026-08-13: SET NULL -> RESTRICT (migration 20260813100450).
+  -- The identity CHECK requires this column NOT NULL for its governing
+  -- applicant_type, so SET NULL could never actually execute for rows of
+  -- its own type — it aborted with a confusing 23514 instead of a 23503.
+  learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE RESTRICT,
+  external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE RESTRICT,
   applicant_name          text NOT NULL,
   applicant_email         text,
   applicant_phone         text NOT NULL,
@@ -7692,8 +7696,10 @@ CREATE TABLE IF NOT EXISTS public.course_enrollments (
   -- the same transaction. With a nullable column Postgres treats every
   -- NULL as distinct, so the UNIQUE below would enforce nothing.
   profile_id              uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
-  learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
-  external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE SET NULL,
+  -- Corrected 2026-08-13: SET NULL -> RESTRICT (migration 20260813100450).
+  -- Same reasoning as course_applications above.
+  learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE RESTRICT,
+  external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE RESTRICT,
   enrollment_number       text UNIQUE,
   status                  text NOT NULL DEFAULT 'active'
                             CHECK (status IN ('active','confirmed','payment_overdue',
