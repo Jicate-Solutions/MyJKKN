@@ -23,6 +23,7 @@
 // the guest is told the HOST moved the meeting.
 
 import { revalidatePath } from 'next/cache';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import {
@@ -66,6 +67,79 @@ export async function cancelMyBooking(uid: string, reason?: string): Promise<Can
           : result.error === 'NOT_FOUND'
             ? 'Booking not found.'
             : 'Could not cancel the booking. Please try again.';
+    return { success: false, error: message };
+  }
+
+  revalidatePath(`/meetings/${uid}`);
+  revalidatePath('/meetings/inbox');
+  return { success: true };
+}
+
+/** The only two outcomes a host can record. Mirrors the status CHECK. */
+export type MeetingOutcome = 'completed' | 'no_show';
+
+/**
+ * Record whether the meeting actually happened.
+ *
+ * Unlike cancel/reschedule above, this does NOT take the service-role path.
+ * The authorization it needs is "are you this booking's host", which
+ * fn_meeting_mark_outcome answers from auth.uid() inside the database — so the
+ * SESSION client is both sufficient and strictly safer here: no service-role
+ * key participates, and the caller can change one column in one direction on
+ * one booking they host. Cancel needs service-role for a different reason
+ * (it also touches the attendee's cancel_token path and the venue hold).
+ *
+ * Migration 20260831010000 is FILE ONLY until the Director applies it, so the
+ * RPC may not exist yet. That case is surfaced as an explicit message rather
+ * than a generic failure — a silent "could not save" here would look identical
+ * to the bug this PR exists to fix.
+ */
+export async function markMeetingOutcome(
+  uid: string,
+  outcome: MeetingOutcome,
+): Promise<CancelResult> {
+  const session = (await createClient()) as unknown as SupabaseClient;
+  const {
+    data: { user },
+    error: authError,
+  } = await session.auth.getUser();
+  if (authError || !user) {
+    return { success: false, error: 'You are signed out. Please sign in and try again.' };
+  }
+  if (!uid || typeof uid !== 'string') {
+    return { success: false, error: 'Invalid booking reference.' };
+  }
+  if (outcome !== 'completed' && outcome !== 'no_show') {
+    return { success: false, error: 'Pick either "it happened" or "no-show".' };
+  }
+
+  const { data, error } = await session.rpc('fn_meeting_mark_outcome', {
+    p_uid: uid,
+    p_outcome: outcome,
+  });
+
+  if (error) {
+    // PGRST202 = the function is not in the schema cache, i.e. the migration
+    // has not been applied to this environment yet.
+    if (error.code === 'PGRST202') {
+      return {
+        success: false,
+        error: 'Recording meeting outcomes is not switched on yet. Ask an administrator to apply the pending meetings migration.',
+      };
+    }
+    return { success: false, error: 'Could not save the outcome. Please try again.' };
+  }
+
+  const result = (data ?? {}) as { success?: boolean; error_code?: string; message?: string };
+  if (!result.success) {
+    const message =
+      result.error_code === 'not_found'
+        ? 'Booking not found.'
+        : result.error_code === 'not_started'
+          ? 'This meeting has not started yet.'
+          : result.error_code === 'not_markable'
+            ? (result.message ?? 'This booking can no longer be marked.')
+            : 'Could not save the outcome. Please try again.';
     return { success: false, error: message };
   }
 

@@ -434,5 +434,21 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) only, each carrying an expires_at of the term end date so an unattended warning ages out of the bell instead of accumulating. Changes NO committee, roster row or permission, and revokes nobody's access — no term_end cut-off exists in the database today, so this warning is currently the only thing that would tell anyone the date is coming. No email, WhatsApp or push.",
     "safeToManualTrigger": false,
     "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_accreditation_committee_term_warnings (migration 20260809103200, service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'committee-term-reminders' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent on notifications.idempotency_key keyed by (member, term_end, threshold, audience), so each warning is sent exactly ONCE EVER rather than once per day — an extended term produces new keys and is warned again. Marked unsafe-to-manual because a run delivers notifications naming real people to real cluster officers. Every real term today ends 2027-03-31, so the honest nightly answer is 'nothing due' — the response therefore always reports `examined` alongside `candidates`, and `unreachable` when a warning had nobody who could act, because a quiet zero must not be mistakable for a quiet failure."
+  },
+  {
+    "id": "meetings-auto-close",
+    "name": "Meetings — 7-day auto-close of unmarked meetings",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 06:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/meetings-auto-close",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "One rules-based SQL UPDATE (fn_meetings_auto_close_unmarked); the route resolves no model.",
+    "whatItDoes": "Director decision 2026-08-08: a meeting nobody said anything about closes itself as 'completed' 7 days after it ended. Until this shipped, meeting_bookings had carried 'completed' and 'no_show' in its status CHECK since June with NOTHING ever writing either — production on 2026-08-13 held 74 bookings, 52 confirmed, 22 cancelled, and zero of both.",
+    "configKnobs": "AUTO_CLOSE_AFTER_DAYS = 7 (the Director decision) in the route; passed to fn_meetings_auto_close_unmarked(p_days). Day/time editable at /admin/ai-routines (ai_routine_schedules row 'meetings-auto-close').",
+    "sideEffects": "DB writes only: sets status='completed', outcome_marked_at=now(), outcome_marked_by='system' on confirmed bookings that ended more than 7 days ago. Sends NOTHING — no email, no notification. A booking the host already marked is not 'confirmed' and is never touched, so its outcome_marked_by='host' stamp survives.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_meetings_auto_close_unmarked (migration 20260831010000, service_role only — REVOKEd from anon, authenticated, PUBLIC). Fires via the AI-routine dispatcher, NOT a raw vercel.json cron: that file has a HARD 100-cron cap and the 101st entry fails EVERY production build with a schema error while the old build keeps serving 200s. Auth: CRON_SECRET (Bearer or ?secret=). IDEMPOTENT BY CONSTRUCTION rather than by a guard column — the predicate is status='confirmed' and the UPDATE's own effect is to leave that set, so a second run in the same minute closes 0. TIMEZONE: minute_of_day 380 = 06:20 IST, which fn_ai_routine_claim_due floors to the 06:15 IST slot; it is NOT a UTC value. DORMANT until migration 20260831010000 is applied (Director-gated) — the route returns 503 with the migration number rather than a bare 500 so a dispatcher record cannot be mistaken for a code fault. FIRST RUN IS A BACKFILL: every past-dated confirmed booking is already older than 7 days, so the first successful run closes roughly two dozen historical meetings at once, all stamped 'system' — visibly an assumption, not an observation."
   }
 ];
