@@ -26,6 +26,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -89,7 +94,7 @@ export default function ProjectsPage() {
   return (
     <ContentLayout title="Projects">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -107,11 +112,13 @@ export default function ProjectsPage() {
 
       <div className="mt-6">
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0">
+          <TabsList
+            className={`flex w-full max-w-full justify-start overflow-x-auto sm:inline-flex sm:w-auto [&>button]:shrink-0 ${TAP_TARGET_TABS_LIST}`}
+          >
             {PROJECT_TABS.map((tab) => {
               const Icon = tab.icon;
               return (
-                <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5">
+                <TabsTrigger key={tab.id} value={tab.id} className={`gap-1.5 ${TAP_TARGET}`}>
                   <Icon className="h-4 w-4" />
                   {tab.label}
                 </TabsTrigger>
@@ -138,7 +145,7 @@ export default function ProjectsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button asChild className="gap-1.5">
+                <Button asChild className={`gap-1.5 ${TAP_TARGET}`}>
                   <Link href="/projects/portfolio">
                     <FolderKanban className="h-4 w-4" />
                     Open Portfolio
