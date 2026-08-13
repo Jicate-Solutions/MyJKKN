@@ -41,6 +41,7 @@ import {
   ArrowRight,
   Landmark,
   ClipboardList,
+  FileText,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -192,6 +193,15 @@ export default function ClusterAcademicCouncilPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
+              {/* The same reading on one side of A4, for walking into a sitting
+                  with a sheet of paper. It adds no number of its own — every
+                  figure on it comes from the hooks this page already renders. */}
+              <Link href="/accreditation/cac/brief">
+                <Button size="sm">
+                  <FileText className="mr-2 h-4 w-4" />
+                  One-page brief
+                </Button>
+              </Link>
               <Link href={COMMITTEES_HUB}>
                 <Button variant="outline" size="sm">
                   <Users className="mr-2 h-4 w-4" />
