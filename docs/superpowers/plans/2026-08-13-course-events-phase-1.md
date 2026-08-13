@@ -124,13 +124,19 @@ In `lib/constants/table-module-map.ts`, add to the `MODULE_PREFIXES` array (line
   ['course_', 'Courses'],
 ```
 
-- [ ] **Step 4: Map the module to its permission category**
+- [ ] **Step 4: Confirm the module→category mapping resolves — no edit required**
 
-In `lib/permissions-audit/module-mappings.ts`, add to `MODULE_TO_CATEGORY_KEY` (line 118):
+**CORRECTED 2026-08-13 (was wrong in the first draft).** `MODULE_TO_CATEGORY_KEY` is **not** a literal object you insert into. Since the 2026-04-27 refactor it is `Object.freeze()`d and built programmatically at `module-mappings.ts:118`:
 
 ```typescript
-  'Courses': 'courses',
+Object.fromEntries(getAllModuleNames().map((m) => [m, deriveCategoryKey(m)]))
 ```
+
+and `deriveCategoryKey` (line 68) lowercases the module name, replaces whitespace with underscores, and returns it if it matches a `PERMISSION_CATEGORIES` key. `'Courses'` normalizes to `'courses'`, which Step 2 just added — so the mapping resolves with **zero code change** to this file.
+
+Do **not** add `Courses: 'courses'` to `MODULE_CATEGORY_OVERRIDES`. That map exists for names that do *not* normalize (`'Social Ads' → 'social'`). A redundant entry returns exactly what derivation returns and misleads the next reader into thinking every module needs one.
+
+Verify rather than assume — Step 5's gate is the proof. If it passes with this file untouched, the mapping resolved.
 
 Do **not** add anything to `ROUTE_PREFIX_TO_MODULE` yet. That map is keyed on routes in `MENU_PERMISSIONS`, and Phase 1 adds no routes. Adding a prefix for a route that does not exist is harmless but misleading; Phase 2 adds `['/courses', 'Courses']` at the same time it adds the menu entry.
 
