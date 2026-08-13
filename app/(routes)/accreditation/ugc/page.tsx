@@ -2,8 +2,9 @@
 // ============================================================================
 // PR-A15 — UGC Dashboard (Unification Program, 15/15)
 //
-// University Grants Commission — applies to all 8 JKKN colleges (cluster
-// scope with college switcher, like NAAC). Continuous cycle.
+// University Grants Commission — applies to every JKKN college. The college
+// switcher's rows and heading come from _lib/visible-institutions.ts and
+// describe what the SIGNED-IN READER can see, like NAAC. Continuous cycle.
 // Tracks 6 domains: 2(f)/12(B) Status, Anti-Ragging, Grievance Redressal,
 // Fee Structures, Faculty Recruitment, Student Welfare.
 //
@@ -45,9 +46,9 @@ import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import {
   useBodyMetrics,
   useBodyEvidenceCounts,
-  useJKKNInstitutions,
 } from '@/hooks/accreditation/use-body-dashboard';
 import type { BodyMetricRow } from '@/hooks/accreditation/use-body-dashboard';
+import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
 
 // ----------------------------------------------------------------------------
 // UGC compliance domains — 6 categories per UGC Act 1956 + Regulations.
@@ -128,9 +129,15 @@ const UGC_DOMAINS: UGCDomain[] = [
 // ----------------------------------------------------------------------------
 export default function UGCDashboardPage() {
   const ugcMeta = ACCREDITATION_BODIES.find((b) => b.code === 'UGC')!;
-  const [selectedInstitution, setSelectedInstitution] = useState<string>('cluster');
 
-  const { data: institutions, isLoading: institutionsLoading } = useJKKNInstitutions();
+  // Rows and heading come from the scope module — see _lib/visible-institutions.ts.
+  const { options: scopeOptions, defaultSelection, isLoading: institutionsLoading } =
+    useVisibleInstitutions();
+  const [picked, setPicked] = useState<string | null>(null);
+  const selectedInstitution =
+    picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
+  const setSelectedInstitution = setPicked;
+
   const { data: metrics, isLoading: metricsLoading } = useBodyMetrics('UGC');
   const { data: evidenceCounts, isLoading: evidenceLoading } = useBodyEvidenceCounts(
     'UGC',
@@ -196,14 +203,14 @@ export default function UGCDashboardPage() {
                   UGC — Compliance Dashboard
                 </CardTitle>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  University Grants Commission. Scope: all 8 JKKN colleges.
+                  University Grants Commission. Applies to every JKKN college.
                   Continuous cycle — 2(f)/12(B) status, anti-ragging,
                   grievance redressal, fee structures, faculty recruitment,
                   student welfare.
                 </p>
               </div>
 
-              {/* College switcher — cluster + 8 colleges */}
+              {/* College switcher — the colleges this reader can see */}
               <div className="flex items-center gap-2 min-w-[240px]">
                 <Select
                   value={selectedInstitution}
@@ -214,11 +221,9 @@ export default function UGCDashboardPage() {
                     <SelectValue placeholder="Select college" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cluster">Cluster (all 8 colleges)</SelectItem>
-                    {(institutions ?? []).map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
-                        {inst.name}
+                    {scopeOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -382,9 +387,9 @@ export default function UGCDashboardPage() {
         <Card className="bg-muted/30">
           <CardContent className="pt-6 text-xs text-muted-foreground space-y-2">
             <p>
-              <strong>Cluster scope:</strong> UGC applies to all 8 JKKN
-              colleges. Switch via the college selector above to drill into a
-              specific college's compliance surface.
+              <strong>Scope:</strong> UGC applies to every JKKN college. The
+              selector above lists the colleges you can see — pick one to drill
+              into that college and its compliance surface.
             </p>
             <p>
               <strong>Live fan-outs:</strong> Anti-ragging (PR-A5) — already

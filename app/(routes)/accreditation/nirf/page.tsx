@@ -9,8 +9,10 @@
 //   4. OI   Outreach & Inclusivity                 10%
 //   5. PR   Perception (peer survey)               10%
 //
-// Scope: cluster (all 8 JKKN colleges) with college switcher, since each
-// college submits its own NIRF data. Evidence sourced from PR-A2 substrate.
+// Scope: a college switcher, since each college submits its own NIRF data.
+// Its rows and its heading come from _lib/visible-institutions.ts and describe
+// the colleges the SIGNED-IN READER can see — not a fixed count of eight.
+// Evidence sourced from PR-A2 substrate.
 //
 // NOTE: sidebar entry + permission key `accreditation.nirf.view` ship with
 // PR-A8 c2 (#255) — this PR only adds the page + hook.
@@ -67,9 +69,9 @@ import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import {
   useNIRFMetrics,
   useNIRFEvidenceCounts,
-  useJKKNInstitutionsNIRF,
   type NIRFMetric,
 } from '@/hooks/accreditation/use-nirf-dashboard';
+import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
 import {
   useEvidenceSourceRoutes,
   useMetricOwnerNames,
@@ -214,9 +216,17 @@ function MetricGapRow({ metric, display }: { metric: NIRFMetric; display: Metric
 }
 
 export default function NIRFDashboardPage() {
-  const [selectedInstitution, setSelectedInstitution] = useState<string>('cluster');
+  // The switcher's rows and its heading come from the scope module, so this
+  // page decides nothing about what it may claim. `defaultSelection` is a
+  // college id (not 'cluster') for a reader entitled to one college — that
+  // reader is never offered an aggregate row.
+  const { options: scopeOptions, defaultSelection, isLoading: instLoading } =
+    useVisibleInstitutions();
+  const [picked, setPicked] = useState<string | null>(null);
+  const selectedInstitution =
+    picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
+  const setSelectedInstitution = setPicked;
 
-  const { data: institutions, isLoading: instLoading } = useJKKNInstitutionsNIRF();
   const { data: metrics, isLoading: metricsLoading } = useNIRFMetrics();
   const { data: evidenceCounts, isLoading: evidenceLoading } = useNIRFEvidenceCounts(
     selectedInstitution as any,
@@ -287,8 +297,8 @@ export default function NIRFDashboardPage() {
                 </CardTitle>
                 <p className="mt-2 text-sm text-muted-foreground">
                   MoE annual ranking. 5 parameters, weighted 30 + 30 + 20 + 10 + 10 = 100%.
-                  Each JKKN college submits its own data — cluster view shows aggregated
-                  evidence across all 8 colleges.
+                  Each JKKN college submits its own data — the aggregate view adds up
+                  evidence across the colleges you can see.
                 </p>
               </div>
 
@@ -302,11 +312,9 @@ export default function NIRFDashboardPage() {
                     <SelectValue placeholder="Select college" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cluster">Cluster (all 8 colleges)</SelectItem>
-                    {(institutions ?? []).map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
-                        {inst.name}
+                    {scopeOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>

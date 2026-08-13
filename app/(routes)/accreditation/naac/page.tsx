@@ -65,6 +65,7 @@ import {
   rollupNaacMarks,
   sumNaacMarks,
 } from '@/lib/services/accreditation/naac-marks';
+import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
 import { QualityLoopsSection } from './_components/quality-loops-section';
 import { CopoHeldRollupsSection } from './_components/copo-held-rollups-section';
 
@@ -101,13 +102,6 @@ interface NAACMetric {
   metric_name: string;
   category: string | null;
   max_score: number | null;
-}
-
-interface Institution {
-  id: string;
-  name: string;
-  iqac_code: string | null;
-  institution_type: string;
 }
 
 function useNAACMetrics() {
@@ -173,30 +167,30 @@ function useNAACEvidenceCounts(institutionId: string | 'cluster') {
   });
 }
 
-function useJKKNInstitutions() {
-  return useQuery({
-    queryKey: ['institutions', 'jkkn-iqac'],
-    queryFn: async (): Promise<Institution[]> => {
-      const sb = createClientSupabaseClient() as any;
-      const { data, error } = await sb
-        .from('institutions')
-        .select('id, name, iqac_code, institution_type')
-        .not('iqac_code', 'is', null)
-        .order('iqac_code');
-      if (error) throw error;
-      return (data ?? []) as Institution[];
-    },
-    staleTime: 30 * 60 * 1000,
-  });
-}
+// A local copy of the 8-college read used to live here, sharing the
+// ['institutions','jkkn-iqac'] cache key with four other copies. It is now
+// `useVisibleInstitutions()`, which narrows that read to the colleges the
+// signed-in reader can actually see — which in turn narrows `scopedEvidence`
+// and the per-college table below, since both already fold through this list.
 
 // ----------------------------------------------------------------------------
 // Page component
 // ----------------------------------------------------------------------------
 export default function NAACDashboardPage() {
-  const [selectedInstitution, setSelectedInstitution] = useState<string>('cluster');
+  // Rows and heading come from the scope module — see _lib/visible-institutions.ts.
+  // `visible` is the college list everything below folds through, so narrowing
+  // it narrows the rollup and the per-college table with it.
+  const {
+    options: scopeOptions,
+    defaultSelection,
+    visible: institutions,
+    isLoading: institutionsLoading,
+  } = useVisibleInstitutions();
+  const [picked, setPicked] = useState<string | null>(null);
+  const selectedInstitution =
+    picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
+  const setSelectedInstitution = setPicked;
 
-  const { data: institutions, isLoading: institutionsLoading } = useJKKNInstitutions();
   const { data: metrics, isLoading: metricsLoading } = useNAACMetrics();
   const { data: evidenceCounts, isLoading: evidenceLoading } = useNAACEvidenceCounts(selectedInstitution);
 
@@ -228,6 +222,11 @@ export default function NAACDashboardPage() {
   // code carrying non-college evidence also carries college evidence, so no code
   // loses its credit. See __tests__/…/naac-marks.test.ts ("cluster evidence
   // scope"). Only the row COUNTS move (150 → 133).
+  //
+  // 2026-08-13: `institutions` is now the colleges the SIGNED-IN READER can see
+  // rather than all eight, so the same fold also keeps the headline honest for
+  // a reader entitled to fewer — see _lib/visible-institutions.ts. When that
+  // set cannot be read, it falls back to all eight, exactly as before.
   const scopedEvidence = useMemo(() => {
     if (!evidenceCounts) return {};
     const out: Record<string, number> = {};
@@ -286,8 +285,8 @@ export default function NAACDashboardPage() {
                 </CardTitle>
                 <p className="mt-2 text-sm text-muted-foreground">
                   Binary + MBGL framework · 10 attributes · Input / Process /
-                  Outcome layers. Score ceiling per college: 900. JKKN cluster
-                  target: 75% by Jan 2027 (~675 per college, ~5,400 cluster).
+                  Outcome layers. Score ceiling per college: 900. JKKN target:
+                  75% by Jan 2027 — about 675 marks per college.
                 </p>
               </div>
 
@@ -302,11 +301,9 @@ export default function NAACDashboardPage() {
                     <SelectValue placeholder="Select college" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cluster">Cluster (all 8 colleges)</SelectItem>
-                    {(institutions ?? []).map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
-                        {inst.name}
+                    {scopeOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
