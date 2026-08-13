@@ -558,14 +558,58 @@ BEGIN
          (v_pkg, 2, 50000, '2026-12-01'),
          (v_pkg, 3, 50000, '2027-03-01');
 
+  -- LOAD-BEARING. The trigger is DEFERRABLE INITIALLY DEFERRED, so it is
+  -- evaluated at COMMIT — and this block never commits, because the RAISE
+  -- below aborts it. Without this line the probe reports "PROBE FAILED"
+  -- whether the trigger is attached or not: a false negative every time.
+  -- SET CONSTRAINTS ALL IMMEDIATE forces the check to run right here.
+  SET CONSTRAINTS ALL IMMEDIATE;
+
   RAISE EXCEPTION 'PROBE FAILED — the sum check did not fire';
 END $$;
 ```
 
 Expected: the statement **fails** with
-`Course package … has 3 installments totalling 150000.00 but its price is 250000.00`.
+`ERROR: 23514: Course package … has 3 installments totalling 150000.00 but its price is 250000.00`
+and a `CONTEXT` line naming `SQL statement "SET CONSTRAINTS ALL IMMEDIATE"` — that context is the proof the trigger fired at the forced check, not somewhere else.
 
-That message means the deferred trigger fired at the end of the block. If you instead see `PROBE FAILED — the sum check did not fire`, the trigger is not attached — investigate before continuing. Either outcome rolls the whole `DO` block back, so no probe rows survive.
+If you instead see `PROBE FAILED — the sum check did not fire`, the trigger is not attached — investigate before continuing. Either outcome rolls the whole `DO` block back, so no probe rows survive.
+
+- [ ] **Step 4a: Positive control — a CORRECT schedule must be accepted**
+
+A trigger that raised unconditionally would also pass Step 4. Prove it does not:
+
+```sql
+DO $$
+DECLARE
+  v_inst uuid; v_course uuid; v_pkg uuid; v_sum numeric;
+BEGIN
+  SELECT id INTO v_inst FROM public.institutions LIMIT 1;
+
+  INSERT INTO public.course_events (institution_id, title, slug)
+  VALUES (v_inst, 'POSITIVE CONTROL', 'positive-control-delete-me')
+  RETURNING id INTO v_course;
+
+  INSERT INTO public.course_packages (course_event_id, institution_id, name, total_amount)
+  VALUES (v_course, v_inst, 'Regular', 250000.00) RETURNING id INTO v_pkg;
+
+  -- CORRECT: 4 x 62,500 = 250,000.
+  INSERT INTO public.course_package_installments (package_id, installment_no, amount, due_date)
+  VALUES (v_pkg, 1, 62500, '2026-09-01'), (v_pkg, 2, 62500, '2026-12-01'),
+         (v_pkg, 3, 62500, '2027-03-01'), (v_pkg, 4, 62500, '2027-06-01');
+
+  SET CONSTRAINTS ALL IMMEDIATE;
+
+  SELECT sum(amount) INTO v_sum
+    FROM public.course_package_installments WHERE package_id = v_pkg;
+
+  RAISE EXCEPTION 'POSITIVE CONTROL OK - correct schedule accepted, sum=%', v_sum;
+END $$;
+```
+
+Expected: fails with `P0001: POSITIVE CONTROL OK - correct schedule accepted, sum=250000.00`.
+
+Reaching that line means the constraint check passed. Any `23514` here means the trigger rejects valid data.
 
 - [ ] **Step 5: Confirm the probe left nothing behind**
 
@@ -1600,6 +1644,8 @@ CREATE POLICY course_bill_payments_manage ON public.course_bill_payments
 Apply with `mcp__supabase__apply_migration`, name `20260813100400_course_billing`. Save identical SQL to the migrations folder.
 
 - [ ] **Step 3: Prove the derivation trigger computes a partial payment correctly**
+
+> **These probes need no `SET CONSTRAINTS`, unlike Task 2's.** `trg_course_bill_payments_recompute` is an ordinary `AFTER … FOR EACH ROW` trigger, not a `CONSTRAINT TRIGGER`, so it fires as the INSERT statement completes and the following `SELECT`s read its results directly. Do not add `SET CONSTRAINTS ALL IMMEDIATE` here — there is no deferred constraint to force. The same applies to the identity-CHECK probes in Tasks 5 and 7: an ordinary table `CHECK` is evaluated at INSERT time, never deferred.
 
 This is the most important assertion in Phase 1. Run:
 
