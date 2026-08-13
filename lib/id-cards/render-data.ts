@@ -555,7 +555,7 @@ type LearnerRow = {
   permanent_address_district: string | null;
   permanent_address_state: string | null;
   permanent_address_pin_code: string | null;
-  program: { program_name: string | null } | null;
+  program: { program_name: string | null; card_short_name: string | null } | null;
   department: { department_name: string | null } | null;
   // fk_learners_profiles_batch (batch_id → batches.id) — verified in prod
   // pg_constraint 2026-07-25.
@@ -662,7 +662,7 @@ export async function assembleCardData(
          mother_mobile, student_mobile, permanent_address_street,
          permanent_address_taluk, permanent_address_district,
          permanent_address_state, permanent_address_pin_code,
-         program:programs(program_name),
+         program:programs(program_name, card_short_name),
          department:departments(department_name),
          batch:batches(batch_name, start_date, end_date)`
       )
@@ -694,6 +694,10 @@ export async function assembleCardData(
       // (a raw UUID must never be printed on a card).
       valueBag['learners_profiles.program_id'] = courseName ?? '';
       valueBag['learners_profiles.department_id'] = departmentName ?? '';
+      // Short form for the card's narrow COURSE line ("BTECH IT"). Empty when
+      // the programme has none — resolveMappedValue then falls through to the
+      // built-in full programme name, so a card is never left blank.
+      valueBag['programs.card_short_name'] = learner.program?.card_short_name?.trim() ?? '';
 
       // Back-side data (all fail-soft; blanks stay null → block omitted).
       bloodGroup = learner.blood_group?.trim() || null;
