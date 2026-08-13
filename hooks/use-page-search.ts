@@ -7,6 +7,10 @@ import { getPageRegistry } from '@/lib/navigation/page-registry';
 import { searchPages, groupSearchResults } from '@/lib/navigation/search-engine';
 import { filterByPermissions } from '@/lib/navigation/permission-filter';
 import { getRecentPages, getFrequentPages } from '@/lib/navigation/recent-pages';
+import {
+  useIsSoiCoordinator,
+  withSoiCoordinatorNavAccess,
+} from '@/hooks/school-of-influence/use-soi-coordinator-nav-access';
 import type { PageEntry, SearchResult, RecentPage } from '@/lib/navigation/types';
 
 interface UsePageSearchReturn {
@@ -33,11 +37,21 @@ interface UsePageSearchReturn {
  */
 export function usePageSearch(): UsePageSearchReturn {
   const {
-    permissions,
+    permissions: rolePermissions,
     isSuperAdmin,
     userProfile,
     isLoading: permissionsLoading,
   } = usePermissions();
+
+  // An appointment is not a permission key, so a School of Influence coordinator
+  // could not find their own review queue by searching for it — the registry
+  // entries were filtered out before fuse.js ever saw them (BUG-005799 /
+  // BUG-005800). Reveals the four cohort.manage screens and nothing else.
+  const isSoiCoordinator = useIsSoiCoordinator();
+  const permissions = useMemo(
+    () => withSoiCoordinatorNavAccess(rolePermissions, isSoiCoordinator),
+    [rolePermissions, isSoiCoordinator]
+  );
 
   // Favorites feed the search-engine boost so starred pages climb the results.
   const { favorites } = usePageFavorites();
