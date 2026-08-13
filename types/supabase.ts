@@ -33814,6 +33814,7 @@ export type Database = {
           name: string
           requires_explicit_upgrade: boolean
           room_source_category_id: string | null
+          settle_billing_enabled: boolean
           sort_order: number
           type: string
           updated_at: string
@@ -33831,6 +33832,7 @@ export type Database = {
           name: string
           requires_explicit_upgrade?: boolean
           room_source_category_id?: string | null
+          settle_billing_enabled?: boolean
           sort_order?: number
           type: string
           updated_at?: string
@@ -33848,6 +33850,7 @@ export type Database = {
           name?: string
           requires_explicit_upgrade?: boolean
           room_source_category_id?: string | null
+          settle_billing_enabled?: boolean
           sort_order?: number
           type?: string
           updated_at?: string
@@ -39457,6 +39460,102 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      hostel_room_buyouts: {
+        Row: {
+          activated_at: string | null
+          amount_per_resident: number
+          cancelled_reason: string | null
+          capacity_at_request: number
+          consent_deadline: string
+          created_at: string
+          empty_beds: number
+          hostel_year_id: string
+          id: string
+          institution_id: string | null
+          occupants_at_request: number
+          release_reason: string | null
+          released_at: string | null
+          released_by: string | null
+          requested_by_learner_id: string
+          room_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          activated_at?: string | null
+          amount_per_resident: number
+          cancelled_reason?: string | null
+          capacity_at_request: number
+          consent_deadline: string
+          created_at?: string
+          empty_beds: number
+          hostel_year_id: string
+          id?: string
+          institution_id?: string | null
+          occupants_at_request: number
+          release_reason?: string | null
+          released_at?: string | null
+          released_by?: string | null
+          requested_by_learner_id: string
+          room_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          activated_at?: string | null
+          amount_per_resident?: number
+          cancelled_reason?: string | null
+          capacity_at_request?: number
+          consent_deadline?: string
+          created_at?: string
+          empty_beds?: number
+          hostel_year_id?: string
+          id?: string
+          institution_id?: string | null
+          occupants_at_request?: number
+          release_reason?: string | null
+          released_at?: string | null
+          released_by?: string | null
+          requested_by_learner_id?: string
+          room_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      hostel_room_buyout_consents: {
+        Row: {
+          allocation_id: string
+          bill_id: string | null
+          buyout_id: string
+          created_at: string
+          decided_at: string | null
+          decision: string
+          id: string
+          learner_id: string
+        }
+        Insert: {
+          allocation_id: string
+          bill_id?: string | null
+          buyout_id: string
+          created_at?: string
+          decided_at?: string | null
+          decision?: string
+          id?: string
+          learner_id: string
+        }
+        Update: {
+          allocation_id?: string
+          bill_id?: string | null
+          buyout_id?: string
+          created_at?: string
+          decided_at?: string | null
+          decision?: string
+          id?: string
+          learner_id?: string
+        }
+        Relationships: []
       }
       hostel_room_condition_photos: {
         Row: {
