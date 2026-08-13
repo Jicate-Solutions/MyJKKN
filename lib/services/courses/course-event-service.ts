@@ -9,6 +9,35 @@ const SELECT = `
   created_by_profile:profiles!course_events_created_by_fkey(id, full_name)
 `;
 
+/** Nullable columns where an empty string from a form must become NULL: four
+ *  TEXT columns where '' is legally storable but not the intended value, plus
+ *  six columns (date / timestamptz / int / uuid) where Postgres rejects ''
+ *  outright with 22P02. Single source of truth for both create() and
+ *  update() — do not duplicate this list. */
+const NULLABLE_FIELDS = new Set([
+  'code', 'description', 'venue_text', 'cover_image_url',
+  'start_date', 'end_date', 'application_opens_at', 'application_closes_at',
+  'total_seats', 'previous_course_event_id',
+]);
+
+/**
+ * Converts '' to null for the nullable columns above — but ONLY for keys
+ * already present on the input object; it never adds a key. That is what
+ * makes it safe for update(): UpdateCourseEventDto is Partial<...>, so
+ * update() must receive exactly the keys the caller chose to send. Seeding
+ * absent keys with null here would silently wipe every field the user did
+ * not touch, turning a 22P02 into worse — a silent data-loss bug.
+ */
+function normalizeNullableFields<T extends Record<string, any>>(dto: T): T {
+  const out: any = { ...dto };
+  for (const key of Object.keys(out)) {
+    if (NULLABLE_FIELDS.has(key) && out[key] === '') {
+      out[key] = null;
+    }
+  }
+  return out;
+}
+
 export class CourseEventService extends BaseService {
   /**
    * Multi-institution users pass `institution_ids`; single-institution users pass
@@ -76,32 +105,30 @@ export class CourseEventService extends BaseService {
   }
 
   /**
-   * Nullable UUID and text fields arrive from react-hook-form as '' and must be
-   * normalised to null — Postgres rejects '' for a uuid column with 22P02.
+   * Nullable fields arrive from react-hook-form as '' and must be normalised to
+   * null — see NULLABLE_FIELDS above for which columns and why.
    */
   static async create(dto: CreateCourseEventDto) {
-    const payload = {
+    const payload = normalizeNullableFields({
       ...dto,
-      code: dto.code || null,
-      description: dto.description || null,
-      venue_text: dto.venue_text || null,
-      cover_image_url: dto.cover_image_url || null,
-      previous_course_event_id: dto.previous_course_event_id || null,
-      start_date: dto.start_date || null,
-      end_date: dto.end_date || null,
-      application_opens_at: dto.application_opens_at || null,
-      application_closes_at: dto.application_closes_at || null,
       status: dto.status ?? 'draft',
-    };
+    });
     const { data, error } = await this.supabase
       .from('course_events').insert(payload as any).select(SELECT).single();
     if (error) throw error;
     return data as unknown as CourseEvent;
   }
 
+  /**
+   * dto is Partial<CreateCourseEventDto> — only the keys the caller sent are
+   * present. normalizeNullableFields preserves that: it rewrites '' -> null
+   * on present keys and adds none, so e.g. update(id, { end_date: '' }) sends
+   * exactly `{ end_date: null }` and touches no other column.
+   */
   static async update(id: string, dto: UpdateCourseEventDto) {
+    const payload = normalizeNullableFields(dto);
     const { data, error } = await this.supabase
-      .from('course_events').update(dto as any).eq('id', id).select(SELECT).single();
+      .from('course_events').update(payload as any).eq('id', id).select(SELECT).single();
     if (error) throw error;
     return data as unknown as CourseEvent;
   }

@@ -183,6 +183,7 @@ Read `lib/services/base-service.ts` around `executeListQuery` (line 113) and `ex
 
 ```typescript
 import { BaseService } from '@/lib/services/base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   CourseEvent, CourseEventFilters, CreateCourseEventDto, UpdateCourseEventDto,
 } from '@/types/courses';
@@ -241,13 +242,31 @@ export class CourseEventService extends BaseService {
     );
   }
 
+  /**
+   * CORRECTED 2026-08-13 (flagged by security review) — the first draft escaped only
+   * [%_], which are the LIKE wildcards. PostgREST's `or=(...)` grammar has its own
+   * metacharacters — `,` separates conditions, `(`/`)` group, `.` separates
+   * column.operator.value — so a search containing a comma broke out of the ilike and
+   * injected a sibling condition.
+   *
+   * Use the repo's own sanitizeSearch (lib/config/pagination.ts:15), which strips
+   * % \ ' " ( ) , . * — do NOT invent escaping here.
+   *
+   * This is called explicitly rather than relied on from BaseService: executeListQuery
+   * auto-sanitizes at base-service.ts:143, but the multi-institution path bypasses that
+   * method entirely, so it would have had no sanitization at all. Calling it here makes
+   * BOTH paths safe and is harmless double-sanitizing on the single-institution path
+   * (the function is idempotent — it strips rather than escapes).
+   */
   private static applyCommonFilters(q: any, filters: CourseEventFilters) {
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.mode) q = q.eq('mode', filters.mode);
     if (filters.year) q = q.eq('year', filters.year);
     if (filters.search) {
-      const s = filters.search.replace(/[%_]/g, '\\$&');
-      q = q.or(`title.ilike.%${s}%,code.ilike.%${s}%,slug.ilike.%${s}%`);
+      const s = sanitizeSearch(filters.search);
+      // sanitizeSearch can return '' (e.g. a search of only punctuation). An empty
+      // ilike pattern matches everything, which is a confusing no-op filter — skip.
+      if (s) q = q.or(`title.ilike.%${s}%,code.ilike.%${s}%,slug.ilike.%${s}%`);
     }
     return q;
   }
