@@ -402,7 +402,7 @@ export function SessionSpeakerPicker({
           value={query}
           disabled={disabled}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={type === 'learner' ? 'Search learners by name or roll no…' : type === 'anyone' ? 'Search all users by name or email…' : type === 'guest' ? 'Search saved guests by name, organisation or email…' : 'Search staff by name or staff id…'}
+          placeholder={type === 'learner' ? 'Search learners by name or roll no…' : type === 'anyone' ? 'Search all users by name or email…' : type === 'guest' ? 'Search saved guests by name, organisation or email…' : 'Search team members by name or ID…'}
           className="border-0 focus-visible:ring-0 px-0 h-9"
         />
       </div>
