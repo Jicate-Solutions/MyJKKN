@@ -40976,3 +40976,96 @@ BEGIN
   RETURN NEW;
 END;
 $fn$;
+
+-- ---------------------------------------------------------------------
+-- Mirror of migration 20260813100400_course_billing.sql
+-- ---------------------------------------------------------------------
+-- Sole writer of course_bills.paid_amount/balance_amount/status and
+-- course_enrollments.total_paid/balance/status. Two rules easy to get
+-- wrong and expensive to get wrong:
+--   * VOIDED bills are excluded from every total. A withdrawal voids the
+--     unpaid future installments; if they still counted, the enrollment
+--     would hold a permanent non-zero balance and could never leave
+--     payment_overdue.
+--   * withdrawn / cancelled / completed are TERMINAL. The money columns
+--     still refresh, but the status is not recomputed over the top.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_course_recompute_balances()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+DECLARE
+  v_bill_id       uuid;
+  v_enrollment_id uuid;
+  v_paid          numeric(12,2);
+  v_total         numeric(12,2);
+  v_due           date;
+  v_status        text;
+  v_e_payable     numeric(12,2);
+  v_e_paid        numeric(12,2);
+  v_overdue       boolean;
+  v_e_status      text;
+BEGIN
+  v_bill_id := COALESCE(NEW.bill_id, OLD.bill_id);
+
+  SELECT COALESCE(sum(amount_paid), 0)
+    INTO v_paid
+    FROM public.course_bill_payments
+   WHERE bill_id = v_bill_id
+     AND status = 'success';
+
+  SELECT total_amount, due_date, status, enrollment_id
+    INTO v_total, v_due, v_status, v_enrollment_id
+    FROM public.course_bills
+   WHERE id = v_bill_id;
+
+  IF NOT FOUND THEN
+    RETURN NULL;   -- bill removed in this transaction
+  END IF;
+
+  UPDATE public.course_bills
+     SET paid_amount    = v_paid,
+         balance_amount = v_total - v_paid,
+         status = CASE
+                    WHEN v_status = 'voided'   THEN 'voided'
+                    WHEN v_total - v_paid <= 0 THEN 'paid'
+                    WHEN v_due < CURRENT_DATE  THEN 'overdue'
+                    WHEN v_paid > 0            THEN 'partially_paid'
+                    ELSE 'pending'
+                  END,
+         updated_at = now()
+   WHERE id = v_bill_id;
+
+  -- Roll up to the enrollment, excluding voided bills entirely.
+  SELECT COALESCE(sum(total_amount), 0),
+         COALESCE(sum(paid_amount), 0),
+         bool_or(balance_amount > 0 AND due_date < CURRENT_DATE)
+    INTO v_e_payable, v_e_paid, v_overdue
+    FROM public.course_bills
+   WHERE enrollment_id = v_enrollment_id
+     AND status <> 'voided';
+
+  SELECT status INTO v_e_status
+    FROM public.course_enrollments
+   WHERE id = v_enrollment_id;
+
+  UPDATE public.course_enrollments
+     SET total_paid = v_e_paid,
+         balance    = v_e_payable - v_e_paid,
+         status = CASE
+                    -- terminal states are never recomputed over
+                    WHEN v_e_status IN ('withdrawn','cancelled','completed')
+                      THEN v_e_status
+                    WHEN v_e_payable - v_e_paid <= 0 THEN 'confirmed'
+                    WHEN COALESCE(v_overdue, false) THEN 'payment_overdue'
+                    ELSE 'active'
+                  END,
+         updated_at = now()
+   WHERE id = v_enrollment_id;
+
+  RETURN NULL;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_course_recompute_balances() IS
+  'Sole writer of course_bills.paid_amount/balance_amount/status and course_enrollments.total_paid/balance/status. Voided bills are excluded from rollups; withdrawn/cancelled/completed are terminal.';

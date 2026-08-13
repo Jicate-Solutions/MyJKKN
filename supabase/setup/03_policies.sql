@@ -9365,3 +9365,64 @@ CREATE POLICY course_sessions_participant_select ON public.course_sessions
      WHERE e.course_event_id = course_sessions.course_event_id
        AND e.profile_id = (SELECT auth.uid())
   ));
+
+-- ---------------------------------------------------------------------
+-- (course_bills, course_bill_payments)
+-- Mirror of migration 20260813100400_course_billing.sql
+-- ---------------------------------------------------------------------
+ALTER TABLE public.course_bills         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_bill_payments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_bills         FROM anon, PUBLIC;
+REVOKE ALL ON public.course_bill_payments FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_bills         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_bill_payments TO authenticated;
+
+CREATE POLICY course_bills_select ON public.course_bills
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR EXISTS (SELECT 1 FROM public.course_enrollments e
+                WHERE e.id = course_bills.enrollment_id
+                  AND e.profile_id = (SELECT auth.uid()))
+  );
+
+CREATE POLICY course_bills_manage ON public.course_bills
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_bill_payments_select ON public.course_bill_payments
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR EXISTS (SELECT 1 FROM public.course_enrollments e
+                WHERE e.id = course_bill_payments.enrollment_id
+                  AND e.profile_id = (SELECT auth.uid()))
+  );
+
+CREATE POLICY course_bill_payments_manage ON public.course_bill_payments
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );

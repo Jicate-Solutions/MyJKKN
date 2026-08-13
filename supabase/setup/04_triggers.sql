@@ -1902,3 +1902,18 @@ CREATE TRIGGER trg_course_applications_touch
 CREATE TRIGGER trg_course_enrollments_touch
   BEFORE UPDATE ON public.course_enrollments
   FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Billing triggers
+-- Mirror of migration 20260813100400_course_billing.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_bills_touch
+  BEFORE UPDATE ON public.course_bills
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_bill_payments_touch
+  BEFORE UPDATE ON public.course_bill_payments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+CREATE TRIGGER trg_course_bill_payments_recompute
+  AFTER INSERT OR UPDATE OR DELETE ON public.course_bill_payments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_course_recompute_balances();

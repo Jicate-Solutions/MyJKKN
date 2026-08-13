@@ -7728,3 +7728,83 @@ CREATE INDEX IF NOT EXISTS idx_course_enrollments_profile
 
 COMMENT ON COLUMN public.course_enrollments.total_payable IS
   'A SNAPSHOT of course_packages.total_amount taken at enrollment. Repricing a package later must never silently re-price people already enrolled.';
+
+-- =====================================================================
+-- Course Events — bills, payments, and derived balances
+-- Mirror of migration 20260813100400_course_billing.sql
+-- =====================================================================
+-- billing_student_bills is NOT reused: its student_id is a NOT NULL FK
+-- to learners_profiles and an external participant is not a learner.
+-- These tables are keyed to an ENROLLMENT, which may belong to a learner,
+-- a staff member or an external person. billing_student_bills is
+-- untouched by this module.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.course_bills (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  enrollment_id   uuid NOT NULL REFERENCES public.course_enrollments(id) ON DELETE RESTRICT,
+  course_event_id uuid NOT NULL REFERENCES public.course_events(id) ON DELETE RESTRICT,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  bill_number     text NOT NULL UNIQUE,
+  installment_no  smallint NOT NULL CHECK (installment_no >= 1),
+  label           text,
+  total_amount    numeric(12,2) NOT NULL CHECK (total_amount > 0),
+  paid_amount     numeric(12,2) NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+  balance_amount  numeric(12,2) NOT NULL,
+  due_date        date NOT NULL,
+  status          text NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','partially_paid','paid','overdue','voided')),
+  voided_at       timestamptz,
+  void_reason     text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_bills_installment_uniq UNIQUE (enrollment_id, installment_no),
+  CONSTRAINT course_bills_void_chk
+    CHECK (status <> 'voided' OR (voided_at IS NOT NULL AND void_reason IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_bills_enrollment
+  ON public.course_bills (enrollment_id, installment_no);
+CREATE INDEX IF NOT EXISTS idx_course_bills_overdue
+  ON public.course_bills (due_date)
+  WHERE status IN ('pending','partially_paid');
+
+CREATE TABLE IF NOT EXISTS public.course_bill_payments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bill_id             uuid NOT NULL REFERENCES public.course_bills(id) ON DELETE RESTRICT,
+  enrollment_id       uuid NOT NULL REFERENCES public.course_enrollments(id) ON DELETE RESTRICT,
+  institution_id      uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  receipt_number      text UNIQUE,
+  amount_paid         numeric(12,2) NOT NULL CHECK (amount_paid > 0),
+  payment_mode        text NOT NULL
+                        CHECK (payment_mode IN ('razorpay','cash','neft','cheque','dd')),
+  payment_date        date NOT NULL DEFAULT CURRENT_DATE,
+  razorpay_order_id   text,
+  razorpay_payment_id text,
+  razorpay_signature  text,
+  razorpay_account_id uuid REFERENCES public.razorpay_accounts(id) ON DELETE SET NULL,
+  transaction_ref     text UNIQUE,
+  gateway_response    jsonb,
+  status              text NOT NULL DEFAULT 'initiated'
+                        CHECK (status IN ('initiated','success','failed','refunded')),
+  captured_at         timestamptz,
+  recorded_by         uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+
+  -- An offline payment is somebody's assertion; record whose.
+  CONSTRAINT course_bill_payments_offline_chk
+    CHECK (payment_mode = 'razorpay' OR recorded_by IS NOT NULL)
+);
+
+-- Idempotency. Razorpay settles through TWO paths — the browser callback
+-- and the server webhook — and both fire for the same payment. This index
+-- makes a duplicate settlement a constraint violation the caller can
+-- swallow, rather than a second credit.
+CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_uniq
+  ON public.course_bill_payments (razorpay_payment_id)
+  WHERE razorpay_payment_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_course_bill_payments_bill
+  ON public.course_bill_payments (bill_id) WHERE status = 'success';
