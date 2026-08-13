@@ -7,8 +7,13 @@
  * each bill's CURRENT values; an unchanged cell yields no diff, and a blank
  * editable cell means "clear it" (for optional fields).
  *
- * Editable fields are deliberately non-financial (no amount/status), so editing
- * a paid/cancelled bill is harmless.
+ * Final Amount IS editable, but it is the one field with financial consequence:
+ * `billing_student_bills` has a BEFORE UPDATE trigger
+ * (`update_bill_balance_on_amount_change`) that, whenever final_amount changes,
+ * re-sums billing_receipt_items and REWRITES balance_amount + status. That is
+ * exactly what we want for a live bill — and exactly what must never happen to
+ * a void one, since the trigger would resurrect a cancelled/superseded/refunded
+ * bill as 'unpaid'. Hence AMOUNT_LOCKED_STATUSES below.
  */
 
 export const STUDENT_BILL_BULK_EDIT_HEADERS = [
@@ -17,7 +22,7 @@ export const STUDENT_BILL_BULK_EDIT_HEADERS = [
   'Student Name',     // C  read-only
   'Institution',      // D  read-only
   'Status',           // E  read-only
-  'Final Amount',     // F  read-only
+  'Final Amount',     // F  editable (number) — blank = keep current
   'Academic Year',    // G  editable (dropdown) — blank = clear
   'Billing Category', // H  editable (dropdown) — required
   'Bill Description', // I  editable
@@ -28,8 +33,9 @@ export const STUDENT_BILL_BULK_EDIT_HEADERS = [
 export type StudentBillBulkEditHeader =
   (typeof STUDENT_BILL_BULK_EDIT_HEADERS)[number];
 
-/** The five editable fields and their display labels (used in diffs + audit). */
+/** The six editable fields and their display labels (used in diffs + audit). */
 export type EditableField =
+  | 'final_amount'
   | 'academic_year'
   | 'item_category'
   | 'bill_description'
@@ -37,12 +43,21 @@ export type EditableField =
   | 'remarks';
 
 export const EDITABLE_FIELD_LABELS: Record<EditableField, string> = {
+  final_amount: 'Final Amount',
   academic_year: 'Academic Year',
   item_category: 'Billing Category',
   bill_description: 'Bill Description',
   due_date: 'Due Date',
   remarks: 'Remarks'
 };
+
+/**
+ * Statuses whose amount may NOT be edited in bulk. These are void/settled
+ * states; the balance trigger keys only off final_amount and would rewrite
+ * status back to unpaid/partially_paid/paid, silently un-voiding the bill.
+ * Every other field stays editable on these bills, as before.
+ */
+export const AMOUNT_LOCKED_STATUSES = ['cancelled', 'superseded', 'refunded'] as const;
 
 /** Bill statuses (for the download filter dropdown). */
 export const BULK_EDIT_STATUS_OPTIONS = [

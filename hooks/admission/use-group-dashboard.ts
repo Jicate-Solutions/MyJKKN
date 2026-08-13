@@ -54,6 +54,29 @@ export const groupDashboardKeys = {
       institutionIds ?? 'all',
       admissionYear ?? 'no-year',
     ] as const,
+  admittedSourceCounts: (institutionIds?: string[], admissionYear?: number | null) =>
+    [
+      ...groupDashboardKeys.all,
+      'admitted-source-counts',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+    ] as const,
+  admittedSourceList: (
+    institutionIds?: string[],
+    admissionYear?: number | null,
+    source?: string | null,
+    limit?: number,
+    offset?: number,
+  ) =>
+    [
+      ...groupDashboardKeys.all,
+      'admitted-source-list',
+      institutionIds ?? 'all',
+      admissionYear ?? 'no-year',
+      source ?? 'all-sources',
+      limit ?? 50,
+      offset ?? 0,
+    ] as const,
   institutionComparison: (institutionIds?: string[], admissionYear?: number | null) =>
     [
       ...groupDashboardKeys.all,
@@ -205,6 +228,68 @@ export function useGeographyAnalytics(
     queryFn: () => GroupDashboardService.getGeographyAnalytics(institutionIds, admissionYear),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
+  });
+}
+
+/**
+ * Per-source admitted counts for the drill-down's filter chips + donut.
+ * Includes the DIRECT_SOURCE_KEY bucket (admitted learners with no lead).
+ */
+export function useAdmittedSourceCounts(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null
+) {
+  useSeatsRealtimeInvalidation();
+  return useQuery({
+    queryKey: groupDashboardKeys.admittedSourceCounts(institutionIds, admissionYear),
+    queryFn: () =>
+      GroupDashboardService.getAdmittedSourceCounts(institutionIds, admissionYear),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    enabled:
+      admissionYear !== null && admissionYear !== undefined
+      && (institutionIds === undefined || institutionIds.length > 0),
+  });
+}
+
+/**
+ * Paginated admitted-learner list with source attribution.
+ *
+ * `source` semantics: null => all sources; DIRECT_SOURCE_KEY => only learners
+ * with no lead row; anything else => that exact admission_leads.source value.
+ *
+ * placeholderData keeps the previous page visible while the next one loads, so
+ * paging doesn't flash an empty table.
+ */
+export function useAdmittedSourceList(
+  institutionIds: string[] | undefined,
+  admissionYear: number | null,
+  source: string | null,
+  limit: number,
+  offset: number
+) {
+  return useQuery({
+    queryKey: groupDashboardKeys.admittedSourceList(
+      institutionIds,
+      admissionYear,
+      source,
+      limit,
+      offset,
+    ),
+    queryFn: () =>
+      GroupDashboardService.getAdmittedSourceBreakdown(
+        institutionIds,
+        admissionYear,
+        source,
+        limit,
+        offset,
+      ),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    placeholderData: (prev) => prev,
     enabled:
       admissionYear !== null && admissionYear !== undefined
       && (institutionIds === undefined || institutionIds.length > 0),

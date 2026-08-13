@@ -31701,16 +31701,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) TO auth
 -- 5. fn_settle_window_open — open, or restart, the room's settle window.
 --    Rule 1 + 2 + 3. Called when a learner is allocated to the room.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_settle_window_open(
-  p_room_id        uuid,
-  p_hostel_year_id uuid DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_settle_window_open(p_room_id uuid, p_hostel_year_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_year_id  uuid;
   v_window   public.hostel_room_settle_windows%ROWTYPE;
@@ -31722,6 +31718,18 @@ BEGIN
   -- later starts from a clean slate rather than a backlog of stale deadlines.
   IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
     RETURN jsonb_build_object('action', 'disabled', 'room_id', p_room_id);
+  END IF;
+
+  -- Category opt-in. A room with no category can never be priced by
+  -- fn_settle_room_annual_cost either, so it is excluded here too.
+  IF NOT EXISTS (
+    SELECT 1
+    FROM hostel_rooms r
+    JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE r.id = p_room_id
+      AND hc.settle_billing_enabled
+  ) THEN
+    RETURN jsonb_build_object('action', 'not_eligible', 'room_id', p_room_id);
   END IF;
 
   -- Opening/restarting a window delays billing, so it is gated too — but on the
@@ -31802,7 +31810,7 @@ BEGIN
     'hard_deadline',    v_window.hard_deadline,
     'capped_at_hard_deadline', v_deadline = v_window.hard_deadline);
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authenticated, service_role;
@@ -31812,22 +31820,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authentic
 --    Rule 3 + 4 + 5. Occupancy comes from the canonical view, not a recount.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_settle_window_due()
-RETURNS TABLE (
-  window_id        uuid,
-  room_id          uuid,
-  hostel_year_id   uuid,
-  reason           text,
-  active_occupants int,
-  capacity         int,
-  opened_at        timestamptz,
-  current_deadline timestamptz,
-  hard_deadline    timestamptz
-)
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+ RETURNS TABLE(window_id uuid, room_id uuid, hostel_year_id uuid, reason text, active_occupants integer, capacity integer, opened_at timestamp with time zone, current_deadline timestamp with time zone, hard_deadline timestamp with time zone)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
   SELECT
     w.id,
     w.room_id,
@@ -31852,11 +31849,20 @@ AS $$
       OR now() >= w.hard_deadline
       OR (occ.capacity > 0 AND occ.active_residents >= occ.capacity)
     )
+    -- Category opt-in, re-checked at close time. Switching a category off must
+    -- STOP billing it, not let one last sweep through on windows already open.
+    AND EXISTS (
+      SELECT 1
+      FROM hostel_rooms r
+      JOIN hostel_categories hc ON hc.id = r.category_id
+      WHERE r.id = w.room_id
+        AND hc.settle_billing_enabled
+    )
     -- Scoped: SECURITY DEFINER bypasses RLS, so without this the list would
     -- leak every institution's rooms to any authenticated caller.
     AND fn_settle_can_manage(w.room_id, 'campus_living.fees.view')
   ORDER BY w.current_deadline;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_window_due() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_window_due() TO authenticated, service_role;
@@ -31906,17 +31912,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_due() TO authenticated, se
 --    Live path bills every resident at the occupancy that exists right now.
 --    Idempotent: a window already 'billed' is skipped, never billed twice.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_settle_bill_close(
-  p_room_id   uuid,
-  p_dry_run   boolean DEFAULT true,
-  p_window_id uuid    DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_settle_bill_close(p_room_id uuid, p_dry_run boolean DEFAULT true, p_window_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_window     public.hostel_room_settle_windows%ROWTYPE;
   v_year_id    uuid;
@@ -31926,8 +31927,11 @@ DECLARE
   v_due_days   int;
   v_base_share numeric;
   v_ac_share   numeric;
+  v_settled    numeric;
+  v_per_bed    numeric;
   v_share      numeric;
-  v_category   uuid;
+  v_category   uuid;   -- hostel_categories.id — the ROOM's category
+  v_bill_cat   uuid;   -- billing_categories.id — the revenue head
   v_lines      jsonb := '[]'::jsonb;
   v_billed     int := 0;
   v_skipped    int := 0;
@@ -31937,9 +31941,9 @@ DECLARE
   v_exists     boolean;
 BEGIN
   -- Defense in depth: even a hand-made live call is refused while the master
-  -- switch is off. This RAISEs rather than returning, so a caller that ignores
-  -- return values still cannot bill anyone.
-  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+  -- switch is off. The switch gates MONEY, not the practice run — a dry run
+  -- writes nothing, so it must work while the mechanism is off.
+  IF NOT p_dry_run AND NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
     RAISE EXCEPTION 'settle-then-bill is disabled (platform policy hostel.settle_bill.enabled = false)'
       USING ERRCODE = '42501';
   END IF;
@@ -31980,12 +31984,19 @@ BEGIN
 
   v_year_id := COALESCE(v_window.hostel_year_id, fn_settle_current_hostel_year());
 
-  -- Refuse rather than stamp a NULL hostel_year_id: the dedup key against
-  -- campus_living_generate_hostel_year_bills compares hostel_year_id, and NULL
-  -- never matches, so a NULL-year bill would defeat the double-bill guard.
   IF v_year_id IS NULL THEN
     RETURN jsonb_build_object('status', 'no_hostel_year', 'room_id', p_room_id,
                               'window_id', v_window.id);
+  END IF;
+
+  -- The revenue head must exist before anything is priced. Writing a NULL
+  -- item_category_id would produce an unidentifiable bill that the dedup guard
+  -- below could never match again, so refuse instead and leave the window open.
+  v_bill_cat := fn_settle_billing_category();
+  IF v_bill_cat IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_billing_category', 'room_id', p_room_id,
+                              'window_id', v_window.id,
+                              'reason', 'billing_categories row "Hostel Empty Bed Settlement" is missing or inactive');
   END IF;
 
   v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
@@ -31998,6 +32009,7 @@ BEGIN
 
   v_capacity := (v_cost->>'capacity')::int;
   v_category := (v_cost->>'category_id')::uuid;
+  v_per_bed  := (v_cost->>'per_bed_annual_rate')::numeric;
 
   -- Occupancy exactly as v_hostel_room_occupancy defines it.
   SELECT COUNT(*)::int INTO v_occupants
@@ -32017,9 +32029,46 @@ BEGIN
   -- computeFeeBreakdown parity: each term rounded separately, then summed.
   v_base_share := round((v_cost->>'base_room_annual')::numeric / v_occupants);
   v_ac_share   := round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
-  v_share      := v_base_share + v_ac_share;
+  v_settled    := v_base_share + v_ac_share;
+
+  -- THE INCREMENT. She already carries one bed at the per-bed rate (admission
+  -- fee structure + upgrade differential), so only the empty beds are new
+  -- money. At full occupancy settled_share = per_bed exactly and this is 0.
+  v_share := GREATEST(0, v_settled - v_per_bed);
 
   v_due_days := GREATEST(0, fn_get_policy_int('hostel.settle_bill.bill_due_days', 5));
+
+  IF v_share <= 0 THEN
+    -- Room is full (or the rate makes the empty beds free). Nothing is owed;
+    -- close the window so the sweep stops returning it.
+    IF NOT p_dry_run THEN
+      UPDATE hostel_room_settle_windows
+         SET status = 'billed', billed_at = now(), occupants_at_billing = v_occupants
+       WHERE id = v_window.id;
+    END IF;
+    RETURN jsonb_build_object(
+      'status',              'closed',
+      'dry_run',             p_dry_run,
+      'room_id',             p_room_id,
+      'window_id',           v_window.id,
+      'hostel_year_id',      v_year_id,
+      'capacity',            v_capacity,
+      'active_occupants',    v_occupants,
+      'per_bed_annual_rate', v_per_bed,
+      'base_room_annual',    (v_cost->>'base_room_annual')::numeric,
+      'ac_room_annual',      (v_cost->>'ac_room_annual')::numeric,
+      'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
+      'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
+      'base_share',          v_base_share,
+      'ac_share',            v_ac_share,
+      'settled_share',       v_settled,
+      'share_per_resident',  0,
+      'due_date',            (now() + make_interval(days => v_due_days))::date,
+      'billed_count',        0,
+      'skipped_count',       0,
+      'reason',              'nothing_to_settle',
+      'lines',               '[]'::jsonb);
+  END IF;
 
   FOR a IN
     SELECT al.id AS allocation_id, al.learner_id
@@ -32027,7 +32076,7 @@ BEGIN
     WHERE al.room_id = p_room_id AND al.check_out_date IS NULL
     ORDER BY al.check_in_date, al.id
   LOOP
-    -- profiles(id) → learners_profiles(id). Non-learner residents cannot be
+    -- profiles(id) -> learners_profiles(id). Non-learner residents cannot be
     -- billed through the learner billing tables; they are reported, not billed.
     v_lp_id := NULL;
     IF a.learner_id IS NOT NULL THEN
@@ -32046,11 +32095,9 @@ BEGIN
     FROM learners_profiles lp WHERE lp.id = v_lp_id;
 
     -- A learner on a FLAT PACKAGE is not settle-billable at all: her hostel fee
-    -- is one bundled package price that does not divide by occupancy. Worse,
-    -- the generate path keys package bills on package_id and would not see a
-    -- 'hostel_category' row at all — so billing her here is a straight
-    -- DOUBLE-BILL of the room. Detected by asking the canonical resolver rather
-    -- than re-deriving its package-matching rules.
+    -- is one bundled package price that does not divide by occupancy. Detected
+    -- by asking the canonical resolver rather than re-deriving its
+    -- package-matching rules.
     SELECT EXISTS (
       SELECT 1
       FROM jsonb_array_elements(
@@ -32067,14 +32114,18 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- Same dedup key campus_living_generate_hostel_year_bills uses, so the two
-    -- paths cannot both bill this room to this learner.
+    -- Dedup on the SETTLEMENT head, in its own id domain. The previous version
+    -- compared a hostel_categories.id against item_category_id
+    -- (billing_categories.id) and so was always false — it could not see its own
+    -- prior bills. It also matched fee_source 'academic', which would now skip
+    -- every learner holding an upgrade differential, i.e. everyone in a premium
+    -- room. Scoped tightly to what THIS function writes.
     SELECT EXISTS (
       SELECT 1 FROM billing_student_bills b
-      WHERE b.student_id      = v_lp_id
-        AND b.hostel_year_id  = v_year_id
-        AND b.item_category_id = v_category
-        AND b.fee_source IN ('academic','hostel_category')
+      WHERE b.student_id       = v_lp_id
+        AND b.hostel_year_id   = v_year_id
+        AND b.item_category_id = v_bill_cat
+        AND b.fee_source       = 'hostel_category'
         AND b.status NOT IN ('cancelled','superseded')
     ) INTO v_exists;
 
@@ -32092,8 +32143,10 @@ BEGIN
          bill_description, due_date, quantity, unit_amount, total_amount,
          final_amount, balance_amount, status)
       VALUES
-        (v_lp_id, v_inst_id, v_category, v_year_id, 'hostel_category',
-         'Hostel room share (settled at ' || v_occupants || ' of ' || v_capacity || ' occupants)',
+        (v_lp_id, v_inst_id, v_bill_cat, v_year_id, 'hostel_category',
+         'Hostel empty-bed settlement: ' || (v_capacity - v_occupants)
+           || ' of ' || v_capacity || ' beds empty at ' || v_occupants || ' occupant'
+           || CASE WHEN v_occupants = 1 THEN '' ELSE 's' END,
          (now() + make_interval(days => v_due_days))::date,
          1, v_share, v_share, v_share, v_share, 'unpaid');
     END IF;
@@ -32119,20 +32172,27 @@ BEGIN
     'hostel_year_id',      v_year_id,
     'capacity',            v_capacity,
     'active_occupants',    v_occupants,
-    'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
+    'hostel_category_id',  v_category,
+    'billing_category_id', v_bill_cat,
+    'per_bed_annual_rate', v_per_bed,
     'base_room_annual',    (v_cost->>'base_room_annual')::numeric,
     'ac_room_annual',      (v_cost->>'ac_room_annual')::numeric,
     'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
     'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
     'base_share',          v_base_share,
     'ac_share',            v_ac_share,
+    -- settled_share is what she would owe for the room in total at this
+    -- occupancy; share_per_resident is what is actually BILLED, i.e. the empty
+    -- beds only. The TS parity gate re-derives the first and subtracts the
+    -- per-bed rate to reach the second.
+    'settled_share',       v_settled,
     'share_per_resident',  v_share,
     'due_date',            (now() + make_interval(days => v_due_days))::date,
     'billed_count',        v_billed,
     'skipped_count',       v_skipped,
     'lines',               v_lines);
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO authenticated, service_role;
@@ -32162,29 +32222,24 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO a
 --    every later step. So the walk ends at the CURRENT active-occupant count
 --    and steps back one per uncredited joiner.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(
-  p_room_id   uuid,
-  p_dry_run   boolean DEFAULT true,
-  p_window_id uuid    DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(p_room_id uuid, p_dry_run boolean DEFAULT true, p_window_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_window       public.hostel_room_settle_windows%ROWTYPE;
   v_year_id      uuid;
   v_year_end     date;
   v_cost         jsonb;
-  v_category     uuid;
+  v_bill_cat     uuid;
   v_base         numeric;
   v_ac           numeric;
-  v_n_billed     int;   -- occupants the residents were BILLED at
-  v_n_before     int;   -- clamped occupancy just before one arrival
-  v_n_after      int;   -- clamped occupancy just after that arrival
-  v_live         int;   -- active occupants RIGHT NOW
+  v_n_billed     int;
+  v_n_before     int;
+  v_n_after      int;
+  v_live         int;
   v_entitlement  numeric := 0;
   v_already      numeric;
   v_processed    uuid[] := '{}'::uuid[];
@@ -32200,7 +32255,7 @@ DECLARE
   r              record;
   v_lp_id        uuid;
 BEGIN
-  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+  IF NOT p_dry_run AND NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
     RAISE EXCEPTION 'settle-then-bill is disabled (platform policy hostel.settle_bill.enabled = false)'
       USING ERRCODE = '42501';
   END IF;
@@ -32210,10 +32265,6 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  -- Credit the window the caller was handed. A room can hold billed windows in
-  -- two hostel years; always taking the newest would stamp the older one's
-  -- joiners never, leaving it in the due list on every sweep forever and
-  -- computing against the wrong year's rate.
   SELECT * INTO v_window
   FROM hostel_room_settle_windows w
   WHERE w.room_id = p_room_id
@@ -32234,37 +32285,20 @@ BEGIN
                               'window_id', v_window.id);
   END IF;
 
+  v_bill_cat := fn_settle_billing_category();
+  IF v_bill_cat IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_billing_category', 'room_id', p_room_id,
+                              'window_id', v_window.id);
+  END IF;
+
   v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
   IF NOT (v_cost->>'found')::boolean THEN
     RETURN jsonb_build_object('status', 'no_rate', 'room_id', p_room_id,
                               'window_id', v_window.id, 'reason', v_cost->>'reason');
   END IF;
-  v_category := (v_cost->>'category_id')::uuid;
-  v_base     := (v_cost->>'base_room_annual')::numeric;
-  v_ac       := (v_cost->>'ac_room_annual')::numeric;
+  v_base := (v_cost->>'base_room_annual')::numeric;
+  v_ac   := (v_cost->>'ac_room_annual')::numeric;
 
-  -- ── Entitlement accumulates PER JOINING EVENT, capped at what she was billed
-  -- Each arrival k contributes
-  --     max(0, share(max(n_billed, n_after_k − 1)) − share(max(n_billed, n_after_k)))
-  --     × remaining_months(that arrival) / 12
-  -- and a resident's total entitlement is the sum over every post-billing
-  -- arrival still in the room. Each round tops her up toward that sum.
-  --
-  -- Both clamps are load-bearing, and each one fixes a case that a simpler
-  -- formula gets wrong:
-  --   * max(n_billed, …) is what makes DEPARTURES behave. A room billed at 2
-  --     that loses one resident and gains another still holds 2 —
-  --     share(2) − share(2) = 0, nobody is credited, which is right because she
-  --     paid for a 2-person room and is in one. Reconstructing the step alone
-  --     reads that same room as "1 → 2" and pays out a half-room credit that
-  --     was never owed.
-  --   * summing PER EVENT, each with its OWN month, is what stops a later
-  --     arrival in a shorter month from dragging the whole target below what
-  --     was already credited and permanently under-paying the earlier step.
-  --     One target recomputed against a shifting anchor does exactly that.
-  -- With nobody leaving, the sum telescopes to share(n_billed) − share(n_now),
-  -- and re-running is inert: the entitlement is unchanged and the top-up is
-  -- entitlement − already_credited = 0.
   SELECT COUNT(*)::int INTO v_live
   FROM hostel_allocations al
   WHERE al.room_id = p_room_id AND al.check_out_date IS NULL;
@@ -32282,7 +32316,6 @@ BEGIN
       AND al.created_at > v_window.billed_at
     ORDER BY al.created_at, al.id
   LOOP
-    -- Occupancy reconstructed at the instant this joiner arrived (includes her).
     SELECT COUNT(*)::int INTO v_n_after
     FROM hostel_allocations al
     WHERE al.room_id = p_room_id
@@ -32293,15 +32326,10 @@ BEGIN
     v_n_before := GREATEST(v_n_billed, v_n_after - 1);
     v_n_after  := GREATEST(v_n_billed, v_n_after);
 
-    -- Same two-term, separately-rounded shape as computeFeeBreakdown.
     v_share_before := round(v_base / v_n_before) + round(v_ac / v_n_before);
     v_share_after  := round(v_base / v_n_after)  + round(v_ac / v_n_after);
     v_delta        := GREATEST(0, v_share_before - v_share_after);
 
-    -- remainingWholeMonths(joinDate, hostelYear) from hostel-fee-compute-service.ts:
-    -- whole months from the month of joining through the hostel-year end,
-    -- inclusive, clamped to [0, 12]. check_in_date is nullable, so the arrival
-    -- timestamp is the fallback — a NULL must not silently forfeit the credit.
     v_remaining := (
       (EXTRACT(YEAR FROM v_year_end)::int * 12 + EXTRACT(MONTH FROM v_year_end)::int)
       - (EXTRACT(YEAR FROM j.join_date)::int * 12 + EXTRACT(MONTH FROM j.join_date)::int)
@@ -32335,7 +32363,7 @@ BEGIN
       FROM hostel_allocations al
       WHERE al.room_id = p_room_id
         AND al.check_out_date IS NULL
-        AND al.created_at <= v_window.billed_at   -- billed cohort, not the joiners
+        AND al.created_at <= v_window.billed_at
       ORDER BY al.check_in_date, al.id
     LOOP
       v_lp_id := NULL;
@@ -32344,18 +32372,19 @@ BEGIN
       END IF;
       CONTINUE WHEN v_lp_id IS NULL;
 
-      -- Only residents who were ACTUALLY billed for this room can be credited
-      -- against it. A resident with no hostel bill has nothing to reduce.
+      -- Only residents who actually hold a settlement bill for this room can be
+      -- credited against it. Compared on the settlement head, in its own id
+      -- domain — the previous predicate used the hostel category id and so was
+      -- never true, silently skipping every resident.
       CONTINUE WHEN NOT EXISTS (
         SELECT 1 FROM billing_student_bills b
         WHERE b.student_id       = v_lp_id
           AND b.hostel_year_id   = v_year_id
-          AND b.item_category_id = v_category
-          AND b.fee_source IN ('academic','hostel_category')
+          AND b.item_category_id = v_bill_cat
+          AND b.fee_source       = 'hostel_category'
           AND b.status NOT IN ('cancelled','superseded')
       );
 
-      -- What earlier rounds on THIS window already gave her.
       SELECT COALESCE(SUM(scb.amount), 0) INTO v_already
       FROM student_credit_balances scb
       WHERE scb.student_id = v_lp_id
@@ -32373,8 +32402,8 @@ BEGIN
            COALESCE(v_processed[1], v_window.id), false,
            'Campus living settle-then-bill late join: billed at ' || v_n_billed
            || ' occupant(s), room now holds ' || v_live
-           || '. Entitlement ₹' || v_entitlement || ' less ₹' || v_already
-           || ' already credited = ₹' || v_credit || '.');
+           || '. Entitlement Rs ' || v_entitlement || ' less Rs ' || v_already
+           || ' already credited = Rs ' || v_credit || '.');
         v_written := v_written + 1;
       END IF;
 
@@ -32384,11 +32413,6 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- Mark every joining event this round actually EVALUATED, whether or not it
-  -- produced a credit row. This is the idempotency record; a zero-credit round
-  -- must never come back a second time. Every arrival above is evaluated —
-  -- a NULL check_in_date falls back to the arrival timestamp rather than
-  -- forfeiting the credit — so stamping here can never bury money.
   IF NOT p_dry_run AND array_length(v_processed, 1) IS NOT NULL THEN
     UPDATE hostel_room_settle_windows
        SET credited_allocation_ids = credited_allocation_ids || v_processed
@@ -32407,9 +32431,6 @@ BEGIN
     'entitlement_per_resident', v_entitlement,
     'credits',        v_credits,
     'hostel_year_end_date', v_year_end,
-    -- Compute primitives, so the TS wrapper can re-derive every share and every
-    -- remaining-months figure below through computeFeeBreakdown /
-    -- remainingWholeMonths instead of trusting this function's arithmetic.
     'capacity',            (v_cost->>'capacity')::int,
     'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
     'base_room_annual',    v_base,
@@ -32420,7 +32441,7 @@ BEGIN
     'events_processed', COALESCE(array_length(v_processed, 1), 0),
     'credits_written', v_written);
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) TO authenticated, service_role;
@@ -34152,6 +34173,117 @@ AS $function$
   FROM scored s
   ORDER BY s.full_name;
 $function$;
+
+-- ============================================================================
+-- Bill Coverage: expose Total Paid alongside Total Billed
+-- ============================================================================
+-- REQUEST (2026-08-11, /billing/coverage): the XLS/CSV export carries "Total
+-- Billed" but no "Total Paid", so a coverage sheet cannot be reconciled without
+-- pulling a second report. The column did not exist to export — the list RPC's
+-- RETURNS TABLE only ever produced out_bill_count and out_total_billed.
+--
+-- PAID IS NOT REDEFINED HERE. get_billing_coverage_learner_bills (the PDF
+-- export, migration 20260729) already settled the arithmetic:
+--
+--     paid = SUM(final_amount - balance_amount)
+--
+-- over the SAME live-bill set the coverage verdict itself is computed from —
+-- status NOT IN ('cancelled','superseded'), the bill's OWN academic_year_id
+-- equal to the target year, and the optional category filter. Deriving paid any
+-- other way here (e.g. from receipts, or over all years) would let the XLS and
+-- the PDF report different figures for the same learner on the same filters,
+-- which is the failure mode 20260808120000 was written to end.
+--
+-- COALESCE on balance_amount is deliberate. The column is nullable with DEFAULT
+-- 0; a NULL would make `final_amount - balance_amount` NULL, SUM would skip that
+-- bill, and total_paid would silently understate while total_billed still
+-- counted it. Zero live bills are NULL today (13,425 checked 2026-08-11) — the
+-- guard is there so that stays true by construction rather than by luck.
+--
+-- 'total_paid' also joins the sort whitelist. A header the RPC does not
+-- recognise falls through to the default order while the UI still draws a sort
+-- arrow, so a sortable column MUST be added in both places or it lies.
+-- ============================================================================
+
+-- ── Learner list ────────────────────────────────────────────────────────────
+-- DROP + CREATE, not CREATE OR REPLACE: out_total_paid is a new RETURNS TABLE
+-- column and Postgres cannot replace a function whose output type changed.
+-- DROP discards the ACL, so the grants at the bottom are mandatory, not
+-- tidy-up — without them EXECUTE reverts to the PUBLIC default.
+DROP FUNCTION IF EXISTS public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid);
+
+CREATE FUNCTION public.get_billing_coverage_learners(
+  p_academic_year_id uuid DEFAULT NULL,
+  p_institution_ids uuid[] DEFAULT NULL,
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active','reserved','admitted','account'],
+  p_billing_category_id uuid DEFAULT NULL,
+  p_coverage_state text DEFAULT 'not_generated',
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_accommodation_type_ids uuid[] DEFAULT NULL,
+  p_transport text DEFAULT 'any',
+  p_gender text DEFAULT NULL,
+  p_sort_by text DEFAULT NULL,
+  p_sort_dir text DEFAULT 'asc',
+  p_degree_id uuid DEFAULT NULL,
+  p_department_id uuid DEFAULT NULL,
+  p_program_id uuid DEFAULT NULL,
+  p_semester_id uuid DEFAULT NULL,
+  p_section_id uuid DEFAULT NULL
+)
+RETURNS TABLE(
+  out_learner_id uuid,
+  out_roll_number text,
+  out_register_number text,
+  out_full_name text,
+  out_lifecycle_status text,
+  out_gender text,
+  out_institution_id uuid,
+  out_institution_name text,
+  out_program_name text,
+  out_semester_section text,
+  out_academic_year_id uuid,
+  out_academic_year_name text,
+  out_accommodation_type text,
+  out_uses_transport boolean,
+  out_bill_count integer,
+  out_total_billed numeric,
+  out_total_paid numeric,
+  out_coverage_state text,
+  out_target_academic_year_name text,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  -- Name of an explicitly picked year, so the reported target reflects the
+  -- caller's choice rather than the institution's current year.
+  v_picked_ay_name text;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+REVOKE EXECUTE ON FUNCTION public.fn_audit_admission_lead_source() FROM anon, PUBLIC;
 
 -- ============================================================================
 -- Bill Coverage: expose Total Paid alongside Total Billed
@@ -36567,10 +36699,21 @@ COMMENT ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text
 -- once in 10^10 draws. The loop is bounded at 20 and raises rather than
 -- spinning.
 -- ---------------------------------------------------------------------
+-- Corrected 2026-08-13: widened to a 4-argument signature to issue a
+-- third person_kind, 'external_participant', anchored on a profile
+-- rather than a learner/staff row. This is a DROP + CREATE, not a bare
+-- CREATE OR REPLACE: a defaulted 4th parameter alongside the old 3-arg
+-- signature would create an OVERLOAD, and a 3-argument call would then
+-- match both and fail with 42725 "function is not unique". The old
+-- signature is gone, so the REVOKE/GRANT below is re-issued against the
+-- new one. Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
+DROP FUNCTION IF EXISTS public.fn_issue_jkkn_id(text, uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.fn_issue_jkkn_id(
   p_person_kind        text,
   p_learner_profile_id uuid DEFAULT NULL,
-  p_team_member_id     uuid DEFAULT NULL
+  p_team_member_id     uuid DEFAULT NULL,
+  p_profile_id         uuid DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -36594,8 +36737,9 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF p_person_kind IS NULL OR p_person_kind NOT IN ('learner', 'team_member', 'both') THEN
-    RAISE EXCEPTION 'person_kind must be learner, team_member or both (got %)', p_person_kind
+  IF p_person_kind IS NULL
+     OR p_person_kind NOT IN ('learner','team_member','both','external_participant') THEN
+    RAISE EXCEPTION 'person_kind must be learner, team_member, both or external_participant (got %)', p_person_kind
       USING ERRCODE = '22023';
   END IF;
 
@@ -36612,7 +36756,7 @@ BEGIN
         USING ERRCODE = '23503';
     END IF;
   ELSIF p_learner_profile_id IS NOT NULL THEN
-    RAISE EXCEPTION 'A team_member identity must not carry a learner profile'
+    RAISE EXCEPTION 'A % identity must not carry a learner profile', p_person_kind
       USING ERRCODE = '22023';
   END IF;
 
@@ -36626,7 +36770,22 @@ BEGIN
         USING ERRCODE = '23503';
     END IF;
   ELSIF p_team_member_id IS NOT NULL THEN
-    RAISE EXCEPTION 'A learner identity must not carry a team member'
+    RAISE EXCEPTION 'A % identity must not carry a team member', p_person_kind
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- New kind: an external participant is anchored on a profile only.
+  IF p_person_kind = 'external_participant' THEN
+    IF p_profile_id IS NULL THEN
+      RAISE EXCEPTION 'An external_participant identity needs a profile'
+        USING ERRCODE = '22023';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_profile_id) THEN
+      RAISE EXCEPTION 'No profile %', p_profile_id
+        USING ERRCODE = '23503';
+    END IF;
+  ELSIF p_profile_id IS NOT NULL THEN
+    RAISE EXCEPTION 'Only an external_participant identity is issued against a profile'
       USING ERRCODE = '22023';
   END IF;
 
@@ -36638,6 +36797,7 @@ BEGIN
     FROM public.jkkn_identities
    WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
       OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
+      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
    LIMIT 1;
 
   IF v_existing IS NOT NULL THEN
@@ -36652,10 +36812,10 @@ BEGIN
     v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
 
     INSERT INTO public.jkkn_identities (
-      jkkn_id, person_kind, learner_profile_id, team_member_id, issued_by
+      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
     )
     VALUES (
-      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, auth.uid()
+      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, auth.uid()
     )
     ON CONFLICT (jkkn_id) DO NOTHING
     RETURNING id INTO v_id;
@@ -36678,11 +36838,71 @@ BEGIN
 END;
 $fn$;
 
-COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid) IS
-  'Issues ONE permanent JKKN ID to a person who does not already hold one. Admin-gated on users.jkkn_id.issue, which no role holds today — the machinery ships dormant. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
+COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) IS
+  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13). Admin-gated on users.jkkn_id.issue. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid) TO authenticated;
+-- DROP FUNCTION discarded the ACL. Restore it.
+REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- Course Events — role grants and the Course Participant role
+-- Added: 2026-08-13. Mirrors migration
+-- 20260813100600_course_permissions_and_role.sql. A key declared in
+-- lib/constants/permissions.ts grants nothing until it is written into a
+-- role's custom_roles.permissions JSONB — this seeds that for a
+-- from-scratch rebuild.
+-- ---------------------------------------------------------------------
+UPDATE public.custom_roles
+   SET permissions = permissions || jsonb_build_object(
+         'courses.view',                 true,
+         'courses.create',               true,
+         'courses.edit',                 true,
+         'courses.packages.manage',      true,
+         'courses.forms.manage',         true,
+         'courses.sessions.manage',      true,
+         'courses.applications.view',    true,
+         'courses.applications.decide',  true,
+         'courses.enrollments.manage',   true,
+         'courses.billing.view',         true,
+         'courses.billing.manage',       true,
+         'courses.attendance.mark',      true,
+         'courses.certificates.issue',   true,
+         -- Approval issues a permanent JKKN ID, so the deciding role
+         -- needs the issuer's own gate too. Granted here rather than by
+         -- widening fn_issue_jkkn_id, which stays admin-gated.
+         'users.jkkn_id.issue',          true
+       ),
+       updated_at = now()
+ WHERE role_key = ANY (ARRAY['administrator','coo']);
+
+-- courses.delete is deliberately NOT bundled above. It cascades packages,
+-- sessions, forms, applications and enrollments; grant it from Role
+-- Management deliberately, per role. Super admins pass via
+-- user_has_permission()'s own bypass.
+
+-- Exactly ONE key. This role is assigned to every externally provisioned
+-- participant, so anything added here is granted to every outside person
+-- holding a login. institution_scope='own' — the CHECK constraint on
+-- custom_roles admits only 'all'/'own'; 'own' is functionally inert here
+-- because role_has_institution_access() special-cases only scope='all',
+-- and every other branch fails for an external participant whose
+-- profile has institution_id NULL.
+INSERT INTO public.custom_roles
+  (role_key, role_name, description, is_system_role, is_active,
+   institution_scope, permissions, module_scopes)
+VALUES
+  ('course_participant',
+   'Course Participant',
+   'A person enrolled on a paid course. Sees only their own enrollment, bills and receipts, and is confined to the /my-courses portal. Assigned automatically at application approval.',
+   true, true, 'own',
+   jsonb_build_object('courses.participant.self', true),
+   '{}'::jsonb)
+ON CONFLICT (role_key) DO UPDATE
+   SET permissions = jsonb_build_object('courses.participant.self', true),
+       institution_scope = 'own',
+       is_active   = true,
+       updated_at  = now();
 
 -- ---------------------------------------------------------------------
 -- 2. fn_check_duplicate_person — the guard, called BEFORE creating anyone
@@ -37442,3 +37662,5079 @@ $function$;
 -- reads the whole learner cohort.
 REVOKE ALL ON FUNCTION public.fn_auto_allocate_candidates(text, boolean, uuid, uuid, uuid, boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fn_auto_allocate_candidates(text, boolean, uuid, uuid, uuid, boolean) TO authenticated, service_role;
+
+-- =====================================================================
+-- Approval trigger: insert entitled = NULL, not 0
+-- =====================================================================
+-- WHY: approving leave for someone with no balance row inserted
+-- (entitled = 0, used = total_days) -- a permanently negative balance the
+-- generator could never repair, because it was ON CONFLICT DO NOTHING and
+-- would skip the row it needed to fix. NULL means "derive from the leave
+-- type", so the row records the usage without pinning entitlement to zero.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_update_leave_balance()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_delta numeric;
+  v_category text;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status = NEW.status THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category INTO v_category
+  FROM public.hr_leave_types WHERE id = NEW.leave_type_id;
+
+  -- Comp off is credit-backed; short time off is minute-backed. Neither draws
+  -- on a day entitlement.
+  IF v_category IN ('compensatory_off', 'short_time_off') THEN
+    NEW.updated_at := now();
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status = 'approved' AND OLD.status != 'approved' THEN
+    v_delta := NEW.total_days;
+    INSERT INTO hr_leave_balances (employee_id, leave_type_id, hr_academic_year_id, hr_organization_id, entitled, used, carried_forward)
+    VALUES (NEW.employee_id, NEW.leave_type_id, NEW.hr_academic_year_id, NEW.hr_organization_id, NULL, v_delta, 0)
+    ON CONFLICT (employee_id, leave_type_id, hr_academic_year_id)
+    DO UPDATE SET
+      used = hr_leave_balances.used + EXCLUDED.used,
+      updated_at = now();
+
+  ELSIF NEW.status IN ('cancelled', 'rejected', 'withdrawn') AND OLD.status = 'approved' THEN
+    v_delta := NEW.total_days;
+    UPDATE hr_leave_balances
+       SET used = GREATEST(0, used - v_delta),
+           updated_at = now()
+     WHERE employee_id         = NEW.employee_id
+       AND leave_type_id       = NEW.leave_type_id
+       AND hr_academic_year_id = NEW.hr_academic_year_id;
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END $function$;
+
+
+-- ============================================================
+-- 20260812062157_billing_coverage_admission_year_filter.sql
+-- Bill Coverage: admission year (cohort) filter
+-- ============================================================
+-- ============================================================================
+-- Bill Coverage: admission year (cohort) filter
+-- ============================================================================
+-- Adds p_admission_year to all three coverage RPCs so the page can be narrowed
+-- to a single admission cohort ("the 2025 batch"), and surfaces that cohort as
+-- a column on the learners list.
+--
+-- WHY AN INTEGER AND NOT AN admission_year_id UUID
+-- admission_years holds one row per (institution, year) — cohort 2026 exists 11
+-- times, once per college, each with its own id. A uuid parameter would
+-- therefore only be meaningful once an institution had been picked, exactly the
+-- limitation that already forces the Academic Year filter to disable itself in
+-- "All accessible institutions" mode. admission_years.year is a plain integer
+-- and is the same value in every institution, so filtering on it composes with
+-- the default multi-institution scope. This matches how the group dashboard
+-- already presents cohorts (hooks/admission/use-group-admission-years.ts dedupes
+-- the rows by year).
+--
+-- DISTINCT FROM p_academic_year_id
+-- p_academic_year_id is the year coverage is MEASURED against and never filters
+-- which learners appear (see 20260808120000). p_admission_year is the opposite:
+-- it is purely a population filter and has no bearing on which bills count.
+--
+-- WHY DROP AND RECREATE
+-- CREATE OR REPLACE with a different argument count does not replace — it adds a
+-- second overload, and PostgREST then fails every call with PGRST203. Dropping
+-- discards the ACL (EXECUTE reverts to PUBLIC, which includes anon), so the
+-- REVOKE/GRANT pairs at the end of each block are load-bearing, not decoration.
+-- ============================================================================
+
+DROP FUNCTION IF EXISTS public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid);
+
+DROP FUNCTION IF EXISTS public.get_billing_coverage_summary(
+  uuid, uuid[], text[], uuid, boolean, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid);
+
+DROP FUNCTION IF EXISTS public.get_billing_coverage_learner_bills(
+  uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer);
+
+-- ── Learners list ──────────────────────────────────────────────────────────
+CREATE FUNCTION public.get_billing_coverage_learners(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_coverage_state text DEFAULT 'not_generated'::text,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_lifecycle_status text, out_gender text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_academic_year_id uuid,
+  out_academic_year_name text, out_admission_year integer,
+  out_accommodation_type text, out_uses_transport boolean,
+  out_bill_count integer, out_total_billed numeric, out_total_paid numeric,
+  out_coverage_state text, out_target_academic_year_name text,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  -- Name of an explicitly picked year, so the reported target reflects the
+  -- caller's choice rather than the institution's current year.
+  v_picked_ay_name text;
+  -- Every admission_years id, across ALL institutions, for the requested cohort.
+  -- Resolved once here rather than as a correlated subquery per learner.
+  v_adm_year_ids uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT ay.academic_year_name::text INTO v_picked_ay_name
+  FROM public.academic_years ay WHERE ay.id = p_academic_year_id;
+
+  -- Left NULL when no cohort is requested. When a cohort is requested but no
+  -- admission_years row carries that year, the array stays NULL and
+  -- `= ANY(NULL)` evaluates to NULL, which correctly matches no learner.
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr
+    WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH target_year AS MATERIALIZED (
+    SELECT t.institution_id, t.target_ay_id, t.target_ay_name
+    FROM public.fn_billing_coverage_target_years() t
+  ),
+  billing_inst AS (
+    -- ALL-TIME test, deliberately not scoped to p_academic_year_id. An
+    -- institution that billed last year and has generated nothing this year is
+    -- the case this report exists to catch; scoping here would hide it.
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+  ),
+  scope AS (
+    -- NOTE: no lp.academic_year_id predicate. p_academic_year_id selects the
+    -- year being MEASURED, never the learners being measured — see
+    -- 20260808120000_billing_coverage_target_academic_year.sql.
+    -- p_admission_year is the exception: a cohort IS a population.
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.program_id,
+           lp.semester_id, lp.section_id, lp.gender,
+           lp.lifecycle_status, lp.first_name, lp.last_name,
+           lp.roll_number, lp.register_number,
+           lp.accommodation_type_id, lp.admission_year_id,
+           (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL)
+             AS uses_transport
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_billing_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM billing_inst))
+      AND (p_admission_year IS NULL
+           OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  agg AS (
+    SELECT s.id AS learner_id,
+           ty.target_ay_id,
+           ty.target_ay_name,
+           COUNT(b.id)::integer AS bill_count,
+           COALESCE(SUM(b.final_amount), 0)::numeric AS total_billed,
+           -- Same expression as get_billing_coverage_learner_bills, over the
+           -- same join — the XLS and the PDF must never disagree. A learner
+           -- with no live bill sums to NULL and lands on 0, matching the 0 they
+           -- already show for total_billed.
+           COALESCE(
+             SUM(b.final_amount - COALESCE(b.balance_amount, 0)), 0
+           )::numeric AS total_paid
+    FROM scope s
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+    LEFT JOIN public.billing_student_bills b
+           ON b.student_id = s.id
+          -- A cancelled or superseded bill is not coverage: no live bill exists.
+          AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+          -- The bill's OWN year against the target year. Was s.academic_year_id.
+          AND b.academic_year_id = COALESCE(p_academic_year_id, ty.target_ay_id)
+          AND (p_billing_category_id IS NULL
+               OR b.item_category_id = p_billing_category_id)
+    GROUP BY s.id, ty.target_ay_id, ty.target_ay_name
+  ),
+  final AS (
+    SELECT s.id AS learner_id,
+           s.roll_number::text        AS roll_number,
+           s.register_number::text    AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                      AS full_name,
+           s.lifecycle_status::text   AS lifecycle_status,
+           NULLIF(TRIM(s.gender), '')::text AS gender,
+           s.institution_id           AS institution_id,
+           i.name::text               AS institution_name,
+           p.program_name             AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL
+               THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                        AS semester_section,
+           -- The learner's OWN year, shown for context. It is no longer what
+           -- coverage is measured against; target_academic_year_name is.
+           s.academic_year_id         AS academic_year_id,
+           ay.academic_year_name::text AS academic_year_name,
+           -- The cohort the learner was admitted in. Independent of both years
+           -- above: it never rolls over, so it is the only stable way to read a
+           -- row as "first-year intake" vs "continuing".
+           adm.year                   AS admission_year,
+           acc.name::text             AS accommodation_type,
+           s.uses_transport           AS uses_transport,
+           a.bill_count               AS bill_count,
+           a.total_billed             AS total_billed,
+           a.total_paid               AS total_paid,
+           CASE
+             -- Only when NO year can be resolved at all: an institution with no
+             -- active year that has started yet. Never a mere mismatch.
+             WHEN COALESCE(p_academic_year_id, a.target_ay_id) IS NULL
+               THEN 'cannot_evaluate'
+             WHEN a.bill_count > 0 THEN 'generated'
+             ELSE 'not_generated'
+           END                        AS coverage_state,
+           COALESCE(v_picked_ay_name, a.target_ay_name)
+                                      AS target_academic_year_name
+    FROM scope s
+    JOIN agg a                           ON a.learner_id = s.id
+    LEFT JOIN public.institutions        i   ON i.id   = s.institution_id
+    LEFT JOIN public.programs            p   ON p.id   = s.program_id
+    LEFT JOIN public.semesters           sem ON sem.id = s.semester_id
+    LEFT JOIN public.sections            sec ON sec.id = s.section_id
+    LEFT JOIN public.academic_years      ay  ON ay.id  = s.academic_year_id
+    LEFT JOIN public.admission_years     adm ON adm.id = s.admission_year_id
+    LEFT JOIN public.accommodation_types acc ON acc.id = s.accommodation_type_id
+  ),
+  filtered AS (
+    SELECT * FROM final f
+    WHERE p_coverage_state = 'all' OR f.coverage_state = p_coverage_state
+  )
+  SELECT f.learner_id, f.roll_number, f.register_number, f.full_name,
+         f.lifecycle_status, f.gender, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section,
+         f.academic_year_id, f.academic_year_name, f.admission_year,
+         f.accommodation_type, f.uses_transport,
+         f.bill_count, f.total_billed, f.total_paid, f.coverage_state,
+         f.target_academic_year_name,
+         COUNT(*) OVER ()::bigint
+  FROM filtered f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'accommodation_type' THEN f.accommodation_type
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'coverage_state'     THEN f.coverage_state
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'accommodation_type' THEN f.accommodation_type
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'coverage_state'     THEN f.coverage_state
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'admission_year' THEN f.admission_year::numeric
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'admission_year' THEN f.admission_year::numeric
+       END
+     END) DESC NULLS LAST,
+    f.institution_name NULLS LAST, f.roll_number NULLS LAST, f.full_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid, integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid, integer)
+  TO authenticated, service_role;
+
+-- ── Summary (KPI cards) ────────────────────────────────────────────────────
+-- The same predicate has to land here or the cards would count a wider
+-- population than the table below them shows.
+CREATE FUNCTION public.get_billing_coverage_summary(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'in_scope', 0, 'generated', 0, 'not_generated', 0, 'cannot_evaluate', 0,
+      'excluded_institutions', 0, 'excluded_learners', 0,
+      'by_institution', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr
+    WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH target_year AS MATERIALIZED (
+    SELECT t.institution_id, t.target_ay_id
+    FROM public.fn_billing_coverage_target_years() t
+  ),
+  billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id FROM public.billing_student_bills b
+  ),
+  all_scope AS (
+    -- No lp.academic_year_id predicate — see get_billing_coverage_learners.
+    SELECT lp.id, lp.institution_id,
+           (lp.institution_id IN (SELECT inst_id FROM billing_inst)) AS is_billing_inst
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL
+           OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  scope AS (
+    SELECT * FROM all_scope
+    WHERE p_include_non_billing_institutions OR is_billing_inst
+  ),
+  agg AS (
+    SELECT s.id, s.institution_id, ty.target_ay_id,
+           COUNT(b.id)::integer AS bill_count
+    FROM scope s
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+    LEFT JOIN public.billing_student_bills b
+           ON b.student_id = s.id
+          AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+          AND b.academic_year_id = COALESCE(p_academic_year_id, ty.target_ay_id)
+          AND (p_billing_category_id IS NULL
+               OR b.item_category_id = p_billing_category_id)
+    GROUP BY s.id, s.institution_id, ty.target_ay_id
+  ),
+  stated AS (
+    SELECT a.institution_id,
+           CASE
+             WHEN COALESCE(p_academic_year_id, a.target_ay_id) IS NULL
+               THEN 'cannot_evaluate'
+             WHEN a.bill_count > 0 THEN 'generated'
+             ELSE 'not_generated'
+           END AS coverage_state
+    FROM agg a
+  )
+  SELECT jsonb_build_object(
+    'in_scope',        (SELECT COUNT(*) FROM stated),
+    'generated',       (SELECT COUNT(*) FROM stated WHERE coverage_state = 'generated'),
+    'not_generated',   (SELECT COUNT(*) FROM stated WHERE coverage_state = 'not_generated'),
+    'cannot_evaluate', (SELECT COUNT(*) FROM stated WHERE coverage_state = 'cannot_evaluate'),
+    'excluded_institutions',
+      (SELECT COUNT(DISTINCT institution_id) FROM all_scope WHERE NOT is_billing_inst),
+    'excluded_learners',
+      (SELECT COUNT(*) FROM all_scope WHERE NOT is_billing_inst),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   st.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'in_scope',         COUNT(*),
+                 'generated',        COUNT(*) FILTER (WHERE st.coverage_state = 'generated'),
+                 'not_generated',    COUNT(*) FILTER (WHERE st.coverage_state = 'not_generated')
+               ) AS x
+        FROM stated st
+        LEFT JOIN public.institutions i ON i.id = st.institution_id
+        GROUP BY st.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_summary(
+  uuid, uuid[], text[], uuid, boolean, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_summary(
+  uuid, uuid[], text[], uuid, boolean, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer)
+  TO authenticated, service_role;
+
+-- ── Per-learner bill detail (PDF export) ───────────────────────────────────
+CREATE FUNCTION public.get_billing_coverage_learner_bills(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_coverage_state text DEFAULT 'all'::text,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL::text,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_max_learners integer DEFAULT 1000,
+  p_admission_year integer DEFAULT NULL::integer
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_institution_name text, out_program_name text,
+  out_semester_section text, out_lifecycle_status text,
+  out_learner_total numeric, out_learner_paid numeric,
+  out_learner_pending numeric, out_bill_id uuid, out_bill_description text,
+  out_category_name text, out_bill_academic_year text, out_due_date date,
+  out_bill_status text, out_total_amount numeric, out_paid_amount numeric,
+  out_pending_amount numeric, out_learner_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_cap          integer := LEAST(GREATEST(COALESCE(p_max_learners, 1000), 1), 5000);
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.export') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.export' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr
+    WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH target_year AS MATERIALIZED (
+    SELECT t.institution_id, t.target_ay_id
+    FROM public.fn_billing_coverage_target_years() t
+  ),
+  billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id FROM public.billing_student_bills b
+  ),
+  scope AS (
+    -- No lp.academic_year_id predicate — see get_billing_coverage_learners.
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.program_id,
+           lp.semester_id, lp.section_id, lp.lifecycle_status,
+           lp.first_name, lp.last_name, lp.roll_number, lp.register_number
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_billing_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM billing_inst))
+      AND (p_admission_year IS NULL
+           OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  live_bills AS (
+    -- Was `p_academic_year_id IS NULL OR ...`, i.e. any year — which made the
+    -- PDF disagree with the table for the very learners this fix is about.
+    SELECT b.*
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_billing_category_id IS NULL OR b.item_category_id = p_billing_category_id)
+      AND b.academic_year_id = COALESCE(p_academic_year_id, ty.target_ay_id)
+  ),
+  learner_state AS (
+    SELECT s.id,
+           COUNT(lb.id)::integer AS bill_count,
+           COALESCE(SUM(lb.final_amount), 0)::numeric   AS total_amount,
+           COALESCE(SUM(lb.final_amount - lb.balance_amount), 0)::numeric AS paid_amount,
+           COALESCE(SUM(lb.balance_amount), 0)::numeric AS pending_amount
+    FROM scope s
+    LEFT JOIN live_bills lb ON lb.student_id = s.id
+    GROUP BY s.id
+  ),
+  eligible AS (
+    SELECT s.*, ls.bill_count, ls.total_amount, ls.paid_amount, ls.pending_amount
+    FROM scope s
+    JOIN learner_state ls ON ls.id = s.id
+    WHERE p_coverage_state = 'all'
+       OR (p_coverage_state = 'generated'     AND ls.bill_count > 0)
+       OR (p_coverage_state = 'not_generated' AND ls.bill_count = 0)
+  ),
+  capped AS (
+    SELECT e.*, i.name::text AS institution_name, p.program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END AS semester_section,
+           COUNT(*) OVER ()::bigint AS learner_count
+    FROM eligible e
+    LEFT JOIN public.institutions i   ON i.id   = e.institution_id
+    LEFT JOIN public.programs     p   ON p.id   = e.program_id
+    LEFT JOIN public.semesters    sem ON sem.id = e.semester_id
+    LEFT JOIN public.sections     sec ON sec.id = e.section_id
+    ORDER BY i.name NULLS LAST, e.roll_number NULLS LAST, e.last_name, e.first_name
+    LIMIT v_cap
+  )
+  SELECT c.id,
+         c.roll_number::text,
+         c.register_number::text,
+         TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')),
+         c.institution_name,
+         c.program_name,
+         c.semester_section,
+         c.lifecycle_status::text,
+         c.total_amount,
+         c.paid_amount,
+         c.pending_amount,
+         lb.id,
+         lb.bill_description::text,
+         cat.category_name::text,
+         -- 59 live bills carry no academic year; label rather than drop the row.
+         COALESCE(ay.academic_year_name::text, '—'),
+         lb.due_date,
+         lb.status::text,
+         lb.final_amount,
+         (lb.final_amount - lb.balance_amount),
+         lb.balance_amount,
+         c.learner_count
+  FROM capped c
+  LEFT JOIN live_bills lb              ON lb.student_id = c.id
+  LEFT JOIN public.billing_categories cat ON cat.id = lb.item_category_id
+  LEFT JOIN public.academic_years ay    ON ay.id  = lb.academic_year_id
+  ORDER BY c.institution_name NULLS LAST, c.roll_number NULLS LAST,
+           lb.due_date NULLS LAST, lb.bill_description;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_learner_bills(
+  uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer, integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learner_bills(
+  uuid, uuid[], text[], uuid, text, boolean, text, uuid[], text, text,
+  uuid, uuid, uuid, uuid, uuid, integer, integer)
+  TO authenticated, service_role;
+
+-- No new indexes: learners_profiles.admission_year_id already carries
+-- idx_learners_profiles_admission_year_id, and the cohort→ids lookup reads a
+-- ~44-row table once per call.
+
+
+
+-- ============================================================================
+-- Bill Coverage: Audit tab — two data-integrity checks over tuition billing
+-- ============================================================================
+-- Adds four read-only RPCs behind the EXISTING billing.coverage.view key. No
+-- new permission key is introduced: a key only "exists" for a role once it is
+-- in that role's custom_roles.permissions JSONB, so a new key would need its
+-- own grant migration and would render this tab empty until it ran.
+--
+-- AUDIT A — "missing year bills"
+--   A learner admitted in cohort Y should carry one tuition bill for every
+--   academic year from Y up to their institution's current year. Some learners
+--   only ever got the CURRENT year's bill and never the ones for the years
+--   between their admission and today.
+--
+-- AUDIT B — "duplicate year bills"
+--   At most ONE tuition-kind bill may exist per learner per academic year.
+--   A multi-year fee plan generated in one run stamps every instalment with the
+--   academic year current AT GENERATION TIME, landing 2-3 years of tuition in
+--   one academic year (audited 2026-08-11: 842 combos, since repaired to 19).
+--   That also inflates fn_learner_band_academic_fee() and can grant a costlier
+--   hostel room category, so this is not a cosmetic check.
+--
+-- ── THREE MODELLING DECISIONS THAT ARE LOAD-BEARING ────────────────────────
+--
+-- 1. YEARS ARE COMPARED AS THE INTEGER START YEAR, NEVER AS academic_year_id.
+--    academic_years holds one row per (institution, year) AND institutions
+--    carry duplicate rows on the same start_date — JKKN Dental has an active
+--    '2025-2026' beside an inactive '2025-2026 Additional 1'. A bill stamped
+--    against the "Additional" row covers the same session; keying on the uuid
+--    would report it as a gap. EXTRACT(YEAR FROM start_date) folds them.
+--
+-- 2. A YEAR IS ONLY "EXPECTED" IF AN ACTIVE academic_years ROW EXISTS FOR IT.
+--    Academic-year coverage is sparse and differs per college (Allied Health
+--    begins at 2024-2025, Pharmacy at 2021-2022). Expecting a bill for a
+--    session the institution never opened would manufacture gaps.
+--
+-- 3. THE INSTITUTION GUARD IS TUITION-SPECIFIC, NOT "HAS ANY BILL".
+--    The coverage page's p_include_non_billing_institutions tests for a bill of
+--    ANY kind. JKKN College of Arts and Science (Aided) has 24 transport bills
+--    and has never raised a single tuition bill — it passes that test and would
+--    inject 490 phantom gaps. Hence p_include_non_tuition_institutions.
+--
+-- The upper bound reuses fn_billing_coverage_target_years() rather than
+-- re-deriving "the current year". That resolver is deliberately "greatest
+-- start_date <= today among is_active rows" and NOT a BETWEEN on end_date,
+-- because the Jun 1 -> Mar 31 convention leaves Apr-May covered by no row.
+-- A second, subtly different notion of "now" on the same page would be a bug
+-- generator. See 20260808120000_billing_coverage_target_academic_year.sql.
+-- ============================================================================
+
+-- ── A: summary (KPI cards + the Earliest Academic Year option list) ─────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_missing_years_summary(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'in_scope', 0, 'gap', 0, 'complete', 0, 'cannot_evaluate', 0,
+      'missing_slots', 0, 'backlog_only', 0, 'no_tuition_at_all', 0,
+      'excluded_institutions', 0, 'excluded_learners', 0,
+      'by_institution', '[]'::jsonb, 'available_academic_years', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  target AS MATERIALIZED (
+    SELECT t.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS ceiling_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  inst_years AS MATERIALIZED (
+    SELECT DISTINCT ay.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.academic_years ay WHERE ay.is_active IS TRUE
+  ),
+  all_scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, adm.year AS cohort, t.ceiling_yr,
+           (lp.institution_id IN (SELECT inst_id FROM tuition_inst)) AS is_tuition_inst
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN target t ON t.institution_id = lp.institution_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  scope AS MATERIALIZED (
+    SELECT * FROM all_scope
+    WHERE p_include_non_tuition_institutions OR is_tuition_inst
+  ),
+  covered AS MATERIALIZED (
+    SELECT DISTINCT b.student_id,
+           EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  years AS (
+    SELECT s.id AS learner_id, iy.yr, s.ceiling_yr,
+           (c.student_id IS NOT NULL) AS is_covered
+    FROM scope s
+    JOIN inst_years iy ON iy.institution_id = s.institution_id
+     AND iy.yr BETWEEN GREATEST(s.cohort, COALESCE(p_earliest_academic_year, s.cohort))
+                   AND s.ceiling_yr
+    LEFT JOIN covered c ON c.student_id = s.id AND c.yr = iy.yr
+    WHERE s.cohort IS NOT NULL AND s.ceiling_yr IS NOT NULL
+  ),
+  per_learner AS (
+    SELECT y.learner_id,
+           COUNT(*) FILTER (WHERE y.is_covered)::int     AS billed_years,
+           COUNT(*) FILTER (WHERE NOT y.is_covered)::int AS missing_years,
+           bool_or(y.yr = y.ceiling_yr AND y.is_covered) AS has_current_year
+    FROM years y GROUP BY y.learner_id
+  ),
+  stated AS (
+    SELECT s.institution_id,
+           COALESCE(pl.missing_years, 0)   AS missing_years,
+           COALESCE(pl.billed_years, 0)    AS billed_years,
+           COALESCE(pl.has_current_year, false) AS has_current_year,
+           CASE
+             WHEN s.cohort IS NULL OR s.ceiling_yr IS NULL THEN 'cannot_evaluate'
+             WHEN COALESCE(pl.missing_years, 0) > 0        THEN 'gap'
+             ELSE 'complete'
+           END AS audit_state
+    FROM scope s
+    LEFT JOIN per_learner pl ON pl.learner_id = s.id
+  )
+  SELECT jsonb_build_object(
+    'in_scope',        (SELECT COUNT(*) FROM stated),
+    'gap',             (SELECT COUNT(*) FROM stated WHERE audit_state = 'gap'),
+    'complete',        (SELECT COUNT(*) FROM stated WHERE audit_state = 'complete'),
+    'cannot_evaluate', (SELECT COUNT(*) FROM stated WHERE audit_state = 'cannot_evaluate'),
+    -- The unit of work: one missing (learner, academic year) pair = one bill to
+    -- raise. Always larger than the learner count, so the two are labelled apart.
+    'missing_slots',   (SELECT COALESCE(SUM(missing_years), 0) FROM stated),
+    -- The reported symptom: this year's bill exists, an earlier one does not.
+    'backlog_only',    (SELECT COUNT(*) FROM stated
+                        WHERE audit_state = 'gap' AND has_current_year),
+    'no_tuition_at_all', (SELECT COUNT(*) FROM stated
+                          WHERE audit_state = 'gap' AND billed_years = 0),
+    'excluded_institutions',
+      (SELECT COUNT(DISTINCT institution_id) FROM all_scope WHERE NOT is_tuition_inst),
+    'excluded_learners',
+      (SELECT COUNT(*) FROM all_scope WHERE NOT is_tuition_inst),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   st.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'in_scope',         COUNT(*),
+                 'gap',              COUNT(*) FILTER (WHERE st.audit_state = 'gap'),
+                 'missing_slots',    COALESCE(SUM(st.missing_years), 0)
+               ) AS x
+        FROM stated st
+        LEFT JOIN public.institutions i ON i.id = st.institution_id
+        GROUP BY st.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb),
+    -- Feeds the "Earliest Academic Year" dropdown. Computed UNFILTERED by
+    -- p_earliest_academic_year on purpose: a control must not remove its own
+    -- options once used. Integer years, so the list composes across colleges.
+    'available_academic_years', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'year',  yr,
+               'label', yr::text || '-' || (yr + 1)::text) ORDER BY yr DESC)
+      FROM (
+        SELECT DISTINCT EXTRACT(YEAR FROM ay.start_date)::int AS yr
+        FROM public.academic_years ay
+        WHERE ay.institution_id = ANY(v_inst)
+          AND ay.is_active IS TRUE
+          AND ay.start_date <= CURRENT_DATE
+      ) ys
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_missing_years_summary(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_missing_years_summary(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer) TO authenticated, service_role;
+
+-- ── A: learners list ───────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_missing_years(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer,
+  p_audit_state text DEFAULT 'gap'::text,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_lifecycle_status text, out_gender text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_admission_year integer,
+  out_expected_years integer, out_billed_years integer, out_missing_years integer,
+  out_missing_year_names text, out_first_missing_year text,
+  out_has_current_year boolean, out_tuition_bill_count integer,
+  out_total_billed numeric, out_total_paid numeric,
+  out_unassigned_tuition_bills integer, out_audit_state text,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  -- Capped at 5000, not the coverage list's 200: the table's "Export all pages"
+  -- fetches the whole filtered set in ONE call rather than paging 24 times.
+  v_limit  integer := LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_adm_year_ids uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  target AS MATERIALIZED (
+    SELECT t.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS ceiling_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  inst_years AS MATERIALIZED (
+    SELECT DISTINCT ay.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.academic_years ay WHERE ay.is_active IS TRUE
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.semester_id, lp.section_id,
+           lp.gender, lp.lifecycle_status, lp.first_name, lp.last_name,
+           lp.roll_number, lp.register_number, lp.accommodation_type_id,
+           adm.year AS cohort, t.ceiling_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN target t ON t.institution_id = lp.institution_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  covered AS MATERIALIZED (
+    SELECT DISTINCT b.student_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  bill_stats AS MATERIALIZED (
+    -- Every live tuition bill the learner holds, across ALL years. Context for
+    -- the row, deliberately not restricted to the audited window.
+    SELECT b.student_id,
+           COUNT(*)::integer AS tuition_bill_count,
+           COALESCE(SUM(b.final_amount), 0)::numeric AS total_billed,
+           COALESCE(SUM(b.final_amount - COALESCE(b.balance_amount, 0)), 0)::numeric
+             AS total_paid,
+           -- Tuition bills carrying no academic year at all. They can never
+           -- satisfy a year check, so a learner could read as a clean gap while
+           -- the bill exists — surfaced rather than silently ignored.
+           COUNT(*) FILTER (WHERE b.academic_year_id IS NULL)::integer
+             AS unassigned_tuition_bills
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id
+  ),
+  years AS (
+    SELECT s.id AS learner_id, iy.yr, s.ceiling_yr,
+           (c.student_id IS NOT NULL) AS is_covered
+    FROM scope s
+    JOIN inst_years iy ON iy.institution_id = s.institution_id
+     AND iy.yr BETWEEN GREATEST(s.cohort, COALESCE(p_earliest_academic_year, s.cohort))
+                   AND s.ceiling_yr
+    LEFT JOIN covered c ON c.student_id = s.id AND c.yr = iy.yr
+    WHERE s.cohort IS NOT NULL AND s.ceiling_yr IS NOT NULL
+  ),
+  per_learner AS (
+    SELECT y.learner_id,
+           COUNT(*)::integer                             AS expected_years,
+           COUNT(*) FILTER (WHERE y.is_covered)::integer AS billed_years,
+           COUNT(*) FILTER (WHERE NOT y.is_covered)::integer AS missing_years,
+           string_agg(y.yr::text || '-' || (y.yr + 1)::text, ', ' ORDER BY y.yr)
+             FILTER (WHERE NOT y.is_covered)             AS missing_year_names,
+           MIN(y.yr) FILTER (WHERE NOT y.is_covered)     AS first_missing_yr,
+           bool_or(y.yr = y.ceiling_yr AND y.is_covered) AS has_current_year
+    FROM years y GROUP BY y.learner_id
+  ),
+  final AS (
+    SELECT s.id AS learner_id,
+           s.roll_number::text     AS roll_number,
+           s.register_number::text AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                   AS full_name,
+           s.lifecycle_status::text AS lifecycle_status,
+           NULLIF(TRIM(s.gender), '')::text AS gender,
+           s.institution_id        AS institution_id,
+           i.name::text            AS institution_name,
+           p.program_name          AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                     AS semester_section,
+           s.cohort                AS admission_year,
+           COALESCE(pl.expected_years, 0) AS expected_years,
+           COALESCE(pl.billed_years, 0)   AS billed_years,
+           COALESCE(pl.missing_years, 0)  AS missing_years,
+           pl.missing_year_names   AS missing_year_names,
+           CASE WHEN pl.first_missing_yr IS NULL THEN NULL
+                ELSE pl.first_missing_yr::text || '-' || (pl.first_missing_yr + 1)::text
+           END                     AS first_missing_year,
+           COALESCE(pl.has_current_year, false) AS has_current_year,
+           COALESCE(bs.tuition_bill_count, 0)   AS tuition_bill_count,
+           COALESCE(bs.total_billed, 0)::numeric AS total_billed,
+           COALESCE(bs.total_paid, 0)::numeric   AS total_paid,
+           COALESCE(bs.unassigned_tuition_bills, 0) AS unassigned_tuition_bills,
+           CASE
+             -- No cohort on file, or an institution with no active academic
+             -- year that has started: an unknown, never a confirmed gap.
+             WHEN s.cohort IS NULL OR s.ceiling_yr IS NULL THEN 'cannot_evaluate'
+             WHEN COALESCE(pl.missing_years, 0) > 0        THEN 'gap'
+             ELSE 'complete'
+           END                     AS audit_state
+    FROM scope s
+    LEFT JOIN per_learner pl              ON pl.learner_id = s.id
+    LEFT JOIN bill_stats  bs              ON bs.student_id = s.id
+    LEFT JOIN public.institutions i       ON i.id   = s.institution_id
+    LEFT JOIN public.programs     p       ON p.id   = s.program_id
+    LEFT JOIN public.semesters    sem     ON sem.id = s.semester_id
+    LEFT JOIN public.sections     sec     ON sec.id = s.section_id
+  ),
+  filtered AS (
+    SELECT * FROM final f
+    WHERE COALESCE(p_audit_state, 'gap') = 'all'
+       OR f.audit_state = COALESCE(p_audit_state, 'gap')
+  )
+  SELECT f.learner_id, f.roll_number, f.register_number, f.full_name,
+         f.lifecycle_status, f.gender, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section, f.admission_year,
+         f.expected_years, f.billed_years, f.missing_years,
+         f.missing_year_names, f.first_missing_year, f.has_current_year,
+         f.tuition_bill_count, f.total_billed, f.total_paid,
+         f.unassigned_tuition_bills, f.audit_state,
+         COUNT(*) OVER ()::bigint
+  FROM filtered f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'first_missing_year' THEN f.first_missing_year
+         WHEN 'audit_state'        THEN f.audit_state
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'first_missing_year' THEN f.first_missing_year
+         WHEN 'audit_state'        THEN f.audit_state
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year'      THEN f.admission_year::numeric
+         WHEN 'expected_years'      THEN f.expected_years::numeric
+         WHEN 'billed_years'        THEN f.billed_years::numeric
+         WHEN 'missing_years'       THEN f.missing_years::numeric
+         WHEN 'tuition_bill_count'  THEN f.tuition_bill_count::numeric
+         WHEN 'total_billed'        THEN f.total_billed
+         WHEN 'total_paid'          THEN f.total_paid
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year'      THEN f.admission_year::numeric
+         WHEN 'expected_years'      THEN f.expected_years::numeric
+         WHEN 'billed_years'        THEN f.billed_years::numeric
+         WHEN 'missing_years'       THEN f.missing_years::numeric
+         WHEN 'tuition_bill_count'  THEN f.tuition_bill_count::numeric
+         WHEN 'total_billed'        THEN f.total_billed
+         WHEN 'total_paid'          THEN f.total_paid
+       END
+     END) DESC NULLS LAST,
+    -- Default order puts the worst backlogs first: this screen is a work queue.
+    f.missing_years DESC, f.institution_name NULLS LAST,
+    f.roll_number NULLS LAST, f.full_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text)
+  TO authenticated, service_role;
+
+-- ── B: summary ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_duplicate_years_summary(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'combos', 0, 'learners', 0, 'bills', 0, 'extra_bills', 0,
+      'total_billed', 0, 'outstanding', 0, 'generator_signature', 0,
+      'unassigned_tuition_bills', 0, 'by_institution', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  dup AS (
+    SELECT s.id AS learner_id, s.institution_id,
+           COUNT(*)::integer AS bill_count,
+           SUM(b.final_amount)::numeric AS total_billed,
+           SUM(COALESCE(b.balance_amount, 0))::numeric AS outstanding,
+           -- The 2026-08-11 generator signature: one run stamped every
+           -- instalment with the year current at generation time, so the bills
+           -- share a creation date while their due dates fall years apart.
+           (COUNT(DISTINCT b.created_at::date) = 1
+            AND COUNT(DISTINCT EXTRACT(YEAR FROM b.due_date)) > 1) AS is_generator_artefact
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_earliest_academic_year IS NULL
+           OR EXTRACT(YEAR FROM ay.start_date)::int >= p_earliest_academic_year)
+    GROUP BY s.id, s.institution_id, EXTRACT(YEAR FROM ay.start_date)::int
+    HAVING COUNT(*) > 1
+  )
+  SELECT jsonb_build_object(
+    'combos',       (SELECT COUNT(*) FROM dup),
+    'learners',     (SELECT COUNT(DISTINCT learner_id) FROM dup),
+    'bills',        (SELECT COALESCE(SUM(bill_count), 0) FROM dup),
+    -- What actually has to be removed: every bill past the first in each year.
+    'extra_bills',  (SELECT COALESCE(SUM(bill_count - 1), 0) FROM dup),
+    'total_billed', (SELECT COALESCE(SUM(total_billed), 0) FROM dup),
+    'outstanding',  (SELECT COALESCE(SUM(outstanding), 0) FROM dup),
+    'generator_signature',
+      (SELECT COUNT(*) FROM dup WHERE is_generator_artefact),
+    -- Not a duplicate, but the same blind spot: a tuition bill with no academic
+    -- year belongs to no group and can never be caught by this check.
+    'unassigned_tuition_bills', (
+      SELECT COUNT(*)
+      FROM public.billing_student_bills b
+      JOIN scope s ON s.id = b.student_id
+      JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+      WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+        AND b.academic_year_id IS NULL
+    ),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   d.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'combos',           COUNT(*),
+                 'learners',         COUNT(DISTINCT d.learner_id),
+                 'extra_bills',      COALESCE(SUM(d.bill_count - 1), 0)
+               ) AS x
+        FROM dup d
+        LEFT JOIN public.institutions i ON i.id = d.institution_id
+        GROUP BY d.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_duplicate_years_summary(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years_summary(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer) TO authenticated, service_role;
+
+-- ── B: list, one row per (learner, academic year) ──────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_duplicate_years(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text
+)
+RETURNS TABLE(
+  out_audit_row_id text, out_learner_id uuid, out_roll_number text,
+  out_register_number text, out_full_name text, out_lifecycle_status text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_admission_year integer,
+  out_academic_year_name text, out_bill_count integer, out_category_names text,
+  out_total_billed numeric, out_total_paid numeric, out_outstanding numeric,
+  out_created_same_day boolean, out_due_year_span integer,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_adm_year_ids uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.semester_id, lp.section_id,
+           lp.lifecycle_status, lp.first_name, lp.last_name, lp.roll_number,
+           lp.register_number, adm.year AS cohort
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  dup AS (
+    -- Grouped on the AY's START YEAR, not academic_year_id: two bills stamped
+    -- '2025-2026' and '2025-2026 Additional 1' are two bills for one session.
+    SELECT b.student_id AS learner_id,
+           EXTRACT(YEAR FROM ay.start_date)::integer AS yr,
+           COUNT(*)::integer AS bill_count,
+           string_agg(DISTINCT bc.category_name::text, ', '
+                      ORDER BY bc.category_name::text) AS category_names,
+           SUM(b.final_amount)::numeric AS total_billed,
+           SUM(b.final_amount - COALESCE(b.balance_amount, 0))::numeric AS total_paid,
+           SUM(COALESCE(b.balance_amount, 0))::numeric AS outstanding,
+           (COUNT(DISTINCT b.created_at::date) = 1) AS created_same_day,
+           COUNT(DISTINCT EXTRACT(YEAR FROM b.due_date))::integer AS due_year_span
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_earliest_academic_year IS NULL
+           OR EXTRACT(YEAR FROM ay.start_date)::int >= p_earliest_academic_year)
+    GROUP BY b.student_id, EXTRACT(YEAR FROM ay.start_date)::integer
+    HAVING COUNT(*) > 1
+  ),
+  final AS (
+    SELECT (s.id::text || ':' || d.yr::text) AS audit_row_id,
+           s.id AS learner_id,
+           s.roll_number::text     AS roll_number,
+           s.register_number::text AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                   AS full_name,
+           s.lifecycle_status::text AS lifecycle_status,
+           s.institution_id        AS institution_id,
+           i.name::text            AS institution_name,
+           p.program_name          AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                     AS semester_section,
+           s.cohort                AS admission_year,
+           (d.yr::text || '-' || (d.yr + 1)::text) AS academic_year_name,
+           d.bill_count, d.category_names, d.total_billed, d.total_paid,
+           d.outstanding, d.created_same_day, d.due_year_span
+    FROM dup d
+    JOIN scope s ON s.id = d.learner_id
+    LEFT JOIN public.institutions i   ON i.id   = s.institution_id
+    LEFT JOIN public.programs     p   ON p.id   = s.program_id
+    LEFT JOIN public.semesters    sem ON sem.id = s.semester_id
+    LEFT JOIN public.sections     sec ON sec.id = s.section_id
+  )
+  SELECT f.audit_row_id, f.learner_id, f.roll_number, f.register_number,
+         f.full_name, f.lifecycle_status, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section, f.admission_year,
+         f.academic_year_name, f.bill_count, f.category_names,
+         f.total_billed, f.total_paid, f.outstanding,
+         f.created_same_day, f.due_year_span,
+         COUNT(*) OVER ()::bigint
+  FROM final f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'category_names'     THEN f.category_names
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'category_names'     THEN f.category_names
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year' THEN f.admission_year::numeric
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'outstanding'    THEN f.outstanding
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year' THEN f.admission_year::numeric
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'outstanding'    THEN f.outstanding
+       END
+     END) DESC NULLS LAST,
+    f.bill_count DESC, f.institution_name NULLS LAST,
+    f.roll_number NULLS LAST, f.academic_year_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text)
+  TO authenticated, service_role;
+
+-- No new indexes. Both audits read the same columns the coverage RPCs already
+-- drive off: billing_student_bills(student_id), (academic_year_id),
+-- learners_profiles(institution_id, admission_year_id). billing_categories is a
+-- 30-row lookup scanned once per call.
+
+
+-- ============================================================================
+-- Bill Coverage: bound the audited window by the PROGRAMME's duration
+-- ============================================================================
+-- Both the Coverage tab and the Audit tab assumed a learner should be billed for
+-- every academic year from their admission cohort up to their institution's
+-- current year. Nothing bounded that by how long the course actually runs, so a
+-- cohort that has finished kept accruing expected years forever.
+--
+--   PHARMD cohort 2020 is a 6-year course running 2020-21 .. 2025-26, yet the
+--   audit listed 2026-27 as a missing bill. Pointing the Coverage tab at
+--   Pharmacy 2027-2028 reported 191 of the first 200 learners "Not generated",
+--   including cohorts that finished two years earlier.
+--
+-- This migration covers the three COVERAGE RPCs. The four AUDIT RPCs follow in
+-- 20260812170100.
+--
+-- ── THE RULE ───────────────────────────────────────────────────────────────
+--   programme_end_year = cohort_year + CEIL(program_duration_yrs) - 1
+--
+-- CEIL, never a truncation. program_duration_yrs is NUMERIC and ten learners sit
+-- in a 1.5-year programme; one starting in 2025 still spans 2025-26 AND 2026-27.
+-- Truncating would end the programme a year early and HIDE a genuine missing
+-- bill — a false negative, the worse direction of error on this screen.
+--
+-- ── WHY THE DURATION IS NOT DERIVED ────────────────────────────────────────
+-- programs.program_duration_yrs is the only trustworthy source. Both plausible
+-- fallbacks were tested and both fail in the dangerous direction:
+--   * the `semesters` ladder disagrees with the configured value for 11
+--     programmes (MDS reads 3 configured against 1 derived, because only a stub
+--     semester row exists);
+--   * deriving from billing history understates badly — BDS bills a modal 2
+--     years but is a 5-year course.
+-- A NULL duration therefore means "unbounded", exactly as before this change,
+-- rather than a guess. 23 programmes covering 1,085 in-scope learners were still
+-- blank when this shipped; the cap switches itself on per programme as those
+-- are filled in.
+--
+-- ── WHY A NEW STATE RATHER THAN DROPPING THE LEARNER ───────────────────────
+-- 'not_applicable' is assessed ONLY on rows that would otherwise be
+-- 'not_generated':
+--     has a live bill                              -> generated      (untouched)
+--     no bill, measured year AFTER programme end   -> not_applicable (new)
+--     no bill, measured year within the programme  -> not_generated
+-- So in_scope is unchanged and `generated` never moves: the only figure that
+-- shifts is not_generated, down by exactly the count that becomes
+-- not_applicable (852 -> 742 group-wide at the time of writing). Anyone
+-- reconciling the KPI cards can account for every learner. Silently shrinking
+-- the population would make last month's report irreproducible, and this module
+-- already keeps 'cannot_evaluate' visible rather than folding it into a gap.
+--
+-- ALL THREE RPCs MOVE TOGETHER. get_billing_coverage_learner_bills feeds the PDF
+-- and once carried the opposite predicate to the table, so the same learner read
+-- "Not generated" on screen and "generated" in the document (fixed 20260808120000).
+-- A rule applied to two of the three would recreate that exact bug.
+-- ============================================================================
+
+-- ── Single source of truth for the window's upper bound ────────────────────
+-- Deliberately IMMUTABLE with no search_path setting so Postgres can inline it
+-- into the surrounding query rather than calling it per row.
+CREATE OR REPLACE FUNCTION public.fn_programme_end_year(
+  p_cohort_year integer,
+  p_duration_yrs numeric
+)
+RETURNS integer
+LANGUAGE sql
+IMMUTABLE
+AS $function$
+  SELECT CASE
+    -- NULL duration = not configured = unbounded, never a guessed default.
+    -- A zero or negative duration is bad data; treat it the same way rather
+    -- than producing an end year before the cohort started.
+    WHEN p_cohort_year IS NULL OR p_duration_yrs IS NULL OR p_duration_yrs <= 0
+      THEN NULL
+    ELSE p_cohort_year + CEIL(p_duration_yrs)::integer - 1
+  END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_programme_end_year(integer, numeric) FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_programme_end_year(integer, numeric)
+  TO authenticated, service_role;
+
+-- ── Learners list ──────────────────────────────────────────────────────────
+-- DROP + CREATE, not CREATE OR REPLACE: the RETURNS TABLE gains two columns and
+-- a return-type change cannot be replaced in place. Dropping discards the ACL
+-- (EXECUTE reverts to PUBLIC, which includes anon), so the REVOKE/GRANT pair at
+-- the end is load-bearing.
+DROP FUNCTION IF EXISTS public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid, integer);
+
+CREATE FUNCTION public.get_billing_coverage_learners(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_coverage_state text DEFAULT 'not_generated'::text,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_lifecycle_status text, out_gender text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_academic_year_id uuid,
+  out_academic_year_name text, out_admission_year integer,
+  out_accommodation_type text, out_uses_transport boolean,
+  out_bill_count integer, out_total_billed numeric, out_total_paid numeric,
+  out_coverage_state text, out_target_academic_year_name text,
+  out_program_duration_yrs numeric, out_programme_end_year text,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(p_page_size, 50), 1), 200);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_picked_ay_name     text;
+  -- The START YEAR of an explicitly picked academic year. The programme window
+  -- is expressed in integer years, so the measured year has to be compared as
+  -- one — the uuid says nothing about ordering.
+  v_picked_ay_start_yr integer;
+  v_adm_year_ids uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT ay.academic_year_name::text, EXTRACT(YEAR FROM ay.start_date)::integer
+    INTO v_picked_ay_name, v_picked_ay_start_yr
+  FROM public.academic_years ay WHERE ay.id = p_academic_year_id;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr
+    WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH target_year AS MATERIALIZED (
+    SELECT t.institution_id, t.target_ay_id, t.target_ay_name,
+           EXTRACT(YEAR FROM ay.start_date)::integer AS target_start_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  billing_inst AS (
+    -- ALL-TIME test, deliberately not scoped to p_academic_year_id. An
+    -- institution that billed last year and has generated nothing this year is
+    -- the case this report exists to catch; scoping here would hide it.
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+  ),
+  scope AS (
+    -- NOTE: no lp.academic_year_id predicate. p_academic_year_id selects the
+    -- year being MEASURED, never the learners being measured — see
+    -- 20260808120000_billing_coverage_target_academic_year.sql.
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.program_id,
+           lp.semester_id, lp.section_id, lp.gender,
+           lp.lifecycle_status, lp.first_name, lp.last_name,
+           lp.roll_number, lp.register_number,
+           lp.accommodation_type_id, lp.admission_year_id,
+           (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL)
+             AS uses_transport
+    FROM public.learners_profiles lp
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_billing_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM billing_inst))
+      AND (p_admission_year IS NULL
+           OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  agg AS (
+    SELECT s.id AS learner_id,
+           ty.target_ay_id,
+           ty.target_ay_name,
+           ty.target_start_yr,
+           COUNT(b.id)::integer AS bill_count,
+           COALESCE(SUM(b.final_amount), 0)::numeric AS total_billed,
+           COALESCE(
+             SUM(b.final_amount - COALESCE(b.balance_amount, 0)), 0
+           )::numeric AS total_paid
+    FROM scope s
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+    LEFT JOIN public.billing_student_bills b
+           ON b.student_id = s.id
+          AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+          AND b.academic_year_id = COALESCE(p_academic_year_id, ty.target_ay_id)
+          AND (p_billing_category_id IS NULL
+               OR b.item_category_id = p_billing_category_id)
+    GROUP BY s.id, ty.target_ay_id, ty.target_ay_name, ty.target_start_yr
+  ),
+  final AS (
+    SELECT s.id AS learner_id,
+           s.roll_number::text        AS roll_number,
+           s.register_number::text    AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                      AS full_name,
+           s.lifecycle_status::text   AS lifecycle_status,
+           NULLIF(TRIM(s.gender), '')::text AS gender,
+           s.institution_id           AS institution_id,
+           i.name::text               AS institution_name,
+           p.program_name             AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL
+               THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                        AS semester_section,
+           s.academic_year_id         AS academic_year_id,
+           ay.academic_year_name::text AS academic_year_name,
+           adm.year                   AS admission_year,
+           acc.name::text             AS accommodation_type,
+           s.uses_transport           AS uses_transport,
+           a.bill_count               AS bill_count,
+           a.total_billed             AS total_billed,
+           a.total_paid               AS total_paid,
+           p.program_duration_yrs     AS program_duration_yrs,
+           public.fn_programme_end_year(adm.year, p.program_duration_yrs)
+                                      AS programme_end_yr,
+           CASE
+             WHEN COALESCE(p_academic_year_id, a.target_ay_id) IS NULL
+               THEN 'cannot_evaluate'
+             -- Ordered before the not_applicable test on purpose: a live bill
+             -- is a live bill. Reclassifying a billed learner would move the
+             -- `generated` count, and this change is deliberately confined to
+             -- rows that would otherwise read 'not_generated'.
+             WHEN a.bill_count > 0 THEN 'generated'
+             WHEN public.fn_programme_end_year(adm.year, p.program_duration_yrs)
+                    IS NOT NULL
+              AND COALESCE(v_picked_ay_start_yr, a.target_start_yr)
+                    > public.fn_programme_end_year(adm.year, p.program_duration_yrs)
+               THEN 'not_applicable'
+             ELSE 'not_generated'
+           END                        AS coverage_state,
+           COALESCE(v_picked_ay_name, a.target_ay_name)
+                                      AS target_academic_year_name
+    FROM scope s
+    JOIN agg a                           ON a.learner_id = s.id
+    LEFT JOIN public.institutions        i   ON i.id   = s.institution_id
+    LEFT JOIN public.programs            p   ON p.id   = s.program_id
+    LEFT JOIN public.semesters           sem ON sem.id = s.semester_id
+    LEFT JOIN public.sections            sec ON sec.id = s.section_id
+    LEFT JOIN public.academic_years      ay  ON ay.id  = s.academic_year_id
+    LEFT JOIN public.admission_years     adm ON adm.id = s.admission_year_id
+    LEFT JOIN public.accommodation_types acc ON acc.id = s.accommodation_type_id
+  ),
+  filtered AS (
+    SELECT * FROM final f
+    WHERE p_coverage_state = 'all' OR f.coverage_state = p_coverage_state
+  )
+  SELECT f.learner_id, f.roll_number, f.register_number, f.full_name,
+         f.lifecycle_status, f.gender, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section,
+         f.academic_year_id, f.academic_year_name, f.admission_year,
+         f.accommodation_type, f.uses_transport,
+         f.bill_count, f.total_billed, f.total_paid, f.coverage_state,
+         f.target_academic_year_name,
+         f.program_duration_yrs,
+         -- Rendered as the session label ("2025-2026") rather than the bare
+         -- integer, so it reads next to the academic-year columns beside it.
+         CASE WHEN f.programme_end_yr IS NULL THEN NULL
+              ELSE f.programme_end_yr::text || '-' || (f.programme_end_yr + 1)::text
+         END,
+         COUNT(*) OVER ()::bigint
+  FROM filtered f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'accommodation_type' THEN f.accommodation_type
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'coverage_state'     THEN f.coverage_state
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'accommodation_type' THEN f.accommodation_type
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'coverage_state'     THEN f.coverage_state
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'admission_year' THEN f.admission_year::numeric
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'admission_year' THEN f.admission_year::numeric
+       END
+     END) DESC NULLS LAST,
+    f.institution_name NULLS LAST, f.roll_number NULLS LAST, f.full_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid, integer)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_coverage_learners(
+  uuid, uuid[], text[], uuid, text, boolean, text, integer, integer,
+  uuid[], text, text, text, text, uuid, uuid, uuid, uuid, uuid, integer)
+  TO authenticated, service_role;
+
+-- ── Summary (KPI cards) ────────────────────────────────────────────────────
+-- Signature unchanged, so CREATE OR REPLACE is enough and the ACL survives.
+CREATE OR REPLACE FUNCTION public.get_billing_coverage_summary(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst               uuid[];
+  v_adm_year_ids       uuid[];
+  v_picked_ay_start_yr integer;
+  v_result             jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'in_scope', 0, 'generated', 0, 'not_generated', 0, 'cannot_evaluate', 0,
+      'not_applicable', 0, 'duration_not_set', 0,
+      'excluded_institutions', 0, 'excluded_learners', 0,
+      'by_institution', '[]'::jsonb);
+  END IF;
+
+  SELECT EXTRACT(YEAR FROM ay.start_date)::integer INTO v_picked_ay_start_yr
+  FROM public.academic_years ay WHERE ay.id = p_academic_year_id;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr
+    WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH target_year AS MATERIALIZED (
+    SELECT t.institution_id, t.target_ay_id,
+           EXTRACT(YEAR FROM ay.start_date)::integer AS target_start_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id FROM public.billing_student_bills b
+  ),
+  all_scope AS (
+    -- No lp.academic_year_id predicate — see get_billing_coverage_learners.
+    SELECT lp.id, lp.institution_id,
+           adm.year AS cohort,
+           p.program_duration_yrs AS dur,
+           (lp.institution_id IN (SELECT inst_id FROM billing_inst)) AS is_billing_inst
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL
+           OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  scope AS (
+    SELECT * FROM all_scope
+    WHERE p_include_non_billing_institutions OR is_billing_inst
+  ),
+  agg AS (
+    SELECT s.id, s.institution_id, s.cohort, s.dur, ty.target_ay_id,
+           ty.target_start_yr,
+           COUNT(b.id)::integer AS bill_count
+    FROM scope s
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+    LEFT JOIN public.billing_student_bills b
+           ON b.student_id = s.id
+          AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+          AND b.academic_year_id = COALESCE(p_academic_year_id, ty.target_ay_id)
+          AND (p_billing_category_id IS NULL
+               OR b.item_category_id = p_billing_category_id)
+    GROUP BY s.id, s.institution_id, s.cohort, s.dur, ty.target_ay_id, ty.target_start_yr
+  ),
+  stated AS (
+    SELECT a.institution_id,
+           (a.dur IS NULL) AS duration_not_set,
+           CASE
+             WHEN COALESCE(p_academic_year_id, a.target_ay_id) IS NULL
+               THEN 'cannot_evaluate'
+             WHEN a.bill_count > 0 THEN 'generated'
+             WHEN public.fn_programme_end_year(a.cohort, a.dur) IS NOT NULL
+              AND COALESCE(v_picked_ay_start_yr, a.target_start_yr)
+                    > public.fn_programme_end_year(a.cohort, a.dur)
+               THEN 'not_applicable'
+             ELSE 'not_generated'
+           END AS coverage_state
+    FROM agg a
+  )
+  SELECT jsonb_build_object(
+    'in_scope',        (SELECT COUNT(*) FROM stated),
+    'generated',       (SELECT COUNT(*) FROM stated WHERE coverage_state = 'generated'),
+    'not_generated',   (SELECT COUNT(*) FROM stated WHERE coverage_state = 'not_generated'),
+    'cannot_evaluate', (SELECT COUNT(*) FROM stated WHERE coverage_state = 'cannot_evaluate'),
+    -- Learners whose programme had already finished by the measured year.
+    'not_applicable',  (SELECT COUNT(*) FROM stated WHERE coverage_state = 'not_applicable'),
+    -- Data hygiene, not a verdict: how many of the population sit in a
+    -- programme with no duration on file, and therefore cannot be bounded.
+    'duration_not_set',(SELECT COUNT(*) FROM stated WHERE duration_not_set),
+    'excluded_institutions',
+      (SELECT COUNT(DISTINCT institution_id) FROM all_scope WHERE NOT is_billing_inst),
+    'excluded_learners',
+      (SELECT COUNT(*) FROM all_scope WHERE NOT is_billing_inst),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   st.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'in_scope',         COUNT(*),
+                 'generated',        COUNT(*) FILTER (WHERE st.coverage_state = 'generated'),
+                 'not_generated',    COUNT(*) FILTER (WHERE st.coverage_state = 'not_generated'),
+                 'not_applicable',   COUNT(*) FILTER (WHERE st.coverage_state = 'not_applicable')
+               ) AS x
+        FROM stated st
+        LEFT JOIN public.institutions i ON i.id = st.institution_id
+        GROUP BY st.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+-- ── Per-learner bill detail (PDF export) ───────────────────────────────────
+-- The same rule has to land here or the PDF and the table disagree about the
+-- same learner — the exact failure 20260808120000 was written to fix.
+CREATE OR REPLACE FUNCTION public.get_billing_coverage_learner_bills(
+  p_academic_year_id uuid DEFAULT NULL::uuid,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_billing_category_id uuid DEFAULT NULL::uuid,
+  p_coverage_state text DEFAULT 'all'::text,
+  p_include_non_billing_institutions boolean DEFAULT false,
+  p_search text DEFAULT NULL::text,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_max_learners integer DEFAULT 1000,
+  p_admission_year integer DEFAULT NULL::integer
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_institution_name text, out_program_name text,
+  out_semester_section text, out_lifecycle_status text,
+  out_learner_total numeric, out_learner_paid numeric,
+  out_learner_pending numeric, out_bill_id uuid, out_bill_description text,
+  out_category_name text, out_bill_academic_year text, out_due_date date,
+  out_bill_status text, out_total_amount numeric, out_paid_amount numeric,
+  out_pending_amount numeric, out_learner_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst               uuid[];
+  v_adm_year_ids       uuid[];
+  v_picked_ay_start_yr integer;
+  v_cap                integer := LEAST(GREATEST(COALESCE(p_max_learners, 1000), 1), 5000);
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.export') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.export' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT EXTRACT(YEAR FROM ay.start_date)::integer INTO v_picked_ay_start_yr
+  FROM public.academic_years ay WHERE ay.id = p_academic_year_id;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr
+    WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH target_year AS MATERIALIZED (
+    SELECT t.institution_id, t.target_ay_id,
+           EXTRACT(YEAR FROM ay.start_date)::integer AS target_start_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  billing_inst AS (
+    SELECT DISTINCT b.institution_id AS inst_id FROM public.billing_student_bills b
+  ),
+  scope AS (
+    SELECT lp.id, lp.institution_id, lp.academic_year_id, lp.program_id,
+           lp.semester_id, lp.section_id, lp.lifecycle_status,
+           lp.first_name, lp.last_name, lp.roll_number, lp.register_number,
+           adm.year AS cohort, p.program_duration_yrs AS dur
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_billing_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM billing_inst))
+      AND (p_admission_year IS NULL
+           OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  live_bills AS (
+    SELECT b.*
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_billing_category_id IS NULL OR b.item_category_id = p_billing_category_id)
+      AND b.academic_year_id = COALESCE(p_academic_year_id, ty.target_ay_id)
+  ),
+  learner_state AS (
+    SELECT s.id,
+           COUNT(lb.id)::integer AS bill_count,
+           COALESCE(SUM(lb.final_amount), 0)::numeric   AS total_amount,
+           COALESCE(SUM(lb.final_amount - lb.balance_amount), 0)::numeric AS paid_amount,
+           COALESCE(SUM(lb.balance_amount), 0)::numeric AS pending_amount
+    FROM scope s
+    LEFT JOIN live_bills lb ON lb.student_id = s.id
+    GROUP BY s.id
+  ),
+  eligible AS (
+    SELECT s.*, ls.bill_count, ls.total_amount, ls.paid_amount, ls.pending_amount,
+           CASE
+             WHEN ls.bill_count > 0 THEN 'generated'
+             WHEN public.fn_programme_end_year(s.cohort, s.dur) IS NOT NULL
+              AND COALESCE(v_picked_ay_start_yr, ty.target_start_yr)
+                    > public.fn_programme_end_year(s.cohort, s.dur)
+               THEN 'not_applicable'
+             ELSE 'not_generated'
+           END AS cov_state
+    FROM scope s
+    JOIN learner_state ls ON ls.id = s.id
+    LEFT JOIN target_year ty ON ty.institution_id = s.institution_id
+  ),
+  picked AS (
+    SELECT * FROM eligible e
+    WHERE p_coverage_state = 'all' OR e.cov_state = p_coverage_state
+  ),
+  capped AS (
+    SELECT e.*, i.name::text AS institution_name, p.program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END AS semester_section,
+           COUNT(*) OVER ()::bigint AS learner_count
+    FROM picked e
+    LEFT JOIN public.institutions i   ON i.id   = e.institution_id
+    LEFT JOIN public.programs     p   ON p.id   = e.program_id
+    LEFT JOIN public.semesters    sem ON sem.id = e.semester_id
+    LEFT JOIN public.sections     sec ON sec.id = e.section_id
+    ORDER BY i.name NULLS LAST, e.roll_number NULLS LAST, e.last_name, e.first_name
+    LIMIT v_cap
+  )
+  SELECT c.id,
+         c.roll_number::text,
+         c.register_number::text,
+         TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')),
+         c.institution_name,
+         c.program_name,
+         c.semester_section,
+         c.lifecycle_status::text,
+         c.total_amount,
+         c.paid_amount,
+         c.pending_amount,
+         lb.id,
+         lb.bill_description::text,
+         cat.category_name::text,
+         COALESCE(ay.academic_year_name::text, '—'),
+         lb.due_date,
+         lb.status::text,
+         lb.final_amount,
+         (lb.final_amount - lb.balance_amount),
+         lb.balance_amount,
+         c.learner_count
+  FROM capped c
+  LEFT JOIN live_bills lb              ON lb.student_id = c.id
+  LEFT JOIN public.billing_categories cat ON cat.id = lb.item_category_id
+  LEFT JOIN public.academic_years ay    ON ay.id  = lb.academic_year_id
+  ORDER BY c.institution_name NULLS LAST, c.roll_number NULLS LAST,
+           lb.due_date NULLS LAST, lb.bill_description;
+END;
+$function$;
+
+
+-- ============================================================================
+-- Bill Coverage Audit: bound the audited window by the PROGRAMME's duration
+-- ============================================================================
+-- Companion to 20260812170000, which did the same for the three Coverage RPCs.
+-- The rule and its rationale live in that file's header; in short:
+--
+--   programme_end_year = cohort_year + CEIL(program_duration_yrs) - 1
+--   expected years     = active AY start years
+--                        BETWEEN GREATEST(cohort, p_earliest_academic_year)
+--                        AND     LEAST(institution_current_year,
+--                                      programme_end_year)
+--
+-- PHARMD cohort 2020 is a 6-year course running 2020-21 .. 2025-26, so 2026-27
+-- must stop being listed as a bill that was never raised. A NULL duration keeps
+-- today's uncapped behaviour rather than guessing — but the learner is now
+-- FLAGGED so the phantom tail is attributable instead of mysterious.
+--
+-- Two knock-on changes worth stating:
+--
+-- 1. has_current_year now means "the learner's LAST EXPECTED year is billed",
+--    not "the institution's current year is billed". For a cohort that has
+--    finished, the institution's current year is no longer part of their
+--    window, so the old reading would have marked every completed cohort as
+--    lacking a current bill. The KPI it drives keeps its meaning — currently
+--    billed, historically short — under the corrected window.
+--
+-- 2. The duplicates check gains the INVERSE finding: live tuition bills stamped
+--    for a year AFTER the programme ends. Scoped to tuition-kind only and
+--    deliberately so — counting every kind returns 62 learners, but a CRRI
+--    intern legitimately still has hostel and mess bills after the taught years
+--    end. Tuition-only returns the real anomaly.
+-- ============================================================================
+
+-- ── A: summary ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_missing_years_summary(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'in_scope', 0, 'gap', 0, 'complete', 0, 'cannot_evaluate', 0,
+      'missing_slots', 0, 'backlog_only', 0, 'no_tuition_at_all', 0,
+      'duration_not_set', 0,
+      'excluded_institutions', 0, 'excluded_learners', 0,
+      'by_institution', '[]'::jsonb, 'available_academic_years', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  target AS MATERIALIZED (
+    SELECT t.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS ceiling_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  inst_years AS MATERIALIZED (
+    SELECT DISTINCT ay.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.academic_years ay WHERE ay.is_active IS TRUE
+  ),
+  all_scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, adm.year AS cohort, t.ceiling_yr,
+           p.program_duration_yrs AS dur,
+           -- The window's upper bound: whichever comes first, the institution's
+           -- current year or the end of this learner's programme.
+           LEAST(t.ceiling_yr,
+                 COALESCE(public.fn_programme_end_year(adm.year, p.program_duration_yrs),
+                          t.ceiling_yr)) AS window_end_yr,
+           (lp.institution_id IN (SELECT inst_id FROM tuition_inst)) AS is_tuition_inst
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    LEFT JOIN target t ON t.institution_id = lp.institution_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  scope AS MATERIALIZED (
+    SELECT * FROM all_scope
+    WHERE p_include_non_tuition_institutions OR is_tuition_inst
+  ),
+  covered AS MATERIALIZED (
+    SELECT DISTINCT b.student_id,
+           EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  years AS (
+    SELECT s.id AS learner_id, iy.yr, s.window_end_yr,
+           (c.student_id IS NOT NULL) AS is_covered
+    FROM scope s
+    JOIN inst_years iy ON iy.institution_id = s.institution_id
+     AND iy.yr BETWEEN GREATEST(s.cohort, COALESCE(p_earliest_academic_year, s.cohort))
+                   AND s.window_end_yr
+    LEFT JOIN covered c ON c.student_id = s.id AND c.yr = iy.yr
+    WHERE s.cohort IS NOT NULL AND s.ceiling_yr IS NOT NULL
+  ),
+  per_learner AS (
+    SELECT y.learner_id,
+           COUNT(*) FILTER (WHERE y.is_covered)::int     AS billed_years,
+           COUNT(*) FILTER (WHERE NOT y.is_covered)::int AS missing_years,
+           -- The learner's LAST EXPECTED year, not the institution's current
+           -- one — for a finished cohort those are different years.
+           bool_or(y.yr = y.window_end_yr AND y.is_covered) AS has_current_year
+    FROM years y GROUP BY y.learner_id
+  ),
+  stated AS (
+    SELECT s.institution_id,
+           (s.dur IS NULL) AS duration_not_set,
+           COALESCE(pl.missing_years, 0)   AS missing_years,
+           COALESCE(pl.billed_years, 0)    AS billed_years,
+           COALESCE(pl.has_current_year, false) AS has_current_year,
+           CASE
+             WHEN s.cohort IS NULL OR s.ceiling_yr IS NULL THEN 'cannot_evaluate'
+             WHEN COALESCE(pl.missing_years, 0) > 0        THEN 'gap'
+             ELSE 'complete'
+           END AS audit_state
+    FROM scope s
+    LEFT JOIN per_learner pl ON pl.learner_id = s.id
+  )
+  SELECT jsonb_build_object(
+    'in_scope',        (SELECT COUNT(*) FROM stated),
+    'gap',             (SELECT COUNT(*) FROM stated WHERE audit_state = 'gap'),
+    'complete',        (SELECT COUNT(*) FROM stated WHERE audit_state = 'complete'),
+    'cannot_evaluate', (SELECT COUNT(*) FROM stated WHERE audit_state = 'cannot_evaluate'),
+    'missing_slots',   (SELECT COALESCE(SUM(missing_years), 0) FROM stated),
+    'backlog_only',    (SELECT COUNT(*) FROM stated
+                        WHERE audit_state = 'gap' AND has_current_year),
+    'no_tuition_at_all', (SELECT COUNT(*) FROM stated
+                          WHERE audit_state = 'gap' AND billed_years = 0),
+    -- Data hygiene, not a verdict: these learners' windows run to the current
+    -- year because their programme has no duration on file, so any tail years
+    -- they show are unproven rather than confirmed gaps.
+    'duration_not_set',(SELECT COUNT(*) FROM stated WHERE duration_not_set),
+    'excluded_institutions',
+      (SELECT COUNT(DISTINCT institution_id) FROM all_scope WHERE NOT is_tuition_inst),
+    'excluded_learners',
+      (SELECT COUNT(*) FROM all_scope WHERE NOT is_tuition_inst),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   st.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'in_scope',         COUNT(*),
+                 'gap',              COUNT(*) FILTER (WHERE st.audit_state = 'gap'),
+                 'missing_slots',    COALESCE(SUM(st.missing_years), 0)
+               ) AS x
+        FROM stated st
+        LEFT JOIN public.institutions i ON i.id = st.institution_id
+        GROUP BY st.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb),
+    'available_academic_years', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'year',  yr,
+               'label', yr::text || '-' || (yr + 1)::text) ORDER BY yr DESC)
+      FROM (
+        SELECT DISTINCT EXTRACT(YEAR FROM ay.start_date)::int AS yr
+        FROM public.academic_years ay
+        WHERE ay.institution_id = ANY(v_inst)
+          AND ay.is_active IS TRUE
+          AND ay.start_date <= CURRENT_DATE
+      ) ys
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+-- ── A: learners list ───────────────────────────────────────────────────────
+-- DROP + CREATE: the RETURNS TABLE gains three columns. Dropping discards the
+-- ACL, so the REVOKE/GRANT pair below is load-bearing.
+DROP FUNCTION IF EXISTS public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text);
+
+CREATE FUNCTION public.get_billing_audit_missing_years(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer,
+  p_audit_state text DEFAULT 'gap'::text,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_lifecycle_status text, out_gender text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_admission_year integer,
+  out_expected_years integer, out_billed_years integer, out_missing_years integer,
+  out_missing_year_names text, out_first_missing_year text,
+  out_has_current_year boolean, out_tuition_bill_count integer,
+  out_total_billed numeric, out_total_paid numeric,
+  out_unassigned_tuition_bills integer, out_audit_state text,
+  out_program_duration_yrs numeric, out_programme_end_year text,
+  out_duration_configured boolean,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_adm_year_ids uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  target AS MATERIALIZED (
+    SELECT t.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS ceiling_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  inst_years AS MATERIALIZED (
+    SELECT DISTINCT ay.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.academic_years ay WHERE ay.is_active IS TRUE
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.semester_id, lp.section_id,
+           lp.gender, lp.lifecycle_status, lp.first_name, lp.last_name,
+           lp.roll_number, lp.register_number, lp.accommodation_type_id,
+           adm.year AS cohort, t.ceiling_yr,
+           p.program_duration_yrs AS dur,
+           LEAST(t.ceiling_yr,
+                 COALESCE(public.fn_programme_end_year(adm.year, p.program_duration_yrs),
+                          t.ceiling_yr)) AS window_end_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    LEFT JOIN target t ON t.institution_id = lp.institution_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  covered AS MATERIALIZED (
+    SELECT DISTINCT b.student_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  bill_stats AS MATERIALIZED (
+    SELECT b.student_id,
+           COUNT(*)::integer AS tuition_bill_count,
+           COALESCE(SUM(b.final_amount), 0)::numeric AS total_billed,
+           COALESCE(SUM(b.final_amount - COALESCE(b.balance_amount, 0)), 0)::numeric
+             AS total_paid,
+           COUNT(*) FILTER (WHERE b.academic_year_id IS NULL)::integer
+             AS unassigned_tuition_bills
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id
+  ),
+  years AS (
+    SELECT s.id AS learner_id, iy.yr, s.window_end_yr,
+           (c.student_id IS NOT NULL) AS is_covered
+    FROM scope s
+    JOIN inst_years iy ON iy.institution_id = s.institution_id
+     AND iy.yr BETWEEN GREATEST(s.cohort, COALESCE(p_earliest_academic_year, s.cohort))
+                   AND s.window_end_yr
+    LEFT JOIN covered c ON c.student_id = s.id AND c.yr = iy.yr
+    WHERE s.cohort IS NOT NULL AND s.ceiling_yr IS NOT NULL
+  ),
+  per_learner AS (
+    SELECT y.learner_id,
+           COUNT(*)::integer                             AS expected_years,
+           COUNT(*) FILTER (WHERE y.is_covered)::integer AS billed_years,
+           COUNT(*) FILTER (WHERE NOT y.is_covered)::integer AS missing_years,
+           string_agg(y.yr::text || '-' || (y.yr + 1)::text, ', ' ORDER BY y.yr)
+             FILTER (WHERE NOT y.is_covered)             AS missing_year_names,
+           MIN(y.yr) FILTER (WHERE NOT y.is_covered)     AS first_missing_yr,
+           bool_or(y.yr = y.window_end_yr AND y.is_covered) AS has_current_year
+    FROM years y GROUP BY y.learner_id
+  ),
+  final AS (
+    SELECT s.id AS learner_id,
+           s.roll_number::text     AS roll_number,
+           s.register_number::text AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                   AS full_name,
+           s.lifecycle_status::text AS lifecycle_status,
+           NULLIF(TRIM(s.gender), '')::text AS gender,
+           s.institution_id        AS institution_id,
+           i.name::text            AS institution_name,
+           p.program_name          AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                     AS semester_section,
+           s.cohort                AS admission_year,
+           COALESCE(pl.expected_years, 0) AS expected_years,
+           COALESCE(pl.billed_years, 0)   AS billed_years,
+           COALESCE(pl.missing_years, 0)  AS missing_years,
+           pl.missing_year_names   AS missing_year_names,
+           CASE WHEN pl.first_missing_yr IS NULL THEN NULL
+                ELSE pl.first_missing_yr::text || '-' || (pl.first_missing_yr + 1)::text
+           END                     AS first_missing_year,
+           COALESCE(pl.has_current_year, false) AS has_current_year,
+           COALESCE(bs.tuition_bill_count, 0)   AS tuition_bill_count,
+           COALESCE(bs.total_billed, 0)::numeric AS total_billed,
+           COALESCE(bs.total_paid, 0)::numeric   AS total_paid,
+           COALESCE(bs.unassigned_tuition_bills, 0) AS unassigned_tuition_bills,
+           s.dur                   AS program_duration_yrs,
+           public.fn_programme_end_year(s.cohort, s.dur) AS programme_end_yr,
+           (s.dur IS NOT NULL)     AS duration_configured,
+           CASE
+             WHEN s.cohort IS NULL OR s.ceiling_yr IS NULL THEN 'cannot_evaluate'
+             WHEN COALESCE(pl.missing_years, 0) > 0        THEN 'gap'
+             ELSE 'complete'
+           END                     AS audit_state
+    FROM scope s
+    LEFT JOIN per_learner pl              ON pl.learner_id = s.id
+    LEFT JOIN bill_stats  bs              ON bs.student_id = s.id
+    LEFT JOIN public.institutions i       ON i.id   = s.institution_id
+    LEFT JOIN public.programs     p       ON p.id   = s.program_id
+    LEFT JOIN public.semesters    sem     ON sem.id = s.semester_id
+    LEFT JOIN public.sections     sec     ON sec.id = s.section_id
+  ),
+  filtered AS (
+    SELECT * FROM final f
+    WHERE COALESCE(p_audit_state, 'gap') = 'all'
+       OR f.audit_state = COALESCE(p_audit_state, 'gap')
+  )
+  SELECT f.learner_id, f.roll_number, f.register_number, f.full_name,
+         f.lifecycle_status, f.gender, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section, f.admission_year,
+         f.expected_years, f.billed_years, f.missing_years,
+         f.missing_year_names, f.first_missing_year, f.has_current_year,
+         f.tuition_bill_count, f.total_billed, f.total_paid,
+         f.unassigned_tuition_bills, f.audit_state,
+         f.program_duration_yrs,
+         CASE WHEN f.programme_end_yr IS NULL THEN NULL
+              ELSE f.programme_end_yr::text || '-' || (f.programme_end_yr + 1)::text
+         END,
+         f.duration_configured,
+         COUNT(*) OVER ()::bigint
+  FROM filtered f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'first_missing_year' THEN f.first_missing_year
+         WHEN 'programme_end_year' THEN f.programme_end_yr::text
+         WHEN 'audit_state'        THEN f.audit_state
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'first_missing_year' THEN f.first_missing_year
+         WHEN 'programme_end_year' THEN f.programme_end_yr::text
+         WHEN 'audit_state'        THEN f.audit_state
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year'        THEN f.admission_year::numeric
+         WHEN 'expected_years'        THEN f.expected_years::numeric
+         WHEN 'billed_years'          THEN f.billed_years::numeric
+         WHEN 'missing_years'         THEN f.missing_years::numeric
+         WHEN 'tuition_bill_count'    THEN f.tuition_bill_count::numeric
+         WHEN 'total_billed'          THEN f.total_billed
+         WHEN 'total_paid'            THEN f.total_paid
+         WHEN 'program_duration_yrs'  THEN f.program_duration_yrs
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year'        THEN f.admission_year::numeric
+         WHEN 'expected_years'        THEN f.expected_years::numeric
+         WHEN 'billed_years'          THEN f.billed_years::numeric
+         WHEN 'missing_years'         THEN f.missing_years::numeric
+         WHEN 'tuition_bill_count'    THEN f.tuition_bill_count::numeric
+         WHEN 'total_billed'          THEN f.total_billed
+         WHEN 'total_paid'            THEN f.total_paid
+         WHEN 'program_duration_yrs'  THEN f.program_duration_yrs
+       END
+     END) DESC NULLS LAST,
+    f.missing_years DESC, f.institution_name NULLS LAST,
+    f.roll_number NULLS LAST, f.full_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text)
+  TO authenticated, service_role;
+
+-- ── B: summary ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_duplicate_years_summary(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'combos', 0, 'learners', 0, 'bills', 0, 'extra_bills', 0,
+      'total_billed', 0, 'outstanding', 0, 'generator_signature', 0,
+      'unassigned_tuition_bills', 0,
+      'past_end_bills', 0, 'past_end_learners', 0, 'past_end_outstanding', 0,
+      'by_institution', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, adm.year AS cohort,
+           public.fn_programme_end_year(adm.year, p.program_duration_yrs) AS end_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  tuition_bills AS MATERIALIZED (
+    SELECT b.id, b.student_id, s.institution_id, s.end_yr,
+           EXTRACT(YEAR FROM ay.start_date)::int AS yr,
+           b.final_amount, COALESCE(b.balance_amount, 0) AS balance_amount,
+           b.created_at, b.due_date
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_earliest_academic_year IS NULL
+           OR EXTRACT(YEAR FROM ay.start_date)::int >= p_earliest_academic_year)
+  ),
+  dup AS (
+    SELECT tb.student_id AS learner_id, tb.institution_id,
+           COUNT(*)::integer AS bill_count,
+           SUM(tb.final_amount)::numeric AS total_billed,
+           SUM(tb.balance_amount)::numeric AS outstanding,
+           (COUNT(DISTINCT tb.created_at::date) = 1
+            AND COUNT(DISTINCT EXTRACT(YEAR FROM tb.due_date)) > 1) AS is_generator_artefact
+    FROM tuition_bills tb
+    GROUP BY tb.student_id, tb.institution_id, tb.yr
+    HAVING COUNT(*) > 1
+  ),
+  -- The INVERSE finding: a live tuition bill for a year after the programme
+  -- ends. Tuition-kind only — a CRRI intern legitimately still has hostel and
+  -- mess bills once the taught years finish, so widening this to every kind
+  -- would report normal operation as an anomaly.
+  past_end AS (
+    SELECT tb.id, tb.student_id, tb.balance_amount
+    FROM tuition_bills tb
+    WHERE tb.end_yr IS NOT NULL AND tb.yr > tb.end_yr
+  )
+  SELECT jsonb_build_object(
+    'combos',       (SELECT COUNT(*) FROM dup),
+    'learners',     (SELECT COUNT(DISTINCT learner_id) FROM dup),
+    'bills',        (SELECT COALESCE(SUM(bill_count), 0) FROM dup),
+    'extra_bills',  (SELECT COALESCE(SUM(bill_count - 1), 0) FROM dup),
+    'total_billed', (SELECT COALESCE(SUM(total_billed), 0) FROM dup),
+    'outstanding',  (SELECT COALESCE(SUM(outstanding), 0) FROM dup),
+    'generator_signature',
+      (SELECT COUNT(*) FROM dup WHERE is_generator_artefact),
+    'unassigned_tuition_bills', (
+      SELECT COUNT(*)
+      FROM public.billing_student_bills b
+      JOIN scope s ON s.id = b.student_id
+      JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+      WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+        AND b.academic_year_id IS NULL
+    ),
+    'past_end_bills',       (SELECT COUNT(*) FROM past_end),
+    'past_end_learners',    (SELECT COUNT(DISTINCT student_id) FROM past_end),
+    'past_end_outstanding', (SELECT COALESCE(SUM(balance_amount), 0) FROM past_end),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   d.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'combos',           COUNT(*),
+                 'learners',         COUNT(DISTINCT d.learner_id),
+                 'extra_bills',      COALESCE(SUM(d.bill_count - 1), 0)
+               ) AS x
+        FROM dup d
+        LEFT JOIN public.institutions i ON i.id = d.institution_id
+        GROUP BY d.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+-- ── B: list ────────────────────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text);
+
+CREATE FUNCTION public.get_billing_audit_duplicate_years(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text
+)
+RETURNS TABLE(
+  out_audit_row_id text, out_learner_id uuid, out_roll_number text,
+  out_register_number text, out_full_name text, out_lifecycle_status text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_admission_year integer,
+  out_academic_year_name text, out_bill_count integer, out_category_names text,
+  out_total_billed numeric, out_total_paid numeric, out_outstanding numeric,
+  out_created_same_day boolean, out_due_year_span integer,
+  out_programme_end_year text, out_is_past_programme_end boolean,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_adm_year_ids uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.kind = 'tuition'
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.semester_id, lp.section_id,
+           lp.lifecycle_status, lp.first_name, lp.last_name, lp.roll_number,
+           lp.register_number, adm.year AS cohort,
+           public.fn_programme_end_year(adm.year, p.program_duration_yrs) AS end_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  dup AS (
+    SELECT b.student_id AS learner_id,
+           EXTRACT(YEAR FROM ay.start_date)::integer AS yr,
+           COUNT(*)::integer AS bill_count,
+           string_agg(DISTINCT bc.category_name::text, ', '
+                      ORDER BY bc.category_name::text) AS category_names,
+           SUM(b.final_amount)::numeric AS total_billed,
+           SUM(b.final_amount - COALESCE(b.balance_amount, 0))::numeric AS total_paid,
+           SUM(COALESCE(b.balance_amount, 0))::numeric AS outstanding,
+           (COUNT(DISTINCT b.created_at::date) = 1) AS created_same_day,
+           COUNT(DISTINCT EXTRACT(YEAR FROM b.due_date))::integer AS due_year_span
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.kind = 'tuition'
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_earliest_academic_year IS NULL
+           OR EXTRACT(YEAR FROM ay.start_date)::int >= p_earliest_academic_year)
+    GROUP BY b.student_id, EXTRACT(YEAR FROM ay.start_date)::integer
+    HAVING COUNT(*) > 1
+  ),
+  final AS (
+    SELECT (s.id::text || ':' || d.yr::text) AS audit_row_id,
+           s.id AS learner_id,
+           s.roll_number::text     AS roll_number,
+           s.register_number::text AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                   AS full_name,
+           s.lifecycle_status::text AS lifecycle_status,
+           s.institution_id        AS institution_id,
+           i.name::text            AS institution_name,
+           p.program_name          AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                     AS semester_section,
+           s.cohort                AS admission_year,
+           (d.yr::text || '-' || (d.yr + 1)::text) AS academic_year_name,
+           d.bill_count, d.category_names, d.total_billed, d.total_paid,
+           d.outstanding, d.created_same_day, d.due_year_span,
+           s.end_yr                AS programme_end_yr,
+           (s.end_yr IS NOT NULL AND d.yr > s.end_yr) AS is_past_programme_end
+    FROM dup d
+    JOIN scope s ON s.id = d.learner_id
+    LEFT JOIN public.institutions i   ON i.id   = s.institution_id
+    LEFT JOIN public.programs     p   ON p.id   = s.program_id
+    LEFT JOIN public.semesters    sem ON sem.id = s.semester_id
+    LEFT JOIN public.sections     sec ON sec.id = s.section_id
+  )
+  SELECT f.audit_row_id, f.learner_id, f.roll_number, f.register_number,
+         f.full_name, f.lifecycle_status, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section, f.admission_year,
+         f.academic_year_name, f.bill_count, f.category_names,
+         f.total_billed, f.total_paid, f.outstanding,
+         f.created_same_day, f.due_year_span,
+         CASE WHEN f.programme_end_yr IS NULL THEN NULL
+              ELSE f.programme_end_yr::text || '-' || (f.programme_end_yr + 1)::text
+         END,
+         f.is_past_programme_end,
+         COUNT(*) OVER ()::bigint
+  FROM final f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'category_names'     THEN f.category_names
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'category_names'     THEN f.category_names
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year' THEN f.admission_year::numeric
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'outstanding'    THEN f.outstanding
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year' THEN f.admission_year::numeric
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'outstanding'    THEN f.outstanding
+       END
+     END) DESC NULLS LAST,
+    -- Bills sitting past the programme end float to the top: they are the
+    -- least explicable rows on the screen.
+    f.is_past_programme_end DESC, f.bill_count DESC,
+    f.institution_name NULLS LAST, f.roll_number NULLS LAST, f.academic_year_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text)
+  TO authenticated, service_role;
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core: package amount integrity +
+-- updated_at maintenance
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Tables -> setup/01_tables.sql. Triggers -> setup/04_triggers.sql.
+-- =====================================================================
+
+-- A package whose parts do not add up to its price is the single most
+-- damaging thing that can silently ship here: bills would be generated
+-- that can never reach a zero balance, so the participant could never
+-- become 'confirmed' and could never attend.
+--
+-- DEFERRABLE INITIALLY DEFERRED so a multi-row edit may pass through an
+-- inconsistent state inside a transaction but can never COMMIT one.
+--
+-- A package with ZERO installments is allowed — it is a draft being
+-- built. Bill generation (Phase 4) refuses such a package separately.
+-- Rejecting it here would force every package insert to carry its whole
+-- schedule in the same statement.
+-- Corrected 2026-08-13: INVOKER -> SECURITY DEFINER. RLS otherwise
+-- filters the cross-table SELECT/UPDATEs silently for a caller who
+-- lacks the target table's permission (see fn_course_recompute_balances
+-- below for the full reasoning). Mirrors migration 20260813100450.
+CREATE OR REPLACE FUNCTION public.fn_course_package_amounts_chk()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_package_id uuid;
+  v_total      numeric(12,2);
+  v_sum        numeric(12,2);
+  v_count      int;
+BEGIN
+  -- One function, two triggers: the installments table exposes
+  -- package_id, the packages table exposes id.
+  IF TG_TABLE_NAME = 'course_packages' THEN
+    v_package_id := COALESCE(NEW.id, OLD.id);
+  ELSE
+    v_package_id := COALESCE(NEW.package_id, OLD.package_id);
+  END IF;
+
+  SELECT total_amount INTO v_total
+    FROM public.course_packages
+   WHERE id = v_package_id;
+
+  -- The package itself was deleted in this transaction (ON DELETE
+  -- CASCADE removed its installments). Nothing left to reconcile.
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(sum(amount), 0), count(*)
+    INTO v_sum, v_count
+    FROM public.course_package_installments
+   WHERE package_id = v_package_id;
+
+  IF v_count > 0 AND v_sum <> v_total THEN
+    RAISE EXCEPTION
+      'Course package % has % installments totalling % but its price is %. The schedule must add up to the price.',
+      v_package_id, v_count, v_sum, v_total
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NULL;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_course_package_amounts_chk() IS
+  'Constraint-trigger body shared by course_packages and course_package_installments: the installment schedule must sum to the package price at COMMIT. Zero installments is permitted (draft package).';
+
+CREATE OR REPLACE FUNCTION public.fn_courses_touch_updated_at()
+RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$fn$;
+
+-- ---------------------------------------------------------------------
+-- Mirror of migration 20260813100400_course_billing.sql
+-- ---------------------------------------------------------------------
+-- Sole writer of course_bills.paid_amount/balance_amount/status and
+-- course_enrollments.total_paid/balance/status. Two rules easy to get
+-- wrong and expensive to get wrong:
+--   * VOIDED bills are excluded from every total. A withdrawal voids the
+--     unpaid future installments; if they still counted, the enrollment
+--     would hold a permanent non-zero balance and could never leave
+--     payment_overdue.
+--   * withdrawn / cancelled / completed are TERMINAL. The money columns
+--     still refresh, but the status is not recomputed over the top.
+--
+-- Corrected 2026-08-13: INVOKER -> SECURITY DEFINER. A trigger function
+-- runs with the caller's privileges and RLS applies; a role holding
+-- courses.billing.manage but not courses.enrollments.manage had the
+-- UPDATE on course_enrollments silently filtered to zero rows with no
+-- error. Mirrors migration 20260813100450.
+-- ---------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_course_recompute_balances()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_bill_id       uuid;
+  v_enrollment_id uuid;
+  v_paid          numeric(12,2);
+  v_total         numeric(12,2);
+  v_due           date;
+  v_status        text;
+  v_e_payable     numeric(12,2);
+  v_e_paid        numeric(12,2);
+  v_overdue       boolean;
+  v_e_status      text;
+BEGIN
+  v_bill_id := COALESCE(NEW.bill_id, OLD.bill_id);
+
+  SELECT COALESCE(sum(amount_paid), 0)
+    INTO v_paid
+    FROM public.course_bill_payments
+   WHERE bill_id = v_bill_id
+     AND status = 'success';
+
+  SELECT total_amount, due_date, status, enrollment_id
+    INTO v_total, v_due, v_status, v_enrollment_id
+    FROM public.course_bills
+   WHERE id = v_bill_id;
+
+  IF NOT FOUND THEN
+    RETURN NULL;   -- bill removed in this transaction
+  END IF;
+
+  UPDATE public.course_bills
+     SET paid_amount    = v_paid,
+         balance_amount = v_total - v_paid,
+         status = CASE
+                    WHEN v_status = 'voided'   THEN 'voided'
+                    WHEN v_total - v_paid <= 0 THEN 'paid'
+                    WHEN v_due < CURRENT_DATE  THEN 'overdue'
+                    WHEN v_paid > 0            THEN 'partially_paid'
+                    ELSE 'pending'
+                  END,
+         updated_at = now()
+   WHERE id = v_bill_id;
+
+  -- Roll up to the enrollment, excluding voided bills entirely.
+  SELECT COALESCE(sum(total_amount), 0),
+         COALESCE(sum(paid_amount), 0),
+         bool_or(balance_amount > 0 AND due_date < CURRENT_DATE)
+    INTO v_e_payable, v_e_paid, v_overdue
+    FROM public.course_bills
+   WHERE enrollment_id = v_enrollment_id
+     AND status <> 'voided';
+
+  SELECT status INTO v_e_status
+    FROM public.course_enrollments
+   WHERE id = v_enrollment_id;
+
+  UPDATE public.course_enrollments
+     SET total_paid = v_e_paid,
+         balance    = v_e_payable - v_e_paid,
+         status = CASE
+                    -- terminal states are never recomputed over
+                    WHEN v_e_status IN ('withdrawn','cancelled','completed')
+                      THEN v_e_status
+                    WHEN v_e_payable - v_e_paid <= 0 THEN 'confirmed'
+                    WHEN COALESCE(v_overdue, false) THEN 'payment_overdue'
+                    ELSE 'active'
+                  END,
+         updated_at = now()
+   WHERE id = v_enrollment_id;
+
+  RETURN NULL;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_course_recompute_balances() IS
+  'Sole writer of course_bills.paid_amount/balance_amount/status and course_enrollments.total_paid/balance/status. Voided bills are excluded from rollups; withdrawn/cancelled/completed are terminal.';
+
+
+-- ============================================================================
+-- Bill Coverage Audit: count TUITION-EQUIVALENT categories as year coverage
+-- ============================================================================
+-- Supersedes the bodies written by 20260812170100 (which bounded the window by
+-- programme duration — that rule is unchanged and carried forward verbatim).
+--
+-- THE BUG. Both audits asked "does this learner hold a bill of kind = 'tuition'
+-- for this academic year?". Three fee categories are tuition in everything but
+-- their `kind` column, and for the learners who carry them they are the ONLY
+-- fee raised for that year — so the audit reported a bill that had in fact been
+-- raised as one that was never generated:
+--
+--   Government 7-5 quota   70 bills  Dental + Engineering  2023-24 .. 2026-27
+--   CRRI - INTERNSHIP FEE  77 bills  Dental                2026-27
+--   AHS - INTERNSHIP FEE   36 bills  Allied Health         2026-27
+--
+-- Measured before/after on 2026-08-13, all 14 institutions, default lifecycle:
+-- missing slots 2,160 -> 2,014 (146 resolved), gap learners 914 -> 891, of
+-- which 23 become complete outright and 80 shed some but not all of their gap.
+-- Every one of the 183 bills is the SOLE coverage for its learner-year — not
+-- one sits beside a tuition-kind bill — so nothing here is double-counting.
+--
+-- WHY NOT RE-KIND THEM. `billing_categories.kind` is an enum consumed by fee
+-- structures, Razorpay fee-head routing and the analytics RPCs. Moving these
+-- three to 'tuition' would silently change all of that to fix one screen. The
+-- audit's own predicate is the contained place to widen.
+--
+-- THREE THINGS DELIBERATELY NOT WIDENED
+--
+-- 1. `past_end` / `is_past_programme_end` stay STRICTLY kind = 'tuition'.
+--    program_duration_yrs counts TAUGHT years, so an internship fee belongs to
+--    the year AFTER the course ends by design: all 8 Allied Health BSc
+--    programmes are dur = 4.0 and bill their internship in cohort+4. Widening
+--    here would manufacture 37 anomalies (36 AHS + 1 BDS cohort 2020) out of
+--    entirely correct billing — the same trap 20260812170100's header called
+--    out when it kept this check narrow.
+--
+-- 2. The Coverage tab's RPCs are untouched. They take p_billing_category_id and
+--    measure one named category against one year, so they never had a
+--    hardcoded tuition predicate to widen.
+--
+-- 3. `kind` itself. See above.
+--
+-- WHAT DOES CHANGE BUT MEASURES AS ZERO. The duplicate check widens too, for
+-- consistency: a category that counts as coverage must also count toward "more
+-- than one bill in a year". Today that adds 0 combos — these three never
+-- co-occur with a tuition bill — but leaving it narrow would mean a learner
+-- could be double-billed on Government 7-5 quota and the check would not see
+-- it. The institution guard (`tuition_inst`) widens for the same reason; also
+-- a measured no-op, since all three institutions already raise tuition bills.
+-- ============================================================================
+
+-- ── The category set, defined once ─────────────────────────────────────────
+-- Ten predicates across four RPCs resolve "counts as a year's tuition" through
+-- this function, so the definition cannot drift between the summary card and
+-- the table under it.
+--
+-- Matched by ID, not by name: `category_name` is editable from
+-- /billing/categories, and a rename would silently narrow the audit back to
+-- kind-only — reinstating the false gaps with no error anywhere. Bills carry an
+-- FK to these rows, so the ids cannot be deleted out from under it.
+--
+-- SECURITY DEFINER because billing_categories has RLS enabled: a caller who
+-- cannot read every category must still get the whole set, or the audit's
+-- verdict would vary by who is looking at it.
+CREATE OR REPLACE FUNCTION public.fn_billing_tuition_equivalent_category_ids()
+RETURNS uuid[]
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(array_agg(bc.id), ARRAY[]::uuid[])
+  FROM public.billing_categories bc
+  WHERE bc.kind = 'tuition'
+     OR bc.id IN (
+          '1035e234-c52c-4b46-9194-392931a3469d',  -- Government 7-5 quota
+          '50603f99-65f6-4a18-9599-71ba32fe3e35',  -- CRRI - INTERNSHIP FEE
+          'ff4a43f7-65ee-4ed8-89e1-1948051df432'   -- AHS - INTERNSHIP FEE
+        );
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_billing_tuition_equivalent_category_ids()
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fn_billing_tuition_equivalent_category_ids()
+  TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_billing_tuition_equivalent_category_ids() IS
+  'Billing categories that satisfy a learner''s tuition obligation for an academic year: every kind = ''tuition'' category, plus Government 7-5 quota and the CRRI / AHS internship fees, which are tuition-equivalent but carry kind = ''other''. Used by the /billing/coverage Audit tab. NOT used by the past-programme-end check, which is strictly kind = ''tuition''.';
+
+-- ── A: summary ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_missing_years_summary(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_cov_cats     uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  -- Resolved once per call, not per predicate: ten sites read it below, and a
+  -- STABLE function re-evaluated inside every join would be re-planned each time.
+  v_cov_cats := public.fn_billing_tuition_equivalent_category_ids();
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'in_scope', 0, 'gap', 0, 'complete', 0, 'cannot_evaluate', 0,
+      'missing_slots', 0, 'backlog_only', 0, 'no_tuition_at_all', 0,
+      'duration_not_set', 0,
+      'excluded_institutions', 0, 'excluded_learners', 0,
+      'by_institution', '[]'::jsonb, 'available_academic_years', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.id = ANY(v_cov_cats)
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  target AS MATERIALIZED (
+    SELECT t.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS ceiling_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  inst_years AS MATERIALIZED (
+    SELECT DISTINCT ay.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.academic_years ay WHERE ay.is_active IS TRUE
+  ),
+  all_scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, adm.year AS cohort, t.ceiling_yr,
+           p.program_duration_yrs AS dur,
+           -- The window's upper bound: whichever comes first, the institution's
+           -- current year or the end of this learner's programme.
+           LEAST(t.ceiling_yr,
+                 COALESCE(public.fn_programme_end_year(adm.year, p.program_duration_yrs),
+                          t.ceiling_yr)) AS window_end_yr,
+           (lp.institution_id IN (SELECT inst_id FROM tuition_inst)) AS is_tuition_inst
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    LEFT JOIN target t ON t.institution_id = lp.institution_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  scope AS MATERIALIZED (
+    SELECT * FROM all_scope
+    WHERE p_include_non_tuition_institutions OR is_tuition_inst
+  ),
+  covered AS MATERIALIZED (
+    SELECT DISTINCT b.student_id,
+           EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.id = ANY(v_cov_cats)
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  years AS (
+    SELECT s.id AS learner_id, iy.yr, s.window_end_yr,
+           (c.student_id IS NOT NULL) AS is_covered
+    FROM scope s
+    JOIN inst_years iy ON iy.institution_id = s.institution_id
+     AND iy.yr BETWEEN GREATEST(s.cohort, COALESCE(p_earliest_academic_year, s.cohort))
+                   AND s.window_end_yr
+    LEFT JOIN covered c ON c.student_id = s.id AND c.yr = iy.yr
+    WHERE s.cohort IS NOT NULL AND s.ceiling_yr IS NOT NULL
+  ),
+  per_learner AS (
+    SELECT y.learner_id,
+           COUNT(*) FILTER (WHERE y.is_covered)::int     AS billed_years,
+           COUNT(*) FILTER (WHERE NOT y.is_covered)::int AS missing_years,
+           -- The learner's LAST EXPECTED year, not the institution's current
+           -- one — for a finished cohort those are different years.
+           bool_or(y.yr = y.window_end_yr AND y.is_covered) AS has_current_year
+    FROM years y GROUP BY y.learner_id
+  ),
+  stated AS (
+    SELECT s.institution_id,
+           (s.dur IS NULL) AS duration_not_set,
+           COALESCE(pl.missing_years, 0)   AS missing_years,
+           COALESCE(pl.billed_years, 0)    AS billed_years,
+           COALESCE(pl.has_current_year, false) AS has_current_year,
+           CASE
+             WHEN s.cohort IS NULL OR s.ceiling_yr IS NULL THEN 'cannot_evaluate'
+             WHEN COALESCE(pl.missing_years, 0) > 0        THEN 'gap'
+             ELSE 'complete'
+           END AS audit_state
+    FROM scope s
+    LEFT JOIN per_learner pl ON pl.learner_id = s.id
+  )
+  SELECT jsonb_build_object(
+    'in_scope',        (SELECT COUNT(*) FROM stated),
+    'gap',             (SELECT COUNT(*) FROM stated WHERE audit_state = 'gap'),
+    'complete',        (SELECT COUNT(*) FROM stated WHERE audit_state = 'complete'),
+    'cannot_evaluate', (SELECT COUNT(*) FROM stated WHERE audit_state = 'cannot_evaluate'),
+    'missing_slots',   (SELECT COALESCE(SUM(missing_years), 0) FROM stated),
+    'backlog_only',    (SELECT COUNT(*) FROM stated
+                        WHERE audit_state = 'gap' AND has_current_year),
+    'no_tuition_at_all', (SELECT COUNT(*) FROM stated
+                          WHERE audit_state = 'gap' AND billed_years = 0),
+    -- Data hygiene, not a verdict: these learners' windows run to the current
+    -- year because their programme has no duration on file, so any tail years
+    -- they show are unproven rather than confirmed gaps.
+    'duration_not_set',(SELECT COUNT(*) FROM stated WHERE duration_not_set),
+    'excluded_institutions',
+      (SELECT COUNT(DISTINCT institution_id) FROM all_scope WHERE NOT is_tuition_inst),
+    'excluded_learners',
+      (SELECT COUNT(*) FROM all_scope WHERE NOT is_tuition_inst),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   st.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'in_scope',         COUNT(*),
+                 'gap',              COUNT(*) FILTER (WHERE st.audit_state = 'gap'),
+                 'missing_slots',    COALESCE(SUM(st.missing_years), 0)
+               ) AS x
+        FROM stated st
+        LEFT JOIN public.institutions i ON i.id = st.institution_id
+        GROUP BY st.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb),
+    'available_academic_years', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'year',  yr,
+               'label', yr::text || '-' || (yr + 1)::text) ORDER BY yr DESC)
+      FROM (
+        SELECT DISTINCT EXTRACT(YEAR FROM ay.start_date)::int AS yr
+        FROM public.academic_years ay
+        WHERE ay.institution_id = ANY(v_inst)
+          AND ay.is_active IS TRUE
+          AND ay.start_date <= CURRENT_DATE
+      ) ys
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+-- ── A: learners list ───────────────────────────────────────────────────────
+-- CREATE OR REPLACE, not DROP + CREATE: only the body changes here — the
+-- parameters and every RETURNS TABLE column are identical to 20260812170100.
+-- Replacing in place keeps the existing ACL rather than discarding it and
+-- relying on the re-GRANT below to put it back.
+CREATE OR REPLACE FUNCTION public.get_billing_audit_missing_years(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer,
+  p_audit_state text DEFAULT 'gap'::text,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text
+)
+RETURNS TABLE(
+  out_learner_id uuid, out_roll_number text, out_register_number text,
+  out_full_name text, out_lifecycle_status text, out_gender text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_admission_year integer,
+  out_expected_years integer, out_billed_years integer, out_missing_years integer,
+  out_missing_year_names text, out_first_missing_year text,
+  out_has_current_year boolean, out_tuition_bill_count integer,
+  out_total_billed numeric, out_total_paid numeric,
+  out_unassigned_tuition_bills integer, out_audit_state text,
+  out_program_duration_yrs numeric, out_programme_end_year text,
+  out_duration_configured boolean,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_adm_year_ids uuid[];
+  v_cov_cats     uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  -- Resolved once per call, not per predicate: ten sites read it below, and a
+  -- STABLE function re-evaluated inside every join would be re-planned each time.
+  v_cov_cats := public.fn_billing_tuition_equivalent_category_ids();
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.id = ANY(v_cov_cats)
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  target AS MATERIALIZED (
+    SELECT t.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS ceiling_yr
+    FROM public.fn_billing_coverage_target_years() t
+    JOIN public.academic_years ay ON ay.id = t.target_ay_id
+  ),
+  inst_years AS MATERIALIZED (
+    SELECT DISTINCT ay.institution_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.academic_years ay WHERE ay.is_active IS TRUE
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.semester_id, lp.section_id,
+           lp.gender, lp.lifecycle_status, lp.first_name, lp.last_name,
+           lp.roll_number, lp.register_number, lp.accommodation_type_id,
+           adm.year AS cohort, t.ceiling_yr,
+           p.program_duration_yrs AS dur,
+           LEAST(t.ceiling_yr,
+                 COALESCE(public.fn_programme_end_year(adm.year, p.program_duration_yrs),
+                          t.ceiling_yr)) AS window_end_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    LEFT JOIN target t ON t.institution_id = lp.institution_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  covered AS MATERIALIZED (
+    SELECT DISTINCT b.student_id, EXTRACT(YEAR FROM ay.start_date)::int AS yr
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.id = ANY(v_cov_cats)
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  bill_stats AS MATERIALIZED (
+    SELECT b.student_id,
+           COUNT(*)::integer AS tuition_bill_count,
+           COALESCE(SUM(b.final_amount), 0)::numeric AS total_billed,
+           COALESCE(SUM(b.final_amount - COALESCE(b.balance_amount, 0)), 0)::numeric
+             AS total_paid,
+           COUNT(*) FILTER (WHERE b.academic_year_id IS NULL)::integer
+             AS unassigned_tuition_bills
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.id = ANY(v_cov_cats)
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+    GROUP BY b.student_id
+  ),
+  years AS (
+    SELECT s.id AS learner_id, iy.yr, s.window_end_yr,
+           (c.student_id IS NOT NULL) AS is_covered
+    FROM scope s
+    JOIN inst_years iy ON iy.institution_id = s.institution_id
+     AND iy.yr BETWEEN GREATEST(s.cohort, COALESCE(p_earliest_academic_year, s.cohort))
+                   AND s.window_end_yr
+    LEFT JOIN covered c ON c.student_id = s.id AND c.yr = iy.yr
+    WHERE s.cohort IS NOT NULL AND s.ceiling_yr IS NOT NULL
+  ),
+  per_learner AS (
+    SELECT y.learner_id,
+           COUNT(*)::integer                             AS expected_years,
+           COUNT(*) FILTER (WHERE y.is_covered)::integer AS billed_years,
+           COUNT(*) FILTER (WHERE NOT y.is_covered)::integer AS missing_years,
+           string_agg(y.yr::text || '-' || (y.yr + 1)::text, ', ' ORDER BY y.yr)
+             FILTER (WHERE NOT y.is_covered)             AS missing_year_names,
+           MIN(y.yr) FILTER (WHERE NOT y.is_covered)     AS first_missing_yr,
+           bool_or(y.yr = y.window_end_yr AND y.is_covered) AS has_current_year
+    FROM years y GROUP BY y.learner_id
+  ),
+  final AS (
+    SELECT s.id AS learner_id,
+           s.roll_number::text     AS roll_number,
+           s.register_number::text AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                   AS full_name,
+           s.lifecycle_status::text AS lifecycle_status,
+           NULLIF(TRIM(s.gender), '')::text AS gender,
+           s.institution_id        AS institution_id,
+           i.name::text            AS institution_name,
+           p.program_name          AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                     AS semester_section,
+           s.cohort                AS admission_year,
+           COALESCE(pl.expected_years, 0) AS expected_years,
+           COALESCE(pl.billed_years, 0)   AS billed_years,
+           COALESCE(pl.missing_years, 0)  AS missing_years,
+           pl.missing_year_names   AS missing_year_names,
+           CASE WHEN pl.first_missing_yr IS NULL THEN NULL
+                ELSE pl.first_missing_yr::text || '-' || (pl.first_missing_yr + 1)::text
+           END                     AS first_missing_year,
+           COALESCE(pl.has_current_year, false) AS has_current_year,
+           COALESCE(bs.tuition_bill_count, 0)   AS tuition_bill_count,
+           COALESCE(bs.total_billed, 0)::numeric AS total_billed,
+           COALESCE(bs.total_paid, 0)::numeric   AS total_paid,
+           COALESCE(bs.unassigned_tuition_bills, 0) AS unassigned_tuition_bills,
+           s.dur                   AS program_duration_yrs,
+           public.fn_programme_end_year(s.cohort, s.dur) AS programme_end_yr,
+           (s.dur IS NOT NULL)     AS duration_configured,
+           CASE
+             WHEN s.cohort IS NULL OR s.ceiling_yr IS NULL THEN 'cannot_evaluate'
+             WHEN COALESCE(pl.missing_years, 0) > 0        THEN 'gap'
+             ELSE 'complete'
+           END                     AS audit_state
+    FROM scope s
+    LEFT JOIN per_learner pl              ON pl.learner_id = s.id
+    LEFT JOIN bill_stats  bs              ON bs.student_id = s.id
+    LEFT JOIN public.institutions i       ON i.id   = s.institution_id
+    LEFT JOIN public.programs     p       ON p.id   = s.program_id
+    LEFT JOIN public.semesters    sem     ON sem.id = s.semester_id
+    LEFT JOIN public.sections     sec     ON sec.id = s.section_id
+  ),
+  filtered AS (
+    SELECT * FROM final f
+    WHERE COALESCE(p_audit_state, 'gap') = 'all'
+       OR f.audit_state = COALESCE(p_audit_state, 'gap')
+  )
+  SELECT f.learner_id, f.roll_number, f.register_number, f.full_name,
+         f.lifecycle_status, f.gender, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section, f.admission_year,
+         f.expected_years, f.billed_years, f.missing_years,
+         f.missing_year_names, f.first_missing_year, f.has_current_year,
+         f.tuition_bill_count, f.total_billed, f.total_paid,
+         f.unassigned_tuition_bills, f.audit_state,
+         f.program_duration_yrs,
+         CASE WHEN f.programme_end_yr IS NULL THEN NULL
+              ELSE f.programme_end_yr::text || '-' || (f.programme_end_yr + 1)::text
+         END,
+         f.duration_configured,
+         COUNT(*) OVER ()::bigint
+  FROM filtered f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'first_missing_year' THEN f.first_missing_year
+         WHEN 'programme_end_year' THEN f.programme_end_yr::text
+         WHEN 'audit_state'        THEN f.audit_state
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'gender'             THEN f.gender
+         WHEN 'first_missing_year' THEN f.first_missing_year
+         WHEN 'programme_end_year' THEN f.programme_end_yr::text
+         WHEN 'audit_state'        THEN f.audit_state
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year'        THEN f.admission_year::numeric
+         WHEN 'expected_years'        THEN f.expected_years::numeric
+         WHEN 'billed_years'          THEN f.billed_years::numeric
+         WHEN 'missing_years'         THEN f.missing_years::numeric
+         WHEN 'tuition_bill_count'    THEN f.tuition_bill_count::numeric
+         WHEN 'total_billed'          THEN f.total_billed
+         WHEN 'total_paid'            THEN f.total_paid
+         WHEN 'program_duration_yrs'  THEN f.program_duration_yrs
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year'        THEN f.admission_year::numeric
+         WHEN 'expected_years'        THEN f.expected_years::numeric
+         WHEN 'billed_years'          THEN f.billed_years::numeric
+         WHEN 'missing_years'         THEN f.missing_years::numeric
+         WHEN 'tuition_bill_count'    THEN f.tuition_bill_count::numeric
+         WHEN 'total_billed'          THEN f.total_billed
+         WHEN 'total_paid'            THEN f.total_paid
+         WHEN 'program_duration_yrs'  THEN f.program_duration_yrs
+       END
+     END) DESC NULLS LAST,
+    f.missing_years DESC, f.institution_name NULLS LAST,
+    f.roll_number NULLS LAST, f.full_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_missing_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, text, integer, integer, text, text)
+  TO authenticated, service_role;
+
+-- ── B: summary ─────────────────────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.get_billing_audit_duplicate_years_summary(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst         uuid[];
+  v_adm_year_ids uuid[];
+  v_cov_cats     uuid[];
+  v_result       jsonb;
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  -- Resolved once per call, not per predicate: ten sites read it below, and a
+  -- STABLE function re-evaluated inside every join would be re-planned each time.
+  v_cov_cats := public.fn_billing_tuition_equivalent_category_ids();
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN jsonb_build_object(
+      'combos', 0, 'learners', 0, 'bills', 0, 'extra_bills', 0,
+      'total_billed', 0, 'outstanding', 0, 'generator_signature', 0,
+      'unassigned_tuition_bills', 0,
+      'past_end_bills', 0, 'past_end_learners', 0, 'past_end_outstanding', 0,
+      'by_institution', '[]'::jsonb);
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.id = ANY(v_cov_cats)
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, adm.year AS cohort,
+           public.fn_programme_end_year(adm.year, p.program_duration_yrs) AS end_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+  ),
+  -- Every bill that satisfies a year's tuition obligation. `is_core_tuition`
+  -- rides along so the two findings below can disagree about what counts:
+  -- duplicates read the whole set, past-end reads only the tuition-kind rows.
+  coverage_bills AS MATERIALIZED (
+    SELECT b.id, b.student_id, s.institution_id, s.end_yr,
+           EXTRACT(YEAR FROM ay.start_date)::int AS yr,
+           b.final_amount, COALESCE(b.balance_amount, 0) AS balance_amount,
+           b.created_at, b.due_date,
+           (bc.kind = 'tuition') AS is_core_tuition
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.id = ANY(v_cov_cats)
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_earliest_academic_year IS NULL
+           OR EXTRACT(YEAR FROM ay.start_date)::int >= p_earliest_academic_year)
+  ),
+  dup AS (
+    SELECT tb.student_id AS learner_id, tb.institution_id,
+           COUNT(*)::integer AS bill_count,
+           SUM(tb.final_amount)::numeric AS total_billed,
+           SUM(tb.balance_amount)::numeric AS outstanding,
+           (COUNT(DISTINCT tb.created_at::date) = 1
+            AND COUNT(DISTINCT EXTRACT(YEAR FROM tb.due_date)) > 1) AS is_generator_artefact
+    FROM coverage_bills tb
+    GROUP BY tb.student_id, tb.institution_id, tb.yr
+    HAVING COUNT(*) > 1
+  ),
+  -- The INVERSE finding: a live tuition bill for a year after the programme
+  -- ends. STRICTLY kind = 'tuition', and the one predicate on this page that
+  -- did NOT widen with the rest. program_duration_yrs counts TAUGHT years, so
+  -- an internship fee falls the year after the course ends by design — all
+  -- eight Allied Health BSc programmes are dur = 4.0 and bill AHS - INTERNSHIP
+  -- FEE in cohort+4. Reading is_core_tuition here instead of the widened set
+  -- is what keeps those 37 correct bills from being reported as anomalies.
+  past_end AS (
+    SELECT tb.id, tb.student_id, tb.balance_amount
+    FROM coverage_bills tb
+    WHERE tb.is_core_tuition
+      AND tb.end_yr IS NOT NULL AND tb.yr > tb.end_yr
+  )
+  SELECT jsonb_build_object(
+    'combos',       (SELECT COUNT(*) FROM dup),
+    'learners',     (SELECT COUNT(DISTINCT learner_id) FROM dup),
+    'bills',        (SELECT COALESCE(SUM(bill_count), 0) FROM dup),
+    'extra_bills',  (SELECT COALESCE(SUM(bill_count - 1), 0) FROM dup),
+    'total_billed', (SELECT COALESCE(SUM(total_billed), 0) FROM dup),
+    'outstanding',  (SELECT COALESCE(SUM(outstanding), 0) FROM dup),
+    'generator_signature',
+      (SELECT COUNT(*) FROM dup WHERE is_generator_artefact),
+    'unassigned_tuition_bills', (
+      SELECT COUNT(*)
+      FROM public.billing_student_bills b
+      JOIN scope s ON s.id = b.student_id
+      JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.id = ANY(v_cov_cats)
+      WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+        AND b.academic_year_id IS NULL
+    ),
+    'past_end_bills',       (SELECT COUNT(*) FROM past_end),
+    'past_end_learners',    (SELECT COUNT(DISTINCT student_id) FROM past_end),
+    'past_end_outstanding', (SELECT COALESCE(SUM(balance_amount), 0) FROM past_end),
+    'by_institution', COALESCE((
+      SELECT jsonb_agg(x ORDER BY x->>'institution_name')
+      FROM (
+        SELECT jsonb_build_object(
+                 'institution_id',   d.institution_id,
+                 'institution_name', COALESCE(i.name::text, 'Unknown'),
+                 'combos',           COUNT(*),
+                 'learners',         COUNT(DISTINCT d.learner_id),
+                 'extra_bills',      COALESCE(SUM(d.bill_count - 1), 0)
+               ) AS x
+        FROM dup d
+        LEFT JOIN public.institutions i ON i.id = d.institution_id
+        GROUP BY d.institution_id, i.name
+      ) sub
+    ), '[]'::jsonb)
+  ) INTO v_result;
+
+  RETURN v_result;
+END;
+$function$;
+
+-- ── B: list ────────────────────────────────────────────────────────────────
+-- Body-only change; same reasoning as A above.
+CREATE OR REPLACE FUNCTION public.get_billing_audit_duplicate_years(
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_lifecycle_statuses text[] DEFAULT ARRAY['active'::text, 'reserved'::text, 'admitted'::text, 'account'::text],
+  p_include_non_tuition_institutions boolean DEFAULT false,
+  p_accommodation_type_ids uuid[] DEFAULT NULL::uuid[],
+  p_transport text DEFAULT 'any'::text,
+  p_gender text DEFAULT NULL::text,
+  p_degree_id uuid DEFAULT NULL::uuid,
+  p_department_id uuid DEFAULT NULL::uuid,
+  p_program_id uuid DEFAULT NULL::uuid,
+  p_semester_id uuid DEFAULT NULL::uuid,
+  p_section_id uuid DEFAULT NULL::uuid,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_earliest_academic_year integer DEFAULT NULL::integer,
+  p_search text DEFAULT NULL::text,
+  p_page integer DEFAULT 1,
+  p_page_size integer DEFAULT 50,
+  p_sort_by text DEFAULT NULL::text,
+  p_sort_dir text DEFAULT 'asc'::text
+)
+RETURNS TABLE(
+  out_audit_row_id text, out_learner_id uuid, out_roll_number text,
+  out_register_number text, out_full_name text, out_lifecycle_status text,
+  out_institution_id uuid, out_institution_name text, out_program_name text,
+  out_semester_section text, out_admission_year integer,
+  out_academic_year_name text, out_bill_count integer, out_category_names text,
+  out_total_billed numeric, out_total_paid numeric, out_outstanding numeric,
+  out_created_same_day boolean, out_due_year_span integer,
+  out_programme_end_year text, out_is_past_programme_end boolean,
+  out_total_count bigint
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst   uuid[];
+  v_limit  integer := LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_offset integer := GREATEST(COALESCE(p_page, 1) - 1, 0)
+                      * LEAST(GREATEST(COALESCE(NULLIF(p_page_size, 0), 50), 1), 5000);
+  v_asc    boolean := COALESCE(LOWER(p_sort_dir), 'asc') <> 'desc';
+  v_adm_year_ids uuid[];
+  v_cov_cats     uuid[];
+BEGIN
+  IF NOT public.user_has_permission('billing.coverage.view') THEN
+    RAISE EXCEPTION 'permission denied: billing.coverage.view' USING ERRCODE = '42501';
+  END IF;
+
+  -- Resolved once per call, not per predicate: ten sites read it below, and a
+  -- STABLE function re-evaluated inside every join would be re-planned each time.
+  v_cov_cats := public.fn_billing_tuition_equivalent_category_ids();
+
+  SELECT array_agg(institution_id) INTO v_inst
+  FROM public.get_user_accessible_institutions(auth.uid())
+  WHERE (p_institution_ids IS NULL OR institution_id = ANY(p_institution_ids));
+
+  IF v_inst IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF p_admission_year IS NOT NULL THEN
+    SELECT array_agg(ayr.id) INTO v_adm_year_ids
+    FROM public.admission_years ayr WHERE ayr.year = p_admission_year;
+  END IF;
+
+  RETURN QUERY
+  WITH tuition_inst AS MATERIALIZED (
+    SELECT DISTINCT b.institution_id AS inst_id
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE bc.id = ANY(v_cov_cats)
+      AND COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+  ),
+  scope AS MATERIALIZED (
+    SELECT lp.id, lp.institution_id, lp.program_id, lp.semester_id, lp.section_id,
+           lp.lifecycle_status, lp.first_name, lp.last_name, lp.roll_number,
+           lp.register_number, adm.year AS cohort,
+           public.fn_programme_end_year(adm.year, p.program_duration_yrs) AS end_yr
+    FROM public.learners_profiles lp
+    LEFT JOIN public.admission_years adm ON adm.id = lp.admission_year_id
+    LEFT JOIN public.programs p ON p.id = lp.program_id
+    WHERE lp.institution_id = ANY(v_inst)
+      AND lp.lifecycle_status::text = ANY(p_lifecycle_statuses)
+      AND (p_include_non_tuition_institutions
+           OR lp.institution_id IN (SELECT inst_id FROM tuition_inst))
+      AND (p_admission_year IS NULL OR lp.admission_year_id = ANY(v_adm_year_ids))
+      AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
+      AND (p_department_id IS NULL OR lp.department_id = p_department_id)
+      AND (p_program_id    IS NULL OR lp.program_id    = p_program_id)
+      AND (p_semester_id   IS NULL OR lp.semester_id   = p_semester_id)
+      AND (p_section_id    IS NULL OR lp.section_id    = p_section_id)
+      AND (p_accommodation_type_ids IS NULL
+           OR lp.accommodation_type_id = ANY(p_accommodation_type_ids))
+      AND (
+        p_gender IS NULL
+        OR (p_gender = '__unset__' AND NULLIF(TRIM(lp.gender), '') IS NULL)
+        OR (p_gender <> '__unset__'
+            AND UPPER(TRIM(lp.gender)) = UPPER(TRIM(p_gender)))
+      )
+      AND (
+        COALESCE(p_transport, 'any') = 'any'
+        OR (p_transport = 'bus'
+            AND (lp.bus_required IS TRUE OR lp.transport_route_id IS NOT NULL))
+        OR (p_transport = 'no_bus'
+            AND lp.bus_required IS NOT TRUE AND lp.transport_route_id IS NULL)
+      )
+      AND (
+        p_search IS NULL OR p_search = ''
+        OR lp.roll_number ILIKE '%' || p_search || '%'
+        OR lp.register_number ILIKE '%' || p_search || '%'
+        OR (COALESCE(lp.first_name,'') || ' ' || COALESCE(lp.last_name,''))
+             ILIKE '%' || p_search || '%'
+      )
+  ),
+  dup AS (
+    SELECT b.student_id AS learner_id,
+           EXTRACT(YEAR FROM ay.start_date)::integer AS yr,
+           COUNT(*)::integer AS bill_count,
+           string_agg(DISTINCT bc.category_name::text, ', '
+                      ORDER BY bc.category_name::text) AS category_names,
+           SUM(b.final_amount)::numeric AS total_billed,
+           SUM(b.final_amount - COALESCE(b.balance_amount, 0))::numeric AS total_paid,
+           SUM(COALESCE(b.balance_amount, 0))::numeric AS outstanding,
+           (COUNT(DISTINCT b.created_at::date) = 1) AS created_same_day,
+           COUNT(DISTINCT EXTRACT(YEAR FROM b.due_date))::integer AS due_year_span,
+           -- Gates the past-programme-end badge below to match the summary
+           -- KPI, which counts tuition-kind bills only. Without it a combo made
+           -- purely of internship fees could be badged for a year that, for an
+           -- internship, is exactly where it belongs.
+           bool_or(bc.kind = 'tuition') AS has_core_tuition
+    FROM public.billing_student_bills b
+    JOIN scope s ON s.id = b.student_id
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id AND bc.id = ANY(v_cov_cats)
+    JOIN public.academic_years ay ON ay.id = b.academic_year_id
+    WHERE COALESCE(b.status, '') NOT IN ('cancelled', 'superseded')
+      AND (p_earliest_academic_year IS NULL
+           OR EXTRACT(YEAR FROM ay.start_date)::int >= p_earliest_academic_year)
+    GROUP BY b.student_id, EXTRACT(YEAR FROM ay.start_date)::integer
+    HAVING COUNT(*) > 1
+  ),
+  final AS (
+    SELECT (s.id::text || ':' || d.yr::text) AS audit_row_id,
+           s.id AS learner_id,
+           s.roll_number::text     AS roll_number,
+           s.register_number::text AS register_number,
+           TRIM(COALESCE(s.first_name,'') || ' ' || COALESCE(s.last_name,''))
+                                   AS full_name,
+           s.lifecycle_status::text AS lifecycle_status,
+           s.institution_id        AS institution_id,
+           i.name::text            AS institution_name,
+           p.program_name          AS program_name,
+           CASE
+             WHEN sem.semester_name IS NULL AND sec.section_name IS NULL THEN NULL
+             WHEN sec.section_name IS NULL THEN sem.semester_name::text
+             WHEN sem.semester_name IS NULL THEN sec.section_name::text
+             ELSE sem.semester_name::text || ' · ' || sec.section_name::text
+           END                     AS semester_section,
+           s.cohort                AS admission_year,
+           (d.yr::text || '-' || (d.yr + 1)::text) AS academic_year_name,
+           d.bill_count, d.category_names, d.total_billed, d.total_paid,
+           d.outstanding, d.created_same_day, d.due_year_span,
+           s.end_yr                AS programme_end_yr,
+           (d.has_core_tuition AND s.end_yr IS NOT NULL AND d.yr > s.end_yr)
+                                   AS is_past_programme_end
+    FROM dup d
+    JOIN scope s ON s.id = d.learner_id
+    LEFT JOIN public.institutions i   ON i.id   = s.institution_id
+    LEFT JOIN public.programs     p   ON p.id   = s.program_id
+    LEFT JOIN public.semesters    sem ON sem.id = s.semester_id
+    LEFT JOIN public.sections     sec ON sec.id = s.section_id
+  )
+  SELECT f.audit_row_id, f.learner_id, f.roll_number, f.register_number,
+         f.full_name, f.lifecycle_status, f.institution_id, f.institution_name,
+         f.program_name, f.semester_section, f.admission_year,
+         f.academic_year_name, f.bill_count, f.category_names,
+         f.total_billed, f.total_paid, f.outstanding,
+         f.created_same_day, f.due_year_span,
+         CASE WHEN f.programme_end_yr IS NULL THEN NULL
+              ELSE f.programme_end_yr::text || '-' || (f.programme_end_yr + 1)::text
+         END,
+         f.is_past_programme_end,
+         COUNT(*) OVER ()::bigint
+  FROM final f
+  ORDER BY
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'category_names'     THEN f.category_names
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'full_name'          THEN f.full_name
+         WHEN 'roll_number'        THEN f.roll_number
+         WHEN 'register_number'    THEN f.register_number
+         WHEN 'institution_name'   THEN f.institution_name
+         WHEN 'program_name'       THEN f.program_name
+         WHEN 'semester_section'   THEN f.semester_section
+         WHEN 'lifecycle_status'   THEN f.lifecycle_status
+         WHEN 'academic_year_name' THEN f.academic_year_name
+         WHEN 'category_names'     THEN f.category_names
+       END
+     END) DESC NULLS LAST,
+    (CASE WHEN v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year' THEN f.admission_year::numeric
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'outstanding'    THEN f.outstanding
+       END
+     END) ASC NULLS LAST,
+    (CASE WHEN NOT v_asc THEN
+       CASE p_sort_by
+         WHEN 'admission_year' THEN f.admission_year::numeric
+         WHEN 'bill_count'     THEN f.bill_count::numeric
+         WHEN 'total_billed'   THEN f.total_billed
+         WHEN 'total_paid'     THEN f.total_paid
+         WHEN 'outstanding'    THEN f.outstanding
+       END
+     END) DESC NULLS LAST,
+    -- Bills sitting past the programme end float to the top: they are the
+    -- least explicable rows on the screen.
+    f.is_past_programme_end DESC, f.bill_count DESC,
+    f.institution_name NULLS LAST, f.roll_number NULLS LAST, f.academic_year_name
+  LIMIT v_limit OFFSET v_offset;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text)
+  FROM anon, PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years(
+  uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
+  integer, integer, text, integer, integer, text, text)
+  TO authenticated, service_role;
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_settle_billing_category()
+ RETURNS uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT bc.id
+  FROM billing_categories bc
+  WHERE bc.category_name = 'Hostel Empty Bed Settlement'
+    AND bc.is_active
+  ORDER BY bc.created_at
+  LIMIT 1;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._enforce_room_buyout_lock()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_buyout uuid;
+BEGIN
+  -- Only an ACTIVE occupancy takes a bed. A row being checked out frees one, so
+  -- a resident may always leave a bought-out room.
+  IF NEW.check_out_date IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT b.id INTO v_buyout
+  FROM hostel_room_buyouts b
+  WHERE b.room_id = NEW.room_id
+    AND b.status = 'active'
+  LIMIT 1;
+
+  IF v_buyout IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- The residents who bought the room may still be edited in place — a bed swap
+  -- within the room, a status change, a correction. Only a NEW body is refused.
+  IF EXISTS (
+    SELECT 1 FROM hostel_room_buyout_consents c
+    WHERE c.buyout_id = v_buyout
+      AND c.allocation_id = NEW.id
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION
+    'This room is held under an active empty-bed buyout — its residents have paid for the empty beds. Release the buyout before allocating anyone into it.'
+    USING ERRCODE = '23514',
+          DETAIL  = format('room_id=%s buyout_id=%s allocation_id=%s', NEW.room_id, v_buyout, NEW.id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_quote(p_room_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_year_id   uuid;
+  v_cost      jsonb;
+  v_capacity  int;
+  v_occupants int;
+  v_per_bed   numeric;
+  v_settled   numeric;
+  v_amount    numeric;
+  v_live      record;
+BEGIN
+  -- Own-room scope. fn_user_allocated_room is deliberately NOT reused here: it
+  -- ignores check_out_date, so a learner who has since moved out would still be
+  -- able to price — and later act on — the room she used to live in.
+  IF NOT EXISTS (
+        SELECT 1 FROM hostel_allocations a
+        WHERE a.room_id = p_room_id
+          AND a.check_out_date IS NULL
+          AND a.learner_id = auth.uid())
+     AND NOT fn_settle_can_manage(p_room_id, 'campus_living.fees.view') THEN
+    RAISE EXCEPTION 'permission denied: you are not a resident of this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'mechanism_disabled',
+                              'room_id', p_room_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM hostel_rooms r
+    JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE r.id = p_room_id AND hc.settle_billing_enabled
+  ) THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'category_not_in_scope',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_year_id := fn_settle_current_hostel_year();
+  IF v_year_id IS NULL THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'no_hostel_year',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
+  IF NOT (v_cost->>'found')::boolean THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', v_cost->>'reason',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_capacity := (v_cost->>'capacity')::int;
+  v_per_bed  := (v_cost->>'per_bed_annual_rate')::numeric;
+
+  SELECT COUNT(*)::int INTO v_occupants
+  FROM hostel_allocations a
+  WHERE a.room_id = p_room_id AND a.check_out_date IS NULL;
+
+  IF v_occupants = 0 THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'no_occupants',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_settled := round((v_cost->>'base_room_annual')::numeric / v_occupants)
+             + round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
+  v_amount  := GREATEST(0, v_settled - v_per_bed);
+
+  SELECT b.id, b.status INTO v_live
+  FROM hostel_room_buyouts b
+  WHERE b.room_id = p_room_id
+    AND b.status IN ('pending_consent','active')
+  LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'eligible',            v_amount > 0 AND v_live.id IS NULL,
+    'reason',              CASE
+                             WHEN v_live.id IS NOT NULL THEN 'buyout_already_live'
+                             WHEN v_amount <= 0         THEN 'room_full'
+                             ELSE NULL
+                           END,
+    'room_id',             p_room_id,
+    'hostel_year_id',      v_year_id,
+    'capacity',            v_capacity,
+    'occupants',           v_occupants,
+    'empty_beds',          GREATEST(0, v_capacity - v_occupants),
+    'per_bed_annual_rate', v_per_bed,
+    'settled_share',       v_settled,
+    'amount_per_resident', v_amount,
+    -- More than one body in the room means everyone must agree: activation
+    -- bills them all and removes their chance of the price falling later.
+    'consent_required',    v_occupants > 1,
+    'existing_buyout_id',  v_live.id,
+    'existing_status',     v_live.status);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._room_buyout_activate(p_buyout_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_b         public.hostel_room_buyouts%ROWTYPE;
+  v_cost      jsonb;
+  v_occupants int;
+  v_per_bed   numeric;
+  v_settled   numeric;
+  v_amount    numeric;
+  v_bill_cat  uuid;
+  v_due_days  int;
+  v_lp_id     uuid;
+  v_inst_id   uuid;
+  v_bill_id   uuid;
+  v_billed    int := 0;
+  c           record;
+BEGIN
+  SELECT * INTO v_b FROM hostel_room_buyouts WHERE id = p_buyout_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found', 'buyout_id', p_buyout_id);
+  END IF;
+  IF v_b.status <> 'pending_consent' THEN
+    RETURN jsonb_build_object('status', v_b.status, 'buyout_id', p_buyout_id);
+  END IF;
+
+  v_bill_cat := fn_settle_billing_category();
+  IF v_bill_cat IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_billing_category', 'buyout_id', p_buyout_id);
+  END IF;
+
+  -- RE-DERIVE. The request's figure is a quote, not an authority: residents may
+  -- have arrived or left while consent was being collected. Billing a number
+  -- nobody agreed to is worse than making them ask again.
+  v_cost := fn_settle_room_annual_cost(v_b.room_id, v_b.hostel_year_id);
+  IF NOT (v_cost->>'found')::boolean THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = COALESCE(v_cost->>'reason','no_rate')
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', v_cost->>'reason');
+  END IF;
+
+  v_per_bed := (v_cost->>'per_bed_annual_rate')::numeric;
+
+  SELECT COUNT(*)::int INTO v_occupants
+  FROM hostel_allocations a
+  WHERE a.room_id = v_b.room_id AND a.check_out_date IS NULL;
+
+  IF v_occupants = 0 THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = 'no_occupants'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', 'no_occupants');
+  END IF;
+
+  v_settled := round((v_cost->>'base_room_annual')::numeric / v_occupants)
+             + round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
+  v_amount  := GREATEST(0, v_settled - v_per_bed);
+
+  IF v_amount <= 0 THEN
+    -- The room filled while they were deciding. There is nothing left to buy,
+    -- and that is the outcome they wanted anyway.
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = 'room_filled'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', 'room_filled');
+  END IF;
+
+  IF v_amount <> v_b.amount_per_resident THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = 'occupancy_changed'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', 'occupancy_changed',
+                              'quoted', v_b.amount_per_resident, 'now', v_amount);
+  END IF;
+
+  v_due_days := GREATEST(0, fn_get_policy_int('hostel.settle_bill.bill_due_days', 5));
+
+  FOR c IN
+    SELECT k.id AS consent_id, k.allocation_id, k.learner_id
+    FROM hostel_room_buyout_consents k
+    JOIN hostel_allocations a ON a.id = k.allocation_id
+    WHERE k.buyout_id = p_buyout_id
+      AND k.decision = 'agreed'
+      AND a.check_out_date IS NULL
+    ORDER BY k.created_at
+  LOOP
+    SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = c.learner_id;
+    CONTINUE WHEN v_lp_id IS NULL;   -- not a learner: cannot be billed
+
+    -- A flat hostel package does not divide by occupancy, so its holder has
+    -- nothing to settle. Same exclusion the sweep biller applies.
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM jsonb_array_elements(
+        COALESCE(campus_living_resolve_hostel_fee(v_lp_id, v_b.hostel_year_id), '[]'::jsonb)
+      ) itm WHERE itm->>'fee_source' = 'hostel_package'
+    );
+
+    -- Same dedup key the sweep uses, so the two paths cannot both bill her.
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM billing_student_bills b
+      WHERE b.student_id       = v_lp_id
+        AND b.hostel_year_id   = v_b.hostel_year_id
+        AND b.item_category_id = v_bill_cat
+        AND b.fee_source       = 'hostel_category'
+        AND b.status NOT IN ('cancelled','superseded')
+    );
+
+    SELECT lp.institution_id INTO v_inst_id
+    FROM learners_profiles lp WHERE lp.id = v_lp_id;
+
+    INSERT INTO billing_student_bills
+      (student_id, institution_id, item_category_id, hostel_year_id, fee_source,
+       bill_description, due_date, quantity, unit_amount, total_amount,
+       final_amount, balance_amount, status)
+    VALUES
+      (v_lp_id, v_inst_id, v_bill_cat, v_b.hostel_year_id, 'hostel_category',
+       'Room buyout: ' || (v_b.capacity_at_request - v_occupants)
+         || ' empty bed' || CASE WHEN (v_b.capacity_at_request - v_occupants) = 1 THEN '' ELSE 's' END
+         || ' held for exclusive use',
+       (now() + make_interval(days => v_due_days))::date,
+       1, v_amount, v_amount, v_amount, v_amount, 'unpaid')
+    RETURNING id INTO v_bill_id;
+
+    UPDATE hostel_room_buyout_consents SET bill_id = v_bill_id WHERE id = c.consent_id;
+    v_billed := v_billed + 1;
+  END LOOP;
+
+  UPDATE hostel_room_buyouts
+     SET status = 'active', activated_at = now(), occupants_at_request = v_occupants
+   WHERE id = p_buyout_id;
+
+  -- Close any open settle window on this room: it has just been settled by
+  -- hand, and leaving the window open would put the room back in the sweep's
+  -- due list where the dedup guard would have to catch it a second time.
+  UPDATE hostel_room_settle_windows
+     SET status = 'billed', billed_at = now(), occupants_at_billing = v_occupants
+   WHERE room_id = v_b.room_id
+     AND hostel_year_id = v_b.hostel_year_id
+     AND status = 'open';
+
+  RETURN jsonb_build_object('status', 'active', 'buyout_id', p_buyout_id,
+                            'room_id', v_b.room_id,
+                            'amount_per_resident', v_amount,
+                            'bills_raised', v_billed);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_request(p_room_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_q        jsonb;
+  v_me       uuid := auth.uid();
+  v_alloc    uuid;
+  v_hours    int;
+  v_buyout   uuid;
+  v_inst     uuid;
+  v_others   int;
+  a          record;
+BEGIN
+  IF v_me IS NULL THEN
+    RAISE EXCEPTION 'permission denied: no signed-in learner' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT a2.id INTO v_alloc
+  FROM hostel_allocations a2
+  WHERE a2.room_id = p_room_id AND a2.check_out_date IS NULL AND a2.learner_id = v_me
+  LIMIT 1;
+
+  IF v_alloc IS NULL THEN
+    RAISE EXCEPTION 'permission denied: you are not a resident of this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_q := fn_room_buyout_quote(p_room_id);
+  IF NOT (v_q->>'eligible')::boolean THEN
+    RETURN jsonb_build_object('status', 'refused', 'reason', v_q->>'reason', 'quote', v_q);
+  END IF;
+
+  v_hours := GREATEST(1, fn_get_policy_int('hostel.settle_bill.buyout_consent_hours', 48));
+
+  SELECT lp.institution_id INTO v_inst
+  FROM profiles p JOIN learners_profiles lp ON lp.id = p.learner_id
+  WHERE p.id = v_me;
+
+  INSERT INTO hostel_room_buyouts
+    (room_id, hostel_year_id, institution_id, requested_by_learner_id,
+     capacity_at_request, occupants_at_request, empty_beds,
+     amount_per_resident, status, consent_deadline)
+  VALUES
+    (p_room_id, (v_q->>'hostel_year_id')::uuid, v_inst, v_me,
+     (v_q->>'capacity')::int, (v_q->>'occupants')::int, (v_q->>'empty_beds')::int,
+     (v_q->>'amount_per_resident')::numeric, 'pending_consent',
+     now() + make_interval(hours => v_hours))
+  RETURNING id INTO v_buyout;
+
+  -- One consent row per CURRENT resident. The requester's is already agreed —
+  -- asking her to confirm what she just asked for is noise.
+  FOR a IN
+    SELECT a2.id AS allocation_id, a2.learner_id
+    FROM hostel_allocations a2
+    WHERE a2.room_id = p_room_id AND a2.check_out_date IS NULL
+  LOOP
+    INSERT INTO hostel_room_buyout_consents
+      (buyout_id, allocation_id, learner_id, decision, decided_at)
+    VALUES
+      (v_buyout, a.allocation_id, a.learner_id,
+       CASE WHEN a.learner_id = v_me THEN 'agreed' ELSE 'pending' END,
+       CASE WHEN a.learner_id = v_me THEN now() ELSE NULL END);
+  END LOOP;
+
+  SELECT COUNT(*)::int INTO v_others
+  FROM hostel_room_buyout_consents
+  WHERE buyout_id = v_buyout AND decision = 'pending';
+
+  -- Sole occupant: nobody else to ask, so it takes effect at once.
+  IF v_others = 0 THEN
+    RETURN _room_buyout_activate(v_buyout) || jsonb_build_object('quote', v_q);
+  END IF;
+
+  RETURN jsonb_build_object('status', 'pending_consent', 'buyout_id', v_buyout,
+                            'awaiting', v_others, 'quote', v_q);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_respond(p_buyout_id uuid, p_agree boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_me      uuid := auth.uid();
+  v_b       public.hostel_room_buyouts%ROWTYPE;
+  v_consent uuid;
+  v_pending int;
+BEGIN
+  SELECT * INTO v_b FROM hostel_room_buyouts WHERE id = p_buyout_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found', 'buyout_id', p_buyout_id);
+  END IF;
+
+  IF v_b.status <> 'pending_consent' THEN
+    RETURN jsonb_build_object('status', v_b.status, 'buyout_id', p_buyout_id);
+  END IF;
+
+  IF now() > v_b.consent_deadline THEN
+    UPDATE hostel_room_buyouts SET status = 'expired' WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'expired', 'buyout_id', p_buyout_id);
+  END IF;
+
+  SELECT k.id INTO v_consent
+  FROM hostel_room_buyout_consents k
+  WHERE k.buyout_id = p_buyout_id AND k.learner_id = v_me;
+
+  IF v_consent IS NULL THEN
+    RAISE EXCEPTION 'permission denied: you were not asked to agree to this buyout'
+      USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE hostel_room_buyout_consents
+     SET decision = CASE WHEN p_agree THEN 'agreed' ELSE 'declined' END,
+         decided_at = now()
+   WHERE id = v_consent;
+
+  -- One refusal ends it. The others are not billed, and the room stays open.
+  IF NOT p_agree THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'declined', cancelled_reason = 'roommate_declined'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'declined', 'buyout_id', p_buyout_id);
+  END IF;
+
+  SELECT COUNT(*)::int INTO v_pending
+  FROM hostel_room_buyout_consents
+  WHERE buyout_id = p_buyout_id AND decision = 'pending';
+
+  IF v_pending > 0 THEN
+    RETURN jsonb_build_object('status', 'pending_consent', 'buyout_id', p_buyout_id,
+                              'awaiting', v_pending);
+  END IF;
+
+  RETURN _room_buyout_activate(p_buyout_id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_release(p_buyout_id uuid, p_reason text DEFAULT NULL)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_b public.hostel_room_buyouts%ROWTYPE;
+BEGIN
+  SELECT * INTO v_b FROM hostel_room_buyouts WHERE id = p_buyout_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found', 'buyout_id', p_buyout_id);
+  END IF;
+
+  IF NOT fn_settle_can_manage(v_b.room_id, 'campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_b.status NOT IN ('pending_consent','active') THEN
+    RETURN jsonb_build_object('status', v_b.status, 'buyout_id', p_buyout_id);
+  END IF;
+
+  UPDATE hostel_room_buyouts
+     SET status = 'released', released_at = now(), released_by = auth.uid(),
+         release_reason = p_reason
+   WHERE id = p_buyout_id;
+
+  RETURN jsonb_build_object('status', 'released', 'buyout_id', p_buyout_id,
+                            'room_id', v_b.room_id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_my_room_settle_window()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+           'window_id',        w.id,
+           'room_id',          w.room_id,
+           'opened_at',        w.opened_at,
+           'current_deadline', w.current_deadline,
+           'hard_deadline',    w.hard_deadline,
+           'restart_count',    w.restart_count,
+           'status',           w.status)
+  FROM hostel_room_settle_windows w
+  JOIN hostel_allocations a
+    ON a.room_id = w.room_id
+   AND a.check_out_date IS NULL
+   AND a.learner_id = auth.uid()
+  WHERE w.status = 'open'
+  ORDER BY w.current_deadline
+  LIMIT 1;
+$function$;

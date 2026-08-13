@@ -40,6 +40,7 @@ import {
 import { ArrowLeft, Send, Check, X, Pencil } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function PurchaseRequestDetailPage() {
   const router = useRouter();
@@ -108,7 +109,7 @@ export default function PurchaseRequestDetailPage() {
       await fn();
       toast.success(ok);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(errorMessage(e, 'Action failed'));
     }
   };
 

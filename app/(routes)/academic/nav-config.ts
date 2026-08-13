@@ -172,6 +172,7 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/academic/internal-marks',
         '/academic/course-grades',
+        '/academic/mark-entry',
       ],
       children: [
         {
@@ -179,6 +180,14 @@ const config: ModuleNavConfig = {
           icon: 'PenLine',
           href: '/academic/internal-marks',
           exact: true,
+        },
+        {
+          // CIA entry screen — question-wise (against the round's question
+          // paper) or direct component totals. Separate page from Internal
+          // Marks, which keeps its existing marks/report surface.
+          label: 'Mark Entry',
+          icon: 'ClipboardEdit',
+          href: '/academic/mark-entry',
         },
         {
           label: 'IA Monitor',

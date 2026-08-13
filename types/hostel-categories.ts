@@ -26,6 +26,14 @@ export interface HostelCategory {
   requires_explicit_upgrade: boolean;
   /** When true, residents in this category see/can use self-service upgrades on My Hostel. Default false. */
   upgrades_enabled: boolean;
+  /**
+   * Opt this category into empty-bed settlement: rooms in it open a settle
+   * window on arrival and can be billed for the beds nobody is sleeping in.
+   * Default false — a category is never in scope by accident. Independent of
+   * the `hostel.settle_bill.enabled` master switch, which gates the mechanism
+   * as a whole. Edited on fee-config's Room Sharing tab.
+   */
+  settle_billing_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +60,7 @@ export interface UpdateHostelCategoryDto {
   upgrade_threshold_pct?: number | null;
   upgrade_hold_days?: number;
   upgrades_enabled?: boolean;
+  settle_billing_enabled?: boolean;
 }
 
 export interface HostelCategoryFilters {

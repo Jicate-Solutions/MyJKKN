@@ -196,3 +196,44 @@ describe('parseFrontLayout — background_image (Canva-background workflow)', ()
     expect(parseFrontLayout({ background_image: 42 })).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// programs.card_short_name (2026-09-01) — the card's narrow COURSE line.
+// The card prints "BTECH IT"; the DB holds "B.Tech. Information Technology".
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('card_short_name resolution via field mappings', () => {
+  const bag = (short: string) => ({
+    'learners_profiles.program_id': 'B.Tech. Information Technology',
+    'programs.card_short_name': short
+  });
+
+  it('prints the short form when the programme has one', () => {
+    expect(
+      resolveMappedValue(
+        'course',
+        [{ card_field: 'course', db_column: 'programs.card_short_name' }],
+        bag('BTECH IT'),
+        'B.Tech. Information Technology'
+      )
+    ).toBe('BTECH IT');
+  });
+
+  it('falls back to the full programme name when the short form is empty', () => {
+    // A programme with no short form must never print a blank COURSE line.
+    expect(
+      resolveMappedValue(
+        'course',
+        [{ card_field: 'course', db_column: 'programs.card_short_name' }],
+        bag(''),
+        'B.Tech. Information Technology'
+      )
+    ).toBe('B.Tech. Information Technology');
+  });
+
+  it('unmapped templates are unaffected — still the full name', () => {
+    expect(
+      resolveMappedValue('course', [], bag('BTECH IT'), 'B.Tech. Information Technology')
+    ).toBe('B.Tech. Information Technology');
+  });
+});

@@ -373,6 +373,9 @@ export interface HRLeaveApplicationWithType extends HRLeaveApplication {
   } | null;
 }
 
+/** Where a balance row's `entitled` number came from. */
+export type EntitlementSource = 'override' | 'frozen' | 'policy';
+
 export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   leave_type_name: string;
   leave_type_code: string;
@@ -388,6 +391,12 @@ export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   max_continuous_days: number | null;
   min_advance_notice_days: number;
   requires_documents: boolean;
+  /**
+   * 'policy'   — the leave type's default_entitled_days (the common case)
+   * 'override' — an explicit hr_leave_entitlement_overrides row
+   * 'frozen'   — a stored value from a closed year
+   */
+  entitlement_source: EntitlementSource;
 }
 
 export interface HRLeaveEncashment {
