@@ -1,4 +1,5 @@
 import { BaseService } from '@/lib/services/base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   CourseEvent, CourseEventFilters, CreateCourseEventDto, UpdateCourseEventDto,
 } from '@/types/courses';
@@ -12,31 +13,13 @@ const SELECT = `
 /** Nullable columns where an empty string from a form must become NULL: four
  *  TEXT columns where '' is legally storable but not the intended value, plus
  *  six columns (date / timestamptz / int / uuid) where Postgres rejects ''
- *  outright with 22P02. Single source of truth for both create() and
- *  update() — do not duplicate this list. */
+ *  outright with 22P02. Single source of truth for CourseEventService.nullifyBlanks
+ *  and for create()'s absent-key defaulting below — do not duplicate this list. */
 const NULLABLE_FIELDS = new Set([
   'code', 'description', 'venue_text', 'cover_image_url',
   'start_date', 'end_date', 'application_opens_at', 'application_closes_at',
   'total_seats', 'previous_course_event_id',
 ]);
-
-/**
- * Converts '' to null for the nullable columns above — but ONLY for keys
- * already present on the input object; it never adds a key. That is what
- * makes it safe for update(): UpdateCourseEventDto is Partial<...>, so
- * update() must receive exactly the keys the caller chose to send. Seeding
- * absent keys with null here would silently wipe every field the user did
- * not touch, turning a 22P02 into worse — a silent data-loss bug.
- */
-function normalizeNullableFields<T extends Record<string, any>>(dto: T): T {
-  const out: any = { ...dto };
-  for (const key of Object.keys(out)) {
-    if (NULLABLE_FIELDS.has(key) && out[key] === '') {
-      out[key] = null;
-    }
-  }
-  return out;
-}
 
 export class CourseEventService extends BaseService {
   /**
@@ -86,13 +69,32 @@ export class CourseEventService extends BaseService {
     );
   }
 
+  /**
+   * CORRECTED 2026-08-13 (flagged by automated security review) — the first draft
+   * escaped only [%_], the LIKE wildcards. PostgREST's `or=(...)` grammar has its
+   * own metacharacters — `,` separates conditions, `(`/`)` group, `.` separates
+   * column.operator.value — so a search containing a comma broke out of the ilike
+   * and injected a sibling condition into the or-group.
+   *
+   * Use the repo's own sanitizeSearch (lib/config/pagination.ts), which strips
+   * % \ ' " ( ) , . * — do not invent escaping here.
+   *
+   * Called explicitly rather than relied on from BaseService: executeListQuery
+   * auto-sanitizes at base-service.ts:143, but the multi-institution path in
+   * list() bypasses that method entirely, so it would otherwise have no
+   * sanitization at all. Calling it here covers both paths from one place; it's
+   * idempotent (strips rather than escapes), so double-sanitizing the
+   * single-institution path is harmless.
+   */
   private static applyCommonFilters(q: any, filters: CourseEventFilters) {
     if (filters.status) q = q.eq('status', filters.status);
     if (filters.mode) q = q.eq('mode', filters.mode);
     if (filters.year) q = q.eq('year', filters.year);
     if (filters.search) {
-      const s = filters.search.replace(/[%_]/g, '\\$&');
-      q = q.or(`title.ilike.%${s}%,code.ilike.%${s}%,slug.ilike.%${s}%`);
+      const s = sanitizeSearch(filters.search);
+      // sanitizeSearch can return '' (e.g. a search of only punctuation). An empty
+      // ilike pattern matches everything, which would silently become a no-op filter.
+      if (s) q = q.or(`title.ilike.%${s}%,code.ilike.%${s}%,slug.ilike.%${s}%`);
     }
     return q;
   }
@@ -106,31 +108,55 @@ export class CourseEventService extends BaseService {
 
   /**
    * Nullable fields arrive from react-hook-form as '' and must be normalised to
-   * null — see NULLABLE_FIELDS above for which columns and why.
+   * null (NULLABLE_FIELDS above). This is an INSERT, so absent nullable keys are
+   * also explicitly defaulted to null here, not left undefined — nullifyBlanks
+   * itself never adds a key (see its docstring), so that defaulting has to
+   * happen in create() specifically, before nullifyBlanks runs.
    */
   static async create(dto: CreateCourseEventDto) {
-    const payload = normalizeNullableFields({
-      ...dto,
-      status: dto.status ?? 'draft',
-    });
+    const payload: any = { ...dto, status: dto.status ?? 'draft' };
+    for (const field of NULLABLE_FIELDS) {
+      if (!(field in payload)) payload[field] = null;
+    }
     const { data, error } = await this.supabase
-      .from('course_events').insert(payload as any).select(SELECT).single();
+      .from('course_events').insert(this.nullifyBlanks(payload) as any).select(SELECT).single();
     if (error) throw error;
     return data as unknown as CourseEvent;
   }
 
   /**
-   * dto is Partial<CreateCourseEventDto> — only the keys the caller sent are
-   * present. normalizeNullableFields preserves that: it rewrites '' -> null
-   * on present keys and adds none, so e.g. update(id, { end_date: '' }) sends
-   * exactly `{ end_date: null }` and touches no other column.
+   * CORRECTED 2026-08-13 — the first draft passed `dto` straight through, which
+   * was a live 22P02 waiting for the edit form (see nullifyBlanks below for which
+   * columns and why). dto is Partial<CreateCourseEventDto>, so update() only ever
+   * receives the keys the caller sent; nullifyBlanks preserves that — it rewrites
+   * '' -> null on present keys and adds none, so e.g. update(id, { end_date: '' })
+   * sends exactly `{ end_date: null }` and touches no other column.
    */
   static async update(id: string, dto: UpdateCourseEventDto) {
-    const payload = normalizeNullableFields(dto);
     const { data, error } = await this.supabase
-      .from('course_events').update(payload as any).eq('id', id).select(SELECT).single();
+      .from('course_events')
+      .update(this.nullifyBlanks(dto) as any)
+      .eq('id', id).select(SELECT).single();
     if (error) throw error;
     return data as unknown as CourseEvent;
+  }
+
+  /**
+   * Shared by create() and update() — do not fork a second field list; both read
+   * NULLABLE_FIELDS above. Converts '' to null, but ONLY for keys already present
+   * on the input object; it never adds a key. That is what makes it safe for
+   * update(): UpdateCourseEventDto is Partial<...>, so seeding absent keys with
+   * null here would silently wipe every field the user did not touch — silent
+   * data loss, worse than the 22P02 this fixes.
+   */
+  private static nullifyBlanks<T extends Record<string, any>>(dto: T): T {
+    const out: any = { ...dto };
+    for (const key of Object.keys(out)) {
+      if (NULLABLE_FIELDS.has(key) && out[key] === '') {
+        out[key] = null;
+      }
+    }
+    return out;
   }
 
   /** Blocked by RLS unless the caller holds courses.delete, and by ON DELETE RESTRICT
