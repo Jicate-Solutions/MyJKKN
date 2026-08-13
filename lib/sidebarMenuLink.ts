@@ -667,6 +667,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // has no segment the terminology delta gate matches, so no value split is
   // needed here.
   '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
+  // Cross-cycle session trend. Deliberately NOT 'aiPulse:cycles.manage', even
+  // though it sits beside the Champion Console: the SELECT policy on
+  // ai_pulse_live_attendance (20260611) admits `aiPulse:attendance.mark` and
+  // `aiPulse:anomaly.review` but not `cycles.manage`, so gating on cycles.manage
+  // would open a page whose every rate then read "not captured" for want of
+  // rows. The ai_pulse_champion role holds both keys, so the Champion and
+  // Co-Champion are admitted either way — this key also guarantees the data.
+  '/ai-pulse/admin/trends': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -3129,6 +3137,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
+            { href: '/ai-pulse/admin/trends', label: 'Champion · Session Trend', active: pathname.startsWith('/ai-pulse/admin/trends') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
