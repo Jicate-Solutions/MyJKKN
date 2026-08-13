@@ -19,7 +19,8 @@
 - **Phase 2a writes NO migrations.** The 11 tables, RLS and `courses.*` permission catalogue are already on `main`. If you find yourself calling `mcp__supabase__apply_migration`, stop and report BLOCKED.
 - **There is NO test suite.** Never write "run the tests" and never claim tests pass. Verification is: `mcp__ide__getDiagnostics` per touched file (NEVER full `tsc` — 3-4 min and OOMs), the three nav gates below, and exercising the page in a browser.
 - **The three build gates must pass after any nav change:**
-  `npx tsx scripts/check-sidebar-health.ts`, `npx tsx scripts/check-nav-reachability.ts`, `npx tsx scripts/check-permission-audit-coverage.ts`.
+  `npx tsx scripts/check-sidebar-health.ts`, **`npm run check:reachability`** (never the bare script — it defaults to `--max-unreachable 0` and exits 1 against ~52 pre-existing unreachable routes; the npm script passes `--max-unreachable 58`), and `npx tsx scripts/check-permission-audit-coverage.ts`.
+- **`mcp__ide__getDiagnostics` became unavailable mid-phase** (MCP server disconnected). Do NOT substitute `npm run typecheck` or full `tsc` — CLAUDE.md is explicit it takes 3-4 minutes and OOMs. Verify with `npx eslint <file>` plus hand-verification of every imported symbol against its source, and **never claim a clean typecheck you did not run.**
 - **`BaseService.executeListQuery` THROWS without `institution_id`** (`base-service.ts:130`). Every list call must pass one.
 - **Never branch on `isSuperAdmin` to decide institution scope.** Pass the accessible-institution IDs from `useInstitutionsWithAccess`; RLS still gates the rows. Branching on `isSuperAdmin` silently strips access from `scope='all'` secondary roles.
 - **A NULL `institution_id` grants NOTHING** (spec §9a). Never write `institution_id IS NULL` — or a JS equivalent — as a privilege test. It would promote every external participant to super-admin visibility.
@@ -523,15 +524,24 @@ This rewrites `lib/navigation/route-manifest.generated.ts`. It runs first in the
 
 ```bash
 npx tsx scripts/check-sidebar-health.ts
-npx tsx scripts/check-nav-reachability.ts
+npm run check:reachability          # NOT a bare `npx tsx scripts/check-nav-reachability.ts`
 npx tsx scripts/check-permission-audit-coverage.ts
 ```
 
 Expected: all three exit 0.
 
+**CORRECTED 2026-08-13.** The reachability script run bare **exits 1 by design** — its default `--max-unreachable` is 0, and this app has ~52 pre-existing unreachable routes (`admin/*`, `hr/*`, `okr/*`, `internships/*`, …). The real build gate is the npm script, which passes `--max-unreachable 58`:
+
+```json
+"check:reachability": "tsx scripts/check-nav-reachability.ts --max-unreachable 58"
+```
+
+Run the npm script, and **read the output rather than trusting the exit code** — the only thing that matters is that no `/courses` route appears in the unreachable list.
+
 - `[route] Route "/courses" has no entry in ROUTE_PREFIX_TO_MODULE` → Step 3 missed.
-- A reachability failure naming `/courses` → the sidebar entry in Step 4 is missing or mis-nested.
-- Note that `check-nav-reachability` runs with `--max-unreachable 60` in the build; it can pass locally while still reporting pre-existing unreachable routes. Only routes you added matter here.
+- A reachability failure naming `/courses` → the module registry entry in Step 4 is missing or mis-slugged.
+
+**Expect `npm run gen:routes` to produce more diff than you added.** The committed manifest is routinely stale relative to `main`, so regenerating sweeps in pre-existing routes other features already merged. That is correct — the file is generated from the filesystem and is catching up. Verify a sample with `git log --oneline -1 -- <route path>` to confirm they are pre-existing rather than yours, and say so in your report.
 
 - [ ] **Step 7: Typecheck and commit**
 
