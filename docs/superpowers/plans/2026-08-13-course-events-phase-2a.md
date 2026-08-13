@@ -579,7 +579,39 @@ Columns: Title (with `code` as secondary text), Institution, Status badge, Mode,
 
 View (always, if `courses.view`), Edit (`courses.edit`), Delete (`courses.delete`).
 
-Read the permission via `useAuth().hasPermission(key)` — **not** by fetching the profile yourself, which races the provider and bounces super-admins to `/unauthorized`.
+**CORRECTED 2026-08-13 — the first draft was wrong, and wrong in a documented way.**
+
+`useAuth()` does **NOT** expose `hasPermission`. The wired provider's `AuthContextValue`
+is exactly `{ profile, isLoading, error }` (`hooks/use-auth-provider.tsx:8-12`).
+**The project CLAUDE.md describes `useAuth()` as exposing `hasPermission(key)`,
+`isSuperAdmin` and `user` — that description is inaccurate for the actually-wired
+provider, and this brief inherited the error by trusting it.**
+
+Destructuring a *function* that isn't there gives `TypeError: hasPermission is not a
+function` the moment it is called in a render body — which takes out the whole route.
+Destructuring a *value* (`user`, `isSuperAdmin`) is worse: silently `undefined`, no
+error, the feature simply never works.
+
+Use instead:
+
+```typescript
+const { canAccess } = usePermissions();       // hooks/use-permissions.ts:170
+canAccess('courses', 'edit')                  // (module, action) — line 502/634
+```
+
+`usePermissions()` also exposes `can('module.resource.action')` (line 631) if a single
+key string reads better. Both are real; `canAccess` matches what
+`app/(routes)/events/_components/row-actions.tsx` already does.
+
+**`PermissionGuard` likewise takes `module` + `action` props, not one permission
+string** (`components/auth/permission-guard.tsx:6-15`):
+
+```tsx
+<PermissionGuard module="courses" action="view">
+```
+
+Do not fetch the profile yourself on mount — that races the provider and bounces
+super-admins to `/unauthorized`.
 
 **Do not put Delete behind a `window.confirm`.** Use the Shadcn `AlertDialog`; a native dialog blocks the event loop and is inconsistent with the rest of the app.
 
