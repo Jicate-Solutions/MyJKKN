@@ -24,6 +24,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { useProjects } from '@/hooks/projects/use-projects';
 import { BoardView } from '@/components/projects/board/board-view';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 
 export function BoardTab() {
   const router = useRouter();
@@ -47,7 +48,7 @@ export function BoardTab() {
       <div className="flex items-center gap-3">
         <Label className="shrink-0 text-sm text-muted-foreground">Project</Label>
         <Select value={projectId} onValueChange={setProject}>
-          <SelectTrigger className="w-full sm:w-72">
+          <SelectTrigger className={`w-full sm:w-72 ${TAP_TARGET}`}>
             <SelectValue placeholder={isLoading ? 'Loading…' : 'Select a project'} />
           </SelectTrigger>
           <SelectContent>
