@@ -63,27 +63,65 @@
 -- replay silently drop the roster arm. 210001 keeps this file where it has
 -- always sorted: before 20260809102300, where replay order is correct.
 --
--- THE GUARD BELOW EXISTS BECAUSE THE RENAME REMOVES AN ACCIDENTAL SHIELD.
--- While this file shared a version with the SoI file, a `supabase db push`
--- could never reach it — the ledger row for 20260808210000 made the migrator
--- skip both. Renaming gives this file a version the ledger has never seen, so
--- a push would now attempt it against a production database where
--- 20260809102300 is ALREADY LIVE. Replay order and wall-clock order disagree
--- there, and the eight statements below would overwrite the two SELECT policies
--- and drop the roster arm with no error and no output.
+-- WHY THE GUARD EXISTS — READ FROM PRODUCTION 2026-08-13, NOT INFERRED.
+-- The two SELECT policies that are LIVE on production today carry an arm this
+-- file does not declare:
 --
--- So section 0 refuses to run in exactly that state. On a genuinely
--- from-scratch replay the roster arm is not yet present and the guard is a
--- no-op, which is the correct behaviour in both directions.
+--   committees_select  LIVE = ... OR fn_user_is_committee_member(id)
+--   members_select     LIVE = ... OR fn_user_is_committee_member(committee_id)
+--                                 OR (user_id = auth.uid())
+--
+-- put there by 20260809102300_committee_roster_access.sql (applied 2026-08-05).
+-- `ALTER POLICY` REPLACES the whole expression rather than adding to it, so
+-- replaying this file against production would REMOVE that arm and lock every
+-- committee member out of their own committee. The other six policies
+-- (committees_insert/update/delete, members_insert/update/delete) match this
+-- file exactly, so only those two are at risk — and they are the two that
+-- matter.
+--
+-- THE SHARED VERSION WAS NEVER A SHIELD. supabase_migrations.schema_migrations
+-- has NO row for 20260808210000 (checked against production 2026-08-13), so a
+-- `supabase db push` has ALWAYS been free to attempt this file. The rename does
+-- not remove a protection that existed; the protection never existed, and the
+-- guard below is the first one this file has ever had.
+--
+-- So the guard refuses to run in exactly the state production is in. On a
+-- genuinely from-scratch replay the roster arm is not yet present, the guard is
+-- a no-op, and the eight statements run — correct in both directions.
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- 0. PRECONDITION — refuse to apply on top of the roster arm
+-- 0. GUARD AND WRITES ARE ONE STATEMENT — ON PURPOSE
 -- ---------------------------------------------------------------------------
-DO $$
+-- The refusal and the eight ALTER POLICY statements live inside a SINGLE
+-- DO block. A standalone guard block followed by eight bare ALTER POLICY
+-- statements DOES NOT GUARD, and this was demonstrated by execution rather
+-- than argued: under a non-transactional runner — `psql -f` at DEFAULT
+-- settings (no ON_ERROR_STOP), and the Management API hand-apply path this
+-- repo actually uses — the RAISE prints as an error, the runner moves to the
+-- next statement, and all eight ALTERs execute anyway. Measured on the
+-- production-shaped fixture: roster arm present on both SELECT policies
+-- BEFORE, absent from both AFTER, psql exit code 0. A guard that the caller
+-- can walk past by not passing a flag is not a guard.
+--
+-- A DO block is ONE statement to the server. When the RAISE EXCEPTION fires,
+-- the entire block aborts and the EXECUTEs below it provably never run —
+-- whatever the caller's ON_ERROR_STOP setting is. It also makes the eight
+-- writes atomic with each other: if the fifth ALTER fails, the first four roll
+-- back rather than leaving the policy set half-realigned.
+--
+-- No BEGIN;/COMMIT; of our own — an inner COMMIT would defeat the
+-- BEGIN .. ROLLBACK rehearsal this repo depends on before any apply.
+--
+-- The eight expressions inside the EXECUTE literals are byte-identical to the
+-- bare ALTER POLICY statements they replace; dollar quoting ($sql$) means the
+-- embedded single quotes are not re-escaped and so cannot drift.
+-- ---------------------------------------------------------------------------
+DO $do$
 DECLARE
   v_roster_live text;
 BEGIN
+  -- REFUSE — the live policies carry an arm this file does not declare.
   SELECT string_agg(policyname, ', ') INTO v_roster_live
     FROM pg_policies
    WHERE schemaname = 'public'
@@ -93,34 +131,34 @@ BEGIN
 
   IF v_roster_live IS NOT NULL THEN
     RAISE EXCEPTION
-      'refusing to apply: % already carry the roster arm from 20260809102300_committee_roster_access.sql, and ALTER POLICY would replace the whole expression and silently drop it. That file already uses the grantable accreditation.naac.committees.* family, so this realignment is redundant on this database — mark this version applied instead of running it.',
+      'refusing to apply: % already carry the roster arm from 20260809102300_committee_roster_access.sql, and ALTER POLICY would replace the whole expression and silently drop it — locking every committee member out of their own committee. That file already uses the grantable accreditation.naac.committees.* family, so this realignment is redundant on this database — mark this version applied instead of running it.',
       v_roster_live;
   END IF;
-END $$;
 
--- ---------------------------------------------------------------------------
--- accreditation_committees
--- ---------------------------------------------------------------------------
-ALTER POLICY "committees_select" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+  -- WRITE — unreachable unless the guard above declined to raise.
+  -- accreditation_committees
+  EXECUTE $sql$ALTER POLICY "committees_select" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission) AND role_has_institution_access(institution_id))))$sql$;
 
-ALTER POLICY "committees_insert" ON public.accreditation_committees WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.create'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+  EXECUTE $sql$ALTER POLICY "committees_insert" ON public.accreditation_committees WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.create'::text) AS user_has_permission) AND role_has_institution_access(institution_id))))$sql$;
 
-ALTER POLICY "committees_update" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+  EXECUTE $sql$ALTER POLICY "committees_update" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission) AND role_has_institution_access(institution_id))))$sql$;
 
-ALTER POLICY "committees_delete" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.delete'::text) AS user_has_permission) AND role_has_institution_access(institution_id))));
+  EXECUTE $sql$ALTER POLICY "committees_delete" ON public.accreditation_committees USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR (( SELECT user_has_permission('accreditation.naac.committees.delete'::text) AS user_has_permission) AND role_has_institution_access(institution_id))))$sql$;
 
--- ---------------------------------------------------------------------------
--- accreditation_committee_members
--- (no institution_id column of its own — scope is inherited through the parent
---  committee row, which is itself institution-scoped by the policies above)
--- ---------------------------------------------------------------------------
-ALTER POLICY "members_select" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission)));
+  -- accreditation_committee_members
+  -- (no institution_id column of its own — scope is inherited through the
+  --  parent committee row, which is itself institution-scoped above)
+  EXECUTE $sql$ALTER POLICY "members_select" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.view'::text) AS user_has_permission)))$sql$;
 
-ALTER POLICY "members_insert" ON public.accreditation_committee_members WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+  EXECUTE $sql$ALTER POLICY "members_insert" ON public.accreditation_committee_members WITH CHECK ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)))$sql$;
 
-ALTER POLICY "members_update" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+  EXECUTE $sql$ALTER POLICY "members_update" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)))$sql$;
 
-ALTER POLICY "members_delete" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)));
+  EXECUTE $sql$ALTER POLICY "members_delete" ON public.accreditation_committee_members USING ((( SELECT is_super_admin() AS is_super_admin) OR ( SELECT is_admin() AS is_admin) OR ( SELECT user_has_permission('accreditation.naac.committees.edit'::text) AS user_has_permission)))$sql$;
+
+  RAISE NOTICE 'accreditation committee RLS realigned onto accreditation.naac.committees.* (8 policies)';
+END
+$do$;
 
 -- ---------------------------------------------------------------------------
 -- Verification (run AFTER apply; expects 0 rows from the first query and the

@@ -125,11 +125,46 @@
 -- UPDATE that rewrites the same values. Re-running changes nothing.
 -- ============================================================================
 
--- ----------------------------------------------------------------------------
--- 0. PRECONDITION
--- ----------------------------------------------------------------------------
-DO $$
+-- ============================================================================
+-- SECTIONS 0-3 ARE ONE STATEMENT — ON PURPOSE
+-- ============================================================================
+-- Every precondition, every write and every assertion in this file lives inside
+-- a SINGLE DO block. Written as separate top-level statements they do not
+-- protect each other at all, and this was established by execution rather than
+-- argued: under a non-transactional runner — `psql -f` at DEFAULT settings (no
+-- ON_ERROR_STOP), and the Management API hand-apply path this repo actually
+-- uses — a RAISE EXCEPTION prints as an error and the runner simply moves to the
+-- next statement. Measured on a fixture seeded with a crossed pair: the section
+-- 0b refusal fired, and four INSERTs and the UPDATE ran anyway and AUTOCOMMITTED,
+-- surviving the section 3 abort. The apply ended loud, red and correct-looking
+-- with the database half-registered.
+--
+-- A DO block is ONE statement to the server, so it is atomic on its own without
+-- any BEGIN;/COMMIT; of ours (which would defeat the BEGIN .. ROLLBACK rehearsal
+-- this repo depends on before any apply). Consequences, all intended:
+--
+--   * a precondition RAISE provably prevents every write below it;
+--   * a section 3 assertion failure ROLLS BACK the inserts and the update,
+--     rather than leaving four of five sources registered;
+--   * the five INSERTs and the UPDATE land together or not at all.
+--
+-- Section 4 stays a separate block: it only reads and only RAISEs NOTICE.
+-- ============================================================================
+DO $do$
+DECLARE
+  v_crossed      text;
+  v_missing      text;
+  v_bad_route    text;
+  v_half_seeded  text;
+  v_no_owner     text;
+  v_new_routed   int;
+  v_routed       int;
+  v_total        int;
 BEGIN
+
+  -- --------------------------------------------------------------------------
+  -- 0. PRECONDITION — the substrate this file writes into exists
+  -- --------------------------------------------------------------------------
   IF to_regclass('public.quality_evidence_source_registry') IS NULL THEN
     RAISE EXCEPTION 'quality_evidence_source_registry does not exist — apply 20260423_unification_crud_retrofit.sql first';
   END IF;
@@ -142,7 +177,51 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'quality_evidence_source_registry has no fix_route column — apply 20260809100700_evidence_source_registry_fix_routes.sql first';
   END IF;
-END $$;
+
+  -- --------------------------------------------------------------------------
+  -- 0b. PRECONDITION — THE FIVE PAIRS MUST BE ABSENT OR ALREADY PAIRED AS
+  --     INTENDED. Refuses rather than half-writes, and because this runs inside
+  --     the same statement as the writes, the refusal is real.
+  --
+  -- source_kind is the PRIMARY KEY and source_table carries its own UNIQUE
+  -- constraint, so a (kind, table) pair can be CROSSED: a row can hold one of
+  -- our source_kinds against a different source_table, or one of our
+  -- source_tables against a different source_kind. Either way section 1's
+  -- INSERT is correctly skipped by its guard — but a section 2 UPDATE joined on
+  -- source_kind alone would then reach a row this file never inserted and
+  -- rewrite its fix_route / fix_hint / owner_role. Measured on a fixture: a row
+  -- keyed 'induction_program' -> 'induction_programme_records' had its route
+  -- rewritten to /events/induction and KEPT it after the section 3 abort.
+  --
+  -- Section 2's UPDATE is now also constrained on BOTH keys, so it cannot reach
+  -- such a row even if this guard were removed. The two defences are
+  -- deliberate: this one names the problem, that one makes it unreachable.
+  --
+  -- This is a precondition on THIS DATABASE, not a claim about production. As
+  -- of 2026-08-13 none of the five source_kind values exists in the registry at
+  -- all, so on production today this guard is a no-op.
+  -- --------------------------------------------------------------------------
+  SELECT string_agg(
+           format('want (%s -> %s) but the registry already holds (%s -> %s)',
+                  want.k, want.t, r.source_kind, r.source_table),
+           '; ' ORDER BY want.k)
+    INTO v_crossed
+    FROM (VALUES
+      ('learner_profile',          'learners_profiles'),
+      ('obe_course_attainment',    'obe_course_attainment_rollup'),
+      ('mess_menu_recommendation', 'mess_menu_recommendations'),
+      ('scf_ai_suggestion',        'scf_ai_suggestions'),
+      ('induction_program',        'induction_programs')
+    ) AS want(k, t)
+    JOIN public.quality_evidence_source_registry r
+      ON (r.source_kind  = want.k AND r.source_table IS DISTINCT FROM want.t)
+      OR (r.source_table = want.t AND r.source_kind  IS DISTINCT FROM want.k);
+
+  IF v_crossed IS NOT NULL THEN
+    RAISE EXCEPTION
+      'refusing to apply: a source_kind or source_table this file registers is already held by a DIFFERENT pairing, so seeding would overwrite an unrelated source''s destination — %. Resolve the collision first; nothing has been written.',
+      v_crossed;
+  END IF;
 
 -- ----------------------------------------------------------------------------
 -- 1. REGISTER THE FIVE — CONFIG, seeded WHERE NOT EXISTS (never ON CONFLICT,
@@ -245,6 +324,14 @@ WHERE NOT EXISTS (
 -- ----------------------------------------------------------------------------
 -- 2. ROUTE THEM — one UPDATE .. FROM (VALUES ..) so the whole decision reads as
 --    one table, matching 20260809100700 section 2.
+--
+--    MATCHED ON BOTH KEYS. Joining on source_kind alone would let this UPDATE
+--    reach a row keyed to one of these source_kinds but pointing at a DIFFERENT
+--    source_table, and silently rewrite that unrelated source's destination.
+--    Carrying source_table in the VALUES list and requiring both to match means
+--    the statement can only ever touch the row section 1 means it to. Section 0b
+--    refuses such a database outright; this makes the write unreachable even if
+--    that guard were removed.
 -- ----------------------------------------------------------------------------
 UPDATE public.quality_evidence_source_registry r
    SET fix_route  = s.fix_route,
@@ -252,48 +339,43 @@ UPDATE public.quality_evidence_source_registry r
        owner_role = s.owner_role,
        updated_at = now()
   FROM (VALUES
-    ('learner_profile',
+    ('learner_profile', 'learners_profiles',
      '/learners/profiles',
      'Open a learner and fill Gender, Home State and Community Category. Filter the list to Profile: incomplete to see who is outstanding.',
      'registrar'),
 
-    ('obe_course_attainment',
+    ('obe_course_attainment', 'obe_course_attainment_rollup',
      '/academic/internal-marks',
      'Enter each learner''s CIA marks for the course and submit the round so it reaches the attainment rollup. Filter to Status: draft to see marks that were typed and never submitted.',
      'hod'),
 
-    ('mess_menu_recommendation',
+    ('mess_menu_recommendation', 'mess_menu_recommendations',
      '/campus-living/mess/menu',
      'Open the Menu Editor for the tier and fill each day''s Breakfast, Lunch, Tea and Dinner items. Filter to Status: draft to see the weeks no caterer has been given.',
      'chief_warden'),
 
-    ('scf_ai_suggestion',
+    ('scf_ai_suggestion', 'scf_ai_suggestions',
      '/learners/class-feedback',
      'Submit the post-class checklist and the ''did I understand?'' rating within the 48-hour window — a course needs at least 3 responses before any suggestion can be written. Filter to Sessions: present-pending to see the classes still awaiting feedback.',
      'scf_note_reviewer'),
 
-    ('induction_program',
+    ('induction_program', 'induction_programs',
      '/events/induction',
      'Create this college''s induction and fill its Name, Start Date and End Date. Filter to Status: draft to see the colleges whose induction never went live.',
      'induction_coordinator')
-  ) AS s(source_kind, fix_route, fix_hint, owner_role)
- WHERE r.source_kind = s.source_kind;
+  ) AS s(source_kind, source_table, fix_route, fix_hint, owner_role)
+ WHERE r.source_kind  = s.source_kind
+   AND r.source_table = s.source_table;
 
 -- ----------------------------------------------------------------------------
 -- 3. ASSERTIONS — fail the apply rather than ship a half-registered source.
 --    Every check here RAISEs an EXCEPTION. A guard whose miss path is a NOTICE
 --    reads as success in Studio, which is the same as having no guard.
+--
+--    These run inside the same statement as the writes above, so a failure here
+--    ROLLS THEM BACK. Previously they could only report a half-written database
+--    after the fact.
 -- ----------------------------------------------------------------------------
-DO $$
-DECLARE
-  v_missing      text;
-  v_bad_route    text;
-  v_half_seeded  text;
-  v_no_owner     text;
-  v_new_routed   int;
-  v_routed       int;
-  v_total        int;
-BEGIN
   -- (a) all five sources are present, keyed on the column the mappings
   --     actually join on (source_table), not on the logical source_kind.
   SELECT string_agg(want.t, ', ') INTO v_missing
@@ -368,7 +450,8 @@ BEGIN
 
   RAISE NOTICE 'quality_evidence_source_registry: % of % sources now carry a destination (5 newly emitting sources registered)',
     v_routed, v_total;
-END $$;
+END
+$do$;
 
 -- ----------------------------------------------------------------------------
 -- 4. ADVISORY — report, never fail.
