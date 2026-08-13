@@ -43,6 +43,60 @@
 -- is a separate Director decision made in Role Management.
 --
 -- FILE ONLY — not applied. Director-gated per CLAUDE.md.
+--
+-- RENAME-SAFE: 20260808210000 -> 20260808210001 — the eight expressions in this file were read back from LIVE production into supabase/migrations/rls_initplan_wrap_sweep.sql on 2026-07-31, and all eight there still name the UNGRANTABLE `accreditation.committees.*` family (members_select/committees_select .view, the four .edit, .create, .delete). That is a dated production capture showing this realignment had NOT run. supabase/SQL_FILE_INDEX.md has recorded it as "FILE ONLY, not applied" since it was written. Section 0 below independently refuses to apply if the two SELECT policies have since moved on.
+--
+-- ---------------------------------------------------------------------------
+-- 2026-08-13 — RENUMBERED 20260808210000 -> 20260808210001, AND GUARDED
+-- ---------------------------------------------------------------------------
+-- This file used to share version 20260808210000 with
+-- 20260808210000_soi_programme_coordinator_role.sql. The ledger keys on the
+-- timestamp alone, so one version string could only ever represent one of the
+-- two files and the other was permanently shadowed. Director decision
+-- 2026-08-13: rename THIS file off the collision and leave the SoI file alone.
+--
+-- The new version is deliberately 210001 and not a fresh timestamp at the end
+-- of the queue. 20260809102300_committee_roster_access.sql (APPLIED to
+-- production 2026-08-05) rewrites `committees_select` and `members_select` to
+-- add a roster arm, and `ALTER POLICY` REPLACES the whole expression rather
+-- than adding to it. Sorting this file AFTER that one would make a from-scratch
+-- replay silently drop the roster arm. 210001 keeps this file where it has
+-- always sorted: before 20260809102300, where replay order is correct.
+--
+-- THE GUARD BELOW EXISTS BECAUSE THE RENAME REMOVES AN ACCIDENTAL SHIELD.
+-- While this file shared a version with the SoI file, a `supabase db push`
+-- could never reach it — the ledger row for 20260808210000 made the migrator
+-- skip both. Renaming gives this file a version the ledger has never seen, so
+-- a push would now attempt it against a production database where
+-- 20260809102300 is ALREADY LIVE. Replay order and wall-clock order disagree
+-- there, and the eight statements below would overwrite the two SELECT policies
+-- and drop the roster arm with no error and no output.
+--
+-- So section 0 refuses to run in exactly that state. On a genuinely
+-- from-scratch replay the roster arm is not yet present and the guard is a
+-- no-op, which is the correct behaviour in both directions.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- 0. PRECONDITION — refuse to apply on top of the roster arm
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  v_roster_live text;
+BEGIN
+  SELECT string_agg(policyname, ', ') INTO v_roster_live
+    FROM pg_policies
+   WHERE schemaname = 'public'
+     AND tablename IN ('accreditation_committees', 'accreditation_committee_members')
+     AND policyname IN ('committees_select', 'members_select')
+     AND COALESCE(qual, '') LIKE '%fn_user_is_committee_member%';
+
+  IF v_roster_live IS NOT NULL THEN
+    RAISE EXCEPTION
+      'refusing to apply: % already carry the roster arm from 20260809102300_committee_roster_access.sql, and ALTER POLICY would replace the whole expression and silently drop it. That file already uses the grantable accreditation.naac.committees.* family, so this realignment is redundant on this database — mark this version applied instead of running it.',
+      v_roster_live;
+  END IF;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- accreditation_committees
