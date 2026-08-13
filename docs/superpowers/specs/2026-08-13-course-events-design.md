@@ -657,6 +657,71 @@ dropped rows, 302s), not thrown errors.
 
 ---
 
+## 9a. Carry-forward constraints from Phase 1 (READ BEFORE PHASES 2-6)
+
+These are not suggestions. Each is a property Phase 1's schema depends on, discovered
+during implementation or review, that a later phase can silently break.
+
+**Phase 2 — `institution_id` must stay NOT NULL on every course table.**
+`role_has_institution_access()`'s FIRST branch is
+`IF check_institution_id IS NULL THEN RETURN true`. A nullable institution column
+anywhere in this module would make those rows readable by **every** authenticated user.
+All 11 tables declare it NOT NULL today; adding a "global" course later must not relax
+that.
+
+**Phase 3 — an external applicant cannot read their own pending application.**
+The self-clause keys on `profile_id`, which is NULL until approval mints the identity.
+Correct for Phase 1 (public apply goes through a service-role route), but the applicant
+status page must be designed around it — a token, or a service-role read.
+
+**Phase 4 — generate ALL installment bills at enrollment, in one transaction.**
+`fn_course_recompute_balances()` derives the enrollment balance from the bills that
+**exist**, not from `total_payable`. Lazy generation would let someone reach
+`balance = 0` → `confirmed` after paying only the first installment, and attend a course
+they have part-paid. If lazy generation is ever needed, change the rollup to compare
+against `total_payable` first.
+
+**Phase 5 — the payment service must NEVER reassign `course_bill_payments.bill_id`.**
+The trigger resolves its target via `COALESCE(NEW.bill_id, OLD.bill_id)` and reads
+`v_enrollment_id` from the *bill*, so a reassignment recomputes only the new bill and
+strands both the old bill AND — if the bills belong to different enrollments — the old
+enrollment. Insert and status-update only. If moving a payment between bills becomes a
+requirement, the trigger needs a guard first.
+
+**Phase 5 — probe the `SECURITY DEFINER` fix from a real browser session.**
+Every probe in Phase 1 ran through MCP, which is a database superuser but **not** an app
+super-admin (`is_super_admin()` reads `profiles` via `auth.uid()`, which MCP lacks). So
+RLS never engaged and no authorization behaviour was observed. The specific unverified
+claim: that `fn_course_recompute_balances` now completes its cross-table UPDATE for an
+actor holding `courses.billing.manage` but NOT `courses.enrollments.manage`. Correct by
+construction; unproven by observation. The failure mode is silent — paid-in-full
+participants stuck off `confirmed`.
+
+**Phase 6 — the overdue cron is required, not optional.**
+A bill's status only recomputes when a payment event fires on that bill. A bill crossing
+its due date with no payment activity will never flip to `overdue` on its own.
+`idx_course_bills_overdue` exists to serve that sweep.
+
+**Known, accepted, and deliberately not fixed in Phase 1:**
+
+- `jkkn_identities.profile_id` is `ON DELETE SET NULL` and absent from
+  `link_shape_chk`, so deleting the profile orphans the identity row — it keeps burning
+  its number while the "one number for life" lookup keys on `profile_id`, so the same
+  person returning is minted a **second** number. Spec-faithful (§8.2 specified SET NULL)
+  but the consequence is real; the table is empty, so it is still free to change.
+- `courses.participant.self` is declared but referenced by **zero** policies. Participant
+  access is purely identity-based (`profile_id = auth.uid()`). Revoking the Course
+  Participant role therefore revokes no data access. Phase 5 must not assume otherwise.
+- Policy naming is inconsistent three ways across the module
+  (`course_registration_forms_*`, `course_reg_sections_*`, `course_package_installments_*`).
+  Cosmetic — policy names need only per-table uniqueness.
+- Pre-existing and OUT OF SCOPE: `courses`, `course_mappings` and
+  `course_competency_mapping` grant ALL — including DELETE and TRUNCATE — to `anon` via
+  Supabase's default privileges. Inert today because RLS is enabled and RLS-with-no-
+  matching-policy is default-deny. Deserves its own ticket.
+
+---
+
 ## 10. Out of scope for v1
 
 - Automated refunds (v1 flags and settles offline — D10)
