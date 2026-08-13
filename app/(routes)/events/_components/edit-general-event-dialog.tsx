@@ -41,6 +41,13 @@ import {
 } from '@/components/ui/select';
 import type { Event, EventScope, EventVisibility } from '@/types/events';
 import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
+import {
+  EventPeopleFields,
+  mergeEventPeopleConfig,
+  parseChiefGuestDrafts,
+  parseIncharges,
+  validatePeople,
+} from '@/components/events/shared/event-people-fields';
 import { useUpdateGeneralEvent } from '@/hooks/events/use-general-events';
 
 /** ISO timestamp / date string → yyyy-MM-dd for <input type="date">. */
@@ -118,7 +125,15 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
     // NAAC evidence tags — preserves uncurated codes verbatim (the field only
     // toggles curated options; empty array = untagged).
     naac_criteria: event.naac_criteria ?? [],
+    // People. Both live in `events.config`, not in columns — see
+    // event-people-fields.tsx. In-charge is an ACCESS GRANT
+    // (fn_is_event_incharge reads config->incharges[].member_id); chief guest
+    // is display data.
+    incharges: parseIncharges(event.config as Record<string, unknown> | null),
+    chief_guests: parseChiefGuestDrafts(event.config as Record<string, unknown> | null),
   });
+
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const set = <K extends keyof typeof form>(field: K, value: (typeof form)[K]) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -133,7 +148,13 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
   const endIso = toIso(form.end_date);
   const badRunWindow = !!startIso && !!endIso && new Date(endIso) < new Date(startIso);
 
-  const canSave = !!form.name.trim() && !badRegWindow && !badRunWindow && !isPending;
+  const peopleError = validatePeople({
+    incharges: form.incharges,
+    chiefGuests: form.chief_guests,
+  });
+
+  const canSave =
+    !!form.name.trim() && !badRegWindow && !badRunWindow && !peopleError && !isPending;
 
   const submit = async () => {
     if (!canSave) return;
@@ -162,6 +183,15 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
           is_public: form.is_public,
           allow_external_registration: form.allow_external_registration,
           naac_criteria: form.naac_criteria,
+          // MERGE, never replace. `config` is one jsonb column and
+          // EventBaseService.updateEvent is a raw passthrough, so sending a bare
+          // { incharges, chief_guests } here would silently discard `home`,
+          // `format`, `enabled_tools`, `preset_id` and `fee` — everything the
+          // create wizard filed the event under.
+          config: mergeEventPeopleConfig(
+            event.config as Record<string, unknown> | null,
+            { incharges: form.incharges, chiefGuests: form.chief_guests },
+          ),
         },
       });
       onClose();
@@ -446,6 +476,25 @@ function EditGeneralEventForm({ event, onClose }: { event: Event; onClose: () =>
               onCheckedChange={(v) => set('allow_external_registration', v)}
             />
           </div>
+        </div>
+
+        {/* ── People ── Same editor the create wizard's People tab renders, so
+            the two entry points cannot drift. Both fields live in
+            events.config, and the write above merges rather than replaces. */}
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-sm font-semibold">People</h3>
+          <EventPeopleFields
+            incharges={form.incharges}
+            chiefGuests={form.chief_guests}
+            onInchargesChange={(next) => setForm((prev) => ({ ...prev, incharges: next }))}
+            onChiefGuestsChange={(next) =>
+              setForm((prev) => ({ ...prev, chief_guests: next }))
+            }
+            pickerOpen={pickerOpen}
+            onPickerOpenChange={setPickerOpen}
+            error={peopleError}
+            disabled={isPending}
+          />
         </div>
 
         {/* NAAC evidence tags — writes events.naac_criteria; the evidence
