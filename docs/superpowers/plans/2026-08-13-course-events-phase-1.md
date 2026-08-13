@@ -1036,11 +1036,18 @@ Apply with `mcp__supabase__apply_migration`, name `20260813100200_course_registr
 SELECT c.relname, c.relrowsecurity AS rls_on,
        (SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) AS policies
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
- WHERE n.nspname = 'public' AND c.relname LIKE 'course_registration_form%'
- ORDER BY 1;
+ WHERE n.nspname = 'public'
+   AND c.relkind = 'r'                    -- tables ONLY; without this the
+   AND c.relname LIKE 'course_registration_form%'  -- constraint-backing
+ ORDER BY 1;                              -- indexes match the name too
 ```
 
 Expected: three rows, each `rls_on = true`, each `policies = 2`.
+
+`relkind = 'r'` is load-bearing: `pg_class` holds indexes as well as tables, and
+`course_registration_form_fields_key_uniq` matches this `LIKE` pattern. Without the
+filter the result set is padded with index rows carrying `rls_on = false`, which reads
+as a failure that isn't one.
 
 - [ ] **Step 4: Verify `field_key` is unique per FORM, not per course**
 
@@ -1060,10 +1067,21 @@ If it reads `UNIQUE (course_event_id, field_key)` or references `section_id`, th
 - [ ] **Step 5: Confirm `anon` holds nothing**
 
 ```sql
+-- Scope by an EXPLICIT list, never `LIKE 'course%'`. Three PRE-EXISTING
+-- academic-catalogue tables — courses, course_mappings,
+-- course_competency_mapping — match that pattern and DO grant ALL to anon
+-- (Supabase's ALTER DEFAULT PRIVILEGES default). They are out of scope here,
+-- but a LIKE-scoped query reports them and turns a passing check into a
+-- false failure. See the note below.
 SELECT table_name, grantee, privilege_type
   FROM information_schema.role_table_grants
  WHERE table_schema = 'public'
-   AND table_name LIKE 'course%'
+   AND table_name IN (
+     'course_events','course_packages','course_package_installments',
+     'course_sessions','course_registration_forms',
+     'course_registration_form_sections','course_registration_form_fields',
+     'course_applications','course_enrollments','course_bills',
+     'course_bill_payments')
    AND grantee IN ('anon','PUBLIC');
 ```
 
