@@ -42,7 +42,11 @@ export default function IdCardTemplatePage() {
           </p>
         </>
       }
-      permission="super_admin"
+      // Gate via Role Management (id_cards.templates.edit) instead of the
+      // hardcoded super_admin shell — matches the nav mapping
+      // (id_cards.templates.view) and the id_card_templates RLS, so custom
+      // roles like ID Card Manager reach the page without being admins.
+      permissionKey="id_cards.templates.edit"
     >
       <IdCardTemplateEditor />
     </PolicyPageShell>

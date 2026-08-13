@@ -31701,16 +31701,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_room_annual_cost(uuid, uuid) TO auth
 -- 5. fn_settle_window_open — open, or restart, the room's settle window.
 --    Rule 1 + 2 + 3. Called when a learner is allocated to the room.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_settle_window_open(
-  p_room_id        uuid,
-  p_hostel_year_id uuid DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_settle_window_open(p_room_id uuid, p_hostel_year_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_year_id  uuid;
   v_window   public.hostel_room_settle_windows%ROWTYPE;
@@ -31722,6 +31718,18 @@ BEGIN
   -- later starts from a clean slate rather than a backlog of stale deadlines.
   IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
     RETURN jsonb_build_object('action', 'disabled', 'room_id', p_room_id);
+  END IF;
+
+  -- Category opt-in. A room with no category can never be priced by
+  -- fn_settle_room_annual_cost either, so it is excluded here too.
+  IF NOT EXISTS (
+    SELECT 1
+    FROM hostel_rooms r
+    JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE r.id = p_room_id
+      AND hc.settle_billing_enabled
+  ) THEN
+    RETURN jsonb_build_object('action', 'not_eligible', 'room_id', p_room_id);
   END IF;
 
   -- Opening/restarting a window delays billing, so it is gated too — but on the
@@ -31802,7 +31810,7 @@ BEGIN
     'hard_deadline',    v_window.hard_deadline,
     'capped_at_hard_deadline', v_deadline = v_window.hard_deadline);
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authenticated, service_role;
@@ -31812,22 +31820,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_window_open(uuid, uuid) TO authentic
 --    Rule 3 + 4 + 5. Occupancy comes from the canonical view, not a recount.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_settle_window_due()
-RETURNS TABLE (
-  window_id        uuid,
-  room_id          uuid,
-  hostel_year_id   uuid,
-  reason           text,
-  active_occupants int,
-  capacity         int,
-  opened_at        timestamptz,
-  current_deadline timestamptz,
-  hard_deadline    timestamptz
-)
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+ RETURNS TABLE(window_id uuid, room_id uuid, hostel_year_id uuid, reason text, active_occupants integer, capacity integer, opened_at timestamp with time zone, current_deadline timestamp with time zone, hard_deadline timestamp with time zone)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
   SELECT
     w.id,
     w.room_id,
@@ -31852,11 +31849,20 @@ AS $$
       OR now() >= w.hard_deadline
       OR (occ.capacity > 0 AND occ.active_residents >= occ.capacity)
     )
+    -- Category opt-in, re-checked at close time. Switching a category off must
+    -- STOP billing it, not let one last sweep through on windows already open.
+    AND EXISTS (
+      SELECT 1
+      FROM hostel_rooms r
+      JOIN hostel_categories hc ON hc.id = r.category_id
+      WHERE r.id = w.room_id
+        AND hc.settle_billing_enabled
+    )
     -- Scoped: SECURITY DEFINER bypasses RLS, so without this the list would
     -- leak every institution's rooms to any authenticated caller.
     AND fn_settle_can_manage(w.room_id, 'campus_living.fees.view')
   ORDER BY w.current_deadline;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_window_due() FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_window_due() TO authenticated, service_role;
@@ -31906,17 +31912,12 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_due() TO authenticated, se
 --    Live path bills every resident at the occupancy that exists right now.
 --    Idempotent: a window already 'billed' is skipped, never billed twice.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_settle_bill_close(
-  p_room_id   uuid,
-  p_dry_run   boolean DEFAULT true,
-  p_window_id uuid    DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_settle_bill_close(p_room_id uuid, p_dry_run boolean DEFAULT true, p_window_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_window     public.hostel_room_settle_windows%ROWTYPE;
   v_year_id    uuid;
@@ -31926,8 +31927,11 @@ DECLARE
   v_due_days   int;
   v_base_share numeric;
   v_ac_share   numeric;
+  v_settled    numeric;
+  v_per_bed    numeric;
   v_share      numeric;
-  v_category   uuid;
+  v_category   uuid;   -- hostel_categories.id — the ROOM's category
+  v_bill_cat   uuid;   -- billing_categories.id — the revenue head
   v_lines      jsonb := '[]'::jsonb;
   v_billed     int := 0;
   v_skipped    int := 0;
@@ -31937,9 +31941,9 @@ DECLARE
   v_exists     boolean;
 BEGIN
   -- Defense in depth: even a hand-made live call is refused while the master
-  -- switch is off. This RAISEs rather than returning, so a caller that ignores
-  -- return values still cannot bill anyone.
-  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+  -- switch is off. The switch gates MONEY, not the practice run — a dry run
+  -- writes nothing, so it must work while the mechanism is off.
+  IF NOT p_dry_run AND NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
     RAISE EXCEPTION 'settle-then-bill is disabled (platform policy hostel.settle_bill.enabled = false)'
       USING ERRCODE = '42501';
   END IF;
@@ -31980,12 +31984,19 @@ BEGIN
 
   v_year_id := COALESCE(v_window.hostel_year_id, fn_settle_current_hostel_year());
 
-  -- Refuse rather than stamp a NULL hostel_year_id: the dedup key against
-  -- campus_living_generate_hostel_year_bills compares hostel_year_id, and NULL
-  -- never matches, so a NULL-year bill would defeat the double-bill guard.
   IF v_year_id IS NULL THEN
     RETURN jsonb_build_object('status', 'no_hostel_year', 'room_id', p_room_id,
                               'window_id', v_window.id);
+  END IF;
+
+  -- The revenue head must exist before anything is priced. Writing a NULL
+  -- item_category_id would produce an unidentifiable bill that the dedup guard
+  -- below could never match again, so refuse instead and leave the window open.
+  v_bill_cat := fn_settle_billing_category();
+  IF v_bill_cat IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_billing_category', 'room_id', p_room_id,
+                              'window_id', v_window.id,
+                              'reason', 'billing_categories row "Hostel Empty Bed Settlement" is missing or inactive');
   END IF;
 
   v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
@@ -31998,6 +32009,7 @@ BEGIN
 
   v_capacity := (v_cost->>'capacity')::int;
   v_category := (v_cost->>'category_id')::uuid;
+  v_per_bed  := (v_cost->>'per_bed_annual_rate')::numeric;
 
   -- Occupancy exactly as v_hostel_room_occupancy defines it.
   SELECT COUNT(*)::int INTO v_occupants
@@ -32017,9 +32029,46 @@ BEGIN
   -- computeFeeBreakdown parity: each term rounded separately, then summed.
   v_base_share := round((v_cost->>'base_room_annual')::numeric / v_occupants);
   v_ac_share   := round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
-  v_share      := v_base_share + v_ac_share;
+  v_settled    := v_base_share + v_ac_share;
+
+  -- THE INCREMENT. She already carries one bed at the per-bed rate (admission
+  -- fee structure + upgrade differential), so only the empty beds are new
+  -- money. At full occupancy settled_share = per_bed exactly and this is 0.
+  v_share := GREATEST(0, v_settled - v_per_bed);
 
   v_due_days := GREATEST(0, fn_get_policy_int('hostel.settle_bill.bill_due_days', 5));
+
+  IF v_share <= 0 THEN
+    -- Room is full (or the rate makes the empty beds free). Nothing is owed;
+    -- close the window so the sweep stops returning it.
+    IF NOT p_dry_run THEN
+      UPDATE hostel_room_settle_windows
+         SET status = 'billed', billed_at = now(), occupants_at_billing = v_occupants
+       WHERE id = v_window.id;
+    END IF;
+    RETURN jsonb_build_object(
+      'status',              'closed',
+      'dry_run',             p_dry_run,
+      'room_id',             p_room_id,
+      'window_id',           v_window.id,
+      'hostel_year_id',      v_year_id,
+      'capacity',            v_capacity,
+      'active_occupants',    v_occupants,
+      'per_bed_annual_rate', v_per_bed,
+      'base_room_annual',    (v_cost->>'base_room_annual')::numeric,
+      'ac_room_annual',      (v_cost->>'ac_room_annual')::numeric,
+      'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
+      'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
+      'base_share',          v_base_share,
+      'ac_share',            v_ac_share,
+      'settled_share',       v_settled,
+      'share_per_resident',  0,
+      'due_date',            (now() + make_interval(days => v_due_days))::date,
+      'billed_count',        0,
+      'skipped_count',       0,
+      'reason',              'nothing_to_settle',
+      'lines',               '[]'::jsonb);
+  END IF;
 
   FOR a IN
     SELECT al.id AS allocation_id, al.learner_id
@@ -32027,7 +32076,7 @@ BEGIN
     WHERE al.room_id = p_room_id AND al.check_out_date IS NULL
     ORDER BY al.check_in_date, al.id
   LOOP
-    -- profiles(id) → learners_profiles(id). Non-learner residents cannot be
+    -- profiles(id) -> learners_profiles(id). Non-learner residents cannot be
     -- billed through the learner billing tables; they are reported, not billed.
     v_lp_id := NULL;
     IF a.learner_id IS NOT NULL THEN
@@ -32046,11 +32095,9 @@ BEGIN
     FROM learners_profiles lp WHERE lp.id = v_lp_id;
 
     -- A learner on a FLAT PACKAGE is not settle-billable at all: her hostel fee
-    -- is one bundled package price that does not divide by occupancy. Worse,
-    -- the generate path keys package bills on package_id and would not see a
-    -- 'hostel_category' row at all — so billing her here is a straight
-    -- DOUBLE-BILL of the room. Detected by asking the canonical resolver rather
-    -- than re-deriving its package-matching rules.
+    -- is one bundled package price that does not divide by occupancy. Detected
+    -- by asking the canonical resolver rather than re-deriving its
+    -- package-matching rules.
     SELECT EXISTS (
       SELECT 1
       FROM jsonb_array_elements(
@@ -32067,14 +32114,18 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- Same dedup key campus_living_generate_hostel_year_bills uses, so the two
-    -- paths cannot both bill this room to this learner.
+    -- Dedup on the SETTLEMENT head, in its own id domain. The previous version
+    -- compared a hostel_categories.id against item_category_id
+    -- (billing_categories.id) and so was always false — it could not see its own
+    -- prior bills. It also matched fee_source 'academic', which would now skip
+    -- every learner holding an upgrade differential, i.e. everyone in a premium
+    -- room. Scoped tightly to what THIS function writes.
     SELECT EXISTS (
       SELECT 1 FROM billing_student_bills b
-      WHERE b.student_id      = v_lp_id
-        AND b.hostel_year_id  = v_year_id
-        AND b.item_category_id = v_category
-        AND b.fee_source IN ('academic','hostel_category')
+      WHERE b.student_id       = v_lp_id
+        AND b.hostel_year_id   = v_year_id
+        AND b.item_category_id = v_bill_cat
+        AND b.fee_source       = 'hostel_category'
         AND b.status NOT IN ('cancelled','superseded')
     ) INTO v_exists;
 
@@ -32092,8 +32143,10 @@ BEGIN
          bill_description, due_date, quantity, unit_amount, total_amount,
          final_amount, balance_amount, status)
       VALUES
-        (v_lp_id, v_inst_id, v_category, v_year_id, 'hostel_category',
-         'Hostel room share (settled at ' || v_occupants || ' of ' || v_capacity || ' occupants)',
+        (v_lp_id, v_inst_id, v_bill_cat, v_year_id, 'hostel_category',
+         'Hostel empty-bed settlement: ' || (v_capacity - v_occupants)
+           || ' of ' || v_capacity || ' beds empty at ' || v_occupants || ' occupant'
+           || CASE WHEN v_occupants = 1 THEN '' ELSE 's' END,
          (now() + make_interval(days => v_due_days))::date,
          1, v_share, v_share, v_share, v_share, 'unpaid');
     END IF;
@@ -32119,20 +32172,27 @@ BEGIN
     'hostel_year_id',      v_year_id,
     'capacity',            v_capacity,
     'active_occupants',    v_occupants,
-    'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
+    'hostel_category_id',  v_category,
+    'billing_category_id', v_bill_cat,
+    'per_bed_annual_rate', v_per_bed,
     'base_room_annual',    (v_cost->>'base_room_annual')::numeric,
     'ac_room_annual',      (v_cost->>'ac_room_annual')::numeric,
     'ac_tonnage',          (v_cost->>'ac_tonnage')::numeric,
     'ac_base_inr_per_month_24h', (v_cost->>'ac_base_inr_per_month_24h')::numeric,
     'base_share',          v_base_share,
     'ac_share',            v_ac_share,
+    -- settled_share is what she would owe for the room in total at this
+    -- occupancy; share_per_resident is what is actually BILLED, i.e. the empty
+    -- beds only. The TS parity gate re-derives the first and subtracts the
+    -- per-bed rate to reach the second.
+    'settled_share',       v_settled,
     'share_per_resident',  v_share,
     'due_date',            (now() + make_interval(days => v_due_days))::date,
     'billed_count',        v_billed,
     'skipped_count',       v_skipped,
     'lines',               v_lines);
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO authenticated, service_role;
@@ -32162,29 +32222,24 @@ GRANT  EXECUTE ON FUNCTION public.fn_settle_bill_close(uuid, boolean, uuid) TO a
 --    every later step. So the walk ends at the CURRENT active-occupant count
 --    and steps back one per uncredited joiner.
 -- ----------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(
-  p_room_id   uuid,
-  p_dry_run   boolean DEFAULT true,
-  p_window_id uuid    DEFAULT NULL
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-VOLATILE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION public.fn_settle_late_join_credit(p_room_id uuid, p_dry_run boolean DEFAULT true, p_window_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 DECLARE
   v_window       public.hostel_room_settle_windows%ROWTYPE;
   v_year_id      uuid;
   v_year_end     date;
   v_cost         jsonb;
-  v_category     uuid;
+  v_bill_cat     uuid;
   v_base         numeric;
   v_ac           numeric;
-  v_n_billed     int;   -- occupants the residents were BILLED at
-  v_n_before     int;   -- clamped occupancy just before one arrival
-  v_n_after      int;   -- clamped occupancy just after that arrival
-  v_live         int;   -- active occupants RIGHT NOW
+  v_n_billed     int;
+  v_n_before     int;
+  v_n_after      int;
+  v_live         int;
   v_entitlement  numeric := 0;
   v_already      numeric;
   v_processed    uuid[] := '{}'::uuid[];
@@ -32200,7 +32255,7 @@ DECLARE
   r              record;
   v_lp_id        uuid;
 BEGIN
-  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+  IF NOT p_dry_run AND NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
     RAISE EXCEPTION 'settle-then-bill is disabled (platform policy hostel.settle_bill.enabled = false)'
       USING ERRCODE = '42501';
   END IF;
@@ -32210,10 +32265,6 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  -- Credit the window the caller was handed. A room can hold billed windows in
-  -- two hostel years; always taking the newest would stamp the older one's
-  -- joiners never, leaving it in the due list on every sweep forever and
-  -- computing against the wrong year's rate.
   SELECT * INTO v_window
   FROM hostel_room_settle_windows w
   WHERE w.room_id = p_room_id
@@ -32234,37 +32285,20 @@ BEGIN
                               'window_id', v_window.id);
   END IF;
 
+  v_bill_cat := fn_settle_billing_category();
+  IF v_bill_cat IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_billing_category', 'room_id', p_room_id,
+                              'window_id', v_window.id);
+  END IF;
+
   v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
   IF NOT (v_cost->>'found')::boolean THEN
     RETURN jsonb_build_object('status', 'no_rate', 'room_id', p_room_id,
                               'window_id', v_window.id, 'reason', v_cost->>'reason');
   END IF;
-  v_category := (v_cost->>'category_id')::uuid;
-  v_base     := (v_cost->>'base_room_annual')::numeric;
-  v_ac       := (v_cost->>'ac_room_annual')::numeric;
+  v_base := (v_cost->>'base_room_annual')::numeric;
+  v_ac   := (v_cost->>'ac_room_annual')::numeric;
 
-  -- ── Entitlement accumulates PER JOINING EVENT, capped at what she was billed
-  -- Each arrival k contributes
-  --     max(0, share(max(n_billed, n_after_k − 1)) − share(max(n_billed, n_after_k)))
-  --     × remaining_months(that arrival) / 12
-  -- and a resident's total entitlement is the sum over every post-billing
-  -- arrival still in the room. Each round tops her up toward that sum.
-  --
-  -- Both clamps are load-bearing, and each one fixes a case that a simpler
-  -- formula gets wrong:
-  --   * max(n_billed, …) is what makes DEPARTURES behave. A room billed at 2
-  --     that loses one resident and gains another still holds 2 —
-  --     share(2) − share(2) = 0, nobody is credited, which is right because she
-  --     paid for a 2-person room and is in one. Reconstructing the step alone
-  --     reads that same room as "1 → 2" and pays out a half-room credit that
-  --     was never owed.
-  --   * summing PER EVENT, each with its OWN month, is what stops a later
-  --     arrival in a shorter month from dragging the whole target below what
-  --     was already credited and permanently under-paying the earlier step.
-  --     One target recomputed against a shifting anchor does exactly that.
-  -- With nobody leaving, the sum telescopes to share(n_billed) − share(n_now),
-  -- and re-running is inert: the entitlement is unchanged and the top-up is
-  -- entitlement − already_credited = 0.
   SELECT COUNT(*)::int INTO v_live
   FROM hostel_allocations al
   WHERE al.room_id = p_room_id AND al.check_out_date IS NULL;
@@ -32282,7 +32316,6 @@ BEGIN
       AND al.created_at > v_window.billed_at
     ORDER BY al.created_at, al.id
   LOOP
-    -- Occupancy reconstructed at the instant this joiner arrived (includes her).
     SELECT COUNT(*)::int INTO v_n_after
     FROM hostel_allocations al
     WHERE al.room_id = p_room_id
@@ -32293,15 +32326,10 @@ BEGIN
     v_n_before := GREATEST(v_n_billed, v_n_after - 1);
     v_n_after  := GREATEST(v_n_billed, v_n_after);
 
-    -- Same two-term, separately-rounded shape as computeFeeBreakdown.
     v_share_before := round(v_base / v_n_before) + round(v_ac / v_n_before);
     v_share_after  := round(v_base / v_n_after)  + round(v_ac / v_n_after);
     v_delta        := GREATEST(0, v_share_before - v_share_after);
 
-    -- remainingWholeMonths(joinDate, hostelYear) from hostel-fee-compute-service.ts:
-    -- whole months from the month of joining through the hostel-year end,
-    -- inclusive, clamped to [0, 12]. check_in_date is nullable, so the arrival
-    -- timestamp is the fallback — a NULL must not silently forfeit the credit.
     v_remaining := (
       (EXTRACT(YEAR FROM v_year_end)::int * 12 + EXTRACT(MONTH FROM v_year_end)::int)
       - (EXTRACT(YEAR FROM j.join_date)::int * 12 + EXTRACT(MONTH FROM j.join_date)::int)
@@ -32335,7 +32363,7 @@ BEGIN
       FROM hostel_allocations al
       WHERE al.room_id = p_room_id
         AND al.check_out_date IS NULL
-        AND al.created_at <= v_window.billed_at   -- billed cohort, not the joiners
+        AND al.created_at <= v_window.billed_at
       ORDER BY al.check_in_date, al.id
     LOOP
       v_lp_id := NULL;
@@ -32344,18 +32372,19 @@ BEGIN
       END IF;
       CONTINUE WHEN v_lp_id IS NULL;
 
-      -- Only residents who were ACTUALLY billed for this room can be credited
-      -- against it. A resident with no hostel bill has nothing to reduce.
+      -- Only residents who actually hold a settlement bill for this room can be
+      -- credited against it. Compared on the settlement head, in its own id
+      -- domain — the previous predicate used the hostel category id and so was
+      -- never true, silently skipping every resident.
       CONTINUE WHEN NOT EXISTS (
         SELECT 1 FROM billing_student_bills b
         WHERE b.student_id       = v_lp_id
           AND b.hostel_year_id   = v_year_id
-          AND b.item_category_id = v_category
-          AND b.fee_source IN ('academic','hostel_category')
+          AND b.item_category_id = v_bill_cat
+          AND b.fee_source       = 'hostel_category'
           AND b.status NOT IN ('cancelled','superseded')
       );
 
-      -- What earlier rounds on THIS window already gave her.
       SELECT COALESCE(SUM(scb.amount), 0) INTO v_already
       FROM student_credit_balances scb
       WHERE scb.student_id = v_lp_id
@@ -32373,8 +32402,8 @@ BEGIN
            COALESCE(v_processed[1], v_window.id), false,
            'Campus living settle-then-bill late join: billed at ' || v_n_billed
            || ' occupant(s), room now holds ' || v_live
-           || '. Entitlement ₹' || v_entitlement || ' less ₹' || v_already
-           || ' already credited = ₹' || v_credit || '.');
+           || '. Entitlement Rs ' || v_entitlement || ' less Rs ' || v_already
+           || ' already credited = Rs ' || v_credit || '.');
         v_written := v_written + 1;
       END IF;
 
@@ -32384,11 +32413,6 @@ BEGIN
     END LOOP;
   END IF;
 
-  -- Mark every joining event this round actually EVALUATED, whether or not it
-  -- produced a credit row. This is the idempotency record; a zero-credit round
-  -- must never come back a second time. Every arrival above is evaluated —
-  -- a NULL check_in_date falls back to the arrival timestamp rather than
-  -- forfeiting the credit — so stamping here can never bury money.
   IF NOT p_dry_run AND array_length(v_processed, 1) IS NOT NULL THEN
     UPDATE hostel_room_settle_windows
        SET credited_allocation_ids = credited_allocation_ids || v_processed
@@ -32407,9 +32431,6 @@ BEGIN
     'entitlement_per_resident', v_entitlement,
     'credits',        v_credits,
     'hostel_year_end_date', v_year_end,
-    -- Compute primitives, so the TS wrapper can re-derive every share and every
-    -- remaining-months figure below through computeFeeBreakdown /
-    -- remainingWholeMonths instead of trusting this function's arithmetic.
     'capacity',            (v_cost->>'capacity')::int,
     'per_bed_annual_rate', (v_cost->>'per_bed_annual_rate')::numeric,
     'base_room_annual',    v_base,
@@ -32420,7 +32441,7 @@ BEGIN
     'events_processed', COALESCE(array_length(v_processed, 1), 0),
     'credits_written', v_written);
 END;
-$$;
+$function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_settle_late_join_credit(uuid, boolean, uuid) TO authenticated, service_role;
@@ -42201,3 +42222,519 @@ GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years(
   uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
   integer, integer, text, integer, integer, text, text)
   TO authenticated, service_role;
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_settle_billing_category()
+ RETURNS uuid
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT bc.id
+  FROM billing_categories bc
+  WHERE bc.category_name = 'Hostel Empty Bed Settlement'
+    AND bc.is_active
+  ORDER BY bc.created_at
+  LIMIT 1;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._enforce_room_buyout_lock()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_buyout uuid;
+BEGIN
+  -- Only an ACTIVE occupancy takes a bed. A row being checked out frees one, so
+  -- a resident may always leave a bought-out room.
+  IF NEW.check_out_date IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT b.id INTO v_buyout
+  FROM hostel_room_buyouts b
+  WHERE b.room_id = NEW.room_id
+    AND b.status = 'active'
+  LIMIT 1;
+
+  IF v_buyout IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- The residents who bought the room may still be edited in place — a bed swap
+  -- within the room, a status change, a correction. Only a NEW body is refused.
+  IF EXISTS (
+    SELECT 1 FROM hostel_room_buyout_consents c
+    WHERE c.buyout_id = v_buyout
+      AND c.allocation_id = NEW.id
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION
+    'This room is held under an active empty-bed buyout — its residents have paid for the empty beds. Release the buyout before allocating anyone into it.'
+    USING ERRCODE = '23514',
+          DETAIL  = format('room_id=%s buyout_id=%s allocation_id=%s', NEW.room_id, v_buyout, NEW.id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_quote(p_room_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_year_id   uuid;
+  v_cost      jsonb;
+  v_capacity  int;
+  v_occupants int;
+  v_per_bed   numeric;
+  v_settled   numeric;
+  v_amount    numeric;
+  v_live      record;
+BEGIN
+  -- Own-room scope. fn_user_allocated_room is deliberately NOT reused here: it
+  -- ignores check_out_date, so a learner who has since moved out would still be
+  -- able to price — and later act on — the room she used to live in.
+  IF NOT EXISTS (
+        SELECT 1 FROM hostel_allocations a
+        WHERE a.room_id = p_room_id
+          AND a.check_out_date IS NULL
+          AND a.learner_id = auth.uid())
+     AND NOT fn_settle_can_manage(p_room_id, 'campus_living.fees.view') THEN
+    RAISE EXCEPTION 'permission denied: you are not a resident of this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF NOT fn_get_policy_bool('hostel.settle_bill.enabled', false) THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'mechanism_disabled',
+                              'room_id', p_room_id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM hostel_rooms r
+    JOIN hostel_categories hc ON hc.id = r.category_id
+    WHERE r.id = p_room_id AND hc.settle_billing_enabled
+  ) THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'category_not_in_scope',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_year_id := fn_settle_current_hostel_year();
+  IF v_year_id IS NULL THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'no_hostel_year',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_cost := fn_settle_room_annual_cost(p_room_id, v_year_id);
+  IF NOT (v_cost->>'found')::boolean THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', v_cost->>'reason',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_capacity := (v_cost->>'capacity')::int;
+  v_per_bed  := (v_cost->>'per_bed_annual_rate')::numeric;
+
+  SELECT COUNT(*)::int INTO v_occupants
+  FROM hostel_allocations a
+  WHERE a.room_id = p_room_id AND a.check_out_date IS NULL;
+
+  IF v_occupants = 0 THEN
+    RETURN jsonb_build_object('eligible', false, 'reason', 'no_occupants',
+                              'room_id', p_room_id);
+  END IF;
+
+  v_settled := round((v_cost->>'base_room_annual')::numeric / v_occupants)
+             + round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
+  v_amount  := GREATEST(0, v_settled - v_per_bed);
+
+  SELECT b.id, b.status INTO v_live
+  FROM hostel_room_buyouts b
+  WHERE b.room_id = p_room_id
+    AND b.status IN ('pending_consent','active')
+  LIMIT 1;
+
+  RETURN jsonb_build_object(
+    'eligible',            v_amount > 0 AND v_live.id IS NULL,
+    'reason',              CASE
+                             WHEN v_live.id IS NOT NULL THEN 'buyout_already_live'
+                             WHEN v_amount <= 0         THEN 'room_full'
+                             ELSE NULL
+                           END,
+    'room_id',             p_room_id,
+    'hostel_year_id',      v_year_id,
+    'capacity',            v_capacity,
+    'occupants',           v_occupants,
+    'empty_beds',          GREATEST(0, v_capacity - v_occupants),
+    'per_bed_annual_rate', v_per_bed,
+    'settled_share',       v_settled,
+    'amount_per_resident', v_amount,
+    -- More than one body in the room means everyone must agree: activation
+    -- bills them all and removes their chance of the price falling later.
+    'consent_required',    v_occupants > 1,
+    'existing_buyout_id',  v_live.id,
+    'existing_status',     v_live.status);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._room_buyout_activate(p_buyout_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_b         public.hostel_room_buyouts%ROWTYPE;
+  v_cost      jsonb;
+  v_occupants int;
+  v_per_bed   numeric;
+  v_settled   numeric;
+  v_amount    numeric;
+  v_bill_cat  uuid;
+  v_due_days  int;
+  v_lp_id     uuid;
+  v_inst_id   uuid;
+  v_bill_id   uuid;
+  v_billed    int := 0;
+  c           record;
+BEGIN
+  SELECT * INTO v_b FROM hostel_room_buyouts WHERE id = p_buyout_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found', 'buyout_id', p_buyout_id);
+  END IF;
+  IF v_b.status <> 'pending_consent' THEN
+    RETURN jsonb_build_object('status', v_b.status, 'buyout_id', p_buyout_id);
+  END IF;
+
+  v_bill_cat := fn_settle_billing_category();
+  IF v_bill_cat IS NULL THEN
+    RETURN jsonb_build_object('status', 'no_billing_category', 'buyout_id', p_buyout_id);
+  END IF;
+
+  -- RE-DERIVE. The request's figure is a quote, not an authority: residents may
+  -- have arrived or left while consent was being collected. Billing a number
+  -- nobody agreed to is worse than making them ask again.
+  v_cost := fn_settle_room_annual_cost(v_b.room_id, v_b.hostel_year_id);
+  IF NOT (v_cost->>'found')::boolean THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = COALESCE(v_cost->>'reason','no_rate')
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', v_cost->>'reason');
+  END IF;
+
+  v_per_bed := (v_cost->>'per_bed_annual_rate')::numeric;
+
+  SELECT COUNT(*)::int INTO v_occupants
+  FROM hostel_allocations a
+  WHERE a.room_id = v_b.room_id AND a.check_out_date IS NULL;
+
+  IF v_occupants = 0 THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = 'no_occupants'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', 'no_occupants');
+  END IF;
+
+  v_settled := round((v_cost->>'base_room_annual')::numeric / v_occupants)
+             + round((v_cost->>'ac_room_annual')::numeric   / v_occupants);
+  v_amount  := GREATEST(0, v_settled - v_per_bed);
+
+  IF v_amount <= 0 THEN
+    -- The room filled while they were deciding. There is nothing left to buy,
+    -- and that is the outcome they wanted anyway.
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = 'room_filled'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', 'room_filled');
+  END IF;
+
+  IF v_amount <> v_b.amount_per_resident THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'cancelled', cancelled_reason = 'occupancy_changed'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'cancelled', 'buyout_id', p_buyout_id,
+                              'reason', 'occupancy_changed',
+                              'quoted', v_b.amount_per_resident, 'now', v_amount);
+  END IF;
+
+  v_due_days := GREATEST(0, fn_get_policy_int('hostel.settle_bill.bill_due_days', 5));
+
+  FOR c IN
+    SELECT k.id AS consent_id, k.allocation_id, k.learner_id
+    FROM hostel_room_buyout_consents k
+    JOIN hostel_allocations a ON a.id = k.allocation_id
+    WHERE k.buyout_id = p_buyout_id
+      AND k.decision = 'agreed'
+      AND a.check_out_date IS NULL
+    ORDER BY k.created_at
+  LOOP
+    SELECT p.learner_id INTO v_lp_id FROM profiles p WHERE p.id = c.learner_id;
+    CONTINUE WHEN v_lp_id IS NULL;   -- not a learner: cannot be billed
+
+    -- A flat hostel package does not divide by occupancy, so its holder has
+    -- nothing to settle. Same exclusion the sweep biller applies.
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM jsonb_array_elements(
+        COALESCE(campus_living_resolve_hostel_fee(v_lp_id, v_b.hostel_year_id), '[]'::jsonb)
+      ) itm WHERE itm->>'fee_source' = 'hostel_package'
+    );
+
+    -- Same dedup key the sweep uses, so the two paths cannot both bill her.
+    CONTINUE WHEN EXISTS (
+      SELECT 1 FROM billing_student_bills b
+      WHERE b.student_id       = v_lp_id
+        AND b.hostel_year_id   = v_b.hostel_year_id
+        AND b.item_category_id = v_bill_cat
+        AND b.fee_source       = 'hostel_category'
+        AND b.status NOT IN ('cancelled','superseded')
+    );
+
+    SELECT lp.institution_id INTO v_inst_id
+    FROM learners_profiles lp WHERE lp.id = v_lp_id;
+
+    INSERT INTO billing_student_bills
+      (student_id, institution_id, item_category_id, hostel_year_id, fee_source,
+       bill_description, due_date, quantity, unit_amount, total_amount,
+       final_amount, balance_amount, status)
+    VALUES
+      (v_lp_id, v_inst_id, v_bill_cat, v_b.hostel_year_id, 'hostel_category',
+       'Room buyout: ' || (v_b.capacity_at_request - v_occupants)
+         || ' empty bed' || CASE WHEN (v_b.capacity_at_request - v_occupants) = 1 THEN '' ELSE 's' END
+         || ' held for exclusive use',
+       (now() + make_interval(days => v_due_days))::date,
+       1, v_amount, v_amount, v_amount, v_amount, 'unpaid')
+    RETURNING id INTO v_bill_id;
+
+    UPDATE hostel_room_buyout_consents SET bill_id = v_bill_id WHERE id = c.consent_id;
+    v_billed := v_billed + 1;
+  END LOOP;
+
+  UPDATE hostel_room_buyouts
+     SET status = 'active', activated_at = now(), occupants_at_request = v_occupants
+   WHERE id = p_buyout_id;
+
+  -- Close any open settle window on this room: it has just been settled by
+  -- hand, and leaving the window open would put the room back in the sweep's
+  -- due list where the dedup guard would have to catch it a second time.
+  UPDATE hostel_room_settle_windows
+     SET status = 'billed', billed_at = now(), occupants_at_billing = v_occupants
+   WHERE room_id = v_b.room_id
+     AND hostel_year_id = v_b.hostel_year_id
+     AND status = 'open';
+
+  RETURN jsonb_build_object('status', 'active', 'buyout_id', p_buyout_id,
+                            'room_id', v_b.room_id,
+                            'amount_per_resident', v_amount,
+                            'bills_raised', v_billed);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_request(p_room_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_q        jsonb;
+  v_me       uuid := auth.uid();
+  v_alloc    uuid;
+  v_hours    int;
+  v_buyout   uuid;
+  v_inst     uuid;
+  v_others   int;
+  a          record;
+BEGIN
+  IF v_me IS NULL THEN
+    RAISE EXCEPTION 'permission denied: no signed-in learner' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT a2.id INTO v_alloc
+  FROM hostel_allocations a2
+  WHERE a2.room_id = p_room_id AND a2.check_out_date IS NULL AND a2.learner_id = v_me
+  LIMIT 1;
+
+  IF v_alloc IS NULL THEN
+    RAISE EXCEPTION 'permission denied: you are not a resident of this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_q := fn_room_buyout_quote(p_room_id);
+  IF NOT (v_q->>'eligible')::boolean THEN
+    RETURN jsonb_build_object('status', 'refused', 'reason', v_q->>'reason', 'quote', v_q);
+  END IF;
+
+  v_hours := GREATEST(1, fn_get_policy_int('hostel.settle_bill.buyout_consent_hours', 48));
+
+  SELECT lp.institution_id INTO v_inst
+  FROM profiles p JOIN learners_profiles lp ON lp.id = p.learner_id
+  WHERE p.id = v_me;
+
+  INSERT INTO hostel_room_buyouts
+    (room_id, hostel_year_id, institution_id, requested_by_learner_id,
+     capacity_at_request, occupants_at_request, empty_beds,
+     amount_per_resident, status, consent_deadline)
+  VALUES
+    (p_room_id, (v_q->>'hostel_year_id')::uuid, v_inst, v_me,
+     (v_q->>'capacity')::int, (v_q->>'occupants')::int, (v_q->>'empty_beds')::int,
+     (v_q->>'amount_per_resident')::numeric, 'pending_consent',
+     now() + make_interval(hours => v_hours))
+  RETURNING id INTO v_buyout;
+
+  -- One consent row per CURRENT resident. The requester's is already agreed —
+  -- asking her to confirm what she just asked for is noise.
+  FOR a IN
+    SELECT a2.id AS allocation_id, a2.learner_id
+    FROM hostel_allocations a2
+    WHERE a2.room_id = p_room_id AND a2.check_out_date IS NULL
+  LOOP
+    INSERT INTO hostel_room_buyout_consents
+      (buyout_id, allocation_id, learner_id, decision, decided_at)
+    VALUES
+      (v_buyout, a.allocation_id, a.learner_id,
+       CASE WHEN a.learner_id = v_me THEN 'agreed' ELSE 'pending' END,
+       CASE WHEN a.learner_id = v_me THEN now() ELSE NULL END);
+  END LOOP;
+
+  SELECT COUNT(*)::int INTO v_others
+  FROM hostel_room_buyout_consents
+  WHERE buyout_id = v_buyout AND decision = 'pending';
+
+  -- Sole occupant: nobody else to ask, so it takes effect at once.
+  IF v_others = 0 THEN
+    RETURN _room_buyout_activate(v_buyout) || jsonb_build_object('quote', v_q);
+  END IF;
+
+  RETURN jsonb_build_object('status', 'pending_consent', 'buyout_id', v_buyout,
+                            'awaiting', v_others, 'quote', v_q);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_respond(p_buyout_id uuid, p_agree boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_me      uuid := auth.uid();
+  v_b       public.hostel_room_buyouts%ROWTYPE;
+  v_consent uuid;
+  v_pending int;
+BEGIN
+  SELECT * INTO v_b FROM hostel_room_buyouts WHERE id = p_buyout_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found', 'buyout_id', p_buyout_id);
+  END IF;
+
+  IF v_b.status <> 'pending_consent' THEN
+    RETURN jsonb_build_object('status', v_b.status, 'buyout_id', p_buyout_id);
+  END IF;
+
+  IF now() > v_b.consent_deadline THEN
+    UPDATE hostel_room_buyouts SET status = 'expired' WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'expired', 'buyout_id', p_buyout_id);
+  END IF;
+
+  SELECT k.id INTO v_consent
+  FROM hostel_room_buyout_consents k
+  WHERE k.buyout_id = p_buyout_id AND k.learner_id = v_me;
+
+  IF v_consent IS NULL THEN
+    RAISE EXCEPTION 'permission denied: you were not asked to agree to this buyout'
+      USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE hostel_room_buyout_consents
+     SET decision = CASE WHEN p_agree THEN 'agreed' ELSE 'declined' END,
+         decided_at = now()
+   WHERE id = v_consent;
+
+  -- One refusal ends it. The others are not billed, and the room stays open.
+  IF NOT p_agree THEN
+    UPDATE hostel_room_buyouts
+       SET status = 'declined', cancelled_reason = 'roommate_declined'
+     WHERE id = p_buyout_id;
+    RETURN jsonb_build_object('status', 'declined', 'buyout_id', p_buyout_id);
+  END IF;
+
+  SELECT COUNT(*)::int INTO v_pending
+  FROM hostel_room_buyout_consents
+  WHERE buyout_id = p_buyout_id AND decision = 'pending';
+
+  IF v_pending > 0 THEN
+    RETURN jsonb_build_object('status', 'pending_consent', 'buyout_id', p_buyout_id,
+                              'awaiting', v_pending);
+  END IF;
+
+  RETURN _room_buyout_activate(p_buyout_id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_room_buyout_release(p_buyout_id uuid, p_reason text DEFAULT NULL)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_b public.hostel_room_buyouts%ROWTYPE;
+BEGIN
+  SELECT * INTO v_b FROM hostel_room_buyouts WHERE id = p_buyout_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('status', 'not_found', 'buyout_id', p_buyout_id);
+  END IF;
+
+  IF NOT fn_settle_can_manage(v_b.room_id, 'campus_living.fees.config') THEN
+    RAISE EXCEPTION 'permission denied: campus_living.fees.config on this room'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_b.status NOT IN ('pending_consent','active') THEN
+    RETURN jsonb_build_object('status', v_b.status, 'buyout_id', p_buyout_id);
+  END IF;
+
+  UPDATE hostel_room_buyouts
+     SET status = 'released', released_at = now(), released_by = auth.uid(),
+         release_reason = p_reason
+   WHERE id = p_buyout_id;
+
+  RETURN jsonb_build_object('status', 'released', 'buyout_id', p_buyout_id,
+                            'room_id', v_b.room_id);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.fn_my_room_settle_window()
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+  SELECT jsonb_build_object(
+           'window_id',        w.id,
+           'room_id',          w.room_id,
+           'opened_at',        w.opened_at,
+           'current_deadline', w.current_deadline,
+           'hard_deadline',    w.hard_deadline,
+           'restart_count',    w.restart_count,
+           'status',           w.status)
+  FROM hostel_room_settle_windows w
+  JOIN hostel_allocations a
+    ON a.room_id = w.room_id
+   AND a.check_out_date IS NULL
+   AND a.learner_id = auth.uid()
+  WHERE w.status = 'open'
+  ORDER BY w.current_deadline
+  LIMIT 1;
+$function$;

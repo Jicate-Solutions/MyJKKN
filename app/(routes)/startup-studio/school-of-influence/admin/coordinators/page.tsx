@@ -21,6 +21,14 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { ProgrammeCoordinatorsPanel } from '@/components/shared/programme-coordinators/programme-coordinators-panel';
 
+// The route manifest and the Ctrl+K palette read this. Without it the page is
+// listed under its folder name alone — which is how a programme's screens end up
+// searchable only as "Coordinators" (BUG-005799 / BUG-005800).
+export const navMeta = {
+  label: 'School of Influence Coordinators',
+  icon: 'UserCheck',
+} as const;
+
 export const metadata: Metadata = {
   title: 'School of Influence — Coordinators',
   description:
