@@ -777,7 +777,13 @@ SELECT conname, pg_get_constraintdef(oid)
   FROM pg_constraint
  WHERE conrelid = 'public.resource_reservations'::regclass
    AND contype = 'c'
-   AND conname LIKE '%owner%' OR conname LIKE '%event_or_session%';
+   AND (conname LIKE '%owner%' OR conname LIKE '%event_or_session%');
+-- The parentheses are load-bearing. AND binds tighter than OR, so without
+-- them this reads as
+--   (conrelid = … AND contype = 'c' AND conname LIKE '%owner%')
+--   OR (conname LIKE '%event_or_session%')
+-- and the second branch is unscoped by conrelid — it would match a
+-- similarly-named constraint on ANY table and report a false result.
 ```
 
 Expected: exactly one row named `resource_reservations_single_owner_check`, defined as
