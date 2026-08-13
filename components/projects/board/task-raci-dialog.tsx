@@ -225,8 +225,8 @@ function RaciDialogBody({ task }: { task: ProjectTask }) {
             searchPlaceholder="Search team members…"
             emptyMessage={
               institutionId
-                ? 'No team members found.'
-                : 'No staff found that you can assign.'
+                ? 'No team members found in this institution.'
+                : 'No team members found that you can assign.'
             }
             loading={staffLoading}
             disabled={projectLoading}
