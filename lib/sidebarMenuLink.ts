@@ -1062,6 +1062,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
   // and the database cannot disagree about who belongs here.
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
+  // Same reasoning for the batch roster — it is the only screen somebody can be
+  // taken off a batch from, so it must not be reachable by typing the URL.
+  '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
