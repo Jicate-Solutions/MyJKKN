@@ -9262,3 +9262,106 @@ CREATE POLICY course_reg_fields_manage ON public.course_registration_form_fields
                      WHERE f.id = course_registration_form_fields.form_id
                        AND public.role_has_institution_access(f.institution_id)))
   );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Applications (screening gate) and enrollments RLS
+-- (course_applications, course_enrollments)
+-- Mirror of migration 20260813100300_course_applications_enrollments.sql
+-- =====================================================================
+ALTER TABLE public.course_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_enrollments  ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_applications FROM anon, PUBLIC;
+REVOKE ALL ON public.course_enrollments  FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_applications TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_enrollments  TO authenticated;
+
+CREATE POLICY course_applications_select ON public.course_applications
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.applications.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR profile_id = (SELECT auth.uid())
+  );
+
+CREATE POLICY course_applications_decide ON public.course_applications
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.applications.decide'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.applications.decide'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_enrollments_select ON public.course_enrollments
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
+        AND public.role_has_institution_access(institution_id))
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR profile_id = (SELECT auth.uid())
+  );
+
+CREATE POLICY course_enrollments_manage ON public.course_enrollments
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- ---------------------------------------------------------------------
+-- Additive participant visibility for the tables created earlier
+-- ---------------------------------------------------------------------
+-- These are SEPARATE policies, not widened admin policies. Multiple
+-- PERMISSIVE policies on one command are OR'd, so adding a policy grants
+-- exactly this narrow extra read and cannot loosen the admin rule.
+--
+-- A participant sees the course, packages, installment plan and session
+-- schedule for a course they are enrolled on — and nothing else.
+-- ---------------------------------------------------------------------
+CREATE POLICY course_events_participant_select ON public.course_events
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.course_event_id = course_events.id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+CREATE POLICY course_packages_participant_select ON public.course_packages
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.package_id = course_packages.id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+CREATE POLICY course_package_installments_participant_select
+  ON public.course_package_installments
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.package_id = course_package_installments.package_id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+CREATE POLICY course_sessions_participant_select ON public.course_sessions
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.course_event_id = course_sessions.course_event_id
+       AND e.profile_id = (SELECT auth.uid())
+  ));

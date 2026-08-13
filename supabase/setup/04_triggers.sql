@@ -1891,3 +1891,14 @@ CREATE TRIGGER trg_course_reg_sections_touch
 CREATE TRIGGER trg_course_reg_fields_touch
   BEFORE UPDATE ON public.course_registration_form_fields
   FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Applications and enrollments triggers
+-- Mirror of migration 20260813100300_course_applications_enrollments.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_applications_touch
+  BEFORE UPDATE ON public.course_applications
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_enrollments_touch
+  BEFORE UPDATE ON public.course_enrollments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
