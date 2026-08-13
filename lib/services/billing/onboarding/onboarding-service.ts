@@ -9,6 +9,7 @@ import { AdmissionSettingsService } from '@/lib/services/admission/admission-set
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 import { getErrorMessage } from '@/lib/utils';
 import { describeOncePerLearnerError } from '@/lib/utils/billing-duplicate-error';
+import { expandBillsWithInstalmentPlans } from '@/lib/services/billing/instalments/instalment-plan-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -496,9 +497,24 @@ export class OnboardingService {
         );
       }
 
+      // Instalment expansion — DORMANT until an active instalment plan matches
+      // this learner's (institution, programme, category, academic year). With
+      // zero plans configured (or before migration 20260825013000 is applied),
+      // this returns billsToInsert untouched and the insert below is byte for
+      // byte today's behaviour. A matching plan turns ONE yearly row into N
+      // instalment rows whose amounts sum exactly to the yearly amount, each
+      // with its own due date. Split arithmetic lives in the SQL engine
+      // (billing_instalment_split_for_learner) shared with the account
+      // transition RPC, so the two generation paths cannot disagree.
+      const rowsToInsert = await expandBillsWithInstalmentPlans(
+        supabase,
+        learnerId,
+        billsToInsert
+      );
+
       const { error: insertError } = await supabase
         .from('billing_student_bills')
-        .insert(billsToInsert);
+        .insert(rowsToInsert);
 
       // Onboarding inserts the learner's whole fee set as one batch, so a
       // single once-per-learner collision rejects all of it. Name the category
@@ -512,7 +528,7 @@ export class OnboardingService {
       }
 
       if (insertError) throw insertError;
-      return billsToInsert.length;
+      return rowsToInsert.length;
     } catch (error) {
       console.error('[billing/onboarding] createBillsFromProfile failed:', error);
       throw error;
