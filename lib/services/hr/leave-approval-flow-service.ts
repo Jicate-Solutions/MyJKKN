@@ -170,15 +170,22 @@ export class LeaveApprovalFlowService {
   /**
    * People pinnable as approvers. Returns profiles.id — the auth uid the
    * approval gate compares against, NOT staff.id.
+   *
+   * roleKey narrows to holders of one custom_roles.role_key. It is passed to the
+   * RPC rather than applied to the result because the RPC caps at 50 rows: the
+   * largest organization has 152 candidates, so filtering the returned page
+   * would search only the first third of them.
    */
   static async candidates(
     supabase: SupabaseClient,
     hrOrgId: string,
-    search?: string
+    search?: string,
+    roleKey?: string
   ): Promise<LeaveApproverCandidate[]> {
     const { data, error } = await supabase.rpc('hr_leave_approver_candidates', {
       p_hr_organization_id: hrOrgId,
       p_search: search ?? null,
+      p_role_key: roleKey ?? null,
     });
     if (error) throw error;
     return (data ?? []) as LeaveApproverCandidate[];
