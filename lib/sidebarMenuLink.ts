@@ -106,6 +106,7 @@ import {
   UserCog,
   SearchCheck,
   BadgeCheck,
+  Presentation,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -515,6 +516,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
   // Role Management to reveal the Projects sidebar entry.
   '/events': 'events.view',
+  '/courses': 'courses.view',
+  '/courses/new': 'courses.create',
   '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
@@ -3281,6 +3284,25 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/events/tournament/new', label: 'Tournament · New', active: pathname === '/events/tournament/new' },
             // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
             { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Courses',
+      menus: [
+        {
+          href: '/courses',
+          label: 'Courses',
+          // Same parent-href-as-leaf trap as '/events' above: the parent row is
+          // a pure accordion toggle at runtime, so its own href is never
+          // clickable. The 'All Courses' submenu leaf below is what actually
+          // makes /courses reachable by check:reachability's chip-click walk.
+          active: pathname === '/courses' || pathname.startsWith('/courses/'),
+          icon: Presentation,
+          submenus: [
+            { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
+            { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
           ]
         }
       ]
