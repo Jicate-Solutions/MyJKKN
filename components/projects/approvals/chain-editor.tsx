@@ -120,7 +120,7 @@ export function ChainEditor({ value, onChange, disabled = false }: ChainEditorPr
               type="button"
               size="icon"
               variant="ghost"
-              className="h-7 w-7 text-destructive hover:text-destructive"
+              className={`h-7 w-7 text-destructive hover:text-destructive ${TAP_TARGET_ICON}`}
               onClick={() => removeStep(index)}
               disabled={disabled}
             >
