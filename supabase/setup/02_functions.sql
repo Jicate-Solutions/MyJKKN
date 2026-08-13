@@ -40902,3 +40902,77 @@ GRANT EXECUTE ON FUNCTION public.get_billing_audit_duplicate_years(
   uuid[], text[], boolean, uuid[], text, text, uuid, uuid, uuid, uuid, uuid,
   integer, integer, text, integer, integer, text, text)
   TO authenticated, service_role;
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core: package amount integrity +
+-- updated_at maintenance
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Tables -> setup/01_tables.sql. Triggers -> setup/04_triggers.sql.
+-- =====================================================================
+
+-- A package whose parts do not add up to its price is the single most
+-- damaging thing that can silently ship here: bills would be generated
+-- that can never reach a zero balance, so the participant could never
+-- become 'confirmed' and could never attend.
+--
+-- DEFERRABLE INITIALLY DEFERRED so a multi-row edit may pass through an
+-- inconsistent state inside a transaction but can never COMMIT one.
+--
+-- A package with ZERO installments is allowed — it is a draft being
+-- built. Bill generation (Phase 4) refuses such a package separately.
+-- Rejecting it here would force every package insert to carry its whole
+-- schedule in the same statement.
+CREATE OR REPLACE FUNCTION public.fn_course_package_amounts_chk()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+DECLARE
+  v_package_id uuid;
+  v_total      numeric(12,2);
+  v_sum        numeric(12,2);
+  v_count      int;
+BEGIN
+  -- One function, two triggers: the installments table exposes
+  -- package_id, the packages table exposes id.
+  IF TG_TABLE_NAME = 'course_packages' THEN
+    v_package_id := COALESCE(NEW.id, OLD.id);
+  ELSE
+    v_package_id := COALESCE(NEW.package_id, OLD.package_id);
+  END IF;
+
+  SELECT total_amount INTO v_total
+    FROM public.course_packages
+   WHERE id = v_package_id;
+
+  -- The package itself was deleted in this transaction (ON DELETE
+  -- CASCADE removed its installments). Nothing left to reconcile.
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT COALESCE(sum(amount), 0), count(*)
+    INTO v_sum, v_count
+    FROM public.course_package_installments
+   WHERE package_id = v_package_id;
+
+  IF v_count > 0 AND v_sum <> v_total THEN
+    RAISE EXCEPTION
+      'Course package % has % installments totalling % but its price is %. The schedule must add up to the price.',
+      v_package_id, v_count, v_sum, v_total
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NULL;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_course_package_amounts_chk() IS
+  'Constraint-trigger body shared by course_packages and course_package_installments: the installment schedule must sum to the package price at COMMIT. Zero installments is permitted (draft package).';
+
+CREATE OR REPLACE FUNCTION public.fn_courses_touch_updated_at()
+RETURNS trigger LANGUAGE plpgsql AS $fn$
+BEGIN
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$fn$;

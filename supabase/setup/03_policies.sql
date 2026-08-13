@@ -9010,3 +9010,125 @@ FOR ALL USING (
   OR ((SELECT public.user_has_permission('hr.leave.balance.manage'))
       AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
 );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core RLS (course_events,
+-- course_packages, course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Participant-visibility policies are ADDITIVE and are added in
+-- 20260813100300 (they reference course_enrollments, which does not
+-- exist yet). Until then these tables are staff-only, which is the safe
+-- direction to be wrong in.
+-- =====================================================================
+ALTER TABLE public.course_events               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_packages             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_package_installments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_events               FROM anon, PUBLIC;
+REVOKE ALL ON public.course_packages             FROM anon, PUBLIC;
+REVOKE ALL ON public.course_package_installments FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_events               TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_packages             TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_package_installments TO authenticated;
+
+CREATE POLICY course_events_select ON public.course_events
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_events_insert ON public.course_events
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.create'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_events_update ON public.course_events
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.edit'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.edit'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_events_delete ON public.course_events
+  FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR ((SELECT public.user_has_permission('courses.delete'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Packages and installments: read follows courses.view, write follows
+-- courses.packages.manage. Installments have no institution_id of their
+-- own, so they inherit tenancy through their package.
+CREATE POLICY course_packages_select ON public.course_packages
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_packages_manage ON public.course_packages
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_package_installments_select ON public.course_package_installments
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND EXISTS (
+          SELECT 1 FROM public.course_packages p
+           WHERE p.id = course_package_installments.package_id
+             AND public.role_has_institution_access(p.institution_id)))
+  );
+
+CREATE POLICY course_package_installments_manage ON public.course_package_installments
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND EXISTS (
+          SELECT 1 FROM public.course_packages p
+           WHERE p.id = course_package_installments.package_id
+             AND public.role_has_institution_access(p.institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND EXISTS (
+          SELECT 1 FROM public.course_packages p
+           WHERE p.id = course_package_installments.package_id
+             AND public.role_has_institution_access(p.institution_id)))
+  );

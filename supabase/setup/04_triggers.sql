@@ -1843,3 +1843,29 @@ DROP TRIGGER IF EXISTS trg_jkkn_identity_aliases_updated_at ON public.jkkn_ident
 CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
   BEFORE UPDATE ON public.jkkn_identity_aliases
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core triggers (course_events,
+-- course_packages, course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Function bodies -> setup/02_functions.sql.
+-- =====================================================================
+CREATE CONSTRAINT TRIGGER trg_course_package_installments_sum
+AFTER INSERT OR UPDATE OR DELETE ON public.course_package_installments
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_course_package_amounts_chk();
+
+CREATE CONSTRAINT TRIGGER trg_course_packages_total_sum
+AFTER UPDATE OF total_amount ON public.course_packages
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_course_package_amounts_chk();
+
+CREATE TRIGGER trg_course_events_touch
+  BEFORE UPDATE ON public.course_events
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_packages_touch
+  BEFORE UPDATE ON public.course_packages
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_package_installments_touch
+  BEFORE UPDATE ON public.course_package_installments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();

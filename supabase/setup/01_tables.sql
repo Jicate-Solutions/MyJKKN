@@ -7405,3 +7405,110 @@ ALTER TABLE public.hr_academic_years
 COMMENT ON COLUMN public.hr_academic_years.frozen_at IS
   'Non-NULL = this year is archived; balances are served from stored rows, not derived.';
 
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core (course_events, course_packages,
+-- course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Phase 1 of docs/superpowers/specs/2026-08-13-course-events-design.md
+-- RLS policies -> setup/03_policies.sql. Trigger functions and touch
+-- function -> setup/02_functions.sql. Triggers -> setup/04_triggers.sql.
+-- =====================================================================
+
+-- `status` deliberately has NO 'closed' value. Whether applications are
+-- accepted is decided solely by the application_opens_at/closes_at
+-- window. Two independent switches governing one behaviour is how intake
+-- states drift apart.
+CREATE TABLE IF NOT EXISTS public.course_events (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id           uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  title                    text NOT NULL,
+  slug                     text NOT NULL,
+  code                     text,
+  description              text,
+  mode                     text NOT NULL DEFAULT 'offline'
+                             CHECK (mode IN ('offline','online','hybrid')),
+  status                   text NOT NULL DEFAULT 'draft'
+                             CHECK (status IN ('draft','published','completed','cancelled')),
+  start_date               date,
+  end_date                 date,
+  application_opens_at     timestamptz,
+  application_closes_at    timestamptz,
+  total_seats              int CHECK (total_seats IS NULL OR total_seats > 0),
+  venue_text               text,
+  cover_image_url          text,
+  year                     int,
+  edition_number           int,
+  previous_course_event_id uuid REFERENCES public.course_events(id) ON DELETE SET NULL,
+  created_by               uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  updated_at               timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_events_slug_format_chk
+    CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  CONSTRAINT course_events_date_order_chk
+    CHECK (end_date IS NULL OR start_date IS NULL OR end_date >= start_date),
+  CONSTRAINT course_events_application_window_chk
+    CHECK (application_closes_at IS NULL OR application_opens_at IS NULL
+           OR application_closes_at >= application_opens_at),
+  CONSTRAINT course_events_slug_uniq UNIQUE (institution_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_events_institution
+  ON public.course_events (institution_id, status);
+CREATE INDEX IF NOT EXISTS idx_course_events_previous
+  ON public.course_events (previous_course_event_id)
+  WHERE previous_course_event_id IS NOT NULL;
+
+COMMENT ON TABLE public.course_events IS
+  'A paid, multi-session learning course conducted by an institution. Open to learners, staff and external participants.';
+COMMENT ON COLUMN public.course_events.previous_course_event_id IS
+  'Lineage for a course repeated yearly. Set by fn_clone_course_event (Phase 7).';
+
+-- course_packages — priced tiers
+CREATE TABLE IF NOT EXISTS public.course_packages (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id uuid NOT NULL REFERENCES public.course_events(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  description     text,
+  total_amount    numeric(12,2) NOT NULL CHECK (total_amount >= 0),
+  currency        text NOT NULL DEFAULT 'INR',
+  seat_cap        int CHECK (seat_cap IS NULL OR seat_cap > 0),
+  sale_opens_at   timestamptz,
+  sale_closes_at  timestamptz,
+  is_active       boolean NOT NULL DEFAULT true,
+  display_order   int NOT NULL DEFAULT 0,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_packages_name_uniq UNIQUE (course_event_id, name),
+  CONSTRAINT course_packages_sale_window_chk
+    CHECK (sale_closes_at IS NULL OR sale_opens_at IS NULL
+           OR sale_closes_at >= sale_opens_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_packages_event
+  ON public.course_packages (course_event_id) WHERE is_active;
+
+COMMENT ON COLUMN public.course_packages.seat_cap IS
+  'NULL means unlimited. Waitlisting when a cap is reached is out of scope for v1.';
+
+-- course_package_installments — the schedule template. Due dates are
+-- ABSOLUTE. A cohort course has one schedule everybody pays to;
+-- enrollment-relative offsets are explicitly out of scope.
+CREATE TABLE IF NOT EXISTS public.course_package_installments (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  package_id     uuid NOT NULL REFERENCES public.course_packages(id) ON DELETE CASCADE,
+  installment_no smallint NOT NULL CHECK (installment_no >= 1),
+  label          text,
+  amount         numeric(12,2) NOT NULL CHECK (amount > 0),
+  due_date       date NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_package_installments_no_uniq UNIQUE (package_id, installment_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_package_installments_package
+  ON public.course_package_installments (package_id, installment_no);
+
