@@ -499,7 +499,7 @@ export class OnboardingService {
 
       // Instalment expansion — DORMANT until an active instalment plan matches
       // this learner's (institution, programme, category, academic year). With
-      // zero plans configured (or before migration 20260825010000 is applied),
+      // zero plans configured (or before migration 20260825013000 is applied),
       // this returns billsToInsert untouched and the insert below is byte for
       // byte today's behaviour. A matching plan turns ONE yearly row into N
       // instalment rows whose amounts sum exactly to the yearly amount, each

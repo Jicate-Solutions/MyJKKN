@@ -11,7 +11,7 @@ import {
 
 // NOTE ON WHAT THESE TESTS PROVE — AND WHAT THEY DO NOT.
 // The runtime split arithmetic for BOTH bill-generation paths lives in the SQL
-// engine billing_instalment_split_for_learner (migration 20260825010000, a
+// engine billing_instalment_split_for_learner (migration 20260825013000, a
 // Director-gated file this suite cannot execute). What runs here is production
 // TypeScript: the reference mirror used for authoring previews, the authoring
 // validation, and — most importantly — the CONSUMING behaviour of the TS

@@ -7,7 +7,7 @@ import { getErrorMessage } from '@/lib/utils';
 // Created: 2026-08-13
 // Purpose: Config-driven splitting of a yearly fee into instalment bills.
 //   - The split ARITHMETIC's single runtime source of truth is the SQL engine
-//     `billing_instalment_split_for_learner` (migration 20260825010000), which
+//     `billing_instalment_split_for_learner` (migration 20260825013000), which
 //     BOTH bill-generation paths consume — the account-transition RPC directly,
 //     and the TypeScript bulk-generate path via the guarded wrapper RPC
 //     `billing_get_instalment_split`. Two paths, one engine: a learner's
@@ -19,7 +19,7 @@ import { getErrorMessage } from '@/lib/utils';
 //     authoring previews and unit tests; it is NOT what generates bills.
 //
 // DORMANCY CONTRACT (load-bearing): with zero plans configured — or before
-// migration 20260825010000 is applied at all — every function on the read path
+// migration 20260825013000 is applied at all — every function on the read path
 // degrades to "no split": `fetchInstalmentSplit` returns null on ANY error
 // (including the RPC not existing yet) and `expandBillsWithInstalmentPlans`
 // then returns its input untouched, so bill generation behaves exactly as
@@ -97,7 +97,7 @@ function toPaise(amount: number): number {
  * any computed amount is not strictly positive.
  *
  * MIRROR NOTE: this is the TS reference implementation of the arithmetic in
- * `billing_instalment_split_for_learner` (migration 20260825010000). The SQL
+ * `billing_instalment_split_for_learner` (migration 20260825013000). The SQL
  * engine is what generates bills at runtime; keep the two in step when either
  * changes. Used for authoring-time previews/validation and unit tests.
  */
