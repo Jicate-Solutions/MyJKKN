@@ -168,7 +168,7 @@ export function InstitutionList({ projectId }: InstitutionListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7"
+                          className={`h-7 w-7 ${TAP_TARGET_ICON}`}
                           disabled={isBusy || isLead}
                           onClick={() => handleRemove(row)}
                           aria-label="Remove institution"
