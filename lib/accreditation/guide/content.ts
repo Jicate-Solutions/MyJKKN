@@ -37,14 +37,19 @@
  *     inseparable, so an ASSIGNMENT now also waits for the named person to
  *     confirm it (Director decision 8, 2026-08-01 — accountability accepted,
  *     not imposed). cacSections below describes that confirm step because it is
- *     live; ownerSections has not been rewritten here, and bringing it up to
- *     date is a separate change to a group this PR does not own.
- *   - Owner assignment today is thin, so most drafts land in the IQAC queue.
- *     The guide says so and tells the reader who to ask, rather than promising a
- *     populated owner list.
- *   - No live counts are hard-coded anywhere here. Coverage numbers move nightly
- *     as the emitters run; a number baked into a guide is wrong within a week.
- *     Every "how many" question points at the page that answers it live.
+ *     live; ownerSections still describes only the draft chain, and bringing the
+ *     rest of it up to date is a separate change to a group this PR does not own.
+ *   - A metric with nobody named against it routes to the shared IQAC queue
+ *     instead of to a person. The guide says THAT, and tells the reader who to
+ *     ask — it no longer says how many such metrics there are, in either
+ *     direction. See the "NO STATE CLAIM" note above cacSections: a sentence
+ *     about how full the owner table is went stale in eleven days, and the same
+ *     wording in ownerSections was corrected with it.
+ *   - No live counts are hard-coded anywhere here, and neither is any claim
+ *     about a table being empty or full — those are counts with the digits
+ *     filed off, and they rot at the same speed. Coverage numbers move nightly
+ *     as the emitters run. Every "how many" question points at the page that
+ *     answers it live.
  *   - /accreditation/coverage carries its own key (accreditation.coverage.view),
  *     so the step that links it names that as a prerequisite. Blocked pages here
  *     render an explicit "you do not have permission" panel, never a silent
@@ -166,31 +171,55 @@ export const orientationSections: GuideSection[] = [
  * regulators, so the default assumption is that it is an eleventh. Everything
  * below exists to break that assumption first and only then explain the page.
  *
- * Three facts here were read from production code rather than assumed:
+ * Three facts here were read from production rather than assumed:
  *   - the page's totals come from fn_cac_cluster_totals(), a SECURITY DEFINER
  *     function taking NO caller-supplied id, so every council member sees the
  *     same cluster-wide figure. Reading the underlying views directly returned
  *     the caller's own slice, which is the fault that function was added to fix.
- *   - accreditation_metric_owners is EMPTY. No count is quoted for that (counts
- *     go stale); the guide says "empty", which is a statement about adoption and
- *     stays true until somebody acts on it.
+ *   - ownership is recorded at BODY level by default. A row of
+ *     accreditation_metric_owners with metric_code NULL makes one person
+ *     accountable for that body's entire list in that college; a row that names
+ *     a metric overrides the body owner for that one question. Every owner row
+ *     live on 2026-08-13 is of the first kind. The copy below therefore teaches
+ *     the body-level record as the ordinary case and the per-metric row as an
+ *     escalation (Director, 2026-08-13, R3) — a reader must not come away
+ *     believing the framework has to be filled in question by question.
  *   - an assignment now waits for the named person to confirm — see the
  *     correction in the ACCURACY NOTES above. There is no "Fix this" deep link
  *     to send a reader to, because the columns behind it are not in the database
  *     yet, so nothing here promises one.
  *
- * WHO CAN NAME AN OWNER, and when that was last true. The prerequisite below
- * names four sets of people. Read by value on production 2026-08-13, exactly one
- * role held accreditation.naac.narrative.manage — accreditation_officer — which
- * is why accreditation_metric_owners is empty. The Director's grant of the same
- * day adds it to ceo, managing_director and principal (the first two also gain
- * accreditation.cac.view and .narrative.view; principal already held both).
- * Institution scope does the rest: ceo / managing_director / accreditation_officer
- * are scope 'all', principal is scope 'own', so a Principal writing outside their
- * own college is refused by role_has_institution_access() and not by any wording
- * here. The DATE is deliberately not in the copy — a date in reader-facing text
- * rots as loudly as a count and helps the reader less than it helps us. It lives
- * here, where the next editor looks before changing that sentence.
+ * NO STATE CLAIM ABOUT THE DESK — the mistake this group already made once.
+ * An earlier draft told the reader to "expect the desk to be empty today", and a
+ * test pinned that string so it could not drift. It was true when written and
+ * false eleven days later: owner rows exist now. A sentence describing how full
+ * a table is rots exactly as fast as a baked-in count — it is the same mistake in
+ * different clothes, and the ACCURACY NOTES' own ban on hard-coded counts always
+ * meant this too. The copy below says what an unowned metric MEANS and what
+ * naming one DOES, and sends the reader to the desk to see which they have. That
+ * wording is true at zero rows and at every number above it.
+ *
+ * WHO CAN NAME AN OWNER — and why the honest answer is not a list of roles.
+ * user_has_permission() has FOUR paths, not three: the super-admin bypass, the
+ * multi-role merge, the legacy profiles.role fallback, and finally
+ * fn_handover_grants_key() (migration 20260811100100). The fourth is not a
+ * footnote here — on 2026-08-13 the only person actually working this desk held
+ * accreditation.naac.narrative.manage through an accepted Director handover on
+ * /accreditation/manage/owners, holding no role that carries the key at all. So:
+ *   by role      accreditation_officer already holds the manage key; ceo and
+ *                managing_director gain it (with accreditation.cac.view and
+ *                .narrative.view) by the Director's grant of 2026-08-13.
+ *   by handover  a Director handover naming that key grants it to one named
+ *                person for as long as the handover is live. Principals are
+ *                DELIBERATELY excluded from the role grant (Director,
+ *                2026-08-13, R1) and are handed the desk this way, individually.
+ * Institution scope still decides reach and no wording here can change it: ceo /
+ * managing_director / accreditation_officer are scope 'all'; a principal is
+ * scope 'own', so a write outside their own college is refused by
+ * role_has_institution_access(). The DATES are deliberately not in the copy — a
+ * date in reader-facing text rots as loudly as a count and helps the reader less
+ * than it helps us. They live here, where the next editor looks before changing
+ * that sentence.
  * ────────────────────────────────────────────────────────────────────────── */
 export const cacSections: GuideSection[] = [
   {
@@ -256,22 +285,29 @@ export const cacSections: GuideSection[] = [
     title: "Make one person accountable for a metric",
     steps: [
       {
-        action: "Open the **owner desk** and name a person against one body, one college, one metric.",
+        action: "Open the **owner desk** and name one person for a **whole awarding body** in one college — that is the normal way to do it.",
         detail:
-          "Leave the metric blank to make somebody accountable for that body's whole list in that college. Name a metric as well to override that for a single question. Either way the gap now has a name against it instead of belonging to nobody.",
+          "Leave the metric box blank. That single record makes the person accountable for everything that body asks of that college, in one go. It is the ordinary unit of the job, not a shortcut for people in a hurry: for most colleges, one accountable name per body is the whole answer.",
         link: { label: "Open the owner desk", href: "/accreditation/manage/owners" },
+        tip: "You are not expected to work down the framework question by question. A body at a time is the size the desk was built around.",
+      },
+      {
+        action: "Name a **single metric** only when one person genuinely cannot carry the whole body.",
+        detail:
+          "Filling the metric box as well records a different person for that one question and leaves the rest of the body exactly where it was. It is for the handful of questions that sit with a particular office — the library figures, the finance figures — not the way in.",
       },
       {
         action: "Check you hold the key that lets you name **somebody else** — the desk opens wider than it writes.",
         detail:
           "Opening it, and answering an assignment addressed to you, needs only the view key. Naming another person needs the manage key too, and that is enforced by the database rather than by the screen, so a blocked write comes back as nothing saved.",
         prerequisite:
-          "Naming an owner needs **accreditation.naac.narrative.manage**. It is held by the accreditation officer, the CEO, the Managing Director and Principals. The first three can name owners in any college; a Principal only inside their own. If the desk shows you the list but saves nothing, that key is what you are missing.",
+          "Naming an owner needs **accreditation.naac.narrative.manage**. Some people hold it through their role — the accreditation officer, the CEO and the Managing Director. A Principal is deliberately not given it by role, and is handed this desk individually by the Director instead: that handover carries the same key for as long as it runs. So if the desk shows you the list but saves nothing, that key is what you are missing, and the answer is to ask the Director for the page rather than to assume it is shut to you for good.",
+        tip: "A handover is made from the Director's desk and runs to a date, so it is a loan of the page rather than a change to your role. Nobody can grant it to themselves — not even the person already holding the key.",
       },
       {
-        action: "Expect the desk to be **empty today** — nobody has been named against anything yet.",
+        action: "Read a metric with **no name against it** as work that belongs to nobody yet.",
         detail:
-          "That is the honest starting position, not a read that failed. Every metric in the framework is currently unowned, which is precisely what makes naming even one of them worth the two minutes.",
+          "The desk lists every pair of college and metric whether or not anybody is accountable for it. An unnamed one is not a read that failed and not a mark against any person; it is a question with nobody to ask about it. Naming the body owner clears a whole column of them at once, which is why that is the cheapest move on the page.",
       },
       {
         action: "The person you name has to **confirm** it before it is settled.",
@@ -328,9 +364,9 @@ export const ownerSections: GuideSection[] = [
         link: { label: "See the owner list", href: "/accreditation/naac/narratives/owners" },
       },
       {
-        action: "Expect the owner list to be **mostly empty today**.",
+        action: "If a metric is really yours and your name is **not** on it, ask — you cannot add yourself.",
         detail:
-          "Very few pairs have a named owner so far, so most drafts land in the IQAC queue. If a metric is really yours and your name is not on it, ask your IQAC coordinator to add you — you cannot add yourself.",
+          "Anything with nobody named against it routes to the shared IQAC queue rather than to a person, so a metric that ought to be yours can sit there for weeks without ever reaching you. Ask your IQAC coordinator to record you against it.",
         prerequisite:
           "Only someone holding **accreditation.naac.narrative.manage** can record an owner. If the owner page is blocked for you, that is the reason, and it tells you so on the page.",
       },

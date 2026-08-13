@@ -136,8 +136,50 @@ describe('CAC guide group — the honesty rules the module’s header sets', () 
     expect(hrefs).toContain('/accreditation/cac/brief');
   });
 
-  it('says the owner desk is empty rather than implying a populated system', () => {
-    expect(lower).toContain('empty today');
+  // ── The state-claim ban ──────────────────────────────────────────────────
+  // This test used to be `expect(lower).toContain('empty today')`, pinning a
+  // sentence that told the reader the owner desk was empty. That was true when
+  // it was written and false eleven days later — owner rows exist now — and the
+  // pin is what made the lie load-bearing instead of merely stale. A claim about
+  // how full a table is has exactly the shelf life of a hard-coded count, which
+  // the group's own header already forbids. So the assertion is inverted: no
+  // state claim in either direction, at any row count.
+  it('makes no claim about how full the owner desk is — that is what rotted', () => {
+    for (const phrase of [
+      'empty today',
+      'mostly empty',
+      'nobody has been named',
+      'no one has been named',
+      'not been named against anything',
+      'currently unowned',
+      'no owners yet',
+      'already owned',
+      'every metric now has',
+    ]) {
+      expect(lower).not.toContain(phrase);
+    }
+  });
+
+  it('still teaches what an unowned metric MEANS, having stopped counting them', () => {
+    // Dropping the state claim must not drop the teaching with it: the reader
+    // still has to know that a blank is work with no one attached, not a fault.
+    expect(lower).toContain('no name against it');
+    expect(lower).toContain('belongs to nobody');
+  });
+
+  it('teaches body-level ownership as the ordinary case, per-metric as the escalation', () => {
+    // Director, 2026-08-13 (R3). Every owner row live that day was body-level
+    // (metric_code NULL). A reader must not leave believing the framework has to
+    // be filled in one question at a time.
+    expect(lower).toContain('whole awarding body');
+    expect(lower).toContain('normal way');
+    expect(lower).toContain('only when'); // the per-metric row, framed as conditional
+    // Order carries the meaning — the default is taught before the exception.
+    const actions = cacSections.flatMap((s) => s.steps.map((st) => st.action.toLowerCase()));
+    const bodyFirst = actions.findIndex((a) => a.includes('whole awarding body'));
+    const metricAfter = actions.findIndex((a) => a.includes('single metric'));
+    expect(bodyFirst).toBeGreaterThanOrEqual(0);
+    expect(metricAfter).toBeGreaterThan(bodyFirst);
   });
 
   it('describes the confirm step that the live table actually has', () => {
@@ -155,6 +197,23 @@ describe('CAC guide group — the honesty rules the module’s header sets', () 
       .toLowerCase();
     expect(prereqs).toContain('accreditation.naac.narrative.manage');
     expect(prereqs).toContain('principal');
+  });
+
+  it('says the key can arrive by HANDOVER, not only by role', () => {
+    // user_has_permission() has FOUR paths; the fourth is fn_handover_grants_key
+    // (migration 20260811100100). On 2026-08-13 the only person actually working
+    // this desk held the key that way and held no role carrying it — so a guide
+    // that describes roles alone tells a Principal they are locked out when they
+    // are one Director handover away. Director 2026-08-13 (R1) excludes
+    // principals from the role grant deliberately, which makes this load-bearing.
+    const prereqs = cacSections
+      .flatMap((s) => s.steps.map((st) => `${st.prerequisite ?? ''} ${st.tip ?? ''}`))
+      .join(' ')
+      .toLowerCase();
+    expect(prereqs).toContain('handover');
+    expect(prereqs).toContain('director');
+    // …and it must not tell the reader they can grant it to themselves.
+    expect(prereqs).toContain('nobody can grant it to themselves');
   });
 
   it('promises no "Fix this" button — the columns behind it are not in the database', () => {
