@@ -114,7 +114,13 @@ export class CourseEventService extends BaseService {
    * happen in create() specifically, before nullifyBlanks runs.
    */
   static async create(dto: CreateCourseEventDto) {
-    const payload: any = { ...dto, status: dto.status ?? 'draft' };
+    // created_by is nullable with no default/trigger — un-backfillable once real
+    // courses exist, so set it at create time rather than leaving it permanently
+    // NULL. this.supabase is the request-scoped client (dual-client trick,
+    // BaseService), so auth.getUser() resolves the real caller; same pattern as
+    // billing-invoice-service.ts and timetable-service.ts.
+    const { data: { user } } = await this.supabase.auth.getUser();
+    const payload: any = { ...dto, status: dto.status ?? 'draft', created_by: user?.id ?? null };
     for (const field of NULLABLE_FIELDS) {
       if (!(field in payload)) payload[field] = null;
     }
@@ -143,16 +149,30 @@ export class CourseEventService extends BaseService {
 
   /**
    * Shared by create() and update() — do not fork a second field list; both read
-   * NULLABLE_FIELDS above. Converts '' to null, but ONLY for keys already present
-   * on the input object; it never adds a key. That is what makes it safe for
-   * update(): UpdateCourseEventDto is Partial<...>, so seeding absent keys with
-   * null here would silently wipe every field the user did not touch — silent
-   * data loss, worse than the 22P02 this fixes.
+   * NULLABLE_FIELDS above. Converts '' AND undefined to null, but ONLY for keys
+   * already present on the input object; it never adds a key. That is what makes
+   * it safe for update(): UpdateCourseEventDto is Partial<...>, so seeding absent
+   * keys with null here would silently wipe every field the user did not touch —
+   * silent data loss, worse than the 22P02 this fixes.
+   *
+   * The undefined case (CORRECTED 2026-08-13, final branch review): a cleared
+   * number input (total_seats) emits undefined out of CourseForm's zod
+   * preprocess by design — z.coerce.number() would otherwise coerce '' to 0 and
+   * fail .positive(), breaking "leave blank for unlimited" (see course-form.tsx).
+   * That undefined used to survive all the way to PostgREST's JSON.stringify,
+   * which drops undefined-valued keys entirely — the column was silently left
+   * unchanged instead of cleared. Object.keys(out) already includes keys
+   * explicitly set to undefined (it only excludes genuinely absent ones), so
+   * checking `out[key] === undefined` inside the existing loop preserves the
+   * absent-vs-present distinction without widening what nullifyBlanks touches.
+   *
+   * Convention this establishes for UpdateCourseEventDto: an ABSENT key leaves
+   * the column unchanged; a PRESENT key valued '' or undefined clears it to NULL.
    */
   private static nullifyBlanks<T extends Record<string, any>>(dto: T): T {
     const out: any = { ...dto };
     for (const key of Object.keys(out)) {
-      if (NULLABLE_FIELDS.has(key) && out[key] === '') {
+      if (NULLABLE_FIELDS.has(key) && (out[key] === '' || out[key] === undefined)) {
         out[key] = null;
       }
     }

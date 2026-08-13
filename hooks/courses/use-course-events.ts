@@ -57,7 +57,15 @@ export function useDeleteCourseEvent() {
   return useMutation({
     mutationFn: (id: string) => CourseEventService.remove(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.courses.lists() });
+      // Invalidate courses.all, not lists() — mirrors useDeleteEvent's fix
+      // (hooks/events/use-general-events.ts:163-169). /courses fetches via
+      // DataTable's fetchDataFn, so it never registers a ['courses','list']
+      // query; narrowing to lists() would match nothing in the cache and fire
+      // no invalidate event. .all also covers any future page holding a
+      // cached courses query. The list page additionally carries its own
+      // tick counter (app/(routes)/courses/page.tsx) since this module has
+      // no always-cached query to guarantee the bridge fires.
+      qc.invalidateQueries({ queryKey: queryKeys.courses.all });
       toast.success('Course deleted');
     },
     // A course with enrollments is blocked by ON DELETE RESTRICT (23503). Show the

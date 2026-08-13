@@ -50,10 +50,17 @@ export default function CoursesPage() {
   const deleteCourseEvent = useDeleteCourseEvent();
   const refetchKey = useDataTableRefreshOnInvalidate(queryKeys.courses.lists());
 
+  // This table runs in fetchDataFn mode (see the file banner above), so it
+  // registers no ['courses','list'] query for useDataTableRefreshOnInvalidate
+  // to see an invalidate event on — that bridge alone cannot guarantee a
+  // refresh here. `tick` forces one deterministically on every successful
+  // delete regardless of cache contents.
+  const [tick, setTick] = useState(0);
+
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
 
   const handleDelete = useCallback(
-    (id: string) => deleteCourseEvent.mutate(id),
+    (id: string) => deleteCourseEvent.mutate(id, { onSuccess: () => setTick((t) => t + 1) }),
     [deleteCourseEvent]
   );
   const deletingId = deleteCourseEvent.isPending ? (deleteCourseEvent.variables ?? null) : null;
@@ -214,7 +221,7 @@ export default function CoursesPage() {
                 columnResizingTableId: 'courses-table',
               }}
               renderToolbarContent={renderToolbar}
-              refetchKey={refetchKey}
+              refetchKey={refetchKey + tick}
             />
           )}
         </div>
