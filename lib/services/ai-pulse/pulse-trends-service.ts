@@ -578,6 +578,22 @@ export async function getPulseTrends(): Promise<PulseTrends> {
     };
   });
 
+  // Order on the RESOLVED date, not on the two raw columns. The read orders by
+  // start_date then demo_date, but the date this page DISPLAYS and compares on
+  // is `start_date ?? demo_date` — so a cycle with a NULL start_date sinks to
+  // the bottom of the list no matter when it actually ran. That is currently
+  // masked (the affected rows have 0 attendees and are held out of the trend),
+  // but `sessions` preserves this order, deltas pair sessions[i] with
+  // sessions[i+1], and the headline reads the last element. The first
+  // NULL-start_date cycle with real attendance would therefore compare the
+  // wrong pair — the one thing this page exists to compute. Nulls sort last.
+  cycles.sort((a, b) => {
+    if (a.session_date === b.session_date) return 0;
+    if (a.session_date === null) return 1;
+    if (b.session_date === null) return -1;
+    return a.session_date < b.session_date ? 1 : -1;
+  });
+
   // Deltas compare each session to the NEXT-OLDER session, stepping over the
   // cycles that did not clear the bar so a one-attendee week cannot fake a swing.
   const sessions = cycles.filter((c) => c.is_session);

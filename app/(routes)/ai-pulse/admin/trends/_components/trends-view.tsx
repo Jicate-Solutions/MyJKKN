@@ -307,11 +307,16 @@ function StarterCard({ starter }: { starter: StarterTakeup }) {
           </div>
         )}
         <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-          Whether a prompt actually helped is not captured anywhere yet: the usage
-          ledger only accepts <code className="text-[11px]">view</code>,{' '}
+          Whether a prompt actually helped is not recorded yet, but it is no
+          longer impossible: the usage ledger now accepts{' '}
+          <code className="text-[11px]">worked</code> and{' '}
+          <code className="text-[11px]">didnt_work</code> alongside{' '}
+          <code className="text-[11px]">view</code>,{' '}
           <code className="text-[11px]">copy</code> and{' '}
-          <code className="text-[11px]">report</code>, so there is no way for a
-          learner to say it worked or did not.
+          <code className="text-[11px]">report</code>. The buttons a learner uses
+          to answer are merged but not deployed, so expect the first verdicts
+          after the next release — and expect them thin at first, since only a
+          fraction of learners copy a prompt at all.
         </p>
       </CardContent>
     </Card>
