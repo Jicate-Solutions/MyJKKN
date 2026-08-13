@@ -10,7 +10,7 @@
  * Spec: specs/pm-projects-module-2026-05-26.md (F13).
  */
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,11 +24,13 @@ import {
 import { Label } from '@/components/ui/label';
 import { useProjects } from '@/hooks/projects/use-projects';
 import { BoardView } from '@/components/projects/board/board-view';
+import { TaskDetailDialog } from '@/components/projects/board/task-detail-dialog';
 
 export function BoardTab() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get('project') ?? '';
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
   const { data: projects = [], isLoading } = useProjects();
 
@@ -61,7 +63,16 @@ export function BoardTab() {
       </div>
 
       {projectId ? (
-        <BoardView projectId={projectId} />
+        <>
+          <BoardView projectId={projectId} onCardClick={setOpenTaskId} />
+          <TaskDetailDialog
+            taskId={openTaskId}
+            open={!!openTaskId}
+            onOpenChange={(next) => {
+              if (!next) setOpenTaskId(null);
+            }}
+          />
+        </>
       ) : (
         <Card>
           <CardContent className="p-12 text-center text-sm text-muted-foreground">
