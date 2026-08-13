@@ -7,12 +7,19 @@
 //   Step 1: FORMAT  — how the event runs (tournament / lecture-talk / race / cultural / convocation)
 //   Step 2: HOME    — which module it lives under (Health & Wellness / CDC / Academic / …)
 //   Step 3: PRESET  — optionally prefill tools/fees/divisions from an official or personal preset
-//   Step 4: DETAILS — name + dates, then create.
+//   Step 4: DETAILS — the full field set, on tabs.
 //
 // Filing under the correct home: a tournament routes to the dedicated tournament creator
 // (so divisions/fixtures get seeded); other formats create a base `events` row with the
 // resolved event_type and `config.home` set to the chosen module. A lecture is NEVER filed
 // "under tournaments".
+//
+// STEP 4 IS TABBED because it now collects everything /events/tournament/new does.
+// It used to collect nine fields against that form's seventeen — both writing the same
+// `events` table — so a wizard-created lecture was stored with scope NULL, visibility
+// NULL, allow_external_registration unset and is_public hardcoded false. The
+// serialization rules live in _components/event-create-form.ts, where they are tested
+// without a browser.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -26,26 +33,14 @@ import {
   CardContent,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ArrowLeft,
   ArrowRight,
   Loader2,
   Check,
-  MapPin,
-  CalendarDays,
-  Ticket,
+  AlertCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/use-auth';
@@ -53,7 +48,7 @@ import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { EventBaseService } from '@/lib/services/events/core/event-base-service';
 import { PresetManager } from '@/components/events/shared/preset-manager';
-import { VenueRoomPicker } from '@/components/events/venue/venue-room-picker';
+import { NaacCriteriaField } from '@/components/events/shared/naac-criteria-field';
 import {
   holdEventVenue,
   findEventVenueClashes,
@@ -74,22 +69,36 @@ import type {
   PresetConfig,
   EventPreset,
 } from '@/types/events-presets';
-import type { CreateEventDto, EventType } from '@/types/events';
+import { BasicsTab } from './_components/basics-tab';
+import { ScheduleTab } from './_components/schedule-tab';
+import { VenueTab } from './_components/venue-tab';
+import { PeopleTab } from './_components/people-tab';
+import { RegistrationTab } from './_components/registration-tab';
+import { CategoriesTab } from './_components/categories-tab';
+import {
+  applyPresetToForm,
+  buildCategoryDtos,
+  buildCreateEventDto,
+  emptyEventCreateForm,
+  validateEventForm,
+} from './_components/event-create-form';
+import type { EventCreateForm, FormTabKey } from './_components/event-create-form';
 
 type Step = 'format' | 'home' | 'preset' | 'details';
 const STEP_ORDER: Step[] = ['format', 'home', 'preset', 'details'];
 
-/**
- * datetime-local → ISO. `new Date('2026-01-05T09:00')` parses as LOCAL time —
- * what the organizer typed — and toISOString converts to UTC for storage.
- * Sending the raw string would hand Postgres a naive timestamp and shift it by
- * the timezone offset (a 5:30h drift in this deployment).
- */
-function toIso(local: string): string | undefined {
-  if (!local.trim()) return undefined;
-  const d = new Date(local);
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
-}
+const DETAIL_TABS: { key: FormTabKey; label: string }[] = [
+  { key: 'basics', label: 'Basics' },
+  { key: 'schedule', label: 'Schedule' },
+  { key: 'venue', label: 'Venue' },
+  { key: 'people', label: 'People' },
+  { key: 'registration', label: 'Registration' },
+  { key: 'categories', label: 'Categories' },
+  { key: 'evidence', label: 'Evidence' },
+];
+
+/** Formats whose categories are competition classes (sport / level / bracket). */
+const COMPETITION_FORMATS: EventFormat[] = ['tournament'];
 
 const dayLabel = (iso: string) =>
   new Date(iso).toLocaleDateString('en-IN', {
@@ -135,6 +144,7 @@ export default function CreateEventPage() {
   }, [hostOverride, institutions, ambientInstitutionId]);
 
   const [step, setStep] = useState<Step>('format');
+  const [tab, setTab] = useState<FormTabKey>('basics');
   const [format, setFormat] = useState<EventFormat | null>(null);
   const [home, setHome] = useState<EventHome | null>(null);
   const [appliedPreset, setAppliedPreset] = useState<{
@@ -143,23 +153,8 @@ export default function CreateEventPage() {
   } | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const [form, setForm] = useState({
-    name: '',
-    description: '',
-    // WHEN IT RUNS — the day(s) and hours the programme is actually conducted.
-    // These are what the room is held for.
-    event_date: '',
-    last_day: '',
-    start_time: '',
-    end_time: '',
-    // REGISTRATION — when people may sign up. Deliberately its own pair: these
-    // used to have nowhere to go on this page, so organizers typed the
-    // registration window into the room's start/end and held the room for weeks.
-    registration_open: '',
-    registration_close: '',
-    venue: '',
-  });
-  const update = (field: keyof typeof form, value: string) =>
+  const [form, setForm] = useState<EventCreateForm>(emptyEventCreateForm());
+  const set = <K extends keyof EventCreateForm>(field: K, value: EventCreateForm[K]) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
   // Venue / booking-spine state. On-campus events MUST pick a real room (held via
@@ -169,6 +164,7 @@ export default function CreateEventPage() {
   const [multiDay, setMultiDay] = useState(false);
   const [clashes, setClashes] = useState<EventVenueClash[]>([]);
   const [checking, setChecking] = useState(false);
+  const [inchargePickerOpen, setInchargePickerOpen] = useState(false);
 
   // The room is held at the Resource Management grain: the same hours on EACH day
   // of the event, never one continuous multi-day block.
@@ -181,13 +177,26 @@ export default function CreateEventPage() {
 
   const badTimes =
     !!form.start_time && !!form.end_time && form.end_time <= form.start_time;
-  const badDayRange = multiDay && !!form.last_day && !!form.event_date && form.last_day < form.event_date;
+  const badDayRange =
+    multiDay && !!form.last_day && !!form.event_date && form.last_day < form.event_date;
   const tooManyDays = dayCount > MAX_EVENT_DAYS;
 
-  const regOpenIso = toIso(form.registration_open);
-  const regCloseIso = toIso(form.registration_close);
-  const badRegWindow =
-    !!regOpenIso && !!regCloseIso && new Date(regCloseIso) < new Date(regOpenIso);
+  // Field-level problems, keyed by the tab that owns them (pure — see
+  // event-create-form.ts). Schedule/venue rules stay here because they depend on
+  // the live booking-spine lookup rather than on the form alone.
+  const fieldErrors = useMemo(() => validateEventForm(form), [form]);
+  const errors: Partial<Record<FormTabKey, string>> = {
+    ...fieldErrors,
+    ...(badDayRange
+      ? { schedule: 'The last day must be on or after the first day.' }
+      : badTimes
+        ? { schedule: 'The end time must be after the start time.' }
+        : tooManyDays
+          ? { schedule: `An event can span at most ${MAX_EVENT_DAYS} days.` }
+          : {}),
+    ...(clashes.length ? { venue: 'That room is already booked.' } : {}),
+  };
+  const badRegWindow = !!fieldErrors.registration;
 
   // Live availability, per day, as soon as a room and a full schedule exist — so
   // the clash is visible BEFORE pressing Create, naming the day and the holder
@@ -214,6 +223,7 @@ export default function CreateEventPage() {
 
   const formatDef = useMemo(() => (format ? getFormatDef(format) : undefined), [format]);
   const eventType = formatDef?.eventType ?? '';
+  const showCompetitionFields = !!format && COMPETITION_FORMATS.includes(format);
 
   const stepIndex = STEP_ORDER.indexOf(step);
   const goNext = () => setStep(STEP_ORDER[Math.min(stepIndex + 1, STEP_ORDER.length - 1)]);
@@ -230,6 +240,10 @@ export default function CreateEventPage() {
   const applyPreset = (config: PresetConfig, preset: EventPreset) => {
     setAppliedPreset({ config, preset });
     if (config.home) setHome(config.home);
+    // Seed fee, tools and category drafts from the preset. Before this, a
+    // preset's `divisions` were copied into events.config and never read, so
+    // applying one produced no categories at all.
+    setForm((prev) => applyPresetToForm(prev, config));
     toast.success(`Preset "${preset.name}" applied`);
     goNext();
   };
@@ -237,9 +251,9 @@ export default function CreateEventPage() {
   const handleCreate = async () => {
     if (!format || !formatDef || !institutionId || !form.name.trim()) return;
 
-    // A format with a dedicated rich creator (tournament, race) routes there so its
-    // divisions / registration window get seeded. We carry the chosen home + applied
-    // preset through the URL so the dedicated flow can honor them.
+    // A format with a dedicated rich creator (tournament, race, induction) routes
+    // there so its divisions / registration window get seeded. We carry the chosen
+    // home + applied preset through the URL so the dedicated flow can honor them.
     if (formatDef.dedicatedCreatePath) {
       const params = new URLSearchParams();
       if (home) params.set('home', home);
@@ -249,24 +263,12 @@ export default function CreateEventPage() {
       return;
     }
 
-    // Schedule validation. The conduct date + hours drive BOTH what is stored and
-    // what the room is held for, so they are checked before anything else.
-    if (badDayRange) {
-      toast.error('The last day must be on or after the first day.');
-      return;
-    }
-    if (tooManyDays) {
-      toast.error(
-        `An event can span at most ${MAX_EVENT_DAYS} days — split a longer programme into separate events.`,
-      );
-      return;
-    }
-    if (badTimes) {
-      toast.error('The end time must be after the start time.');
-      return;
-    }
-    if (badRegWindow) {
-      toast.error('Registration must close on or after it opens.');
+    // Field-level problems first — jump to the tab that owns the first one so the
+    // organizer sees the offending input, not just a toast.
+    const firstBad = DETAIL_TABS.find((t) => errors[t.key]);
+    if (firstBad) {
+      setTab(firstBad.key);
+      toast.error(errors[firstBad.key] as string);
       return;
     }
 
@@ -275,22 +277,27 @@ export default function CreateEventPage() {
     // off-campus events just type a place (no hold).
     if (!offCampus) {
       if (!venueResourceId) {
+        setTab('venue');
         toast.error('Pick a room for this on-campus event — or switch on "Off-campus".');
         return;
       }
       if (!form.event_date) {
+        setTab('schedule');
         toast.error('Set the date this event is conducted on.');
         return;
       }
       if (!form.start_time || !form.end_time) {
+        setTab('schedule');
         toast.error('Set the hours it runs so the room can be held.');
         return;
       }
       if (!daySlots.length) {
+        setTab('schedule');
         toast.error('Could not work out the event hours — check the date and times.');
         return;
       }
     } else if (!form.venue.trim()) {
+      setTab('venue');
       toast.error('Type the venue for this off-campus event.');
       return;
     }
@@ -301,7 +308,6 @@ export default function CreateEventPage() {
     const startIso = daySlots.length ? daySlots[0].startIso : undefined;
     const endIso = daySlots.length ? daySlots[daySlots.length - 1].endIso : undefined;
 
-    // Other formats create a base events row directly, filed under the chosen home.
     setCreating(true);
     try {
       // Hard-stop on a clash BEFORE creating the event, so a taken room never
@@ -310,6 +316,7 @@ export default function CreateEventPage() {
         const found = await findEventVenueClashes(venueResourceId, daySlots);
         if (found.length) {
           setClashes(found);
+          setTab('venue');
           toast.error(
             found.length === 1
               ? `That room is already taken on ${dayLabel(found[0].slot.startIso)}. Pick another room, day, or time.`
@@ -321,49 +328,46 @@ export default function CreateEventPage() {
 
       const slug = await EventBaseService.generateUniqueSlug(
         form.name,
-        new Date().getFullYear()
+        new Date().getFullYear(),
       );
-      const dto: CreateEventDto = {
-        institution_id: institutionId,
-        // DB column is plain text; cast covers formats the shared union doesn't model.
-        event_type: eventType as EventType,
-        name: form.name.trim(),
+      const dto = buildCreateEventDto({
+        form,
+        institutionId,
+        eventType,
         slug,
-        description: form.description.trim() || undefined,
-        event_date: form.event_date || undefined,
-        start_time: form.start_time || undefined,
-        end_time: form.end_time || undefined,
-        // Run window, derived from the schedule above (see startIso/endIso).
-        start_date: startIso,
-        end_date: endIso,
-        // Registration window — a SEPARATE pair of columns that the edit dialog
-        // has always used. Exposing them here is what stops the run window from
-        // being filled in with registration dates.
-        registration_open_date: regOpenIso,
-        registration_close_date: regCloseIso,
-        // On-campus: link the real room. Off-campus: free-text place.
-        ...(offCampus
-          ? { venue: form.venue.trim() || undefined }
-          : { venue_resource_id: venueResourceId }),
         year: new Date().getFullYear(),
-        is_public: false,
-        config: {
-          // FORMAT ≠ HOME: the module home is recorded here so the owning module
-          // can surface this event. No schema change — `events.config` already exists.
-          home,
-          format,
-          ...(appliedPreset
-            ? {
-                preset_id: appliedPreset.preset.id,
-                enabled_tools: appliedPreset.config.enabled_tools,
-                rules: appliedPreset.config.rules,
-                fee: appliedPreset.config.fee,
-                divisions: appliedPreset.config.divisions,
-              }
-            : {}),
-        },
-      };
+        home,
+        format,
+        preset: appliedPreset
+          ? { preset: appliedPreset.preset, config: appliedPreset.config }
+          : null,
+        startIso,
+        endIso,
+        offCampus,
+        venueResourceId,
+      });
       const created = await EventBaseService.createEvent(dto);
+
+      // Seed categories. Best-effort, exactly like the tournament service seeds
+      // divisions: a failed category must not roll back an event that already
+      // exists. Unlike that service we COUNT the failures and say so — silently
+      // swallowing them is what makes a half-created event look complete.
+      const categoryDtos = buildCategoryDtos(form, created.id);
+      let categoriesFailed = 0;
+      for (const categoryDto of categoryDtos) {
+        try {
+          await EventBaseService.createCategory(categoryDto);
+        } catch (categoryError) {
+          categoriesFailed += 1;
+          console.error('[events/create] could not create category:', categoryError);
+        }
+      }
+      if (categoriesFailed > 0) {
+        toast(
+          `${categoriesFailed} of ${categoryDtos.length} categories could not be created — add them from the event console.`,
+          { icon: '⚠️', duration: 8000 },
+        );
+      }
 
       // Hold the room via the ONE booking spine (events policy decides approval:
       // same-college auto, cross-college pings the room's caretaker).
@@ -475,9 +479,7 @@ export default function CreateEventPage() {
               >
                 {stepLabels[s]}
               </span>
-              {i < STEP_ORDER.length - 1 && (
-                <span className="text-muted-foreground">·</span>
-              )}
+              {i < STEP_ORDER.length - 1 && <span className="text-muted-foreground">·</span>}
             </div>
           ))}
         </div>
@@ -533,9 +535,9 @@ export default function CreateEventPage() {
               <CardDescription>
                 {formatDef && (
                   <>
-                    A <span className="font-medium">{formatDef.label.toLowerCase()}</span>{' '}
-                    can be filed under any module. For example, a sports tournament lives
-                    under Health &amp; Wellness; a career talk lives under CDC.
+                    A <span className="font-medium">{formatDef.label.toLowerCase()}</span> can
+                    be filed under any module. For example, a sports tournament lives under
+                    Health &amp; Wellness; a career talk lives under CDC.
                   </>
                 )}
               </CardDescription>
@@ -586,8 +588,8 @@ export default function CreateEventPage() {
             <CardHeader>
               <CardTitle>Start from a preset?</CardTitle>
               <CardDescription>
-                Apply an official or personal preset to prefill tools, fees, and divisions
-                — or skip to set things up from scratch.
+                Apply an official or personal preset to prefill tools, fees, and categories —
+                or skip to set things up from scratch.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -633,317 +635,121 @@ export default function CreateEventPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <Label htmlFor="name">
-                  Event Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  placeholder="e.g. Industry Connect — Resume Workshop"
-                  value={form.name}
-                  onChange={(e) => update('name', e.target.value)}
-                  required
-                />
-              </div>
-
               {formatDef?.dedicatedCreatePath ? (
-                <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
-                  {formatDef.label} has a dedicated setup with divisions and registration.
-                  We&apos;ll take you there with your choices pre-filled.
-                </p>
-              ) : (
+                // A dedicated creator owns the rest of the field set — asking for
+                // it twice would let the two copies disagree. Only the name is
+                // taken here, and it travels in the URL.
                 <>
-                  {/* Host institution — sits above Venue on purpose: it decides whether
-                      picking a room is a same-college hold or a cross-college request. */}
-                  <div className="space-y-2">
-                    <Label htmlFor="host_institution">
-                      Host Institution <span className="text-destructive">*</span>
-                    </Label>
-                    <Select value={institutionId} onValueChange={setHostOverride}>
-                      <SelectTrigger id="host_institution">
-                        <SelectValue
-                          placeholder={
-                            institutionsLoading
-                              ? 'Loading institutions…'
-                              : 'Select host institution'
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {institutions.map((inst) => (
-                          <SelectItem key={inst.id} value={inst.id}>
-                            {inst.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      The college this event is filed under. Booking a room owned by a
-                      different college needs that college&apos;s approval.
-                    </p>
-                  </div>
-
-                  {/* ── When it runs ──
-                      These day(s) and hours ARE the room booking: the spine holds
-                      this window on EACH day of the event. The registration window
-                      is a separate block below — keeping the two apart is the
-                      whole point (they used to be the same pair of inputs). */}
-                  <div className="space-y-3 rounded-lg border p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="flex items-center gap-1.5">
-                        <CalendarDays className="h-4 w-4 opacity-60" /> When it runs
-                      </Label>
-                      <label
-                        htmlFor="multi-day"
-                        className="flex items-center gap-2 text-xs text-muted-foreground"
-                      >
-                        Runs over several days
-                        <Switch
-                          id="multi-day"
-                          checked={multiDay}
-                          onCheckedChange={(v) => {
-                            setMultiDay(v);
-                            if (!v) update('last_day', '');
-                          }}
-                        />
-                      </label>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="event_date" className="text-xs">
-                          {multiDay ? 'First day' : 'Event date'}
-                          {!offCampus && <span className="text-destructive"> *</span>}
-                        </Label>
-                        <Input
-                          id="event_date"
-                          type="date"
-                          value={form.event_date}
-                          onChange={(e) => update('event_date', e.target.value)}
-                        />
-                      </div>
-                      {multiDay && (
-                        <div className="space-y-1.5">
-                          <Label htmlFor="last_day" className="text-xs">
-                            Last day
-                          </Label>
-                          <Input
-                            id="last_day"
-                            type="date"
-                            min={form.event_date || undefined}
-                            value={form.last_day}
-                            onChange={(e) => update('last_day', e.target.value)}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="start_time" className="text-xs">
-                          Starts at
-                          {!offCampus && <span className="text-destructive"> *</span>}
-                        </Label>
-                        <Input
-                          id="start_time"
-                          type="time"
-                          value={form.start_time}
-                          onChange={(e) => update('start_time', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="end_time" className="text-xs">
-                          Ends at
-                          {!offCampus && <span className="text-destructive"> *</span>}
-                        </Label>
-                        <Input
-                          id="end_time"
-                          type="time"
-                          value={form.end_time}
-                          onChange={(e) => update('end_time', e.target.value)}
-                        />
-                      </div>
-                    </div>
-
-                    {badDayRange && (
-                      <p className="text-xs text-destructive">
-                        The last day must be on or after the first day.
-                      </p>
-                    )}
-                    {tooManyDays && (
-                      <p className="text-xs text-destructive">
-                        An event can span at most {MAX_EVENT_DAYS} days — split a longer
-                        programme into separate events.
-                      </p>
-                    )}
-                    {badTimes && (
-                      <p className="text-xs text-destructive">
-                        The end time must be after the start time.
-                      </p>
-                    )}
-                    {!offCampus && daySlots.length > 0 && !badTimes && (
-                      <p className="text-xs text-muted-foreground">
-                        {daySlots.length > 1
-                          ? `The room is held for these hours on each of the ${daySlots.length} days — it stays free outside them.`
-                          : 'The room is held for exactly these hours — it stays free outside them.'}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Venue — booking spine. On-campus picks a real room from
-                      Resource Management (held so it can't be double-booked);
-                      off-campus types a free-text place (no hold). */}
-                  <div className="space-y-3 rounded-lg border p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="flex items-center gap-1.5">
-                        <MapPin className="h-4 w-4 opacity-60" /> Venue
-                      </Label>
-                      <label
-                        htmlFor="off-campus"
-                        className="flex items-center gap-2 text-xs text-muted-foreground"
-                      >
-                        Off-campus
-                        <Switch
-                          id="off-campus"
-                          checked={offCampus}
-                          onCheckedChange={setOffCampus}
-                        />
-                      </label>
-                    </div>
-
-                    {offCampus ? (
-                      <Input
-                        id="venue"
-                        placeholder="e.g. City Convention Centre, or an online link"
-                        value={form.venue}
-                        onChange={(e) => update('venue', e.target.value)}
-                      />
-                    ) : (
-                      <div className="space-y-3">
-                        <VenueRoomPicker
-                          value={venueResourceId}
-                          onChange={setVenueResourceId}
-                        />
-
-                        {checking && (
-                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            Checking this room for{' '}
-                            {dayCount === 1 ? 'that day' : `all ${dayCount} days`}…
-                          </p>
-                        )}
-
-                        {/* Name the day AND the holder. The spine already returns
-                            both; the old flow threw them away for a blanket
-                            "already booked", which is what made the clash look
-                            arbitrary. */}
-                        {!checking && clashes.length > 0 && (
-                          <div className="space-y-1.5 rounded-lg border border-destructive/40 bg-destructive/5 p-2.5">
-                            <p className="text-xs font-medium text-destructive">
-                              Already booked on {clashes.length} of your {daySlots.length}{' '}
-                              {daySlots.length === 1 ? 'day' : 'days'}:
-                            </p>
-                            <ul className="space-y-0.5 text-xs text-muted-foreground">
-                              {clashes.map((c) => (
-                                <li key={c.slot.startIso}>
-                                  <span className="font-medium text-foreground">
-                                    {dayLabel(c.slot.startIso)}
-                                  </span>{' '}
-                                  — {c.holderName || 'another user'}
-                                  {c.holderDesignation ? ` (${c.holderDesignation})` : ''},{' '}
-                                  {timeRangeLabel(c.holderStart, c.holderEnd)}
-                                </li>
-                              ))}
-                            </ul>
-                            <p className="text-xs text-muted-foreground">
-                              Pick another room, or change the day/hours above.
-                            </p>
-                          </div>
-                        )}
-
-                        {!checking &&
-                          !!venueResourceId &&
-                          daySlots.length > 0 &&
-                          clashes.length === 0 && (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-500">
-                              Free on {dayCount === 1 ? 'that day' : `all ${dayCount} days`} —
-                              the room is held when you create the event.
-                            </p>
-                          )}
-
-                        {!venueResourceId && (
-                          <p className="text-xs text-muted-foreground">
-                            Pick a campus room — it gets held so no one else can book it at
-                            the same time.
-                          </p>
-                        )}
-                        {!!venueResourceId && daySlots.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            Set the date and hours above to check this room and hold it.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ── Registration ── Its own columns
-                      (registration_open_date / registration_close_date), and
-                      labelled to say plainly that it does NOT book the room.
-                      With no field here, organizers put the registration window
-                      into the run window, which held the venue for weeks. */}
-                  <div className="space-y-3 rounded-lg border p-3">
-                    <Label className="flex items-center gap-1.5">
-                      <Ticket className="h-4 w-4 opacity-60" /> Registration
-                      <span className="text-xs font-normal text-muted-foreground">
-                        (optional)
-                      </span>
-                    </Label>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="reg_open" className="text-xs">
-                          Opens
-                        </Label>
-                        <Input
-                          id="reg_open"
-                          type="datetime-local"
-                          value={form.registration_open}
-                          onChange={(e) => update('registration_open', e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="reg_close" className="text-xs">
-                          Closes
-                        </Label>
-                        <Input
-                          id="reg_close"
-                          type="datetime-local"
-                          value={form.registration_close}
-                          onChange={(e) => update('registration_close', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    {badRegWindow && (
-                      <p className="text-xs text-destructive">
-                        Registration must close on or after it opens.
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      When people can sign up. This does{' '}
-                      <span className="font-medium">not</span> book the venue — only the
-                      hours under &ldquo;When it runs&rdquo; do.
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="description">Description (optional)</Label>
-                    <Textarea
-                      id="description"
-                      placeholder="Brief description of the event…"
-                      value={form.description}
-                      onChange={(e) => update('description', e.target.value)}
-                      rows={3}
-                    />
-                  </div>
+                  <BasicsTab
+                    form={form}
+                    set={set}
+                    institutions={institutions}
+                    institutionId={institutionId}
+                    institutionsLoading={institutionsLoading}
+                    onHostChange={setHostOverride}
+                  />
+                  <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    {formatDef.label} has a dedicated setup with divisions and registration.
+                    We&apos;ll take you there with your name and choices pre-filled.
+                  </p>
                 </>
+              ) : (
+                <Tabs value={tab} onValueChange={(v) => setTab(v as FormTabKey)}>
+                  <TabsList className="mb-4 flex h-auto flex-wrap justify-start gap-1">
+                    {DETAIL_TABS.map((t) => (
+                      <TabsTrigger key={t.key} value={t.key} className="gap-1.5 text-xs">
+                        {t.label}
+                        {errors[t.key] && (
+                          <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                        )}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                  <TabsContent value="basics" className="mt-0">
+                    <BasicsTab
+                      form={form}
+                      set={set}
+                      institutions={institutions}
+                      institutionId={institutionId}
+                      institutionsLoading={institutionsLoading}
+                      onHostChange={setHostOverride}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="schedule" className="mt-0">
+                    <ScheduleTab
+                      form={form}
+                      set={set}
+                      multiDay={multiDay}
+                      onMultiDayChange={(v) => {
+                        setMultiDay(v);
+                        if (!v) set('last_day', '');
+                      }}
+                      offCampus={offCampus}
+                      daySlotCount={daySlots.length}
+                      badDayRange={badDayRange}
+                      badTimes={badTimes}
+                      tooManyDays={tooManyDays}
+                      maxDays={MAX_EVENT_DAYS}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="venue" className="mt-0">
+                    <VenueTab
+                      form={form}
+                      set={set}
+                      offCampus={offCampus}
+                      onOffCampusChange={setOffCampus}
+                      venueResourceId={venueResourceId}
+                      onVenueResourceChange={setVenueResourceId}
+                      checking={checking}
+                      clashes={clashes}
+                      daySlotCount={daySlots.length}
+                      dayCount={dayCount}
+                      dayLabel={dayLabel}
+                      timeRangeLabel={timeRangeLabel}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="people" className="mt-0">
+                    <PeopleTab
+                      form={form}
+                      set={set}
+                      pickerOpen={inchargePickerOpen}
+                      onPickerOpenChange={setInchargePickerOpen}
+                      error={fieldErrors.people}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="registration" className="mt-0">
+                    <RegistrationTab
+                      form={form}
+                      set={set}
+                      badRegWindow={badRegWindow}
+                      capacityError={fieldErrors.registration}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="categories" className="mt-0">
+                    <CategoriesTab
+                      form={form}
+                      set={set}
+                      showCompetitionFields={showCompetitionFields}
+                      error={fieldErrors.categories}
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="evidence" className="mt-0">
+                    {/* NAAC evidence tags — writes events.naac_criteria; the
+                        evidence emitter picks tagged events up once they complete. */}
+                    <NaacCriteriaField
+                      value={form.naac_criteria}
+                      onChange={(next) => set('naac_criteria', next)}
+                      disabled={creating}
+                    />
+                  </TabsContent>
+                </Tabs>
               )}
 
               <div className="flex items-center justify-between pt-2">
@@ -956,15 +762,16 @@ export default function CreateEventPage() {
                     creating ||
                     !form.name.trim() ||
                     !institutionId ||
-                    badTimes ||
-                    badDayRange ||
-                    tooManyDays ||
-                    badRegWindow ||
-                    // A clash the organizer can already see on screen — don't let
-                    // them submit into a guaranteed "NOT held" outcome. (All of
-                    // these are false on the dedicated-creator path, where none of
-                    // the schedule/venue fields render.)
-                    clashes.length > 0
+                    // All of these are false on the dedicated-creator path, where
+                    // none of the schedule/venue/registration fields render.
+                    (!formatDef?.dedicatedCreatePath &&
+                      (badTimes ||
+                        badDayRange ||
+                        tooManyDays ||
+                        badRegWindow ||
+                        // A clash the organizer can already see on screen — don't
+                        // let them submit into a guaranteed "NOT held" outcome.
+                        clashes.length > 0))
                   }
                   className="gap-1"
                 >

@@ -122,6 +122,11 @@ export function BulkEditStaffDialog() {
   const [institutionId, setInstitutionId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  // Unlike the three above this does NOT narrow who is in the sheet — it pre-fills the
+  // "Biometric Machine" cell for anyone not already enrolled, so a code-only edit stops
+  // failing staff_biometric_scope_chk. Same idea as the HR "Link codes" step, which picks
+  // the machine once for a whole file instead of once per person.
+  const [biometricMachineId, setBiometricMachineId] = useState('');
   const [institutions, setInstitutions] = useState<Array<{ id: string; name: string }>>([]);
   const [categories, setCategories] = useState<
     Array<{ id: string; category_name: string; is_teaching?: boolean }>
@@ -184,6 +189,7 @@ export function BulkEditStaffDialog() {
     setInstitutionId('');
     setDepartmentId('');
     setCategoryId('');
+    setBiometricMachineId('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -201,6 +207,7 @@ export function BulkEditStaffDialog() {
       if (institutionId) params.set('institution_id', institutionId);
       if (departmentId) params.set('department_id', departmentId);
       if (categoryId) params.set('category_id', categoryId);
+      if (biometricMachineId) params.set('biometric_institution_id', biometricMachineId);
       const qs = params.toString();
 
       const res = await fetch(`/api/staff/bulk-edit/template${qs ? `?${qs}` : ''}`);
@@ -492,6 +499,35 @@ export function BulkEditStaffDialog() {
                     every row is matched on Institution Email whatever the filter was.
                   </p>
 
+                  <div className='space-y-2 rounded-md border bg-muted/30 p-3'>
+                    <Label htmlFor='staff-bulk-edit-machine' className='text-xs font-medium'>
+                      Enrolling biometric codes? Pick the machine (optional)
+                    </Label>
+                    <Select
+                      value={biometricMachineId || 'none'}
+                      onValueChange={value => setBiometricMachineId(value === 'none' ? '' : value)}
+                    >
+                      <SelectTrigger id='staff-bulk-edit-machine'>
+                        <SelectValue placeholder='No machine' />
+                      </SelectTrigger>
+                      <SelectContent className='max-h-60 overflow-y-auto'>
+                        <SelectItem value='none'>Leave the machine column blank</SelectItem>
+                        {institutions.map(inst => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className='text-xs text-muted-foreground'>
+                      A biometric code is meaningless without the machine that issued it — each
+                      machine numbers its own enrolments from 1 — so a code with an empty{' '}
+                      <strong>Biometric Machine</strong> cell is rejected. Pick the machine here
+                      and the column arrives pre-filled, leaving you only the codes to type.
+                      Anyone already enrolled keeps the machine they are on.
+                    </p>
+                  </div>
+
                   <div className='text-center'>
                     <Button variant='outline' onClick={downloadTemplate} disabled={downloading}>
                       {downloading ? (
@@ -549,7 +585,7 @@ export function BulkEditStaffDialog() {
                 Read from {report.total_rows} data rows. Nothing has been written yet.
               </p>
 
-              {changeRows.length > 0 ? (
+              {changeRows.length > 0 && (
                 <div className='space-y-2'>
                   {changeRows.map(r => (
                     <div key={r.rowNumber} className='rounded-md border bg-background p-3 text-xs sm:text-sm'>
@@ -573,13 +609,42 @@ export function BulkEditStaffDialog() {
                     </div>
                   ))}
                 </div>
-              ) : (
+              )}
+
+              {changeRows.length === 0 && errorRows.length === 0 && (
                 <Alert>
                   <Info className='h-4 w-4' />
                   <AlertDescription className='text-sm'>
                     No row in this sheet differs from what is stored.
                   </AlertDescription>
                 </Alert>
+              )}
+
+              {/* Problem rows have to be shown HERE, not only on the validation step.
+                  evaluate() reports a row with any issue as status 'error' with an EMPTY
+                  changes list, so the edits on it vanish from the list above. Showing only
+                  the change rows meant a sheet where every row had a problem rendered
+                  "No row in this sheet differs from what is stored." — which reads as
+                  "the system ignored my edit" and is why biometric edits were reported as
+                  unrecognised: a code with no machine fails staff_biometric_scope_chk, so
+                  every such row is an error row and the preview looked empty. */}
+              {errorRows.length > 0 && (
+                <div className='space-y-3'>
+                  <Alert className='border-destructive/30 bg-destructive/10'>
+                    <AlertCircle className='h-4 w-4 text-destructive' />
+                    <AlertTitle className='font-semibold'>
+                      {errorRows.length === 1
+                        ? '1 row has a problem — its edits are not counted above'
+                        : `${errorRows.length} rows have problems — their edits are not counted above`}
+                    </AlertTitle>
+                    <AlertDescription className='text-sm'>
+                      A row with any problem is reported with no changes at all, so a good edit
+                      sitting next to a bad cell will not appear until the problem is fixed.
+                    </AlertDescription>
+                  </Alert>
+                  {formatRows.length > 0 && issueList(formatRows, 'format')}
+                  {recordRows.length > 0 && issueList(recordRows, 'record')}
+                </div>
               )}
             </div>
           )}
@@ -680,8 +745,12 @@ export function BulkEditStaffDialog() {
               {errorRows.length > 0 && (
                 <div className='space-y-2'>
                   <h4 className='text-sm font-semibold'>Rows that were not written</h4>
-                  {issueList(errorRows, 'format')}
-                  {issueList(errorRows, 'record')}
+                  {/* formatRows/recordRows, not errorRows twice: issueList renders a card per
+                      row in the list it is given and only filters the ISSUES by kind, so
+                      passing errorRows to both calls rendered every failed row twice — once
+                      with an empty bullet list. */}
+                  {formatRows.length > 0 && issueList(formatRows, 'format')}
+                  {recordRows.length > 0 && issueList(recordRows, 'record')}
                 </div>
               )}
             </div>

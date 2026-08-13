@@ -52,6 +52,15 @@ export interface ValidationContext {
   staffIdOwner: Map<string, string>;
   /** `${institution_id}|${normalisedCode}` -> owning staff id */
   biometricOwner: Map<string, string>;
+  /**
+   * id -> display name, for departments, employment categories and institutions.
+   *
+   * Not used for validation — the validator never reads it. It exists so the preview can
+   * render "Biometric Machine: (empty) -> JKKN College of Pharmacy" instead of a bare UUID,
+   * which is unreadable and reads to the user as the edit not having been understood.
+   * Optional so a caller that only wants to validate need not build it.
+   */
+  labelById?: Map<string, string>;
 }
 
 /**
@@ -276,13 +285,22 @@ export function validateStaffBulkEditRow(
           updates.biometric_institution_id = machineId;
         }
       }
-    } else if (machineGiven && machineId) {
-      // Machine resolved, but no code is in play at all (none given, none on file) — just
-      // move the machine. The UNIQUE index only applies where the code is non-blank.
-      if (machineId !== (staff.biometric_institution_id as string | null)) {
-        updates.biometric_institution_id = machineId;
-      }
     }
+    // Remaining case: the machine resolved but NO code is in play at all — none in the cell
+    // and none on file. Deliberately a no-op, not a write.
+    //
+    // A machine on its own identifies nobody: enrolment is the PAIR, and every reader filters
+    // on a non-null code (BiometricMappingService.listForMachine, the attendance import's
+    // (machine, normalised code) match). Storing a bare machine would be noise that no query
+    // ever returns.
+    //
+    // It also has to stay a no-op because the template can pre-fill "Biometric Machine" for a
+    // whole sheet (see the biometric_institution_id param on the template route). Writing here
+    // would turn that convenience into a mass update of every staff member who has no code —
+    // hundreds of meaningless writes from one dropdown choice.
+    //
+    // This is NOT the "move someone's machine" case: when a code exists on file, effectiveCode
+    // is non-null and the branch above handles the move, clash check included.
   }
 
   return { issues, updates };

@@ -19,6 +19,7 @@ import { ProgramService } from '@/lib/services/organization/program-service';
 import { SemesterService } from '@/lib/services/organization/semester-service';
 import { SectionService } from '@/lib/services/organization/section-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
+import { useGroupAdmissionYears } from '@/hooks/admission/use-group-admission-years';
 import {
   useHostelBlocksForFilter, useAvailableYears,
 } from '@/hooks/campus-living/use-learner-hostelites';
@@ -30,7 +31,7 @@ import { UNASSIGNED_BLOCK } from '@/types/campus-living';
 
 const FILTER_KEYS = [
   'institution_id', 'degree_id', 'department_id', 'program_id',
-  'semester_id', 'section_id', 'academic_year_id', 'gender',
+  'semester_id', 'section_id', 'academic_year_id', 'admission_year', 'gender',
   'block_id', 'year_of_study', 'hostel_category_id',
   'mess_category_id', 'room_id',
 ] as const;
@@ -66,6 +67,12 @@ export function LearnersFilters() {
   const effectiveInst = isSuperAdmin ? local.institution_id : (profile?.institution_id ?? undefined);
   const { data: blockList } = useHostelBlocksForFilter(effectiveInst);
   const { data: availableYears } = useAvailableYears(effectiveInst);
+  // Admission cohorts, deduped to one entry per YEAR across institutions. Not
+  // gated on a chosen institution — a cohort year means the same thing in every
+  // college, unlike Academic Year whose id is per-institution.
+  const { data: admissionYears } = useGroupAdmissionYears(
+    local.institution_id ? [local.institution_id] : null,
+  );
   const { hostelCategories: roomCategories } = useActiveHostelCategories();
   const { messCategories } = useActiveMessCategories();
 
@@ -239,6 +246,26 @@ export function LearnersFilters() {
             <SelectContent>
               <SelectItem value='all'>All Academic Years</SelectItem>
               {academicYears.map((a) => <SelectItem key={a.id} value={a.id}>{a.academic_year_name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {/* Admission Year (cohort) — sits next to Academic Year because the
+              three year filters on this row are easy to confuse. Academic Year
+              is the session, Year of Study is progress through the programme
+              (and advances annually), this is the intake batch and never moves.
+              Not disabled without an institution: the options are year numbers,
+              shared across every college. */}
+          <Select
+            value={local.admission_year || ''}
+            onValueChange={(v) => set({ admission_year: v === 'all' ? undefined : v })}
+          >
+            <SelectTrigger><SelectValue placeholder='Select Admission Year' /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value='all'>All Admission Years</SelectItem>
+              {(admissionYears ?? []).map((a) => (
+                <SelectItem key={a.programStartYear} value={String(a.programStartYear)}>
+                  {a.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           {/* Gender — scopes the category dropdowns, so changing it clears them */}

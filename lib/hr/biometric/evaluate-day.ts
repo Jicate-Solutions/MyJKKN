@@ -4,14 +4,34 @@
  * Created: 2026-08-06.
  * Plan: docs/superpowers/plans/2026-08-06-biometric-attendance-ingestion.md
  *
- * THE RULE (chosen 2026-08-06): "must cover the window".
- * A half counts as attended only if the person was on site across the whole of
- * it — IN at or before its start (plus grace, first half only) AND OUT at or
- * after its end. The two halves may overlap (09:00-13:00 with 12:30-16:30);
- * that is the real JKKN pattern and the reason this is not a lunch-break model.
+ * THE RULE (revised 2026-08-09): "work the window, arrive while it is open".
+ * A half counts as attended when the person arrived at or before the MIDPOINT
+ * of that half and stayed to its end. The two halves may overlap (09:00-13:00
+ * with 12:30-16:30); that is the real JKKN pattern and the reason this is not
+ * a lunch-break model.
  *
  * Being late does NOT cost the day — late_minutes is recorded and flagged, and
  * the day still counts. That was an explicit policy decision.
+ *
+ * WHY THE MIDPOINT, AND NOT THE GRACE DEADLINE (the 2026-08-06 rule).
+ *   The original rule was `IN <= first_half_start + grace`, which made grace a
+ *   CLIFF rather than a tolerance: with a 09:00 start and grace 5, arriving
+ *   09:05 earned a full half and 09:06 earned nothing. One minute cost half a
+ *   day's pay, and raising grace only relocated the cliff. It also contradicted
+ *   the paragraph above — `late_minutes` is non-zero only past the deadline, so
+ *   under that rule the field could never describe a day that still counted.
+ *
+ *   Dropping the arrival test entirely is not the fix either: with only
+ *   `OUT >= first_half_end`, an afternoon-only person (in 12:30, out 16:30)
+ *   satisfies the MORNING window too and is credited a full day.
+ *
+ *   The midpoint keeps both ends honest. Arriving 09:06 — or 10:59 — earns the
+ *   morning with the lateness recorded; arriving 12:30 does not. It also fixes
+ *   the mirror-image bug on the second half, where arriving 12:31 against a
+ *   12:30 start used to forfeit an afternoon that was fully worked.
+ *
+ *   This boundary is policy, not arithmetic. It is two lines (fhLatestArrival /
+ *   shLatestArrival) if JKKN wants a different tolerance.
  *
  * OUR CONFIG OVERRIDES THE MACHINE, never the reverse. The machines have no
  * weekly off configured and stamp every Sunday 'A' (192 of them in the July
@@ -136,9 +156,18 @@ export function evaluateDay({ inTime, outTime, timing }: EvaluateDayInput): Eval
   const grace = Number.isFinite(timing.grace_minutes) ? timing.grace_minutes : 0;
   const graceDeadline = fhStart + grace;
 
-  // Grace applies to the first half only — an explicit requirement.
-  const firstHalfAttended = inMin <= graceDeadline && outMin >= fhEnd;
-  const secondHalfAttended = inMin <= shStart && outMin >= shEnd;
+  // Latest arrival that still counts as having worked each half. See the
+  // header: the midpoint, not the grace deadline, so lateness is flagged
+  // rather than charged — while an afternoon-only punch still cannot claim
+  // the morning.
+  const fhLatestArrival = Math.floor((fhStart + fhEnd) / 2);
+  const shLatestArrival = Math.floor((shStart + shEnd) / 2);
+
+  const firstHalfAttended = inMin <= fhLatestArrival && outMin >= fhEnd;
+  const secondHalfAttended = inMin <= shLatestArrival && outMin >= shEnd;
+
+  // Grace applies to the first half only — an explicit requirement. This is now
+  // purely a reporting figure: it never changes the verdict.
   const lateMinutes = Math.max(0, inMin - graceDeadline);
 
   if (firstHalfAttended && secondHalfAttended) {

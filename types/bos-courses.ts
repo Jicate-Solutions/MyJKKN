@@ -74,8 +74,17 @@ export interface BosCourseMaster {
   tutorial_hours: number | null;   // optional L-T-P tutorial component; defaults to 0
   practical_hours: number;
   class_hours: number;
+  // *_max_mark is the QUESTION-PAPER ceiling (the ESE may be written for 100).
+  // *_converted_mark is the WEIGHTAGE that component carries in total_max_mark
+  // (that 100-mark paper may be scaled down to 50). They're equal for most
+  // courses and diverge on Theory + Practical ones. The BoS Max Marks form
+  // edits the CONVERTED pair; the max pair stays COE-owned. COE's mapper always
+  // emits the converted keys, defaulting a NULL column to 0 — so treat 0 as
+  // "not set" and fall back to *_max_mark rather than trusting it as a value.
   internal_max_mark: number;
   external_max_mark: number;
+  internal_converted_mark?: number | null;
+  external_converted_mark?: number | null;
   total_max_mark: number;
   internal_pass_mark: number;
   external_pass_mark: number;

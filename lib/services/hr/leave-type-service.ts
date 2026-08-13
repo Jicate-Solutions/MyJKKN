@@ -19,13 +19,47 @@ import type {
 import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
 import type { LeavePeriodUsage, StoUsage } from '@/types/hr-leave-types';
 
+export interface GenerateBalancesFallback {
+  staff_code: string;
+  name: string;
+  reason: string;
+}
+
 export interface GenerateBalancesResult {
   dry_run: boolean;
   created: number;
   skipped: number;
   prior_year_id: string | null;
   fallback_count: number;
-  fallback: Array<{ staff_code: string; name: string; reason: string }>;
+  fallback: GenerateBalancesFallback[];
+}
+
+/** One institution's outcome inside a bulk run. */
+export interface GenerateBalancesOrgResult {
+  hr_organization_id: string;
+  institution_name: string;
+  created: number;
+  skipped: number;
+  fallback_count: number;
+  fallback: GenerateBalancesFallback[];
+  /**
+   * Set when this institution alone failed. Each organization runs in its own
+   * subtransaction, so a message here means the other institutions in the same
+   * run still completed.
+   */
+  error: string | null;
+}
+
+export interface GenerateBalancesBulkResult {
+  dry_run: boolean;
+  hr_academic_year_id: string;
+  year_name: string;
+  organizations: number;
+  total_created: number;
+  total_skipped: number;
+  total_fallback: number;
+  error_count: number;
+  results: GenerateBalancesOrgResult[];
 }
 
 export class HRLeaveTypeService {
@@ -116,14 +150,14 @@ export class HRLeaveTypeService {
     supabase: SupabaseClient,
     employeeId: string,
     leaveTypeId: string,
-    academicYearId: string | null,
+    hrAcademicYearId: string | null,
     /** Request date; omitted means today. Must match what enforcement sees. */
     onDate?: string
   ): Promise<StoUsage> {
     const { data, error } = await supabase.rpc('hr_sto_usage', {
       p_staff_id: employeeId,
       p_leave_type_id: leaveTypeId,
-      p_academic_year_id: academicYearId,
+      p_hr_academic_year_id: hrAcademicYearId,
       ...(onDate ? { p_on: onDate } : {}),
     });
     if (error) throw error;
@@ -144,14 +178,14 @@ export class HRLeaveTypeService {
     supabase: SupabaseClient,
     employeeId: string,
     leaveTypeId: string,
-    academicYearId: string | null,
+    hrAcademicYearId: string | null,
     /** Request date; omitted means today. Must match what enforcement sees. */
     onDate?: string
   ): Promise<LeavePeriodUsage> {
     const { data, error } = await supabase.rpc('hr_leave_period_usage', {
       p_staff_id: employeeId,
       p_leave_type_id: leaveTypeId,
-      p_academic_year_id: academicYearId,
+      p_hr_academic_year_id: hrAcademicYearId,
       ...(onDate ? { p_on: onDate } : {}),
     });
     if (error) throw error;
@@ -174,22 +208,22 @@ export class HRLeaveTypeService {
   }
 
   /**
-   * Institution-wise provisioning analytics for the current (or named)
-   * academic year.
+   * Institution-wise provisioning analytics for one HR academic year.
    *
-   * `academicYearName` is a NAME, not an id — academic_years rows are
-   * per-institution, so one id cannot address a cross-institution view.
-   * Pass null to resolve "the year containing today" per institution.
+   * Pass null to resolve "the year containing today". An id is enough now that
+   * HR years are group-wide — this used to take the year NAME, because
+   * academic_years rows are per-institution and no single id could address a
+   * cross-institution view.
    *
    * The RPC self-authorizes on hr.leave.balance.manage and scopes rows with
    * role_has_institution_access, so callers get only their own institutions.
    */
   static async getBalanceAnalytics(
     supabase: SupabaseClient,
-    academicYearName: string | null
+    hrAcademicYearId: string | null
   ): Promise<HRLeaveBalanceAnalytics> {
     const { data, error } = await supabase.rpc('hr_leave_balance_analytics', {
-      p_academic_year_name: academicYearName,
+      p_hr_academic_year_id: hrAcademicYearId,
     });
     if (error) throw error;
     return data as HRLeaveBalanceAnalytics;
@@ -198,15 +232,39 @@ export class HRLeaveTypeService {
   static async generateBalances(
     supabase: SupabaseClient,
     hrOrgId: string,
-    academicYearId: string,
+    hrAcademicYearId: string,
     dryRun: boolean
   ): Promise<GenerateBalancesResult> {
     const { data, error } = await supabase.rpc('generate_hr_leave_balances', {
       p_hr_org_id: hrOrgId,
-      p_academic_year_id: academicYearId,
+      p_hr_academic_year_id: hrAcademicYearId,
       p_dry_run: dryRun,
     });
     if (error) throw error;
     return data as GenerateBalancesResult;
+  }
+
+  /**
+   * Provision several institutions in one round trip.
+   *
+   * `hrOrgIds` null means every organization the caller can access. The RPC
+   * delegates to generate_hr_leave_balances per organization inside its own
+   * subtransaction, so a single institution failing comes back as that row's
+   * `error` rather than discarding the whole run — check `error_count` before
+   * reporting success.
+   */
+  static async generateBalancesBulk(
+    supabase: SupabaseClient,
+    hrAcademicYearId: string,
+    hrOrgIds: string[] | null,
+    dryRun: boolean
+  ): Promise<GenerateBalancesBulkResult> {
+    const { data, error } = await supabase.rpc('generate_hr_leave_balances_bulk', {
+      p_hr_academic_year_id: hrAcademicYearId,
+      p_hr_org_ids: hrOrgIds,
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as GenerateBalancesBulkResult;
   }
 }

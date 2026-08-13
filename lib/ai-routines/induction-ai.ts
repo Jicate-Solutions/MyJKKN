@@ -34,5 +34,22 @@ export const INDUCTION_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "DB writes only: records one session-improvement tip per weak topic via fn_induction_record_session_tip, then runs fn_induction_measure_session_effectiveness to attribute matured re-runs. No WhatsApp/email/IG/notifications sent.",
     "safeToManualTrigger": true,
     "notes": "Auth required: CRON_SECRET as `Authorization: Bearer <secret>` OR `?secret=<secret>` (500 if unset, 401 if wrong). Needs CLAUDE_API_KEY or ANTHROPIC_API_KEY to generate tips; absent, generation is skipped but the verifier still runs. Cheap no-op when no induction is active (candidate query returns nothing -> no AI call). Tips are keyed per topic via fn_induction_session_loop_candidates / fn_induction_record_session_tip, so it does not spam duplicate tips. Depends on tables induction_programs plus RPCs fn_induction_session_loop_candidates, fn_induction_record_session_tip, fn_induction_measure_session_effectiveness. Sends no messages to humans."
+  },
+  {
+    "id": "induction-mentorship-rollover",
+    "name": "Senior Peer Mentor year-end rollover",
+    "category": "induction-ai",
+    "type": "cron",
+    "schedule": "Daily · 08:45 IST (editable via dispatcher)",
+    "cronExpr": "17 3 * * * (retired from vercel.json 2026-08-13)",
+    "triggerPath": "/api/cron/induction-mentorship-rollover",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based state hygiene via fn_induction_close_ended_mentorships(); no model involved.",
+    "whatItDoes": "Ends mentorships whose freshers' first academic year has passed: flips the volunteer row inactive and releases its freshers, so next year's freshers get fresh mentors. Correctness does not depend on this firing on time — the mentor write RPCs also gate live on the academic year's end_date; this makes the ended state visible for clean reporting.",
+    "configKnobs": "None — driven by academic_years.end_date. Day/time editable at /admin/ai-routines.",
+    "sideEffects": "DB writes: closes ended mentorships only. Safe to run daily; a given day closes only what has actually ended.",
+    "safeToManualTrigger": true,
+    "notes": "Auth: Bearer or ?secret=. IST math: 03:17 UTC = 08:47 IST → slot 08:45 (minute_of_day 527)."
   }
 ];

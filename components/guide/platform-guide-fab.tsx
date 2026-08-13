@@ -175,8 +175,29 @@ export function PlatformGuideFab({
   const lp = laneProgress(guide, progress.completed);
   const remaining = trackProgress && !lp.complete ? lp.total - lp.done : 0;
 
+  // ── Hydration gate (do not remove; see the incident this encodes) ──
+  // This component's ENTIRE output is a function of usePathname(), and it is
+  // mounted inside a <Suspense> boundary in the ROOT layout whose server mount
+  // awaits DB round-trips (resolveGuideAccess + getCompletedSteps). That
+  // boundary's HTML therefore streams in LATE — routinely after the client has
+  // already client-navigated away from the pathname the request started on
+  // (app/page.tsx redirects "/" → /dashboard from a useEffect, and the
+  // post-login flow does the same). React then hydrates that late boundary
+  // against HTML rendered for the OLD pathname; when the two fall on opposite
+  // sides of isHiddenRoute() the server emitted nothing while the client
+  // renders the FAB, and hydration fails ("server rendered HTML didn't match").
+  //
+  // A pathname can't be reconciled across that gap, so the FAB simply never
+  // participates in hydration: the server — and the first client render —
+  // render nothing, and the button appears on the commit after mount, when
+  // usePathname() is authoritative. It costs one frame on a `fixed`,
+  // out-of-flow help button, and nothing on the server data it renders from
+  // (lanes/progress still arrive as props, with no client round-trip).
+  const [hydrated, setHydrated] = React.useState(false);
+  React.useEffect(() => setHydrated(true), []);
+
   // Early return AFTER all hooks (invariant: hooks before returns).
-  if (isHiddenRoute(pathname)) return null;
+  if (!hydrated || isHiddenRoute(pathname)) return null;
 
   return (
     <>

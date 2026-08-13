@@ -452,8 +452,14 @@ function EventTypeDialog({
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
       locationResourceId: editing?.locationResourceId ?? '',
-      bufferBeforeMin: editing?.bufferBeforeMin ?? 0,
-      bufferAfterMin: editing?.bufferAfterMin ?? 0,
+      // A NEW type starts with a 5-minute gap on each side, so a stranger
+      // cannot chain-book straight onto the end of an existing meeting. `??`
+      // falls through only when `editing` is absent, so an existing type keeps
+      // its own value — including a deliberate 0. The host can still change
+      // either number here before saving. Matched by the column default
+      // (20260820000000) and by scripts/meetings/provision-*-native.ts.
+      bufferBeforeMin: editing?.bufferBeforeMin ?? 5,
+      bufferAfterMin: editing?.bufferAfterMin ?? 5,
       minNoticeMin: editing?.minNoticeMin ?? 0,
       // null in the DB ↔ 0 in the form ("back-to-back").
       slotIntervalMin: editing?.slotIntervalMin ?? 0,
