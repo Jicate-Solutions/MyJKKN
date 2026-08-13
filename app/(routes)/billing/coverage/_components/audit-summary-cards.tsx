@@ -126,7 +126,7 @@ export function MissingYearSummaryCards({
     (summary?.excluded_institutions ?? 0) > 0
       ? `${nf.format(summary!.excluded_institutions)} institution${
           summary!.excluded_institutions === 1 ? '' : 's'
-        } hidden — never raised a tuition bill (${nf.format(
+        } hidden — never raised a tuition or tuition-equivalent bill (${nf.format(
           summary!.excluded_learners
         )} learner${summary!.excluded_learners === 1 ? '' : 's'}). Use the toggle to include them.`
       : null,
@@ -192,6 +192,11 @@ export function DuplicateYearSummaryCards({
       // learner is no longer enrolled in. Counted over ALL tuition bills in
       // scope, not only the duplicated ones, so it is a genuine second check
       // sharing this tab rather than a facet of the duplicates above.
+      //
+      // The ONE tile on this page that does not use the widened category set:
+      // program_duration_yrs counts taught years, so the CRRI and AHS
+      // internship fees land after the course ends by design. Including them
+      // would add 37 correct bills here as anomalies.
       label: 'Billed Past Programme End',
       value: nf.format(summary?.past_end_bills ?? 0),
       hint:
