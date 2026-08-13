@@ -48,6 +48,7 @@ import {
   fetchTemplatesWithLayout,
   type TemplateDesignRow,
 } from '@/lib/services/id-cards/template-design-client';
+import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-picker';
 
 import {
   CARD_FIELD_LABELS,
@@ -257,9 +258,9 @@ export function IdCardTemplateEditor() {
       .then((rows) => {
         if (cancelled) return;
         setTemplates(rows);
-        setSelectedId((prev) =>
-          prev && rows.some((r) => r.id === prev) ? prev : (rows[0]?.id ?? '')
-        );
+        // Full list stays (dark templates must be mappable); only the default
+        // prefers an active template.
+        setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -377,6 +378,11 @@ export function IdCardTemplateEditor() {
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedTemplate && !selectedTemplate.active && (
+                  <Badge variant="destructive">
+                    Not switched on — will not be offered for printing
+                  </Badge>
+                )}
               </div>
               {selectedTemplate && (
                 <LookupTable
