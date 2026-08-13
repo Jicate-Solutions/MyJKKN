@@ -9429,3 +9429,43 @@ CREATE POLICY course_bill_payments_manage ON public.course_bill_payments
     OR ((SELECT public.user_has_permission('courses.billing.manage'))
         AND public.role_has_institution_access(institution_id))
   );
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+ALTER TABLE public.hostel_room_buyouts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hostel_room_buyouts_select ON public.hostel_room_buyouts
+  FOR SELECT TO authenticated
+  USING (
+    -- A current resident of the room may see her own room's buyout.
+    EXISTS (
+      SELECT 1 FROM public.hostel_allocations a
+      WHERE a.room_id = hostel_room_buyouts.room_id
+        AND a.check_out_date IS NULL
+        AND a.learner_id = (SELECT auth.uid())
+    )
+    OR public.fn_settle_can_manage(hostel_room_buyouts.room_id, 'campus_living.fees.view')
+  )
+
+ALTER TABLE public.hostel_room_buyout_consents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY hostel_room_buyout_consents_select ON public.hostel_room_buyout_consents
+  FOR SELECT TO authenticated
+  USING (
+    learner_id = (SELECT auth.uid())
+    OR EXISTS (
+      SELECT 1
+      FROM public.hostel_room_buyouts b
+      JOIN public.hostel_allocations a ON a.room_id = b.room_id
+      WHERE b.id = hostel_room_buyout_consents.buyout_id
+        AND a.check_out_date IS NULL
+        AND a.learner_id = (SELECT auth.uid())
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.hostel_room_buyouts b
+      WHERE b.id = hostel_room_buyout_consents.buyout_id
+        AND public.fn_settle_can_manage(b.room_id, 'campus_living.fees.view')
+    )
+  )
