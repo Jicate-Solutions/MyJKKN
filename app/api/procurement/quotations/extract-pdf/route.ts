@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
-import { requireStaff } from '@/lib/utils/parent-admin-auth';
+import { requireProcurement, PROC_QUOTATION_MANAGE } from '@/lib/utils/procurement-auth';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -38,7 +38,7 @@ export type ExtractItem = { id: string; item_name: string };
  * travels inside the job payload; only its storage path does.
  */
 export async function POST(req: NextRequest) {
-  const user = await requireStaff();
+  const user = await requireProcurement(PROC_QUOTATION_MANAGE);
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const form = await req.formData().catch(() => null);

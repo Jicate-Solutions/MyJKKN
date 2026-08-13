@@ -1,5 +1,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  ACTIVE_ONLY_LIFECYCLE_FILTER,
+  buildRosterLifecycleFilter,
+} from '@/lib/utils/academic/provisional-roster-filter';
 import type {
   AttendanceRosterStudent,
   AttendanceStudent,
@@ -18,6 +22,49 @@ import type {
 export class AttendanceRosterService {
   private static get supabase() {
     return createClientSupabaseClient();
+  }
+
+  /**
+   * Lifecycle filter for a roster read: `active` learners, plus provisional
+   * freshers of the current intake (spec: provisional-freshers-spec-2026-08-05).
+   *
+   * The current-intake identifiers come from fn_current_admission_year_ids(), a
+   * SECURITY DEFINER RPC, and deliberately NOT from a direct `admission_years`
+   * read. That table's RLS requires `admission.settings.years.view`, and of the
+   * eight active roles holding `academic.attendance.mark` only `hod` has it
+   * (verified on production 2026-08-08). A direct read would return zero rows
+   * with error = null for the other seven — so the feature would work for HODs
+   * and silently do nothing for everyone else, with no error to explain it.
+   *
+   * Never throws, and every failure path falls back to active-only, which is
+   * exactly the behaviour that shipped before provisional freshers: a roster
+   * missing its provisional rows is degraded and visible, a roster that throws
+   * is an outage on the marking screen.
+   */
+  private static async getRosterLifecycleFilter(): Promise<string> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_current_admission_year_ids'
+      );
+
+      if (error) {
+        logger.warn(
+          'academic/attendance',
+          'Could not resolve the current intake; roster falls back to active-only',
+          error
+        );
+        return ACTIVE_ONLY_LIFECYCLE_FILTER;
+      }
+
+      return buildRosterLifecycleFilter(data as string[] | null);
+    } catch (error) {
+      logger.warn(
+        'academic/attendance',
+        'Could not resolve the current intake; roster falls back to active-only',
+        error
+      );
+      return ACTIVE_ONLY_LIFECYCLE_FILTER;
+    }
   }
 
   // =====================
@@ -413,6 +460,9 @@ export class AttendanceRosterService {
       if (sectionError) throw sectionError;
 
       // Get students for this section
+      const lifecycleFilter =
+        await AttendanceRosterService.getRosterLifecycleFilter();
+
       let studentsQuery = this.supabase
         .from('learners_profiles')
         .select(
@@ -431,7 +481,7 @@ export class AttendanceRosterService {
           lifecycle_status
         `
         )
-        .eq('lifecycle_status', 'active')
+        .or(lifecycleFilter)
         .eq('institution_id', studentFilters.institution_id)
         .eq('section_id', section_id);
 

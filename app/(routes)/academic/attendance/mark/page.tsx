@@ -60,6 +60,8 @@ import { cn } from '@/lib/utils';
 // Updated: 2026-01-29 - Leave/OnDuty attendance integration
 import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 import { StudentLeaveIndicatorCompact } from './_components/student-leave-indicator';
+import { ProvisionalLearnerIndicatorCompact } from './_components/provisional-learner-indicator';
+import { isProvisionalAttendanceStatus } from '@/lib/constants/provisional-access';
 import type { ApprovedLeaveInfo } from '@/lib/services/academic/leave-onduty-attendance-check-service';
 
 export default function AttendanceMarkPage() {
@@ -2646,6 +2648,14 @@ export default function AttendanceMarkPage() {
                               leaveInfo={approvedLeaveMap.get(student.id)!}
                             />
                           )}
+                          {/* Updated: 2026-08-08 - fn_attendance_roster now returns
+                              current-intake learners whose fees are still pending.
+                              Mark the row so the widening does not swap one silent
+                              behaviour for another. lifecycle_status already rides
+                              along on the roster row. */}
+                          {isProvisionalAttendanceStatus(
+                            student.lifecycle_status
+                          ) && <ProvisionalLearnerIndicatorCompact />}
                         </div>
                         <p className='text-xs text-gray-600 dark:text-gray-400 mt-1 font-medium'>
                           Roll: {student.roll_number || 'N/A'}
