@@ -20,6 +20,37 @@ import { formatVenueDirections } from './venue-directions';
 
 const LOG_PREFIX = '[public-host]';
 
+/** Raw meeting_type_locations row (migration 20260830030000). */
+interface MeetingTypeLocationRow {
+  id: string;
+  meeting_type_id: string;
+  location_mode: string | null;
+  location_resource_id: string | null;
+  location_text: string | null;
+  sort_order: number | null;
+}
+
+/**
+ * One place a meeting type can happen in.
+ *
+ * A type used to hold exactly one location, so two records were needed to
+ * offer one purpose in two places. `PublicMeetingType.locations` is the list
+ * that removes that ceiling; the single-location fields beside it are
+ * unchanged and still drive every current booking surface.
+ */
+export interface PublicMeetingLocation {
+  /**
+   * meeting_type_locations.id — or `legacy:<meetingTypeId>` for the entry
+   * synthesised from the legacy columns when the places table is unavailable.
+   */
+  id: string;
+  locationMode: 'in_person' | 'phone' | 'online';
+  locationText: string | null;
+  /** Directions resolved from the linked room. null = custom / no room. */
+  locationDetails: string | null;
+  sortOrder: number;
+}
+
 export interface PublicMeetingType {
   /** uuid — passed to the slots/book APIs. */
   id: string;
@@ -48,6 +79,16 @@ export interface PublicMeetingType {
    * types still show a format badge that contradicts their own description.
    */
   purposeGroup: string | null;
+  /**
+   * Every place this type can happen in (migration 20260830030000), in display
+   * order. ADDITIVE — the locationMode / locationText / locationDetails fields
+   * above are untouched and remain what every current consumer reads.
+   *
+   * Never empty: where the places table is unavailable (the migration ships as
+   * a file and is Director-gated) or a type has no rows yet, this holds the one
+   * place the legacy columns describe — the same single place as today.
+   */
+  locations: PublicMeetingLocation[];
 }
 
 export interface PublicHost {
@@ -138,15 +179,26 @@ export class PublicHostService {
     ]);
     if (!profile) return null;
 
+    // One meeting type, many places (migration 20260830030000). Batched, and
+    // empty when the table is unavailable — see placesFor.
+    const placesByType = await this.placesFor(
+      supabase,
+      (types ?? []).map((t) => t.id as string),
+    );
+
     // Venue-from-resource PR1: resolve every linked room → a directions line so
     // the booker can find an in-person meeting. One batched lookup (service-role
-    // client here, so resources are readable regardless of the booker).
-    const directionsById = await this.venueDirectionsFor(
-      supabase,
-      (types ?? [])
+    // client here, so resources are readable regardless of the booker), now
+    // covering the rooms named by the places table as well as the legacy column.
+    const directionsById = await this.venueDirectionsFor(supabase, [
+      ...(types ?? [])
         .map((t) => t.location_resource_id as string | null)
         .filter((id): id is string => Boolean(id)),
-    );
+      ...[...placesByType.values()]
+        .flat()
+        .map((p) => p.location_resource_id)
+        .filter((id): id is string => Boolean(id)),
+    ]);
 
     const [instName, deptName] = await Promise.all([
       this.nameOf(supabase, 'institutions', profile.institution_id),
@@ -162,22 +214,96 @@ export class PublicHostService {
       avatarUrl: (profile.avatar_url as string | undefined) ?? null,
       institutionName: instName,
       departmentName: deptName,
-      meetingTypes: (types ?? []).map((t) => ({
-        id: t.id,
-        title: t.title,
-        slug: t.slug,
-        durationMin: t.duration_min,
-        description: t.description ?? null,
-        locationMode: (t.location_mode as PublicMeetingType['locationMode']) ?? 'in_person',
-        locationText: t.location_text ?? null,
-        locationDetails: t.location_resource_id
+      meetingTypes: (types ?? []).map((t) => {
+        const locationMode =
+          (t.location_mode as PublicMeetingType['locationMode']) ?? 'in_person';
+        const locationDetails = t.location_resource_id
           ? directionsById.get(t.location_resource_id as string) ?? null
-          : null,
-        // Treat an all-whitespace value as unset so a stray space in the host
-        // editor cannot silently create a group of one with a blank label.
-        purposeGroup: ((t.purpose_group as string | null) ?? '').trim() || null,
-      })),
+          : null;
+        return {
+          id: t.id,
+          title: t.title,
+          slug: t.slug,
+          durationMin: t.duration_min,
+          description: t.description ?? null,
+          locationMode,
+          locationText: t.location_text ?? null,
+          locationDetails,
+          // Treat an all-whitespace value as unset so a stray space in the host
+          // editor cannot silently create a group of one with a blank label.
+          purposeGroup: ((t.purpose_group as string | null) ?? '').trim() || null,
+          locations: this.locationsFor(
+            t.id as string,
+            placesByType.get(t.id as string) ?? [],
+            directionsById,
+            { locationMode, locationText: t.location_text ?? null, locationDetails },
+          ),
+        };
+      }),
     };
+  }
+
+  /**
+   * Places per meeting type (migration 20260830030000), batched by type id.
+   *
+   * Fails SOFT and EMPTY on purpose: this ships the migration as a file only
+   * (Director-gated), so on a database where it has not been applied the table
+   * does not exist and the query errors. An empty map makes every type fall
+   * back to the one place its legacy location_* columns already describe — the
+   * booking page then renders exactly as it does today.
+   */
+  private static async placesFor(
+    supabase: SupabaseClient,
+    typeIds: string[],
+  ): Promise<Map<string, MeetingTypeLocationRow[]>> {
+    const byType = new Map<string, MeetingTypeLocationRow[]>();
+    if (!typeIds.length) return byType;
+    const { data, error } = await supabase
+      .from('meeting_type_locations')
+      .select('id, meeting_type_id, location_mode, location_resource_id, location_text, sort_order')
+      .in('meeting_type_id', typeIds)
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.error(`${LOG_PREFIX} meeting type places load failed:`, error.message);
+      return byType; // caller falls back to the legacy single location
+    }
+    for (const row of (data ?? []) as MeetingTypeLocationRow[]) {
+      const list = byType.get(row.meeting_type_id);
+      if (list) list.push(row);
+      else byType.set(row.meeting_type_id, [row]);
+    }
+    return byType;
+  }
+
+  /**
+   * The places list for one type — its own rows, or the single place its legacy
+   * columns describe when it has none (migration pending, or a type created
+   * after the backfill). Never empty, so a consumer can read `locations` without
+   * having to know whether the migration has landed.
+   */
+  private static locationsFor(
+    meetingTypeId: string,
+    rows: MeetingTypeLocationRow[],
+    directionsById: Map<string, string>,
+    legacy: {
+      locationMode: PublicMeetingType['locationMode'];
+      locationText: string | null;
+      locationDetails: string | null;
+    },
+  ): PublicMeetingLocation[] {
+    if (!rows.length) {
+      return [{ id: `legacy:${meetingTypeId}`, ...legacy, sortOrder: 0 }];
+    }
+    return rows.map((r) => ({
+      id: r.id,
+      locationMode: (r.location_mode as PublicMeetingType['locationMode']) ?? 'in_person',
+      locationText: r.location_text ?? null,
+      locationDetails: r.location_resource_id
+        ? directionsById.get(r.location_resource_id) ?? null
+        : null,
+      sortOrder: r.sort_order ?? 0,
+    }));
   }
 
   /** Batch-resolve resource ids → a formatted directions line (id → string). */
