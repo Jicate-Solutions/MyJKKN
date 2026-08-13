@@ -72,6 +72,8 @@ import {
   type NIRFMetric,
 } from '@/hooks/accreditation/use-nirf-dashboard';
 import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
+import { AGGREGATE_SCOPE } from '../_lib/visible-institutions';
+import { NoVisibleColleges } from '../_components/no-visible-colleges';
 import {
   useEvidenceSourceRoutes,
   useMetricOwnerNames,
@@ -220,21 +222,32 @@ export default function NIRFDashboardPage() {
   // page decides nothing about what it may claim. `defaultSelection` is a
   // college id (not 'cluster') for a reader entitled to one college — that
   // reader is never offered an aggregate row.
-  const { options: scopeOptions, defaultSelection, isLoading: instLoading } =
-    useVisibleInstitutions();
+  const {
+    options: scopeOptions,
+    defaultSelection,
+    state: scopeState,
+    isLoading: instLoading,
+  } = useVisibleInstitutions();
   const [picked, setPicked] = useState<string | null>(null);
   const selectedInstitution =
     picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
   const setSelectedInstitution = setPicked;
 
+  // In the `none-visible` state `selectedInstitution` is NO_VISIBLE_SCOPE, which
+  // is not a uuid — passing it through would become `.eq('institution_id', …)`
+  // and fail with a 22P02. The page discards the result below either way, so it
+  // asks the same cluster question these readers already send today.
+  const evidenceScope =
+    scopeState === 'none-visible' ? AGGREGATE_SCOPE : selectedInstitution;
+
   const { data: metrics, isLoading: metricsLoading } = useNIRFMetrics();
   const { data: evidenceCounts, isLoading: evidenceLoading } = useNIRFEvidenceCounts(
-    selectedInstitution as any,
+    evidenceScope as any,
   );
   const { data: sourceRoutes, isSuccess: routesRead } = useEvidenceSourceRoutes();
   const { data: ownerNames, isSuccess: ownersRead } = useMetricOwnerNames(
     'NIRF',
-    selectedInstitution,
+    evidenceScope,
   );
 
   // `sourceRoutes ?? {}` would have made a FAILED read look like an empty
@@ -274,6 +287,20 @@ export default function NIRFDashboardPage() {
   const totalMetrics = (metrics ?? []).length;
   const totalMaxScore = (metrics ?? []).reduce((s, m) => s + (m.max_score ?? 0), 0);
   const totalEvidence = Object.values(evidenceCounts ?? {}).reduce((s, n) => s + n, 0);
+
+  // No accredited college in this reader's access. Every figure below folds
+  // through the visible-college list, so rendering the dashboard would print a
+  // measured nought — see _components/no-visible-colleges.tsx for why that is
+  // refused rather than dashed out.
+  if (scopeState === 'none-visible') {
+    return (
+      <NoVisibleColleges
+        title="NIRF — Ranking Dashboard"
+        bodyLabel="NIRF"
+        bodyHref="/accreditation/nirf"
+      />
+    );
+  }
 
   return (
     <ContentLayout title="NIRF — Ranking Dashboard">

@@ -66,6 +66,8 @@ import {
   sumNaacMarks,
 } from '@/lib/services/accreditation/naac-marks';
 import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
+import { AGGREGATE_SCOPE } from '../_lib/visible-institutions';
+import { NoVisibleColleges } from '../_components/no-visible-colleges';
 import { QualityLoopsSection } from './_components/quality-loops-section';
 import { CopoHeldRollupsSection } from './_components/copo-held-rollups-section';
 
@@ -184,6 +186,7 @@ export default function NAACDashboardPage() {
     options: scopeOptions,
     defaultSelection,
     visible: institutions,
+    state: scopeState,
     isLoading: institutionsLoading,
   } = useVisibleInstitutions();
   const [picked, setPicked] = useState<string | null>(null);
@@ -191,8 +194,15 @@ export default function NAACDashboardPage() {
     picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
   const setSelectedInstitution = setPicked;
 
+  // In the `none-visible` state `selectedInstitution` is NO_VISIBLE_SCOPE, which
+  // is not a uuid — passing it through would become `.eq('institution_id', …)`
+  // and fail with a 22P02. The page discards the result below either way, so it
+  // asks the same cluster question these readers already send today.
+  const evidenceScope =
+    scopeState === 'none-visible' ? AGGREGATE_SCOPE : selectedInstitution;
+
   const { data: metrics, isLoading: metricsLoading } = useNAACMetrics();
-  const { data: evidenceCounts, isLoading: evidenceLoading } = useNAACEvidenceCounts(selectedInstitution);
+  const { data: evidenceCounts, isLoading: evidenceLoading } = useNAACEvidenceCounts(evidenceScope);
 
   const naacMeta = ACCREDITATION_BODIES.find((b) => b.code === 'NAAC')!;
 
@@ -262,6 +272,21 @@ export default function NAACDashboardPage() {
   // a real-looking "0 of 900" instead of a skeleton.
   const isLoading = metricsLoading || evidenceLoading || institutionsLoading;
   const coveragePct = marksPct(rollup.marksEarned, NAAC_TOTAL_MARKS);
+
+  // The permanent form of the hazard the comment above guards against for one
+  // render: for a reader with no accredited college, `institutions` is empty as
+  // a FACT, so "0.0 of 900" and "0%" would never resolve into a real number —
+  // they would stand as a measured score of nought. See
+  // _components/no-visible-colleges.tsx.
+  if (scopeState === 'none-visible') {
+    return (
+      <NoVisibleColleges
+        title="NAAC — IQAC Dashboard"
+        bodyLabel="NAAC"
+        bodyHref="/accreditation/naac"
+      />
+    );
+  }
 
   return (
     <ContentLayout title="NAAC — IQAC Dashboard">

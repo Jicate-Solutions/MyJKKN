@@ -49,6 +49,8 @@ import {
 } from '@/hooks/accreditation/use-body-dashboard';
 import type { BodyMetricRow } from '@/hooks/accreditation/use-body-dashboard';
 import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
+import { AGGREGATE_SCOPE } from '../_lib/visible-institutions';
+import { NoVisibleColleges } from '../_components/no-visible-colleges';
 
 // ----------------------------------------------------------------------------
 // UGC compliance domains — 6 categories per UGC Act 1956 + Regulations.
@@ -131,17 +133,28 @@ export default function UGCDashboardPage() {
   const ugcMeta = ACCREDITATION_BODIES.find((b) => b.code === 'UGC')!;
 
   // Rows and heading come from the scope module — see _lib/visible-institutions.ts.
-  const { options: scopeOptions, defaultSelection, isLoading: institutionsLoading } =
-    useVisibleInstitutions();
+  const {
+    options: scopeOptions,
+    defaultSelection,
+    state: scopeState,
+    isLoading: institutionsLoading,
+  } = useVisibleInstitutions();
   const [picked, setPicked] = useState<string | null>(null);
   const selectedInstitution =
     picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
   const setSelectedInstitution = setPicked;
 
+  // In the `none-visible` state `selectedInstitution` is NO_VISIBLE_SCOPE, which
+  // is not a uuid — passing it through would become `.eq('institution_id', …)`
+  // and fail with a 22P02. The page discards the result below either way, so it
+  // asks the same cluster question these readers already send today.
+  const evidenceScope =
+    scopeState === 'none-visible' ? AGGREGATE_SCOPE : selectedInstitution;
+
   const { data: metrics, isLoading: metricsLoading } = useBodyMetrics('UGC');
   const { data: evidenceCounts, isLoading: evidenceLoading } = useBodyEvidenceCounts(
     'UGC',
-    selectedInstitution,
+    evidenceScope,
   );
 
   function domainFor(metric: BodyMetricRow): string {
@@ -181,6 +194,20 @@ export default function UGCDashboardPage() {
     (s, m) => s + (evidenceCounts?.[m.metric_code] ?? 0),
     0,
   );
+
+  // No accredited college in this reader's access. Every figure below folds
+  // through the visible-college list, so rendering the dashboard would print a
+  // measured nought — see _components/no-visible-colleges.tsx for why that is
+  // refused rather than dashed out.
+  if (scopeState === 'none-visible') {
+    return (
+      <NoVisibleColleges
+        title="UGC — Compliance Dashboard"
+        bodyLabel="UGC"
+        bodyHref="/accreditation/ugc"
+      />
+    );
+  }
 
   return (
     <ContentLayout title="UGC — Compliance Dashboard">

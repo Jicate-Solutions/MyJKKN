@@ -48,6 +48,12 @@ export function useVisibleInstitutions(): VisibleInstitutions {
   // An empty set while signed in is indistinguishable from a read that has not
   // answered, so it is treated as UNKNOWN rather than as "sees nothing" — the
   // scope module falls open to the previous behaviour on that verdict.
+  //
+  // Note what this does NOT cover, and why the scope module needs its own
+  // `none-visible` state: a reader at a campus with no iqac_code has a
+  // perfectly good access set of exactly one id, so `accessKnown` is TRUE here.
+  // The emptiness appears only after intersecting with the assessed colleges,
+  // one level down. 1,070 production profiles are in exactly that shape.
   const accessKnown =
     Boolean(profile?.id) && !accessLoading && !accessError && accessibleIds.length > 0;
 

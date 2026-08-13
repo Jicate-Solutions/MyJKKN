@@ -18,6 +18,8 @@ import { describe, it, expect } from 'vitest';
 import {
   describeVisibleScope,
   AGGREGATE_SCOPE,
+  NO_VISIBLE_SCOPE,
+  NO_VISIBLE_LABEL,
   type AssessedCollege,
 } from '@/app/(routes)/accreditation/_lib/visible-institutions';
 
@@ -74,6 +76,17 @@ describe('the switcher heading, for three different readers', () => {
     expect(scope.defaultSelection).toBe(AGGREGATE_SCOPE);
   });
 
+  it('still reports all three as a positively-read scope', () => {
+    // Guard for the state field itself: adding a fourth state must not quietly
+    // reclassify a reader who CAN see colleges as unread or as none-visible.
+    for (const ids of [REGISTRAR, PRINCIPAL_OF_PHARMACY, OFFICER_WITH_THREE_GRANTS]) {
+      const scope = describeVisibleScope(ASSESSED, ids, true);
+      expect(scope.state).toBe('known');
+      expect(scope.known).toBe(true);
+      expect(scope.visible.length).toBeGreaterThan(0);
+    }
+  });
+
   it('gives the three readers three DIFFERENT headings', () => {
     const headings = [
       REGISTRAR,
@@ -120,32 +133,120 @@ describe('an unread scope claims nothing and changes nothing', () => {
   it('shows the full list but asserts no count when the access read has not answered', () => {
     const scope = describeVisibleScope(ASSESSED, [], false);
 
+    expect(scope.state).toBe('unread');
     expect(scope.known).toBe(false);
-    expect(scope.aggregateLabel).toBe('All colleges');
-    expect(scope.aggregateLabel).not.toMatch(/\d/);
     expect(scope.options).toHaveLength(9);
     expect(scope.defaultSelection).toBe(AGGREGATE_SCOPE);
     expect(scope.visibleIds).toEqual(ASSESSED.map((c) => c.id));
   });
 
-  it('treats an empty intersection as unread, not as "you see nothing"', () => {
-    // A campus with no iqac_code produces this. Declaring "No colleges you can
-    // see" over a provisioning gap would be its own false claim — and would
-    // hand the NAAC rollup an empty college list, turning a missing answer
-    // into a measured "0 of 900".
-    const scope = describeVisibleScope(ASSESSED, ['i-99-not-assessed'], true);
+  it('never puts a number in the heading of an unread scope', () => {
+    // The whole point of the unread branch: a count would be invented out of a
+    // request that never answered.
+    const scope = describeVisibleScope(ASSESSED, [], false);
 
-    expect(scope.known).toBe(false);
-    expect(scope.aggregateLabel).toBe('All colleges');
-    expect(scope.visible).toHaveLength(ASSESSED.length);
+    expect(scope.aggregateLabel).not.toMatch(/\d/);
+    expect(scope.aggregateLabel?.toLowerCase()).not.toContain('cluster');
+  });
+
+  it('admits in the heading that the access was not confirmed', () => {
+    // A bare "All colleges" reads as a statement about the READER — the one
+    // claim an unread scope may not make. The heading must describe the list
+    // and flag the gap, the way scopeSentence() does for an unprovisioned body
+    // scope next door.
+    const scope = describeVisibleScope(ASSESSED, [], false);
+
+    expect(scope.aggregateLabel).toBe('All colleges (access not confirmed)');
   });
 
   it('does not say "all 0 colleges" when there are no assessed colleges at all', () => {
+    // Still unread, and deliberately so: an empty registry cannot be told apart
+    // from a registry read that failed, so it is a fact about the READ.
     const scope = describeVisibleScope([], [], true);
 
+    expect(scope.state).toBe('unread');
     expect(scope.known).toBe(false);
-    expect(scope.aggregateLabel).toBe('All colleges');
-    expect(scope.options).toEqual([{ value: AGGREGATE_SCOPE, label: 'All colleges' }]);
+    expect(scope.options).toEqual([
+      { value: AGGREGATE_SCOPE, label: 'All colleges (access not confirmed)' },
+    ]);
+  });
+});
+
+describe('a reader with no assessed college is told exactly that', () => {
+  // 1,070 production profiles sit in this state (verified live 2026-08-13):
+  // every account whose institution has iqac_code IS NULL — Jicate Solutions,
+  // JKKN Main Office, JKKN Matric Higher Secondary School, JKKN Testing
+  // Institution, Nattraja Incubation Forum, Nattraja Vidhyalya CBSE. Their
+  // access read ANSWERS and returns exactly one campus, which is not assessed.
+  //
+  // This used to share the unread branch, so all 1,070 were shown "All
+  // colleges" over a dropdown offering every one of the eight — a larger
+  // untruth than the hardcoded "Cluster (all 8 colleges)" this module was
+  // written to delete.
+  const AT_A_NON_ASSESSED_CAMPUS = ['i-99-jkkn-testing-institution'];
+
+  it('does not tell them they can see all colleges', () => {
+    const scope = describeVisibleScope(ASSESSED, AT_A_NON_ASSESSED_CAMPUS, true);
+
+    expect(scope.state).toBe('none-visible');
+    expect(scope.aggregateLabel).toBeNull();
+    for (const label of scope.options.map((o) => o.label)) {
+      expect(label).not.toBe('All colleges');
+      expect(label).not.toContain('All colleges');
+      expect(label.toLowerCase()).not.toContain('cluster');
+    }
+  });
+
+  it('offers no college the reader cannot see, and no aggregate', () => {
+    const scope = describeVisibleScope(ASSESSED, AT_A_NON_ASSESSED_CAMPUS, true);
+
+    // Not "fewer colleges" — NONE of them. Every assessed college is one this
+    // reader cannot open, so none of the eight names or ids may appear in a row
+    // they are able to select.
+    const offered = scope.options.map((o) => o.value);
+    for (const college of ASSESSED) {
+      expect(offered).not.toContain(college.id);
+    }
+    const rendered = scope.options.map((o) => o.label).join(' | ');
+    for (const college of ASSESSED) {
+      expect(rendered).not.toContain(college.name);
+    }
+    expect(offered).not.toContain(AGGREGATE_SCOPE);
+  });
+
+  it('says so plainly, and defaults to that row', () => {
+    const scope = describeVisibleScope(ASSESSED, AT_A_NON_ASSESSED_CAMPUS, true);
+
+    expect(scope.options).toEqual([
+      { value: NO_VISIBLE_SCOPE, label: NO_VISIBLE_LABEL },
+    ]);
+    expect(NO_VISIBLE_LABEL).toBe('No accredited college in your access');
+    expect(scope.options.map((o) => o.value)).toContain(scope.defaultSelection);
+  });
+
+  it('hands the pages an empty college list AND the flag that says it is a fact', () => {
+    // `visible: []` alone is ambiguous — the unread branch has a FULL list for
+    // the opposite reason. `known`/`state` are what let a page tell "nothing to
+    // measure" apart from "not measured yet" and refuse to print a rollup of
+    // nought under "of 900". Same refusal as measurementState().
+    const scope = describeVisibleScope(ASSESSED, AT_A_NON_ASSESSED_CAMPUS, true);
+
+    expect(scope.visible).toEqual([]);
+    expect(scope.visibleIds).toEqual([]);
+    expect(scope.known).toBe(true);
+  });
+
+  it('is a different verdict from an unread scope, on the same empty intersection', () => {
+    // The exact conflation this branch exists to prevent: identical college
+    // list, identical (empty) intersection, one bit of difference in whether
+    // the access read answered — and two different sentences must come out.
+    const unread = describeVisibleScope(ASSESSED, AT_A_NON_ASSESSED_CAMPUS, false);
+    const knownEmpty = describeVisibleScope(ASSESSED, AT_A_NON_ASSESSED_CAMPUS, true);
+
+    expect(unread.state).toBe('unread');
+    expect(knownEmpty.state).toBe('none-visible');
+    expect(unread.options.length).not.toBe(knownEmpty.options.length);
+    expect(unread.options[0].label).not.toBe(knownEmpty.options[0].label);
   });
 });
 
