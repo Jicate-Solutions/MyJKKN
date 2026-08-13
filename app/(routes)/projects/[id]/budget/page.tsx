@@ -27,6 +27,11 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  TAP_TARGET,
+  TAP_TARGET_BREADCRUMB,
+  TAP_TARGET_TABS_LIST,
+} from '@/app/(routes)/projects/_lib/tap-targets';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loader2, IndianRupee, GitBranch } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
@@ -57,7 +62,7 @@ function ProjectBudgetPageInner() {
   return (
     <ContentLayout title="Budget">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -104,12 +109,12 @@ function ProjectBudgetPageInner() {
         )}
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as BudgetTab)}>
-          <TabsList>
-            <TabsTrigger value="lines" className="gap-1.5">
+          <TabsList className={TAP_TARGET_TABS_LIST}>
+            <TabsTrigger value="lines" className={`gap-1.5 ${TAP_TARGET}`}>
               <IndianRupee className="h-4 w-4" />
               Budget lines
             </TabsTrigger>
-            <TabsTrigger value="changes" className="gap-1.5">
+            <TabsTrigger value="changes" className={`gap-1.5 ${TAP_TARGET}`}>
               <GitBranch className="h-4 w-4" />
               Change log
               {changes.length > 0 && (

@@ -50,6 +50,20 @@ const PROGRAMME_APPLICATIONS_URL: Record<string, string> = {
   school_of_influence: '/startup-studio/school-of-influence/admin/applications',
 };
 
-export function programmeApplicationsUrl(kind: string): string | null {
-  return PROGRAMME_APPLICATIONS_URL[kind] ?? null;
+/**
+ * @param eventId The programme's event, when the caller knows it. Carrying it
+ *   means the newly appointed coordinator lands ON the queue instead of on a
+ *   screen that has to work out which programme they meant — which is where the
+ *   coordinator in BUG-005799 / BUG-005800 landed, on a phone, being asked for
+ *   a uuid. Omit it and the screen still resolves; passing it is the difference
+ *   between one tap and one guess.
+ */
+export function programmeApplicationsUrl(
+  kind: string,
+  eventId?: string | null
+): string | null {
+  const base = PROGRAMME_APPLICATIONS_URL[kind];
+  if (!base) return null;
+  const id = eventId?.trim();
+  return id ? `${base}?event=${encodeURIComponent(id)}` : base;
 }

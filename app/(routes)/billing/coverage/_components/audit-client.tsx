@@ -64,6 +64,17 @@ export function AuditClient({ filters, canExport }: AuditClientProps) {
           learners are missing at least one. A year is only expected where the
           institution actually has that academic year on file.
         </p>
+        {/* Named rather than left implicit: for the learners who carry them
+            these three ARE the year's tuition, and without saying so the
+            Dental and Allied Health rows read as though the check had simply
+            missed a bill that plainly exists. */}
+        <p className='text-xs text-muted-foreground'>
+          Counts as tuition for this check: every Tuition Fee category, plus
+          <span className='font-medium'> Government 7-5 quota</span>,
+          <span className='font-medium'> CRRI - INTERNSHIP FEE</span> and
+          <span className='font-medium'> AHS - INTERNSHIP FEE</span> — years
+          covered only by one of those are not reported as missing.
+        </p>
         <MissingYearSummaryCards
           summary={missingSummary.data}
           isLoading={missingSummary.isLoading}
@@ -77,6 +88,17 @@ export function AuditClient({ filters, canExport }: AuditClientProps) {
           here carry two or more. The usual cause is a multi-year fee plan
           generated in one run, which stamps every instalment with the academic
           year current at generation time instead of the year it covers.
+        </p>
+        {/* The asymmetry is deliberate and would otherwise look like a bug:
+            duplicates read the widened set, Billed Past Programme End does not.
+            Programme duration counts TAUGHT years, so an internship fee falls
+            after the course ends by design. */}
+        <p className='text-xs text-muted-foreground'>
+          Duplicates use the same widened set as the Missing Year check.
+          <span className='font-medium'> Billed Past Programme End</span> does
+          not — it counts Tuition Fee categories only, because an internship fee
+          is charged for the year after the taught course ends and is not an
+          anomaly.
         </p>
         <DuplicateYearSummaryCards
           summary={duplicateSummary.data}

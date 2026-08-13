@@ -25,6 +25,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 import { AttendanceWorkspace } from './_components/attendance-workspace';
 
+// The route manifest and the Ctrl+K palette read this. Without it the page is
+// listed under its folder name alone — which is how a programme's screens end up
+// searchable only as "Attendance" (BUG-005799 / BUG-005800).
+export const navMeta = {
+  label: 'School of Influence Attendance',
+  icon: 'CheckSquare',
+} as const;
+
 export const metadata: Metadata = {
   title: 'School of Influence — Attendance',
   description:

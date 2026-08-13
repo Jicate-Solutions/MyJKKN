@@ -104,6 +104,36 @@ function scopeText(programmeKind: string, batch: string | null): string {
 }
 
 /**
+ * The programme's event, so the "you are now a coordinator" card links to the
+ * queue itself rather than to a screen that must first work out which programme
+ * was meant (BUG-005799 / BUG-005800).
+ *
+ * Read the same way the whole module reads it: a batch's config points at its
+ * source event. Ambiguity is answered by sending nothing — two live programmes
+ * means the screen should offer both BY NAME, which it now does, rather than
+ * this function picking one. Returns null on any doubt; the link still works.
+ */
+async function soleProgrammeEventId(
+  admin: SupabaseClient,
+  programmeKind: string
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from('cohorts')
+    .select('config')
+    .eq('kind', programmeKind)
+    .is('archived_at', null);
+  if (error) return null;
+  const ids = new Set<string>();
+  for (const row of (data ?? []) as Array<{ config?: unknown }>) {
+    const raw = (row.config as { source_event_id?: unknown } | null)
+      ?.source_event_id;
+    const id = typeof raw === 'string' ? raw.trim() : '';
+    if (id) ids.add(id);
+  }
+  return ids.size === 1 ? Array.from(ids)[0] : null;
+}
+
+/**
  * Everyone who holds the COO seat, by either route: the multi-role table, or the
  * legacy `profiles.role`. Both are checked because removing a user_roles row does
  * NOT clear profiles.role, so the two can disagree
@@ -193,7 +223,11 @@ export async function notifyCoordinatorChange(
   const batch = await cohortName(admin, appointment.cohort_id);
   const where = scopeText(appointment.programme_kind, batch);
   const actorName = await nameOf(admin, actorId);
-  const link = programmeApplicationsUrl(appointment.programme_kind) ?? undefined;
+  const link =
+    programmeApplicationsUrl(
+      appointment.programme_kind,
+      await soleProgrammeEventId(admin, appointment.programme_kind)
+    ) ?? undefined;
   const stamp =
     (action === 'appointed' ? appointment.appointed_at : appointment.removed_at) ??
     'unknown';
