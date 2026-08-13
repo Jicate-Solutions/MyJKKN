@@ -208,7 +208,7 @@ export function StatusReportList({ projectId }: StatusReportListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className={`h-8 w-8 ${TAP_TARGET_ICON}`}
                           aria-label="Report actions"
                         >
                           <MoreHorizontal className="h-4 w-4" />
