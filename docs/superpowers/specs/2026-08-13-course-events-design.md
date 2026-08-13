@@ -40,7 +40,7 @@ the reason matters more than the choice.
 |---|---|---|
 | D1 | **Standalone `/courses` module** with its own tables | An `event_type='course'` variant would have inherited venue holds, form builder, recurrence and committees for free. Rejected in favour of clean domain separation. Accepted costs: re-implement the form builder, and lose `fn_event_approved_cascade_reservations`. |
 | D2 | **Own `course_bills` / `course_bill_payments` tables** | `billing_student_bills.student_id` is a `NOT NULL` FK to `learners_profiles`. Shadow-learner rows would leak external people into learner lists, admission analytics and cohort rollups. Making billing polymorphic would force a re-audit of every billing RLS policy, RPC and report. |
-| D3 | **MyJKKN ID = real login identity**, `profiles.myjkkn_id`, format `JKKN-2026-000123` | A reference-number-only ID cannot show payment history. Column renamed from `"NameId"` (see §8.2). |
+| D3 | **MyJKKN ID = real login identity**, issued from the **existing `jkkn_identities` register** (format `348295-7`) | A reference-number-only ID cannot show payment history. **Amended 2026-08-13** — the original decision minted a new `profiles.myjkkn_id` sequence; a dormant permanent-identity register already owns this concept. See §8.2. |
 | D4 | **Admin-defined installment schedule** per package | Flexible part-payment against one bill gives no intermediate due dates, so no meaningful overdue tracking. |
 | D5 | **Multiple packages per course** | A single price on the course row would need a table split + live-data migration the first time an Early Bird tier is wanted. |
 | D6 | **Screening gate before billing** | Auto-enrolling on form submit would provision an auth identity, a login and a ₹2.5 lakh bill for every abandoned form. |
@@ -381,11 +381,21 @@ enrollment's `profile_id` is `NOT NULL` (§3.4).
 3. Otherwise create a Supabase auth user, then a `profiles` row with
    **`id = auth.uid()`** (non-negotiable in this codebase), `institution_id = NULL`,
    `is_external_participant = true`.
-4. Generate `myjkkn_id` from a Postgres sequence: `JKKN-<year>-<6-digit>`.
+4. Call the **existing** issuer:
+   `fn_issue_jkkn_id('external_participant', NULL, NULL, <profile_id>)` → `348295-7`.
 5. Set `event_external_participants.linked_profile_id`.
 6. Assign the **Course Participant** role — a real `custom_roles` row whose
    `permissions` JSONB grants exactly one key: `courses.participant.self`.
-7. Send MyJKKN ID + magic login link by email / WhatsApp.
+7. Send JKKN ID + magic login link by email / WhatsApp.
+
+The course module **does not mint identifiers**. It calls `fn_issue_jkkn_id` and stores
+nothing but the FK. Duplicate-person detection before issuing uses the existing
+`fn_check_duplicate_person(...)`; lookup by ID uses `fn_resolve_person(...)`.
+
+> **Authorisation:** `fn_issue_jkkn_id` is gated on `is_super_admin() OR is_admin() OR
+> user_has_permission('users.jkkn_id.issue')`. The course approval path runs
+> server-side; grant `users.jkkn_id.issue` to the roles holding
+> `courses.applications.decide`, rather than widening the function's own gate.
 
 Login is passwordless OTP. Landing page is `/my-courses`.
 
@@ -514,7 +524,72 @@ Add `course_session_id`; replace the two-way mutual-exclusion CHECK with a three
 `num_nonnulls(...) <= 1`. See §3.2. This is the only place this module reaches into
 live shared infrastructure that other modules depend on.
 
-### 8.2 `profiles."NameId"` → `profiles.myjkkn_id`
+### 8.2 Identity — extend `jkkn_identities` (AMENDED 2026-08-13)
+
+**What changed and why.** The original D3 minted `profiles.myjkkn_id` as
+`JKKN-2026-000123` from a new sequence. Review of the migration history found
+`20260817040000_jkkn_permanent_identity_schema.sql` + `…050000_jkkn_identity_rpcs.sql`
+already ship a complete permanent-identity register — live in schema, deliberately
+**dormant** (tables empty; `fn_issue_jkkn_id` gated on a permission no role holds).
+Its stated design is *"ONE shared pool… a learner who comes back years later as a
+Senior Learner keeps the same number."* Minting a second identifier would be exactly
+the fragmentation that register exists to prevent.
+
+The course module therefore **issues from the existing register**. Three changes:
+
+```sql
+-- 1. a third person kind
+ALTER TABLE public.jkkn_identities DROP CONSTRAINT jkkn_identities_person_kind_chk;
+ALTER TABLE public.jkkn_identities ADD  CONSTRAINT jkkn_identities_person_kind_chk
+  CHECK (person_kind IN ('learner','team_member','both','external_participant'));
+
+-- 2. a link column for a person who is neither a learner nor staff
+ALTER TABLE public.jkkn_identities
+  ADD COLUMN profile_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL;
+
+CREATE UNIQUE INDEX ux_jkkn_identities_profile
+  ON public.jkkn_identities (profile_id) WHERE profile_id IS NOT NULL;
+
+-- 3. widen the link-shape CHECK — the first three clauses are preserved verbatim
+ALTER TABLE public.jkkn_identities DROP CONSTRAINT jkkn_identities_link_shape_chk;
+ALTER TABLE public.jkkn_identities ADD  CONSTRAINT jkkn_identities_link_shape_chk CHECK (
+     (person_kind = 'learner'              AND team_member_id     IS NULL)
+  OR (person_kind = 'team_member'          AND learner_profile_id IS NULL)
+  OR (person_kind = 'both')
+  OR (person_kind = 'external_participant' AND learner_profile_id IS NULL
+                                           AND team_member_id     IS NULL)
+);
+```
+
+`profile_id` is deliberately left unconstrained for the other three kinds, so an
+external participant who **later enrols as a learner keeps the same row and the same
+number** — `person_kind` moves to `learner`, `learner_profile_id` is filled, and the
+`profile_id` link survives. That is the register's whole purpose.
+
+**Widening the issuer is a DROP, not a CREATE OR REPLACE.**
+
+```sql
+DROP FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid);
+CREATE OR REPLACE FUNCTION public.fn_issue_jkkn_id(
+  p_person_kind text, p_learner_profile_id uuid DEFAULT NULL,
+  p_team_member_id uuid DEFAULT NULL, p_profile_id uuid DEFAULT NULL
+) ...
+REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text,uuid,uuid,uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text,uuid,uuid,uuid) TO authenticated;
+```
+
+Two traps, both real:
+1. **Adding a defaulted 4th parameter without dropping the 3-arg version creates an
+   overload, not a replacement.** A 3-argument call would then match both and fail with
+   `42725 ambiguous function call`. The old signature must be dropped.
+2. **`DROP FUNCTION` discards the ACL.** EXECUTE reverts to PUBLIC (including `anon`).
+   The REVOKE/GRANT must be re-applied in the same migration.
+
+The issuer's new validation: `external_participant` requires `p_profile_id`, which must
+exist in `profiles`; the other kinds must not carry one. The "already holds a number"
+lookup extends to match on `profile_id`.
+
+### 8.2a `profiles."NameId"` — superseded, left in place
 
 A sweep on 2026-08-13 found **zero** references:
 
@@ -529,16 +604,15 @@ A sweep on 2026-08-13 found **zero** references:
 
 Data: 1 populated row out of 7,250, holding the throwaway value `student@jkkn.ac.in`.
 
-```sql
-ALTER TABLE profiles RENAME COLUMN "NameId" TO myjkkn_id;
-UPDATE profiles SET myjkkn_id = NULL WHERE myjkkn_id = 'student@jkkn.ac.in';
-CREATE UNIQUE INDEX profiles_myjkkn_id_uniq ON profiles (myjkkn_id) WHERE myjkkn_id IS NOT NULL;
-CREATE SEQUENCE myjkkn_id_seq;
-```
+**This column is now superseded by §8.2 and is NOT touched by this module.** It holds no
+data anyone depends on and nothing reads it. Dropping it is the right cleanup, but it is
+a decision about a column the user created deliberately, so it is deferred to an
+explicit follow-up rather than folded into a course migration.
 
-Renaming now costs one line. Renaming after 5,000 external participants exist costs a
-migration across policies, functions and types — and `"NameId"` requires double quotes
-in every one of them, because Postgres folds unquoted identifiers to lowercase.
+> **Method note.** The sweep above proved the *column* is unreferenced — and that was
+> true. It did not prove the *concept* was unbuilt, which is why the `jkkn_identities`
+> register was missed on the first pass. A reference sweep answers "is this column
+> used?", never "does this capability already exist?".
 
 ### 8.3 `profiles.is_external_participant`
 New `boolean NOT NULL DEFAULT false`. See §5.1.
@@ -560,7 +634,9 @@ New `boolean NOT NULL DEFAULT false`. See §5.1.
 | `institutionId \|\| ''` matches zero rows | Use `??` |
 | Nullable UUID form fields defaulting to `''` → `22P02` | Normalise `'' → null` before insert |
 | PostgREST returns `numeric` as a **string** | `Number()` every amount at the read boundary; `"0.00"` is truthy |
-| `DROP FUNCTION` discards grants | Re-apply REVOKE/GRANT in the same migration |
+| `DROP FUNCTION` discards grants | Re-apply REVOKE/GRANT in the same migration (§8.2) |
+| Defaulted 4th arg on `fn_issue_jkkn_id` creates an overload → `42725` | Drop the 3-arg signature first (§8.2) |
+| A second identifier fragmenting person identity | Issue from `jkkn_identities`; the course module mints nothing (§8.2) |
 | Vercel cron `?secret=${VAR}` not interpolated | Literal or header |
 | Build gates | `check:sidebar`, `check:reachability`, `check:audit-coverage` all fail the build if the module isn't wired into nav and the permissions audit |
 
@@ -592,7 +668,7 @@ schema every other phase depends on, so it is planned in the most detail.
 
 | Phase | Delivers |
 |---|---|
-| 1 | Migrations: 11 tables, RLS, permission keys **+ role grants**, `myjkkn_id` rename, `is_external_participant`, `resource_reservations` change, `types/supabase.ts` |
+| 1 | Migrations: 11 tables, RLS, permission keys **+ role grants**, `jkkn_identities` extension + widened issuer, `profiles.is_external_participant`, `resource_reservations` change, `types/supabase.ts` |
 | 2 | Admin CRUD: courses, packages + installment templates, sessions + venue hold |
 | 3 | Registration form builder + public landing / apply pages + `proxy.ts` |
 | 4 | Applications screening → approval → enrollment + MyJKKN ID provisioning + bill generation |
