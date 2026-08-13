@@ -174,6 +174,30 @@ COMMENT ON FUNCTION public.fn_meeting_mark_outcome(text, text) IS
 --
 -- No batch cap: the working set is bounded by the number of meetings that
 -- finished and went unmarked, and every row it touches leaves the set.
+--
+-- ACTIVATION FLOOR — why this sweep refuses to touch the backlog
+-- ---------------------------------------------------------------------------
+-- The 7-day rule was decided for meetings going forward. Without a floor it is
+-- also a RETROACTIVE judgement on every meeting that ever finished, because on
+-- the day this is applied the entire backlog is already older than 7 days: the
+-- first tick would close ~24 of the 52 confirmed production rows in one sweep,
+-- stamped 'system', with no un-mark path (fn_meeting_mark_outcome requires
+-- status = 'confirmed', so an auto-closed row can never be corrected to
+-- no_show).
+--
+-- That is the exact opposite of the Director's 2026-08-08 decision, recorded as
+-- "build the button first, do NOT mark the finished meetings done — the system
+-- cannot know which were no-shows". Auto-closing them IS the system guessing,
+-- and a 'system' stamp on a guess is manufactured evidence.
+--
+-- So the sweep is floored at the moment the routine was switched on:
+-- ai_routine_schedules.created_at for 'meetings-auto-close', written by the
+-- seed below at APPLY time. A meeting that ended before the host ever had a
+-- button to press is never auto-judged; only meetings that finish under the new
+-- regime, where the host genuinely had 7 days to answer, are in scope.
+--
+-- Missing schedule row => the routine was never switched on => the sweep is an
+-- explicit error, never a silent no-op that reads identically to "nothing due".
 CREATE OR REPLACE FUNCTION public.fn_meetings_auto_close_unmarked(
   p_days integer DEFAULT 7
 )
@@ -185,10 +209,25 @@ SET search_path = public
 AS $$
 DECLARE
   v_cutoff timestamptz;
+  v_floor  timestamptz;
   v_closed integer;
 BEGIN
   IF p_days IS NULL OR p_days < 1 THEN
     RETURN jsonb_build_object('success', false, 'error_code', 'invalid_days');
+  END IF;
+
+  SELECT created_at INTO v_floor
+    FROM public.ai_routine_schedules
+   WHERE routine_id = 'meetings-auto-close';
+
+  IF v_floor IS NULL THEN
+    RETURN jsonb_build_object(
+      'success',    false,
+      'error_code', 'not_activated',
+      'error',      'No ai_routine_schedules row for meetings-auto-close: the '
+                    || 'routine has never been switched on, so there is no '
+                    || 'activation floor and the sweep refuses to run.'
+    );
   END IF;
 
   v_cutoff := now() - make_interval(days => p_days);
@@ -199,7 +238,8 @@ BEGIN
          outcome_marked_by = 'system',
          updated_at        = now()
    WHERE status   = 'confirmed'
-     AND end_time < v_cutoff;
+     AND end_time < v_cutoff
+     AND end_time >= v_floor;
 
   GET DIAGNOSTICS v_closed = ROW_COUNT;
 
@@ -207,6 +247,7 @@ BEGIN
     'success', true,
     'closed',  v_closed,
     'cutoff',  v_cutoff,
+    'floor',   v_floor,
     'days',    p_days
   );
 END $$;
@@ -216,7 +257,7 @@ REVOKE EXECUTE ON FUNCTION public.fn_meetings_auto_close_unmarked(integer)
 GRANT  EXECUTE ON FUNCTION public.fn_meetings_auto_close_unmarked(integer) TO service_role;
 
 COMMENT ON FUNCTION public.fn_meetings_auto_close_unmarked(integer) IS
-  'Service-role sweep: closes confirmed bookings that ended more than p_days ago as completed, stamped outcome_marked_by = system. Idempotent — the update leaves its own predicate set.';
+  'Service-role sweep: closes confirmed bookings that ended more than p_days ago as completed, stamped outcome_marked_by = system. Floored at ai_routine_schedules.created_at for meetings-auto-close, so the pre-existing backlog is never retroactively judged (Director 2026-08-08: do not mark the finished meetings done). Returns not_activated when that row is absent. Idempotent — the update leaves its own predicate set.';
 
 -- ── 4. dispatcher schedule row ───────────────────────────────────────────────
 -- NOT a vercel.json cron. vercel.json has a HARD 100-cron cap; PR #2938 pushed
@@ -248,6 +289,7 @@ DECLARE
   v_min       smallint;
   v_anon_mark boolean;
   v_auth_close boolean;
+  v_backlog   integer;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -285,6 +327,24 @@ BEGIN
   IF v_min IS NULL OR v_min <> 380 THEN
     RAISE EXCEPTION
       'meetings-auto-close schedule row missing or wrong (minute_of_day %, expected 380 = 06:20 IST)', v_min;
+  END IF;
+
+  -- PROVE THE ACTIVATION FLOOR BITES.
+  -- This counts exactly what the first sweep would close. With the floor it is
+  -- necessarily 0 at apply time (a row cannot both have ended after now() and
+  -- more than 7 days before now()). WITHOUT the floor this same count is the
+  -- whole finished backlog — ~24 of production's 52 confirmed rows — every one
+  -- of which the Director said not to mark. If this ever raises, the floor has
+  -- been dropped from the UPDATE and the sweep has become retroactive again.
+  SELECT count(*) INTO v_backlog
+    FROM public.meeting_bookings b
+    JOIN public.ai_routine_schedules s ON s.routine_id = 'meetings-auto-close'
+   WHERE b.status = 'confirmed'
+     AND b.end_time <  now() - interval '7 days'
+     AND b.end_time >= s.created_at;
+  IF v_backlog > 0 THEN
+    RAISE EXCEPTION
+      'activation floor is not holding: % pre-existing finished bookings are in scope for the first auto-close sweep (expected 0)', v_backlog;
   END IF;
 END $$;
 
