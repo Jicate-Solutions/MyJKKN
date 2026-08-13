@@ -34,7 +34,7 @@ describe('DEFAULT_STATUS_CHOICE', () => {
 });
 
 describe('hasPrintablePhoto', () => {
-  it('true when the learner photo column is a non-empty string', () => {
+  it('true when the learner photo column holds a renderable value', () => {
     expect(hasPrintablePhoto('https://cdn.example/p.jpg', null)).toBe(true);
     expect(hasPrintablePhoto('data:image/png;base64,abc', null)).toBe(true);
   });
@@ -51,5 +51,32 @@ describe('hasPrintablePhoto', () => {
     expect(hasPrintablePhoto('', '')).toBe(false);
     expect(hasPrintablePhoto('   ', null)).toBe(false);
     expect(hasPrintablePhoto(null, '  ')).toBe(false);
+  });
+
+  it('false for junk values the render engine cannot draw (real prod shapes)', () => {
+    // A roll number stored in the photo column
+    expect(hasPrintablePhoto('EM25305', null)).toBe(false);
+    // A bare filename with no scheme
+    expect(hasPrintablePhoto('GRACIA.JPEG', null)).toBe(false);
+    // A scanner export name with spaces
+    expect(hasPrintablePhoto('DocScanner 25 Sep 2025 18-11-1', null)).toBe(
+      false
+    );
+    // A bare numeric identifier
+    expect(hasPrintablePhoto('731325105015', null)).toBe(false);
+    // Junk in the avatar slot is equally unprintable
+    expect(hasPrintablePhoto(null, 'vigneshwaran')).toBe(false);
+  });
+
+  it('a renderable value in either slot outweighs junk in the other', () => {
+    expect(hasPrintablePhoto('EM25305', 'https://cdn.example/a.png')).toBe(
+      true
+    );
+    expect(hasPrintablePhoto('https://cdn.example/p.jpg', 'junk')).toBe(true);
+  });
+
+  it('accepts scheme case-insensitively, matching the engine regex', () => {
+    expect(hasPrintablePhoto('HTTPS://cdn.example/p.jpg', null)).toBe(true);
+    expect(hasPrintablePhoto('http://cdn.example/p.jpg', null)).toBe(true);
   });
 });
