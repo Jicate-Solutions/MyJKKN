@@ -81,7 +81,9 @@ export function CourseEventsRowActions({
 
           {canEdit && (
             <DropdownMenuItem asChild>
-              <Link href={`/courses/${courseEvent.id}/edit`}>
+              {/* No standalone /edit route — editing lives on the detail
+                  page's Settings tab (see [id]/page.tsx's useTabParam). */}
+              <Link href={`/courses/${courseEvent.id}?tab=settings`}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit
               </Link>

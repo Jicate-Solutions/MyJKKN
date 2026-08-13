@@ -192,7 +192,8 @@ export function CourseForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Institution *</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
+                {/* Locked in edit mode — moving institutions would orphan this course's packages/sessions/applications/enrollments/bills, which each carry their own institution_id. */}
+                <Select onValueChange={field.onChange} value={field.value} disabled={mode === 'edit'}>
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue

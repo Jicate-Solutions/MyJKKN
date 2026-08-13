@@ -34,7 +34,7 @@ import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh'
 import { useDeleteCourseEvent } from '@/hooks/courses/use-course-events';
 import { CourseEventService } from '@/lib/services/courses/course-event-service';
 import { queryKeys } from '@/lib/query/query-keys';
-import { COURSE_EVENT_STATUSES, type CourseEventStatus } from '@/types/courses';
+import { COURSE_EVENT_STATUSES, type CourseEvent, type CourseEventStatus } from '@/types/courses';
 import { getColumns } from './_components/columns';
 
 const ALL = 'all';
@@ -167,6 +167,7 @@ export default function CoursesPage() {
                 columnMapping: {
                   title: 'Course',
                   code: 'Code',
+                  institution: 'Institution',
                   status: 'Status',
                   mode: 'Mode',
                   start_date: 'Start',
@@ -176,13 +177,30 @@ export default function CoursesPage() {
                 columnWidths: [
                   { wch: 32 },
                   { wch: 16 },
+                  { wch: 24 },
                   { wch: 14 },
                   { wch: 12 },
                   { wch: 14 },
                   { wch: 14 },
                   { wch: 10 },
                 ],
-                headers: ['title', 'code', 'status', 'mode', 'start_date', 'end_date', 'total_seats'],
+                headers: [
+                  'title', 'code', 'institution', 'status', 'mode', 'start_date', 'end_date',
+                  'total_seats',
+                ],
+                // row.institution is a nested {id,name} object — a {...row} spread would
+                // drag it (and created_by_profile) into the sheet instead of a flat value,
+                // same wall events-data-table.tsx hits. Flatten explicitly.
+                transformFunction: ((row: CourseEvent) => ({
+                  title: row.title,
+                  code: row.code ?? '',
+                  institution: row.institution?.name ?? '',
+                  status: row.status,
+                  mode: row.mode,
+                  start_date: row.start_date ?? '',
+                  end_date: row.end_date ?? '',
+                  total_seats: row.total_seats ?? '',
+                })) as never,
               }}
               config={{
                 enableUrlState: true,

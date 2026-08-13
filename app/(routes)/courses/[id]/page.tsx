@@ -2,9 +2,10 @@
 
 // Course Events — /courses/[id] detail console (Phase 2a Task 7). Header +
 // tab scaffold: Overview (read-only summary), Settings (CourseForm in edit
-// mode, gated on courses.edit), and Packages/Sessions — disabled placeholders
-// that Phase 2b and 2c will fill in. Rendered now, not omitted, so the shape
-// of the console is legible and 2b/2c have an obvious insertion point.
+// mode, gated on courses.edit), and Packages/Sessions — clickable tabs that
+// render a short Coming Soon card until Phase 2b and 2c fill them in.
+// Rendered now, not omitted, so the shape of the console is legible and
+// 2b/2c have an obvious insertion point.
 //
 // Tab state is URL-synced via useTabParam per the 2026-07-17 system standard
 // for every tabbed page (deep-linkable + favoritable via ?tab=) — hence the
@@ -105,11 +106,10 @@ function Fact({
   );
 }
 
-/** Placeholder body for the Packages/Sessions tabs — reachable only via a
- *  direct `?tab=` URL, since their triggers carry `disabled`. That's
- *  deliberate: the trigger being unclickable already tells a browsing user
- *  the feature isn't here yet, while the panel stays as the literal
- *  insertion point 2b/2c swap real content into. */
+/** Placeholder body for the Packages/Sessions tabs — clickable like every
+ *  other tab, so a browsing user can actually see what's coming rather than
+ *  hovering a disabled trigger's tooltip. Stays as the literal insertion
+ *  point 2b/2c swap real content into. */
 function ComingSoonPanel({ note }: { note: string }) {
   return (
     <Card>
@@ -243,12 +243,8 @@ function CourseDetailPageInner() {
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="packages" disabled title="Coming in Phase 2b">
-              Packages
-            </TabsTrigger>
-            <TabsTrigger value="sessions" disabled title="Coming in Phase 2c">
-              Sessions
-            </TabsTrigger>
+            <TabsTrigger value="packages">Packages</TabsTrigger>
+            <TabsTrigger value="sessions">Sessions</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
