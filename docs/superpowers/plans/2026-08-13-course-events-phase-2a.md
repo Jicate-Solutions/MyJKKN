@@ -469,10 +469,12 @@ In `lib/navigation/modules.ts`, add alongside the Events entry (line 145), match
 
 ```typescript
   // ── Courses ───────────────────────────────────────────────────────────
-  { slug: 'courses', label: 'Courses', icon: 'GraduationCap', section: 'Courses', hasNavConfig: false },
+  { slug: 'courses', label: 'Courses', icon: 'Presentation', section: 'Courses', hasNavConfig: false },
 ```
 
-`slug` must be `courses` so it resolves against `/courses`. `icon` is a `lucide-react` export name as a **string** — `GraduationCap` exists; verify before committing to it.
+`slug` must be `courses` so it resolves against `/courses`. `icon` is a `lucide-react` export name as a **string**, resolved at render time (see the doc comment at `modules.ts:39`).
+
+**`Presentation` is chosen because it is unused.** Checked 2026-08-13: `GraduationCap` is already the **Academic** module's icon (`modules.ts:69`) and `BookOpen` is also taken — either would put two identical glyphs in one sidebar, which is exactly the kind of thing nobody notices in review and everybody notices in use. `Library` and `NotebookPen` are also free if `Presentation` reads wrong to you.
 
 - [ ] **Step 5: Regenerate the route manifest**
 
