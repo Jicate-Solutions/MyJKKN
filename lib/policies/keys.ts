@@ -293,6 +293,21 @@ export const POLICY_KEYS = {
   HOSTEL_SETTLE_BILL_WINDOW_DAYS: 'hostel.settle_bill.window_days',
   HOSTEL_SETTLE_BILL_OUTER_LIMIT_DAYS: 'hostel.settle_bill.outer_limit_days',
   HOSTEL_SETTLE_BILL_BILL_DUE_DAYS: 'hostel.settle_bill.bill_due_days',
+  // Hours every current resident has to agree to a room buyout before the
+  // request lapses. A sole occupant never waits.
+  // supabase/migrations/20260819032000_hostel_room_buyout.sql seeds 48.
+  HOSTEL_SETTLE_BILL_BUYOUT_CONSENT_HOURS: 'hostel.settle_bill.buyout_consent_hours',
+
+  // Empty-bed intimation — tell a resident her room is under-filled and what it
+  // is costing her, so she can invite someone before the settle window closes.
+  // Seeded by supabase/migrations/20260815060001_empty_bed_intimation.sql:
+  // false / 2 / <template>. ENABLED is its own master switch, separate from
+  // HOSTEL_SETTLE_BILL_ENABLED — notices can be armed first, since they move no
+  // money, and that is the intended order.
+  HOSTEL_EMPTY_BED_NOTICE_ENABLED: 'hostel.empty_bed_notice.enabled',
+  HOSTEL_EMPTY_BED_NOTICE_REMINDER_INTERVAL_DAYS:
+    'hostel.empty_bed_notice.reminder_interval_days',
+  HOSTEL_EMPTY_BED_NOTICE_MESSAGE_TEMPLATE: 'hostel.empty_bed_notice.message_template',
 
   // Bed Economics — scalar tunables (Bed Economics PR A, 2026-06-07) ---------
   // Seeded as global system rows by

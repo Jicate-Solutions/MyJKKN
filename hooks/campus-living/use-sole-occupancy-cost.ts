@@ -20,13 +20,23 @@ import { useFeeQuote } from '@/hooks/campus-living/use-allocation-eligibility';
  * learner has to deal with.
  */
 export interface SoleOccupancyCost {
-  /** Annual total for this learner as the room's only occupant. */
+  /**
+   * Annual total for this learner at the room's CURRENT occupancy. Named for
+   * the original sole-occupant case; `occupants` now generalises it, so in a
+   * 2-of-4 room this is the two-way share, not the alone price.
+   */
   aloneTotal: number | null;
   /** Annual total for this learner once every bed is taken. */
   fullTotal: number | null;
-  /** aloneTotal − fullTotal when positive; null when there is no difference. */
+  /**
+   * aloneTotal − fullTotal when positive; null when there is no difference.
+   *
+   * This is exactly what the empty beds cost her: the mess fee is flat and
+   * cancels, leaving the room and AC shares she carries beyond her own bed. It
+   * is the same figure the settle biller raises.
+   */
   extraCost: number | null;
-  /** True only when both quotes resolved AND alone costs more than full. */
+  /** True only when both quotes resolved AND the current share costs more. */
   ready: boolean;
   loading: boolean;
 }
@@ -36,8 +46,14 @@ export function useSoleOccupancyCost(params: {
   roomCategoryId: string | null | undefined;
   capacity: number | null | undefined;
   messCategoryId?: string | null;
+  /**
+   * People living in the room right now. Defaults to 1 — the sole-occupancy
+   * case this hook was written for, and what the pick-a-room notice needs,
+   * since nobody is in that room yet.
+   */
+  occupants?: number;
 }): SoleOccupancyCost {
-  const { roomId, roomCategoryId, capacity, messCategoryId } = params;
+  const { roomId, roomCategoryId, capacity, messCategoryId, occupants = 1 } = params;
   const { currentYear } = useCurrentHostelYear();
 
   const base =
@@ -50,7 +66,11 @@ export function useSoleOccupancyCost(params: {
         }
       : null;
 
-  const alone = useFeeQuote(base ? { ...base, activeOccupants: 1 } : null);
+  // Clamped: a caller mid-render can briefly hold an occupancy of 0, and the
+  // quote endpoint would divide the whole room by nobody.
+  const safeOccupants = Math.max(1, Math.floor(occupants || 1));
+
+  const alone = useFeeQuote(base ? { ...base, activeOccupants: safeOccupants } : null);
   const full = useFeeQuote(base ? { ...base, activeOccupants: capacity! } : null);
 
   const aloneTotal = alone.data?.breakdown.total_annual ?? null;
