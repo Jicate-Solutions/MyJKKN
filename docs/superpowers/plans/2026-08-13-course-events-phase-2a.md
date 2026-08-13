@@ -283,9 +283,25 @@ export class CourseEventService extends BaseService {
     return data as unknown as CourseEvent;
   }
 
+  /**
+   * CORRECTED 2026-08-13 — the first draft passed `dto` straight through, which was a
+   * live 22P02 waiting for the edit form. SIX columns reject '': start_date and
+   * end_date (date), application_opens_at and application_closes_at (timestamptz),
+   * total_seats (integer), previous_course_event_id (uuid). The date fields are the
+   * ones a user is most likely to CLEAR on an edit form.
+   *
+   * The normalizer is shared with create() rather than duplicated — two parallel
+   * field lists drift, which is exactly the incomplete-sweep failure Phase 1 hit.
+   *
+   * It must only rewrite keys ALREADY PRESENT and must never ADD one:
+   * UpdateCourseEventDto is Partial<>, so seeding absent keys with null would wipe
+   * every field the user did not touch — silent data loss, far worse than the 22P02.
+   */
   static async update(id: string, dto: UpdateCourseEventDto) {
     const { data, error } = await this.supabase
-      .from('course_events').update(dto as any).eq('id', id).select(SELECT).single();
+      .from('course_events')
+      .update(this.nullifyBlanks(dto) as any)
+      .eq('id', id).select(SELECT).single();
     if (error) throw error;
     return data as unknown as CourseEvent;
   }
