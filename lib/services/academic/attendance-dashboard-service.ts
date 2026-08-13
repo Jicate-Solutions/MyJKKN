@@ -17,6 +17,7 @@ import type {
 } from '@/types/attendance-dashboard';
 import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
+import { selectInChunks } from '@/lib/utils/postgrest-in-chunks';
 
 /**
  * Post-class-feedback attendance-confirmation split for the admin dashboard.
@@ -613,25 +614,23 @@ export class AttendanceDashboardService {
         }
       });
 
-      // Fetch course and staff lookup data
-      const [coursesData, staffData] = await Promise.all([
-        courseIds.size > 0
-          ? this.supabase
-              .from('courses')
-              .select('id, course_name, course_code')
-              .in('id', Array.from(courseIds))
-          : { data: [] },
-        staffIds.size > 0
-          ? this.supabase
-              .from('staff')
-              .select('id, first_name, last_name, email, institution_email')
-              .in('id', Array.from(staffIds))
-          : { data: [] }
+      // Fetch course and staff lookup data — chunked: the all-institutions view
+      // resolves ~750 course ids, past the ~680-id URL cliff the gateway rejects.
+      // A failed chunk THROWS instead of silently rendering "Unknown Course".
+      const [coursesResult, staffResult] = await Promise.all([
+        selectInChunks(Array.from(courseIds), (chunk) =>
+          this.supabase
+            .from('courses')
+            .select('id, course_name, course_code')
+            .in('id', chunk)
+        ),
+        selectInChunks(Array.from(staffIds), (chunk) =>
+          this.supabase
+            .from('staff')
+            .select('id, first_name, last_name, email, institution_email')
+            .in('id', chunk)
+        ),
       ]);
-
-      // Type cast to fix TypeScript inference after React 19 upgrade
-      const coursesResult = (coursesData as any).data || [];
-      const staffResult = (staffData as any).data || [];
 
       // Create lookup maps
       const courseLookup = (coursesResult as any[]).reduce((acc, course) => {
