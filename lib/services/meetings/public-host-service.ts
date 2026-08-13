@@ -251,13 +251,26 @@ export class PublicHostService {
    * does not exist and the query errors. An empty map makes every type fall
    * back to the one place its legacy location_* columns already describe — the
    * booking page then renders exactly as it does today.
+   *
+   * "Not applied yet" is an EXPECTED state, not an incident, and it can last
+   * weeks — merging is not applying in this repo. So a missing table is handled
+   * quietly and REMEMBERED: without the latch this logs an error and burns a
+   * round trip on EVERY render of a public, unauthenticated page, which buries
+   * real errors in noise and teaches readers to ignore this log line. Any OTHER
+   * error still logs every time, because that one IS an incident.
+   *
+   * The latch is per server instance and resets on redeploy — which is exactly
+   * when the table's existence can change — so applying the migration needs no
+   * cache-busting step.
    */
+  private static placesTableMissing = false;
+
   private static async placesFor(
     supabase: SupabaseClient,
     typeIds: string[],
   ): Promise<Map<string, MeetingTypeLocationRow[]>> {
     const byType = new Map<string, MeetingTypeLocationRow[]>();
-    if (!typeIds.length) return byType;
+    if (!typeIds.length || this.placesTableMissing) return byType;
     const { data, error } = await supabase
       .from('meeting_type_locations')
       .select('id, meeting_type_id, location_mode, location_resource_id, location_text, sort_order')
@@ -265,7 +278,20 @@ export class PublicHostService {
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
     if (error) {
-      console.error(`${LOG_PREFIX} meeting type places load failed:`, error.message);
+      // 42P01 = undefined_table (Postgres); PGRST205 = PostgREST cannot find it
+      // in its schema cache. Either one means the migration is not applied yet.
+      const notApplied =
+        error.code === '42P01' ||
+        error.code === 'PGRST205' ||
+        /does not exist|could not find the table/i.test(error.message ?? '');
+      if (notApplied) {
+        this.placesTableMissing = true;
+        console.info(
+          `${LOG_PREFIX} meeting_type_locations is not present yet — using the legacy single location until migration 20260830030000 is applied`,
+        );
+      } else {
+        console.error(`${LOG_PREFIX} meeting type places load failed:`, error.message);
+      }
       return byType; // caller falls back to the legacy single location
     }
     for (const row of (data ?? []) as MeetingTypeLocationRow[]) {
