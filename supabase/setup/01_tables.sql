@@ -46,6 +46,8 @@ END $$;
 
 -- Profiles table (extends Supabase auth.users)
 -- Updated: 2026-04-14 - Added chk_role_not_guest to enforce invite-only policy
+-- Updated: 2026-08-13 - Added is_external_participant (Course Events).
+-- Mirrors migration 20260813100600_course_permissions_and_role.sql.
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email TEXT,
@@ -65,6 +67,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     institution_id UUID,
     department_id UUID,
     learner_id UUID,
+    -- TRUE for a person provisioned solely to take a paid course. They have
+    -- institution_id NULL, hold only courses.participant.self, and are
+    -- confined to the /my-courses portal.
+    is_external_participant BOOLEAN NOT NULL DEFAULT false,
     CONSTRAINT chk_role_not_guest CHECK (role <> 'guest')
 );
 
@@ -1710,6 +1716,11 @@ CREATE TABLE IF NOT EXISTS public.user_child_app_permissions (
 -- Profiles indexes
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 CREATE INDEX IF NOT EXISTS idx_profiles_institution_id ON public.profiles(institution_id);
+-- Added 2026-08-13 (Course Events). Partial index — only external
+-- participants set this flag, so the index stays small.
+CREATE INDEX IF NOT EXISTS idx_profiles_external_participant
+  ON public.profiles (is_external_participant)
+  WHERE is_external_participant;
 
 -- Learners Profiles indexes
 -- Created: 2025-01-18 - Indexes for unified learners_profiles table
