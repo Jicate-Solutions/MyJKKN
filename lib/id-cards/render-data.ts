@@ -488,8 +488,14 @@ export function svgCoverImageDataUrl(
     radius > 0
       ? `<clipPath id="r"><rect x="0" y="0" width="${boxW}" height="${boxH}" rx="${radius}" ry="${radius}"/></clipPath>`
       : '';
+  // The bitmap is inlined as a base64 data URL, so naming it on BOTH `href` and
+  // `xlink:href` doubles the payload. A 3.6 MB photo became ~10.2 MB of XML and
+  // the SVG rasteriser refused it outright ("Buffer size limit exceeded"),
+  // 500-ing the whole card. 467 learner photos are over 2 MB, so this was not
+  // an edge case. One attribute is enough — xlink:href is the SVG 1.1 spelling
+  // every rasteriser has understood for years.
   const imageTag =
-    `<image href="${dataUrl}" xlink:href="${dataUrl}" x="${placement.left}" y="${placement.top}" ` +
+    `<image xlink:href="${dataUrl}" x="${placement.left}" y="${placement.top}" ` +
     `width="${placement.width}" height="${placement.height}" preserveAspectRatio="none"/>`;
   const body = radius > 0 ? `${clip}<g clip-path="url(#r)">${imageTag}</g>` : imageTag;
   const svg =
