@@ -30,8 +30,10 @@ COMMENT ON COLUMN public.jkkn_identities.profile_id IS
   'Link for an external participant, who has a profile but is neither a learner nor staff. Deliberately left unconstrained for the other kinds so that an external participant who later enrols keeps this row, this number, and both links.';
 
 -- 3. Widen the link-shape CHECK ---------------------------------------
--- The first three clauses are preserved VERBATIM from the original
--- migration. Only the fourth is new.
+-- The first three clauses are preserved unchanged in meaning and
+-- structure from the original migration; whitespace was realigned to
+-- fit the longer 'external_participant' literal. Only the fourth clause
+-- is new.
 ALTER TABLE public.jkkn_identities
   DROP CONSTRAINT jkkn_identities_link_shape_chk;
 

@@ -9299,13 +9299,16 @@ CREATE POLICY course_applications_decide ON public.course_applications
         AND public.role_has_institution_access(institution_id))
   );
 
+-- Corrected 2026-08-18 (migration 20260818010000): the courses.view arm
+-- was dropped. course_enrollments carries total_payable, total_paid,
+-- balance and refundable_amount for every enrollee, and the entry-level
+-- "View Courses" key exposed that money to anyone holding it — while the
+-- same figures on course_bills correctly require courses.billing.view.
 CREATE POLICY course_enrollments_select ON public.course_enrollments
   FOR SELECT TO authenticated
   USING (
     (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
     OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
-        AND public.role_has_institution_access(institution_id))
-    OR ((SELECT public.user_has_permission('courses.view'))
         AND public.role_has_institution_access(institution_id))
     OR profile_id = (SELECT auth.uid())
   );
