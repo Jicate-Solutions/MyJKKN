@@ -17,6 +17,19 @@ export type IdCardPolicy = {
   station_endpoint_url: string | null;
   ribbon_type: 'YMCKO' | 'YMCKOK' | 'monochrome';
   photo_fallback: string[];
+  /**
+   * How long a printed card is valid for (2026-09-02). Absent on databases
+   * that predate migration 20260902010000 — every reader must fail soft to
+   * the built-in defaults, which ARE the Director's rules.
+   */
+  validity?: {
+    /** 'course_end' = a learner's card lasts their whole course. */
+    learner_mode: 'course_end' | 'yearly';
+    /** Team-member cards are re-issued each academic year. */
+    team_member_mode: 'yearly';
+    /** Academic-year end as `MM-DD` (default '05-31'). */
+    year_end_mmdd: string;
+  };
 };
 
 export type IdCardPrintJobStatus =
@@ -72,7 +85,12 @@ export const ID_CARD_POLICY_KEYS = [
   'id_card.encoding.rfid_hardware_present',
   'id_card.station_endpoint_url',
   'id_card.ribbon_type',
-  'id_card.photo_fallback'
+  'id_card.photo_fallback',
+  // Card validity (2026-09-02). Dotted form — this is what the seeded rows and
+  // fn_get_id_card_policy actually read.
+  'id_card.validity.learner_mode',
+  'id_card.validity.team_member_mode',
+  'id_card.validity.year_end_mmdd'
 ] as const;
 
 export type IdCardPolicyKey = (typeof ID_CARD_POLICY_KEYS)[number];

@@ -127,6 +127,14 @@ export type CardPersonData = {
   studyPeriod: string | null;
   /** Team member's staff.staff_id for the front side. null for learners. */
   staffId: string | null;
+  /**
+   * The learner's course end date — learners_profiles.batch_id → batches.end_date,
+   * ISO as stored. Drives the card's VALID UNTIL under the course_end policy.
+   * null for team members and for the learners who carry no batch (those fall
+   * back to the yearly rule). Deliberately NOT derived from studyPeriod:
+   * deriveStudyPeriodLabel short-circuits on batch_name and never reads end_date.
+   */
+  courseEndDate: string | null;
 };
 
 export type AssembleFailure = {
@@ -168,15 +176,121 @@ const MONTH_LABELS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ] as const;
 
+/** The historic academic-year end (31 May), used when policy is unreadable. */
+const DEFAULT_YEAR_END_MMDD = '05-31';
+
 /**
- * Default validity label: end of the current academic year (31 May).
- * Academic years run June→May, so from June onward the card is valid until
- * 31 May of the NEXT calendar year. Placeholder policy until a dedicated
- * id_card validity policy key exists.
+ * Parse a `MM-DD` academic-year-end string into 1-based month + day.
+ * Anything malformed falls back to 31 May — a card must always carry a date.
+ */
+export function parseYearEndMmdd(value: string | null | undefined): {
+  month: number;
+  day: number;
+} {
+  const match = /^(\d{2})-(\d{2})$/.exec((value ?? '').trim());
+  const month = match ? Number(match[1]) : 5;
+  const day = match ? Number(match[2]) : 31;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return { month: 5, day: 31 };
+  return { month, day };
+}
+
+/**
+ * The yearly rule: the next occurrence of the academic-year end on or after
+ * today. With the default 31 May that reproduces the historic behaviour
+ * exactly — academic years run June→May, so from June onward the card runs to
+ * 31 May of the NEXT calendar year.
+ */
+export function yearlyValidUntilLabel(
+  now: Date = new Date(),
+  yearEndMmdd: string = DEFAULT_YEAR_END_MMDD
+): string {
+  const { month, day } = parseYearEndMmdd(yearEndMmdd);
+  const nowMonth = now.getMonth() + 1;
+  const passed = nowMonth > month || (nowMonth === month && now.getDate() > day);
+  const year = passed ? now.getFullYear() + 1 : now.getFullYear();
+  return `${String(day).padStart(2, '0')} ${MONTH_LABELS[month - 1]} ${year}`;
+}
+
+/**
+ * The yearly rule at the built-in 31 May year end. Kept as its own export
+ * because it is the terminal branch of resolveValidUntilLabel and is pinned
+ * by tests written before the policy existed.
  */
 export function defaultValidUntilLabel(now: Date = new Date()): string {
-  const year = now.getMonth() >= 5 ? now.getFullYear() + 1 : now.getFullYear();
-  return `31 ${MONTH_LABELS[4]} ${year}`;
+  return yearlyValidUntilLabel(now, DEFAULT_YEAR_END_MMDD);
+}
+
+/**
+ * The Director's card-validity rules, held as config in platform_policies
+ * (`id_card.validity.*`) and resolved by fn_get_id_card_policy. Never a
+ * TypeScript constant — a college can be moved back to yearly learner cards
+ * with a policy row change and no deploy.
+ */
+export type IdCardValidityPolicy = {
+  /** 'course_end' = the card lasts the whole course; 'yearly' = the yearly rule. */
+  learnerMode: 'course_end' | 'yearly';
+  /** Team-member cards are re-issued every academic year. */
+  teamMemberMode: 'yearly';
+  /** Academic-year end as `MM-DD`. */
+  yearEndMmdd: string;
+};
+
+export const DEFAULT_VALIDITY_POLICY: IdCardValidityPolicy = {
+  learnerMode: 'course_end',
+  teamMemberMode: 'yearly',
+  yearEndMmdd: DEFAULT_YEAR_END_MMDD
+};
+
+/**
+ * Read the `validity` block out of the fn_get_id_card_policy JSONB. Fail-soft
+ * by design: an older database that predates this migration returns no
+ * `validity` key at all, and the built-in defaults (which ARE the Director's
+ * policy) apply. Never throws — a card must render.
+ */
+export function parseValidityPolicy(raw: unknown): IdCardValidityPolicy {
+  if (!raw || typeof raw !== 'object') return DEFAULT_VALIDITY_POLICY;
+  const block = (raw as Record<string, unknown>).validity;
+  if (!block || typeof block !== 'object') return DEFAULT_VALIDITY_POLICY;
+  const v = block as Record<string, unknown>;
+  const learnerMode = v.learner_mode === 'yearly' ? 'yearly' : 'course_end';
+  const yearEndRaw = typeof v.year_end_mmdd === 'string' ? v.year_end_mmdd : '';
+  const { month, day } = parseYearEndMmdd(yearEndRaw);
+  return {
+    learnerMode,
+    teamMemberMode: 'yearly',
+    yearEndMmdd: `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  };
+}
+
+/**
+ * The card's VALID UNTIL label.
+ *
+ *   • team member                          → the yearly rule
+ *   • learner with a course end date       → that date (the whole course)
+ *   • learner with no course end date      → the yearly rule
+ *   • learner_mode flipped back to yearly  → the yearly rule
+ *
+ * Pure and unit-tested. `courseEndDate` is batches.end_date as stored (ISO);
+ * anything that is not an ISO date is ignored rather than printed, so a junk
+ * value degrades to the yearly rule instead of putting junk on a card.
+ */
+export function resolveValidUntilLabel(input: {
+  kind: CardPersonData['kind'];
+  courseEndDate: string | null;
+  policy?: IdCardValidityPolicy | null;
+  now?: Date;
+}): string {
+  const policy = input.policy ?? DEFAULT_VALIDITY_POLICY;
+  const now = input.now ?? new Date();
+  const yearly = yearlyValidUntilLabel(now, policy.yearEndMmdd);
+
+  if (input.kind !== 'learner') return yearly;
+  if (policy.learnerMode !== 'course_end') return yearly;
+
+  const courseEnd = (input.courseEndDate ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(courseEnd)) return yearly;
+  const label = formatDateLabel(courseEnd);
+  return label || yearly;
 }
 
 /**
@@ -642,6 +756,7 @@ export async function assembleCardData(
   let idCode: string | null = null;
   let studyPeriod: string | null = null;
   let staffId: string | null = null;
+  let courseEndDate: string | null = null;
   const photoCandidates: string[] = [];
   const valueBag: Record<string, string> = {
     'profiles.id': p.id,
@@ -718,6 +833,10 @@ export async function assembleCardData(
       contactPhone = learner.student_mobile?.trim() || null;
       idCode = learner.roll_number?.trim() || null;
       studyPeriod = deriveStudyPeriodLabel(learner.batch);
+      // Course end date for the VALID UNTIL line. Read straight off the batch
+      // row already in hand — batches.end_date is NOT NULL, so a batch row
+      // means a real course end. No batch → stays null → the yearly rule.
+      courseEndDate = (learner.batch?.end_date ?? '').trim() || null;
       // Display intent (like program_id/department_id): batch_id maps to the
       // derived study-period label — a raw UUID must never print on a card.
       valueBag['learners_profiles.batch_id'] = studyPeriod ?? '';
@@ -831,7 +950,8 @@ export async function assembleCardData(
       contactPhone,
       idCode,
       studyPeriod,
-      staffId
+      staffId,
+      courseEndDate
     }
   };
 }
