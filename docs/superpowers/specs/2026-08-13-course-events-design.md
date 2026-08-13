@@ -473,6 +473,16 @@ RLS gates on `user_has_permission('courses.…')` **AND**
 `role_has_institution_access(institution_id)`. No role names in SQL. Participant access
 is an **additive** policy, not a widened admin policy.
 
+**The delete policy is deliberately tighter than every other policy.** Every other course
+policy bypasses on `is_super_admin() OR is_admin()`; `course_events_delete` bypasses on
+`is_super_admin()` **only**, so a generic admin cannot cascade-delete a course without
+explicitly holding `courses.delete`. This mirrors `events.delete`, whose catalogue entry
+records the same reasoning: *"Seeded to NO role — super admins pass via
+user_has_permission()'s bypass, everyone else is granted here from Role Management. The
+DELETE it unlocks cascades through 43 child tables … so it is deliberately not bundled."*
+A course delete cascades packages, installments, sessions, forms, applications,
+enrollments and bills. The asymmetry is the safeguard — do not "fix" it for consistency.
+
 ### 7.2 Routes
 
 ```
