@@ -226,7 +226,14 @@ export const PERMISSION_CATEGORIES = [
       { key: 'users.relationship.view', label: 'View User→Learner Relationships (Parents)' },
       { key: 'users.relationship.manage', label: 'Manage User→Learner Relationships (Parents)' },
       { key: 'users.contract_access.view', label: 'View User→Contract Access Grants (Vendors)' },
-      { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' }
+      { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' },
+      // Added 2026-08-10 — JKKN permanent ID. `.view` gates the lookup page and
+      // the two read RPCs (fn_resolve_person, fn_check_duplicate_person).
+      // `.issue` gates fn_issue_jkkn_id and is DELIBERATELY GRANTED TO NO ROLE:
+      // that is what keeps the register dormant. Granting it is the switch-on,
+      // and is a decision, not a default.
+      { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID (dormant — granted to no role)' }
     ]
   },
   {
@@ -883,6 +890,16 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.leave.encashment.approve', label: 'Approve Leave Encashment' },
       { key: 'hr.leave.types.manage', label: 'Manage HR Leave Types' },
       { key: 'hr.leave.balance.manage', label: 'Generate Leave Balances' },
+
+      // ── HR academic years (2026-08-10) ───────────────────────────────────
+      // The leave/payroll calendar HR owns, replacing the borrowed
+      // academic_years. Only a manage key: hr_academic_years SELECT is open to
+      // authenticated because every staff member's apply-leave drawer has to
+      // resolve the current year, and gating four rows of dates behind a key
+      // would mean granting it to 5,000+ users. Writes are what needs guarding.
+      // Granted by 20260810120000_hr_academic_years.sql to the seven roles that
+      // already hold hr.leave.balance.manage.
+      { key: 'hr.academic_years.manage', label: 'Manage HR Academic Years' },
 
       // ── Payroll organisation (2026-07-31) ────────────────────────────────
       // WHO PAYS a staff member, held in hr_staff_payroll. Deliberately a
@@ -1696,6 +1713,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'accreditation.metrics.manage', label: 'Manage Accreditation Metrics (add local/supplementary)' },
       { key: 'accreditation.source_registry.view', label: 'View Evidence Source Registry' },
       { key: 'accreditation.source_registry.manage', label: 'Manage Evidence Source Registry (admin only)' },
+
+      // 2026-08-12 — the accreditation.evidence.view / .create / .manage trio
+      // this PR originally registered here is NOT re-added: it landed on main
+      // independently on 2026-08-05 (see the "the evidence ledger itself" block
+      // further down this same list). Registering it twice would render the key
+      // twice in Role Management. The reasoning is identical and is preserved at
+      // its surviving site; only the duplicate is dropped.
 
       // Awarding-body registry + institution mapping (2026-08-06) —
       // /accreditation/manage/bodies. Which bodies a college answers to decides

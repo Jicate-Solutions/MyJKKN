@@ -152,9 +152,20 @@ const config: ModuleNavConfig = {
       icon: 'UserCheck',
       href: '/hr/attendance',
       matchPaths: ['/hr/attendance'],
+      // 2026-08-09: /hr/attendance became the employee-facing My Attendance
+      // page (Attendance Log + Calendar). 'Regularize Approvals' and 'Import
+      // Punches' were removed from here and re-homed on the HR Admin group's
+      // matchPaths below — they are HR-ops surfaces, and leaving them as
+      // self-service chips advertised them to all 76 roles holding
+      // hr.attendance.view_self.
+      //
+      // They MUST stay listed somewhere in this file: scripts/check-nav-reachability.ts
+      // treats children hrefs and matchPaths as its orphan-coverage manifest,
+      // so deleting them outright would count both routes against the
+      // --max-unreachable 60 budget rather than merely hiding them.
       children: [
         {
-          label: 'Overview',
+          label: 'My Attendance',
           icon: 'UserCheck',
           href: '/hr/attendance',
           exact: true,
@@ -164,18 +175,6 @@ const config: ModuleNavConfig = {
           icon: 'ClipboardCheck',
           href: '/hr/attendance/regularize',
           matchPaths: ['/hr/attendance/regularize'],
-        },
-        {
-          label: 'Regularize Approvals',
-          icon: 'ShieldCheck',
-          href: '/hr/attendance/regularize/approvals',
-          matchPaths: ['/hr/attendance/regularize/approvals'],
-        },
-        {
-          label: 'Import Punches',
-          icon: 'Upload',
-          href: '/hr/attendance/import',
-          matchPaths: ['/hr/attendance/import'],
         },
       ],
     },
@@ -262,10 +261,24 @@ const config: ModuleNavConfig = {
       // No explicit children — the deeper admin pages auto-surface via the
       // manifest walk (deeperTiersFromManifest), mirroring how the old
       // /admin auto-nav exposed them.
+      //
+      // The two /hr/attendance/* entries are here rather than under Attendance
+      // because they are HR-ops surfaces that moved off the self-service page
+      // on 2026-08-09. They do not live under /hr/admin/ on disk, so the
+      // manifest walk cannot find them — they must be listed explicitly or
+      // check-nav-reachability counts them as orphans.
       label: 'Admin',
       icon: 'Settings',
       href: '/hr/admin',
-      matchPaths: ['/hr/admin', '/hr/admin/leave-types', '/hr/admin/leave-balances', '/hr/admin/sanctioned-posts'],
+      matchPaths: [
+        '/hr/admin',
+        '/hr/admin/leave-types',
+        '/hr/admin/leave-balances',
+        '/hr/admin/academic-years',
+        '/hr/admin/sanctioned-posts',
+        '/hr/attendance/import',
+        '/hr/attendance/regularize/approvals',
+      ],
     },
   ],
 };

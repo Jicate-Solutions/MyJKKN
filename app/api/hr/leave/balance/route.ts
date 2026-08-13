@@ -35,10 +35,10 @@ export async function GET(request: NextRequest) {
 
     const url = new URL(request.url);
     const employee_id = url.searchParams.get('employee_id');
-    const academic_year_id = url.searchParams.get('academic_year_id');
-    if (!employee_id || !academic_year_id) {
+    const hr_academic_year_id = url.searchParams.get('hr_academic_year_id');
+    if (!employee_id || !hr_academic_year_id) {
       return NextResponse.json(
-        { error: 'employee_id and academic_year_id required' },
+        { error: 'employee_id and hr_academic_year_id required' },
         { status: 400 }
       );
     }
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const balances = await LeaveService.getBalance(supabase, employee_id, academic_year_id);
+    const balances = await LeaveService.getBalance(supabase, employee_id, hr_academic_year_id);
     return NextResponse.json({ data: balances });
   } catch (err) {
     console.error('[hr/leave/balance] error', err);

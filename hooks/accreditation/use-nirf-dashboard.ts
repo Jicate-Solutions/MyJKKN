@@ -45,24 +45,77 @@ export function useNIRFMetrics() {
   });
 }
 
+/**
+ * PostgREST stops at `max-rows` (10,000 on this project) and says so ONLY in the
+ * `content-range` header, which the JS client does not surface. An unpaged
+ * `.select()` over a bigger table therefore returns a short array with
+ * `error === null` — the read looks perfectly successful and the count is just
+ * wrong. That is the same silent shape as an RLS denial, and it is why this
+ * needs pagination rather than a bigger single request.
+ *
+ * Measured 2026-08-02, the day NIRF evidence was seeded: 11,396 NIRF rows
+ * cluster-wide against a 10,000 cap. The page defaults to `'cluster'`, so its
+ * DEFAULT view was under-reporting by 1,396 rows. Per-institution the largest
+ * is 2,503 (ASSF), so only the cluster path ever crossed the line — but a cap
+ * that is only breached at cluster scale is exactly the one nobody notices.
+ */
+export const PAGE_SIZE = 1000;
+/** 100 pages = 100k rows. A stop, not a limit — it exists so a server that
+ *  ignores `.range()` cannot spin this loop forever. */
+export const MAX_PAGES = 100;
+
+/** Fetches one page. Returns the rows for `[from, to]` inclusive. */
+export type PageFetcher = (
+  from: number,
+  to: number,
+) => Promise<{ metric_code: string }[]>;
+
+/**
+ * Tallies every row by `metric_code`, paging until the set is exhausted.
+ *
+ * Pure and exported so the pagination contract can be tested against a fake
+ * server that enforces a row cap — the real failure. A test that re-counted a
+ * fixture array would only prove this file agrees with itself.
+ */
+export async function tallyMetricCountsPaged(
+  fetchPage: PageFetcher,
+): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const batch = await fetchPage(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    for (const row of batch) {
+      if (!row?.metric_code) continue;
+      counts[row.metric_code] = (counts[row.metric_code] ?? 0) + 1;
+    }
+    // A short page means the set is exhausted. Checked AFTER counting so the
+    // final partial page is never dropped.
+    if (batch.length < PAGE_SIZE) break;
+  }
+  return counts;
+}
+
 export function useNIRFEvidenceCounts(institutionId: string | 'cluster') {
   return useQuery({
     queryKey: nirfKeys.evidenceCounts(institutionId),
     queryFn: async (): Promise<Record<string, number>> => {
       const sb = createClientSupabaseClient() as any;
-      let query = sb
-        .from('quality_evidence_mappings')
-        .select('metric_code')
-        .eq('body_code', 'NIRF');
-      if (institutionId !== 'cluster') {
-        query = query.eq('institution_id', institutionId);
-      }
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data ?? []).reduce<Record<string, number>>((acc, row: any) => {
-        acc[row.metric_code] = (acc[row.metric_code] ?? 0) + 1;
-        return acc;
-      }, {});
+      return tallyMetricCountsPaged(async (from, to) => {
+        let query = sb
+          .from('quality_evidence_mappings')
+          .select('metric_code')
+          .eq('body_code', 'NIRF');
+        if (institutionId !== 'cluster') {
+          query = query.eq('institution_id', institutionId);
+        }
+        // Ordered so the pages partition the set. Without a stable sort,
+        // PostgREST may return overlapping or skipped rows across ranges and
+        // the totals drift — a subtler wrong number than the truncation itself.
+        const { data, error } = await query
+          .order('id', { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return (data ?? []) as { metric_code: string }[];
+      });
     },
     staleTime: 5 * 60 * 1000,
   });

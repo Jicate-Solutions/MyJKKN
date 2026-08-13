@@ -53,6 +53,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/academic/attendance/history",
+            "label": "History",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/academic/attendance/mark",
             "label": "Mark",
             "iconName": "CheckSquare",
@@ -3049,6 +3055,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/campus-living/settle-preview",
+        "label": "Settle Preview",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/campus-living/vacate-requests",
         "label": "Vacate Requests",
         "iconName": "LogOut",
@@ -3688,6 +3700,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Admin",
         "iconName": "FileText",
         "children": [
+          {
+            "path": "/hr/admin/academic-years",
+            "label": "Academic Years",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/hr/admin/automation-rules",
             "label": "Automation Rules",
@@ -6878,6 +6896,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
                 "path": "/startup-studio/school-of-influence/admin/attendance",
                 "label": "Attendance",
                 "iconName": "CheckSquare",
+                "children": []
+              },
+              {
+                "path": "/startup-studio/school-of-influence/admin/coordinators",
+                "label": "Coordinators",
+                "iconName": "FileText",
                 "children": []
               },
               {

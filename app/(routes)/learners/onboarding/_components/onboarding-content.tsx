@@ -9,6 +9,7 @@
 import { OnboardingTableServer } from './onboarding-table-server';
 import { getOnboardingLearners } from '../_data/get-onboarding-learners';
 import type { OnboardingTier, MissingField } from '@/types/learner-onboarding';
+import { isOnboardingStatus } from '@/types/learner-onboarding';
 
 interface OnboardingContentProps {
   searchParams: {
@@ -43,6 +44,10 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
   const academic_year_id = (searchParams.academic_year_id as string) || undefined;
   const gender = (searchParams.gender as string) || undefined;
   const missing_field = (searchParams.missing_field as MissingField | undefined) || undefined;
+  // Guarded, not cast: an out-of-range ?lifecycle_status must mean "both",
+  // never reach `.in()` verbatim and silently return an empty table.
+  const rawStatus = searchParams.lifecycle_status;
+  const lifecycle_status = isOnboardingStatus(rawStatus) ? rawStatus : undefined;
   const sortBy = (searchParams.sort_by as string) || 'first_name';
   const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
 
@@ -55,6 +60,7 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
     search_fields,
     tier,
     missing_field,
+    lifecycle_status,
     institution_id,
     degree_id,
     department_id,

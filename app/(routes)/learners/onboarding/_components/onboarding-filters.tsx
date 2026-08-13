@@ -51,7 +51,8 @@ const FILTER_KEYS = [
   'section_id',
   'academic_year_id',
   'gender',
-  'missing_field'
+  'missing_field',
+  'lifecycle_status'
 ] as const;
 
 export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
@@ -72,6 +73,7 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     academic_year_id?: string;
     gender?: string;
     missing_field?: string;
+    lifecycle_status?: string;
   }>({
     institution_id: searchParams.institution_id || undefined,
     degree_id: searchParams.degree_id || undefined,
@@ -81,7 +83,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
     section_id: searchParams.section_id || undefined,
     academic_year_id: searchParams.academic_year_id || undefined,
     gender: searchParams.gender || undefined,
-    missing_field: searchParams.missing_field || undefined
+    missing_field: searchParams.missing_field || undefined,
+    lifecycle_status: searchParams.lifecycle_status || undefined
   });
 
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -126,7 +129,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       section_id: undefined,
       academic_year_id: undefined,
       gender: undefined,
-      missing_field: undefined
+      missing_field: undefined,
+      lifecycle_status: undefined
     });
     const params = new URLSearchParams(currentSearchParams.toString());
     FILTER_KEYS.forEach((key) => params.delete(key));
@@ -145,7 +149,8 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
       section_id: searchParams.section_id || undefined,
       academic_year_id: searchParams.academic_year_id || undefined,
       gender: searchParams.gender || undefined,
-      missing_field: searchParams.missing_field || undefined
+      missing_field: searchParams.missing_field || undefined,
+      lifecycle_status: searchParams.lifecycle_status || undefined
     });
   }, [searchParams]);
 
@@ -539,6 +544,29 @@ export function OnboardingFilters({ searchParams }: OnboardingFiltersProps) {
                 <SelectItem value="academic_year_id">Missing Academic Year</SelectItem>
                 <SelectItem value="semester_id">Missing Semester</SelectItem>
                 <SelectItem value="section_id">Missing Section</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Lifecycle status — the workspace covers two statuses since
+                2026-08-10, so it needs a way to look at one at a time. Only the
+                two pre-active statuses are offered; any other value is rejected
+                by onboardingStatusSchema and falls back to "both". */}
+            <Select
+              value={localFilters.lifecycle_status || ''}
+              onValueChange={(v) =>
+                setLocalFilters((prev) => ({
+                  ...prev,
+                  lifecycle_status: v === 'all' ? undefined : v
+                }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Filter by Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Reserved &amp; Admitted</SelectItem>
+                <SelectItem value="reserved">Reserved only</SelectItem>
+                <SelectItem value="admitted">Admitted only</SelectItem>
               </SelectContent>
             </Select>
           </div>

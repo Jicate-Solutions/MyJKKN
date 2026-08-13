@@ -14,6 +14,10 @@ export const campusLivingDashboardKeys = {
   alerts: (institutionId: string) => ['campus-living-dashboard', 'alerts', institutionId] as const,
   recentActivity: (institutionId: string) => ['campus-living-dashboard', 'recent-activity', institutionId] as const,
   demographics: (institutionId: string) => ['campus-living-dashboard', 'demographics', institutionId] as const,
+  blockCategoryOccupancy: (institutionId: string) =>
+    ['campus-living-dashboard', 'block-category-occupancy', institutionId] as const,
+  institutionResidents: (institutionId: string) =>
+    ['campus-living-dashboard', 'institution-residents', institutionId] as const,
 };
 
 // --- Query hooks ---
@@ -33,6 +37,26 @@ export function useResidentDemographics(institutionId: string | undefined) {
   return useQuery({
     queryKey: campusLivingDashboardKeys.demographics(institutionId ?? 'all'),
     queryFn: () => CampusLivingDashboard.getResidentDemographics(isSuperAdmin ? undefined : institutionId),
+    enabled: isSuperAdmin || !!institutionId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useBlockCategoryOccupancy(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: campusLivingDashboardKeys.blockCategoryOccupancy(institutionId ?? 'all'),
+    queryFn: () => CampusLivingDashboard.getBlockCategoryOccupancy(isSuperAdmin ? undefined : institutionId),
+    enabled: isSuperAdmin || !!institutionId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useInstitutionResidents(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+  return useQuery({
+    queryKey: campusLivingDashboardKeys.institutionResidents(institutionId ?? 'all'),
+    queryFn: () => CampusLivingDashboard.getInstitutionResidents(isSuperAdmin ? undefined : institutionId),
     enabled: isSuperAdmin || !!institutionId,
     staleTime: 2 * 60 * 1000,
   });

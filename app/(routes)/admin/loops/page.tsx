@@ -28,6 +28,7 @@ import { LoopControlTower } from './_components/loop-control-tower';
 import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
 import { ClusterLens } from './_components/cluster-lens';
+import { OwnersPanel, type OwnerPanelRow } from './_components/owners-panel';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -920,7 +921,23 @@ export default async function LoopControlTowerPage({
   // Feeds the Tower's per-loop chips + the Wiring view. New prod tables — a
   // missing/lagging migration must never break this page, so every leg falls
   // back to an empty array (same swallow-to-empty philosophy as cnt() above).
-  const [registry, edges, audits, conflicts] = await Promise.all([
+  // Raw owners-panel row — the panel's dedicated read below (ALL rows, not just
+  // active: an owner can be assigned before a loop is switched on).
+  type OwnerRegistryRead = {
+    loop_key: string;
+    name: string;
+    domain: string | null;
+    verdict_owner: string | null;
+    owner_email: string | null;
+    is_active: boolean | null;
+    outcome_metric: string | null;
+    counter_metric: string | null;
+    intervention: string | null;
+    baseline_window: string | null;
+    remeasure_window: string | null;
+  };
+
+  const [registry, edges, audits, conflicts, ownerReads] = await Promise.all([
     // Charter-aware read with a pre-charter fallback: the five charter-leg
     // columns (outcome_metric … remeasure_window) land in a SIBLING migration,
     // and enumerating a column that doesn't exist yet errors the WHOLE select —
@@ -972,7 +989,43 @@ export default async function LoopControlTowerPage({
         (r) => (r.data ?? []) as LoopConflictRow[],
         () => [] as LoopConflictRow[]
       ),
+    // Owners & verdicts panel (2026-08-12) — the registry's delegation surface.
+    // Charter legs are read to compute the completeness badge server-side.
+    // Same swallow-to-empty contract as the reads above: a failed select
+    // renders the panel's explicit empty state, never a 500.
+    admin
+      .from('loop_registry')
+      .select(
+        'loop_key,name,domain,verdict_owner,owner_email,is_active,outcome_metric,counter_metric,intervention,baseline_window,remeasure_window'
+      )
+      .order('stack_tier', { ascending: true })
+      .order('name', { ascending: true })
+      .then(
+        (r) => (r.data ?? []) as OwnerRegistryRead[],
+        () => [] as OwnerRegistryRead[]
+      ),
   ]);
+
+  // Charter completeness: all five legs non-null/non-blank → "chartered".
+  // Blank-string legs count as missing — same honesty as the RPC's NULLIF.
+  const CHARTER_LEGS = [
+    'outcome_metric',
+    'counter_metric',
+    'intervention',
+    'baseline_window',
+    'remeasure_window',
+  ] as const;
+  const ownersPanelRows: OwnerPanelRow[] = ownerReads.map((r) => ({
+    loop_key: r.loop_key,
+    name: r.name,
+    domain: r.domain ?? null,
+    verdict_owner: r.verdict_owner ?? null,
+    owner_email: r.owner_email ?? null,
+    is_active: r.is_active !== false,
+    missing_legs: CHARTER_LEGS.filter(
+      (k) => r[k] == null || String(r[k]).trim() === ''
+    ),
+  }));
 
   // Latest audit per loop — audits arrive newest-first, so the first row seen
   // per loop_key wins.
@@ -1551,6 +1604,9 @@ export default async function LoopControlTowerPage({
             <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
+          <div className="mt-6">
+            <OwnersPanel rows={ownersPanelRows} />
+          </div>
         </>
       )}
     </ContentLayout>

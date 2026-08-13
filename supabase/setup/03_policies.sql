@@ -8652,3 +8652,361 @@ CREATE POLICY late_charges_delete_admin ON public.billing_late_charges
         OR (user_has_permission('billing.late_charges.manage')
             AND role_has_institution_access(institution_id))
     );
+
+-- Campus Living — Settle Then Bill (Director 2026-08-09)
+-- Added: 2026-08-09 (migration 20260815060000_hostel_settle_then_bill.sql —
+-- FILE ONLY, apply is Director-gated). A hostel room is NOT billed at
+-- move-in: a settle window lets the room fill (5 days, restarting on each
+-- joiner, capped 20 days from first open, short-circuited when the room is
+-- full), then every resident is billed at the occupancy that exists at that
+-- moment. A later joiner produces CREDITS, never a refund or a bill rewrite.
+-- The whole mechanism is OFF by default (hostel.settle_bill.enabled = false
+-- in platform_policies).
+
+ALTER TABLE public.hostel_room_settle_windows ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.hostel_room_settle_windows FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON TABLE public.hostel_room_settle_windows TO authenticated;
+
+DROP POLICY IF EXISTS settle_windows_select_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_select_admin ON public.hostel_room_settle_windows
+    FOR SELECT USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.view')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+-- A resident may read the window of the room she actually lives in — that is
+-- the "why am I not billed yet / when will I be" answer, and nothing more.
+-- hostel_allocations.learner_id FKs profiles(id), and profiles.id = auth.uid().
+DROP POLICY IF EXISTS settle_windows_select_own_room ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_select_own_room ON public.hostel_room_settle_windows
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.hostel_allocations a
+            WHERE a.room_id = hostel_room_settle_windows.room_id
+              AND a.learner_id = auth.uid()
+              AND a.check_out_date IS NULL
+        )
+    );
+
+DROP POLICY IF EXISTS settle_windows_insert_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_insert_admin ON public.hostel_room_settle_windows
+    FOR INSERT WITH CHECK (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+-- WITH CHECK is NOT optional here. Without it the post-image is never
+-- re-validated, so a tenant-scoped holder of campus_living.fees.config could
+-- UPDATE a window they can see and move its room_id to another institution's
+-- room — or flip status from 'billed' back to 'open' and clear the guard that
+-- stops a room being billed twice.
+DROP POLICY IF EXISTS settle_windows_update_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_update_admin ON public.hostel_room_settle_windows
+    FOR UPDATE USING (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    )
+    WITH CHECK (
+        (SELECT is_super_admin() OR is_admin())
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+DROP POLICY IF EXISTS settle_windows_delete_admin ON public.hostel_room_settle_windows;
+CREATE POLICY settle_windows_delete_admin ON public.hostel_room_settle_windows
+    FOR DELETE USING (
+        is_super_admin()
+        OR (user_has_permission('campus_living.fees.config')
+            AND EXISTS (
+                SELECT 1 FROM public.hostel_rooms r
+                WHERE r.id = hostel_room_settle_windows.room_id
+                  AND role_has_institution_access(r.institution_id)))
+    );
+
+-- Updated: 2026-08-09 - Empty-bed intimation ledger (hostel_empty_bed_notices).
+-- READ-ONLY policies by design. The ledger is written exclusively by the
+-- service-role cron, which bypasses RLS; a row nobody can forge is the whole
+-- point of the one-per-day guard, so no INSERT/UPDATE/DELETE policy is granted.
+-- The anon lock and the narrow authenticated re-grant live in the migration:
+-- supabase/migrations/20260815060001_empty_bed_intimation.sql (FILE ONLY, NOT APPLIED).
+ALTER TABLE public.hostel_empty_bed_notices ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hostel_empty_bed_notices_select_admin ON public.hostel_empty_bed_notices;
+CREATE POLICY hostel_empty_bed_notices_select_admin ON public.hostel_empty_bed_notices
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('campus_living.allocations.view')
+    );
+
+-- profiles.id = auth.users.id and hostel_allocations.learner_id is a profiles.id,
+-- so learner_id = auth.uid() is the same self test the rest of campus living uses.
+DROP POLICY IF EXISTS hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices;
+CREATE POLICY hostel_empty_bed_notices_select_own ON public.hostel_empty_bed_notices
+    FOR SELECT USING (learner_id = auth.uid());
+
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+-- SELECT is open to authenticated on purpose: this is a four-row calendar with
+-- no PII, and every staff member's apply-leave drawer has to resolve the
+-- current year. Gating it on a key would mean granting that key to 5,000+
+-- users. Writes are what needs guarding.
+ALTER TABLE public.hr_academic_years ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_academic_years_select_authenticated ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_select_authenticated ON public.hr_academic_years
+    FOR SELECT TO authenticated USING (true);
+
+DROP POLICY IF EXISTS hr_academic_years_insert_manage ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_insert_manage ON public.hr_academic_years
+    FOR INSERT TO authenticated WITH CHECK (
+        (SELECT is_super_admin())
+        OR (SELECT user_has_permission('hr.academic_years.manage'))
+    );
+
+DROP POLICY IF EXISTS hr_academic_years_update_manage ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_update_manage ON public.hr_academic_years
+    FOR UPDATE TO authenticated USING (
+        (SELECT is_super_admin())
+        OR (SELECT user_has_permission('hr.academic_years.manage'))
+    );
+
+DROP POLICY IF EXISTS hr_academic_years_delete_manage ON public.hr_academic_years;
+CREATE POLICY hr_academic_years_delete_manage ON public.hr_academic_years
+    FOR DELETE TO authenticated USING (
+        (SELECT is_super_admin())
+        OR (SELECT user_has_permission('hr.academic_years.manage'))
+    );
+
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
+-- Read-only to admission-lead viewers; the table is written only by the
+-- SECURITY DEFINER trigger fn_audit_admission_lead_source (bypasses RLS),
+-- so there is no INSERT/UPDATE/DELETE policy by design.
+-- Table -> setup/01_tables.sql; fn -> setup/02_functions.sql.
+-- =====================================================================
+DROP POLICY IF EXISTS alsa_select ON public.admission_lead_source_audit;
+CREATE POLICY alsa_select ON public.admission_lead_source_audit
+FOR SELECT USING (is_super_admin() OR is_admin() OR user_has_permission('admission.leads.view'));
+
+-- Updated: 2026-08-10 - Referral attribution + quota audit trail
+-- (referral_attribution_audit). READ-ONLY policy by design. The table is written
+-- exclusively by trg_audit_learner_referral_attribution, whose SECURITY DEFINER
+-- function runs as the owner; a trail a client can write to, edit or delete is
+-- not evidence of anything, so no INSERT/UPDATE/DELETE policy is granted and no
+-- write privilege is held. See migration
+-- supabase/migrations/20260818030000_extend_referral_source_audit.sql
+-- (FILE ONLY, NOT APPLIED).
+--
+-- Supabase default-grants ALL on every new table to anon AND authenticated, so a
+-- bare GRANT SELECT is a silent no-op. Revoke both first, then grant back only
+-- SELECT.
+REVOKE ALL ON TABLE public.referral_attribution_audit FROM anon, PUBLIC, authenticated;
+GRANT SELECT ON TABLE public.referral_attribution_audit TO authenticated;
+
+ALTER TABLE public.referral_attribution_audit ENABLE ROW LEVEL SECURITY;
+
+-- Read is gated on the same key that opens the leads the trail is about, so
+-- nobody gains sight of referral attribution here that they could not already
+-- see on the lead itself.
+--
+-- 🔴 Deliberately NOT institution-scoped. The table holds no institution_id (its
+-- subject is a learner id and nothing else), so this is a flat permission test:
+-- whoever holds admission.leads.view sees every institution's rows. That matches
+-- how the admission desk already works — admission and counselor roles are
+-- institution_scope='all' — but an own-scoped role granted this key in future
+-- would read across colleges. Scoping it later means joining
+-- learners_profiles.institution_id, which is a change to make deliberately.
+DROP POLICY IF EXISTS referral_attribution_audit_select ON public.referral_attribution_audit;
+CREATE POLICY referral_attribution_audit_select ON public.referral_attribution_audit
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(public.is_super_admin(), false)
+        OR COALESCE(public.is_admin(), false)
+        OR COALESCE(public.user_has_permission('admission.leads.view'), false)
+    );
+
+-- Updated: 2026-08-10 - Referral integrity: reconciliation + pair scoring RLS.
+-- Read is the same key that gates the page (commissions.view) so a user never
+-- sees the page and is then denied its data. Writing a reconciliation is the
+-- Registrar's desk (commissions.manage). Writing a pair score directly is
+-- admin-only — the score is meant to be produced by the functions, not typed.
+-- The anon lock lives in the migration:
+-- supabase/migrations/20260818040000_referral_reconciliation_and_pair_scoring.sql
+-- (FILE ONLY, NOT APPLIED).
+ALTER TABLE public.referral_reconciliation_sessions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_recon_sessions_read ON public.referral_reconciliation_sessions;
+CREATE POLICY referral_recon_sessions_read ON public.referral_reconciliation_sessions
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_recon_sessions_write ON public.referral_reconciliation_sessions;
+CREATE POLICY referral_recon_sessions_write ON public.referral_reconciliation_sessions
+    FOR ALL USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    );
+
+ALTER TABLE public.referral_reconciliation_claims ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_recon_claims_read ON public.referral_reconciliation_claims;
+CREATE POLICY referral_recon_claims_read ON public.referral_reconciliation_claims
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_recon_claims_write ON public.referral_reconciliation_claims;
+CREATE POLICY referral_recon_claims_write ON public.referral_reconciliation_claims
+    FOR ALL USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    )
+    WITH CHECK (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.manage')
+    );
+
+ALTER TABLE public.referral_pair_scores ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS referral_pair_scores_read ON public.referral_pair_scores;
+CREATE POLICY referral_pair_scores_read ON public.referral_pair_scores
+    FOR SELECT USING (
+        is_super_admin() OR is_admin()
+        OR user_has_permission('admission.consultants.commissions.view')
+    );
+
+DROP POLICY IF EXISTS referral_pair_scores_write ON public.referral_pair_scores;
+CREATE POLICY referral_pair_scores_write ON public.referral_pair_scores
+    FOR ALL USING (is_super_admin() OR is_admin())
+    WITH CHECK (is_super_admin() OR is_admin());
+
+-- =====================================================================
+-- Updated: 2026-08-10 - JKKN permanent identity register
+-- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
+-- FILE ONLY / NOT APPLIED to production as of 2026-08-10.
+-- =====================================================================
+-- `authenticated` is revoked alongside anon deliberately. Supabase ships
+-- ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES TO anon, authenticated,
+-- service_role, so a new table arrives with authenticated ALREADY holding
+-- DELETE; revoking only anon leaves that in place and makes the GRANT below
+-- a no-op restating privileges already held. Measured on a throwaway
+-- PostgreSQL 16 cluster with those default privileges replicated.
+--
+-- There is NO DELETE grant and NO DELETE policy on either table, on purpose:
+-- deleting a row would release its number back into the pool, and a JKKN ID
+-- is never reused. Withdraw an identity with retired_at + retired_reason;
+-- close an alias with valid_to + is_current = false.
+ALTER TABLE public.jkkn_identities ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.jkkn_identities FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.jkkn_identities TO authenticated;
+
+DROP POLICY IF EXISTS jkkn_identities_select ON public.jkkn_identities;
+CREATE POLICY jkkn_identities_select ON public.jkkn_identities
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.view')
+    );
+
+DROP POLICY IF EXISTS jkkn_identities_insert ON public.jkkn_identities;
+CREATE POLICY jkkn_identities_insert ON public.jkkn_identities
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+DROP POLICY IF EXISTS jkkn_identities_update ON public.jkkn_identities;
+CREATE POLICY jkkn_identities_update ON public.jkkn_identities
+    FOR UPDATE TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    )
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+ALTER TABLE public.jkkn_identity_aliases ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.jkkn_identity_aliases FROM anon, authenticated, PUBLIC;
+GRANT SELECT, INSERT, UPDATE ON public.jkkn_identity_aliases TO authenticated;
+
+DROP POLICY IF EXISTS jkkn_identity_aliases_select ON public.jkkn_identity_aliases;
+CREATE POLICY jkkn_identity_aliases_select ON public.jkkn_identity_aliases
+    FOR SELECT TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.view')
+    );
+
+DROP POLICY IF EXISTS jkkn_identity_aliases_insert ON public.jkkn_identity_aliases;
+CREATE POLICY jkkn_identity_aliases_insert ON public.jkkn_identity_aliases
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+DROP POLICY IF EXISTS jkkn_identity_aliases_update ON public.jkkn_identity_aliases;
+CREATE POLICY jkkn_identity_aliases_update ON public.jkkn_identity_aliases
+    FOR UPDATE TO authenticated
+    USING (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    )
+    WITH CHECK (
+        COALESCE(is_super_admin(), false) OR is_admin()
+        OR user_has_permission('users.jkkn_id.issue')
+    );
+
+-- =====================================================================
+-- Added: 2026-08-11 - Derived leave entitlement (hr_leave_entitlement_overrides)
+-- Mirror of migration 20260811180000_hr_leave_entitlement_overrides.sql
+-- hleo_select mirrors hlb_select on hr_leave_balances verbatim. Write key
+-- is hr.leave.balance.manage (the key already guarding
+-- /hr/admin/leave-balances), NOT hr.leave.policies.write which guards
+-- hlb_write. Setting one person's exception is balance administration.
+-- =====================================================================
+CREATE POLICY hleo_select ON public.hr_leave_entitlement_overrides
+FOR SELECT USING (
+  (SELECT public.is_super_admin())
+  OR employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+  OR ((SELECT public.user_has_permission('hr.leave.approve'))
+      AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+);
+
+CREATE POLICY hleo_write ON public.hr_leave_entitlement_overrides
+FOR ALL USING (
+  (SELECT public.is_super_admin())
+  OR ((SELECT public.user_has_permission('hr.leave.balance.manage'))
+      AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
+);

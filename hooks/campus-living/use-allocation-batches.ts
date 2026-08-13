@@ -80,9 +80,10 @@ export function useAllocationBatchActions() {
       institutionId: string | null = null,
       programId: string | null = null,
       semesterId: string | null = null,
+      allowOverflow = true,
     ) => {
       const id = await AllocationBatchService.generate(
-        hostelType, strict, institutionId, programId, semesterId,
+        hostelType, strict, institutionId, programId, semesterId, allowOverflow,
       );
       await invalidate();
       return id;

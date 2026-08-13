@@ -22,6 +22,7 @@ import type {
   LeaveUtilizationByInstitution,
   HRAnalyticsSummary,
 } from '@/types/hr-analytics';
+import { HRAcademicYearService } from '@/lib/services/hr/hr-academic-year-service';
 
 // =====================================================================================
 // Helpers
@@ -330,14 +331,45 @@ export class HRAnalyticsService {
     supabase: SupabaseClient,
     institutionId?: string
   ): Promise<LeaveUtilizationByInstitution[]> {
+    // v_hr_leave_balance is a view, so it carries no FK metadata — PostgREST
+    // cannot resolve a staff!inner embed against it (confirmed: PGRST200,
+    // "Could not find a relationship between 'v_hr_leave_balance' and 'staff'").
+    // Group by hr_organization_id instead and resolve institution names via a
+    // second small query against hr_organizations (1 hr_organization : 1 institution).
+    const { data: orgs, error: orgsError } = await supabase
+      .from('hr_organizations')
+      .select('id, institution_id, institutions!hr_organizations_institution_id_fkey(name)')
+      .not('institution_id', 'is', null);
+    if (orgsError) throw orgsError;
+
+    const orgToInstitution = new Map<string, { institution_id: string; institution_name: string }>();
+    for (const org of orgs ?? []) {
+      const iid = (org as any).institution_id as string | null;
+      if (!iid) continue;
+      if (institutionId && iid !== institutionId) continue;
+      orgToInstitution.set(org.id as string, {
+        institution_id: iid,
+        institution_name: (org as any).institutions?.name ?? 'Unknown',
+      });
+    }
+
+    // v_hr_leave_balance derives a row for every OPEN year (frozen_at IS
+    // NULL), which includes years that have not started yet — HR opens next
+    // year's rows early for onboarding/planning. Scoping to the academic
+    // year containing today keeps this "where do we stand right now," not a
+    // blend that silently folds in next year's full, unused entitlement.
+    const currentYear = await HRAcademicYearService.getCurrent(supabase);
+    if (!currentYear) return [];
+
     let query = supabase
-      .from('hr_leave_balances')
-      .select(
-        'allocated, used, staff!inner(institution_id, institutions!staff_institution_id_fkey!inner(name))'
-      );
+      .from('v_hr_leave_balance')
+      .select('entitled, used, hr_organization_id')
+      .eq('hr_academic_year_id', currentYear.id);
 
     if (institutionId) {
-      query = query.eq('staff.institution_id', institutionId);
+      const orgIds = Array.from(orgToInstitution.keys());
+      if (orgIds.length === 0) return [];
+      query = query.in('hr_organization_id', orgIds);
     }
 
     const { data, error } = await query;
@@ -349,16 +381,17 @@ export class HRAnalyticsService {
     >();
 
     for (const row of data ?? []) {
-      const staff = (row as any).staff;
-      const iid = staff?.institution_id as string;
-      const iname = staff?.institutions?.name ?? 'Unknown';
-      if (!iid) continue;
+      const orgId = row.hr_organization_id as string | null;
+      if (!orgId) continue;
+      const inst = orgToInstitution.get(orgId);
+      const iid = inst?.institution_id ?? orgId;
+      const iname = inst?.institution_name ?? 'Unknown';
 
       if (!map.has(iid)) {
         map.set(iid, { name: iname, total_allocated: 0, total_used: 0 });
       }
       const entry = map.get(iid)!;
-      entry.total_allocated += (row.allocated as number) ?? 0;
+      entry.total_allocated += (row.entitled as number) ?? 0;
       entry.total_used += (row.used as number) ?? 0;
     }
 
