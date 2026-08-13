@@ -163,7 +163,7 @@ export function LessonsList({ projectId, closureReportId, projectTypeId }: Lesso
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 shrink-0"
+                    className={`h-7 w-7 shrink-0 ${TAP_TARGET_ICON}`}
                     aria-label="Lesson actions"
                   >
                     <MoreHorizontal className="h-4 w-4" />
