@@ -7679,11 +7679,14 @@ CREATE TABLE IF NOT EXISTS public.course_applications (
   form_id                 uuid REFERENCES public.course_registration_forms(id) ON DELETE SET NULL,
   package_id              uuid REFERENCES public.course_packages(id) ON DELETE SET NULL,
   applicant_type          text NOT NULL CHECK (applicant_type IN ('learner','staff','external')),
-  profile_id              uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
-  -- Corrected 2026-08-13: SET NULL -> RESTRICT (migration 20260813100450).
+  -- Corrected 2026-08-18: SET NULL -> RESTRICT (migration 20260818010000).
   -- The identity CHECK requires this column NOT NULL for its governing
-  -- applicant_type, so SET NULL could never actually execute for rows of
-  -- its own type — it aborted with a confusing 23514 instead of a 23503.
+  -- applicant_type ('staff'), so SET NULL could never actually execute
+  -- for rows of its own type — it aborted with a confusing 23514 instead
+  -- of a 23503.
+  profile_id              uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  -- Corrected 2026-08-13: SET NULL -> RESTRICT (migration 20260813100450).
+  -- Same reasoning, for applicant_type = 'learner'.
   learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE RESTRICT,
   external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE RESTRICT,
   applicant_name          text NOT NULL,
@@ -7826,7 +7829,12 @@ CREATE TABLE IF NOT EXISTS public.course_bill_payments (
   status              text NOT NULL DEFAULT 'initiated'
                         CHECK (status IN ('initiated','success','failed','refunded')),
   captured_at         timestamptz,
-  recorded_by         uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  -- Corrected 2026-08-18: SET NULL -> RESTRICT (migration 20260818010000).
+  -- course_bill_payments_offline_chk requires this column NOT NULL for
+  -- every non-razorpay payment mode, so SET NULL could never actually
+  -- execute for those rows — it aborted with a confusing 23514 instead
+  -- of a 23503.
+  recorded_by         uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
   created_at          timestamptz NOT NULL DEFAULT now(),
   updated_at          timestamptz NOT NULL DEFAULT now(),
 
