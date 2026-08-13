@@ -54,7 +54,10 @@ const schema = z.object({
   application_opens_at: z.string().optional(),
   application_closes_at: z.string().optional(),
   // course_events_total_seats_check: NULL or > 0
-  total_seats: z.coerce.number().int().positive().optional(),
+  total_seats: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.coerce.number().int().positive().optional(),
+  ),
   venue_text: z.string().optional(),
 })
   // course_events_date_order_chk
