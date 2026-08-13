@@ -9132,3 +9132,35 @@ CREATE POLICY course_package_installments_manage ON public.course_package_instal
            WHERE p.id = course_package_installments.package_id
              AND public.role_has_institution_access(p.institution_id)))
   );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Sessions RLS
+-- Mirror of migration 20260813100100_course_sessions_and_reservations.sql
+-- =====================================================================
+ALTER TABLE public.course_sessions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.course_sessions FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_sessions TO authenticated;
+
+CREATE POLICY course_sessions_select ON public.course_sessions
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_sessions_manage ON public.course_sessions
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.sessions.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.sessions.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );

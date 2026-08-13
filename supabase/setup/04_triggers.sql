@@ -1869,3 +1869,11 @@ CREATE TRIGGER trg_course_packages_touch
 CREATE TRIGGER trg_course_package_installments_touch
   BEFORE UPDATE ON public.course_package_installments
   FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Sessions trigger
+-- Mirror of migration 20260813100100_course_sessions_and_reservations.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_sessions_touch
+  BEFORE UPDATE ON public.course_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
