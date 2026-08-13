@@ -9,6 +9,7 @@
 
 import { X, GitBranch, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useVersionHistory } from '@/hooks/projects/use-documents';

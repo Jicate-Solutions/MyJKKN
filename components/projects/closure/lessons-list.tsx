@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
