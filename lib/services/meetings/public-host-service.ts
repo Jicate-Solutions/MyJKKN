@@ -50,6 +50,22 @@ export interface PublicMeetingType {
   purposeGroup: string | null;
 }
 
+/**
+ * The host's own routing form (/r/<slug>), surfaced from their booking page so
+ * a visitor who cannot pick a purpose has somewhere to go. 2026-08-13: the
+ * Director's form had been live and correct since 5 August with ZERO responses
+ * — nothing on any page linked to it, so nobody could find it.
+ */
+export interface PublicRoutingFormLink {
+  slug: string;
+  /**
+   * How many questions the visitor will actually be asked. The link copy is
+   * built from this so it can never promise "one question" on a three-question
+   * form.
+   */
+  questionCount: number;
+}
+
 export interface PublicHost {
   hostProfileId: string;
   handle: string;
@@ -60,6 +76,19 @@ export interface PublicHost {
   institutionName: string | null;
   departmentName: string | null;
   meetingTypes: PublicMeetingType[];
+  /** null = this host has no active routing form; the page shows no link. */
+  routingForm: PublicRoutingFormLink | null;
+}
+
+/**
+ * Copy for the routing-form link on a booking page. Pure so it can be tested
+ * without touching the database, and so the count and the wording can never
+ * drift apart.
+ */
+export function routingFormLinkLabel(questionCount: number): string {
+  return questionCount === 1
+    ? 'Not sure which one you need? Answer one question'
+    : `Not sure which one you need? Answer ${questionCount} questions`;
 }
 
 export interface DirectoryEntry {
@@ -148,9 +177,10 @@ export class PublicHostService {
         .filter((id): id is string => Boolean(id)),
     );
 
-    const [instName, deptName] = await Promise.all([
+    const [instName, deptName, routingForm] = await Promise.all([
       this.nameOf(supabase, 'institutions', profile.institution_id),
       this.nameOf(supabase, 'departments', profile.department_id),
+      this.activeRoutingFormFor(supabase, page.host_profile_id),
     ]);
 
     return {
@@ -177,7 +207,53 @@ export class PublicHostService {
         // editor cannot silently create a group of one with a blank label.
         purposeGroup: ((t.purpose_group as string | null) ?? '').trim() || null,
       })),
+      routingForm,
     };
+  }
+
+  /**
+   * The host's active routing form, or null when they have none.
+   *
+   * Fails closed on every unhappy path (error, no row, a form with nothing to
+   * answer): the booking page then renders exactly what it renders today. This
+   * is a helper link, so it must never be able to break the booking funnel it
+   * sits on.
+   *
+   * Ordered oldest-first because a host may keep more than one active form:
+   * picking the earliest one keeps the link on a page stable, so drafting a
+   * second form never silently redirects visitors away from the form that is
+   * already working.
+   */
+  private static async activeRoutingFormFor(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+  ): Promise<PublicRoutingFormLink | null> {
+    const { data, error } = await supabase
+      .from('routing_forms')
+      .select('slug, fields')
+      .eq('host_profile_id', hostProfileId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data?.slug) {
+      if (error) console.error(`${LOG_PREFIX} routing form load failed:`, error.message);
+      return null;
+    }
+
+    // Count only entries that are really a question (same shape guard the
+    // public /r/[slug] page applies), so a malformed row cannot inflate the
+    // number the link promises.
+    const questionCount = (Array.isArray(data.fields) ? data.fields : []).filter(
+      (f: unknown) =>
+        !!f && typeof (f as { key?: unknown }).key === 'string' && (f as { key: string }).key !== '',
+    ).length;
+
+    // A form with nothing to answer has no honest link copy — treat it as no
+    // form at all rather than inviting a visitor to answer zero questions.
+    if (questionCount === 0) return null;
+
+    return { slug: data.slug as string, questionCount };
   }
 
   /** Batch-resolve resource ids → a formatted directions line (id → string). */

@@ -13,6 +13,7 @@
 // UTC slot shows under the right day).
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   CalendarDays,
   CheckCircle2,
@@ -31,6 +32,7 @@ import {
   purposeDurationLabel,
   type PurposeChoice,
 } from '@/lib/services/meetings/group-purposes';
+import { routingFormLinkLabel } from '@/lib/services/meetings/public-host-service';
 
 interface MeetingTypeOption {
   id: string;
@@ -65,6 +67,22 @@ interface MeetBookingWidgetProps {
   /** Signed-in MyJKKN viewer (Director identity flow 2026-06-20). When present
    *  the email step is skipped and the booking is bound to their account. */
   viewer: { name: string; email: string } | null;
+  /**
+   * The host's active routing form (/r/<slug>), rendered as one quiet link
+   * above the purpose cards for a visitor who cannot tell which purpose is
+   * theirs. Absent/null on every page that should not offer it, so nothing is
+   * rendered — no empty state, no dead link.
+   *
+   * DELIBERATELY NOT WIRED INTO THE EMBED SIBLING
+   * (app/(public)/embed/[handle]/_components/embed-booking-widget.tsx): an
+   * embed runs inside someone else's page, and this link navigates the visitor
+   * away from it. Leaving it out of the embed is the correct behaviour, not an
+   * oversight — please do not "fix" it there.
+   *
+   * Also absent on the single-type deep link /meet/<handle>/<type>: that
+   * visitor arrived on a link that already made the choice for them.
+   */
+  routingForm?: { slug: string; questionCount: number } | null;
 }
 
 interface SlotsResponse {
@@ -670,6 +688,14 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
         {step === 'purpose' && (
           <div className="flex flex-col gap-3">
             <p className="text-sm font-medium">What do you need?</p>
+            {props.routingForm && (
+              <Link
+                href={`/r/${props.routingForm.slug}`}
+                className="-mt-1.5 w-fit text-xs text-[#1C2B24]/65 underline decoration-[#0E4D34]/30 underline-offset-4 transition-colors hover:text-[#0E4D34] hover:decoration-[#0E4D34]"
+              >
+                {routingFormLinkLabel(props.routingForm.questionCount)}
+              </Link>
+            )}
             {purposes.map((p) => (
               <button
                 key={p.key}
