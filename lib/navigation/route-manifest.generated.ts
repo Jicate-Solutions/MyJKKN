@@ -192,6 +192,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/academic/mark-entry",
+        "label": "Mark Entry",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/academic/obe",
         "label": "Obe",
         "iconName": "FileText",
@@ -436,6 +442,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Manage",
         "iconName": "Settings",
         "children": [
+          {
+            "path": "/accreditation/manage/bodies",
+            "label": "Bodies",
+            "iconName": "FileText",
+            "children": []
+          },
           {
             "path": "/accreditation/manage/collaborations",
             "label": "Collaborations",
@@ -1425,6 +1437,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/admission/settings/lookups/quotas",
                 "label": "Quotas",
+                "iconName": "GraduationCap",
+                "children": []
+              }
+            ]
+          },
+          {
+            "path": "/admission/settings/school-fees",
+            "label": "School Fees",
+            "iconName": "GraduationCap",
+            "children": [
+              {
+                "path": "/admission/settings/school-fees/concessions",
+                "label": "Concessions",
+                "iconName": "GraduationCap",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/school-fees/generate",
+                "label": "Generate",
+                "iconName": "GraduationCap",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/school-fees/new",
+                "label": "New",
+                "iconName": "Plus",
+                "children": []
+              },
+              {
+                "path": "/admission/settings/school-fees/term-calendar",
+                "label": "Term Calendar",
                 "iconName": "GraduationCap",
                 "children": []
               }

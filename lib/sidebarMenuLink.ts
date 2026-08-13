@@ -597,6 +597,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/internal-marks/exam-audit': 'academic.internal_marks.exam_audit.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
 
+  // CIA Mark Entry (question-wise / direct). Its OWN key, separate from
+  // internal-marks: entry is for teaching staff and HODs, while the
+  // internal-marks reports are read by a wider leadership audience. The
+  // matching '.enter' grant is what unlocks the inputs — see
+  // lib/utils/mark-entry/mark-entry-access.ts, which additionally makes the
+  // 'all' role tier (principal/registrar/CoE) view-only server-side.
+  '/academic/mark-entry': 'academic.mark-entry.view',
+
   // Regulations Management
   '/academic/regulations': 'academic.regulations.view',
   '/academic/regulations/new': 'academic.regulations.create',
@@ -961,6 +969,19 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/years/[id]': 'admission.settings.years.view',
   '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
   '/admission/settings/statuses': 'admission.settings.statuses.view',
+  // School fees (2026-08-13). Gated on school_fees.read, which is granted to
+  // accounts / accountant_assistant / administrator / super_admin only.
+  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
+  // institution entity_type, and the accounts staff who run school billing sit
+  // at an admin office, not at the school — hiding it there would lock out the
+  // very people who need it. The institution dropdown inside the page is what
+  // restricts the data to entity_type='school'.
+  '/admission/settings/school-fees': 'school_fees.read',
+  '/admission/settings/school-fees/term-calendar': 'school_fees.read',
+  '/admission/settings/school-fees/new': 'school_fees.manage',
+  '/admission/settings/school-fees/[id]': 'school_fees.read',
+  '/admission/settings/school-fees/concessions': 'school_fees.read',
+  '/admission/settings/school-fees/generate': 'school_fees.generate',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -2447,6 +2468,34 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/whatsapp-numbers',
               label: 'WhatsApp Numbers',
               active: pathname === '/admission/settings/whatsapp-numbers'
+            },
+            {
+              href: '/admission/settings/school-fees',
+              label: 'School Fee Plans',
+              // Plans owns /school-fees and its plan sub-routes (/new, /[id]),
+              // but NOT the sibling screens that have their own menu entries —
+              // otherwise two rows highlight at once.
+              active:
+                pathname === '/admission/settings/school-fees' ||
+                (pathname.startsWith('/admission/settings/school-fees/') &&
+                  !pathname.startsWith('/admission/settings/school-fees/term-calendar') &&
+                  !pathname.startsWith('/admission/settings/school-fees/concessions') &&
+                  !pathname.startsWith('/admission/settings/school-fees/generate'))
+            },
+            {
+              href: '/admission/settings/school-fees/term-calendar',
+              label: 'School Term Calendar',
+              active: pathname.startsWith('/admission/settings/school-fees/term-calendar')
+            },
+            {
+              href: '/admission/settings/school-fees/concessions',
+              label: 'School Fee Concessions',
+              active: pathname.startsWith('/admission/settings/school-fees/concessions')
+            },
+            {
+              href: '/admission/settings/school-fees/generate',
+              label: 'Generate School Fees',
+              active: pathname.startsWith('/admission/settings/school-fees/generate')
             }
           ]
         }

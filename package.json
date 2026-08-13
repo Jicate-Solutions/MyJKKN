@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint .",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
+    "check:mark-entry-rules": "tsx scripts/check-mark-entry-rules.ts",
     "gen:routes": "tsx scripts/generate-route-manifest.ts",
     "typecheck": "tsc --noEmit --pretty",
     "typecheck:report": "tsc --noEmit --pretty > type-errors.txt 2>&1 || echo 'Type errors saved to type-errors.txt'",

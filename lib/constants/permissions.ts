@@ -656,6 +656,13 @@ export const PERMISSION_CATEGORIES = [
       { key: 'academic.internal-marks.edit', label: 'Enter/Edit Internal Marks' },
       { key: 'academic.internal-marks.submit', label: 'Submit Internal Marks' },
       { key: 'academic.internal-marks.reports', label: 'View Internal Marks Reports' },
+      // CIA Mark Entry (question-wise / direct) — /academic/mark-entry.
+      // Separate from internal-marks: '.enter' is the grant that unlocks the
+      // inputs, and it is meant for teaching staff + HODs. Leadership roles are
+      // additionally forced view-only server-side regardless of this grant
+      // (lib/utils/mark-entry/mark-entry-access.ts).
+      { key: 'academic.mark-entry.view', label: 'View Mark Entry' },
+      { key: 'academic.mark-entry.enter', label: 'Enter/Edit CIA Marks (Question-wise & Direct)' },
       // Course Grades (Faculty LTI grade view) — added 2026-04-27 (tier-2 chip-leak sweep)
       { key: 'academic.course-grades.view', label: 'View Course Grades (Faculty LTI Grade View)' }
     ]
@@ -1450,6 +1457,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'admission_fees.manage_adjustments', label: 'Manage Per-Learner Fee Adjustments' },
       { key: 'admission_fees.approve_change_event', label: 'Approve Fee Change Events' },
       { key: 'admission_fees.override', label: 'Override Resolved Fee Items' }
+    ]
+  },
+  // School Fees (2026-08-13) — term-wise annual fee plans for
+  // institutions.entity_type = 'school'. SEPARATE from Admission Fees above:
+  // that module is cohort-locked on admission_year_id (a 4-year learner keeps
+  // their admission-year sheet), while school plans re-fix every year on
+  // academic_year_id. Keys are flat under `school_fees.*` to match the RLS on
+  // school_fee_plans / school_term_calendars / school_fee_concession_* exactly
+  // — a dotted variant like `school.fees.read` would silently deny with no error.
+  {
+    name: 'School Fees',
+    key: 'school_fees',
+    permissions: [
+      { key: 'school_fees.read', label: 'View School Fee Plans, Term Calendar & Concessions' },
+      { key: 'school_fees.manage', label: 'Create / Edit School Fee Plans & Term Calendar' },
+      { key: 'school_fees.activate', label: 'Activate Plans & Create New Versions' },
+      { key: 'school_fees.generate', label: 'Generate Yearly Fee Bills' },
+      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' }
     ]
   },
   {
