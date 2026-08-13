@@ -1641,6 +1641,16 @@ export default async function LoopControlTowerPage({
           <div className="mt-6">
             <OwnersPanel rows={ownersPanelRows} />
           </div>
+          {/* MetaLoop chartering factory (2026-08-13) — kept separate from the
+              proven-green strip wiring above; this is the drafts review queue. */}
+          <div className="mt-2 text-right">
+            <Link
+              href="/admin/loops/charters"
+              className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+            >
+              Charter proposals — MetaLoop drafts awaiting sign-off →
+            </Link>
+          </div>
         </>
       )}
     </ContentLayout>

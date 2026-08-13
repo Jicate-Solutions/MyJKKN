@@ -691,6 +691,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Repeat",
         "children": [
           {
+            "path": "/admin/loops/charters",
+            "label": "Loop Charters",
+            "iconName": "ClipboardCheck",
+            "children": []
+          },
+          {
             "path": "/admin/loops/pillars",
             "label": "Mission Pillars",
             "iconName": "Landmark",
