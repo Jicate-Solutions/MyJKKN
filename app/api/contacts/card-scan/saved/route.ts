@@ -7,11 +7,12 @@
  * exactly one row, written by a card scanned from a phone, and there was
  * nowhere in the product to see it.
  *
- * Two of those five turned out to have a full module page all along and were
+ * Three of those five turned out to have a full module page all along and were
  * invisible only because TABLE_HREF did not name them (2026-08-07):
- * sh_prospects → /solutions/pipeline/list and ss_mentors →
- * /startup-studio/mentors. See the map below for the three that stay
- * link-less, and why each one does.
+ * sh_prospects → /solutions/pipeline/list, ims_suppliers →
+ * /ims/settings/suppliers and ss_mentors → /startup-studio/mentors. A fourth,
+ * industry_partners, got its screen from #2910 and is wired here (2026-08-13).
+ * See the map below for the one that stays link-less, and why.
  *
  * Rather than five new module pages, this serves ONE screen (Director decision
  * 2026-08-06): every card you have saved, grouped by where it went, plus the
@@ -96,7 +97,13 @@ export const TABLE_LABEL: Record<string, string> = {
  *       would also have to be per-row (each contact's own `site_id`), which
  *       this map cannot express — it is keyed by table alone.
  *
- *   industry_partners — no module screen of any kind.
+ * `industry_partners` was on this list until #2910 built it a screen; it now
+ * links to /industry-partners. It is the only destination a real scanned card
+ * has actually landed in, so it was also the only group on this page carrying
+ * live data with nowhere to go.
+ *
+ * That leaves `internship_site_contacts` as the single remaining link-less
+ * destination, for the per-row reason given above.
  *
  * Exported for the test that pins this map.
  */
@@ -108,6 +115,10 @@ export const TABLE_HREF: Record<string, string> = {
   sh_prospects: '/solutions/pipeline/list',
   ims_suppliers: '/ims/settings/suppliers',
   ss_mentors: '/startup-studio/mentors',
+  // Added once #2910 gave this destination a screen. It was the last routing
+  // target with no module page anywhere, and — being the only one any real card
+  // has actually landed in — the only group on this screen carrying live data.
+  industry_partners: '/industry-partners',
 };
 
 /**
