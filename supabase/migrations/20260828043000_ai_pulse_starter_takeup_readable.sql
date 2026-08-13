@@ -3,10 +3,22 @@
 --            a config row instead of a constant in code
 -- Created: 2026-08-13
 -- ============================================================================
--- ⚠️ FILE ONLY / NOT APPLIED — Director-gated. Nothing here has been run against
---    production by the author of this file, and no claim is made that it has.
---    There is no BEGIN/COMMIT in this file, so a reviewer's
---    `BEGIN … ROLLBACK` rehearsal against production actually rolls back.
+-- ✅ APPLIED TO PRODUCTION 2026-08-13, on the Director's explicit instruction,
+--    and recorded in supabase_migrations.schema_migrations. Rehearsed first in
+--    BEGIN … ROLLBACK (this file declares no BEGIN/COMMIT, so the rehearsal
+--    genuinely rolled back) with a residue check issued as a SEPARATE call.
+--
+--    VERIFIED BEHAVIOURALLY under RLS, not by object inspection:
+--      • Champion (krishnaveni_a@jkkn.ac.in) reads 298 starter rows — was 0.
+--      • A plain learner reads 0 — the policy does not over-grant.
+--      • anon is refused with `permission denied for table`, i.e. stopped at the
+--        privilege level before RLS is even consulted.
+--
+--    NOTE FOR WHOEVER READS THIS NEXT: anon held INSERT/SELECT/UPDATE/DELETE/
+--    TRUNCATE here via Supabase's default grant. TRUNCATE is NOT subject to RLS,
+--    so "RLS with no policy" did not mask it — anon could have truncated this
+--    table. The REVOKE below closed that. 1,154 of 1,558 public tables still
+--    carry the same anon TRUNCATE grant; that is a separate, open finding.
 --
 -- WHY (1 of 2) — the parent of an already-fixed table is still deny-all
 --   `ai_pulse_domain_starters` shipped (20260719110000) with
