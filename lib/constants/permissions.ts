@@ -2477,6 +2477,35 @@ export const PERMISSION_CATEGORIES = [
       { key: 'events.delete', label: 'Delete Events (permanent — cascades registrations & payments)' }
     ]
   },
+  // Course Events (2026-08-13). Paid, multi-session learning courses open to
+  // learners, staff and external participants. See
+  // docs/superpowers/specs/2026-08-13-course-events-design.md
+  //
+  // `courses.participant.self` is the ONLY key held by the Course Participant
+  // role an external registrant is given at approval. It grants read of their
+  // own enrollment, bills and receipts and nothing else — it is never bundled
+  // into an admin key.
+  {
+    name: 'Courses',
+    key: 'courses',
+    permissions: [
+      { key: 'courses.view', label: 'View Courses' },
+      { key: 'courses.create', label: 'Create Courses' },
+      { key: 'courses.edit', label: 'Edit Courses' },
+      { key: 'courses.delete', label: 'Delete Courses (cascades packages, sessions, forms)' },
+      { key: 'courses.packages.manage', label: 'Manage Course Packages & Installment Plans' },
+      { key: 'courses.forms.manage', label: 'Manage Course Registration Forms' },
+      { key: 'courses.sessions.manage', label: 'Manage Course Sessions & Venue Holds' },
+      { key: 'courses.applications.view', label: 'View Course Applications' },
+      { key: 'courses.applications.decide', label: 'Approve/Reject Course Applications (issues a JKKN ID)' },
+      { key: 'courses.enrollments.manage', label: 'Manage Course Enrollments (withdraw, change package)' },
+      { key: 'courses.billing.view', label: 'View Course Bills & Receipts' },
+      { key: 'courses.billing.manage', label: 'Manage Course Billing (void bills, record offline payments)' },
+      { key: 'courses.attendance.mark', label: 'Mark Course Session Attendance' },
+      { key: 'courses.certificates.issue', label: 'Issue Course Certificates' },
+      { key: 'courses.participant.self', label: 'View Own Course Enrollment & Bills (participant)' },
+    ],
+  },
   // Added 2026-04-27 — menu-coverage baseline cleanup. The /health/* tree
   // (9 sub-pages) had no MENU_PERMISSIONS entries and no catalog category;
   // every non-super-admin was hidden from Health & Wellness. Each tier-2
