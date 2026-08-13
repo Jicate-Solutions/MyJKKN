@@ -762,6 +762,26 @@ Do not report complete until each of these is observed, not assumed:
 
 ## Notes for Phase 2b / 2c
 
+- **2b/2c — a `DataTable` in `fetchDataFn` mode CANNOT be refreshed by `invalidateQueries` alone.**
+  Found by the Phase 2a final review, after seven earlier reviews missed it. `useDataTableRefreshOnInvalidate`
+  fires only on an invalidate event emitted by an **already-cached** query. A table that fetches through
+  `fetchDataFn` never registers a query under its key prefix, so `invalidateQueries({ queryKey: X.lists() })`
+  matches nothing, fires no event, and the deleted row stays on screen behind a success toast.
+  The repo documents this in `hooks/events/use-general-events.ts:158-170` — read it before wiring the
+  packages or sessions tables. Two viable fixes: an always-cached query under the same prefix (what the
+  events module happens to have), or a page-local counter folded into `refetchKey`, which is a real
+  dependency of `DataTable`'s fetch effect (`data-table.tsx:554`) and therefore deterministic.
+  **Only `delete` needs this.** Create redirects, so the list remounts and refetches; update runs on a
+  detail page where `detail(id)` is genuinely cached. Delete is the only mutation firing while the list
+  is mounted.
+
+- **2b/2c — beware fixes in different layers routing around each other.** Task 2 normalised `'' → null`
+  in the service; Task 6 normalised `'' → undefined` in the form. Each was correct alone and I ordered
+  both, a phase apart — together they meant a cleared numeric field reached PostgREST as `undefined`,
+  which `JSON.stringify` drops from the PATCH, so the column was silently never updated. Each fix was
+  reviewed against the task it landed in, never against the other fix. When adding a normalisation layer,
+  check what the layers on either side already do.
+
 - **2b — the optional-number Zod trap will recur.** `course_packages.seat_cap` (NULL or > 0) and the
   installment `amount` fields have exactly the shape that broke `total_seats`: a cleared numeric input
   reports `''`, `z.coerce.number()` makes it `0`, and `.positive()` rejects it, so "leave blank for
