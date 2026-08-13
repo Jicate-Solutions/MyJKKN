@@ -9164,3 +9164,101 @@ CREATE POLICY course_sessions_manage ON public.course_sessions
     OR ((SELECT public.user_has_permission('courses.sessions.manage'))
         AND public.role_has_institution_access(institution_id))
   );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Registration form builder RLS (course_registration_forms,
+-- course_registration_form_sections, course_registration_form_fields)
+-- Mirror of migration 20260813100200_course_registration_forms.sql
+-- anon holds nothing here — the public application page reads these
+-- through a service-role API route, never through anon RLS.
+-- =====================================================================
+ALTER TABLE public.course_registration_forms          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_registration_form_sections  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_registration_form_fields    ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_registration_forms         FROM anon, PUBLIC;
+REVOKE ALL ON public.course_registration_form_sections FROM anon, PUBLIC;
+REVOKE ALL ON public.course_registration_form_fields   FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_registration_forms         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_registration_form_sections TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_registration_form_fields   TO authenticated;
+
+CREATE POLICY course_registration_forms_select ON public.course_registration_forms
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_registration_forms_manage ON public.course_registration_forms
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Sections and fields inherit tenancy through their form.
+CREATE POLICY course_reg_sections_select ON public.course_registration_form_sections
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_sections.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+CREATE POLICY course_reg_sections_manage ON public.course_registration_form_sections
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_sections.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_sections.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+CREATE POLICY course_reg_fields_select ON public.course_registration_form_fields
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_fields.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+CREATE POLICY course_reg_fields_manage ON public.course_registration_form_fields
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_fields.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_fields.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );

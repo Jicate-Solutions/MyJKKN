@@ -7572,3 +7572,66 @@ CREATE INDEX IF NOT EXISTS idx_resource_reservations_course_session
 COMMENT ON COLUMN public.resource_reservations.course_session_id IS
   'Set when this reservation was raised to hold a venue for one course session. Mutually exclusive with event_id and session_id.';
 
+-- =====================================================================
+-- Added: 2026-08-13 - Registration form builder (course_registration_forms,
+-- course_registration_form_sections, course_registration_form_fields)
+-- Mirror of migration 20260813100200_course_registration_forms.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.course_registration_forms (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id uuid NOT NULL REFERENCES public.course_events(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  slug            text NOT NULL,
+  description     text,
+  display_order   int NOT NULL DEFAULT 0,
+  is_enabled      boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_registration_forms_slug_uniq UNIQUE (course_event_id, slug),
+  CONSTRAINT course_registration_forms_slug_format_chk
+    CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+);
+
+COMMENT ON COLUMN public.course_registration_forms.is_enabled IS
+  'Defaults to FALSE. A new or cloned form must never silently open a second live intake on a running course.';
+
+CREATE TABLE IF NOT EXISTS public.course_registration_form_sections (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id       uuid NOT NULL REFERENCES public.course_registration_forms(id) ON DELETE CASCADE,
+  title         text NOT NULL,
+  description   text,
+  display_order int NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.course_registration_form_fields (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id       uuid NOT NULL REFERENCES public.course_registration_forms(id) ON DELETE CASCADE,
+  section_id    uuid REFERENCES public.course_registration_form_sections(id) ON DELETE CASCADE,
+  field_key     text NOT NULL,
+  label         text NOT NULL,
+  field_type    text NOT NULL
+                  CHECK (field_type IN ('text','textarea','number','email','phone',
+                                        'date','select','multiselect','checkbox',
+                                        'radio','file')),
+  is_required   boolean NOT NULL DEFAULT false,
+  options       jsonb NOT NULL DEFAULT '[]'::jsonb,
+  placeholder   text,
+  help_text     text,
+  validation    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  display_order int NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_registration_form_fields_key_uniq UNIQUE (form_id, field_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_reg_forms_event
+  ON public.course_registration_forms (course_event_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_course_reg_sections_form
+  ON public.course_registration_form_sections (form_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_course_reg_fields_form
+  ON public.course_registration_form_fields (form_id, display_order);
