@@ -48,12 +48,18 @@ import { usePrograms } from '@/hooks/organization/use-programs';
 import { useSemesters } from '@/hooks/organization/use-semesters';
 import { useSections } from '@/hooks/organization/use-sections';
 import { useRoles } from '@/hooks/organization/use-roles';
+import { useIsLcOfficeBearer } from '@/hooks/learners-council/use-is-lc-office-bearer';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { StorageUtils } from '@/lib/supabase/storage-utils';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { NOTIFICATION_CATEGORIES } from '@/lib/constants/notification-categories';
+import { parseYouTubeId } from '@/lib/media/youtube';
+import {
+  YouTubePreviewCard,
+  type YouTubeLinkPreview
+} from '@/components/notifications/youtube-preview-card';
 
 // Use shared canonical list so the filter tabs on /notifications/admin
 // always stay in sync with the options in this dropdown.
@@ -162,6 +168,10 @@ export function NotificationForm() {
   const [previewMode, setPreviewMode] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  // Resolved YouTube card for the Action URL, shown to the sender and stored on
+  // metadata.link_preview so recipients see the same thing.
+  const [linkPreview, setLinkPreview] = useState<YouTubeLinkPreview | null>(null);
+  const [resolvingLinkPreview, setResolvingLinkPreview] = useState(false);
 
   // Check if this is a reuse (pre-fill from query params)
   const isReuse = searchParams.get('reuse') === 'true';
@@ -217,6 +227,85 @@ export function NotificationForm() {
   const selectedProgramId = watchedValues.program_id;
   const selectedSemesterId = watchedValues.semester_id;
 
+  // Action URL → YouTube preview. Depending on the parsed id (not the raw
+  // string) means typing `&t=30` or `&list=…` onto a resolved link does not
+  // re-fetch, and a non-YouTube URL never fires a request at all.
+  const youTubeVideoId = parseYouTubeId(watchedValues.url);
+
+  useEffect(() => {
+    if (!youTubeVideoId) {
+      setLinkPreview(null);
+      return;
+    }
+
+    let cancelled = false;
+    // The id alone is enough to render a card (the poster URL is derived from
+    // it), so show that immediately and let the lookup enrich it.
+    setLinkPreview({ videoId: youTubeVideoId });
+    setResolvingLinkPreview(true);
+
+    (async () => {
+      try {
+        const response = await fetch('/api/notifications/link-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: watchedValues.url })
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled || data?.videoId !== youTubeVideoId) return;
+        setLinkPreview({
+          videoId: data.videoId,
+          title: data.title ?? null,
+          author: data.author ?? null,
+          thumbnailUrl: data.thumbnailUrl ?? null
+        });
+      } catch {
+        // Non-blocking by design: the id-only card stays, sending is unaffected.
+      } finally {
+        if (!cancelled) setResolvingLinkPreview(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [youTubeVideoId]);
+
+  /**
+   * notifications.metadata payload. Keeps the existing `attachments` shape and
+   * adds `link_preview` when the Action URL is a YouTube link. If the lookup
+   * never resolved (offline, oEmbed down, sender hit Send immediately) we still
+   * store the id — the card renders from that alone — so a failed preview can
+   * never block or degrade sending.
+   */
+  const buildMetadata = (
+    attachmentUrls: Array<{ name: string; url: string; type: string; size: number }>,
+    submittedUrl?: string
+  ): Record<string, unknown> | undefined => {
+    const metadata: Record<string, unknown> = {};
+
+    if (attachmentUrls.length > 0) {
+      metadata.attachments = attachmentUrls;
+    }
+
+    const videoId = parseYouTubeId(submittedUrl);
+    if (videoId) {
+      metadata.link_preview =
+        linkPreview && linkPreview.videoId === videoId
+          ? {
+              videoId,
+              title: linkPreview.title ?? null,
+              author: linkPreview.author ?? null,
+              thumbnailUrl: linkPreview.thumbnailUrl ?? null
+            }
+          : { videoId };
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : undefined;
+  };
+
   // Fetch data with hierarchical dependencies
   const { institutions: institutionsData } = useInstitutionsWithAccess({});
 
@@ -258,7 +347,26 @@ export function NotificationForm() {
     limit: 1000 // Fixed: 2025-01-30 - Increased from 100 to fetch all sections for notifications
   });
 
-  const institutions = institutionsData || [];
+  // An elected Learners Council office bearer is a learner, so the composer
+  // must not offer them staff, HODs or principals as targets. Administrators
+  // are untouched — including an administrator who also holds a council seat.
+  //
+  // This narrows what the picker DRAWS. It is not the guard: the send path and
+  // RLS decide who can actually be reached, independently of this.
+  const { isOfficeBearer: isLcOfficeBearer, isAdmin: isLcAdmin } =
+    useIsLcOfficeBearer();
+  const restrictToLearners = isLcOfficeBearer && !isLcAdmin;
+
+  // Council office bearers hold college seats, so the two JKKN schools (which
+  // enrol children) are dropped from their picker. useInstitutionsWithAccess
+  // already defaults to entity_type='institution' for non-super-admins; this
+  // is the explicit second guard so a future change to that default cannot
+  // silently put schools back in front of a council office bearer.
+  const allInstitutions = institutionsData || [];
+  const institutions = restrictToLearners
+    ? allInstitutions.filter((i) => i.entity_type !== 'school')
+    : allInstitutions;
+
   const departments = departmentsResponse?.data || [];
   const programs = programsResponse?.data || [];
   const semesters = semestersResponse?.data || [];
@@ -269,12 +377,24 @@ export function NotificationForm() {
     includeSystemRoles: true
   });
 
-  const availableRoles =
+  // 'student' is the role key every learner carries. It is a stored value, not
+  // wording shown to anyone — the picker renders role_name ("Student") from the
+  // database, and the copy below says "learners".
+  const LEARNER_ROLE_KEY = 'student';
+
+  const allRoles =
     rolesResponse?.map((role) => ({
       value: role.role_key,
       label: role.role_name,
       description: role.description
     })) || [];
+
+  // Narrowing here covers every consumer at once — the checkbox grid, the
+  // "Select All Roles" toggle, the n/N counter and the target summary all read
+  // availableRoles.
+  const availableRoles = restrictToLearners
+    ? allRoles.filter((role) => role.value === LEARNER_ROLE_KEY)
+    : allRoles;
 
   // Fetch saved audiences
   const { data: audiences } = useQuery({
@@ -400,7 +520,7 @@ export function NotificationForm() {
         priority: data.priority,
         category: data.category,
         expires_at: data.expires_at || undefined,
-        metadata: attachmentUrls.length > 0 ? { attachments: attachmentUrls } : undefined,
+        metadata: buildMetadata(attachmentUrls, data.url),
         targeting: {
           institution_ids:
             data.institution_ids && data.institution_ids.length > 0
@@ -709,9 +829,23 @@ export function NotificationForm() {
                       />
                     </FormControl>
                     <FormDescription>
-                      URL to open when notification is clicked
+                      URL to open when notification is clicked. A YouTube link
+                      also shows recipients a preview card.
                     </FormDescription>
                     <FormMessage />
+                    {linkPreview && (
+                      <div className='mt-3 space-y-1.5'>
+                        <p className='text-xs font-medium text-muted-foreground'>
+                          {resolvingLinkPreview
+                            ? 'Loading video details…'
+                            : 'Recipients will see this card:'}
+                        </p>
+                        <YouTubePreviewCard
+                          preview={linkPreview}
+                          className='max-w-sm'
+                        />
+                      </div>
+                    )}
                   </FormItem>
                 )}
               />
@@ -755,6 +889,12 @@ export function NotificationForm() {
                   notifications to all users. Please select specific targeting
                   criteria.
                 </div>
+              )}
+              {restrictToLearners && (
+                <p className='mt-2 text-xs text-muted-foreground'>
+                  As a council office bearer you can send to learners in your
+                  colleges.
+                </p>
               )}
             </div>
             <div className='grid gap-4'>
@@ -1470,7 +1610,7 @@ export function NotificationForm() {
                 Attachments (Optional)
               </h3>
               <p className='text-sm text-muted-foreground mt-1'>
-                Attach files to send with this notification. Supported: PDF, Word, Excel, PowerPoint, MP4 video, MP3 audio (max {MAX_FILE_SIZE_MB}MB each, up to {MAX_ATTACHMENTS} files)
+                Attach files to send with this notification. Supported: PDF, Word, Excel, PowerPoint, images (PNG, JPG, GIF, WebP), MP4 video, MP3 audio (max {MAX_FILE_SIZE_MB}MB each, up to {MAX_ATTACHMENTS} files)
               </p>
             </div>
 

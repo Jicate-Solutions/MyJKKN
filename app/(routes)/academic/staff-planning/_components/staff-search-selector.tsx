@@ -321,7 +321,7 @@ export function StaffSearchSelector({
       const { data, error } = await supabase
         .from('staff')
         .select(
-          'id, first_name, last_name, designation, institution_id, institution:institutions(id, name)'
+          'id, first_name, last_name, designation, institution_id, institution:institutions!staff_institution_id_fkey(id, name)'
         )
         .in('id', missing);
       if (error) return; // non-fatal: unresolved names degrade to "Unknown Staff"

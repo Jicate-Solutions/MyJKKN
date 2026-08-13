@@ -18,6 +18,11 @@ import {
   type GetWeekParams,
   type SaveWeekParams,
 } from '@/lib/services/hr/shift-timing-service';
+import {
+  recomputeAttendance,
+  todayISO,
+  type RecomputeSummary,
+} from '@/lib/services/hr/attendance-recompute-service';
 
 const KEY = 'hr-shift-timings';
 const COVERAGE_KEY = 'hr-shift-timing-coverage';
@@ -65,18 +70,60 @@ export function useEmploymentCategories() {
 }
 
 /**
- * Save a whole week. Invalidates the week, the coverage strip and the override
- * list — a new category override changes all three.
+ * Save a whole week, then re-judge the attendance that timing already decided.
+ *
+ * The recompute is part of the mutation, not a separate call the caller may
+ * forget: before 2026-08-09 a timing edit changed nothing that had already been
+ * imported, so raising grace to fix a docked day fixed the rule and left the
+ * day wrong. hr_shift_timings has no recompute trigger of its own (unlike
+ * institution_leaves and hr_leave_applications, which both fan into
+ * hr_attendance_records), and a SQL one would be a second copy of the rule.
+ *
+ * Scope is [effectiveFrom, today] for this institution — exactly the days the
+ * edit can have changed. A future-dated (scheduled) change has nothing to
+ * recompute and skips the call.
+ *
+ * Invalidates the week, the coverage strip and the override list — a new
+ * category override changes all three — plus the attendance caches, so an open
+ * My Attendance tab reflects the new verdicts.
  */
 export function useSaveShiftTimingWeek() {
   const qc = useQueryClient();
   const supabase = createClientSupabaseClient();
   return useMutation({
-    mutationFn: (params: SaveWeekParams) => ShiftTimingService.saveWeek(supabase, params),
+    mutationFn: async (params: SaveWeekParams) => {
+      const written = await ShiftTimingService.saveWeek(supabase, params);
+
+      const today = todayISO();
+      if (params.effectiveFrom > today) {
+        return { written, recompute: null as RecomputeSummary | null };
+      }
+
+      // A failed recompute must not read as a failed save — the timing IS
+      // saved by this point. Surface it as a partial result and let the caller
+      // decide what to say.
+      let recompute: RecomputeSummary | null = null;
+      let recomputeError: string | null = null;
+      try {
+        recompute = await recomputeAttendance({
+          institutionId: params.institutionId,
+          from: params.effectiveFrom,
+          to: today,
+        });
+      } catch (err) {
+        recomputeError = err instanceof Error ? err.message : 'Recompute failed';
+        console.error('[useSaveShiftTimingWeek] recompute failed:', err);
+      }
+
+      return { written, recompute, recomputeError };
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: [COVERAGE_KEY] });
       qc.invalidateQueries({ queryKey: [OVERRIDES_KEY] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-records'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-exceptions'] });
+      qc.invalidateQueries({ queryKey: ['hr-attendance-months'] });
     },
   });
 }

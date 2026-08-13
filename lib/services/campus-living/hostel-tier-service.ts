@@ -1,5 +1,5 @@
 // ============================================================================
-// Premium Stay Phase 1 — Hostel Tier Service
+// Premium Room Phase 1 — Hostel Tier Service
 // ============================================================================
 // Spec: .claude/scratch/premium-stay-spec-2026-05-16.html
 // Migration: supabase/migrations/20260516131800_create_hostel_tier_policy.sql
@@ -8,7 +8,7 @@
 // CRUD against hostel_tier_policy. Mirrors the consultant_tier_policy
 // service pattern (PR #874) with the cardinal difference being:
 //   - hostel_tier_policy.institution_id replaces consultant's
-//     (scope_type, scope_id) — premium stay is always institution-scoped or
+//     (scope_type, scope_id) — premium room is always institution-scoped or
 //     global (no role/user scope).
 //   - tier_features jsonb array replaces conversion thresholds.
 //

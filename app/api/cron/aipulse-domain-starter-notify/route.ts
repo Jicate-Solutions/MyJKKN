@@ -68,9 +68,15 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import webpush from 'web-push';
+import {
+  cycleNotificationExpiresAt,
+  type AiPulseCycleRow,
+} from '@/lib/services/ai-pulse/cycle-window';
 
 const ENABLED_KEY = 'domain_starter_enabled';
 const MY_PULSE_URL = '/ai-pulse/my-pulse';
+/** Cycles read so the cycle LENGTH can be measured, matching the weekly digest. */
+const CYCLE_WINDOW = 8;
 
 // Web push uses the SAME cron-usable mechanism as
 // app/api/cron/sunday-wrap/route.ts: sign with VAPID here and post straight
@@ -226,21 +232,44 @@ export async function GET(request: NextRequest) {
   }
 
   // Resolve the cycle: ?cycle=<uuid> override, else the latest ai_pulse cycle.
+  // A WINDOW (not one row) is read so the cycle's own length can be measured
+  // from the spacing of its neighbours — see lib/services/ai-pulse/cycle-window.
+  const { data: cyclesRaw } = await admin
+    .from('startup_events')
+    .select('id, demo_date, config')
+    .eq('config->>kind', 'ai_pulse')
+    .neq('status', 'cancelled')
+    .order('demo_date', { ascending: false, nullsFirst: false })
+    .limit(CYCLE_WINDOW);
+  const cycleRows = ((cyclesRaw ?? []) as AiPulseCycleRow[]);
+
   let cycleId = request.nextUrl.searchParams.get('cycle');
-  if (!cycleId) {
-    const { data: cyc } = await admin
-      .from('startup_events')
-      .select('id, demo_date')
-      .eq('config->>kind', 'ai_pulse')
-      .neq('status', 'cancelled')
-      .order('demo_date', { ascending: false, nullsFirst: false })
-      .limit(1)
-      .maybeSingle();
-    cycleId = (cyc as { id?: string } | null)?.id ?? null;
-  }
+  if (!cycleId) cycleId = cycleRows[0]?.id ?? null;
   if (!cycleId) {
     return NextResponse.json({ ok: true, enabled: true, cycle_id: null, notified: 0, skipped: 0, note: 'no ai_pulse cycle found' });
   }
+
+  // The ?cycle= override can point outside the window (replaying an old cycle
+  // by hand); fetch that one row so its TTL is still cycle-derived.
+  let cycle = cycleRows.find((c) => c.id === cycleId) ?? null;
+  if (!cycle) {
+    const { data: one } = await admin
+      .from('startup_events')
+      .select('id, demo_date, config')
+      .eq('id', cycleId)
+      .maybeSingle();
+    cycle = (one as AiPulseCycleRow | null) ?? null;
+  }
+
+  // TTL. Honoured by liveNotificationOrFilter() in the bell / inbox / rollup
+  // read path; null (no usable demo_date) keeps today's never-expires
+  // behaviour rather than guessing an hour count. The window always contains
+  // the chosen cycle, so a hand-replayed old cycle still gets a successor.
+  const cycleWindow: AiPulseCycleRow[] =
+    cycle && !cycleRows.some((c) => c.id === cycle.id)
+      ? [...cycleRows, cycle]
+      : cycleRows;
+  const expiresAt = cycleNotificationExpiresAt(cycle, cycleWindow);
 
   // Recipients: one row per attending learner with a generated starter.
   const { data: targets, error: targErr } = await admin.rpc(
@@ -285,6 +314,9 @@ export async function GET(request: NextRequest) {
     // /notifications/admin announcement surface (kind='announcement').
     kind: 'work_item',
     idempotency_key: `ai_pulse_domain_starter_notify:${cycleId}:${userId}`,
+    // Derived from THIS cycle's end, never a literal — the starter prompt
+    // this announces is superseded when the next cycle's prompt lands.
+    expires_at: expiresAt,
     metadata: {
       source: 'ai_pulse_domain_starter_notify',
       cycle_id: cycleId,
@@ -318,17 +350,34 @@ export async function GET(request: NextRequest) {
   for (const group of chunk(pending, DB_CHUNK)) {
     const { data, error } = await admin
       .from('notifications')
-      .insert(group.map((p) => rowFor(p.userId, p.topicLabel)))
-      .select('id, idempotency_key');
-    if (!error && data) {
-      const byKey = new Map(
-        (data as { id: string; idempotency_key: string }[]).map((r) => [r.idempotency_key, r.id]),
-      );
-      for (const p of group) {
-        const id = byKey.get(`ai_pulse_domain_starter_notify:${cycleId}:${p.userId}`);
-        if (id) created.push({ id, userId: p.userId, topicLabel: p.topicLabel });
-        else skipped++;
-      }
+      .insert({
+        title: 'Your AI starter prompt is ready',
+        body,
+        url: MY_PULSE_URL,
+        icon: '/icons/icon-192x192.png',
+        created_by: userId,
+        targeting: { user_ids: [userId] },
+        priority: 'normal',
+        category: 'ai_pulse',
+        // work_item keeps cron-emitted reminders out of the
+        // /notifications/admin announcement surface (kind='announcement').
+        kind: 'work_item',
+        idempotency_key,
+        // Derived from THIS cycle's end, never a literal — the starter prompt
+        // this announces is superseded when the next cycle's prompt lands.
+        expires_at: expiresAt,
+        metadata: {
+          source: 'ai_pulse_domain_starter_notify',
+          cycle_id: cycleId,
+          topic_label: label || null,
+        },
+      })
+      .select('id')
+      .single();
+
+    if (notifErr || !notification) {
+      errors.push(`${userId}: ${notifErr?.message ?? 'insert failed'}`);
+      skipped++;
       continue;
     }
     for (const p of group) {

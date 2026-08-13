@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireStaff } from '@/lib/utils/parent-admin-auth';
+import { requireProcurement, PROC_QUOTATION_MANAGE } from '@/lib/utils/procurement-auth';
 import { createClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
@@ -20,7 +20,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * offers manual price entry — the runner box is presumed offline.
  */
 export async function GET(req: NextRequest) {
-  const user = await requireStaff();
+  const user = await requireProcurement(PROC_QUOTATION_MANAGE);
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const jobId = new URL(req.url).searchParams.get('job_id') ?? '';

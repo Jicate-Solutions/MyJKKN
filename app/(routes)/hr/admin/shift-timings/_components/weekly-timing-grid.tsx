@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarClock, Copy, Loader2 } from 'lucide-react';
+import { CalendarClock, Copy, History, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -89,6 +89,30 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * The next three 2nd Saturdays, starting with the current month's, as
+ * "11 Jul, 8 Aug, 12 Sep". Concrete dates because the abstract rule is exactly
+ * what nobody connects to the WEEKLY_OFF they are looking at.
+ */
+function upcomingSecondSaturdays(): string {
+  const out: string[] = [];
+  const now = new Date();
+  for (let i = 0; out.length < 3 && i < 6; i++) {
+    const probe = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    // 2nd Saturday = the first Saturday on/after the 8th.
+    for (let d = 8; d <= 14; d++) {
+      const candidate = new Date(probe.getFullYear(), probe.getMonth(), d);
+      if (candidate.getDay() === 6) {
+        out.push(
+          candidate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+        );
+        break;
+      }
+    }
+  }
+  return out.join(', ');
+}
+
 export function WeeklyTimingGrid({
   institutionId,
   staffScope,
@@ -153,10 +177,31 @@ export function WeeklyTimingGrid({
 
   const isScheduledChange = effectiveFrom > todayISO();
 
+  // The date the timing currently in force started. fn_save_shift_timing_week
+  // branches on this: saving with effectiveFrom <= it CORRECTS the existing row
+  // in place (history is re-judged); saving with a later date SUPERSEDES it
+  // (history keeps the old rule). That is the single most consequential thing
+  // on this screen and it used to be implied by a bare date input, so an
+  // operator raising grace to un-dock a past day got a new row starting today
+  // and no change to the day they were trying to fix.
+  const currentEffectiveFrom = useMemo(() => {
+    const dates = (data ?? [])
+      .map((t) => (t as HRShiftTiming).effective_from)
+      .filter(Boolean) as string[];
+    return dates.length > 0 ? dates.sort()[0] : null;
+  }, [data]);
+
+  const canCorrectHistory = Boolean(
+    currentEffectiveFrom && currentEffectiveFrom < todayISO(),
+  );
+  const isCorrectingHistory = Boolean(
+    currentEffectiveFrom && effectiveFrom <= currentEffectiveFrom,
+  );
+
   const handleSave = useCallback(async () => {
     if (errors.length > 0) return;
     try {
-      await save.mutateAsync({
+      const result = await save.mutateAsync({
         institutionId,
         staffScope,
         employmentCategoryId,
@@ -165,11 +210,34 @@ export function WeeklyTimingGrid({
       });
       // Let the refreshed server rows win on the next render.
       hydratedFor.current = null;
-      toast.success(
-        isScheduledChange
-          ? `${scopeLabel} timings scheduled from ${effectiveFrom}`
-          : `${scopeLabel} timings saved`,
-      );
+
+      if (isScheduledChange) {
+        toast.success(`${scopeLabel} timings scheduled from ${effectiveFrom}`);
+      } else if (result?.recomputeError) {
+        // The timing IS saved; only the re-judging failed. Saying "save failed"
+        // would send the operator back to re-enter data that is already stored.
+        toast.warning(
+          `${scopeLabel} timings saved, but recomputing past attendance failed: ${result.recomputeError}`,
+        );
+      } else if (result?.recompute && result.recompute.changed > 0) {
+        const t = result.recompute.transitions;
+        const detail = Object.entries(t)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([k, n]) => `${n} ${k}`)
+          .join(', ');
+        toast.success(
+          `${scopeLabel} timings saved — ${result.recompute.changed} attendance day(s) recomputed${
+            detail ? ` (${detail})` : ''
+          }`,
+        );
+      } else if (result?.recompute) {
+        toast.success(
+          `${scopeLabel} timings saved — ${result.recompute.examined} attendance day(s) re-checked, none changed`,
+        );
+      } else {
+        toast.success(`${scopeLabel} timings saved`);
+      }
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
@@ -190,6 +258,42 @@ export function WeeklyTimingGrid({
 
   return (
     <div className="space-y-4">
+      {canCorrectHistory && (
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium">When does this change apply?</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setEffectiveFrom(currentEffectiveFrom!)}
+              className={`rounded-md border p-3 text-left text-sm transition-colors ${
+                isCorrectingHistory ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+              }`}
+            >
+              <span className="font-medium">Correct from {currentEffectiveFrom}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                Treats these as the hours that were always in force. Attendance
+                already imported since then is re-judged against them.
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setEffectiveFrom(todayISO())}
+              className={`rounded-md border p-3 text-left text-sm transition-colors ${
+                !isCorrectingHistory && !isScheduledChange
+                  ? 'border-primary bg-primary/5'
+                  : 'hover:bg-muted/50'
+              }`}
+            >
+              <span className="font-medium">Apply from {todayISO()}</span>
+              <span className="mt-1 block text-xs text-muted-foreground">
+                A genuine change of hours. Days before today keep the rule that
+                was in force when they happened.
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="w-48">
           <Label htmlFor="effective-from">Effective from</Label>
@@ -214,6 +318,17 @@ export function WeeklyTimingGrid({
             This is a scheduled change. The current timings stay in force until{' '}
             <strong>{effectiveFrom}</strong>, so attendance before that date keeps
             evaluating against today&apos;s rules.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isCorrectingHistory && !isScheduledChange && (
+        <Alert>
+          <History className="h-4 w-4" />
+          <AlertDescription>
+            Saving will re-judge every biometric attendance day from{' '}
+            <strong>{effectiveFrom}</strong> to today against these hours. Leave,
+            holiday and regularized days are not touched.
           </AlertDescription>
         </Alert>
       )}
@@ -346,17 +461,32 @@ export function WeeklyTimingGrid({
                     )}
 
                     {row.day_of_week === 6 && (
-                      <label className="mt-3 flex items-center gap-2 text-xs">
-                        <Checkbox
-                          checked={row.second_saturday_holiday ?? false}
-                          onCheckedChange={(checked) =>
-                            patchDay(row.day_of_week, {
-                              second_saturday_holiday: checked === true,
-                            })
-                          }
-                        />
-                        2nd Saturday off
-                      </label>
+                      <>
+                        <label className="mt-3 flex items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={row.second_saturday_holiday ?? false}
+                            onCheckedChange={(checked) =>
+                              patchDay(row.day_of_week, {
+                                second_saturday_holiday: checked === true,
+                              })
+                            }
+                          />
+                          2nd Saturday off
+                        </label>
+                        {/* This flag beats is_working_day for one Saturday a
+                            month, which is invisible from the toggle above:
+                            fn_resolve_shift_timings_bulk returns
+                            is_working_day=false for day-of-month 8..14 when it
+                            is set, so attendance reads WEEKLY_OFF on a day the
+                            grid calls a working day. Naming the dates is the
+                            difference between a rule and a surprise. */}
+                        {row.second_saturday_holiday && row.is_working_day && (
+                          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                            Saturday is a working day, but the 2nd Saturday of each
+                            month is still a week off — {upcomingSecondSaturdays()}.
+                          </p>
+                        )}
+                      </>
                     )}
 
                     {rowError && (
