@@ -670,7 +670,20 @@ const schema = z.object({
   application_opens_at: z.string().optional(),
   application_closes_at: z.string().optional(),
   // course_events_total_seats_check: NULL or > 0
-  total_seats: z.coerce.number().int().positive().optional(),
+  //
+  // CORRECTED 2026-08-13. The first draft was
+  //   total_seats: z.coerce.number().int().positive().optional()
+  // which is broken for the COMMON case. A cleared number input reports '',
+  // z.coerce.number() turns '' into 0, and .positive() then rejects it — so
+  // leaving seats blank to mean "unlimited" made the form un-submittable.
+  // .optional() does not help: the value is present as '', not undefined.
+  //
+  // preprocess normalises '' to undefined BEFORE coercion, so the schema is
+  // self-protecting rather than relying on every DOM binding to do it.
+  total_seats: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.coerce.number().int().positive().optional(),
+  ),
   venue_text: z.string().optional(),
 })
   // course_events_date_order_chk
@@ -749,6 +762,12 @@ Do not report complete until each of these is observed, not assumed:
 
 ## Notes for Phase 2b / 2c
 
+- **2b — the optional-number Zod trap will recur.** `course_packages.seat_cap` (NULL or > 0) and the
+  installment `amount` fields have exactly the shape that broke `total_seats`: a cleared numeric input
+  reports `''`, `z.coerce.number()` makes it `0`, and `.positive()` rejects it, so "leave blank for
+  unlimited" becomes un-submittable and `.optional()` does not save you. Use the `z.preprocess('' →
+  undefined, …)` form from Task 6's schema for every nullable numeric field. Do not copy the naive
+  version forward.
 - **2b (packages):** the installment editor must submit the package and its installments in ONE transaction — the sum constraint is `DEFERRABLE INITIALLY DEFERRED` and validates at COMMIT. A package saved alone, then installments saved separately, will fail the second save with `23514` and leave the user stuck. Zero installments is legal (draft); the sum only binds when at least one exists.
 - **2c (sessions/venue):** venue holds write `resource_reservations.course_session_id` — the column Phase 1 Task 3 added. Reuse `ReservationService`; do not write a second booking path.
 - Both must keep `institution_id` NOT NULL on anything new (spec §9a).
