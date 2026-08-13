@@ -18,15 +18,7 @@ ALTER TABLE public.programs
 COMMENT ON COLUMN public.programs.card_short_name IS
   'Short form for the printed ID card COURSE line (e.g. "BTECH IT"). NULL → the card falls back to program_name. Not a display name for screens — see display_name for that.';
 
--- Engineering's programmes, the cohort being carded first. Forms follow the
--- institution''s own physical cards. Left NULL elsewhere on purpose.
-UPDATE public.programs SET card_short_name = 'BE CSE'
- WHERE program_name = 'B.E. Computer Science and Engineering' AND card_short_name IS NULL;
-UPDATE public.programs SET card_short_name = 'BE EEE'
- WHERE program_name = 'B.E. Electrical and Electronics Engineering' AND card_short_name IS NULL;
-UPDATE public.programs SET card_short_name = 'BE ECE'
- WHERE program_name = 'B.E. Electronics and Communication Engineering' AND card_short_name IS NULL;
-UPDATE public.programs SET card_short_name = 'BE MECH'
- WHERE program_name = 'B.E. Mechanical Engineering' AND card_short_name IS NULL;
-UPDATE public.programs SET card_short_name = 'BTECH IT'
- WHERE program_name = 'B.Tech. Information Technology' AND card_short_name IS NULL;
+-- NO seed values. The Director supplies the exact wording per programme, and a
+-- guessed abbreviation would print on real plastic. Every row stays NULL until
+-- then, which is the safe state: the card falls back to the full programme
+-- name, exactly as it does today.
