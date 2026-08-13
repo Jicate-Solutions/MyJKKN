@@ -7853,3 +7853,53 @@ CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_uniq
 
 CREATE INDEX IF NOT EXISTS idx_course_bill_payments_bill
   ON public.course_bill_payments (bill_id) WHERE status = 'success';
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.hostel_room_buyouts (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id                 uuid NOT NULL REFERENCES public.hostel_rooms(id) ON DELETE CASCADE,
+  hostel_year_id          uuid NOT NULL REFERENCES public.hostel_years(id),
+  institution_id          uuid,
+  requested_by_learner_id uuid NOT NULL,   -- profiles.id (= auth.uid())
+  capacity_at_request     int  NOT NULL,
+  occupants_at_request    int  NOT NULL,
+  empty_beds              int  NOT NULL,
+  -- What EACH consenting resident is billed: settled share minus the one bed
+  -- she already pays for. Re-derived at activation; this is the quoted figure.
+  amount_per_resident     numeric NOT NULL,
+  status                  text NOT NULL DEFAULT 'pending_consent',
+  consent_deadline        timestamptz NOT NULL,
+  activated_at            timestamptz,
+  cancelled_reason        text,
+  released_at             timestamptz,
+  released_by             uuid,
+  release_reason          text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_room_buyouts_status_chk CHECK (
+    status IN ('pending_consent','active','declined','expired','cancelled','released')
+  )
+)
+
+CREATE TABLE IF NOT EXISTS public.hostel_room_buyout_consents (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  buyout_id     uuid NOT NULL REFERENCES public.hostel_room_buyouts(id) ON DELETE CASCADE,
+  allocation_id uuid NOT NULL REFERENCES public.hostel_allocations(id) ON DELETE CASCADE,
+  learner_id    uuid NOT NULL,          -- profiles.id
+  decision      text NOT NULL DEFAULT 'pending',
+  decided_at    timestamptz,
+  bill_id       uuid,                   -- billing_student_bills.id, set at activation
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_room_buyout_consents_decision_chk CHECK (
+    decision IN ('pending','agreed','declined')
+  ),
+  CONSTRAINT hostel_room_buyout_consents_unique UNIQUE (buyout_id, allocation_id)
+)
+
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS settle_billing_enabled boolean NOT NULL DEFAULT false;

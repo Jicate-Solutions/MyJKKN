@@ -1917,3 +1917,23 @@ CREATE TRIGGER trg_course_bill_payments_touch
 CREATE TRIGGER trg_course_bill_payments_recompute
   AFTER INSERT OR UPDATE OR DELETE ON public.course_bill_payments
   FOR EACH ROW EXECUTE FUNCTION public.fn_course_recompute_balances();
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+CREATE TRIGGER trg_hostel_room_buyouts_touch
+  BEFORE UPDATE ON public.hostel_room_buyouts
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+CREATE TRIGGER trg_enforce_room_buyout_lock_insert
+  BEFORE INSERT ON public.hostel_allocations
+  FOR EACH ROW EXECUTE FUNCTION public._enforce_room_buyout_lock();
+
+CREATE TRIGGER trg_enforce_room_buyout_lock_update
+  BEFORE UPDATE OF room_id, check_out_date ON public.hostel_allocations
+  FOR EACH ROW
+  WHEN (NEW.room_id IS DISTINCT FROM OLD.room_id OR OLD.check_out_date IS NOT NULL)
+  EXECUTE FUNCTION public._enforce_room_buyout_lock();
