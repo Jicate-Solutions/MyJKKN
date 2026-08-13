@@ -13,10 +13,18 @@ export const billCoverageKeys = {
 
 const STALE = 2 * 60 * 1000; // 2 minutes
 
-export function useBillCoverageSummary(filters: BillCoverageFilters) {
+/** `enabled` is held by the page's tab state. The summary sweeps every in-scope
+ *  learner against every live bill, and the hook is hoisted above the Tabs so
+ *  the filter object can be shared — without this it would keep running while
+ *  the user is on the Audit tab, which does not display it. */
+export function useBillCoverageSummary(
+  filters: BillCoverageFilters,
+  enabled = true
+) {
   return useQuery({
     queryKey: billCoverageKeys.summary(filters),
     queryFn: () => BillCoverageService.getSummary(filters),
+    enabled,
     staleTime: STALE,
     placeholderData: (prev) => prev
   });

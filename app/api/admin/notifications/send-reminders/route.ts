@@ -164,11 +164,14 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Get push subscriptions for these users
+      // Get push subscriptions for these users. is_active=false is how an
+      // unsubscribe is recorded, so pushing to those rows would buzz learners
+      // who explicitly opted out.
       const { data: subscriptions, error: subError } = await serviceClient
         .from('push_subscriptions')
         .select('id, subscription, user_id')
-        .in('user_id', userIds);
+        .in('user_id', userIds)
+        .eq('is_active', true);
 
       if (subError) {
         console.error(

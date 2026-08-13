@@ -29,6 +29,7 @@ import {
 import { ArrowLeft, Download, Upload, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 interface QuotedSpec {
   manufacturer: string;
@@ -227,7 +228,7 @@ export default function NewQuotationPage() {
       toast.success('Quotation added');
       router.push(backHref);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to add quotation');
+      toast.error(errorMessage(e, 'Failed to add quotation'));
     } finally {
       setSaving(false);
     }
@@ -252,7 +253,7 @@ export default function NewQuotationPage() {
           (unmatched.length ? ` · ${unmatched.length} row(s) unmatched` : '')
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not read the file');
+      toast.error(errorMessage(e, 'Could not read the file'));
     }
   };
 
@@ -366,7 +367,7 @@ export default function NewQuotationPage() {
       setExtractJobId(json.job_id);
       toast.success("Reading the PDF in the background — you'll be notified when the prices are ready.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not read the PDF');
+      toast.error(errorMessage(e, 'Could not read the PDF'));
     } finally {
       setExtracting(false);
     }

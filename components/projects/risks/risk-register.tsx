@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,7 +113,7 @@ export function RiskRegister({ projectId }: RiskRegisterProps) {
             ? 'Loading risks…'
             : `${risks?.length ?? 0} risk${(risks?.length ?? 0) === 1 ? '' : 's'}`}
         </p>
-        <Button size="sm" onClick={openCreate} className="gap-1.5">
+        <Button size="sm" onClick={openCreate} className={`gap-1.5 ${TAP_TARGET}`}>
           <Plus className="h-4 w-4" />
           Add risk
         </Button>

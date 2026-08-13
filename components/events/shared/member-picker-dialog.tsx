@@ -545,6 +545,8 @@ export function MemberPickerDialog({
   isAdding = false,
   committeeName,
   existingNames = [],
+  title,
+  description,
 }: {
   open: boolean;
   onClose: () => void;
@@ -552,18 +554,25 @@ export function MemberPickerDialog({
   isAdding?: boolean;
   committeeName?: string;
   existingNames?: string[];
+  /**
+   * Overrides the default "Add Committee Members" heading. The picker is also
+   * used to appoint event in-charges, where that title names the wrong thing.
+   */
+  title?: string;
+  /** Overrides the default blurb under the title. */
+  description?: string;
 }) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg p-4 sm:max-h-[85dvh] sm:w-full sm:max-w-xl sm:p-6">
         <DialogHeader className="shrink-0">
           <DialogTitle className="pr-6 text-base sm:text-lg">
-            Add Committee Members{committeeName ? ` — ${committeeName}` : ''}
+            {title ?? `Add Committee Members${committeeName ? ` — ${committeeName}` : ''}`}
           </DialogTitle>
         </DialogHeader>
         <p className="shrink-0 text-xs text-muted-foreground">
-          Members must be MyJKKN users. For outside people (guest referees, parent
-          volunteers) use the Guest option instead.
+          {description ??
+            'Members must be MyJKKN users. For outside people (guest referees, parent volunteers) use the Guest option instead.'}
         </p>
         {open && (
           <PickerBody

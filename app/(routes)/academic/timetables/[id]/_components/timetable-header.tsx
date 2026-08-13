@@ -121,7 +121,7 @@ export function TimetableHeader({
                   className='text-sm border-orange-500 text-orange-700'
                 >
                   <Lock className='h-3 w-3 mr-1' />
-                  Locked - Attendance Marked
+                  Attendance Marked
                 </Badge>
               )}
             </div>
@@ -202,12 +202,22 @@ export function TimetableHeader({
                   aware that changes may affect existing attendance records.
                 </>
               ) : (
+                // Fixed: 2026-08-13 (BUG-005790/91/92/93) - This used to read
+                // "This timetable is locked for editing … you cannot modify or
+                // delete this timetable". That was never true for a user holding
+                // academic.timetables.edit: the per-period lock it advertised
+                // compares master `periods.id` against slot ids collected from
+                // `timetable_data[cycle][periodId].slot_id`, so it never matches.
+                // Four HODs read the banner as a hard block and filed it as a bug.
+                // State the real risk instead of asserting a block that isn't there.
                 <>
-                  <strong>This timetable is locked for editing.</strong>{' '}
-                  Attendance has been marked for {attendanceCount || 'some'}{' '}
-                  period(s). You cannot modify or delete this timetable to
-                  preserve attendance data integrity. Staff changes should be
-                  made through the Staff Planning module if needed.
+                  <strong>
+                    Attendance has been marked for{' '}
+                    {attendanceCount || 'some'} period(s).
+                  </strong>{' '}
+                  Editing or deleting those slots may affect existing attendance
+                  records, so change them only when you mean to. Staff changes
+                  are usually better made through the Staff Planning module.
                 </>
               )}
             </AlertDescription>
