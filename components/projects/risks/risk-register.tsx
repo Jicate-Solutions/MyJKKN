@@ -156,7 +156,7 @@ export function RiskRegister({ projectId }: RiskRegisterProps) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 w-6 p-0"
+                          className={`h-6 w-6 p-0 ${TAP_TARGET_ICON}`}
                           onClick={() => toggleExpand(risk.id)}
                           aria-label={isOpen ? 'Collapse' : 'Expand'}
                         >
