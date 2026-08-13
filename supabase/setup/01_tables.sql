@@ -7229,12 +7229,22 @@ GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_validate(text) TO authenticated;
 -- the UNIQUE constraint below is what enforces "never reused". Deleting
 -- a row would release the number back into the pool — do not do it.
 -- ---------------------------------------------------------------------
+-- Corrected 2026-08-13: added a third person_kind, 'external_participant',
+-- and a profile_id link for a person who is neither a learner nor staff.
+-- Course Events issues permanent IDs to external participants; extending
+-- this register keeps one pool and one format instead of minting a second.
+-- Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
 CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     jkkn_id             char(8) NOT NULL UNIQUE,
     person_kind         text NOT NULL,
     learner_profile_id  uuid REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
     team_member_id      uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+    -- Added 2026-08-13: link for an external participant, who has a
+    -- profile but is neither a learner nor staff. Deliberately left
+    -- unconstrained for the other kinds so that an external participant
+    -- who later enrols keeps this row, this number, and both links.
+    profile_id          uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
     issued_at           timestamptz NOT NULL DEFAULT now(),
     issued_by           uuid,
     retired_at          timestamptz,
@@ -7243,7 +7253,7 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT jkkn_identities_person_kind_chk
-      CHECK (person_kind IN ('learner', 'team_member', 'both')),
+      CHECK (person_kind IN ('learner', 'team_member', 'both', 'external_participant')),
 
     -- Format is pinned here, not by the column width alone.
     CONSTRAINT jkkn_identities_format_chk
@@ -7260,10 +7270,14 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     -- orphan a link years later, and the number must survive that. The
     -- "must actually point at a real person" rule belongs to issuance
     -- (fn_issue_jkkn_id), which verifies the target exists.
+    -- Widened 2026-08-13: the fourth clause is new, the first three are
+    -- preserved VERBATIM from the original migration.
     CONSTRAINT jkkn_identities_link_shape_chk CHECK (
-         (person_kind = 'learner'     AND team_member_id     IS NULL)
-      OR (person_kind = 'team_member' AND learner_profile_id IS NULL)
+         (person_kind = 'learner'              AND team_member_id     IS NULL)
+      OR (person_kind = 'team_member'          AND learner_profile_id IS NULL)
       OR (person_kind = 'both')
+      OR (person_kind = 'external_participant' AND learner_profile_id IS NULL
+                                               AND team_member_id     IS NULL)
     ),
 
     CONSTRAINT jkkn_identities_retirement_chk
@@ -7275,9 +7289,11 @@ COMMENT ON TABLE public.jkkn_identities IS
 COMMENT ON COLUMN public.jkkn_identities.jkkn_id IS
   'The identifier in its one canonical written form: six digits, a dash, then the Damm check digit — 348295-7. Eight characters for seven digits.';
 COMMENT ON COLUMN public.jkkn_identities.person_kind IS
-  'learner | team_member | both. "both" is a person who is currently on the register in both capacities; it is a fact about them, not a second number.';
+  'learner | team_member | both | external_participant. "both" is a person who is currently on the register in both capacities; it is a fact about them, not a second number.';
 COMMENT ON COLUMN public.jkkn_identities.retired_at IS
   'Set when an identity is withdrawn (issued in error, duplicate found). The number stays parked on this row forever and is never handed to anyone else.';
+COMMENT ON COLUMN public.jkkn_identities.profile_id IS
+  'Link for an external participant, who has a profile but is neither a learner nor staff. Deliberately left unconstrained for the other kinds so that an external participant who later enrols keeps this row, this number, and both links.';
 
 -- One person, one number — enforced structurally, not only in the issuer.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_learner
@@ -7286,6 +7302,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_learner
 CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_team_member
   ON public.jkkn_identities (team_member_id)
   WHERE team_member_id IS NOT NULL;
+-- Added 2026-08-13.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_profile
+  ON public.jkkn_identities (profile_id)
+  WHERE profile_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_jkkn_identities_active
   ON public.jkkn_identities (person_kind)

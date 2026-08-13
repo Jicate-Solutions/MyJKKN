@@ -36678,10 +36678,21 @@ COMMENT ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text
 -- once in 10^10 draws. The loop is bounded at 20 and raises rather than
 -- spinning.
 -- ---------------------------------------------------------------------
+-- Corrected 2026-08-13: widened to a 4-argument signature to issue a
+-- third person_kind, 'external_participant', anchored on a profile
+-- rather than a learner/staff row. This is a DROP + CREATE, not a bare
+-- CREATE OR REPLACE: a defaulted 4th parameter alongside the old 3-arg
+-- signature would create an OVERLOAD, and a 3-argument call would then
+-- match both and fail with 42725 "function is not unique". The old
+-- signature is gone, so the REVOKE/GRANT below is re-issued against the
+-- new one. Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
+DROP FUNCTION IF EXISTS public.fn_issue_jkkn_id(text, uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.fn_issue_jkkn_id(
   p_person_kind        text,
   p_learner_profile_id uuid DEFAULT NULL,
-  p_team_member_id     uuid DEFAULT NULL
+  p_team_member_id     uuid DEFAULT NULL,
+  p_profile_id         uuid DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -36705,8 +36716,9 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
 
-  IF p_person_kind IS NULL OR p_person_kind NOT IN ('learner', 'team_member', 'both') THEN
-    RAISE EXCEPTION 'person_kind must be learner, team_member or both (got %)', p_person_kind
+  IF p_person_kind IS NULL
+     OR p_person_kind NOT IN ('learner','team_member','both','external_participant') THEN
+    RAISE EXCEPTION 'person_kind must be learner, team_member, both or external_participant (got %)', p_person_kind
       USING ERRCODE = '22023';
   END IF;
 
@@ -36723,7 +36735,7 @@ BEGIN
         USING ERRCODE = '23503';
     END IF;
   ELSIF p_learner_profile_id IS NOT NULL THEN
-    RAISE EXCEPTION 'A team_member identity must not carry a learner profile'
+    RAISE EXCEPTION 'A % identity must not carry a learner profile', p_person_kind
       USING ERRCODE = '22023';
   END IF;
 
@@ -36737,7 +36749,22 @@ BEGIN
         USING ERRCODE = '23503';
     END IF;
   ELSIF p_team_member_id IS NOT NULL THEN
-    RAISE EXCEPTION 'A learner identity must not carry a team member'
+    RAISE EXCEPTION 'A % identity must not carry a team member', p_person_kind
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- New kind: an external participant is anchored on a profile only.
+  IF p_person_kind = 'external_participant' THEN
+    IF p_profile_id IS NULL THEN
+      RAISE EXCEPTION 'An external_participant identity needs a profile'
+        USING ERRCODE = '22023';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_profile_id) THEN
+      RAISE EXCEPTION 'No profile %', p_profile_id
+        USING ERRCODE = '23503';
+    END IF;
+  ELSIF p_profile_id IS NOT NULL THEN
+    RAISE EXCEPTION 'Only an external_participant identity is issued against a profile'
       USING ERRCODE = '22023';
   END IF;
 
@@ -36749,6 +36776,7 @@ BEGIN
     FROM public.jkkn_identities
    WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
       OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
+      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
    LIMIT 1;
 
   IF v_existing IS NOT NULL THEN
@@ -36763,10 +36791,10 @@ BEGIN
     v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
 
     INSERT INTO public.jkkn_identities (
-      jkkn_id, person_kind, learner_profile_id, team_member_id, issued_by
+      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
     )
     VALUES (
-      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, auth.uid()
+      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, auth.uid()
     )
     ON CONFLICT (jkkn_id) DO NOTHING
     RETURNING id INTO v_id;
@@ -36789,11 +36817,12 @@ BEGIN
 END;
 $fn$;
 
-COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid) IS
-  'Issues ONE permanent JKKN ID to a person who does not already hold one. Admin-gated on users.jkkn_id.issue, which no role holds today — the machinery ships dormant. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
+COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) IS
+  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13). Admin-gated on users.jkkn_id.issue. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
 
-REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid) TO authenticated;
+-- DROP FUNCTION discarded the ACL. Restore it.
+REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) TO authenticated;
 
 -- ---------------------------------------------------------------------
 -- 2. fn_check_duplicate_person — the guard, called BEFORE creating anyone
