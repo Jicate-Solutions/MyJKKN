@@ -24,28 +24,8 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/cron/improvement-rank-ideas?secret=${CRON_SECRET}",
-      "schedule": "43 4 * * *"
-    },
-    {
       "path": "/api/cron/improvement-rank-ideas?mode=collect&secret=${CRON_SECRET}",
       "schedule": "17,47 * * * *"
-    },
-    {
-      "path": "/api/cron/teaching-cohort-sync?secret=${CRON_SECRET}",
-      "schedule": "11 4 * * *"
-    },
-    {
-      "path": "/api/cron/mba-associate-sync?secret=${CRON_SECRET}",
-      "schedule": "53 4 * * *"
-    },
-    {
-      "path": "/api/cron/mba-faculty-sync?secret=${CRON_SECRET}",
-      "schedule": "19 5 * * *"
-    },
-    {
-      "path": "/api/cron/mba-rotation-tick?secret=${CRON_SECRET}",
-      "schedule": "7 5 * * *"
     },
     {
       "path": "/api/cron/ai-tasks-sweep?secret=${CRON_SECRET}",
@@ -56,16 +36,8 @@
       "schedule": "*/30 * * * *"
     },
     {
-      "path": "/api/cron/scf-freetext-carry?secret=${CRON_SECRET}",
-      "schedule": "7 22 * * *"
-    },
-    {
       "path": "/api/cron/scf-prepared-pulse-sweep?secret=${CRON_SECRET}",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/pde-case-due-soon?secret=${CRON_SECRET}",
-      "schedule": "23 2 * * *"
     },
     {
       "path": "/api/cron/induction-generate-playbook?mode=collect&secret=${CRON_SECRET}",
@@ -74,10 +46,6 @@
     {
       "path": "/api/cron/curriculum-lesson-spine-generate?mode=collect&secret=${CRON_SECRET}",
       "schedule": "*/30 * * * *"
-    },
-    {
-      "path": "/api/cron/work-signal-suggestions?secret=${CRON_SECRET}",
-      "schedule": "13 3 * * 1"
     },
     {
       "path": "/api/cron/work-signal-suggestions?mode=collect&secret=${CRON_SECRET}",
@@ -96,24 +64,12 @@
       "schedule": "*/30 * * * *"
     },
     {
-      "path": "/api/cron/rcltp-review-chase?secret=${CRON_SECRET}",
-      "schedule": "26 20 * * *"
-    },
-    {
-      "path": "/api/cron/attendance-breach-check?secret=${CRON_SECRET}",
-      "schedule": "37 21 * * *"
-    },
-    {
       "path": "/api/cron/meeting-trigger-reconcile?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
     {
       "path": "/api/cron/project-accountability-check?secret=${CRON_SECRET}",
       "schedule": "47 * * * *"
-    },
-    {
-      "path": "/api/cron/director-handover-chase?secret=${CRON_SECRET}",
-      "schedule": "53 19 * * *"
     },
     {
       "path": "/api/cron/meeting-calendar-watch-renew?secret=${CRON_SECRET}",
@@ -132,18 +88,6 @@
       "schedule": "15,45 * * * *"
     },
     {
-      "path": "/api/cron/accreditation-naac-narrative-draft",
-      "schedule": "22 19 * * *"
-    },
-    {
-      "path": "/api/cron/accreditation-narrative-reminders",
-      "schedule": "12 3 * * *"
-    },
-    {
-      "path": "/api/cron/accreditation-narrative-capout-notice",
-      "schedule": "52 19 * * *"
-    },
-    {
       "path": "/api/cron/model-compare-collect?secret=${CRON_SECRET}",
       "schedule": "9,39 * * * *"
     },
@@ -152,28 +96,12 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/dashboard/cron/refresh-conversion-leaderboard",
-      "schedule": "30 18 * * *"
-    },
-    {
       "path": "/api/dashboard/cron/ghost-sweep",
       "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/dashboard/cron/queue-escalate",
       "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/dashboard/cron/decisions-verdict-check",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/cron/sunday-wrap?secret=${CRON_SECRET}",
-      "schedule": "30 15 * * 0"
-    },
-    {
-      "path": "/api/cron/friday-reflection?secret=${CRON_SECRET}",
-      "schedule": "30 10 * * 5"
     },
     {
       "path": "/api/cron/dashboard-work-items?secret=${CRON_SECRET}",
@@ -196,44 +124,16 @@
       "schedule": "17 */6 * * *"
     },
     {
-      "path": "/api/cron/campus-living/vacancy-price-drops?secret=${CRON_SECRET}",
-      "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/campus-living/occupancy-snapshot?secret=${CRON_SECRET}",
-      "schedule": "30 1 * * *"
-    },
-    {
       "path": "/api/cron/campus-living/upgrade-hold-expiry?secret=${CRON_SECRET}",
       "schedule": "45 * * * *"
-    },
-    {
-      "path": "/api/cron/campus-living/housekeeping-task-generator?secret=${CRON_SECRET}",
-      "schedule": "35 18 * * *"
     },
     {
       "path": "/api/cron/grievance-sla-breach-check?secret=${CRON_SECRET}",
       "schedule": "23 * * * *"
     },
     {
-      "path": "/api/cron/generate-daily-briefings",
-      "schedule": "30 0 * * *"
-    },
-    {
       "path": "/api/cron/sentry-lane-2?secret=${CRON_SECRET}",
       "schedule": "29 */6 * * *"
-    },
-    {
-      "path": "/api/cron/attention-bar-prune?secret=${CRON_SECRET}",
-      "schedule": "47 18 * * *"
-    },
-    {
-      "path": "/api/cron/duty-log-retention?secret=${CRON_SECRET}",
-      "schedule": "0 3 * * 0"
-    },
-    {
-      "path": "/api/cron/prospect-reminders?secret=${CRON_SECRET}",
-      "schedule": "23 8 * * *"
     },
     {
       "path": "/api/cron/whatsapp-byow-health",
@@ -242,10 +142,6 @@
     {
       "path": "/api/cron/whatsapp-byow-connection-pulse",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/whatsapp-byow-bypass-detect",
-      "schedule": "0 9 * * 1"
     },
     {
       "path": "/api/cron/whatsapp-byow-monthly-audit",
@@ -272,14 +168,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/hr/document-expiry-reminders?secret=${CRON_SECRET}",
-      "schedule": "0 7 * * *"
-    },
-    {
-      "path": "/api/cron/hr-policy-promote-detector?secret=${CRON_SECRET}",
-      "schedule": "0 2 * * 1"
-    },
-    {
       "path": "/api/cron/razorpay-late-auth?secret=${CRON_SECRET}",
       "schedule": "*/15 * * * *"
     },
@@ -296,18 +184,6 @@
       "schedule": "37 * * * *"
     },
     {
-      "path": "/api/cron/ig-login-token-refresh?secret=${CRON_SECRET}",
-      "schedule": "43 2 * * *"
-    },
-    {
-      "path": "/api/cron/ig-accounts-sync?secret=${CRON_SECRET}",
-      "schedule": "11 5 * * *"
-    },
-    {
-      "path": "/api/cron/ig-silence-detect?secret=${CRON_SECRET}",
-      "schedule": "23 7 * * 1"
-    },
-    {
       "path": "/api/cron/instagram-monthly-audit?secret=${CRON_SECRET}",
       "schedule": "0 6 1 * *"
     },
@@ -320,24 +196,12 @@
       "schedule": "0 * * * *"
     },
     {
-      "path": "/api/cron/meta-subscription-drift-check",
-      "schedule": "30 21 * * *"
-    },
-    {
-      "path": "/api/cron/meta-leadgen-backfill",
-      "schedule": "47 22 * * *"
-    },
-    {
       "path": "/api/cron/meta-ads-sync?secret=${CRON_SECRET}",
       "schedule": "0 */2 * * *"
     },
     {
       "path": "/api/cron/ig-stories-poll?secret=${CRON_SECRET}",
       "schedule": "30 */2 * * *"
-    },
-    {
-      "path": "/api/cron/google-calendar-connection-check",
-      "schedule": "19 1 * * *"
     },
     {
       "path": "/api/cron/meeting-workflows?secret=${CRON_SECRET}",
@@ -352,52 +216,12 @@
       "schedule": "43 */4 * * *"
     },
     {
-      "path": "/api/schools-network/visit-nudges/cron?secret=${CRON_SECRET}",
-      "schedule": "13 4 * * *"
-    },
-    {
-      "path": "/api/cron/induction-mentorship-rollover?secret=${CRON_SECRET}",
-      "schedule": "17 3 * * *"
-    },
-    {
-      "path": "/api/cron/exam-audit-alerts?secret=${CRON_SECRET}",
-      "schedule": "43 2 * * 1"
-    },
-    {
-      "path": "/api/cron/sf100-accountability?secret=${CRON_SECRET}",
-      "schedule": "37 3 * * *"
-    },
-    {
-      "path": "/api/cron/sf100-weekly-reminder?secret=${CRON_SECRET}",
-      "schedule": "33 14 * * 0"
-    },
-    {
-      "path": "/api/cron/bug-cluster-scan?secret=${CRON_SECRET}",
-      "schedule": "19 21 * * *"
-    },
-    {
-      "path": "/api/cron/aipulse-domain-starter?secret=${CRON_SECRET}",
-      "schedule": "8 9 * * 6,0,1,2"
-    },
-    {
       "path": "/api/cron/aipulse-domain-starter-notify?secret=${CRON_SECRET}",
       "schedule": "0 14-23 * * 4"
     },
     {
-      "path": "/api/cron/aipulse-domain-starter-measure?secret=${CRON_SECRET}",
-      "schedule": "0 6 * * 6"
-    },
-    {
       "path": "/api/cron/aipulse-prompt-grade?secret=${CRON_SECRET}",
       "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/aipulse-prompt-graduate?secret=${CRON_SECRET}",
-      "schedule": "35 1 * * *"
-    },
-    {
-      "path": "/api/cron/aipulse-prompt-dedup?secret=${CRON_SECRET}",
-      "schedule": "50 1 * * *"
     },
     {
       "path": "/api/cron/aipulse-prompt-safety?secret=${CRON_SECRET}",
@@ -406,10 +230,6 @@
     {
       "path": "/api/cron/pde-at-risk-flag?secret=${CRON_SECRET}",
       "schedule": "53 */6 * * *"
-    },
-    {
-      "path": "/api/cron/pde-image-orphans?secret=${CRON_SECRET}",
-      "schedule": "41 3 * * *"
     },
     {
       "path": "/api/cron/ai-lane-heartbeat?secret=${CRON_SECRET}",

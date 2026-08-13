@@ -46,6 +46,8 @@ END $$;
 
 -- Profiles table (extends Supabase auth.users)
 -- Updated: 2026-04-14 - Added chk_role_not_guest to enforce invite-only policy
+-- Updated: 2026-08-13 - Added is_external_participant (Course Events).
+-- Mirrors migration 20260813100600_course_permissions_and_role.sql.
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email TEXT,
@@ -65,6 +67,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     institution_id UUID,
     department_id UUID,
     learner_id UUID,
+    -- TRUE for a person provisioned solely to take a paid course. They have
+    -- institution_id NULL, hold only courses.participant.self, and are
+    -- confined to the /my-courses portal.
+    is_external_participant BOOLEAN NOT NULL DEFAULT false,
     CONSTRAINT chk_role_not_guest CHECK (role <> 'guest')
 );
 
@@ -1710,6 +1716,11 @@ CREATE TABLE IF NOT EXISTS public.user_child_app_permissions (
 -- Profiles indexes
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
 CREATE INDEX IF NOT EXISTS idx_profiles_institution_id ON public.profiles(institution_id);
+-- Added 2026-08-13 (Course Events). Partial index — only external
+-- participants set this flag, so the index stays small.
+CREATE INDEX IF NOT EXISTS idx_profiles_external_participant
+  ON public.profiles (is_external_participant)
+  WHERE is_external_participant;
 
 -- Learners Profiles indexes
 -- Created: 2025-01-18 - Indexes for unified learners_profiles table
@@ -7229,12 +7240,22 @@ GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_validate(text) TO authenticated;
 -- the UNIQUE constraint below is what enforces "never reused". Deleting
 -- a row would release the number back into the pool — do not do it.
 -- ---------------------------------------------------------------------
+-- Corrected 2026-08-13: added a third person_kind, 'external_participant',
+-- and a profile_id link for a person who is neither a learner nor staff.
+-- Course Events issues permanent IDs to external participants; extending
+-- this register keeps one pool and one format instead of minting a second.
+-- Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
 CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     jkkn_id             char(8) NOT NULL UNIQUE,
     person_kind         text NOT NULL,
     learner_profile_id  uuid REFERENCES public.learners_profiles(id) ON DELETE SET NULL,
     team_member_id      uuid REFERENCES public.staff(id) ON DELETE SET NULL,
+    -- Added 2026-08-13: link for an external participant, who has a
+    -- profile but is neither a learner nor staff. Deliberately left
+    -- unconstrained for the other kinds so that an external participant
+    -- who later enrols keeps this row, this number, and both links.
+    profile_id          uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
     issued_at           timestamptz NOT NULL DEFAULT now(),
     issued_by           uuid,
     retired_at          timestamptz,
@@ -7243,7 +7264,7 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT jkkn_identities_person_kind_chk
-      CHECK (person_kind IN ('learner', 'team_member', 'both')),
+      CHECK (person_kind IN ('learner', 'team_member', 'both', 'external_participant')),
 
     -- Format is pinned here, not by the column width alone.
     CONSTRAINT jkkn_identities_format_chk
@@ -7260,10 +7281,14 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     -- orphan a link years later, and the number must survive that. The
     -- "must actually point at a real person" rule belongs to issuance
     -- (fn_issue_jkkn_id), which verifies the target exists.
+    -- Widened 2026-08-13: the fourth clause is new, the first three are
+    -- preserved VERBATIM from the original migration.
     CONSTRAINT jkkn_identities_link_shape_chk CHECK (
-         (person_kind = 'learner'     AND team_member_id     IS NULL)
-      OR (person_kind = 'team_member' AND learner_profile_id IS NULL)
+         (person_kind = 'learner'              AND team_member_id     IS NULL)
+      OR (person_kind = 'team_member'          AND learner_profile_id IS NULL)
       OR (person_kind = 'both')
+      OR (person_kind = 'external_participant' AND learner_profile_id IS NULL
+                                               AND team_member_id     IS NULL)
     ),
 
     CONSTRAINT jkkn_identities_retirement_chk
@@ -7275,9 +7300,11 @@ COMMENT ON TABLE public.jkkn_identities IS
 COMMENT ON COLUMN public.jkkn_identities.jkkn_id IS
   'The identifier in its one canonical written form: six digits, a dash, then the Damm check digit — 348295-7. Eight characters for seven digits.';
 COMMENT ON COLUMN public.jkkn_identities.person_kind IS
-  'learner | team_member | both. "both" is a person who is currently on the register in both capacities; it is a fact about them, not a second number.';
+  'learner | team_member | both | external_participant. "both" is a person who is currently on the register in both capacities; it is a fact about them, not a second number.';
 COMMENT ON COLUMN public.jkkn_identities.retired_at IS
   'Set when an identity is withdrawn (issued in error, duplicate found). The number stays parked on this row forever and is never handed to anyone else.';
+COMMENT ON COLUMN public.jkkn_identities.profile_id IS
+  'Link for an external participant, who has a profile but is neither a learner nor staff. Deliberately left unconstrained for the other kinds so that an external participant who later enrols keeps this row, this number, and both links.';
 
 -- One person, one number — enforced structurally, not only in the issuer.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_learner
@@ -7286,6 +7313,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_learner
 CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_team_member
   ON public.jkkn_identities (team_member_id)
   WHERE team_member_id IS NOT NULL;
+-- Added 2026-08-13.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_jkkn_identities_profile
+  ON public.jkkn_identities (profile_id)
+  WHERE profile_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_jkkn_identities_active
   ON public.jkkn_identities (person_kind)
@@ -7405,3 +7436,470 @@ ALTER TABLE public.hr_academic_years
 COMMENT ON COLUMN public.hr_academic_years.frozen_at IS
   'Non-NULL = this year is archived; balances are served from stored rows, not derived.';
 
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core (course_events, course_packages,
+-- course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Phase 1 of docs/superpowers/specs/2026-08-13-course-events-design.md
+-- RLS policies -> setup/03_policies.sql. Trigger functions and touch
+-- function -> setup/02_functions.sql. Triggers -> setup/04_triggers.sql.
+-- =====================================================================
+
+-- `status` deliberately has NO 'closed' value. Whether applications are
+-- accepted is decided solely by the application_opens_at/closes_at
+-- window. Two independent switches governing one behaviour is how intake
+-- states drift apart.
+CREATE TABLE IF NOT EXISTS public.course_events (
+  id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id           uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  title                    text NOT NULL,
+  slug                     text NOT NULL,
+  code                     text,
+  description              text,
+  mode                     text NOT NULL DEFAULT 'offline'
+                             CHECK (mode IN ('offline','online','hybrid')),
+  status                   text NOT NULL DEFAULT 'draft'
+                             CHECK (status IN ('draft','published','completed','cancelled')),
+  start_date               date,
+  end_date                 date,
+  application_opens_at     timestamptz,
+  application_closes_at    timestamptz,
+  total_seats              int CHECK (total_seats IS NULL OR total_seats > 0),
+  venue_text               text,
+  cover_image_url          text,
+  year                     int,
+  edition_number           int,
+  previous_course_event_id uuid REFERENCES public.course_events(id) ON DELETE SET NULL,
+  created_by               uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  updated_at               timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_events_slug_format_chk
+    CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  CONSTRAINT course_events_date_order_chk
+    CHECK (end_date IS NULL OR start_date IS NULL OR end_date >= start_date),
+  CONSTRAINT course_events_application_window_chk
+    CHECK (application_closes_at IS NULL OR application_opens_at IS NULL
+           OR application_closes_at >= application_opens_at),
+  CONSTRAINT course_events_slug_uniq UNIQUE (institution_id, slug)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_events_institution
+  ON public.course_events (institution_id, status);
+CREATE INDEX IF NOT EXISTS idx_course_events_previous
+  ON public.course_events (previous_course_event_id)
+  WHERE previous_course_event_id IS NOT NULL;
+
+COMMENT ON TABLE public.course_events IS
+  'A paid, multi-session learning course conducted by an institution. Open to learners, staff and external participants.';
+COMMENT ON COLUMN public.course_events.previous_course_event_id IS
+  'Lineage for a course repeated yearly. Set by fn_clone_course_event (Phase 7).';
+
+-- course_packages — priced tiers
+CREATE TABLE IF NOT EXISTS public.course_packages (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id uuid NOT NULL REFERENCES public.course_events(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  description     text,
+  total_amount    numeric(12,2) NOT NULL CHECK (total_amount >= 0),
+  currency        text NOT NULL DEFAULT 'INR',
+  seat_cap        int CHECK (seat_cap IS NULL OR seat_cap > 0),
+  sale_opens_at   timestamptz,
+  sale_closes_at  timestamptz,
+  is_active       boolean NOT NULL DEFAULT true,
+  display_order   int NOT NULL DEFAULT 0,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_packages_name_uniq UNIQUE (course_event_id, name),
+  CONSTRAINT course_packages_sale_window_chk
+    CHECK (sale_closes_at IS NULL OR sale_opens_at IS NULL
+           OR sale_closes_at >= sale_opens_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_packages_event
+  ON public.course_packages (course_event_id) WHERE is_active;
+
+COMMENT ON COLUMN public.course_packages.seat_cap IS
+  'NULL means unlimited. Waitlisting when a cap is reached is out of scope for v1.';
+
+-- course_package_installments — the schedule template. Due dates are
+-- ABSOLUTE. A cohort course has one schedule everybody pays to;
+-- enrollment-relative offsets are explicitly out of scope.
+CREATE TABLE IF NOT EXISTS public.course_package_installments (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  package_id     uuid NOT NULL REFERENCES public.course_packages(id) ON DELETE CASCADE,
+  installment_no smallint NOT NULL CHECK (installment_no >= 1),
+  label          text,
+  amount         numeric(12,2) NOT NULL CHECK (amount > 0),
+  due_date       date NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_package_installments_no_uniq UNIQUE (package_id, installment_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_package_installments_package
+  ON public.course_package_installments (package_id, installment_no);
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Sessions and the resource_reservations
+-- venue-booking seam
+-- Mirror of migration 20260813100100_course_sessions_and_reservations.sql
+-- RLS policies -> setup/03_policies.sql. Triggers -> setup/04_triggers.sql.
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.course_sessions (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id   uuid NOT NULL REFERENCES public.course_events(id) ON DELETE CASCADE,
+  institution_id    uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  session_no        int,
+  title             text,
+  session_date      date NOT NULL,
+  start_time        time NOT NULL,
+  end_time          time NOT NULL,
+  trainer_profile_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  trainer_name      text,
+  venue_resource_id uuid REFERENCES public.resources(id) ON DELETE SET NULL,
+  venue_text        text,
+  reservation_id    uuid REFERENCES public.resource_reservations(id) ON DELETE SET NULL,
+  is_cancelled      boolean NOT NULL DEFAULT false,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_sessions_time_order_chk CHECK (end_time > start_time)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_sessions_event
+  ON public.course_sessions (course_event_id, session_date);
+CREATE INDEX IF NOT EXISTS idx_course_sessions_date
+  ON public.course_sessions (session_date) WHERE NOT is_cancelled;
+
+COMMENT ON TABLE public.course_sessions IS
+  'One scheduled sitting of a course. Each session holds its OWN venue reservation, so a weekend bootcamp books only the Saturdays it uses rather than blocking a hall for months.';
+COMMENT ON COLUMN public.course_sessions.trainer_name IS
+  'Free text for an external trainer who has no profile. Use trainer_profile_id for internal staff.';
+
+-- resource_reservations: a third owner kind. This FK targets a
+-- DIFFERENT table than the existing event_id/session_id links, so it
+-- does not create a second FK to one table and does not disturb any
+-- PostgREST embed on this table. The old two-way CHECK is replaced by
+-- a num_nonnulls(...) <= 1 "at most one owner" rule across all three.
+ALTER TABLE public.resource_reservations
+  ADD COLUMN IF NOT EXISTS course_session_id uuid
+  REFERENCES public.course_sessions(id) ON DELETE SET NULL;
+
+ALTER TABLE public.resource_reservations
+  DROP CONSTRAINT IF EXISTS resource_reservations_event_or_session_check;
+
+ALTER TABLE public.resource_reservations
+  ADD CONSTRAINT resource_reservations_single_owner_check
+  CHECK (num_nonnulls(event_id, session_id, course_session_id) <= 1);
+
+CREATE INDEX IF NOT EXISTS idx_resource_reservations_course_session
+  ON public.resource_reservations (course_session_id)
+  WHERE course_session_id IS NOT NULL;
+
+COMMENT ON COLUMN public.resource_reservations.course_session_id IS
+  'Set when this reservation was raised to hold a venue for one course session. Mutually exclusive with event_id and session_id.';
+
+-- =====================================================================
+-- Added: 2026-08-13 - Registration form builder (course_registration_forms,
+-- course_registration_form_sections, course_registration_form_fields)
+-- Mirror of migration 20260813100200_course_registration_forms.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.course_registration_forms (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id uuid NOT NULL REFERENCES public.course_events(id) ON DELETE CASCADE,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  slug            text NOT NULL,
+  description     text,
+  display_order   int NOT NULL DEFAULT 0,
+  is_enabled      boolean NOT NULL DEFAULT false,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_registration_forms_slug_uniq UNIQUE (course_event_id, slug),
+  CONSTRAINT course_registration_forms_slug_format_chk
+    CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+);
+
+COMMENT ON COLUMN public.course_registration_forms.is_enabled IS
+  'Defaults to FALSE. A new or cloned form must never silently open a second live intake on a running course.';
+
+CREATE TABLE IF NOT EXISTS public.course_registration_form_sections (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id       uuid NOT NULL REFERENCES public.course_registration_forms(id) ON DELETE CASCADE,
+  title         text NOT NULL,
+  description   text,
+  display_order int NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.course_registration_form_fields (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  form_id       uuid NOT NULL REFERENCES public.course_registration_forms(id) ON DELETE CASCADE,
+  section_id    uuid REFERENCES public.course_registration_form_sections(id) ON DELETE CASCADE,
+  field_key     text NOT NULL,
+  label         text NOT NULL,
+  field_type    text NOT NULL
+                  CHECK (field_type IN ('text','textarea','number','email','phone',
+                                        'date','select','multiselect','checkbox',
+                                        'radio','file')),
+  is_required   boolean NOT NULL DEFAULT false,
+  options       jsonb NOT NULL DEFAULT '[]'::jsonb,
+  placeholder   text,
+  help_text     text,
+  validation    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  display_order int NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_registration_form_fields_key_uniq UNIQUE (form_id, field_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_reg_forms_event
+  ON public.course_registration_forms (course_event_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_course_reg_sections_form
+  ON public.course_registration_form_sections (form_id, display_order);
+CREATE INDEX IF NOT EXISTS idx_course_reg_fields_form
+  ON public.course_registration_form_fields (form_id, display_order);
+
+-- =====================================================================
+-- Added: 2026-08-13 - Applications (screening gate) and enrollments
+-- (course_applications, course_enrollments)
+-- Mirror of migration 20260813100300_course_applications_enrollments.sql
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS public.course_applications (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id         uuid NOT NULL REFERENCES public.course_events(id) ON DELETE CASCADE,
+  institution_id          uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  form_id                 uuid REFERENCES public.course_registration_forms(id) ON DELETE SET NULL,
+  package_id              uuid REFERENCES public.course_packages(id) ON DELETE SET NULL,
+  applicant_type          text NOT NULL CHECK (applicant_type IN ('learner','staff','external')),
+  -- Corrected 2026-08-18: SET NULL -> RESTRICT (migration 20260818010000).
+  -- The identity CHECK requires this column NOT NULL for its governing
+  -- applicant_type ('staff'), so SET NULL could never actually execute
+  -- for rows of its own type — it aborted with a confusing 23514 instead
+  -- of a 23503.
+  profile_id              uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  -- Corrected 2026-08-13: SET NULL -> RESTRICT (migration 20260813100450).
+  -- Same reasoning, for applicant_type = 'learner'.
+  learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE RESTRICT,
+  external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE RESTRICT,
+  applicant_name          text NOT NULL,
+  applicant_email         text,
+  applicant_phone         text NOT NULL,
+  custom_fields           jsonb NOT NULL DEFAULT '{}'::jsonb,
+  status                  text NOT NULL DEFAULT 'pending'
+                            CHECK (status IN ('pending','shortlisted','approved','rejected','withdrawn')),
+  decided_by              uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+  decided_at              timestamptz,
+  decision_note           text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+
+  -- The identity anchor must match the declared type. Written per type
+  -- rather than as a blanket num_nonnulls(...) >= 1, because a STAFF
+  -- applicant has neither a learner record nor an external-participant
+  -- record — only a profile.
+  CONSTRAINT course_applications_identity_chk CHECK (
+       (applicant_type = 'learner'  AND learner_id              IS NOT NULL)
+    OR (applicant_type = 'staff'    AND profile_id              IS NOT NULL)
+    OR (applicant_type = 'external' AND external_participant_id IS NOT NULL)
+  ),
+  CONSTRAINT course_applications_decision_chk
+    CHECK (status NOT IN ('approved','rejected') OR decided_at IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_applications_event_status
+  ON public.course_applications (course_event_id, status);
+CREATE INDEX IF NOT EXISTS idx_course_applications_phone
+  ON public.course_applications (applicant_phone);
+
+CREATE TABLE IF NOT EXISTS public.course_enrollments (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_event_id         uuid NOT NULL REFERENCES public.course_events(id) ON DELETE RESTRICT,
+  institution_id          uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  application_id          uuid UNIQUE REFERENCES public.course_applications(id) ON DELETE SET NULL,
+  package_id              uuid NOT NULL REFERENCES public.course_packages(id) ON DELETE RESTRICT,
+  participant_type        text NOT NULL CHECK (participant_type IN ('learner','staff','external')),
+  -- NOT NULL: identity provisioning runs BEFORE the enrollment insert, in
+  -- the same transaction. With a nullable column Postgres treats every
+  -- NULL as distinct, so the UNIQUE below would enforce nothing.
+  profile_id              uuid NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  -- Corrected 2026-08-13: SET NULL -> RESTRICT (migration 20260813100450).
+  -- Same reasoning as course_applications above.
+  learner_id              uuid REFERENCES public.learners_profiles(id) ON DELETE RESTRICT,
+  external_participant_id uuid REFERENCES public.event_external_participants(id) ON DELETE RESTRICT,
+  enrollment_number       text UNIQUE,
+  status                  text NOT NULL DEFAULT 'active'
+                            CHECK (status IN ('active','confirmed','payment_overdue',
+                                              'withdrawn','completed','cancelled')),
+  total_payable           numeric(12,2) NOT NULL CHECK (total_payable >= 0),
+  total_paid              numeric(12,2) NOT NULL DEFAULT 0 CHECK (total_paid >= 0),
+  balance                 numeric(12,2) NOT NULL,
+  refundable_amount       numeric(12,2) NOT NULL DEFAULT 0 CHECK (refundable_amount >= 0),
+  refund_status           text CHECK (refund_status IS NULL
+                                      OR refund_status IN ('pending_offline','recorded')),
+  withdrawn_at            timestamptz,
+  withdrawal_reason       text,
+  enrolled_at             timestamptz NOT NULL DEFAULT now(),
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_enrollments_identity_chk CHECK (
+       (participant_type = 'learner'  AND learner_id IS NOT NULL)
+    OR (participant_type = 'staff'    AND learner_id IS NULL
+                                      AND external_participant_id IS NULL)
+    OR (participant_type = 'external' AND external_participant_id IS NOT NULL)
+  ),
+  CONSTRAINT course_enrollments_withdrawal_chk
+    CHECK (status <> 'withdrawn' OR withdrawn_at IS NOT NULL),
+  CONSTRAINT course_enrollments_person_uniq UNIQUE (course_event_id, profile_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_enrollments_event_status
+  ON public.course_enrollments (course_event_id, status);
+CREATE INDEX IF NOT EXISTS idx_course_enrollments_profile
+  ON public.course_enrollments (profile_id);
+
+COMMENT ON COLUMN public.course_enrollments.total_payable IS
+  'A SNAPSHOT of course_packages.total_amount taken at enrollment. Repricing a package later must never silently re-price people already enrolled.';
+
+-- =====================================================================
+-- Course Events — bills, payments, and derived balances
+-- Mirror of migration 20260813100400_course_billing.sql
+-- =====================================================================
+-- billing_student_bills is NOT reused: its student_id is a NOT NULL FK
+-- to learners_profiles and an external participant is not a learner.
+-- These tables are keyed to an ENROLLMENT, which may belong to a learner,
+-- a staff member or an external person. billing_student_bills is
+-- untouched by this module.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS public.course_bills (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  enrollment_id   uuid NOT NULL REFERENCES public.course_enrollments(id) ON DELETE RESTRICT,
+  course_event_id uuid NOT NULL REFERENCES public.course_events(id) ON DELETE RESTRICT,
+  institution_id  uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  bill_number     text NOT NULL UNIQUE,
+  installment_no  smallint NOT NULL CHECK (installment_no >= 1),
+  label           text,
+  total_amount    numeric(12,2) NOT NULL CHECK (total_amount > 0),
+  paid_amount     numeric(12,2) NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+  balance_amount  numeric(12,2) NOT NULL,
+  due_date        date NOT NULL,
+  status          text NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending','partially_paid','paid','overdue','voided')),
+  voided_at       timestamptz,
+  void_reason     text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT course_bills_installment_uniq UNIQUE (enrollment_id, installment_no),
+  CONSTRAINT course_bills_void_chk
+    CHECK (status <> 'voided' OR (voided_at IS NOT NULL AND void_reason IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_bills_enrollment
+  ON public.course_bills (enrollment_id, installment_no);
+CREATE INDEX IF NOT EXISTS idx_course_bills_overdue
+  ON public.course_bills (due_date)
+  WHERE status IN ('pending','partially_paid');
+
+CREATE TABLE IF NOT EXISTS public.course_bill_payments (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bill_id             uuid NOT NULL REFERENCES public.course_bills(id) ON DELETE RESTRICT,
+  enrollment_id       uuid NOT NULL REFERENCES public.course_enrollments(id) ON DELETE RESTRICT,
+  institution_id      uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  receipt_number      text UNIQUE,
+  amount_paid         numeric(12,2) NOT NULL CHECK (amount_paid > 0),
+  payment_mode        text NOT NULL
+                        CHECK (payment_mode IN ('razorpay','cash','neft','cheque','dd')),
+  payment_date        date NOT NULL DEFAULT CURRENT_DATE,
+  razorpay_order_id   text,
+  razorpay_payment_id text,
+  razorpay_signature  text,
+  razorpay_account_id uuid REFERENCES public.razorpay_accounts(id) ON DELETE SET NULL,
+  transaction_ref     text UNIQUE,
+  gateway_response    jsonb,
+  status              text NOT NULL DEFAULT 'initiated'
+                        CHECK (status IN ('initiated','success','failed','refunded')),
+  captured_at         timestamptz,
+  -- Corrected 2026-08-18: SET NULL -> RESTRICT (migration 20260818010000).
+  -- course_bill_payments_offline_chk requires this column NOT NULL for
+  -- every non-razorpay payment mode, so SET NULL could never actually
+  -- execute for those rows — it aborted with a confusing 23514 instead
+  -- of a 23503.
+  recorded_by         uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+
+  -- An offline payment is somebody's assertion; record whose.
+  CONSTRAINT course_bill_payments_offline_chk
+    CHECK (payment_mode = 'razorpay' OR recorded_by IS NOT NULL)
+);
+
+-- Idempotency. Razorpay settles through TWO paths — the browser callback
+-- and the server webhook — and both fire for the same payment. This index
+-- makes a duplicate settlement a constraint violation the caller can
+-- swallow, rather than a second credit.
+CREATE UNIQUE INDEX IF NOT EXISTS course_bill_payments_rzp_payment_uniq
+  ON public.course_bill_payments (razorpay_payment_id)
+  WHERE razorpay_payment_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_course_bill_payments_bill
+  ON public.course_bill_payments (bill_id) WHERE status = 'success';
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS public.hostel_room_buyouts (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id                 uuid NOT NULL REFERENCES public.hostel_rooms(id) ON DELETE CASCADE,
+  hostel_year_id          uuid NOT NULL REFERENCES public.hostel_years(id),
+  institution_id          uuid,
+  requested_by_learner_id uuid NOT NULL,   -- profiles.id (= auth.uid())
+  capacity_at_request     int  NOT NULL,
+  occupants_at_request    int  NOT NULL,
+  empty_beds              int  NOT NULL,
+  -- What EACH consenting resident is billed: settled share minus the one bed
+  -- she already pays for. Re-derived at activation; this is the quoted figure.
+  amount_per_resident     numeric NOT NULL,
+  status                  text NOT NULL DEFAULT 'pending_consent',
+  consent_deadline        timestamptz NOT NULL,
+  activated_at            timestamptz,
+  cancelled_reason        text,
+  released_at             timestamptz,
+  released_by             uuid,
+  release_reason          text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_room_buyouts_status_chk CHECK (
+    status IN ('pending_consent','active','declined','expired','cancelled','released')
+  )
+)
+
+CREATE TABLE IF NOT EXISTS public.hostel_room_buyout_consents (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  buyout_id     uuid NOT NULL REFERENCES public.hostel_room_buyouts(id) ON DELETE CASCADE,
+  allocation_id uuid NOT NULL REFERENCES public.hostel_allocations(id) ON DELETE CASCADE,
+  learner_id    uuid NOT NULL,          -- profiles.id
+  decision      text NOT NULL DEFAULT 'pending',
+  decided_at    timestamptz,
+  bill_id       uuid,                   -- billing_student_bills.id, set at activation
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT hostel_room_buyout_consents_decision_chk CHECK (
+    decision IN ('pending','agreed','declined')
+  ),
+  CONSTRAINT hostel_room_buyout_consents_unique UNIQUE (buyout_id, allocation_id)
+)
+
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS settle_billing_enabled boolean NOT NULL DEFAULT false;

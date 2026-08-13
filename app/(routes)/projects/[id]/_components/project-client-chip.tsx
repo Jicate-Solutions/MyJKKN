@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Building2, FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 
 interface ProjectClientChipProps {
   clientId: string | null;
@@ -44,7 +45,7 @@ export function ProjectClientChip({ clientId, solutionId }: ProjectClientChipPro
   return (
     <>
       {data?.client && (
-        <Link href={`/solutions/clients/${data.client.id}`}>
+        <Link href={`/solutions/clients/${data.client.id}`} className={`inline-flex items-center ${TAP_TARGET}`}>
           <Badge variant="outline" className="gap-1 hover:bg-accent">
             <Building2 className="h-3 w-3" />
             {data.client.name}
@@ -52,7 +53,7 @@ export function ProjectClientChip({ clientId, solutionId }: ProjectClientChipPro
         </Link>
       )}
       {data?.solution && (
-        <Link href={`/solutions/${data.solution.id}`}>
+        <Link href={`/solutions/${data.solution.id}`} className={`inline-flex items-center ${TAP_TARGET}`}>
           <Badge variant="outline" className="gap-1 hover:bg-accent">
             <FileText className="h-3 w-3" />
             {data.solution.title}
