@@ -9010,3 +9010,419 @@ FOR ALL USING (
   OR ((SELECT public.user_has_permission('hr.leave.balance.manage'))
       AND hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())))
 );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core RLS (course_events,
+-- course_packages, course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Participant-visibility policies are ADDITIVE and are added in
+-- 20260813100300 (they reference course_enrollments, which does not
+-- exist yet). Until then these tables are staff-only, which is the safe
+-- direction to be wrong in.
+-- =====================================================================
+ALTER TABLE public.course_events               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_packages             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_package_installments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_events               FROM anon, PUBLIC;
+REVOKE ALL ON public.course_packages             FROM anon, PUBLIC;
+REVOKE ALL ON public.course_package_installments FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_events               TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_packages             TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_package_installments TO authenticated;
+
+CREATE POLICY course_events_select ON public.course_events
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_events_insert ON public.course_events
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.create'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_events_update ON public.course_events
+  FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.edit'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.edit'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_events_delete ON public.course_events
+  FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR ((SELECT public.user_has_permission('courses.delete'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Packages and installments: read follows courses.view, write follows
+-- courses.packages.manage. Installments have no institution_id of their
+-- own, so they inherit tenancy through their package.
+CREATE POLICY course_packages_select ON public.course_packages
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_packages_manage ON public.course_packages
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_package_installments_select ON public.course_package_installments
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND EXISTS (
+          SELECT 1 FROM public.course_packages p
+           WHERE p.id = course_package_installments.package_id
+             AND public.role_has_institution_access(p.institution_id)))
+  );
+
+CREATE POLICY course_package_installments_manage ON public.course_package_installments
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND EXISTS (
+          SELECT 1 FROM public.course_packages p
+           WHERE p.id = course_package_installments.package_id
+             AND public.role_has_institution_access(p.institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.packages.manage'))
+        AND EXISTS (
+          SELECT 1 FROM public.course_packages p
+           WHERE p.id = course_package_installments.package_id
+             AND public.role_has_institution_access(p.institution_id)))
+  );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Sessions RLS
+-- Mirror of migration 20260813100100_course_sessions_and_reservations.sql
+-- =====================================================================
+ALTER TABLE public.course_sessions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.course_sessions FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_sessions TO authenticated;
+
+CREATE POLICY course_sessions_select ON public.course_sessions
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_sessions_manage ON public.course_sessions
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.sessions.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.sessions.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Registration form builder RLS (course_registration_forms,
+-- course_registration_form_sections, course_registration_form_fields)
+-- Mirror of migration 20260813100200_course_registration_forms.sql
+-- anon holds nothing here — the public application page reads these
+-- through a service-role API route, never through anon RLS.
+-- =====================================================================
+ALTER TABLE public.course_registration_forms          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_registration_form_sections  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_registration_form_fields    ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_registration_forms         FROM anon, PUBLIC;
+REVOKE ALL ON public.course_registration_form_sections FROM anon, PUBLIC;
+REVOKE ALL ON public.course_registration_form_fields   FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_registration_forms         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_registration_form_sections TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_registration_form_fields   TO authenticated;
+
+CREATE POLICY course_registration_forms_select ON public.course_registration_forms
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_registration_forms_manage ON public.course_registration_forms
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- Sections and fields inherit tenancy through their form.
+CREATE POLICY course_reg_sections_select ON public.course_registration_form_sections
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_sections.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+CREATE POLICY course_reg_sections_manage ON public.course_registration_form_sections
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_sections.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_sections.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+CREATE POLICY course_reg_fields_select ON public.course_registration_form_fields
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_fields.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+CREATE POLICY course_reg_fields_manage ON public.course_registration_form_fields
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_fields.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.forms.manage'))
+        AND EXISTS (SELECT 1 FROM public.course_registration_forms f
+                     WHERE f.id = course_registration_form_fields.form_id
+                       AND public.role_has_institution_access(f.institution_id)))
+  );
+
+-- =====================================================================
+-- Added: 2026-08-13 - Applications (screening gate) and enrollments RLS
+-- (course_applications, course_enrollments)
+-- Mirror of migration 20260813100300_course_applications_enrollments.sql
+-- =====================================================================
+ALTER TABLE public.course_applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_enrollments  ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_applications FROM anon, PUBLIC;
+REVOKE ALL ON public.course_enrollments  FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_applications TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_enrollments  TO authenticated;
+
+CREATE POLICY course_applications_select ON public.course_applications
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.applications.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR profile_id = (SELECT auth.uid())
+  );
+
+CREATE POLICY course_applications_decide ON public.course_applications
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.applications.decide'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.applications.decide'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_enrollments_select ON public.course_enrollments
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
+        AND public.role_has_institution_access(institution_id))
+    OR ((SELECT public.user_has_permission('courses.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR profile_id = (SELECT auth.uid())
+  );
+
+CREATE POLICY course_enrollments_manage ON public.course_enrollments
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.enrollments.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+-- ---------------------------------------------------------------------
+-- Additive participant visibility for the tables created earlier
+-- ---------------------------------------------------------------------
+-- These are SEPARATE policies, not widened admin policies. Multiple
+-- PERMISSIVE policies on one command are OR'd, so adding a policy grants
+-- exactly this narrow extra read and cannot loosen the admin rule.
+--
+-- A participant sees the course, packages, installment plan and session
+-- schedule for a course they are enrolled on — and nothing else.
+-- ---------------------------------------------------------------------
+CREATE POLICY course_events_participant_select ON public.course_events
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.course_event_id = course_events.id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+CREATE POLICY course_packages_participant_select ON public.course_packages
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.package_id = course_packages.id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+CREATE POLICY course_package_installments_participant_select
+  ON public.course_package_installments
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.package_id = course_package_installments.package_id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+CREATE POLICY course_sessions_participant_select ON public.course_sessions
+  FOR SELECT TO authenticated
+  USING (EXISTS (
+    SELECT 1 FROM public.course_enrollments e
+     WHERE e.course_event_id = course_sessions.course_event_id
+       AND e.profile_id = (SELECT auth.uid())
+  ));
+
+-- ---------------------------------------------------------------------
+-- (course_bills, course_bill_payments)
+-- Mirror of migration 20260813100400_course_billing.sql
+-- ---------------------------------------------------------------------
+ALTER TABLE public.course_bills         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.course_bill_payments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.course_bills         FROM anon, PUBLIC;
+REVOKE ALL ON public.course_bill_payments FROM anon, PUBLIC;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_bills         TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.course_bill_payments TO authenticated;
+
+CREATE POLICY course_bills_select ON public.course_bills
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR EXISTS (SELECT 1 FROM public.course_enrollments e
+                WHERE e.id = course_bills.enrollment_id
+                  AND e.profile_id = (SELECT auth.uid()))
+  );
+
+CREATE POLICY course_bills_manage ON public.course_bills
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );
+
+CREATE POLICY course_bill_payments_select ON public.course_bill_payments
+  FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.view'))
+        AND public.role_has_institution_access(institution_id))
+    OR EXISTS (SELECT 1 FROM public.course_enrollments e
+                WHERE e.id = course_bill_payments.enrollment_id
+                  AND e.profile_id = (SELECT auth.uid()))
+  );
+
+CREATE POLICY course_bill_payments_manage ON public.course_bill_payments
+  FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+    OR ((SELECT public.user_has_permission('courses.billing.manage'))
+        AND public.role_has_institution_access(institution_id))
+  );

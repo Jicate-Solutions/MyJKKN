@@ -1843,3 +1843,77 @@ DROP TRIGGER IF EXISTS trg_jkkn_identity_aliases_updated_at ON public.jkkn_ident
 CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
   BEFORE UPDATE ON public.jkkn_identity_aliases
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core triggers (course_events,
+-- course_packages, course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Function bodies -> setup/02_functions.sql.
+-- =====================================================================
+CREATE CONSTRAINT TRIGGER trg_course_package_installments_sum
+AFTER INSERT OR UPDATE OR DELETE ON public.course_package_installments
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_course_package_amounts_chk();
+
+CREATE CONSTRAINT TRIGGER trg_course_packages_total_sum
+AFTER UPDATE OF total_amount ON public.course_packages
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_course_package_amounts_chk();
+
+CREATE TRIGGER trg_course_events_touch
+  BEFORE UPDATE ON public.course_events
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_packages_touch
+  BEFORE UPDATE ON public.course_packages
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_package_installments_touch
+  BEFORE UPDATE ON public.course_package_installments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Sessions trigger
+-- Mirror of migration 20260813100100_course_sessions_and_reservations.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_sessions_touch
+  BEFORE UPDATE ON public.course_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Registration form builder triggers
+-- Mirror of migration 20260813100200_course_registration_forms.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_reg_forms_touch
+  BEFORE UPDATE ON public.course_registration_forms
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_reg_sections_touch
+  BEFORE UPDATE ON public.course_registration_form_sections
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_reg_fields_touch
+  BEFORE UPDATE ON public.course_registration_form_fields
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Applications and enrollments triggers
+-- Mirror of migration 20260813100300_course_applications_enrollments.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_applications_touch
+  BEFORE UPDATE ON public.course_applications
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_enrollments_touch
+  BEFORE UPDATE ON public.course_enrollments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Billing triggers
+-- Mirror of migration 20260813100400_course_billing.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_bills_touch
+  BEFORE UPDATE ON public.course_bills
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_bill_payments_touch
+  BEFORE UPDATE ON public.course_bill_payments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+CREATE TRIGGER trg_course_bill_payments_recompute
+  AFTER INSERT OR UPDATE OR DELETE ON public.course_bill_payments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_course_recompute_balances();
