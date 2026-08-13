@@ -110,7 +110,7 @@ export function ChainEditor({ value, onChange, disabled = false }: ChainEditorPr
               type="button"
               size="icon"
               variant="ghost"
-              className="h-7 w-7"
+              className={`h-7 w-7 ${TAP_TARGET_ICON}`}
               onClick={() => moveStep(index, 'down')}
               disabled={disabled || index === value.length - 1}
             >
