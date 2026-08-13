@@ -62,19 +62,43 @@ export interface PendingAttendanceResponse {
   };
 }
 
+/**
+ * Attendance dashboard statistics.
+ *
+ * `total_students` counts every learner whose lifecycle_status is active,
+ * reserved or admitted — it is NOT gated on fee payment (Director decision
+ * 2026-08-11).
+ *
+ * `total_marked` is the number of those learners who actually have a status
+ * recorded for the date, and it is the denominator of every percentage on this
+ * screen. `total_unmarked` is the rest, and it MUST be rendered wherever a
+ * percentage is: a college that marked 1 learner of 93 would otherwise read as
+ * "100% attendance" instead of "1 of 1 marked, 92 not yet marked".
+ */
 export interface AttendanceStats {
   institution_id: string;
   institution_name: string;
   total_students: number;
   total_present: number;
   total_absent: number;
+  total_marked: number;
+  total_unmarked: number;
   attendance_percentage: number;
+  /**
+   * True when this college holds learners in the current scope but none once
+   * the view's narrowing (e.g. "first-year learners only") is applied. The
+   * college is still listed, as an explicit zero with a reason, rather than
+   * silently dropped.
+   */
+  is_empty_view: boolean;
   departments: {
     department_id: string;
     department_name: string;
     total_students: number;
     total_present: number;
     total_absent: number;
+    total_marked: number;
+    total_unmarked: number;
     attendance_percentage: number;
     semesters: {
       semester_id: string;
@@ -82,6 +106,8 @@ export interface AttendanceStats {
       total_students: number;
       total_present: number;
       total_absent: number;
+      total_marked: number;
+      total_unmarked: number;
       attendance_percentage: number;
       sections: {
         section_id: string;
@@ -89,7 +115,16 @@ export interface AttendanceStats {
         total_students: number;
         present: number;
         absent: number;
+        marked: number;
+        unmarked: number;
         percentage: number;
+        /**
+         * True for learners who have no section yet. They are grouped under
+         * their college as "Not yet placed" and cannot be marked until a
+         * section exists — the label says so rather than reading as an
+         * unexplained "Unknown Section".
+         */
+        is_unplaced: boolean;
       }[];
     }[];
   }[];
