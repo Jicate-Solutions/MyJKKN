@@ -28,7 +28,12 @@ export function VersionHistory({ attachmentId, onClose }: VersionHistoryProps) {
           <GitBranch className="h-4 w-4" />
           Version history
         </CardTitle>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`h-6 w-6 ${TAP_TARGET_ICON}`}
+          onClick={onClose}
+        >
           <X className="h-3.5 w-3.5" />
         </Button>
       </CardHeader>
