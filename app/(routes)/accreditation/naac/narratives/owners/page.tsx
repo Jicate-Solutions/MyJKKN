@@ -460,7 +460,14 @@ export default function NAACNarrativeOwnersPage() {
           .eq('institution_id', pair.institution_id)
           .eq('body_code', BODY_CODE);
         del = isBodyLevelPair(pair)
-          ? del.is('metric_code', null)
+          ? // …and scoped to institution-level ownership. programme_id NOT NULL
+            // is a different axis entirely — one degree programme's slice, per
+            // the model in lib/services/accreditation/owner-digest.ts. This
+            // desk neither reads nor keys on programme_id, so without this a
+            // campus's programme-scoped whole-body owner would be deleted
+            // alongside the institution-wide one the reader actually clicked,
+            // and the page would report success.
+            del.is('metric_code', null).is('programme_id', null)
           : del.eq('metric_code', pair.metric_code);
 
         const { data, error } = await del.select('id');
