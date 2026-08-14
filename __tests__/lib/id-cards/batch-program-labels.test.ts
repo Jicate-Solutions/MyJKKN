@@ -106,13 +106,13 @@ describe('buildProgramLabels — leaves unambiguous names alone', () => {
     expect(labels.get('pcse')).toBe('M.E. Computer Science and Engineering');
   });
 
-  it('keeps school classes clean — no department clutter on GRADE 1', () => {
-    const classes: Row[] = [
+  it('keeps school grade rows clean — no department clutter on GRADE 1', () => {
+    const schoolGrades: Row[] = [
       row('prekg', 'PREKG', 'PREKG', 'Primary'),
       row('lkg', 'LKG', 'LKG', 'Primary'),
       row('g1', 'GRADE 1', 'GRADE-1', 'Primary')
     ];
-    const labels = buildProgramLabels(classes);
+    const labels = buildProgramLabels(schoolGrades);
     expect([...labels.values()]).toEqual(['PREKG', 'LKG', 'GRADE 1']);
   });
 
