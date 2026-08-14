@@ -28,6 +28,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { TAP_TARGET, TAP_TARGET_BREADCRUMB } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   Select,
   SelectContent,
@@ -98,7 +99,7 @@ export default function PortfolioPage() {
     <ContentLayout title="Portfolio">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
@@ -143,15 +144,15 @@ export default function PortfolioPage() {
           }}
           variant="outline"
         >
-          <ToggleGroupItem value="grid" aria-label="Grid view" className="gap-1.5">
+          <ToggleGroupItem value="grid" aria-label="Grid view" className={`gap-1.5 ${TAP_TARGET}`}>
             <LayoutGrid className="h-4 w-4" />
             Grid
           </ToggleGroupItem>
-          <ToggleGroupItem value="board" aria-label="Status board view" className="gap-1.5">
+          <ToggleGroupItem value="board" aria-label="Status board view" className={`gap-1.5 ${TAP_TARGET}`}>
             <Columns3 className="h-4 w-4" />
             Board
           </ToggleGroupItem>
-          <ToggleGroupItem value="heatmap" aria-label="Heatmap view" className="gap-1.5">
+          <ToggleGroupItem value="heatmap" aria-label="Heatmap view" className={`gap-1.5 ${TAP_TARGET}`}>
             <Grid3x3 className="h-4 w-4" />
             Heatmap
           </ToggleGroupItem>
@@ -165,7 +166,7 @@ export default function PortfolioPage() {
               setActiveViewId(null);
             }}
           >
-            <SelectTrigger className="w-[220px]">
+            <SelectTrigger className={`w-[220px] ${TAP_TARGET}`}>
               <SelectValue placeholder="All institutions" />
             </SelectTrigger>
             <SelectContent>

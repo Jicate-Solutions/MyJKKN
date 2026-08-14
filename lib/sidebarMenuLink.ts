@@ -1065,6 +1065,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
   // and the database cannot disagree about who belongs here.
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
+  // Same reasoning for the batch roster — it is the only screen somebody can be
+  // taken off a batch from, so it must not be reachable by typing the URL.
+  '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
+  // 2026-08-13 (BUG-005799 / BUG-005800): the other three admin screens were
+  // never declared, so each one inherited '/startup-studio' ->
+  // startup_studio.analytics.view from the ancestor match — a key about
+  // innovation-cycle analytics deciding who may read applications. Declaring
+  // them on cohort.manage puts the chip, the route guard and the RPCs on ONE
+  // word, and is what lets the appointment seam in
+  // hooks/school-of-influence/use-soi-coordinator-nav-access.ts reveal exactly
+  // these four screens and nothing else on the platform.
+  '/startup-studio/school-of-influence/admin/applications': 'cohort.manage',
+  '/startup-studio/school-of-influence/admin/coordinators': 'cohort.manage',
+  '/startup-studio/school-of-influence/admin/lifecycle': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -1146,6 +1160,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  // Gated on the WRITE key, not .view: the scan screen exists only to record
+  // exits and returns, so a read-only holder has nothing to do there.
+  '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
@@ -3328,6 +3345,30 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Startup Studio',
           active: pathname === '/startup-studio' || pathname.startsWith('/startup-studio/'),
           icon: Rocket,
+          submenus: []
+        },
+        {
+          // 2026-08-13 (BUG-005799 / BUG-005800) — the one exception to the flat
+          // single-row rule above, and it is not decoration.
+          //
+          // A School of Influence coordinator is authorised for the review queue
+          // and for nothing else in Startup Studio: /startup-studio itself is
+          // gated on startup_studio.analytics.view, which they do not hold. So
+          // the module row is a locked door for them, and routing them through
+          // it would land them on a page they cannot open — and even if they
+          // could, the in-page chip strip suppresses a lone surviving chip, so
+          // the module root is a dead end by construction.
+          //
+          // This row is therefore a DIRECT link to the work: gated on
+          // cohort.manage, the same key the queue and its RPCs use, so the
+          // people who already run the programme finally get a link instead of
+          // a URL they have to remember. menu.tsx grants that key to an active
+          // appointment for nav purposes only (see
+          // hooks/school-of-influence/use-soi-coordinator-nav-access.ts).
+          href: '/startup-studio/school-of-influence/admin/applications',
+          label: 'School of Influence',
+          active: pathname.startsWith('/startup-studio/school-of-influence'),
+          icon: GraduationCap,
           submenus: []
         }
       ]
