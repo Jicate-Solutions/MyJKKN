@@ -413,6 +413,33 @@ const PAGE_ENRICHMENTS: Record<string, { keywords: string[]; description: string
     keywords: ['startup', 'hackathon', 'innovation', 'event', 'entrepreneurship'],
     description: 'Manage startup studio events and hackathons'
   },
+  // School of Influence (2026-08-13, BUG-005799 / BUG-005800).
+  // The whole programme was absent from this file, so its five admin screens
+  // reached the palette only through the route manifest — as bare folder names
+  // ("Applications", "Coordinators", "Lifecycle") with auto-derived keywords.
+  // Nobody could find the review queue by typing what the programme is called.
+  // Every entry repeats "School of Influence" and "SOI" so the programme name
+  // finds its own screens.
+  '/startup-studio/school-of-influence/admin/applications': {
+    keywords: ['school of influence', 'soi', 'applications', 'review', 'review queue', 'applicants', 'accept', 'coordinator', 'batch'],
+    description: 'Review who has applied to a School of Influence programme, accept them into a batch, or turn an application down'
+  },
+  '/startup-studio/school-of-influence/admin/coordinators': {
+    keywords: ['school of influence', 'soi', 'coordinator', 'coordinators', 'appoint', 'programme coordinator'],
+    description: 'Appoint and remove School of Influence programme coordinators'
+  },
+  '/startup-studio/school-of-influence/admin/attendance': {
+    keywords: ['school of influence', 'soi', 'attendance', 'session', 'register', 'completion', 'coordinator'],
+    description: 'Tick off who attended each School of Influence session and see who is short of the attendance bar'
+  },
+  '/startup-studio/school-of-influence/admin/lifecycle': {
+    keywords: ['school of influence', 'soi', 'inactivity', 'dry run', 'lifecycle', 'quiet', 'remind', 'pause', 'remove'],
+    description: 'See who the School of Influence inactivity engine would remind, pause or remove'
+  },
+  '/startup-studio/school-of-influence/admin/settings': {
+    keywords: ['school of influence', 'soi', 'settings', 'programme settings', 'batch capacity', 'who can apply', 'configure'],
+    description: 'School of Influence programme settings — who may apply, batch size, and what happens when a batch fills'
+  },
   // Value Added Courses
   '/vac': {
     keywords: ['value added', 'extra course', 'additional learning', 'skill course', 'elective'],

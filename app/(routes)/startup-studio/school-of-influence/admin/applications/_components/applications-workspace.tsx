@@ -318,16 +318,21 @@ export function ApplicationsWorkspace({ eventId }: Props) {
 
   // ── Shell states ──────────────────────────────────────────────────────────
 
+  // Defensive only. The page shell resolves the programme before rendering this
+  // workspace, so reaching here means the resolver found none. It used to tell
+  // the reader to "add ?event= and the programme's event id to the address" —
+  // an instruction none of the coordinators it was shown to could follow, and
+  // the platform's own appointment notification linked here without it
+  // (BUG-005799 / BUG-005800). No uuid is asked of anybody now.
   if (!eventId) {
     return (
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle className="text-base">Pick a programme</CardTitle>
+          <CardTitle className="text-base">No programme to review</CardTitle>
           <CardDescription>
-            This screen reviews applications for one School of Influence programme.
-            Open it from the programme&rsquo;s batch admin so it knows which one, or add
-            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">?event=</code>
-            and the programme&rsquo;s event id to the address.
+            This screen reviews applications for one School of Influence
+            programme, and none was found for you. Open it from the School of
+            Influence menu, or ask a coordinator to appoint you.
           </CardDescription>
         </CardHeader>
       </Card>

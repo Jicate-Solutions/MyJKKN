@@ -168,6 +168,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/gate-passes'],
         },
         {
+          label: 'Gate Scan',
+          icon: 'ScanLine',
+          href: '/campus-living/gate-passes/scan',
+          matchPaths: ['/campus-living/gate-passes/scan'],
+        },
+        {
           label: 'Visitors',
           icon: 'UserPlus',
           href: '/campus-living/visitors',

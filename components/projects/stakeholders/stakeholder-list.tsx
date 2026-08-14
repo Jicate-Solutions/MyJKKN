@@ -20,6 +20,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -209,7 +210,7 @@ export function StakeholderList({ projectId }: StakeholderListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className={`h-8 w-8 ${TAP_TARGET_ICON}`}
                           aria-label="Stakeholder actions"
                         >
                           <MoreHorizontal className="h-4 w-4" />
