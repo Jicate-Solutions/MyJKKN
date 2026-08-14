@@ -131,7 +131,12 @@ export async function resolveScannedLearner(rawCode: string): Promise<ScannedLea
 
   if (!profile) return null;
 
-  const learnerProfileId = profile.learner_id ?? (kind === 'uuid' ? code : null);
+  // profiles.learner_id IS the learners_profiles id — the only value that
+  // belongs in this field. Never fall back to `code` here: on the
+  // profileById path `code` is a profiles.id, and putting it in a field
+  // named learnerProfileId would quietly hand the wrong identity space to
+  // the next reader. Null is the honest answer.
+  const learnerProfileId = profile.learner_id ?? null;
   return {
     profileId: profile.id,
     learnerProfileId,
