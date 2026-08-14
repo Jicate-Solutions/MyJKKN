@@ -3646,7 +3646,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           // appointment for nav purposes only (see
           // hooks/school-of-influence/use-soi-coordinator-nav-access.ts).
           href: '/startup-studio/school-of-influence/admin/applications',
-          label: 'School of Influence',
+          label: 'School of Influencer',
           active: pathname.startsWith('/startup-studio/school-of-influence'),
           icon: GraduationCap,
           submenus: []

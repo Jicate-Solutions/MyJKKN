@@ -52,6 +52,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { soiDisplayName } from '@/lib/services/school-of-influence/constants';
 
 /** events_registrations.source written by the apply flow. */
 const SOI_APPLICATION_SOURCE = 'soi_apply';
@@ -128,7 +129,13 @@ function toOutcome(row: {
     submittedAt: cleanText(row.created_at),
     decidedAt: state === 'pending' ? null : cleanText(review?.decided_at),
     reason: state === 'rejected' ? cleanText(review?.reason) : null,
-    batchName: state === 'accepted' ? cleanText(review?.batch_name) : null,
+    // The stored batch name still carries the programme's old spelling on rows
+    // written before the 2026-08-13 rename, so it is printed under the current
+    // one. soiDisplayName is idempotent, so a newer row passes through unchanged.
+    batchName:
+      state === 'accepted' && cleanText(review?.batch_name)
+        ? soiDisplayName(cleanText(review?.batch_name))
+        : null,
   };
 }
 
