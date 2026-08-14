@@ -714,6 +714,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards': 'id_cards.jobs.view',
   '/admin/id-cards/template': 'id_cards.templates.view',
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Morning page (2026-08-14) — the daily exception/coverage read. Same key as
+  // the print queue: anyone who can see the ID Cards menu can read it.
+  '/admin/id-cards/morning': 'id_cards.jobs.view',
   // Batch print enqueues jobs, so it needs the manage key (not just view).
   '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
@@ -3061,6 +3064,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/admin/id-cards'),
           icon: IdCard,
           submenus: [
+            { href: '/admin/id-cards/morning', label: 'Morning Page', active: pathname.startsWith('/admin/id-cards/morning') },
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
