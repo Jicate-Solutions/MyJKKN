@@ -115,10 +115,10 @@ CREATE TABLE IF NOT EXISTS public.public_programmes (
     -- visitor to somebody else's host. A path must therefore start with '/'
     -- followed by a character that is neither '/' nor a backslash.
     --
-    -- The path arm is written with substr()/chr(92) rather than a regex
-    -- character class on purpose: a backslash inside a bracket expression means
-    -- different things depending on standard_conforming_strings, and this file
-    -- is applied by hand. chr(92) cannot be misread.
+    -- The path arm compares characters instead of using a regex character
+    -- class on purpose: a backslash inside a bracket expression is read
+    -- differently depending on standard_conforming_strings, and this file is
+    -- applied by hand. E'\\' is exactly one backslash under either setting.
     CONSTRAINT public_programmes_apply_url_scheme
         CHECK (
             apply_url IS NULL
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS public.public_programmes (
                 substr(apply_url, 1, 1) = '/'
                 AND length(apply_url) >= 2
                 AND substr(apply_url, 2, 1) <> '/'
-                AND substr(apply_url, 2, 1) <> chr(92)
+                AND substr(apply_url, 2, 1) <> E'\\'
             )
         )
 );
