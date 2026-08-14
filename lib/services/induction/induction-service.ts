@@ -803,6 +803,10 @@ export interface RosterRow {
   register_number: string | null;
   batch_label: string | null;
   status: AttendanceStatus | null;
+  /** The learner's OWN college. On a session shared with other colleges this is
+   *  what the roster groups by, so a visiting learner is never filed under the
+   *  host. NULL when the learner has no institution recorded. */
+  institution_name: string | null;
 }
 
 export interface DayRosterRow {
@@ -812,6 +816,8 @@ export interface DayRosterRow {
   batch_label: string | null;
   status: AttendanceStatus | null;
   is_mixed: boolean;
+  /** See RosterRow.institution_name. */
+  institution_name: string | null;
 }
 
 /** Per-day "past sessions vs FULLY-marked sessions" — drives the back-mark nudge.

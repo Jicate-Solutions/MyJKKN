@@ -20800,7 +20800,10 @@ RETURNS TABLE (
   register_number TEXT,
   batch_label     TEXT,
   status          TEXT,     -- the uniform status across the day's sessions, or NULL
-  is_mixed        BOOLEAN   -- true when the learner's sessions that day carry DIFFERENT statuses
+  is_mixed        BOOLEAN,  -- true when the learner's sessions that day carry DIFFERENT statuses
+  -- Updated: 2026-08-13 (migration 20260826010000) — the learner's OWN college,
+  -- so a shared session's roster can group visiting learners under their college.
+  institution_name TEXT
 )
 LANGUAGE plpgsql
 STABLE
@@ -20844,9 +20847,11 @@ BEGIN
          lp.register_number::text,
          b.label::text,
          CASE WHEN m.distinct_statuses = 1 THEN m.one_status ELSE NULL END::text,
-         COALESCE(m.distinct_statuses, 0) > 1
+         COALESCE(m.distinct_statuses, 0) > 1,
+         i.name::text
   FROM eligible el
   JOIN public.learners_profiles lp ON lp.id = el.learner_id
+  LEFT JOIN public.institutions i ON i.id = lp.institution_id
   JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = el.learner_id
   LEFT JOIN public.induction_batches b ON b.id = ie.batch_id
   LEFT JOIN marks m ON m.learner_id = el.learner_id
@@ -20875,17 +20880,23 @@ BEGIN
     FROM jsonb_array_elements(p_marks) m
   ),
   fanned AS (
-    SELECT s.id AS session_id, i.learner_id, i.status
-    FROM incoming i
-    JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = i.learner_id
+    -- Updated: 2026-08-13 (migration 20260826010000) — stamp the LEARNER's own
+    -- college, not the host programme's. COALESCE is required: the column is
+    -- NOT NULL and a handful of learners carry no institution.
+    SELECT s.id AS session_id, inc.learner_id, inc.status,
+           COALESCE(lp.institution_id, v_inst) AS learner_inst
+    FROM incoming inc
+    JOIN public.induction_enrollment ie ON ie.event_id = p_event_id AND ie.learner_id = inc.learner_id
+    LEFT JOIN public.learners_profiles lp ON lp.id = inc.learner_id
     JOIN public.event_sessions s
       ON s.event_id = p_event_id AND s.day_number IS NOT DISTINCT FROM p_day_number
      AND (s.batch_id IS NULL OR s.batch_id = ie.batch_id)
   )
   INSERT INTO public.event_session_attendance (session_id, learner_id, institution_id, status, marked_by, marked_at)
-  SELECT session_id, learner_id, v_inst, status, auth.uid(), now() FROM fanned
+  SELECT f.session_id, f.learner_id, f.learner_inst, f.status, auth.uid(), now() FROM fanned f
   ON CONFLICT (session_id, learner_id) DO UPDATE SET
-    status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, marked_at = now(), updated_at = now();
+    status = EXCLUDED.status, institution_id = EXCLUDED.institution_id,
+    marked_by = EXCLUDED.marked_by, marked_at = now(), updated_at = now();
 
   PERFORM public.fn_induction_recompute_completion(p_event_id);
   RETURN jsonb_array_length(p_marks);
