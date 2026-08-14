@@ -447,27 +447,29 @@ export default function NAACNarrativeOwnersPage() {
         }
         toast.success(`${pairLabel} assigned to ${personLabel(next)}.`);
       } else {
-        // A whole-body row is matched with .is(), not .eq(). PostgREST turns
-        // .eq('metric_code', null) into `metric_code=eq.null`, which never
-        // matches a real SQL NULL — the delete would come back with zero rows
-        // and the guard below would blame the user's permissions for a row
-        // they are perfectly entitled to clear. Until this page crashed on
-        // sort, no whole-body row could be clicked at all, so that message had
-        // never been seen; fixing the sort is what makes this path reachable.
+        // This desk manages INSTITUTION-LEVEL ownership only. programme_id
+        // NOT NULL is a different axis — one degree programme's slice (NBA) —
+        // and the desk neither reads nor keys on it, so a programme-scoped row
+        // collapses into the same visible row as the institution-level one.
+        // Without `.is('programme_id', null)` the delete takes both and still
+        // reports success. owner-digest.ts scopes institution ownership the
+        // same way (institutionScopedRows).
+        //
+        // A whole-body row is then matched with .is(), not .eq(): PostgREST
+        // turns .eq('metric_code', null) into `metric_code=eq.null`, which
+        // never matches a real SQL NULL, so the delete removed nothing and the
+        // guard below blamed the reader's permissions for a row they are
+        // perfectly entitled to clear. Until this page crashed on sort, no row
+        // could be clicked at all — fixing the sort is what makes both of these
+        // paths reachable, which is why they are fixed here and not left.
         let del = sb
           .from('accreditation_metric_owners')
           .delete()
           .eq('institution_id', pair.institution_id)
-          .eq('body_code', BODY_CODE);
+          .eq('body_code', BODY_CODE)
+          .is('programme_id', null);
         del = isBodyLevelPair(pair)
-          ? // …and scoped to institution-level ownership. programme_id NOT NULL
-            // is a different axis entirely — one degree programme's slice, per
-            // the model in lib/services/accreditation/owner-digest.ts. This
-            // desk neither reads nor keys on programme_id, so without this a
-            // campus's programme-scoped whole-body owner would be deleted
-            // alongside the institution-wide one the reader actually clicked,
-            // and the page would report success.
-            del.is('metric_code', null).is('programme_id', null)
+          ? del.is('metric_code', null)
           : del.eq('metric_code', pair.metric_code);
 
         const { data, error } = await del.select('id');
