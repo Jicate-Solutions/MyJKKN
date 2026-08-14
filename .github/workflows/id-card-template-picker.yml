@@ -1,0 +1,105 @@
+name: ID-card template picker guard
+
+# One check: a template that is not switched on must never reach a PRINT picker.
+#
+# WHY THIS WORKFLOW EXISTS AT ALL. This repo has no `test` script in
+# package.json and no job that globs __tests__/**, so a test file is NOT a CI
+# gate here — only five workflows run vitest, each naming its files by exact
+# path. The six pre-existing __tests__/lib/id-cards/* files have therefore never
+# executed on a pull request. Adding the guard test without this file would have
+# banked on a check that does not run, which is the exact trap already recorded
+# for PR #2971 (see notification-ttl-guards.yml).
+#
+# WHAT IS AT STAKE. Templates are kept deliberately dark (active = false) until
+# their verification print passes; that is the workflow, not a mistake. The
+# print dialog used to fall back to `rows[0]` and to honour a localStorage id
+# without re-checking `active`, so it pre-selected a template named for an
+# end-to-end test. A wrong card is plastic, ink and a ribbon panel spent per
+# learner, and the office has no way to tell from the dialog that the template
+# it was handed is not the real one.
+#
+# WHAT IT DOES NOT ASSERT. The admin design and field-mapping tabs keep the FULL
+# list on purpose — a template is designed while it is still dark, so filtering
+# there would make a new template unreachable. The guard pins that asymmetry in
+# both directions, so a later "make it consistent" cleanup that filters admin
+# too fails here rather than silently breaking the design workflow.
+#
+# SCOPE. Runs one vitest file plus the pre-existing id-card suite. No database,
+# no secret, no network — the picker logic is pure, so this passes on forks.
+# Kept SEPARATE from other workflows so it reports as its own status check and
+# cannot change the pass/fail meaning of an existing one.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity
+# that branch protection matches on. Renaming either string silently orphans a
+# rule pointing at the old name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      # The guard itself.
+      - '__tests__/lib/id-cards/template-picker-active.test.ts'
+      - '.github/workflows/id-card-template-picker.yml'
+      # The rule it asserts over.
+      - 'lib/services/id-cards/template-picker.ts'
+      # The print surfaces that consume the rule.
+      - 'components/id-cards/print-card-button.tsx'
+      - 'components/id-cards/bulk-print-dialog.tsx'
+      # The admin surfaces whose full-list behaviour is also pinned.
+      - 'components/admin/id-cards/id-card-design-tab.tsx'
+      - 'components/admin/id-cards/id-card-back-design-tab.tsx'
+      - 'components/admin/id-cards/id-card-template-editor.tsx'
+      # The loaders behind both.
+      - 'lib/services/id-cards/print-jobs-client.ts'
+      - 'lib/services/id-cards/template-design-client.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: id-card-template-picker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  picker-guard:
+    name: Inactive ID-card templates stay off the print path
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run the picker guard
+        run: npx vitest run __tests__/lib/id-cards/
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::An inactive ID-card template can reach a print picker again, or the admin tabs stopped showing dark templates."
+          echo ""
+          echo "PRINT paths (Print ID Card, bulk print, cohort batch print) must"
+          echo "offer ACTIVE templates only, and must pre-select nothing when none"
+          echo "is active — an empty picker with a disabled button is the correct"
+          echo "outcome, because a card printed from an unverified template is"
+          echo "plastic and a ribbon panel spent per learner."
+          echo ""
+          echo "Two paths used to land on an inactive template and both are covered:"
+          echo "  - the bare rows[0] fallback (with everything dark, the active DESC"
+          echo "    sort collapses to name order);"
+          echo "  - the remembered localStorage id, honoured without re-checking active."
+          echo ""
+          echo "ADMIN paths are deliberately the opposite: they keep the full list,"
+          echo "because a template is designed while it is still dark. If the admin"
+          echo "assertions failed, do not 'fix' them by filtering admin as well —"
+          echo "that makes a newly created template impossible to open."
+          echo ""
+          echo "Fix in lib/services/id-cards/template-picker.ts, not in the callers."

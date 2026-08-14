@@ -18,7 +18,11 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_gate_passes')
-        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' });
+        // No block embed: hostel_gate_passes has NO block_id column (see the
+        // table DDL in 20260222000015). Asking PostgREST to embed on it fails
+        // the WHOLE query with PGRST200, so the list page errored on every
+        // load — invisible only because the table is still empty.
+        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)', { count: 'exact' });
 
       if (institutionId) query = query.eq('institution_id', institutionId);
       if (filters?.status) query = query.eq('status', filters.status as any);
@@ -297,6 +301,32 @@ export class GatePassService {
       return data as HostelGatePass[];
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getActivePassesForLearner', error);
+      throw error;
+    }
+  }
+
+  // ── Passes a gate scan must consider for one learner ──────────────
+  // Wider than getActivePassesForLearner on purpose: that one omits
+  // 'overdue', and an overdue learner is precisely the one standing at the
+  // gate wanting to come back in. Returned/cancelled passes are excluded —
+  // the scan screen decides from live passes only.
+  static async getScannablePassesForLearner(learnerId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .select('*')
+        .eq('learner_id', learnerId)
+        .in('status', ['issued', 'active', 'overdue'])
+        .order('expected_return', { ascending: true });
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch scannable passes', error);
+        throw error;
+      }
+      return (data ?? []) as HostelGatePass[];
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in getScannablePassesForLearner', error);
       throw error;
     }
   }

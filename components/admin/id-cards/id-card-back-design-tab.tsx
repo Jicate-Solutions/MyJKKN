@@ -39,6 +39,7 @@ import {
   uploadCardBackBackground,
   type TemplateDesignRow
 } from '@/lib/services/id-cards/template-design-client';
+import { pickPreferredAdminTemplateId } from '@/lib/services/id-cards/template-picker';
 
 export function IdCardBackDesignTab() {
   const [templates, setTemplates] = useState<TemplateDesignRow[] | null>(null);
@@ -51,10 +52,9 @@ export function IdCardBackDesignTab() {
     try {
       const rows = await fetchTemplatesWithLayout();
       setTemplates(rows);
-      setSelectedId((prev) => {
-        if (prev && rows.some((r) => r.id === prev)) return prev;
-        return rows[0]?.id ?? '';
-      });
+      // Full list stays (dark templates must be designable); only the default
+      // prefers an active template.
+      setSelectedId((prev) => pickPreferredAdminTemplateId(rows, prev));
     } catch (err) {
       console.error('[id-cards/back-design] template load failed:', err);
       setTemplates([]);
@@ -189,6 +189,11 @@ export function IdCardBackDesignTab() {
         {selected && (
           <Badge variant={backEnabled ? 'secondary' : 'outline'}>
             {backEnabled ? 'Back side on' : 'Back side off'}
+          </Badge>
+        )}
+        {selected && !selected.active && (
+          <Badge variant="destructive">
+            Not switched on — will not be offered for printing
           </Badge>
         )}
       </div>
