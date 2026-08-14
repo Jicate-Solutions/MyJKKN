@@ -669,6 +669,33 @@ anywhere in this module would make those rows readable by **every** authenticate
 All 11 tables declare it NOT NULL today; adding a "global" course later must not relax
 that.
 
+> **A NULL `institution_id` grants NOTHING to a user.** Verified 2026-08-13. Two distinct
+> things share that shape and must never be conflated:
+>
+> - **The ROW's institution** — the branch above. Guarded by NOT NULL on all 11 tables.
+> - **The USER's institution** — irrelevant to privilege. `is_super_admin()` reads the
+>   explicit boolean `profiles.is_super_admin`, never an absent institution:
+>   `SELECT COALESCE((SELECT is_super_admin FROM profiles WHERE id = auth.uid()), false)`.
+>
+> Live proof the distinction already carries weight: **17 profiles have a NULL
+> `institution_id`; exactly 1 is a super admin.** The other 16 receive no bypass. This is
+> precisely why an external course participant — who also has `institution_id = NULL` —
+> is safe, and why §5.1 uses `is_external_participant` as a hard discriminator rather
+> than inferring anything from the absent institution.
+>
+> **Do not add "institution_id IS NULL" as a privilege test anywhere in this module**, in
+> SQL or in React. It would silently promote every external participant to the access
+> level of a super admin.
+
+**Phase 2 — the super-admin bypass belongs on admin policies, NOT on participant policies.**
+Verified 2026-08-13: every `_select` / `_manage` / `_insert` / `_update` / `_delete`
+policy across the 11 tables carries `(SELECT public.is_super_admin())`. The four
+`*_participant_select` policies deliberately do NOT, and must not gain one. Multiple
+PERMISSIVE policies on one command are OR'd, so a super admin already passes via the
+table's main policy — adding the arm would be dead code, and worse, it would blur a
+policy whose entire job is "this person is enrolled here" into something a later reader
+could mistake for a general read policy and widen.
+
 **Phase 3 — an external applicant cannot read their own pending application.**
 The self-clause keys on `profile_id`, which is NULL until approval mints the identity.
 Correct for Phase 1 (public apply goes through a service-role route), but the applicant
