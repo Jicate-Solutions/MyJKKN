@@ -288,7 +288,7 @@ export function describeDeparture(subject: ScanSubject): string | null {
     case 'team_member':
       // Only an explicit false counts. `null` means we could not read it.
       return subject.isActive === false
-        ? 'This team member is no longer active on the staff register.'
+        ? 'This team member is no longer active on the team register.'
         : null;
     case 'unclassified':
       return null;
