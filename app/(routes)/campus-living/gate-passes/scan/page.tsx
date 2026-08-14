@@ -65,7 +65,6 @@ import {
 import {
   decideGateAction,
   type GateDecision,
-  type ScannedPass,
 } from '@/lib/services/campus-living/gate-scan-resolve';
 
 export const navMeta = {
@@ -136,13 +135,14 @@ export default function GatePassScanPage() {
       }
 
       const passes = await GatePassService.getScannablePassesForLearner(learner.profileId);
-      const decision = decideGateAction(passes as unknown as ScannedPass[], new Date());
+      const decision = decideGateAction(passes, new Date());
+
+      // Only GREEN shows an approver — on AMBER the guard needs the clock,
+      // not the paperwork.
+      const decidedId = decision.pass?.id;
       const approvedByName =
-        decision.pass && decision.verdict === 'approved'
-          ? await approverName(
-              (passes.find((p) => p.id === decision.pass?.id) as { approved_by?: string } | undefined)
-                ?.approved_by ?? null
-            )
+        decidedId && decision.verdict === 'approved'
+          ? await approverName(passes.find((p) => p.id === decidedId)?.approved_by ?? null)
           : null;
 
       setResult({ learner, decision, approvedBy: approvedByName });
@@ -224,21 +224,19 @@ export default function GatePassScanPage() {
   // -------- Keep the screen awake while scanning ------------------------
   useEffect(() => {
     if (!cameraActive) return;
-    let released = false;
 
     const acquire = async () => {
       try {
         wakeLockRef.current = await (navigator as any).wakeLock?.request('screen');
       } catch {
-        // wake lock unsupported or refused — harmless
+        // wake lock unsupported or refused — harmless, the screen may dim
       }
     };
     void acquire();
 
     return () => {
-      released = true;
       try {
-        if (released) wakeLockRef.current?.release?.();
+        wakeLockRef.current?.release?.();
       } catch {
         // already released
       }

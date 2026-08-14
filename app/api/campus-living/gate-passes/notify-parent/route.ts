@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
           channels: [NotificationChannel.IN_APP],
         },
         user.id,
-        db as never
+        db
       );
       notified += 1;
     } catch (err) {
