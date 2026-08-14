@@ -42,6 +42,7 @@ import {
   Landmark,
   ClipboardList,
   FileText,
+  BarChart3,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -56,7 +57,6 @@ import {
   summariseClusterSpan,
   type SpanInstitution,
 } from './_lib/cluster-scope';
-import { MeasuredMetricsSection } from './_components/measured-metrics-section';
 import { ClusterCollaborationSection } from './_components/cluster-collaboration-section';
 
 const COMMITTEES_HUB = '/accreditation/naac/committees';
@@ -240,15 +240,17 @@ export default function ClusterAcademicCouncilPage() {
           </div>
         )}
 
-        {/* The measured section. Added 2026-07-30 against the CEO's July 2026
-            CAC framework, which had no representation anywhere in the platform.
-            It amends the "no scorecard" decision above rather than reversing it:
-            the council now reads real numbers, and still awards no marks, no
-            total and no ranking. Measurement without a league table. */}
-        <MeasuredMetricsSection
-          institutions={institutionList}
-          institutionsLoading={institutionsLoading}
-        />
+        {/* The measured section used to sit here. It was added 2026-07-30
+            against the CEO's July 2026 framework, and it moved to the IQAC page
+            on 2026-08-14 by Director decision.
+
+            A pointer rather than a silent removal, because a reader who knows
+            that framework by where it used to be would otherwise find a gap and
+            conclude it had been dropped. Nothing was dropped; every metric is
+            intact on the page this links to, readable by exactly the same people
+            — the same eight roles hold `accreditation.cac.view` and
+            `accreditation.metrics.view`. */}
+        <MetricsMovedPointer />
 
         {/* The collaboration section. Added 2026-08-01. The measured section
             above reads each institution on its own and sets them side by side;
@@ -508,6 +510,50 @@ function CouncilMembers({ council }: { council: ClusterCouncil }) {
         </ul>
       )}
     </div>
+  );
+}
+
+const IQAC_METRICS = '/accreditation/iqac';
+
+/**
+ * Where the CEO's framework went, and why.
+ *
+ * A link on its own would answer "where" and leave "why" to rumour. The
+ * framework was issued in July 2026 and launched on THIS page, so its
+ * disappearance from it is the kind of change a reader is entitled to see
+ * explained in the place it used to be. The reason is stated in the reader's
+ * terms — one college can move every one of these numbers by itself — rather
+ * than as a governance argument.
+ */
+function MetricsMovedPointer() {
+  return (
+    <Card className="border-dashed">
+      <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            The measured metrics now live with the IQAC
+          </div>
+          <p className="max-w-2xl text-xs text-muted-foreground">
+            The metric framework issued in July 2026 was read on this page. Every
+            metric in it is still recorded and still readable, by exactly the
+            same people — it has moved, not gone.
+          </p>
+          <p className="max-w-2xl text-xs text-muted-foreground">
+            It moved because each of those numbers is one a single college can
+            move on its own, which makes it a measure of that college&apos;s own
+            quality. This council exists for what the colleges do{' '}
+            <em>together</em>, and that is what the sections above now report.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm" className="shrink-0">
+          <Link href={IQAC_METRICS}>
+            Open the metrics
+            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
