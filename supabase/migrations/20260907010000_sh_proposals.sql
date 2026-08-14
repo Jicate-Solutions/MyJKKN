@@ -68,3 +68,10 @@ CREATE POLICY "sh_proposals_delete" ON sh_proposals
     FOR DELETE USING (
         sh_is_admin()
     );
+
+-- ── Anon lockdown (CI gate: every new table locks anon explicitly) ──────────
+-- RLS gates row access for signed-in users; this closes the API surface for
+-- the unauthenticated role entirely — proposals are commercial data.
+REVOKE ALL ON TABLE public.sh_proposals FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.sh_proposals TO authenticated;
+GRANT ALL ON TABLE public.sh_proposals TO service_role;
