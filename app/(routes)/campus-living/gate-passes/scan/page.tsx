@@ -75,10 +75,24 @@ const QR_ELEMENT_ID = 'gate-pass-qr-reader';
 
 /** Everything the verdict panel renders for one scan. */
 interface ScanResult {
+  /** The code that produced this result, so a completed movement can put
+   *  that one card on cooldown. */
+  code: string;
   learner: ScannedLearner;
   decision: GateDecision;
   approvedBy: string | null;
 }
+
+/**
+ * How long one card is ignored after a movement is recorded on it.
+ *
+ * Without this, a card left in front of the lens re-decodes seconds after
+ * "Let out" and comes back as RETURNING — and one stray tap on a button
+ * sized for a gloved thumb would walk the learner straight back in. The
+ * 2.5s decode debounce is not enough: it only suppresses the repeat, not
+ * the reversal.
+ */
+const POST_ACTION_COOLDOWN_MS = 10_000;
 
 /** One completed action, so the guard can glance back at the last few. */
 interface ShiftEntry {
@@ -118,11 +132,20 @@ export default function GatePassScanPage() {
   const wakeLockRef = useRef<any>(null);
   const lastScanTokenRef = useRef<string>('');
   const lastScanAtRef = useRef<number>(0);
+  const cooldownRef = useRef<{ code: string; at: number } | null>(null);
 
   // -------- Lookup ------------------------------------------------------
   const handleCode = useCallback(async (rawCode: string) => {
     const code = (rawCode ?? '').trim();
     if (!code) return;
+
+    // A card that was just acted on is ignored for a beat, so the movement
+    // cannot be reversed by the same card sitting in front of the lens.
+    const cooling = cooldownRef.current;
+    if (cooling && cooling.code === code && Date.now() - cooling.at < POST_ACTION_COOLDOWN_MS) {
+      toast('Already recorded — move to the next learner');
+      return;
+    }
 
     setLookupBusy(true);
     setUnrecognised(null);
@@ -145,7 +168,7 @@ export default function GatePassScanPage() {
           ? await approverName(passes.find((p) => p.id === decidedId)?.approved_by ?? null)
           : null;
 
-      setResult({ learner, decision, approvedBy: approvedByName });
+      setResult({ code, learner, decision, approvedBy: approvedByName });
       // Haptic confirmation — the guard does not have to watch the screen to
       // know the scan registered.
       try {
@@ -294,9 +317,10 @@ export default function GatePassScanPage() {
           ...log,
         ].slice(0, 8)
       );
+      // Put THIS card on cooldown before clearing the panel, so a card still
+      // in frame cannot immediately re-resolve and offer the opposite action.
+      cooldownRef.current = { code: result.code, at: Date.now() };
       setResult(null);
-      // Let the same card be scanned again straight away (e.g. out then in).
-      lastScanTokenRef.current = '';
     } catch {
       // the mutation hooks already toast the failure
     } finally {
