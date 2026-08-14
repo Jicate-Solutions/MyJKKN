@@ -246,11 +246,14 @@ BEGIN
     RAISE EXCEPTION 'the issued-pass CHECK is absent — an issued pass could exist with no QR code';
   END IF;
 
-  -- The write lane.
-  SELECT pg_get_expr(pol.polqual, pol.polrelid) INTO v_pol
-    FROM pg_policy pol
-   WHERE pol.polrelid = 'public.hostel_gate_passes'::regclass
-     AND pol.polname  = 'hostel_gate_passes_update_permission';
+  -- The write lane. Read through pg_policies (the public catalog view, which
+  -- already renders the expression as text) rather than pg_catalog.pg_policy,
+  -- so the check cannot fail on catalog privileges at apply time.
+  SELECT qual INTO v_pol
+    FROM pg_policies
+   WHERE schemaname = 'public'
+     AND tablename  = 'hostel_gate_passes'
+     AND policyname = 'hostel_gate_passes_update_permission';
 
   IF v_pol IS NULL THEN
     RAISE EXCEPTION 'hostel_gate_passes_update_permission is gone — nobody can approve anything';
