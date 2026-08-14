@@ -64,4 +64,11 @@ export const queryKeys = {
     entries: (params: unknown) => ['calendar', 'entries', params] as const,
     categories: () => ['calendar', 'categories'] as const,
   },
+  courses: {
+    all: ['courses'] as const,
+    lists: () => [...queryKeys.courses.all, 'list'] as const,
+    list: (filters: unknown) => [...queryKeys.courses.lists(), filters] as const,
+    details: () => [...queryKeys.courses.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courses.details(), id] as const,
+  },
 } as const;
