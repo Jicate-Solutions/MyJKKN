@@ -37171,10 +37171,17 @@ BEGIN
         ELSE 'name'
       END AS matched_on,
       lp.first_name, lp.last_name, lp.student_photo_url, lp.institution_id,
-      lp.program_id, lp.admission_year, lp.lifecycle_status, lp.roll_number,
+      -- Updated: 2026-08-14 (migration 20260819010000) — was lp.admission_year,
+      -- which does not exist on learners_profiles and made every call raise
+      -- 42703. The cohort lives behind admission_year_id.
+      lp.program_id, ay.year AS admission_year, lp.lifecycle_status, lp.roll_number,
       lp.register_number, lp.application_id, ji.jkkn_id
     FROM public.learners_profiles lp
     LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+    -- LEFT, not inner: admission_year_id is nullable, and a learner whose
+    -- cohort was never filled in must still be findable by name or roll
+    -- number. They come back with a null admission_year, not absent.
+    LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
     -- EXISTS, not a LEFT JOIN: two alias types can carry the same value
     -- (a roll number that is also a legacy number), and a join would then
     -- return the same person twice.
@@ -37289,7 +37296,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_resolve_person(text) IS
-  'Universal person lookup: JKKN ID, roll number, Team Code, register number, application number, name fragment, phone or email. Validates a JKKN ID check digit before searching so a typo is reported as a typo instead of as an absent person. Institution-scoped to the caller and says so in scope_note.';
+  'Universal person lookup: JKKN ID, roll number, Team Code, register number, application number, name fragment, phone or email. Validates a JKKN ID check digit before searching so a typo is reported as a typo instead of as an absent person. Institution-scoped to the caller and says so in scope_note. Reads the admission year through learners_profiles.admission_year_id -> admission_years.year.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_resolve_person(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_resolve_person(text) TO authenticated;
