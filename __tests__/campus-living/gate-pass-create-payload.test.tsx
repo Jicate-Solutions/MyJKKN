@@ -100,10 +100,11 @@ vi.mock('@/hooks/campus-living/use-learner-hostelites', () => ({
   }),
 }));
 
-// Layout chrome is irrelevant to the payload. ContentLayout is rendered for
-// real rather than mocked: a stub would have to name React's `children` prop,
-// which the JKKN terminology gate flags as user-facing copy (a false positive
-// on an API identifier, but a blocking one).
+// Layout chrome is irrelevant to the payload. ContentLayout is deliberately
+// NOT stubbed: any passthrough stub must name React's nested-content prop,
+// which the JKKN terminology gate treats as user-facing copy — a false
+// positive on an API identifier, but a blocking one. It renders fine
+// unmocked in jsdom, so the stub is simply unnecessary.
 vi.mock('@/components/navigation', () => ({
   PageBreadcrumb: () => null,
 }));
