@@ -1716,6 +1716,15 @@ export const PERMISSION_CATEGORIES = [
       // accreditation.naac.committees.* keys.
       { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
 
+      // The UGC readiness checklist on the same page (2026-08-14) — a separate
+      // key because the reading is narrower than the council's roster and
+      // meeting record: it is a list of what the council has and has not done.
+      // Registered here in the SAME pull request that grants it, so it can be
+      // ticked in Role Management rather than being grantable only by hand —
+      // an unregistered key is how this repo produced pages gated on something
+      // nobody could hold.
+      { key: 'accreditation.cac.readiness.view', label: 'View CAC UGC Readiness Checklist' },
+
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
       { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
