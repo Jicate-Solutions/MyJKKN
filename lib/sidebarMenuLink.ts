@@ -1090,6 +1090,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
   '/solutions/list': 'solutions.dashboard.view',
+  // Deliberately REUSES the dashboard key (2026-08-14): a freshly minted
+  // solutions.digest.view would be true on almost no role — the trap hit
+  // three times the week of 08-13. Anyone who can see the dashboard can
+  // see its weekly digest.
+  '/solutions/digest': 'solutions.dashboard.view',
   '/solutions/pipeline': 'solutions.pipeline.view',
   '/solutions/pipeline/list': 'solutions.pipeline.view',
   '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
