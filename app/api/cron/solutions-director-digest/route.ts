@@ -14,9 +14,9 @@ export const maxDuration = 120;
  *
  * Recipients: the Director (director@jkkn.ac.in) + Mohanraj V
  * (mohanraj_v@jkkn.ac.in), both resolved from profiles BY EMAIL at runtime —
- * never by hardcoded uuid: the previously circulated 18f56a8d… id is a STAFF
- * id, and notifications need profiles.id (a silently wrong uuid delivers to
- * nobody with no error).
+ * never by hardcoded uuid: the previously circulated 18f56a8d… id is a
+ * team-member record id from a different table, and notifications need
+ * profiles.id (a silently wrong uuid delivers to nobody with no error).
  *
  * Idempotent per IST week (idempotency key embeds the Monday date), and the
  * card expires just past the next edition per the 2026-08-10 notification-

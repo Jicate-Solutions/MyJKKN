@@ -9,8 +9,9 @@ export const maxDuration = 120;
  * When an ACTIVE client with an ACTIVE client-linked delivery project has had
  * no logged communication for more than 14 days, one in-app nudge goes to
  * Mohanraj V (mohanraj_v@jkkn.ac.in — resolved from profiles BY EMAIL at
- * runtime, never a hardcoded uuid: the circulated 18f56a8d… id is a STAFF id
- * and deliverInApp needs profiles.id).
+ * runtime, never a hardcoded uuid: the circulated 18f56a8d… id is a
+ * team-member record id from a different table and deliverInApp needs
+ * profiles.id).
  *
  * BACKLOG FLOOR (memory feedback_a_time_window_rule_judges_the_backlog): the
  * quiet clock is clamped at this routine's OWN ai_routine_schedules row's
