@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   Select,
   SelectContent,
@@ -52,7 +53,7 @@ export function TemplateGallery() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search templates…"
-            className="pl-8"
+            className={`pl-8 ${TAP_TARGET}`}
           />
         </div>
 
@@ -61,7 +62,7 @@ export function TemplateGallery() {
           value={typeId}
           onValueChange={setTypeId}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className={`w-[180px] ${TAP_TARGET}`}>
             <SelectValue placeholder="All project types" />
           </SelectTrigger>
           <SelectContent>
@@ -78,7 +79,7 @@ export function TemplateGallery() {
         {/* Save-as-template CTA */}
         <Button
           variant="outline"
-          className="gap-1.5"
+          className={`gap-1.5 ${TAP_TARGET}`}
           onClick={() => setShowSaveDialog(true)}
         >
           <Plus className="h-4 w-4" />

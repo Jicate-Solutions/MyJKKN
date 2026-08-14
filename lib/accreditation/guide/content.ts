@@ -5,16 +5,17 @@
  * coordinator standing on the NAAC page got zero module-specific help. This is
  * that module's contribution.
  *
- * FOUR SECTION GROUPS, each gated by a key that exists verbatim in
+ * FIVE SECTION GROUPS, each gated by a key that exists verbatim in
  * lib/sidebarMenuLink.ts MENU_PERMISSIONS, so a viewer sees only the part they
  * can actually open (fail-closed):
  *
  *   orientationSections  accreditation.view                    what these pages are
+ *   cacSections          accreditation.cac.view                the cluster's own council
  *   ownerSections        accreditation.naac.narrative.view     named as an owner
  *   frameworkSections    accreditation.metrics.view            read the whole framework
  *   assignSections       accreditation.naac.narrative.manage   the IQAC owner desk
  *
- * The registry (lib/guide/registry.ts) contributes ALL FOUR groups to every
+ * The registry (lib/guide/registry.ts) contributes ALL FIVE groups to every
  * canonical lane an accreditation reader can resolve to — supervisor (HOD /
  * principal), coordinator (IQAC coordinator), module-admin (catalog keeper) and
  * external (the accreditation_officer / external auditor role keys). Same
@@ -26,16 +27,29 @@
  * vocabulary without a one-line gloss.
  *
  * ACCURACY NOTES (read from production code on 2026-08-02, not assumed):
- *   - accreditation_metric_owners has NO accept/pending column. IQAC names an
- *     owner; there is no "accept the assignment" step. What waits for the owner
- *     is the DRAFT: it sits at status 'ai_drafted' ("Awaiting owner okay") until
- *     the owner okays it. The guide describes that chain, not an imagined one.
- *   - Owner assignment today is thin, so most drafts land in the IQAC queue.
- *     The guide says so and tells the reader who to ask, rather than promising a
- *     populated owner list.
- *   - No live counts are hard-coded anywhere here. Coverage numbers move nightly
- *     as the emitters run; a number baked into a guide is wrong within a week.
- *     Every "how many" question points at the page that answers it live.
+ *   - accreditation_metric_owners had NO accept/pending column when the four
+ *     original groups were written, so ownerSections describes only the DRAFT
+ *     chain: the draft sits at status 'ai_drafted' ("Awaiting owner okay") until
+ *     the owner okays it.
+ *     CORRECTION, 2026-08-13 — that is no longer the whole picture. Migration
+ *     20260809100000 added `assignment_status` ('pending' | 'confirmed' |
+ *     'declined') plus `acknowledged_at`, under a CHECK that keeps the two
+ *     inseparable, so an ASSIGNMENT now also waits for the named person to
+ *     confirm it (Director decision 8, 2026-08-01 — accountability accepted,
+ *     not imposed). cacSections below describes that confirm step because it is
+ *     live; ownerSections still describes only the draft chain, and bringing the
+ *     rest of it up to date is a separate change to a group this PR does not own.
+ *   - A metric with nobody named against it routes to the shared IQAC queue
+ *     instead of to a person. The guide says THAT, and tells the reader who to
+ *     ask — it no longer says how many such metrics there are, in either
+ *     direction. See the "NO STATE CLAIM" note above cacSections: a sentence
+ *     about how full the owner table is went stale in eleven days, and the same
+ *     wording in ownerSections was corrected with it.
+ *   - No live counts are hard-coded anywhere here, and neither is any claim
+ *     about a table being empty or full — those are counts with the digits
+ *     filed off, and they rot at the same speed. Coverage numbers move nightly
+ *     as the emitters run. Every "how many" question points at the page that
+ *     answers it live.
  *   - /accreditation/coverage carries its own key (accreditation.coverage.view),
  *     so the step that links it names that as a prerequisite. Blocked pages here
  *     render an explicit "you do not have permission" panel, never a silent
@@ -51,6 +65,11 @@ import type { GlossaryTerm, GuideLink, GuideSection } from "@/lib/guide/types";
 export const REQUIRES = {
   /** Anyone who can open the accreditation hub at all. */
   overview: "accreditation.view",
+  /**
+   * The Cluster Academic Council page — JKKN's own body, not a regulator, and
+   * the only entry in that row that awards nothing and submits nothing.
+   */
+  cac: "accreditation.cac.view",
   /** A named metric owner reading the draft that carries their name. */
   owner: "accreditation.naac.narrative.view",
   /** Reading the whole 10-body framework and the metric catalog. */
@@ -145,7 +164,194 @@ export const orientationSections: GuideSection[] = [
   },
 ];
 
-/* ── B. Owner — you have been named on a metric (narrative.view) ──────────── */
+/* ── B. CAC — the cluster's own council (accreditation.cac.view) ───────────
+ *
+ * The one entry in the accreditation row that is NOT an outside authority, and
+ * the only one a reader is likely to misread on sight: it sits beside ten
+ * regulators, so the default assumption is that it is an eleventh. Everything
+ * below exists to break that assumption first and only then explain the page.
+ *
+ * Three facts here were read from production rather than assumed:
+ *   - the page's totals come from fn_cac_cluster_totals(), a SECURITY DEFINER
+ *     function taking NO caller-supplied id, so every council member sees the
+ *     same cluster-wide figure. Reading the underlying views directly returned
+ *     the caller's own slice, which is the fault that function was added to fix.
+ *   - ownership is recorded at BODY level by default. A row of
+ *     accreditation_metric_owners with metric_code NULL makes one person
+ *     accountable for that body's entire list in that college; a row that names
+ *     a metric overrides the body owner for that one question. Every owner row
+ *     live on 2026-08-13 is of the first kind. The copy below therefore teaches
+ *     the body-level record as the ordinary case and the per-metric row as an
+ *     escalation (Director, 2026-08-13, R3) — a reader must not come away
+ *     believing the framework has to be filled in question by question.
+ *   - an assignment now waits for the named person to confirm — see the
+ *     correction in the ACCURACY NOTES above. There is no "Fix this" deep link
+ *     to send a reader to, because the columns behind it are not in the database
+ *     yet, so nothing here promises one.
+ *
+ * NO STATE CLAIM ABOUT THE DESK — the mistake this group already made once.
+ * An earlier draft told the reader to "expect the desk to be empty today", and a
+ * test pinned that string so it could not drift. It was true when written and
+ * false eleven days later: owner rows exist now. A sentence describing how full
+ * a table is rots exactly as fast as a baked-in count — it is the same mistake in
+ * different clothes, and the ACCURACY NOTES' own ban on hard-coded counts always
+ * meant this too. The copy below says what an unowned metric MEANS and what
+ * naming one DOES, and sends the reader to the desk to see which they have. That
+ * wording is true at zero rows and at every number above it.
+ *
+ * WHO CAN NAME AN OWNER — and why the honest answer is not a list of roles.
+ * user_has_permission() has FOUR paths, not three: the super-admin bypass, the
+ * multi-role merge, the legacy profiles.role fallback, and finally
+ * fn_handover_grants_key() (migration 20260811100100). The fourth is not a
+ * footnote here — on 2026-08-13 the only person actually working this desk held
+ * accreditation.naac.narrative.manage through an accepted Director handover on
+ * /accreditation/manage/owners, holding no role that carries the key at all. So:
+ *   by role      accreditation_officer already holds the manage key; ceo and
+ *                managing_director gain it (with accreditation.cac.view and
+ *                .narrative.view) by the Director's grant of 2026-08-13.
+ *   by handover  a Director handover naming that key grants it to one named
+ *                person for as long as the handover is live. Principals are
+ *                DELIBERATELY excluded from the role grant (Director,
+ *                2026-08-13, R1) and are handed the desk this way, individually.
+ * Institution scope still decides reach and no wording here can change it: ceo /
+ * managing_director / accreditation_officer are scope 'all'; a principal is
+ * scope 'own', so a write outside their own college is refused by
+ * role_has_institution_access(). The DATES are deliberately not in the copy — a
+ * date in reader-facing text rots as loudly as a count and helps the reader less
+ * than it helps us. They live here, where the next editor looks before changing
+ * that sentence.
+ * ────────────────────────────────────────────────────────────────────────── */
+export const cacSections: GuideSection[] = [
+  {
+    id: "cac-what-it-is",
+    title: "What the Cluster Academic Council is",
+    steps: [
+      {
+        action: "Open the **Cluster Academic Council** and read the top card before anything else.",
+        detail:
+          "Every other entry in that row — NAAC, UGC, NIRF, QS, NBA, AICTE, NCTE, DCI, PCI, INC — is an outside authority that inspects JKKN and rates it. The council runs the other way round. It is how JKKN's own colleges and schools decide something once, so the decision holds everywhere instead of being argued again in each place.",
+        link: { label: "Open the Cluster Academic Council", href: "/accreditation/cac" },
+      },
+      {
+        action: "Tell the council apart from **IQAC** with one question: how many colleges have to move?",
+        detail:
+          "If one college can change the number on its own, it belongs to that college's IQAC. If the number only moves when two or more colleges act together, it is the council's. Both are JKKN's own bodies and neither is an inspector — they divide the work by reach, not by rank.",
+        link: { label: "Open the IQAC page", href: "/accreditation/iqac" },
+        tip: "Same menu row, opposite direction of travel. The ten bodies ask JKKN for an answer; the council decides something for JKKN.",
+      },
+      {
+        action: "Expect no rating anywhere on the page — that is a decision, not an unfinished screen.",
+        detail:
+          "There is no total, no percentage and no ordering of colleges against one another, and nothing on the page is submitted to anybody outside. The council measures; it does not award.",
+      },
+    ],
+  },
+  {
+    id: "cac-read-the-page",
+    title: "How to read the council page",
+    steps: [
+      {
+        action: "Read every total on the page as the **whole cluster's** figure, not your college's.",
+        detail:
+          "The numbers come from one database function that answers with the cluster's figure whoever asks. That is exactly why it exists: a council member must never be shown their own slice and told it is the cluster's.",
+        link: { label: "Open the Cluster Academic Council", href: "/accreditation/cac" },
+        tip: "This was a real fault before it was fixed. Read the underlying tables directly and you get only the rows you are allowed to see — which, for a member scoped to one college, is a fraction of the thing the council exists to look across.",
+      },
+      {
+        action: "Read **not captured yet** as “nobody has collected this”, never as a zero.",
+        detail:
+          "It says the platform has no source wired to that question. It is not a measured result and it is not a comment on how any college performs. A metric with no source is shown as not captured rather than filled with an invented figure.",
+      },
+      {
+        action: "Check the line saying when the overnight figure was last worked out.",
+        detail:
+          "Some numbers are recomputed by a nightly job rather than read live, so the page prints when that last ran and calls it out when it is more than a day old. A job that has quietly stopped otherwise looks exactly like one that is working.",
+      },
+      {
+        action: "Keep central-office traffic apart from college-to-college.",
+        detail:
+          "The collaboration panel counts the two separately on purpose. Anything passing through JKKN Main Office is shared central provision, which is worth counting and is not colleges choosing each other. Only the college-to-college figure is that, and it is the smaller number.",
+      },
+      {
+        action: "Print the **one-page brief** before the council sits.",
+        detail:
+          "One side of A4 carrying the same live figures as the page, plus how many metrics have somebody's name against them. It prints from the browser, and everything around it — menu, buttons, sidebar — is left off the paper.",
+        link: { label: "Open the one-page brief", href: "/accreditation/cac/brief" },
+      },
+    ],
+  },
+  {
+    id: "cac-name-an-owner",
+    title: "Make one person accountable for a metric",
+    steps: [
+      {
+        action: "Open the **owner desk** and name one person for a **whole awarding body** in one college — that is the normal way to do it.",
+        detail:
+          "Leave the metric box blank. That single record makes the person accountable for everything that body asks of that college, in one go. It is the ordinary unit of the job, not a shortcut for people in a hurry: for most colleges, one accountable name per body is the whole answer.",
+        link: { label: "Open the owner desk", href: "/accreditation/manage/owners" },
+        tip: "You are not expected to work down the framework question by question. A body at a time is the size the desk was built around.",
+      },
+      {
+        action: "Name a **single metric** only when one person genuinely cannot carry the whole body.",
+        detail:
+          "Filling the metric box as well records a different person for that one question and leaves the rest of the body exactly where it was. It is for the handful of questions that sit with a particular office — the library figures, the finance figures — not the way in.",
+      },
+      {
+        action: "Check you hold the key that lets you name **somebody else** — the desk opens wider than it writes.",
+        detail:
+          "Opening it, and answering an assignment addressed to you, needs only the view key. Naming another person needs the manage key too, and that is enforced by the database rather than by the screen, so a blocked write comes back as nothing saved.",
+        prerequisite:
+          "Naming an owner needs **accreditation.naac.narrative.manage**. Some people hold it through their role — the accreditation officer, the CEO and the Managing Director. A Principal is deliberately not given it by role, and is handed this desk individually by the Director instead: that handover carries the same key for as long as it runs. So if the desk shows you the list but saves nothing, that key is what you are missing, and the answer is to ask the Director for the page rather than to assume it is shut to you for good.",
+        tip: "A handover is made from the Director's desk and runs to a date, so it is a loan of the page rather than a change to your role. Nobody can grant it to themselves — not even the person already holding the key.",
+      },
+      {
+        action: "Read a metric with **no name against it** as work that belongs to nobody yet.",
+        detail:
+          "The desk lists every pair of college and metric whether or not anybody is accountable for it. An unnamed one is not a read that failed and not a mark against any person; it is a question with nobody to ask about it. Naming the body owner clears a whole column of them at once, which is why that is the cheapest move on the page.",
+      },
+      {
+        action: "The person you name has to **confirm** it before it is settled.",
+        detail:
+          "A new assignment is recorded as waiting and stays waiting until they accept. They may also decline, and a refusal is left standing rather than quietly falling back to whoever owns the body — the point of asking is that the answer can be no.",
+        tip: "Tell them yourself. The platform records the assignment; it does not chase anybody.",
+      },
+    ],
+  },
+  {
+    id: "cac-nobody-can-answer",
+    title: "When nobody can answer a metric yet",
+    steps: [
+      {
+        action: "Do **not** put a number in to make the gap go away.",
+        detail:
+          "An invented figure is worse than a visible gap. It traces back to no record, and the drafting check downstream refuses to advance any claim the evidence cannot account for — so it fails later, in front of more people.",
+      },
+      {
+        action: "Name the owner anyway, so the gap carries a name.",
+        detail:
+          "Ownership is a routing record, not a reward for already having the answer. Naming somebody for a question nobody can answer yet is exactly how it stops being nobody's problem.",
+        link: { label: "Open the owner desk", href: "/accreditation/manage/owners" },
+      },
+      {
+        action: "Point the person you named at their own list.",
+        detail:
+          "It shows only what they owe, where to do it and by when. Nobody else's workload appears on it, and there is no score and no ordering of people.",
+        link: { label: "Open my gaps", href: "/accreditation/my-gaps" },
+      },
+      {
+        action: "Fix the source, not the metric.",
+        detail:
+          "Accreditation has almost no data entry of its own. A number appears once the everyday record that answers it is being kept in whichever module already owns it. The main exception is the monthly meter readings, which have a small screen of their own.",
+        link: {
+          label: "Open the monthly meter readings",
+          href: "/accreditation/manage/utility-readings",
+        },
+      },
+    ],
+  },
+];
+
+/* ── C. Owner — you have been named on a metric (narrative.view) ──────────── */
 export const ownerSections: GuideSection[] = [
   {
     id: "named-an-owner",
@@ -158,9 +364,9 @@ export const ownerSections: GuideSection[] = [
         link: { label: "See the owner list", href: "/accreditation/naac/narratives/owners" },
       },
       {
-        action: "Expect the owner list to be **mostly empty today**.",
+        action: "If a metric is really yours and your name is **not** on it, ask — you cannot add yourself.",
         detail:
-          "Very few pairs have a named owner so far, so most drafts land in the IQAC queue. If a metric is really yours and your name is not on it, ask your IQAC coordinator to add you — you cannot add yourself.",
+          "Anything with nobody named against it routes to the shared IQAC queue rather than to a person, so a metric that ought to be yours can sit there for weeks without ever reaching you. Ask your IQAC coordinator to record you against it.",
         prerequisite:
           "Only someone holding **accreditation.naac.narrative.manage** can record an owner. If the owner page is blocked for you, that is the reason, and it tells you so on the page.",
       },
@@ -209,7 +415,7 @@ export const ownerSections: GuideSection[] = [
   },
 ];
 
-/* ── C. Framework — read the whole thing (accreditation.metrics.view) ─────── */
+/* ── D. Framework — read the whole thing (accreditation.metrics.view) ─────── */
 export const frameworkSections: GuideSection[] = [
   {
     id: "read-the-framework",
@@ -263,7 +469,7 @@ export const frameworkSections: GuideSection[] = [
   },
 ];
 
-/* ── D. Assign — the IQAC owner desk (narrative.manage) ───────────────────── */
+/* ── E. Assign — the IQAC owner desk (narrative.manage) ───────────────────── */
 export const assignSections: GuideSection[] = [
   {
     id: "assign-the-owners",
@@ -305,12 +511,14 @@ export const GUIDES = {
         "See the ten bodies",
         "Learn where evidence comes from",
         "Read “not captured yet” correctly",
+        "Tell the cluster council from IQAC",
         "Find the metric you own",
         "Check the draft against its evidence",
         "Okay it and pass it on",
       ],
       sections: [
         ...orientationSections,
+        ...cacSections,
         ...ownerSections,
         ...frameworkSections,
         ...assignSections,

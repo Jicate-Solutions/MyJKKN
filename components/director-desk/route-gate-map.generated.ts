@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 119 routes cannot be handed over at all; 363 declare
+// 119 routes cannot be handed over at all; 368 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -28,6 +28,7 @@ export interface RouteGateEntry {
 export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/academic/attendance/consolidation": { keys: ['academic.attendance.consolidation.view'] },
   "/academic/attendance/consolidation/facilitators": { keys: ['academic.attendance.facilitator-report.view'] },
+  "/academic/attendance/history": { keys: ['academic.attendance.dashboard.view'] },
   "/academic/attendance/pending": { keys: ['academic.attendance.view'] },
   "/academic/attendance/reports": { keys: ['academic.attendance.reports.view'] },
   "/academic/batches": { keys: ['academic.batches.view'] },
@@ -88,9 +89,12 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/admission/consultants/import": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/new": { keys: ['admission.consultants.create'] },
   "/admission/consultants/payouts": { keys: ['admission.consultants.commissions.view'] },
+  "/admission/consultants/reconciliation": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/referral-rates": { keys: ['admission.consultants.commissions.view'] },
   "/admission/consultants/referrals": { keys: ['admission.consultants.view'] },
+  "/admission/consultants/review-worklist": { keys: ['admission.leads.view'] },
   "/admission/consultants/rewards": { keys: ['admission.consultants.view'] },
+  "/admission/consultants/unlinked-referrals": { keys: ['admission.consultants.commissions.view'] },
   "/admission/counselors": { keys: ['admission.counselors.view'] },
   "/admission/counselors/admin": { blocked: 'superAdmin' },
   "/admission/counselors/admin/alert-thresholds": { blocked: 'superAdmin' },
@@ -508,4 +512,5 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/reference": { keys: ['reference.catalogs.view'] },
   "/startup-studio/events/[id]/dashboard": { blocked: 'superAdmin' },
   "/startup-studio/school-of-influence/admin/settings": { keys: ['startup_studio.school_of_influence.configure'], routeGuarded: true },
+  "/users/jkkn-id": { keys: ['users.jkkn_id.view'], routeGuarded: true },
 };

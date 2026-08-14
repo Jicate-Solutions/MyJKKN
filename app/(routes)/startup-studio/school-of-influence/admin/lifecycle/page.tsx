@@ -31,6 +31,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 import { LifecycleWorkspace } from './_components/lifecycle-workspace';
 
+// The route manifest and the Ctrl+K palette read this. Without it the page is
+// listed under its folder name alone — "Lifecycle", a word that describes
+// nothing anybody would search for (BUG-005799 / BUG-005800).
+export const navMeta = {
+  label: 'School of Influence Inactivity Dry Run',
+  icon: 'Activity',
+} as const;
+
 export const metadata: Metadata = {
   title: 'School of Influence — Inactivity dry run',
   description:

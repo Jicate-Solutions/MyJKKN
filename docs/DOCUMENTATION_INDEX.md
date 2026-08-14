@@ -23,6 +23,7 @@ Architecture and design specs live under `specs/` at the repo root (not under `d
 - [docs/SPEC-CALL-INTELLIGENCE-PIPELINE.md](SPEC-CALL-INTELLIGENCE-PIPELINE.md) — Call intelligence pipeline
 - [docs/SPEC-EXOTEL-ADVANCED.md](SPEC-EXOTEL-ADVANCED.md) — Exotel advanced integration
 - [docs/architecture/ai-max-lane-recovery-runbook.md](architecture/ai-max-lane-recovery-runbook.md) — AI Max-lane Windows box: how it's wired, health checks & recovery runbook
+- [docs/architecture/2026-08-12-MIGRATION-ledger-drift-unrecorded-applied-versions.md](architecture/2026-08-12-MIGRATION-ledger-drift-unrecorded-applied-versions.md) — Seven `20260809*` accreditation migrations are live on production but absent from `supabase_migrations.schema_migrations`; the catalog evidence for each, why a blanket `db push` must never be used to reconcile it, and why backfilling the ledger was rejected as a one-way door
 
 ---
 
