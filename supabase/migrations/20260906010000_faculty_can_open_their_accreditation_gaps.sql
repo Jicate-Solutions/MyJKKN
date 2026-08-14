@@ -32,35 +32,61 @@
 -- neither is exactly right. The corrected figures:
 --
 --   14   distinct metric owners (14 assignment rows, all body-level)
---   10   of them hold the `faculty` role
+--   10   of them hold `faculty` through user_roles
 --    0   of them are super admins
---    7   are locked out TODAY — no role they hold grants accreditation.view
---    6   of those 7 hold `faculty`, so this migration unlocks them
---    1   remains locked out after this migration — an owner who holds neither
---        `faculty` nor any role carrying the key. That person is NOT addressed
---        here and needs a separate decision; it is recorded rather than hidden.
+--    7   are locked out TODAY — no path grants them accreditation.view
+--    7   of those 7 are unblocked by this migration
+--    0   remain locked out afterwards
 --
 -- The other 7 of the 14 can already open the page today, through `hod`,
--- `principal` or another role that carries the key.
+-- `principal` or another role that carries the key. So: 7 can open it now,
+-- 14 can open it after this file.
 --
--- ══ HEADCOUNT — 393 IS THE LEGACY NUMBER, 431 IS THE REAL ONE ════════════════
+-- ══ THE 14th OWNER IS REACHED BY THE LEGACY PATH, NOT user_roles ═════════════
 --
--- `profiles.role = 'faculty'` returns 393. That is the LEGACY single-role
--- column, and it is not what user_has_permission() reads first.
+-- An earlier draft of this file claimed one owner would REMAIN locked out. That
+-- was wrong, and the reason it was wrong is the interesting part.
 --
--- The live multi-role table is the one that matters: 490 distinct users hold
--- `faculty` via user_roles, and user_has_permission() merges permissions across
--- ALL of a user's roles with OR logic. Of those 490, **59 already reach
--- accreditation.view through another role they hold** (hod, principal, and the
--- six others listed below), so they gain nothing from this file.
+-- user_has_permission() has FOUR paths, tried in order. Read verbatim from the
+-- live function body on 2026-08-14:
 --
---   490  hold `faculty` via user_roles
---   -59  already have accreditation.view via another role
+--   1. super-admin bypass          profiles.is_super_admin
+--   2. multi-role                  user_roles → custom_roles
+--   3. LEGACY FALLBACK             profiles.role = custom_roles.role_key
+--   4. Director handover           fn_handover_grants_key(auth.uid(), key)
+--
+-- The owner in question holds `faculty` in `profiles.role` and has NO rows in
+-- user_roles at all. A check that walks only path 2 — which is what the earlier
+-- draft did — cannot see them, and reports them as unreachable. Path 3 joins
+-- profiles.role straight to custom_roles.role_key, so the moment `faculty`
+-- carries accreditation.view = true, that path returns true for them.
+--
+-- Modelled across all four paths for all 14 owners: 7 can open before, 14 after,
+-- 0 remaining. Exactly one of the 7 unblocked is reached ONLY through path 3.
+--
+-- ══ HEADCOUNT — 440, AND WHY IT IS NEITHER 393 NOR 490 ═══════════════════════
+--
+-- Neither single column answers this question, because `faculty` is reachable
+-- by two different routes and they are not nested:
+--
+--   490  hold `faculty` via user_roles          (path 2)
+--   393  hold `faculty` via profiles.role       (path 3, the legacy column)
+--   499  UNION of the two — the real population
+--     9  of those reach `faculty` ONLY through profiles.role, with no user_roles
+--        row whatsoever. This is a small population but it is NOT empty, and the
+--        14th metric owner is one of them.
+--   106  reach it only through user_roles
+--   384  hold it both ways
+--
+--   499  hold `faculty` by either route
+--   -59  already reach accreditation.view anyway (super admin, or another role
+--        by either route — hod, principal, and the six others listed below)
 --   ────
---   431  people who can open /accreditation and /accreditation/my-gaps
+--   440  people who can open /accreditation and /accreditation/my-gaps
 --        after this migration who could not before
 --
--- 431 is the honest blast radius. Not 393.
+-- 440 is the honest blast radius. An earlier draft said 431; that figure counted
+-- only user_roles holders and silently dropped the 9 legacy-only ones.
 --
 -- ══ WHAT THE KEY OPENS — TWO ROUTES, AND NOTHING ELSE ════════════════════════
 --
@@ -174,12 +200,17 @@ BEGIN
       'faculty accreditation.view grant FAILED — no row in public.custom_roles with role_key = ''faculty''. Nothing was changed.';
   END IF;
 
-  -- An inactive role would carry the key and grant nobody anything:
-  -- user_has_permission() joins through custom_roles on an active assignment.
-  -- Shipping a grant that silently does nothing is worse than refusing.
+  -- Refuse on a deactivated role. NOTE the reason, because an earlier draft of
+  -- this file stated it wrongly: user_has_permission() does NOT filter on
+  -- custom_roles.is_active — neither the user_roles path nor the profiles.role
+  -- path mentions the column (read from the live function body 2026-08-14). So
+  -- a grant on an inactive role would in fact still reach people, which is worse
+  -- than harmless, not better. Refusing is deliberate: `faculty` being inactive
+  -- would mean someone deactivated it, and silently widening a role in that
+  -- state is not a decision this file should make on their behalf.
   IF v_is_active IS DISTINCT FROM true THEN
     RAISE EXCEPTION
-      'faculty accreditation.view grant FAILED — role_key = ''faculty'' exists but is_active = %. A grant on an inactive role reaches nobody. Nothing was changed.',
+      'faculty accreditation.view grant FAILED — role_key = ''faculty'' exists but is_active = %. Refusing to widen a deactivated role. Nothing was changed.',
       COALESCE(v_is_active::text, 'NULL');
   END IF;
 
@@ -247,5 +278,5 @@ BEGIN
     RAISE NOTICE 'accreditation.view also TRUE on role_key=% (pre-existing, untouched)', v_other_role;
   END LOOP;
 
-  RAISE NOTICE 'faculty accreditation.view grant OK — verified true by value. ~431 people gain /accreditation and /accreditation/my-gaps; 6 of the 7 locked-out metric owners are unblocked, 1 remains and needs a separate decision.';
+  RAISE NOTICE 'faculty accreditation.view grant OK — verified true by value. ~440 people gain /accreditation and /accreditation/my-gaps (499 hold faculty by either route, 59 already had access). All 7 locked-out metric owners are unblocked and 0 remain: 6 reach it via user_roles, the 7th only via the legacy profiles.role path.';
 END $$;
