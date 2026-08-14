@@ -716,6 +716,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
   // Batch print enqueues jobs, so it needs the manage key (not just view).
   '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Address Check (2026-08-14) is read-only — it lists the addresses that will
+  // print wrong and links out to the learner's edit screen, so it shares the
+  // view key rather than requiring manage.
+  '/admin/id-cards/address-check': 'id_cards.jobs.view',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -3063,6 +3067,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/address-check', label: 'Address Check', active: pathname.startsWith('/admin/id-cards/address-check') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
