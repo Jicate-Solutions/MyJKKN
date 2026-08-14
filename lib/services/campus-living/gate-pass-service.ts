@@ -110,14 +110,76 @@ export class GatePassService {
     }
   }
 
+  /**
+   * Resolve whatever id the caller has into the id `hostel_gate_passes`
+   * will actually accept.
+   *
+   * `hostel_gate_passes.learner_id` is FOREIGN KEY ... REFERENCES profiles(id).
+   * But every resident picker in this module reads `v_learner_hostelites`,
+   * whose `id` is a `learners_profiles.id`. Those two id spaces are DISJOINT —
+   * sampling 200 rows of the view found 200 matches in learners_profiles and
+   * ZERO in profiles. Passing the picker's value straight through is therefore
+   * a guaranteed 23503, which is the same defect that kept
+   * `mess_meal_records` empty until 20260903020000's companion fix.
+   *
+   * Resolution order mirrors lib/services/campus-living/mess-scan-resolver.ts
+   * so the module has ONE rule, not two:
+   *   1. treat it as learners_profiles.id → the profiles row that links to it
+   *   2. fall back to it already BEING a profiles.id (a team member's pass)
+   *   3. otherwise refuse, loudly and by name
+   *
+   * Step 3 is not theoretical: of 698 hostel residents, 697 have a profiles
+   * row and one does not. That person must be told they cannot be issued a
+   * pass and why — never handed a silent failure.
+   */
+  private static async resolveLearnerProfileId(rawId: string): Promise<string> {
+    const supabase = createClientSupabaseClient();
+
+    const { data: viaLearner, error: viaLearnerError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('learner_id', rawId)
+      .maybeSingle();
+
+    if (viaLearnerError) {
+      logger.error('campus-living/gate-pass', 'Failed resolving learner to profile', viaLearnerError);
+      throw viaLearnerError;
+    }
+    if (viaLearner?.id) return viaLearner.id as string;
+
+    const { data: asProfile, error: asProfileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', rawId)
+      .maybeSingle();
+
+    if (asProfileError) {
+      logger.error('campus-living/gate-pass', 'Failed checking id as profile', asProfileError);
+      throw asProfileError;
+    }
+    if (asProfile?.id) return asProfile.id as string;
+
+    throw new Error(
+      'This resident has no login profile yet, so a gate pass cannot be issued ' +
+        'in their name. Ask the office to complete their profile first.',
+    );
+  }
+
   // ── Generate gate pass with QR ────────────────────────────────────
   static async generateGatePass(payload: CreateHostelGatePassDTO) {
     try {
       const supabase = createClientSupabaseClient();
 
+      // See resolveLearnerProfileId: the picker hands us a learners_profiles.id
+      // but the column is FK'd to profiles(id).
+      const learnerProfileId = payload.learner_id
+        ? await GatePassService.resolveLearnerProfileId(payload.learner_id as string)
+        : payload.learner_id;
+
       // Generate unique pass number and QR code if not provided
       const passPayload = {
         ...payload,
+        learner_id: learnerProfileId,
         pass_number: payload.pass_number || `GP-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
         qr_code: payload.qr_code || `QR-${crypto.randomUUID()}`,
         status: payload.status || 'issued',
