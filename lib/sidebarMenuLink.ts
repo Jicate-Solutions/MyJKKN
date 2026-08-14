@@ -1157,6 +1157,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  // Gated on the WRITE key, not .view: the scan screen exists only to record
+  // exits and returns, so a read-only holder has nothing to do there.
+  '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
