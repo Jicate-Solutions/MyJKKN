@@ -66,13 +66,17 @@ import {
   useCacCurriculumOverlap,
   useCacCurriculumOverlapSummary,
   useCacCollaborationIsolation,
+  useCacCollegeSizes,
   summariseFunnel,
   splitExchange,
   concentration,
+  sizeStanding,
+  perCollegeExchange,
   isolatedInstitutions,
   neverLentToAnyone,
   type CacExchangeEdge,
   type CacFunnelRow,
+  type CacCollegeExchangeRow,
 } from '@/hooks/accreditation/use-cac-cluster';
 
 // ----------------------------------------------------------------------------
@@ -255,7 +259,16 @@ function SolutionFunnelPanel() {
                       {instLabel(r.institution_name, r.iqac_code)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {r.departments_activated || '—'}
+                      {/* An em-dash was adequate while every row in this table
+                          had activated something. The view now returns all eight
+                          assessed colleges rather than only those with activity,
+                          so this branch is reached by real colleges and has to
+                          say what it means, like every sibling cell. */}
+                      {r.departments_activated > 0 ? (
+                        r.departments_activated
+                      ) : (
+                        <span className="text-xs text-muted-foreground">none activated yet</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {r.departments_producing > 0 ? (
@@ -342,12 +355,89 @@ function EdgeList({ edges, unitWord }: { edges: CacExchangeEdge[]; unitWord: str
   );
 }
 
+/**
+ * Give and receive per college, with size beside them.
+ *
+ * The two lists above are pairs; this is the same edges read per college, which
+ * is the only way to see what any one college gives and receives overall. Size
+ * sits in the same row rather than in a footnote because the two numbers are
+ * only interpretable together — 53 assignments received means one thing to a
+ * college of 1,200 and another to a college of 240.
+ *
+ * Ordered by size, largest first, and NOT by exchange volume. Ordering by
+ * exchange would publish a league table of collaboration, which this page
+ * refuses everywhere else.
+ */
+function PerCollegeExchangeTable({ rows }: { rows: CacCollegeExchangeRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        No college sizes are on record, so give and receive cannot be set beside
+        them.
+      </p>
+    );
+  }
+  const cell = (n: number) =>
+    n > 0 ? (
+      <span className="tabular-nums">{n.toLocaleString()}</span>
+    ) : (
+      <span className="text-[11px] text-muted-foreground">none</span>
+    );
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full min-w-max border-collapse text-sm">
+        <thead>
+          <tr className="border-b bg-muted/50 text-xs">
+            <th className="px-3 py-2 text-left font-medium">College</th>
+            <th className="px-3 py-2 text-right font-medium">Active learners</th>
+            <th className="px-3 py-2 text-right font-medium">Teaching given</th>
+            <th className="px-3 py-2 text-right font-medium">Teaching received</th>
+            <th className="px-3 py-2 text-right font-medium">Bookings made</th>
+            <th className="px-3 py-2 text-right font-medium">Bookings hosted</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.institution_id} className="border-b last:border-0">
+              <td className="px-3 py-2">{instLabel(r.institution_name, r.iqac_code)}</td>
+              <td className="px-3 py-2 text-right">
+                {/* A college can genuinely have no active cohort — Education is
+                    one today — and a bare 0 in a size column would read as a
+                    measured failing rather than as a college between intakes. */}
+                {r.active_learners > 0 ? (
+                  <span className="tabular-nums">
+                    {r.active_learners.toLocaleString()}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    no active cohort
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right">{cell(r.teaching_given)}</td>
+              <td className="px-3 py-2 text-right">{cell(r.teaching_received)}</td>
+              <td className="px-3 py-2 text-right">{cell(r.bookings_given)}</td>
+              <td className="px-3 py-2 text-right">{cell(r.bookings_received)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ExchangeMapPanel() {
   const { data, isLoading, error } = useCacExchangeEdges();
+  const { data: sizeData } = useCacCollegeSizes();
   const edges = useMemo<CacExchangeEdge[]>(() => data ?? [], [data]);
 
   const teaching = useMemo(() => splitExchange(edges, 'teaching'), [edges]);
   const bookings = useMemo(() => splitExchange(edges, 'booking'), [edges]);
+  const perCollege = useMemo(
+    () => perCollegeExchange(edges, sizeData ?? []),
+    [edges, sizeData],
+  );
 
   return (
     <PanelShell
@@ -425,6 +515,22 @@ function ExchangeMapPanel() {
               <EdgeList edges={bookings.hub} unitWord="bookings" />
             </div>
           </div>
+        </div>
+      )}
+
+      {!error && !isLoading && (
+        <div className="space-y-2 pt-2">
+          <div className="text-sm font-medium">
+            What each college gives and receives
+          </div>
+          <p className="text-xs text-muted-foreground">
+            College-to-college only; traffic with the central office is counted
+            in its own segment above. Every assessed college is listed, including
+            those that have exchanged nothing — a college missing from this table
+            would read as one outside the cluster rather than one that has not
+            started.
+          </p>
+          <PerCollegeExchangeTable rows={perCollege} />
         </div>
       )}
 
@@ -573,6 +679,7 @@ function CurriculumOverlapPanel() {
 function IsolationPanel() {
   const { data, isLoading, error } = useCacCollaborationIsolation();
   const { data: edgeData } = useCacExchangeEdges();
+  const { data: sizeData } = useCacCollegeSizes();
 
   const rows = useMemo(() => data ?? [], [data]);
   const isolated = useMemo(() => isolatedInstitutions(rows), [rows]);
@@ -580,6 +687,16 @@ function IsolationPanel() {
   const teachingTop = useMemo(
     () => concentration(edgeData ?? [], 'teaching'),
     [edgeData],
+  );
+  // The size of the college on the receiving end. Null while sizes are still
+  // loading, and null if it cannot be matched — in both cases the panel simply
+  // omits the sentence rather than guessing at a proportion.
+  const topStanding = useMemo(
+    () =>
+      teachingTop
+        ? sizeStanding(sizeData ?? [], teachingTop.institutionId, teachingTop.name)
+        : null,
+    [sizeData, teachingTop],
   );
 
   return (
@@ -663,6 +780,26 @@ function IsolationPanel() {
                   from {teachingTop.sources}{' '}
                   {teachingTop.sources === 1 ? 'college' : 'colleges'}.
                 </p>
+                {topStanding && (
+                  // Size belongs in the same breath as the share. Without it the
+                  // sentence above reads as a college that cannot staff itself;
+                  // with it, the same figures describe a small college being
+                  // covered by larger siblings, which is the behaviour a cluster
+                  // exists to produce. Stated as a share of cluster learners
+                  // rather than as a rank — a rank would have to call this the
+                  // smallest college, and that is not true while another college
+                  // has no active cohort at all.
+                  <p className="text-sm">
+                    It holds{' '}
+                    <span className="font-semibold">
+                      {topStanding.activeLearners.toLocaleString()}
+                    </span>{' '}
+                    of the cluster&apos;s{' '}
+                    {topStanding.clusterLearners.toLocaleString()} active
+                    learners — {topStanding.sharePct}% of the learners, receiving{' '}
+                    {teachingTop.sharePct}% of the teaching.
+                  </p>
+                )}
                 <div className="rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
                   <p>
                     <span className="font-medium text-foreground">
