@@ -103,6 +103,21 @@ export interface CacIsolationRow {
 }
 
 /**
+ * How big a college is, for reading an exchange imbalance as context.
+ *
+ * `active_learners` counts `lifecycle_status = 'active'` only — graduated and
+ * enquiry-stage rows are not the size of a college today. It is legitimately 0
+ * for a college with no active cohort, so it is guarded on screen like every
+ * other figure here rather than printed bare.
+ */
+export interface CacCollegeSize {
+  institution_id: string;
+  institution_name: string | null;
+  iqac_code: string | null;
+  active_learners: number;
+}
+
+/**
  * One key, deliberately.
  *
  * There were five — one per view — when there were five requests. Now there is
@@ -112,6 +127,18 @@ export interface CacIsolationRow {
  */
 export const cacClusterKeys = {
   all: ['accreditation', 'cac-cluster'] as const,
+};
+
+/**
+ * A SECOND key, because sizes are a second call.
+ *
+ * The rule above is "one key per request", not "one key for this page". Sizes
+ * come from `fn_cac_college_sizes()`, a different function with its own guard,
+ * so sharing the totals key would make one cache entry serve two payloads and
+ * whichever resolved last would win.
+ */
+export const cacCollegeSizeKeys = {
+  all: ['accreditation', 'cac-college-sizes'] as const,
 };
 
 // These records move on other modules' timelines, not this page's. Five minutes
@@ -211,34 +238,178 @@ export function splitExchange(edges: CacExchangeEdge[], kind: CacExchangeEdge['e
 export function concentration(
   edges: CacExchangeEdge[],
   kind: CacExchangeEdge['exchange_kind'],
-): { name: string; units: number; total: number; sharePct: number; sources: number } | null {
+): {
+  name: string;
+  /** Carried so a caller can join to another cluster read by id rather than by
+   *  display name. Null only for a receiver with no `institutions` row. */
+  institutionId: string | null;
+  units: number;
+  total: number;
+  sharePct: number;
+  sources: number;
+} | null {
   const ofKind = edges.filter((e) => e.exchange_kind === kind);
   const total = ofKind.reduce((n, e) => n + (e.units ?? 0), 0);
   if (total === 0) return null;
 
-  const byReceiver = new Map<string, { units: number; sources: number }>();
+  const byReceiver = new Map<
+    string,
+    { units: number; sources: number; institutionId: string | null }
+  >();
   ofKind.forEach((e) => {
     // Null only when the LEFT JOIN to `institutions` found no row, now that the
     // read is cluster-wide. It is no longer a viewer-scope effect.
     const name = e.receiver_name ?? 'An institution with no row on record';
-    const prev = byReceiver.get(name) ?? { units: 0, sources: 0 };
-    byReceiver.set(name, { units: prev.units + (e.units ?? 0), sources: prev.sources + 1 });
+    const prev =
+      byReceiver.get(name) ?? { units: 0, sources: 0, institutionId: null };
+    byReceiver.set(name, {
+      units: prev.units + (e.units ?? 0),
+      sources: prev.sources + 1,
+      institutionId: prev.institutionId ?? e.receiver_institution_id ?? null,
+    });
   });
 
-  let top: { name: string; units: number; sources: number } | null = null;
+  let top:
+    | { name: string; units: number; sources: number; institutionId: string | null }
+    | null = null;
   byReceiver.forEach((v, name) => {
-    if (!top || v.units > top.units) top = { name, units: v.units, sources: v.sources };
+    if (!top || v.units > top.units) {
+      top = { name, units: v.units, sources: v.sources, institutionId: v.institutionId };
+    }
   });
   if (!top) return null;
 
-  const winner = top as { name: string; units: number; sources: number };
+  const winner = top as {
+    name: string;
+    units: number;
+    sources: number;
+    institutionId: string | null;
+  };
   return {
     name: winner.name,
+    institutionId: winner.institutionId,
     units: winner.units,
     total,
     sharePct: Math.round((100 * winner.units) / total),
     sources: winner.sources,
   };
+}
+
+/**
+ * What one college's size means next to the cluster's.
+ *
+ * The council's decision was that give and receive are shown WITH size
+ * alongside, so that an imbalance reads as context rather than as a failing.
+ * This is the helper that makes that possible for the concentration reading,
+ * which is the place the absence hurt most: one college receives the great
+ * majority of all cross-campus teaching, and with no size beside it that figure
+ * reads as a college unable to staff itself.
+ *
+ * Returns a SHARE OF CLUSTER LEARNERS rather than a rank. A rank would have to
+ * say "the smallest college", and that sentence is false here — JKKN College of
+ * Education has no active cohort at all, so it, not the college on this panel,
+ * holds that position. A share states the proportion without making a claim
+ * about ordering that the data does not support.
+ *
+ * Null when the college cannot be found among the sizes, or when the cluster
+ * total is 0: a share of nothing is not 0%, it is unanswerable, and printing 0%
+ * would be the bare zero this page forbids.
+ */
+export function sizeStanding(
+  sizes: CacCollegeSize[],
+  institutionId: string | null,
+  institutionName?: string | null,
+): { activeLearners: number; clusterLearners: number; sharePct: number } | null {
+  const clusterLearners = sizes.reduce((n, s) => n + (s.active_learners ?? 0), 0);
+  if (clusterLearners === 0) return null;
+
+  // Prefer the id. Name matching is the fallback for a receiver whose
+  // `institutions` row was missing from the edge, and it is a fallback rather
+  // than the primary because two institutions may legitimately share a display
+  // name once the schools are in scope.
+  const match =
+    (institutionId ? sizes.find((s) => s.institution_id === institutionId) : undefined) ??
+    (institutionName
+      ? sizes.find((s) => s.institution_name === institutionName)
+      : undefined);
+  if (!match) return null;
+
+  return {
+    activeLearners: match.active_learners ?? 0,
+    clusterLearners,
+    sharePct: Math.round((100 * (match.active_learners ?? 0)) / clusterLearners),
+  };
+}
+
+/** One college's peer give/receive totals, with its size beside them. */
+export interface CacCollegeExchangeRow {
+  institution_id: string;
+  institution_name: string | null;
+  iqac_code: string | null;
+  active_learners: number;
+  teaching_given: number;
+  teaching_received: number;
+  bookings_given: number;
+  bookings_received: number;
+}
+
+/**
+ * Give and receive rolled up PER COLLEGE, which the edge lists never showed.
+ *
+ * The exchange panel lists pairs. A council member reading it can see that
+ * Dental teaches into Allied Health, but not what any one college gives and
+ * receives overall — and "give/receive per college, with size alongside" is what
+ * was actually asked for.
+ *
+ * ANCHORED ON THE SIZES, not on the edges, for the same reason the funnel view
+ * is anchored on `institutions`: a college that has exchanged nothing must
+ * appear as a college that has exchanged nothing, not vanish. An absent row
+ * cannot be read as "has not started" — it reads as "is not part of this".
+ *
+ * PEER EDGES ONLY. Hub traffic is a college using the central office, which is
+ * shared infrastructure rather than two colleges choosing to work together, and
+ * it is reported in its own segment above. Folding it in here would inflate
+ * every row by an amount that has nothing to do with the cluster.
+ */
+export function perCollegeExchange(
+  edges: CacExchangeEdge[],
+  sizes: CacCollegeSize[],
+): CacCollegeExchangeRow[] {
+  const rows = new Map<string, CacCollegeExchangeRow>();
+  sizes.forEach((s) => {
+    rows.set(s.institution_id, {
+      institution_id: s.institution_id,
+      institution_name: s.institution_name,
+      iqac_code: s.iqac_code,
+      active_learners: s.active_learners ?? 0,
+      teaching_given: 0,
+      teaching_received: 0,
+      bookings_given: 0,
+      bookings_received: 0,
+    });
+  });
+
+  edges
+    .filter((e) => e.relation === 'peer')
+    .forEach((e) => {
+      const units = e.units ?? 0;
+      const giver = e.giver_institution_id ? rows.get(e.giver_institution_id) : undefined;
+      const receiver = e.receiver_institution_id
+        ? rows.get(e.receiver_institution_id)
+        : undefined;
+      if (e.exchange_kind === 'teaching') {
+        if (giver) giver.teaching_given += units;
+        if (receiver) receiver.teaching_received += units;
+      } else {
+        if (giver) giver.bookings_given += units;
+        if (receiver) receiver.bookings_received += units;
+      }
+    });
+
+  // Largest college first. This orders by SIZE, not by exchange volume — the
+  // page forbids ranking the colleges against one another, and ordering by the
+  // very figure under discussion would publish a league table of collaboration.
+  return [...rows.values()].sort((a, b) => b.active_learners - a.active_learners);
 }
 
 /**
@@ -346,4 +517,32 @@ export function useCacCurriculumOverlapSummary() {
 
 export function useCacCollaborationIsolation() {
   return useClusterTotals(pickIsolation);
+}
+
+async function fetchCollegeSizes(): Promise<CacCollegeSize[]> {
+  const sb = createClientSupabaseClient() as any;
+  const { data, error } = await sb.rpc('fn_cac_college_sizes');
+  if (error) throw error;
+  // The function returns a jsonb array. Anything else is a contract change, and
+  // an empty array is the safe reading of it — every consumer treats "no sizes"
+  // as "size cannot be shown", never as "these colleges have no learners".
+  return Array.isArray(data) ? (data as CacCollegeSize[]) : [];
+}
+
+/**
+ * Every assessed college's size, read as definer.
+ *
+ * Deliberately NOT a client-side count of `learners_profiles`. That table is
+ * RLS-scoped, so counting it in the browser returns the viewer's slice and a
+ * council member scoped to one college would be shown their own college's size
+ * as the cluster's. That is the same bug this whole module was rewritten to
+ * remove on 2026-08-01, and re-introducing it for one figure would make the
+ * panel mean different things to different readers again.
+ */
+export function useCacCollegeSizes() {
+  return useQuery({
+    queryKey: cacCollegeSizeKeys.all,
+    queryFn: fetchCollegeSizes,
+    ...SHARED_QUERY_OPTIONS,
+  });
 }
