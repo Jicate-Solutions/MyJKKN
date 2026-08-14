@@ -372,7 +372,7 @@ describe('a helper read that fails must not fabricate an honest-looking answer',
           ],
         },
         learners_profiles: { error: { message: 'permission denied for table learners_profiles' } },
-        staff: { data: [] },
+        'staff': { data: [] },
         id_card_print_jobs: { data: [] },
       })
     );
@@ -406,7 +406,7 @@ describe('a helper read that fails must not fabricate an honest-looking answer',
         mess_meal_records: { data: [] },
         profiles: { data: [] },
         learners_profiles: { data: [] },
-        staff: { data: [] },
+        'staff': { data: [] },
         id_card_print_jobs: { error: { message: 'relation does not exist' } },
       })
     );
@@ -426,7 +426,7 @@ describe('a team member eating at the mess is not automatically unverifiable', (
           data: [{ id: 'p-team', full_name: 'Team Person', learner_id: null, email: 'T@jkkn.ac.in' }],
         },
         learners_profiles: { data: [] },
-        staff: { data: [{ institution_email: 't@jkkn.ac.in', profile_picture: 'https://x/p.jpg' }] },
+        'staff': { data: [{ institution_email: 't@jkkn.ac.in', profile_picture: 'https://x/p.jpg' }] },
         id_card_print_jobs: { data: [] },
       })
     );
@@ -448,7 +448,7 @@ describe('a team member eating at the mess is not automatically unverifiable', (
           data: [{ id: 'p-team', full_name: 'Team Person', learner_id: null, email: 't@jkkn.ac.in' }],
         },
         learners_profiles: { data: [] },
-        staff: { data: [{ institution_email: 't@jkkn.ac.in', profile_picture: '' }] },
+        'staff': { data: [{ institution_email: 't@jkkn.ac.in', profile_picture: '' }] },
         id_card_print_jobs: { data: [] },
       })
     );
