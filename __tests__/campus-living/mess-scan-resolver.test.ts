@@ -5,6 +5,7 @@ import {
   type MessScanLookup,
   type ScannedLearner,
 } from '@/lib/services/campus-living/mess-scan-resolver';
+import { describeDeparture } from '@/lib/services/campus-living/gate-scan-resolve';
 
 /**
  * These tests drive the shipped resolver directly, with its database port
@@ -30,18 +31,46 @@ const ORPHAN_LEARNER_PROFILE_ID = '00000000-1111-2222-3333-444444444444';
 // An employee card encodes profiles.id directly (render-data.ts:755).
 const EMPLOYEE_PROFILE_ID = 'deadbeef-0000-1111-2222-333344445555';
 
+// A learner who finished last year. Their card still scans perfectly — that
+// is exactly the plastic the scan-time guard exists to refuse.
+const GRADUATED_LEARNER_PROFILE_ID = '77778888-9999-aaaa-bbbb-ccccddddeeee';
+
+// A learner who has not arrived yet. NOT a leaver: 205 reserved learners at
+// Engineering alone, and `reserved` is a status cards are printed for.
+const RESERVED_LEARNER_PROFILE_ID = '55556666-7777-8888-9999-aaaabbbbcccc';
+
+// A team member who has left. staff.is_active is the employment flag; the
+// scanned uuid is their profiles.id, straight off an employee card.
+const FORMER_EMPLOYEE_PROFILE_ID = 'cafebabe-0000-1111-2222-333344445555';
+
 const LEARNERS: Record<string, ScannedLearner> = {
   [LEARNER_PROFILE_ID]: {
     id: LEARNER_PROFILE_ID,
     institutionId: INSTITUTION_ID,
     fullName: 'Meena Rajan',
     rollNumber: '22BCA045',
+    lifecycleStatus: 'active',
   },
   [ORPHAN_LEARNER_PROFILE_ID]: {
     id: ORPHAN_LEARNER_PROFILE_ID,
     institutionId: INSTITUTION_ID,
     fullName: 'Arun Kumar',
     rollNumber: '23BSC112',
+    lifecycleStatus: 'active',
+  },
+  [GRADUATED_LEARNER_PROFILE_ID]: {
+    id: GRADUATED_LEARNER_PROFILE_ID,
+    institutionId: INSTITUTION_ID,
+    fullName: 'Priya Sundaram',
+    rollNumber: '21BCA007',
+    lifecycleStatus: 'graduated',
+  },
+  [RESERVED_LEARNER_PROFILE_ID]: {
+    id: RESERVED_LEARNER_PROFILE_ID,
+    institutionId: INSTITUTION_ID,
+    fullName: 'Karthik Velu',
+    rollNumber: '26BCA101',
+    lifecycleStatus: 'reserved',
   },
 };
 
@@ -52,16 +81,32 @@ const RETIRED_JKKN_ID = '111111-8';
 const ROLL_NUMBERS: Record<string, string> = { '22BCA045': LEARNER_PROFILE_ID };
 
 /** profiles.learner_id -> profiles.id. The orphan is absent on purpose. */
-const PROFILE_BY_LEARNER: Record<string, string> = { [LEARNER_PROFILE_ID]: PROFILE_ID };
+const PROFILE_BY_LEARNER: Record<string, string> = {
+  [LEARNER_PROFILE_ID]: PROFILE_ID,
+  [GRADUATED_LEARNER_PROFILE_ID]: '99990000-1111-2222-3333-444455556666',
+  [RESERVED_LEARNER_PROFILE_ID]: '88887777-6666-5555-4444-333322221111',
+};
 
 const PROFILES_BY_ID: Record<
   string,
-  { id: string; institutionId: string | null; fullName: string }
+  {
+    id: string;
+    institutionId: string | null;
+    fullName: string;
+    teamMemberIsActive: boolean | null;
+  }
 > = {
   [EMPLOYEE_PROFILE_ID]: {
     id: EMPLOYEE_PROFILE_ID,
     institutionId: INSTITUTION_ID,
     fullName: 'Dr S Balaji',
+    teamMemberIsActive: true,
+  },
+  [FORMER_EMPLOYEE_PROFILE_ID]: {
+    id: FORMER_EMPLOYEE_PROFILE_ID,
+    institutionId: INSTITUTION_ID,
+    fullName: 'R Anand',
+    teamMemberIsActive: false,
   },
 };
 
@@ -201,5 +246,71 @@ describe('resolveScannedCode — an unreadable card is an answer, never a crash 
     for (const input of inputs) {
       await expect(resolveScannedCode(input, lookup())).resolves.toBeDefined();
     }
+  });
+});
+
+/**
+ * Director decision 2026-08-13: dead cards refused at SCAN time. Blocking
+ * reprints does nothing about the plastic a leaver already holds.
+ *
+ * NEGATIVE CONTROL. Every refusal below was run against the resolver with its
+ * two `describeDeparture` short-circuits removed — the shipped behaviour
+ * before this change. They failed there: a graduated learner resolved to `ok`
+ * and their meal was filed. The "still here" cases passed before and after,
+ * which is what makes them a real guard against over-blocking.
+ */
+describe('resolveScannedCode — a card that reads perfectly but belongs to a leaver', () => {
+  it("a graduated learner's card is refused, not filed", async () => {
+    const r = await resolveScannedCode(GRADUATED_LEARNER_PROFILE_ID, lookup());
+    expect(r.status).toBe('has_left');
+    if (r.status !== 'has_left') return;
+    expect(r.displayName).toBe('Priya Sundaram');
+  });
+
+  it('the refusal names the status, so the server can say why', async () => {
+    const r = await resolveScannedCode(GRADUATED_LEARNER_PROFILE_ID, lookup());
+    if (r.status !== 'has_left') throw new Error('expected has_left');
+    expect(r.reason).toContain('graduated');
+    expect(r.reason).toContain('no longer on the rolls');
+  });
+
+  it('it is NOT reported as "card not recognised" — the reader is working', async () => {
+    // The two must stay distinct: "not recognised" sends the server off to
+    // fix hardware; "has left" sends the person to the office.
+    const r = await resolveScannedCode(GRADUATED_LEARNER_PROFILE_ID, lookup());
+    expect(r.status).not.toBe('not_recognised');
+    expect(r.status).not.toBe('ok');
+  });
+
+  it('a former team member scanning an employee card is refused', async () => {
+    const r = await resolveScannedCode(FORMER_EMPLOYEE_PROFILE_ID, lookup());
+    expect(r.status).toBe('has_left');
+    if (r.status !== 'has_left') return;
+    expect(r.reason).toContain('team member');
+  });
+
+  it('a serving team member is unaffected', async () => {
+    const r = await resolveScannedCode(EMPLOYEE_PROFILE_ID, lookup());
+    expect(r.status).toBe('ok');
+  });
+
+  it('a learner who has not arrived yet still eats — reserved is not a leaver', async () => {
+    const r = await resolveScannedCode(RESERVED_LEARNER_PROFILE_ID, lookup());
+    expect(r.status).toBe('ok');
+  });
+
+  it('an active learner still eats', async () => {
+    const r = await resolveScannedCode(LEARNER_PROFILE_ID, lookup());
+    expect(r.status).toBe('ok');
+  });
+
+  it('the mess door and the gate refuse the same person', async () => {
+    // One rule, two doors. If these ever disagree, a leaver turned away at
+    // the gate walks round to the mess and is served.
+    const r = await resolveScannedCode(GRADUATED_LEARNER_PROFILE_ID, lookup());
+    if (r.status !== 'has_left') throw new Error('expected has_left');
+    expect(r.reason).toBe(
+      describeDeparture({ kind: 'learner', lifecycleStatus: 'graduated' })
+    );
   });
 });
