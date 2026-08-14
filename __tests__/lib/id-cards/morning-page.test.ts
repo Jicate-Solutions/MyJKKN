@@ -37,6 +37,7 @@ import {
   measureCollege,
   measureVerifiableScans,
   rankExceptions,
+  readMorningExceptions,
   sortCoverageWorstFirst,
   unreadableColleges,
   weighExceptionKind,
@@ -241,6 +242,14 @@ describe('time and phrasing', () => {
     expect(formatLateness(26)).toBe('1 day late');
     expect(formatLateness(50)).toBe('2 days late');
   });
+
+  it('never renders a red badge reading "0 hours late" for somebody who IS late', () => {
+    // Flooring 0.5 to 0 produced a badge that contradicted itself on a page
+    // whose whole claim is precision.
+    expect(formatLateness(0.5)).toBe('under an hour late');
+    expect(formatLateness(0.99)).toBe('under an hour late');
+    expect(formatLateness(0)).not.toContain('0 hour');
+  });
 });
 
 describe('a count that failed to read is not a count of zero', () => {
@@ -319,6 +328,137 @@ describe('withReadTimeout — the page must never spin forever', () => {
       ok: false,
       message: 'permission denied',
     });
+  });
+});
+
+// ── A chainable Supabase stand-in, one canned answer per table ──────────────
+// Small on purpose: readMorningExceptions is the one impure function whose
+// FAILURE modes are the point, and they cannot be reached from the pure half.
+type Canned = { data?: unknown[]; error?: { message: string } | null };
+
+function fakeClient(byTable: Record<string, Canned>) {
+  const from = (table: string) => {
+    const canned = byTable[table] ?? { data: [] };
+    const chain: Record<string, unknown> = {};
+    for (const method of ['select', 'in', 'is', 'gte', 'eq', 'order', 'limit', 'not', 'neq']) {
+      chain[method] = () => chain;
+    }
+    chain.then = (resolve: (v: unknown) => unknown) =>
+      Promise.resolve(
+        resolve({ data: canned.error ? null : canned.data ?? [], error: canned.error ?? null })
+      );
+    return chain;
+  };
+  return { from } as never;
+}
+
+const MEAL = (id: string, learnerId: string) => ({
+  id,
+  learner_id: learnerId,
+  meal_type: 'lunch',
+  scan_time: new Date().toISOString(),
+});
+
+describe('a helper read that fails must not fabricate an honest-looking answer', () => {
+  it('reports the learner source as unreadable instead of scoring every scan 0%', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        hostel_gate_passes: { data: [] },
+        mess_meal_records: { data: [MEAL('m1', 'p1'), MEAL('m2', 'p2')] },
+        profiles: {
+          data: [
+            { id: 'p1', full_name: 'A', learner_id: 'l1', email: null },
+            { id: 'p2', full_name: 'B', learner_id: 'l2', email: null },
+          ],
+        },
+        learners_profiles: { error: { message: 'permission denied for table learners_profiles' } },
+        staff: { data: [] },
+        id_card_print_jobs: { data: [] },
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // An empty learner lookup would otherwise read as "nobody has a photo".
+    expect(result.data.scanVerifiability).toBeNull();
+    expect(result.data.unreadableSources.join(' ')).toContain('Learner records');
+    expect(result.data.exceptions.some((e) => e.kind === 'scans_without_a_photo_to_check')).toBe(
+      false
+    );
+  });
+
+  it('fails the whole read when the people cannot be named at all', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        hostel_gate_passes: { data: [] },
+        mess_meal_records: { data: [MEAL('m1', 'p1')] },
+        profiles: { error: { message: 'profiles unavailable' } },
+      })
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.message).toContain('profiles unavailable');
+  });
+
+  it('still says the print source went dark rather than implying no card failed', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        hostel_gate_passes: { data: [] },
+        mess_meal_records: { data: [] },
+        profiles: { data: [] },
+        learners_profiles: { data: [] },
+        staff: { data: [] },
+        id_card_print_jobs: { error: { message: 'relation does not exist' } },
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.unreadableSources.join(' ')).toContain('Card print jobs');
+  });
+});
+
+describe('a team member eating at the mess is not automatically unverifiable', () => {
+  it('finds their picture on the team record, which carries no learner link', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        hostel_gate_passes: { data: [] },
+        mess_meal_records: { data: [MEAL('m1', 'p-team')] },
+        profiles: {
+          data: [{ id: 'p-team', full_name: 'Team Person', learner_id: null, email: 'T@jkkn.ac.in' }],
+        },
+        learners_profiles: { data: [] },
+        staff: { data: [{ institution_email: 't@jkkn.ac.in', profile_picture: 'https://x/p.jpg' }] },
+        id_card_print_jobs: { data: [] },
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.scanVerifiability).toEqual({ withPhoto: 1, total: 1, percent: 100 });
+    expect(result.data.exceptions.some((e) => e.kind === 'scans_without_a_photo_to_check')).toBe(
+      false
+    );
+  });
+
+  it('still counts a team member with a BLANK picture as unverifiable', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        hostel_gate_passes: { data: [] },
+        mess_meal_records: { data: [MEAL('m1', 'p-team')] },
+        profiles: {
+          data: [{ id: 'p-team', full_name: 'Team Person', learner_id: null, email: 't@jkkn.ac.in' }],
+        },
+        learners_profiles: { data: [] },
+        staff: { data: [{ institution_email: 't@jkkn.ac.in', profile_picture: '' }] },
+        id_card_print_jobs: { data: [] },
+      })
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.scanVerifiability).toEqual({ withPhoto: 0, total: 1, percent: 0 });
+    expect(result.data.exceptions.some((e) => e.kind === 'scans_without_a_photo_to_check')).toBe(
+      true
+    );
   });
 });
 

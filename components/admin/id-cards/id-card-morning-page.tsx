@@ -385,7 +385,10 @@ function CoverageSection({
   const cluster = measureCluster(coverage.data);
   const spread = coverageSpread(coverage.data);
   const unreadable = unreadableColleges(coverage.data);
-  const scans = exceptions?.ok ? exceptions.data.scanVerifiability : null;
+  // Three distinct states, three distinct messages: the exception read itself
+  // failed / it succeeded but the identity sources behind it did not
+  // (scanVerifiability null) / it is measurable.
+  const scans = exceptions && exceptions.ok ? exceptions.data.scanVerifiability : null;
 
   return (
     <Card>
@@ -402,9 +405,15 @@ function CoverageSection({
         {/* What the last window could actually be verified against. */}
         <div className="rounded-md border p-4">
           <p className="text-sm font-medium">Scans a person could have photo-checked</p>
-          {scans === null ? (
+          {exceptions && !exceptions.ok ? (
             <p className="mt-1 text-sm text-muted-foreground">
               Meal-scan records could not be read, so this cannot be stated.
+            </p>
+          ) : scans === null ? (
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              The learner and team-member records this is measured against could not be read, so
+              there is no verifiable share to report. It is deliberately not shown as 0% — that
+              would publish a read failure as a trust score.
             </p>
           ) : scans.percent === null ? (
             <p className="mt-1 text-sm text-muted-foreground">

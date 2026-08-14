@@ -337,9 +337,15 @@ export function formatPercent(percent: number | null): string {
   return percent === null ? '—' : `${percent.toFixed(1)}%`;
 }
 
-/** "3 hours late" / "2 days late" — plain enough to read before coffee. */
+/**
+ * "3 hours late" / "2 days late" — plain enough to read before coffee.
+ *
+ * Under an hour is spelled out rather than floored: a red badge reading
+ * "0 hours late" is self-contradicting on a page that trades on precision.
+ */
 export function formatLateness(hoursLate: number): string {
   const hours = Math.max(Math.floor(hoursLate), 0);
+  if (hours < 1) return 'under an hour late';
   if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} late`;
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? '' : 's'} late`;
@@ -370,46 +376,110 @@ function errText(error: unknown): string {
   return 'Unknown database error';
 }
 
+/**
+ * A lookup that admits when it failed.
+ *
+ * An empty Map and a Map that could not be built look identical to every
+ * caller, and the difference is not cosmetic here: an unreadable
+ * learners_profiles turns every scan into "no photo on file" and fires a large
+ * false alarm, while quietly dropping every lifecycle exception. Same class of
+ * lie as a coerced count, one level down — so the error travels with the data.
+ */
+type Lookup<T> = { map: Map<string, T>; error: string | null };
+
+/** True only for a real, non-blank image reference. '' means no picture. */
+function isRealPhoto(value: string | null | undefined): boolean {
+  return Boolean(value && value.trim() !== '');
+}
+
 /** profiles.id → display name, for the ids handed in. Chunked per the gateway limit. */
 async function namesForProfileIds(
   client: AnyClient,
   ids: readonly string[]
-): Promise<Map<string, { fullName: string; learnerProfileId: string | null }>> {
-  const out = new Map<string, { fullName: string; learnerProfileId: string | null }>();
+): Promise<Lookup<{ fullName: string; learnerProfileId: string | null; email: string | null }>> {
+  const map = new Map<string, { fullName: string; learnerProfileId: string | null; email: string | null }>();
   for (const chunk of chunkIdsForIn(ids)) {
-    const { data } = await client.from('profiles').select('id, full_name, learner_id').in('id', chunk);
-    for (const row of (data ?? []) as { id: string; full_name: string | null; learner_id: string | null }[]) {
-      out.set(row.id, { fullName: row.full_name ?? 'Unnamed person', learnerProfileId: row.learner_id });
+    const { data, error } = await client
+      .from('profiles')
+      .select('id, full_name, learner_id, email')
+      .in('id', chunk);
+    if (error) return { map, error: errText(error) };
+    for (const row of (data ?? []) as {
+      id: string;
+      full_name: string | null;
+      learner_id: string | null;
+      email: string | null;
+    }[]) {
+      map.set(row.id, {
+        fullName: row.full_name ?? 'Unnamed person',
+        learnerProfileId: row.learner_id,
+        email: row.email,
+      });
     }
   }
-  return out;
+  return { map, error: null };
 }
 
 /** learners_profiles.id → the two facts the morning page judges a scan on. */
 async function learnerFactsFor(
   client: AnyClient,
   ids: readonly string[]
-): Promise<Map<string, { lifecycleStatus: string | null; hasPhoto: boolean }>> {
-  const out = new Map<string, { lifecycleStatus: string | null; hasPhoto: boolean }>();
+): Promise<Lookup<{ lifecycleStatus: string | null; hasPhoto: boolean }>> {
+  const map = new Map<string, { lifecycleStatus: string | null; hasPhoto: boolean }>();
   for (const chunk of chunkIdsForIn(ids)) {
-    const { data } = await client
+    const { data, error } = await client
       .from('learners_profiles')
       .select('id, lifecycle_status, student_photo_url')
       .in('id', chunk);
+    if (error) return { map, error: errText(error) };
     for (const row of (data ?? []) as {
       id: string;
       lifecycle_status: string | null;
       student_photo_url: string | null;
     }[]) {
-      out.set(row.id, {
+      map.set(row.id, {
         lifecycleStatus: row.lifecycle_status,
-        // An empty string is stored as often as NULL and means the same thing:
-        // no picture. Treating '' as a photo is how a coverage meter lies.
-        hasPhoto: Boolean(row.student_photo_url && row.student_photo_url.trim() !== ''),
+        hasPhoto: isRealPhoto(row.student_photo_url),
       });
     }
   }
-  return out;
+  return { map, error: null };
+}
+
+/**
+ * Email → does this team member have a picture on file?
+ *
+ * A team member's card resolves to a `profiles` row with `learner_id = null`,
+ * so the learner lookup above knows nothing about them. Without this, every
+ * meal a team member eats counts as "nobody could check a face" and inflates
+ * the trust gap — dishonest in the opposite direction, but still dishonest.
+ *
+ * The bridge is the canonical one used by the card renderer: `staff` has no
+ * user_id column, so it is matched on `profiles.email == staff.institution_email`
+ * with `staff.email` as the fallback (lib/id-cards/render-data.ts).
+ */
+async function teamPhotosForEmails(
+  client: AnyClient,
+  emails: readonly string[]
+): Promise<Lookup<boolean>> {
+  const map = new Map<string, boolean>();
+  if (emails.length === 0) return { map, error: null };
+  for (const column of ['institution_email', 'email'] as const) {
+    for (const chunk of chunkIdsForIn(emails)) {
+      const { data, error } = await client
+        .from('staff')
+        .select(`${column}, profile_picture`)
+        .in(column, chunk);
+      if (error) return { map, error: errText(error) };
+      for (const row of (data ?? []) as Record<string, string | null>[]) {
+        const key = (row[column] ?? '').trim().toLowerCase();
+        // A team member with two rows keeps the one that HAS a picture — an
+        // absent row must never overwrite a present one.
+        if (key && !map.get(key)) map.set(key, isRealPhoto(row.profile_picture));
+      }
+    }
+  }
+  return { map, error: null };
 }
 
 // ── Section 2 — who is out now ──────────────────────────────────────────────
@@ -436,13 +506,16 @@ export async function readWhoIsOutNow(client: AnyClient): Promise<ReadResult<Ope
   }[];
 
   const names = await namesForProfileIds(client, [...new Set(rows.map((r) => r.learner_id))]);
+  // Without names every line reads "Unnamed person", which is a list nobody can
+  // act on. Better to say the read failed than to publish an anonymous roster.
+  if (names.error) return { ok: false, message: names.error };
 
   return {
     ok: true,
     data: rows.map((r) => ({
       id: r.id,
       passNumber: r.pass_number,
-      personName: names.get(r.learner_id)?.fullName ?? 'Unnamed person',
+      personName: names.map.get(r.learner_id)?.fullName ?? 'Unnamed person',
       destination: r.destination,
       outTime: r.out_time,
       expectedReturn: r.expected_return,
@@ -457,8 +530,12 @@ export type ExceptionReadout = {
   exceptions: MorningException[];
   /** True when the meal read hit its row cap, so the counts below are a floor. */
   mealsTruncated: boolean;
-  /** Every scan the window contained, for the trust meter's numerator. */
-  scanVerifiability: Measurable;
+  /**
+   * Every scan the window contained, for the trust meter's numerator — or
+   * null when the identity sources could not be read, which is a different
+   * fact from "no scan could be verified" and must not render as 0%.
+   */
+  scanVerifiability: Measurable | null;
   /**
    * Sources that could not be read at all. Named on the page, because "no
    * failed print jobs" and "the failed-print source was unreadable" are two
@@ -517,16 +594,50 @@ export async function readMorningExceptions(
   }[];
 
   // 3. Everyone named by either source, resolved once.
+  const unreadableSources: string[] = [];
   const profileIds = [...new Set([...passRows.map((p) => p.learner_id), ...mealRows.map((m) => m.learner_id)])];
   const names = await namesForProfileIds(client, profileIds);
-  const learnerProfileIds = [...new Set([...names.values()].map((v) => v.learnerProfileId).filter((v): v is string => Boolean(v)))];
+  if (names.error) return { ok: false, message: names.error };
+
+  const learnerProfileIds = [
+    ...new Set(
+      [...names.map.values()].map((v) => v.learnerProfileId).filter((v): v is string => Boolean(v))
+    ),
+  ];
   const facts = await learnerFactsFor(client, learnerProfileIds);
 
+  // Team members carry no learner link, so their picture lives on `staff`.
+  const teamEmails = [
+    ...new Set(
+      [...names.map.values()]
+        .filter((v) => !v.learnerProfileId && v.email)
+        .map((v) => (v.email as string).trim().toLowerCase())
+        .filter((e) => e !== '')
+    ),
+  ];
+  const teamPhotos = await teamPhotosForEmails(client, teamEmails);
+
+  // A failed lookup is recorded, never absorbed. Without learner records every
+  // scan would read as "no photo on file" and fire a large false alarm while
+  // silently dropping every lifecycle exception — the same lie as a coerced
+  // count, one level down.
+  if (facts.error) unreadableSources.push(`Learner records (${facts.error})`);
+  if (teamPhotos.error) unreadableSources.push(`Team-member records (${teamPhotos.error})`);
+  const identityReadable = !facts.error && !teamPhotos.error;
+
   const factFor = (profileId: string) => {
-    const learnerProfileId = names.get(profileId)?.learnerProfileId ?? null;
-    return learnerProfileId ? facts.get(learnerProfileId) ?? null : null;
+    const learnerProfileId = names.map.get(profileId)?.learnerProfileId ?? null;
+    return learnerProfileId ? facts.map.get(learnerProfileId) ?? null : null;
   };
-  const nameFor = (profileId: string) => names.get(profileId)?.fullName ?? 'Unnamed person';
+  const nameFor = (profileId: string) => names.map.get(profileId)?.fullName ?? 'Unnamed person';
+  /** Could an operator have compared a face to a picture for this person? */
+  const hadPhotoOnFile = (profileId: string): boolean => {
+    const entry = names.map.get(profileId);
+    if (!entry) return false;
+    if (entry.learnerProfileId) return facts.map.get(entry.learnerProfileId)?.hasPhoto ?? false;
+    const email = (entry.email ?? '').trim().toLowerCase();
+    return email ? teamPhotos.map.get(email) ?? false : false;
+  };
 
   // ── Gate-pass exceptions ─────────────────────────────────────────────────
   const openPassesPerPerson = new Map<string, number>();
@@ -572,9 +683,12 @@ export async function readMorningExceptions(
   }
 
   // ── Meal-scan exceptions ─────────────────────────────────────────────────
-  const scanVerifiability = measureVerifiableScans(
-    mealRows.map((m) => ({ hadPhotoOnFile: factFor(m.learner_id)?.hasPhoto ?? false }))
-  );
+  // null, not a number, when the identity sources could not be read: with an
+  // empty lookup EVERY scan measures as unverifiable, which would publish a
+  // read failure as a 0% trust score.
+  const scanVerifiability = identityReadable
+    ? measureVerifiableScans(mealRows.map((m) => ({ hadPhotoOnFile: hadPhotoOnFile(m.learner_id) })))
+    : null;
 
   for (const m of mealRows) {
     const fact = factFor(m.learner_id);
@@ -592,8 +706,8 @@ export async function readMorningExceptions(
 
   // Deliberately ONE aggregated line, not one per scan: this is the size of
   // the trust gap, and a dozen readable lines beat a thousand true ones.
-  const unverifiable = scanVerifiability.total - scanVerifiability.withPhoto;
-  if (unverifiable > 0) {
+  const unverifiable = scanVerifiability ? scanVerifiability.total - scanVerifiability.withPhoto : 0;
+  if (scanVerifiability && unverifiable > 0) {
     exceptions.push({
       id: 'unverifiable-scans',
       kind: 'scans_without_a_photo_to_check',
@@ -616,7 +730,6 @@ export async function readMorningExceptions(
     .order('enqueued_at', { ascending: false })
     .limit(20);
 
-  const unreadableSources: string[] = [];
   if (jobs.error) {
     // Skipping the block silently would render "no cards failed to print" for
     // a source nobody could read — the exact ambiguity this page exists to
