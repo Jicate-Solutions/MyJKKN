@@ -447,13 +447,23 @@ export default function NAACNarrativeOwnersPage() {
         }
         toast.success(`${pairLabel} assigned to ${personLabel(next)}.`);
       } else {
-        const { data, error } = await sb
+        // A whole-body row is matched with .is(), not .eq(). PostgREST turns
+        // .eq('metric_code', null) into `metric_code=eq.null`, which never
+        // matches a real SQL NULL — the delete would come back with zero rows
+        // and the guard below would blame the user's permissions for a row
+        // they are perfectly entitled to clear. Until this page crashed on
+        // sort, no whole-body row could be clicked at all, so that message had
+        // never been seen; fixing the sort is what makes this path reachable.
+        let del = sb
           .from('accreditation_metric_owners')
           .delete()
           .eq('institution_id', pair.institution_id)
-          .eq('body_code', BODY_CODE)
-          .eq('metric_code', pair.metric_code)
-          .select('id');
+          .eq('body_code', BODY_CODE);
+        del = isBodyLevelPair(pair)
+          ? del.is('metric_code', null)
+          : del.eq('metric_code', pair.metric_code);
+
+        const { data, error } = await del.select('id');
         if (error) throw error;
         if (!data || data.length === 0) {
           throw new Error(
