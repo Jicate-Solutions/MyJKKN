@@ -46,13 +46,19 @@
 -- could identify an individual — the schema cannot carry what the page must
 -- not show.
 --
--- NO SECURITY DEFINER FUNCTION IS ADDED. The public page reads through the
--- service-role client (the same pattern as app/(public)/meet/page.tsx), so
--- there is no RPC to lock down. The published-only rule lives in exactly one
--- place in TypeScript and is mirrored by the anon RLS policy below.
+-- NO SECURITY DEFINER FUNCTION IS ADDED. The page reads this table with the
+-- ANON key, so the RLS policy below is a live database-side gate rather than a
+-- decoration, and there is no RPC to lock down.
 --
--- No BEGIN/COMMIT in this file, so a reviewer's BEGIN … ROLLBACK rehearsal
--- against production actually rolls back.
+-- STATEMENT ORDER IS LOAD-BEARING. This file carries no BEGIN/COMMIT (house
+-- rule: a reviewer's BEGIN … ROLLBACK rehearsal against production must
+-- actually roll back), so the statements are ordered so that no intermediate
+-- state is dangerous if the run stops part-way:
+--   CREATE TABLE → ENABLE RLS → REVOKE → policies → GRANT → everything else.
+-- Row level security is on before any grant exists, the anon/authenticated
+-- default grants are stripped before a policy can expose anything, and the
+-- SELECT grant is the LAST thing handed out. Stop after any statement and the
+-- table is closed, never open.
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS public.public_programmes (
@@ -99,10 +105,31 @@ CREATE TABLE IF NOT EXISTS public.public_programmes (
         CHECK (NOT (is_free AND fee_amount IS NOT NULL)),
     CONSTRAINT public_programmes_dates_ordered
         CHECK (starts_on IS NULL OR ends_on IS NULL OR ends_on >= starts_on),
-    -- A public page must never render an attacker-supplied scheme. Only https,
-    -- http or an in-app path may reach an href.
+    -- A public page must never render an attacker-supplied destination. Only an
+    -- absolute http(s) URL or a genuine in-app path may reach an href.
+    --
+    -- The second character of a path matters: '//evil.tld' is a PROTOCOL-
+    -- RELATIVE URL, and '/\evil.tld' is normalised to the same thing by every
+    -- browser. Both begin with '/', so a naive '^(https?://|/)' would accept
+    -- them and the page would render a JKKN-branded link that navigates a
+    -- visitor to somebody else's host. A path must therefore start with '/'
+    -- followed by a character that is neither '/' nor a backslash.
+    --
+    -- The path arm is written with substr()/chr(92) rather than a regex
+    -- character class on purpose: a backslash inside a bracket expression means
+    -- different things depending on standard_conforming_strings, and this file
+    -- is applied by hand. chr(92) cannot be misread.
     CONSTRAINT public_programmes_apply_url_scheme
-        CHECK (apply_url IS NULL OR apply_url ~ '^(https?://|/)')
+        CHECK (
+            apply_url IS NULL
+            OR apply_url ~ '^https?://[^/]'
+            OR (
+                substr(apply_url, 1, 1) = '/'
+                AND length(apply_url) >= 2
+                AND substr(apply_url, 2, 1) <> '/'
+                AND substr(apply_url, 2, 1) <> chr(92)
+            )
+        )
 );
 
 COMMENT ON TABLE public.public_programmes IS
@@ -117,26 +144,27 @@ COMMENT ON COLUMN public.public_programmes.is_published IS
 COMMENT ON COLUMN public.public_programmes.audience IS
     'Who the programme is for, written for a reader who has never heard of JKKN.';
 COMMENT ON COLUMN public.public_programmes.apply_url IS
-    'Absolute https URL or an in-app path (leading /). Enforced by CHECK so no '
-    'other scheme can reach a rendered href.';
-
--- The one read the public page makes: published rows in display order.
-CREATE INDEX IF NOT EXISTS idx_public_programmes_published_order
-    ON public.public_programmes (is_published, sort_order, starts_on);
+    'Absolute https URL or an in-app path (leading /, second character neither / '
+    'nor a backslash, so a protocol-relative URL cannot pose as a path). '
+    'Enforced by CHECK so no other destination can reach a rendered href.';
 
 -- -----------------------------------------------------------------------------
--- updated_at
--- -----------------------------------------------------------------------------
-DROP TRIGGER IF EXISTS trg_public_programmes_updated_at ON public.public_programmes;
-CREATE TRIGGER trg_public_programmes_updated_at
-    BEFORE UPDATE ON public.public_programmes
-    FOR EACH ROW
-    EXECUTE FUNCTION public.update_updated_at_column();
-
--- -----------------------------------------------------------------------------
--- ROW LEVEL SECURITY
+-- ROW LEVEL SECURITY — immediately after CREATE TABLE, before any grant exists.
 -- -----------------------------------------------------------------------------
 ALTER TABLE public.public_programmes ENABLE ROW LEVEL SECURITY;
+
+-- -----------------------------------------------------------------------------
+-- STRIP THE SUPABASE DEFAULTS FIRST.
+--
+-- Supabase ships ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES TO anon,
+-- authenticated, service_role, so this table is born with the full privilege set
+-- — including TRUNCATE — granted to the anon key that sits in every page of
+-- https://www.jkkn.ai AND to every signed-in session. TRUNCATE is NOT filtered
+-- by row level security, so leaving the authenticated default in place would let
+-- any signed-in account empty the public catalogue regardless of the policies
+-- below. Strip both, then hand back exactly what each role needs.
+-- -----------------------------------------------------------------------------
+REVOKE ALL ON TABLE public.public_programmes FROM anon, authenticated, PUBLIC;
 
 -- Anyone, signed in or not, may read a PUBLISHED row. That is what the table is
 -- for. An unpublished row is invisible through this policy to every caller.
@@ -160,32 +188,92 @@ CREATE POLICY public_programmes_admin_all
     WITH CHECK (is_super_admin() OR is_admin());
 
 -- -----------------------------------------------------------------------------
--- GRANTS
---
--- Supabase ships ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES TO anon, so this
--- table is born with INSERT/UPDATE/DELETE granted to the anon key that sits in
--- every page of https://www.jkkn.ai. Strip that first, then hand back exactly
--- one privilege.
+-- GRANTS — last, so nothing is reachable before its policy exists.
 --
 -- The GRANT SELECT TO anon is DELIBERATE and is the whole point of the table:
 -- the catalogue is meant to be readable by a member of the public who is not
--- signed in. It is safe because the RLS policy above narrows that read to
--- published rows, and because no column here identifies a person.
+-- signed in, and the page reads it with the anon key so the policy above is a
+-- live gate rather than a decoration. It is safe because that policy narrows the
+-- read to published rows, and because no column here identifies a person.
+--
+-- TRUNCATE is granted to NOBODY but service_role: it is not filtered by row
+-- level security, so it is the one privilege an administrator policy cannot
+-- contain.
 -- -----------------------------------------------------------------------------
-REVOKE ALL ON TABLE public.public_programmes FROM anon, PUBLIC;
-
 GRANT SELECT ON TABLE public.public_programmes TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.public_programmes TO authenticated;
 GRANT ALL ON TABLE public.public_programmes TO service_role;
 
 -- -----------------------------------------------------------------------------
+-- Supporting objects. Deliberately AFTER the security statements — if the run
+-- stops before these, the catalogue is merely slower and its updated_at stops
+-- moving; if it stopped before the statements above, it would be open.
+-- -----------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_public_programmes_published_order
+    ON public.public_programmes (is_published, sort_order, starts_on);
+
+DROP TRIGGER IF EXISTS trg_public_programmes_updated_at ON public.public_programmes;
+CREATE TRIGGER trg_public_programmes_updated_at
+    BEFORE UPDATE ON public.public_programmes
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_updated_at_column();
+
+-- -----------------------------------------------------------------------------
 -- Assert what was just built, so a silent partial apply cannot look successful.
+--
+-- CREATE TABLE IF NOT EXISTS silently no-ops against a pre-existing relation, so
+-- these checks deliberately cover the SHAPE (the gate column and its default,
+-- both policies, every CHECK constraint) and not only the grants. A table that
+-- already existed under this name with a different shape fails here by name
+-- rather than serving the wrong rows.
 -- -----------------------------------------------------------------------------
 DO $$
+DECLARE
+    v_missing text;
+    v_checks  int;
 BEGIN
     IF NOT (SELECT relrowsecurity FROM pg_class
             WHERE oid = 'public.public_programmes'::regclass) THEN
         RAISE EXCEPTION 'public_programmes: row level security is NOT enabled';
+    END IF;
+
+    -- The gate column must exist, be NOT NULL, and default to false. If a
+    -- pre-existing table lacks the default, every future row is born public.
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'public_programmes'
+          AND column_name = 'is_published'
+          AND is_nullable = 'NO'
+          AND column_default = 'false'
+    ) THEN
+        RAISE EXCEPTION
+            'public_programmes: is_published is not NOT NULL DEFAULT false — the gate is not closed by default';
+    END IF;
+
+    FOR v_missing IN
+        SELECT p FROM unnest(ARRAY[
+            'public_programmes_select_published',
+            'public_programmes_admin_all'
+        ]) AS p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pg_policies
+            WHERE schemaname = 'public'
+              AND tablename = 'public_programmes'
+              AND policyname = p
+        )
+    LOOP
+        RAISE EXCEPTION 'public_programmes: policy % is MISSING', v_missing;
+    END LOOP;
+
+    SELECT count(*) INTO v_checks
+    FROM pg_constraint
+    WHERE conrelid = 'public.public_programmes'::regclass
+      AND contype = 'c'
+      AND conname LIKE 'public_programmes_%';
+    IF v_checks < 5 THEN
+        RAISE EXCEPTION
+            'public_programmes: expected 5 CHECK constraints, found % (a pre-existing table was reused)', v_checks;
     END IF;
 
     IF NOT has_table_privilege('anon', 'public.public_programmes', 'SELECT') THEN
@@ -194,12 +282,20 @@ BEGIN
 
     IF has_table_privilege('anon', 'public.public_programmes', 'INSERT')
        OR has_table_privilege('anon', 'public.public_programmes', 'UPDATE')
-       OR has_table_privilege('anon', 'public.public_programmes', 'DELETE') THEN
+       OR has_table_privilege('anon', 'public.public_programmes', 'DELETE')
+       OR has_table_privilege('anon', 'public.public_programmes', 'TRUNCATE') THEN
         RAISE EXCEPTION 'public_programmes: anon STILL has a write privilege';
     END IF;
 
     IF NOT has_table_privilege('authenticated', 'public.public_programmes', 'SELECT') THEN
         RAISE EXCEPTION 'public_programmes: authenticated LOST SELECT';
+    END IF;
+
+    -- TRUNCATE bypasses row level security entirely — a signed-in account
+    -- holding it could empty the public catalogue whatever the policies say.
+    IF has_table_privilege('authenticated', 'public.public_programmes', 'TRUNCATE') THEN
+        RAISE EXCEPTION
+            'public_programmes: authenticated STILL has TRUNCATE (RLS does not filter it)';
     END IF;
 END
 $$;

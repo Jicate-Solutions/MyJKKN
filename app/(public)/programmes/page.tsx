@@ -8,9 +8,15 @@
 // registration link. This is the page that answers "what is on offer?" for
 // somebody who has never been sent a link.
 //
-// Server component. Reads through the service-role client via
-// PublicProgrammeService, which is the single gatekeeper deciding what is
-// public (default closed — see that file). No login, no session, no cookies.
+// Server component. Reads via PublicProgrammeService, the single gatekeeper
+// deciding what is public (default closed — see that file). No login, no
+// session, no cookies.
+//
+// It reads with the ANON key, NOT the service-role key. app/(public)/meet uses
+// service-role because it resolves host data across tables anon cannot read;
+// this page needs exactly the rows the anon RLS policy already exposes, so the
+// weaker key keeps that policy a live database-side gate instead of a
+// decoration, and keeps a service-role credential off an unauthenticated route.
 //
 // 🛑 IT SHIPS EMPTY AND THAT IS CORRECT. JKKN has no public programme today;
 // the first one will be the forthcoming paid programme sold to companies.
@@ -93,12 +99,37 @@ function ProgrammeCard({ programme }: { programme: PublicProgramme }) {
   );
 }
 
+/**
+ * Read the catalogue, or return an empty one.
+ *
+ * A missing or rotated key must not throw inside the server component — that
+ * would hand an anonymous visitor a 500 instead of the page. Every failure path
+ * lands on the same empty catalogue the service already fails closed to.
+ */
+async function loadCatalogue(): Promise<PublicProgramme[]> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    console.error(
+      '[public-programmes] Supabase URL or anon key is not configured — rendering an empty catalogue.',
+    );
+    return [];
+  }
+
+  try {
+    return await PublicProgrammeService.listPublished(createClient(url, anonKey));
+  } catch (err) {
+    console.error(
+      '[public-programmes] catalogue could not be loaded:',
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
+}
+
 export default async function PublicProgrammesPage() {
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
-  const programmes = await PublicProgrammeService.listPublished(supabase);
+  const programmes = await loadCatalogue();
 
   // Group by who each one is for — the first question a reader is actually
   // asking. Order within a group is already set by the service.

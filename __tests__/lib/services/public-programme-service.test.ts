@@ -7,8 +7,11 @@
 // stub — they do not re-implement the SQL, and they are not evidence about the
 // database policy (that is asserted inside the migration's own DO block).
 //
-// Every date literal here is fixed and far from today on purpose, so no test in
-// this file can start failing because the wall clock moved.
+// Every date literal here is fixed and FAR IN THE FUTURE on purpose. The
+// service hides a programme once its end date has passed, so a "realistic"
+// 2027 fixture would quietly start being filtered out in 2027 and take the fee,
+// date and key-set assertions down with it — a red build on a date rather than
+// on a code change. 2099 cannot arrive before this file is rewritten.
 
 import { describe, it, expect } from 'vitest';
 import { PublicProgrammeService } from '@/lib/services/programmes/public-programme-service';
@@ -22,6 +25,7 @@ function makeClient(result: QueryResult) {
     select: [] as string[],
     eq: [] as Array<[string, unknown]>,
     order: [] as string[],
+    limit: [] as number[],
   };
   const builder: Record<string, unknown> = {
     select(columns: string) {
@@ -34,6 +38,10 @@ function makeClient(result: QueryResult) {
     },
     order(column: string) {
       calls.order.push(column);
+      return builder;
+    },
+    limit(count: number) {
+      calls.limit.push(count);
       return builder;
     },
     then(onFulfilled: (value: QueryResult) => unknown) {
@@ -58,8 +66,8 @@ const BASE_ROW = {
   is_free: false,
   fee_amount: 12000,
   fee_currency: 'INR',
-  starts_on: '2027-01-12',
-  ends_on: '2027-02-20',
+  starts_on: '2099-01-12',
+  ends_on: '2099-02-20',
   apply_url: 'https://example.org/apply',
   sort_order: 0,
 };
@@ -71,6 +79,14 @@ describe('PublicProgrammeService.listPublished — the public gate', () => {
 
     expect(calls.from).toEqual(['public_programmes']);
     expect(calls.eq).toContainEqual(['is_published', true]);
+  });
+
+  it('caps the read — a public route must not become unbounded', async () => {
+    const { client, calls } = makeClient({ data: [], error: null });
+    await PublicProgrammeService.listPublished(client);
+
+    expect(calls.limit).toHaveLength(1);
+    expect(calls.limit[0]).toBeGreaterThan(0);
   });
 
   it('never selects every column — a column added later cannot leak by omission', async () => {
@@ -143,9 +159,27 @@ describe('PublicProgrammeService.listPublished — what a reader is shown', () =
     });
 
     const result = await PublicProgrammeService.listPublished(client);
-    expect(result[0].dateLabel).toMatch(/January.*February 2027/);
-    expect(result[1].dateLabel).toMatch(/^Starts .*January 2027$/);
+    expect(result[0].dateLabel).toMatch(/January.*February 2099/);
+    expect(result[1].dateLabel).toMatch(/^Starts .*January 2099$/);
     expect(result[2].dateLabel).toBeNull();
+  });
+
+  it('renders an end-date-only programme as "Until <date>"', async () => {
+    const { client } = makeClient({
+      data: [{ ...BASE_ROW, starts_on: null }],
+      error: null,
+    });
+    const [programme] = await PublicProgrammeService.listPublished(client);
+    expect(programme.dateLabel).toMatch(/^Until .*February 2099$/);
+  });
+
+  it('calls a fee of zero "Free" rather than rendering a zero amount', async () => {
+    const { client } = makeClient({
+      data: [{ ...BASE_ROW, is_free: false, fee_amount: 0 }],
+      error: null,
+    });
+    const [programme] = await PublicProgrammeService.listPublished(client);
+    expect(programme.priceLabel).toBe('Free');
   });
 
   it('refuses an apply link whose scheme is not http, https or an in-app path', async () => {
@@ -162,6 +196,27 @@ describe('PublicProgrammeService.listPublished — what a reader is shown', () =
     expect(result[0].applyUrl).toBeNull();
     expect(result[1].applyUrl).toBe('/apply/leading-with-ai');
     expect(result[2].applyUrl).toBe('https://example.org/apply');
+  });
+
+  it('refuses an off-site link disguised as an in-app path', async () => {
+    // '//evil.tld' is a protocol-relative URL and '/\evil.tld' is normalised to
+    // the same thing by browsers. Both begin with '/', so a naive leading-slash
+    // check would render either as a JKKN-branded link to somebody else's host.
+    const { client } = makeClient({
+      data: [
+        { ...BASE_ROW, id: 'a', slug: 'protocol-relative', apply_url: '//evil.tld/pay' },
+        { ...BASE_ROW, id: 'b', slug: 'backslash', apply_url: '/\\evil.tld/pay' },
+        { ...BASE_ROW, id: 'c', slug: 'bare-root', apply_url: '/' },
+        { ...BASE_ROW, id: 'd', slug: 'genuine-path', apply_url: '/apply/x' },
+      ],
+      error: null,
+    });
+
+    const result = await PublicProgrammeService.listPublished(client);
+    expect(result[0].applyUrl).toBeNull();
+    expect(result[1].applyUrl).toBeNull();
+    expect(result[2].applyUrl).toBeNull();
+    expect(result[3].applyUrl).toBe('/apply/x');
   });
 
   it('hands the page no field that could identify a person', async () => {

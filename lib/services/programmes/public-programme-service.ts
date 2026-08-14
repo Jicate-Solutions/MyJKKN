@@ -9,12 +9,13 @@
 // School of Influence is for JKKN learners and senior learners only and must
 // never appear in this catalogue.
 //
-// DEFAULT CLOSED, four ways:
+// DEFAULT CLOSED, four ways, none of them decorative:
 //   1. public_programmes.is_published defaults to false in the database.
-//   2. The RLS policy only exposes published rows to anon/authenticated.
-//   3. listPublished() filters is_published again — the page uses the
-//      service-role client (RLS is bypassed there), so this filter is the one
-//      that actually protects the rendered page.
+//   2. The RLS policy only exposes published rows. The page reads with the ANON
+//      key, not the service-role key, so this is a live database-side gate — an
+//      unpublished row cannot reach the page even if the filter below were
+//      deleted.
+//   3. listPublished() filters is_published again, in front of the policy.
 //   4. Columns are named explicitly, never select('*'), so a column added later
 //      cannot arrive on a public page just because someone added it.
 //
@@ -38,8 +39,20 @@ const LOG_PREFIX = '[public-programmes]';
 const PUBLIC_COLUMNS =
   'id, slug, name, summary, audience, is_free, fee_amount, fee_currency, starts_on, ends_on, apply_url, sort_order';
 
-/** Only these may reach a rendered href on a public page. */
-const SAFE_LINK = /^(https:\/\/|http:\/\/|\/)/i;
+/** Hard ceiling on one page of the catalogue. */
+const PAGE_LIMIT = 200;
+
+/**
+ * Only these may reach a rendered href on a public page: an absolute http(s)
+ * URL, or a genuine in-app path.
+ *
+ * The second character of a path is load-bearing. '//evil.tld' is a PROTOCOL-
+ * RELATIVE URL and '/\evil.tld' is normalised to the same thing by browsers —
+ * both start with '/', so a bare /^\// test would hand an off-site destination
+ * to a JKKN-branded link. A path must be '/' followed by something that is
+ * neither '/' nor a backslash. Mirrors the CHECK constraint on the column.
+ */
+const SAFE_LINK = /^(?:https?:\/\/[^/]|\/[^/\\])/i;
 
 export interface PublicProgramme {
   id: string;
@@ -106,6 +119,9 @@ function formatPriceLabel(row: ProgrammeRow): string {
   if (row.is_free) return 'Free';
   const amount = row.fee_amount === null ? null : Number(row.fee_amount);
   if (amount === null || Number.isNaN(amount)) return 'Fee on request';
+  // A fee of zero IS free, whatever the flag says. Rendering "₹0" on a public
+  // page reads as a mistake and invites a phone call.
+  if (amount === 0) return 'Free';
   const currency = (row.fee_currency || 'INR').toUpperCase();
   try {
     return new Intl.NumberFormat('en-IN', {
@@ -139,7 +155,10 @@ export class PublicProgrammeService {
       .eq('is_published', true)
       .order('sort_order', { ascending: true })
       .order('starts_on', { ascending: true, nullsFirst: false })
-      .order('name', { ascending: true });
+      .order('name', { ascending: true })
+      // A public, force-dynamic route must not become an unbounded read as the
+      // catalogue grows. Far above any plausible number of open programmes.
+      .limit(PAGE_LIMIT);
 
     if (error) {
       console.error(`${LOG_PREFIX} catalogue read failed:`, error.message);
