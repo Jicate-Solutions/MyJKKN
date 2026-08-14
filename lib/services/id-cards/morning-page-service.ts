@@ -490,7 +490,17 @@ async function teamPhotosForEmails(
 
 // ── Section 2 — who is out now ──────────────────────────────────────────────
 
-export async function readWhoIsOutNow(client: AnyClient): Promise<ReadResult<OpenGatePass[]>> {
+export type WhoIsOutNow = {
+  passes: OpenGatePass[];
+  /**
+   * True when the read hit its cap. The exceptions card carries the same flag,
+   * but somebody reading only this table would otherwise see a list that had
+   * been shortened without saying so — the rule this page is built on.
+   */
+  truncated: boolean;
+};
+
+export async function readWhoIsOutNow(client: AnyClient): Promise<ReadResult<WhoIsOutNow>> {
   const { data, error } = await client
     .from('hostel_gate_passes')
     .select('id, pass_number, learner_id, destination, out_time, expected_return, status')
@@ -518,15 +528,18 @@ export async function readWhoIsOutNow(client: AnyClient): Promise<ReadResult<Ope
 
   return {
     ok: true,
-    data: rows.map((r) => ({
-      id: r.id,
-      passNumber: r.pass_number,
-      personName: names.map.get(r.learner_id)?.fullName ?? 'Unnamed person',
-      destination: r.destination,
-      outTime: r.out_time,
-      expectedReturn: r.expected_return,
-      status: r.status,
-    })),
+    data: {
+      passes: rows.map((r) => ({
+        id: r.id,
+        passNumber: r.pass_number,
+        personName: names.map.get(r.learner_id)?.fullName ?? 'Unnamed person',
+        destination: r.destination,
+        outTime: r.out_time,
+        expectedReturn: r.expected_return,
+        status: r.status,
+      })),
+      truncated: rows.length >= OPEN_PASS_ROW_CAP,
+    },
   };
 }
 
@@ -794,6 +807,39 @@ export async function readMorningExceptions(
 const COUNTED_LIFECYCLE_STATUS = 'active';
 
 /**
+ * Colleges counted at a time. Each one costs four count requests, so an
+ * unbounded fan-out is 4 x every college fired at once — enough, on a full
+ * cluster, for the browser's own connection limit to serialise them past
+ * READ_TIMEOUT_MS and collapse the whole section into "did not answer within
+ * 20s". Three at a time keeps twelve requests in flight, which is well inside
+ * every browser's per-host budget and still finishes in one round of latency.
+ */
+const COVERAGE_CONCURRENCY = 3;
+
+/**
+ * `Promise.all` with a ceiling on how many run at once. Order of results
+ * matches order of input.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  work: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const size = Math.max(1, Math.min(limit, items.length));
+  const runners = Array.from({ length: size }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await work(items[index]);
+    }
+  });
+  await Promise.all(runners);
+  return results;
+}
+
+/**
  * Counted with `head: true`, so each request carries a number and no rows.
  * The alternative — pulling every learner row into the tab and counting in
  * JavaScript — is ~5,700 rows of payload for four integers per college.
@@ -837,8 +883,10 @@ export async function readPhotoCoverage(client: AnyClient): Promise<ReadResult<C
 
   const institutions = (data ?? []) as { id: string; name: string }[];
 
-  const rows = await Promise.all(
-    institutions.map(async (inst): Promise<CoverageRow> => {
+  const rows = await mapWithConcurrency(
+    institutions,
+    COVERAGE_CONCURRENCY,
+    async (inst): Promise<CoverageRow> => {
       const counts = await Promise.all([
         countLearners(client, inst.id, false),
         countLearners(client, inst.id, true),
@@ -855,7 +903,7 @@ export async function readPhotoCoverage(client: AnyClient): Promise<ReadResult<C
         teamWithPhoto: teamWithPhoto ?? 0,
         readFailed: counts.some((c) => c === null),
       };
-    })
+    }
   );
 
   return { ok: true, data: rows };

@@ -75,7 +75,7 @@ import {
   type ExceptionReadout,
   type Measurable,
   type MorningException,
-  type OpenGatePass,
+  type WhoIsOutNow,
 } from '@/lib/services/id-cards/morning-page-service';
 
 const GATE_PASS_KEY = 'campus_living.gate_passes.view';
@@ -83,7 +83,7 @@ const MEAL_RECORD_KEY = 'campus_living.mess.meals.view';
 
 type LoadState = {
   loading: boolean;
-  outNow: { ok: true; data: OpenGatePass[] } | { ok: false; message: string } | null;
+  outNow: { ok: true; data: WhoIsOutNow } | { ok: false; message: string } | null;
   exceptions: { ok: true; data: ExceptionReadout } | { ok: false; message: string } | null;
   coverage: { ok: true; data: CoverageRow[] } | { ok: false; message: string } | null;
   refreshedAt: Date | null;
@@ -280,7 +280,7 @@ function OutNowSection({
   const body = () => {
     if (!state) return <Skeleton className="h-24 w-full" />;
     if (!state.ok) return <ReadFailed message={state.message} />;
-    if (state.data.length === 0) {
+    if (state.data.passes.length === 0) {
       return (
         <Note tone="good" icon={<CheckCircle2 className="h-4 w-4" />}>
           Nobody is out. Every gate pass on record has been closed.
@@ -289,43 +289,51 @@ function OutNowSection({
     }
 
     return (
-      <div className="overflow-x-auto rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Who</TableHead>
-              <TableHead>Where</TableHead>
-              <TableHead className="w-40">Out since</TableHead>
-              <TableHead className="w-48">Due back</TableHead>
-              <TableHead className="w-32">Pass</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {state.data.map((p) => {
-              const hoursLate = hoursBetween(p.expectedReturn, now);
-              return (
-                <TableRow key={p.id}>
-                  <TableCell className="font-medium">{p.personName}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{p.destination}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {p.outTime ? format(new Date(p.outTime), 'dd MMM, HH:mm') : 'Not recorded'}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {format(new Date(p.expectedReturn), 'dd MMM, HH:mm')}
-                    {hoursLate > 0 && (
-                      <span className="ml-2 text-red-600 dark:text-red-400">
-                        {formatLateness(hoursLate)}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {p.passNumber}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+      <div className="space-y-3">
+        {state.data.truncated && (
+          <Note tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+            More passes are open than this page reads in one go. These are the ones due back
+            earliest — the list below is a floor, not everyone who is outside.
+          </Note>
+        )}
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Who</TableHead>
+                <TableHead>Where</TableHead>
+                <TableHead className="w-40">Out since</TableHead>
+                <TableHead className="w-48">Due back</TableHead>
+                <TableHead className="w-32">Pass</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.data.passes.map((p) => {
+                const hoursLate = hoursBetween(p.expectedReturn, now);
+                return (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-medium">{p.personName}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{p.destination}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {p.outTime ? format(new Date(p.outTime), 'dd MMM, HH:mm') : 'Not recorded'}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {format(new Date(p.expectedReturn), 'dd MMM, HH:mm')}
+                      {hoursLate > 0 && (
+                        <span className="ml-2 text-red-600 dark:text-red-400">
+                          {formatLateness(hoursLate)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {p.passNumber}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       </div>
     );
   };
@@ -450,11 +458,24 @@ function CoverageSection({
         <div>
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <p className="text-sm font-medium">Photos on file, college by college</p>
+            {/* Labelled by what it ACTUALLY covers, never "Cluster". Row-level
+                security decides how many colleges a given reader can count, so
+                a fixed "Cluster" label would be a false claim the moment
+                somebody sees fewer than all of them — on the one page whose
+                argument is that numbers must not overstate themselves. */}
             <p className="text-sm text-muted-foreground">
-              Cluster: <span className="font-semibold tabular-nums">{formatPercent(cluster.percent)}</span>{' '}
+              Across the {ordered.length} college{ordered.length === 1 ? '' : 's'} you can see:{' '}
+              <span className="font-semibold tabular-nums">{formatPercent(cluster.percent)}</span>{' '}
               ({cluster.withPhoto} of {cluster.total})
             </p>
           </div>
+
+          {ordered.length === 1 && (
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+              Only one college is visible to you, so the figure above is that college — not a
+              cluster average. Somebody with cross-college access will see a different number here.
+            </p>
+          )}
 
           {spread && (
             <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
@@ -465,6 +486,7 @@ function CoverageSection({
               {formatPercent(measureCollege(spread.best).percent)}. Read the rows, not the average.
             </p>
           )}
+
 
           <div className="mt-3 overflow-x-auto rounded-md border">
             <Table>

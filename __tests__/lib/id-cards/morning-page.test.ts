@@ -36,8 +36,10 @@ import {
   measureCluster,
   measureCollege,
   measureVerifiableScans,
+  mapWithConcurrency,
   rankExceptions,
   readMorningExceptions,
+  readWhoIsOutNow,
   sortCoverageWorstFirst,
   unreadableColleges,
   weighExceptionKind,
@@ -416,15 +418,18 @@ describe('a helper read that fails must not fabricate an honest-looking answer',
   });
 });
 
+const passRow = (n: number) => ({
+  id: `gp${n}`,
+  pass_number: `P${n}`,
+  learner_id: `p${n}`,
+  destination: 'Home',
+  expected_return: new Date(Date.now() - 86_400_000).toISOString(),
+  out_time: null,
+  status: 'active',
+});
+
 describe('a capped read must say it was capped', () => {
-  const pass = (n: number) => ({
-    id: `gp${n}`,
-    pass_number: `P${n}`,
-    learner_id: `p${n}`,
-    expected_return: new Date(Date.now() - 86_400_000).toISOString(),
-    out_time: null,
-    status: 'active',
-  });
+  const pass = passRow;
 
   it('flags the open-pass read when it hits its cap — people outside must not vanish quietly', async () => {
     const result = await readMorningExceptions(
@@ -441,6 +446,21 @@ describe('a capped read must say it was capped', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.passesTruncated).toBe(true);
+  });
+
+  it('flags the SAME cap in the who-is-out reader, so that table warns on its own', async () => {
+    // Somebody reading only the roster must not see a list that was shortened
+    // without saying so, even though the exceptions card carries its own flag.
+    const result = await readWhoIsOutNow(
+      fakeClient({
+        hostel_gate_passes: { data: Array.from({ length: 500 }, (_, i) => passRow(i)) },
+        profiles: { data: [] },
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.truncated).toBe(true);
+    expect(result.data.passes).toHaveLength(500);
   });
 
   it('does not cry truncation on an ordinary morning', async () => {
@@ -504,6 +524,34 @@ describe('a team member eating at the mess is not automatically unverifiable', (
     expect(result.data.exceptions.some((e) => e.kind === 'scans_without_a_photo_to_check')).toBe(
       true
     );
+  });
+});
+
+describe('mapWithConcurrency — the coverage read must not trip its own timeout', () => {
+  it('never runs more than the ceiling at once', async () => {
+    let running = 0;
+    let peak = 0;
+    await mapWithConcurrency(Array.from({ length: 20 }, (_, i) => i), 3, async (n) => {
+      running += 1;
+      peak = Math.max(peak, running);
+      await new Promise((r) => setTimeout(r, 1));
+      running -= 1;
+      return n;
+    });
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeGreaterThan(1); // still concurrent, not serialised
+  });
+
+  it('returns results in input order, not completion order', async () => {
+    const out = await mapWithConcurrency([30, 1, 20, 2], 2, async (ms) => {
+      await new Promise((r) => setTimeout(r, ms));
+      return ms;
+    });
+    expect(out).toEqual([30, 1, 20, 2]);
+  });
+
+  it('handles an empty list without hanging', async () => {
+    expect(await mapWithConcurrency([], 3, async (x) => x)).toEqual([]);
   });
 });
 
