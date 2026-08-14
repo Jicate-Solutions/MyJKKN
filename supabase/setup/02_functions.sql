@@ -42773,6 +42773,13 @@ DECLARE
   v_invite_id UUID;
   v_invite_token TEXT;
 BEGIN
+  -- You may only send invites as yourself. Without this, a signed-in learner
+  -- can pass another learner's id and forge an invite in her name.
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_inviter_learner_id THEN
+    RAISE EXCEPTION 'permission denied: you may only send invites as yourself'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF p_inviter_learner_id = p_invited_learner_id THEN
     RETURN jsonb_build_object('success', false, 'reason', 'self_invite',
       'detail', 'You cannot invite yourself.');
@@ -42915,8 +42922,12 @@ BEGIN
     'invite_token', v_invite_token, 'expires_in_hours', v_invite_window_hours,
     'reason', 'ok');
 
-EXCEPTION WHEN OTHERS THEN
-  RETURN jsonb_build_object('success', false, 'reason', 'unknown', 'detail', SQLERRM);
+EXCEPTION
+  -- Never swallow the identity gate into a soft {success:false}: a refusal that
+  -- looks like a business outcome is a refusal nobody notices.
+  WHEN insufficient_privilege THEN RAISE;
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'unknown', 'detail', SQLERRM);
 END;
 $function$;
 
@@ -42944,6 +42955,14 @@ DECLARE
   v_ec_phone  text;
   v_ec_rel    text;
 BEGIN
+  -- Accepting now ALLOCATES A BED, so the acting identity cannot be a
+  -- client-supplied claim. Without this, one learner could accept an invite
+  -- addressed to another and move her between rooms.
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_acting_learner_id THEN
+    RAISE EXCEPTION 'permission denied: you may only answer your own invites'
+      USING ERRCODE = '42501';
+  END IF;
+
   SELECT id, invited_learner_id, inviter_learner_id, allocation_id, status, expires_at
     INTO v_invite
     FROM public.hostel_premium_invites
@@ -43128,7 +43147,11 @@ BEGIN
     'room_id', v_host.room_id, 'room_number', v_room.room_number,
     'bed_id', v_bed_id, 'vacated_allocation_id', v_old.id);
 
-EXCEPTION WHEN OTHERS THEN
+EXCEPTION
+  -- Never swallow the identity gate into a soft {success:false}: a refusal that
+  -- looks like a business outcome is a refusal nobody notices.
+  WHEN insufficient_privilege THEN RAISE;
+  WHEN OTHERS THEN
   -- Everything above rolls back with this, including the status flip — an
   -- 'accepted' invite that moved nobody is the one outcome worth avoiding.
   RETURN jsonb_build_object('success', false, 'reason', 'unknown', 'detail', SQLERRM);
@@ -43254,5 +43277,41 @@ BEGIN
            d.department_name NULLS LAST,
            s.semester_name NULLS LAST,
            COALESCE(p2.full_name, '');
+END;
+$function$;
+
+
+CREATE OR REPLACE FUNCTION public.fn_premium_decline_invite(p_invite_token text, p_acting_learner_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_invite record;
+BEGIN
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_acting_learner_id THEN
+    RAISE EXCEPTION 'permission denied: you may only answer your own invites'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT id, invited_learner_id, status INTO v_invite
+    FROM public.hostel_premium_invites WHERE invite_token = p_invite_token;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'invite_not_found');
+  END IF;
+  IF v_invite.invited_learner_id IS DISTINCT FROM p_acting_learner_id THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'not_the_invited_party');
+  END IF;
+  IF v_invite.status <> 'pending' THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'invite_not_pending');
+  END IF;
+
+  UPDATE public.hostel_premium_invites
+     SET status = 'declined', declined_at = now(), updated_at = now()
+   WHERE id = v_invite.id;
+
+  RETURN jsonb_build_object('success', true, 'invite_id', v_invite.id, 'reason', 'ok');
 END;
 $function$;

@@ -72,6 +72,26 @@
 -- The rule is enforced in BOTH functions, not just the list. A list narrower
 -- than the RPC merely hides options; an RPC looser than the list is an API a
 -- Deluxe learner can be pulled through. They move together.
+--
+-- THE ACTING IDENTITY IS BOUND TO auth.uid(). All three invite RPCs took the
+-- acting learner as a CLIENT-SUPPLIED parameter and never checked it against the
+-- session. They are SECURITY DEFINER and granted to `authenticated`, so any
+-- signed-in learner could pass someone else's id. Demonstrated end to end
+-- against live data before the fix: an attacker forged an invite FROM a victim,
+-- accepted it as herself, and moved into the victim's room (occupants 2 -> 3,
+-- ATTACKER MOVED IN = true).
+--
+-- That hole predates this change, but making accept ALLOCATE A BED is what
+-- turned it from a spoofed status flip into a way to relocate yourself into any
+-- room you can name — so it is fixed here, in the same change that raised the
+-- stakes.
+--
+-- The parameters are kept rather than dropped: the signature is what the page
+-- and hostel-premium-allocation-service already call, and DROP FUNCTION would
+-- discard the EXECUTE grants. A mismatched parameter is simply refused.
+-- IS DISTINCT FROM, not <>, so a NULL on either side fails closed — and the
+-- catch-all EXCEPTION handler now re-raises insufficient_privilege instead of
+-- swallowing it into a soft {success:false}, which would have hidden the gate.
 -- ============================================================================
 
 -- ── 1. Create invite: resolve both learners through profiles.learner_id ─────
@@ -96,6 +116,13 @@ DECLARE
   v_invite_id UUID;
   v_invite_token TEXT;
 BEGIN
+  -- You may only send invites as yourself. Without this, a signed-in learner
+  -- can pass another learner's id and forge an invite in her name.
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_inviter_learner_id THEN
+    RAISE EXCEPTION 'permission denied: you may only send invites as yourself'
+      USING ERRCODE = '42501';
+  END IF;
+
   IF p_inviter_learner_id = p_invited_learner_id THEN
     RETURN jsonb_build_object('success', false, 'reason', 'self_invite',
       'detail', 'You cannot invite yourself.');
@@ -238,8 +265,12 @@ BEGIN
     'invite_token', v_invite_token, 'expires_in_hours', v_invite_window_hours,
     'reason', 'ok');
 
-EXCEPTION WHEN OTHERS THEN
-  RETURN jsonb_build_object('success', false, 'reason', 'unknown', 'detail', SQLERRM);
+EXCEPTION
+  -- Never swallow the identity gate into a soft {success:false}: a refusal that
+  -- looks like a business outcome is a refusal nobody notices.
+  WHEN insufficient_privilege THEN RAISE;
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'unknown', 'detail', SQLERRM);
 END;
 $function$;
 
@@ -268,6 +299,14 @@ DECLARE
   v_ec_phone  text;
   v_ec_rel    text;
 BEGIN
+  -- Accepting now ALLOCATES A BED, so the acting identity cannot be a
+  -- client-supplied claim. Without this, one learner could accept an invite
+  -- addressed to another and move her between rooms.
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_acting_learner_id THEN
+    RAISE EXCEPTION 'permission denied: you may only answer your own invites'
+      USING ERRCODE = '42501';
+  END IF;
+
   SELECT id, invited_learner_id, inviter_learner_id, allocation_id, status, expires_at
     INTO v_invite
     FROM public.hostel_premium_invites
@@ -452,7 +491,11 @@ BEGIN
     'room_id', v_host.room_id, 'room_number', v_room.room_number,
     'bed_id', v_bed_id, 'vacated_allocation_id', v_old.id);
 
-EXCEPTION WHEN OTHERS THEN
+EXCEPTION
+  -- Never swallow the identity gate into a soft {success:false}: a refusal that
+  -- looks like a business outcome is a refusal nobody notices.
+  WHEN insufficient_privilege THEN RAISE;
+  WHEN OTHERS THEN
   -- Everything above rolls back with this, including the status flip — an
   -- 'accepted' invite that moved nobody is the one outcome worth avoiding.
   RETURN jsonb_build_object('success', false, 'reason', 'unknown', 'detail', SQLERRM);
@@ -585,12 +628,52 @@ BEGIN
 END;
 $function$;
 
+-- ── 4. Decline: same identity binding ──────────────────────────────────────
+-- Declining writes less than accepting, but it still closes someone else's
+-- invite on their behalf. Bound to the session for the same reason.
+CREATE OR REPLACE FUNCTION public.fn_premium_decline_invite(p_invite_token text, p_acting_learner_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_invite record;
+BEGIN
+  IF auth.uid() IS NULL OR auth.uid() IS DISTINCT FROM p_acting_learner_id THEN
+    RAISE EXCEPTION 'permission denied: you may only answer your own invites'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT id, invited_learner_id, status INTO v_invite
+    FROM public.hostel_premium_invites WHERE invite_token = p_invite_token;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'invite_not_found');
+  END IF;
+  IF v_invite.invited_learner_id IS DISTINCT FROM p_acting_learner_id THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'not_the_invited_party');
+  END IF;
+  IF v_invite.status <> 'pending' THEN
+    RETURN jsonb_build_object('success', false, 'reason', 'invite_not_pending');
+  END IF;
+
+  UPDATE public.hostel_premium_invites
+     SET status = 'declined', declined_at = now(), updated_at = now()
+   WHERE id = v_invite.id;
+
+  RETURN jsonb_build_object('success', true, 'invite_id', v_invite.id, 'reason', 'ok');
+END;
+$function$;
+
 -- anon AND PUBLIC: revoking only anon is a no-op, since Postgres grants EXECUTE
 -- to PUBLIC by default and anon is a member of it. The candidate list is a roll
 -- of named learners with their rooms — not something a publishable key should read.
 REVOKE EXECUTE ON FUNCTION public.fn_premium_invite_candidates(uuid)              FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_premium_create_invite(uuid, uuid, uuid)      FROM anon, PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.fn_premium_confirm_invite(text, uuid)           FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.fn_premium_decline_invite(text, uuid)           FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_premium_invite_candidates(uuid)              TO authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_premium_create_invite(uuid, uuid, uuid)      TO authenticated;
 GRANT  EXECUTE ON FUNCTION public.fn_premium_confirm_invite(text, uuid)           TO authenticated;
+GRANT  EXECUTE ON FUNCTION public.fn_premium_decline_invite(text, uuid)           TO authenticated;
