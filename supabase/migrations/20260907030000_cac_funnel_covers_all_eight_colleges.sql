@@ -55,3 +55,17 @@ CREATE OR REPLACE VIEW public.v_cac_solution_funnel AS
      LEFT JOIN sh_publications pb ON pb.solution_id = s.id
   WHERE i.iqac_code IS NOT NULL
   GROUP BY i.id, i.name, i.iqac_code;
+
+-- The lock is restated rather than assumed. CREATE OR REPLACE preserves the
+-- grants that are already on production — where anon is correctly refused with
+-- 42501 today — but this file has to stand on its own: replayed against a fresh
+-- database it would create the view under Supabase's default privileges, which
+-- grant SELECT on new relations to anon.
+--
+-- A view needs this MORE than a table does. It does not inherit the underlying
+-- table's RLS, and without `security_invoker` it runs as its owner — so a view
+-- over a correctly locked table serves that table's rows to anyone who can read
+-- the view. That ownership behaviour is deliberate here: it is what lets
+-- fn_cac_cluster_totals() return the whole cluster rather than the caller's
+-- slice. It is only safe while nothing but that definer function can reach it.
+REVOKE ALL ON TABLE public.v_cac_solution_funnel FROM anon, PUBLIC;
