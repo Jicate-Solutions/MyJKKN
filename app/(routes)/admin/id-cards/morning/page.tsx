@@ -9,10 +9,26 @@
 // that states plainly how much of the scanning could actually be verified by
 // a human.
 //
-// Gated on id_cards.jobs.view — the same key as the Print Queue, so anyone
-// who can see the ID Cards menu can read this page. The gate-pass and
-// meal-scan sections carry their own campus_living.* keys; where the reader
-// lacks one, the page says so instead of showing an empty panel.
+// GATE — stated precisely, because an earlier version of this comment claimed
+// a parity that does not exist. This page is gated on the GRANULAR key
+// `id_cards.jobs.view`, which is the key the ID Cards sidebar entry is mapped
+// to. The Print Queue page is gated differently — by ROLE
+// (AdminPermissionGuard: administrator / super admin) — so a per-college
+// admin granted `id_cards.jobs.view` can read THIS page and not that one.
+// That is deliberate: a Principal reading their own morning page is the point.
+//
+// What such a reader sees, stated rather than assumed: the gate-pass,
+// meal-scan and learner sections are row-level-security scoped to their own
+// institution, so those are their own people. Two sections are cluster-wide by
+// design — the failed-print-job lines (RLS on id_card_print_jobs is
+// permission-scoped, not institution-scoped; no learner details are selected)
+// and the coverage table, which exists precisely to compare colleges. Tighten
+// to `permission="admin_or_super_admin"` if that cluster view should be
+// Director-only.
+//
+// The gate-pass and meal-scan sections additionally need their own
+// campus_living.* keys; where the reader lacks one, the page says which key is
+// missing instead of showing an empty panel.
 // ============================================================================
 
 export const navMeta = { label: 'ID Card Morning Page', icon: 'Sunrise' } as const;

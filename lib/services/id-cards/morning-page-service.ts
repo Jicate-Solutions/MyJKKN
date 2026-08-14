@@ -362,6 +362,12 @@ export function formatLateness(hoursLate: number): string {
 const OPEN_PASS_STATUSES = ['issued', 'active', 'overdue'] as const;
 
 /**
+ * Open gate passes read in one go. Both readers use the same cap so "who is
+ * out now" and the overdue exceptions can never disagree about who is out.
+ */
+const OPEN_PASS_ROW_CAP = 500;
+
+/**
  * Read result that can say "the read failed" instead of returning an empty
  * list that looks exactly like "there is nothing to report" (CLAUDE.md #27).
  */
@@ -491,7 +497,7 @@ export async function readWhoIsOutNow(client: AnyClient): Promise<ReadResult<Ope
     .in('status', OPEN_PASS_STATUSES as unknown as string[])
     .is('actual_return', null)
     .order('expected_return', { ascending: true })
-    .limit(500);
+    .limit(OPEN_PASS_ROW_CAP);
 
   if (error) return { ok: false, message: errText(error) };
 
@@ -531,6 +537,12 @@ export type ExceptionReadout = {
   /** True when the meal read hit its row cap, so the counts below are a floor. */
   mealsTruncated: boolean;
   /**
+   * True when the open-pass read hit its row cap. Same reason as above and
+   * more urgent: a page that promises never to shorten itself silently cannot
+   * quietly stop at 500 people who are still outside.
+   */
+  passesTruncated: boolean;
+  /**
    * Every scan the window contained, for the trust meter's numerator — or
    * null when the identity sources could not be read, which is a different
    * fact from "no scan could be verified" and must not render as 0%.
@@ -558,12 +570,17 @@ export async function readMorningExceptions(
   const exceptions: MorningException[] = [];
 
   // 1. Open gate passes — overdue returns, repeat passes, holders who left.
+  // ORDERED, and the order is load-bearing: an unordered `.limit()` lets
+  // Postgres return an arbitrary 500, so on a busy weekend the MOST overdue
+  // return — the row this page exists to surface — could be the one dropped.
+  // Oldest due-back first means the cap bites on the least urgent rows.
   const passes = await client
     .from('hostel_gate_passes')
     .select('id, pass_number, learner_id, expected_return, out_time, status')
     .in('status', OPEN_PASS_STATUSES as unknown as string[])
     .is('actual_return', null)
-    .limit(500);
+    .order('expected_return', { ascending: true })
+    .limit(OPEN_PASS_ROW_CAP);
 
   if (passes.error) return { ok: false, message: errText(passes.error) };
 
@@ -759,6 +776,7 @@ export async function readMorningExceptions(
     data: {
       exceptions,
       mealsTruncated: mealRows.length >= MEAL_ROW_CAP,
+      passesTruncated: passRows.length >= OPEN_PASS_ROW_CAP,
       scanVerifiability,
       unreadableSources,
     },

@@ -416,6 +416,51 @@ describe('a helper read that fails must not fabricate an honest-looking answer',
   });
 });
 
+describe('a capped read must say it was capped', () => {
+  const pass = (n: number) => ({
+    id: `gp${n}`,
+    pass_number: `P${n}`,
+    learner_id: `p${n}`,
+    expected_return: new Date(Date.now() - 86_400_000).toISOString(),
+    out_time: null,
+    status: 'active',
+  });
+
+  it('flags the open-pass read when it hits its cap — people outside must not vanish quietly', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        // 500 is the reader's cap; hitting it exactly means there may be more.
+        hostel_gate_passes: { data: Array.from({ length: 500 }, (_, i) => pass(i)) },
+        mess_meal_records: { data: [] },
+        profiles: { data: [] },
+        learners_profiles: { data: [] },
+        'staff': { data: [] },
+        id_card_print_jobs: { data: [] },
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.passesTruncated).toBe(true);
+  });
+
+  it('does not cry truncation on an ordinary morning', async () => {
+    const result = await readMorningExceptions(
+      fakeClient({
+        hostel_gate_passes: { data: [pass(1), pass(2)] },
+        mess_meal_records: { data: [] },
+        profiles: { data: [] },
+        learners_profiles: { data: [] },
+        'staff': { data: [] },
+        id_card_print_jobs: { data: [] },
+      })
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.passesTruncated).toBe(false);
+    expect(result.data.mealsTruncated).toBe(false);
+  });
+});
+
 describe('a team member eating at the mess is not automatically unverifiable', () => {
   it('finds their picture on the team record, which carries no learner link', async () => {
     const result = await readMorningExceptions(

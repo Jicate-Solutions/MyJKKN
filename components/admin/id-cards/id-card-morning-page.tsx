@@ -212,6 +212,14 @@ function ExceptionsSection({
           </Note>
         )}
 
+        {state.data.passesTruncated && (
+          <Note tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+            More gate passes are open than this page reads in one go. The ones listed are those due
+            back earliest, so the count is a floor — there are people outside who are not on this
+            page.
+          </Note>
+        )}
+
         {state.data.unreadableSources.length > 0 && (
           <Note tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
             {state.data.unreadableSources.length === 1 ? 'One source' : 'Some sources'} could not be
@@ -521,7 +529,9 @@ function CoverageSection({
           <p className="mt-2 text-xs text-muted-foreground">
             Learners are counted while they are on the books; a graduated record is not counted
             because that person will not be presenting a card. An empty photo field counts as no
-            photo — treating a blank as a picture is how a coverage meter starts lying.
+            photo — treating a blank as a picture is how a coverage meter starts lying. This table
+            covers every college in the cluster, not only your own, because its purpose is the
+            comparison.
           </p>
         </div>
       </CardContent>
