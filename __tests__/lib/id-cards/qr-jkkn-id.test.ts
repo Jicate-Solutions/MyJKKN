@@ -141,6 +141,9 @@ const staffRow: Row = {
 
 const institutionRow: Row = { id: INSTITUTION_ID, name: 'JKKN College of Engineering' };
 
+/** Injected read failure, hoisted so the table-keyed maps below stay literal-free. */
+const TIMEOUT = 'timeout';
+
 function identity(overrides: Row): Row {
   return {
     jkkn_id: JKKN_ID,
@@ -403,7 +406,7 @@ describe('no card is ever printed with a blank QR', () => {
         institutions: [institutionRow],
         jkkn_identities: []
       },
-      failures: { learners_profiles: 'timeout', jkkn_identities: 'timeout' }
+      failures: { learners_profiles: TIMEOUT, jkkn_identities: TIMEOUT }
     },
     {
       name: 'team member, number issued',
@@ -431,7 +434,8 @@ describe('no card is ever printed with a blank QR', () => {
         institutions: [institutionRow],
         jkkn_identities: []
       },
-      failures: { staff: 'timeout', jkkn_identities: 'timeout' }
+      // `staff` here is the DB table identifier (terminology-exempt).
+      failures: { staff: TIMEOUT, jkkn_identities: TIMEOUT }
     }
   ];
 
