@@ -9,6 +9,9 @@
 //     (staff has NO user_id column; the sync_staff_to_profiles trigger keys
 //     profiles.email == staff.institution_email — see lib/services/staff)
 //   • institution display name for the header band
+//   • the person's active JKKN ID from jkkn_identities, which is what the QR
+//     carries — falling back to the internal UUID for anyone the backfill has
+//     not reached yet, so no card is ever printed with a blank QR
 //   • ordered photo-candidate URLs (fallback chain) and the QR payload
 //
 // Every lookup is defensive: a missing joined row degrades the card, it never
@@ -91,7 +94,11 @@ export type CardPersonData = {
   courseName: string | null;
   departmentName: string | null;
   institutionName: string | null;
-  /** QR payload: learners_profiles.id for learners, profiles.id for employees. */
+  /**
+   * QR payload: the person's permanent JKKN ID (e.g. '348295-7') when they
+   * hold an active one, otherwise the internal UUID the card carried before —
+   * learners_profiles.id for learners, profiles.id for employees. Never blank.
+   */
   qrValue: string;
   /** Ordered photo fallback chain (absolute URLs / data URLs, nulls removed). */
   photoCandidates: string[];
@@ -642,6 +649,64 @@ export async function makeQrDataUrl(value: string): Promise<string | null> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// QR payload — the permanent JKKN ID, with the internal UUID as the fallback
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Choose what the card's QR actually carries.
+ *
+ * Preference order is deliberate and one-way: the permanent JKKN ID when the
+ * person holds one, otherwise the internal UUID the card has always carried.
+ * The fallback is not a nicety — the JKKN ID register is being filled in by a
+ * backfill, so on any given day some people have a number and some do not, and
+ * BOTH must print a scannable card.
+ *
+ * jkkn_identities.jkkn_id is char(8), so PostgREST can hand back a padded or
+ * whitespace-only string. Trimming to empty is treated exactly like "no number
+ * yet" — a blank QR is the one outcome this function exists to prevent.
+ */
+export function pickQrValue(
+  jkknId: string | null | undefined,
+  fallbackUuid: string | null | undefined
+): string {
+  const permanent = (jkknId ?? '').trim();
+  if (permanent !== '') return permanent;
+  return (fallbackUuid ?? '').trim();
+}
+
+/**
+ * Read the person's ACTIVE JKKN ID, or null.
+ *
+ * Retired identities are excluded at the query (`retired_at IS NULL`). A
+ * retired number is one that was issued in error or superseded; the register
+ * keeps the row forever so the number is never handed to anyone else, but it
+ * must never be printed on a card again.
+ *
+ * Fail-soft like every other read in this file: an error degrades to null (the
+ * card then falls back to the UUID) rather than failing the render.
+ */
+async function readActiveJkknId(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  link: { column: 'learner_profile_id' | 'team_member_id'; value: string }
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('jkkn_identities')
+    .select('jkkn_id')
+    .eq(link.column, link.value)
+    .is('retired_at', null)
+    .limit(1);
+
+  if (error) {
+    console.warn('[id-cards/render] JKKN ID lookup failed, falling back to UUID:', error.message);
+    return null;
+  }
+  const rows = (data ?? []) as { jkkn_id: string | null }[];
+  const value = (rows[0]?.jkkn_id ?? '').trim();
+  return value === '' ? null : value;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Data assembly
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -763,6 +828,11 @@ export async function assembleCardData(
   let studyPeriod: string | null = null;
   let staffId: string | null = null;
   let courseEndDate: string | null = null;
+  // Which row in jkkn_identities (if any) belongs to this person. Set by
+  // whichever branch below identifies them; jkkn_identities keys learners on
+  // learners_profiles.id and team members on staff.id — two different identity
+  // spaces, neither of which is profiles.id.
+  let identityLink: { column: 'learner_profile_id' | 'team_member_id'; value: string } | null = null;
   const photoCandidates: string[] = [];
   const valueBag: Record<string, string> = {
     'profiles.id': p.id,
@@ -804,6 +874,7 @@ export async function assembleCardData(
       courseName = learner.program?.program_name?.trim() || null;
       departmentName = learner.department?.department_name?.trim() || null;
       qrValue = learner.id;
+      identityLink = { column: 'learner_profile_id', value: learner.id };
       if (learner.student_photo_url) photoCandidates.push(learner.student_photo_url);
       valueBag['learners_profiles.id'] = learner.id;
       valueBag['learners_profiles.first_name'] = learner.first_name ?? '';
@@ -853,7 +924,10 @@ export async function assembleCardData(
       valueBag['learners_profiles.mother_name'] = learner.mother_name ?? '';
       valueBag['learners_profiles.student_mobile'] = contactPhone ?? '';
     } else {
+      // Degraded learner path: profiles.learner_id IS learners_profiles.id, so
+      // the identity link still resolves even though the learner read failed.
       qrValue = p.learner_id;
+      identityLink = { column: 'learner_profile_id', value: p.learner_id };
     }
   } else {
     // 2b. Employee path — staff has no user_id column; the canonical bridge is
@@ -888,6 +962,7 @@ export async function assembleCardData(
 
     if (staffRow) {
       fullName = joinName(staffRow.first_name, staffRow.last_name) || fullName;
+      identityLink = { column: 'team_member_id', value: staffRow.id };
       designation = staffRow.designation?.trim() || null;
       departmentName = staffRow.department?.department_name?.trim() || null;
       if (staffRow.profile_picture) photoCandidates.push(staffRow.profile_picture);
@@ -910,6 +985,14 @@ export async function assembleCardData(
       valueBag['staff.department_id'] = departmentName ?? '';
       valueBag['departments.department_name'] = departmentName ?? '';
     }
+  }
+
+  // 2c. The QR payload. Prefer the permanent JKKN ID; keep the UUID assigned
+  // above as the fallback so a card still scans for anyone the backfill has
+  // not reached yet. qrValue already holds a non-blank UUID at this point, so
+  // the QR can never come out empty.
+  if (identityLink) {
+    qrValue = pickQrValue(await readActiveJkknId(supabase, identityLink), qrValue);
   }
 
   // 3. Remaining photo fallbacks (chain: learner photo -> staff picture -> avatar).
