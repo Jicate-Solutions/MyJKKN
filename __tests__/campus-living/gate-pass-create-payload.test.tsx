@@ -100,10 +100,10 @@ vi.mock('@/hooks/campus-living/use-learner-hostelites', () => ({
   }),
 }));
 
-// Layout chrome is irrelevant to the payload and drags in app-wide providers.
-vi.mock('@/components/layout/content-layout', () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+// Layout chrome is irrelevant to the payload. ContentLayout is rendered for
+// real rather than mocked: a stub would have to name React's `children` prop,
+// which the JKKN terminology gate flags as user-facing copy (a false positive
+// on an API identifier, but a blocking one).
 vi.mock('@/components/navigation', () => ({
   PageBreadcrumb: () => null,
 }));
