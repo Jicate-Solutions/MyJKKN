@@ -395,6 +395,14 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.clients.all, 'industries'] as const,
   },
 
+  proposals: {
+    all: ['solutions-hub', 'proposals'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...solutionsHubKeys.proposals.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.proposals.all, 'detail', id] as const,
+  },
+
   phases: {
     all: ['solutions-hub', 'phases'] as const,
     list: (filters?: Record<string, unknown>) =>
