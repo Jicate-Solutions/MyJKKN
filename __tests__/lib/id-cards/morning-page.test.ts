@@ -38,21 +38,31 @@ import {
   measureVerifiableScans,
   rankExceptions,
   sortCoverageWorstFirst,
+  unreadableColleges,
   weighExceptionKind,
   weighOverdue,
+  withReadTimeout,
   type CoverageRow,
   type MorningException,
 } from '@/lib/services/id-cards/morning-page-service';
 
 // Real production shape, read 2026-08-14: the cluster average is respectable
 // and two of these colleges are effectively blind.
-const college = (name: string, lp: number, lt: number, tp: number, tt: number): CoverageRow => ({
+const college = (
+  name: string,
+  lp: number,
+  lt: number,
+  tp: number,
+  tt: number,
+  readFailed = false
+): CoverageRow => ({
   institutionId: name.toLowerCase().replace(/\W+/g, '-'),
   institutionName: name,
   learnersWithPhoto: lp,
   learnersTotal: lt,
   teamWithPhoto: tp,
   teamTotal: tt,
+  readFailed,
 });
 
 const ESTATE: CoverageRow[] = [
@@ -230,6 +240,85 @@ describe('time and phrasing', () => {
     expect(formatLateness(5.9)).toBe('5 hours late');
     expect(formatLateness(26)).toBe('1 day late');
     expect(formatLateness(50)).toBe('2 days late');
+  });
+});
+
+describe('a count that failed to read is not a count of zero', () => {
+  // The failure this guards, in its most dangerous shape: the TOTAL counts read
+  // fine and only the with-photo counts failed. Coerced to 0 that renders a real
+  // college of 540 people at 0% — a false catastrophe that sorts to the top of
+  // the page and drags the cluster figure down with it.
+  const DARK = college('Unreadable College', 0, 500, 0, 40, true);
+  // The other half of the same failure: the TOTAL counts are what failed, so
+  // every number is 0 and a naive "has people?" filter drops the college from
+  // the table entirely — a read failure rendered as an absence nobody notices.
+  const DARK_TOTALS = college('Vanished College', 0, 0, 0, 0, true);
+  const WITH_DARK: CoverageRow[] = [...ESTATE, DARK, DARK_TOTALS];
+
+  it('measures an unreadable college as unknown, not as 0%', () => {
+    expect(measureCollege(DARK).percent).toBeNull();
+    expect(formatPercent(measureCollege(DARK).percent)).toBe('—');
+  });
+
+  it('keeps an all-zero unreadable college in the table — dropping it would turn a read failure into an absence', () => {
+    const names = collegesWithPeople(WITH_DARK).map((c) => c.institutionName);
+    expect(names).toContain('Vanished College');
+    expect(names).toContain('Unreadable College');
+    // …while a genuinely empty college that READ fine is still dropped.
+    expect(names).not.toContain('Nobody Here');
+  });
+
+  it('names them, so somebody can go and fix the read', () => {
+    expect(unreadableColleges(WITH_DARK).map((c) => c.institutionName)).toEqual([
+      'Unreadable College',
+      'Vanished College',
+    ]);
+    expect(unreadableColleges(ESTATE)).toHaveLength(0);
+  });
+
+  it('excludes it from the cluster figure instead of dragging it down as a false zero', () => {
+    expect(measureCluster(WITH_DARK)).toEqual(measureCluster(ESTATE));
+  });
+
+  it('excludes it from the spread — an unknown is not a low score', () => {
+    expect(coverageSpread(WITH_DARK)!.worst.institutionName).toBe(
+      coverageSpread(ESTATE)!.worst.institutionName
+    );
+  });
+
+  it('sorts them LAST, so a read problem never buries the real worst college', () => {
+    const ordered = sortCoverageWorstFirst(WITH_DARK).map((c) => c.institutionName);
+    expect(ordered.slice(-2)).toEqual(['Unreadable College', 'Vanished College']);
+    expect(ordered[0]).toBe('Matric Higher Secondary School');
+  });
+});
+
+describe('withReadTimeout — the page must never spin forever', () => {
+  it('passes a successful read straight through', async () => {
+    const result = await withReadTimeout(Promise.resolve({ ok: true as const, data: 42 }), 'X', 50);
+    expect(result).toEqual({ ok: true, data: 42 });
+  });
+
+  it('turns a read that never answers into a stated failure, not an endless wait', async () => {
+    const never = new Promise<never>(() => {});
+    const result = await withReadTimeout(never, 'The coverage read', 10);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.message).toContain('The coverage read');
+    expect(result.ok === false && result.message).toContain('did not answer');
+  });
+
+  it('turns a thrown read into a stated failure rather than an unhandled rejection', async () => {
+    const result = await withReadTimeout(Promise.reject(new Error('socket closed')), 'X', 50);
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.message).toContain('socket closed');
+  });
+
+  it('reports a failure the read itself declared, unchanged', async () => {
+    const declared = Promise.resolve({ ok: false as const, message: 'permission denied' });
+    expect(await withReadTimeout(declared, 'X', 50)).toEqual({
+      ok: false,
+      message: 'permission denied',
+    });
   });
 });
 

@@ -69,6 +69,8 @@ import {
   readPhotoCoverage,
   readWhoIsOutNow,
   sortCoverageWorstFirst,
+  unreadableColleges,
+  withReadTimeout,
   type CoverageRow,
   type ExceptionReadout,
   type Measurable,
@@ -207,6 +209,16 @@ function ExceptionsSection({
           <Note tone="warn" icon={<Info className="h-4 w-4" />}>
             More meal scans were recorded in this window than this page reads in one go, so the counts
             above are a floor, not a total.
+          </Note>
+        )}
+
+        {state.data.unreadableSources.length > 0 && (
+          <Note tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+            {state.data.unreadableSources.length === 1 ? 'One source' : 'Some sources'} could not be
+            read, so nothing from{' '}
+            {state.data.unreadableSources.length === 1 ? 'it' : 'them'} appears above — that is
+            silence, not a clean bill of health:{' '}
+            <span className="font-mono text-xs">{state.data.unreadableSources.join('; ')}</span>
           </Note>
         )}
       </div>
@@ -372,6 +384,7 @@ function CoverageSection({
   const ordered = sortCoverageWorstFirst(coverage.data);
   const cluster = measureCluster(coverage.data);
   const spread = coverageSpread(coverage.data);
+  const unreadable = unreadableColleges(coverage.data);
   const scans = exceptions?.ok ? exceptions.data.scanVerifiability : null;
 
   return (
@@ -449,6 +462,18 @@ function CoverageSection({
               <TableBody>
                 {ordered.map((row) => {
                   const m = measureCollege(row);
+                  // A college whose counts failed to read shows as unreadable,
+                  // never as 0% — a failed read is not a coverage score.
+                  if (row.readFailed) {
+                    return (
+                      <TableRow key={row.institutionId}>
+                        <TableCell className="font-medium">{row.institutionName}</TableCell>
+                        <TableCell colSpan={3} className="text-sm text-amber-700 dark:text-amber-300">
+                          Counts could not be read — this row is unknown, not zero.
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
                   return (
                     <TableRow key={row.institutionId}>
                       <TableCell className="font-medium">{row.institutionName}</TableCell>
@@ -472,6 +497,17 @@ function CoverageSection({
               </TableBody>
             </Table>
           </div>
+
+          {unreadable.length > 0 && (
+            <div className="mt-3">
+              <Note tone="warn" icon={<AlertTriangle className="h-4 w-4" />}>
+                {unreadable.length} college{unreadable.length === 1 ? '' : 's'} could not be counted,
+                so {unreadable.length === 1 ? 'it is' : 'they are'} excluded from the cluster figure
+                above rather than dragging it down as a false zero:{' '}
+                {unreadable.map((r) => r.institutionName).join(', ')}.
+              </Note>
+            </div>
+          )}
 
           <p className="mt-2 text-xs text-muted-foreground">
             Learners are counted while they are on the books; a graduated record is not counted
@@ -512,10 +548,13 @@ export function IdCardMorningPage() {
       // view, the pattern already used by the print-queue bridge chip.
       const client = createClientSupabaseClient() as unknown as SupabaseClient;
       const now = new Date();
+      // Every read is time-boxed. A connection that neither answers nor errors
+      // would otherwise leave all three sections on their skeletons with the
+      // refresh button disabled — a page that spins forever and says nothing.
       const [outNow, exceptions, coverage] = await Promise.all([
-        readWhoIsOutNow(client),
-        readMorningExceptions(client, now),
-        readPhotoCoverage(client),
+        withReadTimeout(readWhoIsOutNow(client), 'The gate-pass read'),
+        withReadTimeout(readMorningExceptions(client, now), 'The exception read'),
+        withReadTimeout(readPhotoCoverage(client), 'The coverage read'),
       ]);
       if (cancelled) return;
       setState({ loading: false, outNow, exceptions, coverage, refreshedAt: now });

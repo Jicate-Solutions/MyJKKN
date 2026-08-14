@@ -87,6 +87,17 @@ export type CoverageRow = {
   learnersWithPhoto: number;
   teamTotal: number;
   teamWithPhoto: number;
+  /**
+   * True when any of the four counts above could not be read.
+   *
+   * Load-bearing. Coercing a failed count to 0 produces exactly the lie this
+   * file exists to prevent: a failed `withPhoto` read renders a college at 0%
+   * (reads as a catastrophe), and a failed `total` read drops the college out
+   * of the table entirely (reads as nothing at all). Both are read failures
+   * wearing a number's clothes, so they are flagged and rendered as "could
+   * not be read" instead.
+   */
+  readFailed: boolean;
 };
 
 /** A percentage that knows the difference between "zero" and "unknowable". */
@@ -202,49 +213,112 @@ export function measure(withPhoto: number, total: number): Measurable {
   return { withPhoto, total, percent: (withPhoto / total) * 100 };
 }
 
-/** Learners and team members of one college, counted together. */
+/**
+ * Learners and team members of one college, counted together. A college whose
+ * counts could not be read measures as unknowable, never as zero.
+ */
 export function measureCollege(row: CoverageRow): Measurable {
+  if (row.readFailed) return { withPhoto: 0, total: 0, percent: null };
   return measure(row.learnersWithPhoto + row.teamWithPhoto, row.learnersTotal + row.teamTotal);
 }
 
-/** The cluster figure. Correct, and on its own, misleading — see spread(). */
+/**
+ * The cluster figure, over the colleges that could actually be read. Correct,
+ * and on its own misleading — always publish it beside coverageSpread().
+ */
 export function measureCluster(rows: readonly CoverageRow[]): Measurable {
-  const withPhoto = rows.reduce((n, r) => n + r.learnersWithPhoto + r.teamWithPhoto, 0);
-  const total = rows.reduce((n, r) => n + r.learnersTotal + r.teamTotal, 0);
+  const readable = rows.filter((r) => !r.readFailed);
+  const withPhoto = readable.reduce((n, r) => n + r.learnersWithPhoto + r.teamWithPhoto, 0);
+  const total = readable.reduce((n, r) => n + r.learnersTotal + r.teamTotal, 0);
   return measure(withPhoto, total);
 }
 
-/** Colleges with nobody on their books carry no signal — drop them. */
+/** Colleges whose counts failed to read. Named on the page, never hidden. */
+export function unreadableColleges(rows: readonly CoverageRow[]): CoverageRow[] {
+  return rows.filter((r) => r.readFailed);
+}
+
+/**
+ * Rows worth a line. A college with nobody on its books carries no signal and
+ * is dropped; a college that could not be READ is kept, because dropping it
+ * would turn a read failure into an absence nobody notices.
+ */
 export function collegesWithPeople(rows: readonly CoverageRow[]): CoverageRow[] {
-  return rows.filter((r) => r.learnersTotal + r.teamTotal > 0);
+  return rows.filter((r) => r.readFailed || r.learnersTotal + r.teamTotal > 0);
 }
 
 /**
  * Worst first. The point of this section is that one college is nearly blind,
- * so the college that most needs photographs is the one at the top.
+ * so the college that most needs photographs is the one at the top. Colleges
+ * that could not be read go LAST — they are a reading problem, not a coverage
+ * problem, and putting them on top would bury the real answer.
  */
 export function sortCoverageWorstFirst(rows: readonly CoverageRow[]): CoverageRow[] {
-  return [...collegesWithPeople(rows)].sort((a, b) => {
+  const kept = collegesWithPeople(rows);
+  const readable = kept.filter((r) => !r.readFailed);
+  const failed = kept.filter((r) => r.readFailed);
+  readable.sort((a, b) => {
     const pa = measureCollege(a).percent ?? 0;
     const pb = measureCollege(b).percent ?? 0;
     if (pa !== pb) return pa - pb;
     return a.institutionName.localeCompare(b.institutionName);
   });
+  failed.sort((a, b) => a.institutionName.localeCompare(b.institutionName));
+  return [...readable, ...failed];
 }
 
 /**
  * The gap the cluster average conceals. Returned so the page can print it
- * beside the average instead of letting one number stand alone.
+ * beside the average instead of letting one number stand alone. Unreadable
+ * colleges are excluded — an unknown is not a low score.
  */
 export function coverageSpread(
   rows: readonly CoverageRow[]
 ): { worst: CoverageRow; best: CoverageRow; pointsApart: number } | null {
-  const ordered = sortCoverageWorstFirst(rows);
+  const ordered = sortCoverageWorstFirst(rows).filter((r) => !r.readFailed);
   if (ordered.length < 2) return null;
   const worst = ordered[0];
   const best = ordered[ordered.length - 1];
   const pointsApart = (measureCollege(best).percent ?? 0) - (measureCollege(worst).percent ?? 0);
   return { worst, best, pointsApart };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PURE — a read that never hangs
+// ────────────────────────────────────────────────────────────────────────────
+
+/** How long any one section may take before the page says so and gives up. */
+export const READ_TIMEOUT_MS = 20_000;
+
+/**
+ * Turn a stalled or throwing read into a stated failure.
+ *
+ * Without this, a connection that neither answers nor errors leaves all three
+ * sections on their skeletons and the Read-again button disabled forever — a
+ * permanently-spinning page, which is the one outcome worse than bad news.
+ * Resolves rather than rejects so no caller needs a try/catch to stay honest.
+ */
+export async function withReadTimeout<T>(
+  work: Promise<ReadResult<T>>,
+  what: string,
+  timeoutMs: number = READ_TIMEOUT_MS
+): Promise<ReadResult<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const seconds = Math.max(Math.round(timeoutMs / 1000), 1);
+  const timeout = new Promise<ReadResult<T>>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ ok: false, message: `${what} did not answer within ${seconds}s.` }),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([
+      work.catch((err: unknown) => ({ ok: false as const, message: errText(err) })),
+      timeout,
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 /**
@@ -385,6 +459,12 @@ export type ExceptionReadout = {
   mealsTruncated: boolean;
   /** Every scan the window contained, for the trust meter's numerator. */
   scanVerifiability: Measurable;
+  /**
+   * Sources that could not be read at all. Named on the page, because "no
+   * failed print jobs" and "the failed-print source was unreadable" are two
+   * different facts and only one of them is good news.
+   */
+  unreadableSources: string[];
 };
 
 /**
@@ -536,7 +616,13 @@ export async function readMorningExceptions(
     .order('enqueued_at', { ascending: false })
     .limit(20);
 
-  if (!jobs.error) {
+  const unreadableSources: string[] = [];
+  if (jobs.error) {
+    // Skipping the block silently would render "no cards failed to print" for
+    // a source nobody could read — the exact ambiguity this page exists to
+    // remove. Say which source went dark instead.
+    unreadableSources.push(`Card print jobs (${errText(jobs.error)})`);
+  } else {
     for (const j of (jobs.data ?? []) as {
       id: string;
       enqueued_at: string;
@@ -561,6 +647,7 @@ export async function readMorningExceptions(
       exceptions,
       mealsTruncated: mealRows.length >= MEAL_ROW_CAP,
       scanVerifiability,
+      unreadableSources,
     },
   };
 }
@@ -579,12 +666,15 @@ const COUNTED_LIFECYCLE_STATUS = 'active';
  * Counted with `head: true`, so each request carries a number and no rows.
  * The alternative — pulling every learner row into the tab and counting in
  * JavaScript — is ~5,700 rows of payload for four integers per college.
+ *
+ * Returns NULL on a failed read, never 0. A count that could not be read is
+ * not a count of zero, and the difference is the whole point of this page.
  */
 async function countLearners(
   client: AnyClient,
   institutionId: string,
   withPhotoOnly: boolean
-): Promise<number> {
+): Promise<number | null> {
   let q = client
     .from('learners_profiles')
     .select('id', { count: 'exact', head: true })
@@ -593,21 +683,21 @@ async function countLearners(
   // An empty string is stored as often as NULL and means the same thing.
   if (withPhotoOnly) q = q.not('student_photo_url', 'is', null).neq('student_photo_url', '');
   const { count, error } = await q;
-  return error ? 0 : count ?? 0;
+  return error ? null : count ?? 0;
 }
 
 async function countTeamMembers(
   client: AnyClient,
   institutionId: string,
   withPhotoOnly: boolean
-): Promise<number> {
+): Promise<number | null> {
   let q = client
     .from('staff')
     .select('id', { count: 'exact', head: true })
     .eq('institution_id', institutionId);
   if (withPhotoOnly) q = q.not('profile_picture', 'is', null).neq('profile_picture', '');
   const { count, error } = await q;
-  return error ? 0 : count ?? 0;
+  return error ? null : count ?? 0;
 }
 
 export async function readPhotoCoverage(client: AnyClient): Promise<ReadResult<CoverageRow[]>> {
@@ -618,19 +708,21 @@ export async function readPhotoCoverage(client: AnyClient): Promise<ReadResult<C
 
   const rows = await Promise.all(
     institutions.map(async (inst): Promise<CoverageRow> => {
-      const [learnersTotal, learnersWithPhoto, teamTotal, teamWithPhoto] = await Promise.all([
+      const counts = await Promise.all([
         countLearners(client, inst.id, false),
         countLearners(client, inst.id, true),
         countTeamMembers(client, inst.id, false),
         countTeamMembers(client, inst.id, true),
       ]);
+      const [learnersTotal, learnersWithPhoto, teamTotal, teamWithPhoto] = counts;
       return {
         institutionId: inst.id,
         institutionName: inst.name,
-        learnersTotal,
-        learnersWithPhoto,
-        teamTotal,
-        teamWithPhoto,
+        learnersTotal: learnersTotal ?? 0,
+        learnersWithPhoto: learnersWithPhoto ?? 0,
+        teamTotal: teamTotal ?? 0,
+        teamWithPhoto: teamWithPhoto ?? 0,
+        readFailed: counts.some((c) => c === null),
       };
     })
   );
