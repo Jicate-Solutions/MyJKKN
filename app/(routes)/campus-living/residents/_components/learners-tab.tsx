@@ -52,6 +52,7 @@ const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
   { key: 'degree', label: 'Degree', width: 18 },
   { key: 'semester', label: 'Semester', width: 14 },
   { key: 'academic_year', label: 'Academic Year', width: 16 },
+  { key: 'admission_year', label: 'Admission Year', width: 14 },
   { key: 'year_of_study', label: 'Year of Study', width: 12 },
   { key: 'block', label: 'Block', width: 20 },
   { key: 'block_code', label: 'Block Code', width: 12 },
@@ -159,6 +160,11 @@ export function LearnersTab() {
     if (g('room_id')) f.room_id = g('room_id');
     const y = g('year_of_study');
     if (y) f.year_of_study = Number(y);
+    // Cohort year. Guarded on Number.isInteger rather than truthiness so a
+    // hand-edited ?admission_year=abc becomes "no filter" instead of a NaN that
+    // PostgREST would reject.
+    const ay = Number(g('admission_year'));
+    if (Number.isInteger(ay)) f.admission_year = ay;
     return f;
   }, [searchParams, isSuperAdmin]);
 
@@ -252,6 +258,7 @@ export function LearnersTab() {
           degree: row.degree_name ?? null,
           semester: row.semester_name ?? null,
           academic_year: row.academic_year_name ?? null,
+          admission_year: row.program_start_year ?? null,
           year_of_study: row.year_of_study ?? null,
           block: row.current_block_name ?? null,
           block_code: row.current_block_code ?? null,

@@ -71,6 +71,10 @@ interface HierarchyLevel {
   total_students: number;
   present: number;
   absent: number;
+  /** Learners with a status recorded for this date — the rate's denominator. */
+  marked: number;
+  /** The rest. Rendered wherever the percentage is; never omitted. */
+  unmarked: number;
   attendance_percentage: number;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
@@ -81,7 +85,37 @@ interface HierarchyLevel {
     | 'program'
     | 'semester'
     | 'section';
+  /** Learners who have no section yet — shown as "Not yet placed". */
+  is_unplaced?: boolean;
+  /** A college with no learners once this view's narrowing is applied. */
+  is_empty_view?: boolean;
   children?: HierarchyLevel[];
+}
+
+/**
+ * Wording for the two cases that used to be silent.
+ *
+ * NOT_YET_PLACED_LABEL replaces the bare "Unknown Section" a learner with no
+ * section_id used to render as; EMPTY_VIEW_REASON is what a college shows
+ * instead of disappearing from the list altogether.
+ */
+const NOT_YET_PLACED_LABEL = 'Not yet placed';
+const NOT_YET_PLACED_REASON =
+  'These learners have no section yet, so attendance cannot be recorded for them until one is assigned.';
+const EMPTY_VIEW_REASON =
+  'No learners admitted in this intake yet — nothing to record attendance for.';
+
+/**
+ * The unmarked count, phrased for a card.
+ *
+ * Kept as one function so a percentage can never be rendered in this file
+ * without it: a college that marked 1 learner of 93 reads as "100%" unless the
+ * 92 are said out loud (Director decision 2026-08-11).
+ */
+function unmarkedNote(unmarked: number, marked: number): string {
+  if (unmarked <= 0) return `all ${marked} marked`;
+  if (marked <= 0) return `${unmarked} not yet marked — nobody marked yet`;
+  return `${marked} marked · ${unmarked} not yet marked`;
 }
 
 const LEVEL_COLORS = {
@@ -213,14 +247,21 @@ function HierarchyCard({
   );
   const hasChildren = item.children && item.children.length > 0;
 
-  // Chart data for this item
+  // Chart data for this item. "Not yet marked" is a slice, not an omission --
+  // a pie of Present vs Absent over a mostly-unmarked cohort reads as a
+  // complete picture of a cohort nobody has looked at.
   const chartData = [
     {
       name: 'Present',
       value: item.present,
       color: ATTENDANCE_COLORS.excellent
     },
-    { name: 'Absent', value: item.absent, color: ATTENDANCE_COLORS.poor }
+    { name: 'Absent', value: item.absent, color: ATTENDANCE_COLORS.poor },
+    {
+      name: 'Not yet marked',
+      value: item.unmarked,
+      color: ATTENDANCE_COLORS.fair
+    }
   ];
 
   return (
@@ -259,29 +300,56 @@ function HierarchyCard({
             </div>
             <div className='min-w-0'>
               <CardTitle className='text-lg font-semibold truncate'>
-                {item.name}
+                {item.is_unplaced ? NOT_YET_PLACED_LABEL : item.name}
               </CardTitle>
               <p className='text-sm text-muted-foreground capitalize truncate'>
-                {item.level} • {item.total_students} students
+                {item.level} • {item.total_students} learners
               </p>
             </div>
           </div>
 
           <div className='flex items-center gap-3 shrink-0'>
-            <Badge className={gradeColor}>{grade}</Badge>
-            <div className='text-right'>
-              <div className='text-2xl font-bold'>
-                {item.attendance_percentage}%
+            {/* No grade and no percentage when nobody has been marked: a rate
+                over zero marked learners is not a low score, it is no reading
+                at all. */}
+            {item.marked > 0 ? (
+              <>
+                <Badge className={gradeColor}>{grade}</Badge>
+                <div className='text-right'>
+                  <div className='text-2xl font-bold'>
+                    {item.attendance_percentage}%
+                  </div>
+                  {/* The denominator, always. Never "Attendance" alone. */}
+                  <div className='text-sm text-muted-foreground'>
+                    of {item.marked} marked
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className='text-right'>
+                <div className='text-2xl font-bold text-muted-foreground'>—</div>
+                <div className='text-sm text-muted-foreground'>
+                  Not yet marked
+                </div>
               </div>
-              <div className='text-sm text-muted-foreground'>Attendance</div>
-            </div>
+            )}
           </div>
         </div>
+
+        {/* Reasons, so neither case reads as an unexplained blank */}
+        {item.is_empty_view && (
+          <p className='text-xs text-muted-foreground'>{EMPTY_VIEW_REASON}</p>
+        )}
+        {item.is_unplaced && (
+          <p className='text-xs text-muted-foreground'>
+            {NOT_YET_PLACED_REASON}
+          </p>
+        )}
 
         {/* Progress Bar */}
         <div className='space-y-2'>
           <Progress
-            value={item.attendance_percentage}
+            value={item.marked > 0 ? item.attendance_percentage : 0}
             className='h-2'
             style={
               {
@@ -294,13 +362,14 @@ function HierarchyCard({
           <div className='flex justify-between text-xs text-muted-foreground'>
             <span>{item.present} Present</span>
             <span>{item.absent} Absent</span>
+            <span>{item.unmarked} not yet marked</span>
           </div>
         </div>
       </CardHeader>
 
       {/* Detailed Stats */}
       <CardContent className='pt-0'>
-        <div className='grid grid-cols-3 gap-4 mb-4'>
+        <div className='grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4'>
           <div className='text-center p-3 bg-green-50 dark:bg-green-950 rounded-lg'>
             <div className='text-2xl font-bold text-green-600 dark:text-green-400'>
               {item.present}
@@ -315,6 +384,16 @@ function HierarchyCard({
             </div>
             <div className='text-xs text-red-600/70 dark:text-red-400/70'>
               Absent
+            </div>
+          </div>
+          {/* The backlog, given the same weight as present and absent. This is
+              the number the percentage used to hide. */}
+          <div className='text-center p-3 bg-amber-50 dark:bg-amber-950 rounded-lg'>
+            <div className='text-2xl font-bold text-amber-600 dark:text-amber-400'>
+              {item.unmarked}
+            </div>
+            <div className='text-xs text-amber-600/70 dark:text-amber-400/70'>
+              Not yet marked
             </div>
           </div>
           <div className='text-center p-3 bg-blue-50 dark:bg-blue-950 rounded-lg'>
@@ -423,10 +502,13 @@ function transformStatsToHierarchy(stats: AttendanceStats[]): HierarchyLevel[] {
       total_students: institution.total_students,
       present: institution.total_present,
       absent: institution.total_absent,
+      marked: institution.total_marked,
+      unmarked: institution.total_unmarked,
       attendance_percentage: institution.attendance_percentage,
       icon: LEVEL_ICONS.institution,
       color: LEVEL_COLORS.institution,
       level: 'institution',
+      is_empty_view: institution.is_empty_view,
       children: []
     };
 
@@ -439,6 +521,8 @@ function transformStatsToHierarchy(stats: AttendanceStats[]): HierarchyLevel[] {
           total_students: department.total_students,
           present: department.total_present,
           absent: department.total_absent,
+          marked: department.total_marked,
+          unmarked: department.total_unmarked,
           attendance_percentage: department.attendance_percentage,
           icon: LEVEL_ICONS.department,
           color: LEVEL_COLORS.department,
@@ -455,6 +539,8 @@ function transformStatsToHierarchy(stats: AttendanceStats[]): HierarchyLevel[] {
               total_students: semester.total_students,
               present: semester.total_present,
               absent: semester.total_absent,
+              marked: semester.total_marked,
+              unmarked: semester.total_unmarked,
               attendance_percentage: semester.attendance_percentage,
               icon: LEVEL_ICONS.semester,
               color: LEVEL_COLORS.semester,
@@ -467,14 +553,19 @@ function transformStatsToHierarchy(stats: AttendanceStats[]): HierarchyLevel[] {
               semester.sections.forEach((section) => {
                 const sectionNode: HierarchyLevel = {
                   id: `${institution.institution_id}-${department.department_id}-${semester.semester_id}-${section.section_id}`,
-                  name: section.section_name,
+                  name: section.is_unplaced
+                    ? NOT_YET_PLACED_LABEL
+                    : section.section_name,
                   total_students: section.total_students,
                   present: section.present,
                   absent: section.absent,
+                  marked: section.marked,
+                  unmarked: section.unmarked,
                   attendance_percentage: section.percentage, // Note: sections use 'percentage' not 'attendance_percentage'
                   icon: LEVEL_ICONS.section,
                   color: LEVEL_COLORS.section,
-                  level: 'section'
+                  level: 'section',
+                  is_unplaced: section.is_unplaced
                 };
 
                 semesterNode.children!.push(sectionNode);
@@ -502,8 +593,11 @@ interface ExpandableTableRow {
   total_students: number;
   present: number;
   absent: number;
+  marked: number;
+  unmarked: number;
   attendance_percentage: number;
   level: 'department' | 'semester' | 'section';
+  is_unplaced?: boolean;
   children?: ExpandableTableRow[];
   parentId?: string;
 }
@@ -522,6 +616,8 @@ function transformToExpandableTableRows(
         total_students: department.total_students,
         present: department.present,
         absent: department.absent,
+        marked: department.marked,
+        unmarked: department.unmarked,
         attendance_percentage: department.attendance_percentage,
         level: 'department',
         children: []
@@ -535,6 +631,8 @@ function transformToExpandableTableRows(
           total_students: semester.total_students,
           present: semester.present,
           absent: semester.absent,
+          marked: semester.marked,
+          unmarked: semester.unmarked,
           attendance_percentage: semester.attendance_percentage,
           level: 'semester',
           parentId: departmentRow.id,
@@ -549,8 +647,11 @@ function transformToExpandableTableRows(
             total_students: section.total_students,
             present: section.present,
             absent: section.absent,
+            marked: section.marked,
+            unmarked: section.unmarked,
             attendance_percentage: section.attendance_percentage,
             level: 'section',
+            is_unplaced: section.is_unplaced,
             parentId: semesterRow.id
           };
 
@@ -799,14 +900,19 @@ function ExpandableDetailedBreakdownTable({
             <TableRow className='bg-muted/50'>
               <TableHead className='font-semibold w-96'>Name</TableHead>
               <TableHead className='font-semibold text-right'>
-                Total Students
+                Total Learners
               </TableHead>
               <TableHead className='font-semibold text-right'>
                 Present
               </TableHead>
               <TableHead className='font-semibold text-right'>Absent</TableHead>
+              {/* Sits immediately before the percentage on purpose: the rate is
+                  present ÷ marked, so this column is its missing context. */}
               <TableHead className='font-semibold text-right'>
-                Attendance %
+                Not yet marked
+              </TableHead>
+              <TableHead className='font-semibold text-right'>
+                Attendance % (of marked)
               </TableHead>
               <TableHead className='font-semibold text-center'>
                 Status
@@ -861,26 +967,47 @@ function ExpandableDetailedBreakdownTable({
                     </span>
                   </TableCell>
                   <TableCell className='text-right'>
-                    <span className='font-semibold'>
-                      {row.attendance_percentage}%
+                    <span className='text-amber-600 font-medium'>
+                      {row.unmarked}
                     </span>
                   </TableCell>
+                  <TableCell className='text-right'>
+                    {/* A rate over zero marked learners is not 0% -- it is no
+                        reading. Show a dash, not a grade nobody earned. */}
+                    {row.marked > 0 ? (
+                      <span className='font-semibold'>
+                        {row.attendance_percentage}%
+                        <span className='text-muted-foreground font-normal'>
+                          {' '}
+                          of {row.marked}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className='text-muted-foreground'>—</span>
+                    )}
+                  </TableCell>
                   <TableCell className='text-center'>
-                    <Badge
-                      variant='secondary'
-                      className={cn(
-                        'text-xs',
-                        getAttendanceColor(row.attendance_percentage)
-                      )}
-                    >
-                      {row.attendance_percentage >= 90
-                        ? 'Excellent'
-                        : row.attendance_percentage >= 75
-                        ? 'Good'
-                        : row.attendance_percentage >= 60
-                        ? 'Fair'
-                        : 'Poor'}
-                    </Badge>
+                    {row.marked > 0 ? (
+                      <Badge
+                        variant='secondary'
+                        className={cn(
+                          'text-xs',
+                          getAttendanceColor(row.attendance_percentage)
+                        )}
+                      >
+                        {row.attendance_percentage >= 90
+                          ? 'Excellent'
+                          : row.attendance_percentage >= 75
+                          ? 'Good'
+                          : row.attendance_percentage >= 60
+                          ? 'Fair'
+                          : 'Poor'}
+                      </Badge>
+                    ) : (
+                      <Badge variant='outline' className='text-xs'>
+                        Not yet marked
+                      </Badge>
+                    )}
                   </TableCell>
                 </TableRow>
               );

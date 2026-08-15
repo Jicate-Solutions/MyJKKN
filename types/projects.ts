@@ -179,6 +179,8 @@ export interface Project {
   cancelled_by: string | null;
   baseline_snapshot: Record<string, unknown> | null;
   source_template_id: string | null;
+  client_id: string | null;
+  solution_id: string | null;
   metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -205,6 +207,8 @@ export interface ProjectInsert {
   enforce_dependencies?: boolean;
   allow_collaborators?: boolean;
   source_template_id?: string | null;
+  client_id?: string | null;
+  solution_id?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -231,6 +235,8 @@ export interface ProjectUpdate {
   status_workflow?: Record<string, unknown>;
   enforce_dependencies?: boolean;
   allow_collaborators?: boolean;
+  client_id?: string | null;
+  solution_id?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -399,6 +405,19 @@ export interface ProjectTaskComment {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+}
+
+export interface ProjectTaskCommentAuthor {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+}
+
+/** A comment with its author profile joined. author is null for pre-existing
+ *  rows written before author_id was populated, and for deleted profiles. */
+export interface ProjectTaskCommentWithAuthor extends ProjectTaskComment {
+  author: ProjectTaskCommentAuthor | null;
 }
 
 export interface ProjectTaskSubtask {
@@ -708,6 +727,9 @@ export interface ProjectFilters {
   isOkr?: boolean | null;
   scopeModel?: ProjectScopeModel | string | null;
   financialYear?: string | null;
+  /** Solutions Hub bridge: projects delivered for a client / a solution. */
+  clientId?: string | null;
+  solutionId?: string | null;
   /** Include cancelled (soft-deleted) projects. Default false. */
   includeCancelled?: boolean;
   search?: string | null;

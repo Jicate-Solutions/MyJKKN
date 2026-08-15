@@ -114,8 +114,15 @@ Upload  →  Review changes  →  Validation  →  Writing…  →  Result
   - **record** (fix the source) — `Staff ID` is not in your directory (unknown, inactive,
     or outside your institution scope); the same `Staff ID` appears on more than one row.
 - **Gate.** A `skipInvalid` switch. Off (the default) ⇒ refuse the batch, write nothing,
-  and show the report. On ⇒ write the valid rows and report the rest. Enforced in the
-  service, not only in the UI.
+  and show the report. On ⇒ write the valid rows and report the rest.
+
+  The learner flow enforces this in an API route. This module has none — reads and writes
+  go straight to the browser Supabase client, because RLS is the enforcement point and a
+  route would only re-wrap it. So the gate lives in **`setPayersFromRows` itself**, which
+  refuses a report carrying errors unless `skipInvalid` is set. That makes it one choke
+  point every caller must pass through rather than a conditional in the dialog, which is
+  the strongest form available without inventing a route. It is a data-quality guard, not
+  a security boundary; permission remains RLS's job.
 - **Writing…** then **Result**, which opens with a plain-language banner —
   all updated / partially updated / nothing updated / no changes needed.
 
@@ -190,9 +197,19 @@ parse/validate logic is the part worth reading and exercising on its own.
 
 ## Verification
 
-No test runner exists in this repo. "Done" means:
+CLAUDE.md says there is no test runner. That is out of date: **vitest 4.1.7 is installed
+and `vitest.config.js` is configured** (node environment, `@` alias), with 143 test files
+and 1,693 tests under `__tests__/`. There is simply no `test` npm script — run
+`npx vitest run <path>`. 14 tests across 22 files already fail on `main`; those are
+pre-existing and must not be mistaken for regressions from this work.
 
-1. Touched files lint clean and `tsc --noEmit` reports no errors in the module.
+The parse/validate core is pure and gets real tests, modelled on
+`__tests__/procurement/quotation-import.test.ts`, which builds a real `.xlsx` in memory and
+feeds it through the parser.
+
+"Done" means:
+
+1. New tests pass; touched files lint clean; `tsc --noEmit` reports no errors in the module.
 2. Exercised in a browser against live data with a deliberate smoke sheet:
    one clean assignment, one unknown organisation name (format issue), one bogus uuid
    (format issue), one uuid for an inactive/out-of-scope staff member (record issue), one

@@ -15,15 +15,29 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Check, X, Minus, Users, BedDouble, AlertTriangle, Filter, RotateCcw } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Check,
+  X,
+  Minus,
+  Users,
+  BedDouble,
+  AlertTriangle,
+  Filter,
+  RotateCcw,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
+} from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import type { AllocationCandidate, BillState } from '@/types/allocation-batch';
-
-const BILL_STATE_LABEL: Record<BillState, string> = {
-  matched: 'Admission year',
-  different_year: 'Fallback year',
-  untagged: 'No usable bill',
-  none: 'No bill',
-};
+import { BILL_STATE_LABEL } from './candidate-display';
 
 // Shows the fee the Category-Eligibility band was matched against, and which
 // academic year it was read from. 'matched' = the learner's admission year (the
@@ -127,9 +141,21 @@ function FilterSelect({
 export function CandidateValidationTable({
   candidates,
   availableBeds,
+  hostelType,
+  strict,
+  allowOverflow = true,
+  scope = [],
 }: {
   candidates: AllocationCandidate[];
   availableBeds: number;
+  /** 'boys' | 'girls' — stamped into the export header. */
+  hostelType: string;
+  /** The page's Strict physical rules toggle — stamped into the export header. */
+  strict: boolean;
+  /** The page's overflow toggle — stamped into the export header. */
+  allowOverflow?: boolean;
+  /** Page-level cohort selection, pre-labelled. [] => no narrowing. */
+  scope?: string[];
 }) {
   // Summary stats reflect the FULL candidate set (filters only narrow the table).
   const eligible = candidates.filter((c) => c.verdict === 'in').length;
@@ -139,7 +165,19 @@ export function CandidateValidationTable({
   // not in Campus Living.
   const feeResolved = candidates.filter((c) => c.band_fee != null).length;
   const noFee = candidates.length - feeResolved;
-  const willPlace = Math.min(eligible, availableBeds);
+  // Identical to `eligible` by construction: verdict 'in' now means the shared
+  // planner (the one Generate runs) actually assigned this learner a bed, with
+  // beds consumed as it goes. It used to be min(eligible, availableBeds), which
+  // was wrong in both directions — `eligible` was a per-learner reachability
+  // test that let a whole cohort claim the same free bed, and `availableBeds`
+  // is a cross-category whole-hostel-type total that counts Deluxe beds a
+  // Classic-band learner can never occupy. Kept as its own stat because "will
+  // place" is the number the operator acts on.
+  const willPlace = eligible;
+  // How many of the eligible are only placeable because overflow is on — i.e.
+  // every room reserved for their cohort was full. Worth surfacing: it is the
+  // number a warden would otherwise have had to place by hand.
+  const overflowPlaced = candidates.filter((c) => c.placement_tier === 'overflow').length;
 
   // ── Advanced filters ──────────────────────────────────────────────
   const [search, setSearch] = useState('');
@@ -235,7 +273,8 @@ export function CandidateValidationTable({
     const q = search.trim().toLowerCase();
     return candidates.filter((c) => {
       if (q) {
-        const hay = `${c.full_name} ${c.email ?? ''} ${c.program_name ?? ''}`.toLowerCase();
+        const hay =
+          `${c.full_name} ${c.roll_number ?? ''} ${c.email ?? ''} ${c.program_name ?? ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (verdict !== ALL && c.verdict !== verdict) return false;
@@ -251,14 +290,67 @@ export function CandidateValidationTable({
     });
   }, [candidates, search, verdict, institution, program, semester, roomCat, messCat, billState, gender, targetBlock]);
 
+  // ── Export ────────────────────────────────────────────────────────────
+  // Human-readable form of whatever is currently narrowing the table. Stamped
+  // into both files so an exported subset can't be read as the full cohort.
+  const activeFilterLabels = useMemo(() => {
+    const out: string[] = [];
+    const q = search.trim();
+    if (q) out.push(`Search: "${q}"`);
+    if (verdict !== ALL) out.push(`Verdict: ${verdict === 'in' ? 'In (eligible)' : 'Out (excluded)'}`);
+    if (institution !== ALL) out.push(`Institution: ${institution}`);
+    if (program !== ALL) out.push(`Program: ${program}`);
+    if (semester !== ALL) out.push(`Semester: ${semester}`);
+    if (targetBlock !== ALL) out.push(`Goes to block: ${targetBlock}`);
+    if (roomCat !== ALL) out.push(`Room category: ${roomCat}`);
+    if (messCat !== ALL) out.push(`Mess category: ${messCat}`);
+    if (billState !== ALL) out.push(`Bill status: ${BILL_STATE_LABEL[billState as BillState] ?? billState}`);
+    if (gender !== ALL) out.push(`Gender: ${gender}`);
+    return out;
+  }, [search, verdict, institution, program, semester, targetBlock, roomCat, messCat, billState, gender]);
+
+  const [exporting, setExporting] = useState<'excel' | 'pdf' | null>(null);
+
+  const runExport = async (kind: 'excel' | 'pdf') => {
+    if (filtered.length === 0) {
+      toast.error('No rows to export — clear the filters and try again.');
+      return;
+    }
+    setExporting(kind);
+    try {
+      // Dynamic import keeps xlsx + jsPDF out of the Auto-Allocate page bundle.
+      const mod = await import('./candidates-export');
+      const ctx = {
+        hostelType,
+        strict,
+        allowOverflow,
+        scope,
+        filters: activeFilterLabels,
+        totalCandidates: candidates.length,
+        totalEligible: eligible,
+        availableBeds,
+      };
+      if (kind === 'excel') mod.exportCandidatesExcel(filtered, ctx);
+      else mod.exportCandidatesPdf(filtered, ctx);
+      toast.success(
+        `Exported ${filtered.length} row${filtered.length === 1 ? '' : 's'} to ${kind === 'excel' ? 'Excel' : 'PDF'}`
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to export the preview');
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Stat icon={<Users className="h-4 w-4" />} label="Eligible" value={eligible} />
         <Stat icon={<BedDouble className="h-4 w-4" />} label="Available beds" value={availableBeds} />
         <Stat label="Will place" value={willPlace} />
         <Stat label="Excluded" value={excluded} muted />
         <Stat label="Fee resolved" value={feeResolved} muted />
+        <Stat label="Via overflow" value={overflowPlaced} muted />
       </div>
 
       {noFee > 0 && (
@@ -293,11 +385,40 @@ export function CandidateValidationTable({
                 Showing {filtered.length} of {candidates.length}
               </span>
             </CardTitle>
-            {filtersActive && (
-              <Button variant="ghost" size="sm" onClick={resetFilters}>
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset filters
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {filtersActive && (
+                <Button variant="ghost" size="sm" onClick={resetFilters}>
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Reset filters
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={exporting !== null || filtered.length === 0}
+                  >
+                    {exporting ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    Export
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      ({filtered.length})
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => runExport('excel')}>
+                    <FileSpreadsheet className="mr-2 h-4 w-4" /> Excel (.xlsx)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => runExport('pdf')}>
+                    <FileText className="mr-2 h-4 w-4" /> PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
 
           {/* Advanced filters — one control per meaningful column */}
@@ -311,7 +432,7 @@ export function CandidateValidationTable({
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Name, email or program"
+                  placeholder="Name, roll no, email or program"
                   className="h-9"
                 />
               </div>
@@ -412,6 +533,11 @@ export function CandidateValidationTable({
                   <tr key={c.learner_id} className="border-b align-middle last:border-0">
                     <td className="py-2 pr-3">
                       <div className="font-medium">{c.full_name}</div>
+                      {/* Names collide and get re-typed across bulk uploads — the roll
+                          number is the key a warden reconciles this preview against. */}
+                      <div className="font-mono text-xs text-foreground/70">
+                        {c.roll_number ?? '—'}
+                      </div>
                       <div className="text-xs text-muted-foreground">{c.program_name ?? '—'}</div>
                       {c.institution_name && (
                         <div className="text-xs text-muted-foreground/80">{c.institution_name}</div>
@@ -441,7 +567,21 @@ export function CandidateValidationTable({
                       <YesNo ok={c.physical_rule_ok} na={prereqFail} />
                     </td>
                     <td className="px-2 text-xs">
-                      {c.target_block_name ?? <span className="text-muted-foreground">—</span>}
+                      {c.target_block_name ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span>{c.target_block_name}</span>
+                          {c.placement_tier === 'overflow' && (
+                            <span
+                              className="w-fit rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-800"
+                              title="Every room reserved for this cohort was full — placed in an unreserved room of the same category"
+                            >
+                              overflow
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </td>
                     <td className="px-2 text-xs">{c.resolved_room_category_name ?? <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-2 text-xs">{c.resolved_mess_category_name ?? <span className="text-muted-foreground">—</span>}</td>

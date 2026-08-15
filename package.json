@@ -11,6 +11,7 @@
     "start": "next start",
     "lint": "eslint .",
     "check:sidebar": "tsx scripts/check-sidebar-health.ts",
+    "check:mark-entry-rules": "tsx scripts/check-mark-entry-rules.ts",
     "gen:routes": "tsx scripts/generate-route-manifest.ts",
     "typecheck": "tsc --noEmit --pretty",
     "typecheck:report": "tsc --noEmit --pretty > type-errors.txt 2>&1 || echo 'Type errors saved to type-errors.txt'",
@@ -36,12 +37,15 @@
     "import:website-faculty:dry": "tsx --env-file=.env.local scripts/import/website-faculty-to-staff.ts --dry-run",
     "backfill:cdc-idp": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts",
     "backfill:cdc-idp:dry": "tsx --env-file=.env.local scripts/backfill-cdc-idp.ts --dry-run",
+    "backfill:jkkn-ids": "tsx --env-file=.env.local scripts/backfill-jkkn-ids.ts",
+    "backfill:jkkn-ids:dry": "tsx --env-file=.env.local scripts/backfill-jkkn-ids.ts --dry-run",
     "batch:autofill-schools": "tsx scripts/batch-autofill-school-learners.ts",
     "seed:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts",
     "list:razorpay": "tsx --env-file=.env.local scripts/seed-razorpay-accounts.ts --list",
     "gen:guide-e2e": "tsx scripts/e2e-nav.ts",
     "gen:guide-load": "tsx scripts/load-profile.ts",
-    "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs"
+    "check:anon-exposure": "node scripts/ci/check-anon-exposure-live.mjs",
+    "check:ungrantable": "node scripts/ci/check-ungrantable-permissions.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
@@ -199,6 +203,8 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@fontsource/noto-sans-tamil": "^5.3.0",
+    "@fontsource/tinos": "^5.3.0",
     "@playwright/test": "^1.61.0",
     "@serwist/cli": "^9.5.6",
     "@testing-library/dom": "^10.4.1",

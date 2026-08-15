@@ -28,6 +28,8 @@ export type PersonConflictSource = 'teaching' | 'meeting' | 'event';
 export interface PersonConflict {
   /** present on batch (fn_people_conflicts) results; absent on single calls */
   profile_id?: string;
+  /** present on guest (fn_guest_speaker_conflicts) results */
+  guest_id?: string;
   source: PersonConflictSource | string;
   ref_id: string | null;
   label: string;
@@ -66,6 +68,28 @@ export class PersonAvailabilityService {
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc('fn_people_conflicts', {
       p_profile_ids: profileIds,
+      p_start: startIso,
+      p_end: endIso,
+    });
+    if (error) throw error;
+    return (data as PersonConflict[]) ?? [];
+  }
+
+  /** The same question for an outside guest who has no login account, so the
+   *  double-booking check covers them too (Director decision D11). Rows come
+   *  back in the identical shape and are merged into the same conflict map —
+   *  this is the one availability spine reading a second identity, not a second
+   *  mechanism. A guest has exactly one diary (the sessions they speak at):
+   *  no timetable, no meetings, no event roles. */
+  static async getGuestConflicts(
+    guestIds: string[],
+    startIso: string,
+    endIso: string,
+  ): Promise<PersonConflict[]> {
+    if (!guestIds.length || !startIso || !endIso) return [];
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_guest_speaker_conflicts', {
+      p_guest_ids: guestIds,
       p_start: startIso,
       p_end: endIso,
     });

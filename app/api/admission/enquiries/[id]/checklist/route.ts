@@ -41,8 +41,7 @@ export async function GET(
   if (!user || authErr) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: canView } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: 'admission.enquiries.checklist.view',
+    permission_name: 'admission.enquiries.checklist.view',
   });
   if (!canView) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
@@ -116,8 +115,7 @@ export async function POST(
 
   // Route-level fast-fail. The RPC re-checks inside as defense in depth.
   const { data: canMark } = await (supabase as any).rpc('user_has_permission', {
-    user_id: user.id,
-    permission_key: 'admission.enquiries.checklist.mark',
+    permission_name: 'admission.enquiries.checklist.mark',
   });
   if (!canMark) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 

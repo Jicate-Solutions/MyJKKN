@@ -295,6 +295,12 @@ export function parseFrontLayout(raw: unknown): FrontLayout | null {
 // null only for non-object junk.
 
 export type BackLayout = {
+  /**
+   * Mirrors front_layout_json.orientation. A portrait FRONT must have a
+   * portrait BACK or the two faces print at 90° to each other on the same
+   * piece of plastic. Absent → landscape, as every prod back is today.
+   */
+  orientation?: CardOrientation;
   background_color?: string;
   background_image?: string;
   show_blood_group?: boolean;
@@ -326,6 +332,10 @@ export function parseBackLayout(raw: unknown): BackLayout | null {
   const obj = raw as Record<string, unknown>;
   const layout: BackLayout = {};
 
+  if (obj.orientation === 'portrait' || obj.orientation === 'portrait-flipped') {
+    layout.orientation = obj.orientation;
+  }
+
   const bg = safeColor(obj.background_color);
   if (bg) layout.background_color = bg;
 
@@ -344,7 +354,16 @@ export function parseBackLayout(raw: unknown): BackLayout | null {
     layout.footer_text = obj.footer_text.trim();
   }
 
-  const elements = parseElements(obj.elements, BACK_CARD_FIELDS);
+  // Portrait backs carry portrait coordinates, so they must clamp to the
+  // portrait canvas — clamping them to 1014x638 would squash anything below
+  // y=638 onto the edge.
+  const elements = parseElements(
+    obj.elements,
+    BACK_CARD_FIELDS,
+    layout.orientation
+      ? { maxX: PORTRAIT_WIDTH, maxY: PORTRAIT_HEIGHT }
+      : undefined
+  );
   if (elements.length > 0) layout.elements = elements;
 
   return layout;
@@ -1299,6 +1318,13 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
   const showContact = layout.show_contact ?? true;
   const footerText = layout.footer_text ?? DEFAULT_BACK_FOOTER_TEXT;
 
+  // Portrait backs compose in portrait coordinates and rotate into the
+  // unchanged 1014x638 output, exactly as buildCardElement does for the front.
+  const portrait =
+    layout.orientation === 'portrait' || layout.orientation === 'portrait-flipped';
+  const canvasWidth = portrait ? PORTRAIT_WIDTH : CARD_WIDTH;
+  const canvasHeight = portrait ? PORTRAIT_HEIGHT : CARD_HEIGHT;
+
   const infoRows: ReactElement[] = [];
   if (showBloodGroup && person.bloodGroup) {
     infoRows.push(
@@ -1375,14 +1401,14 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
     );
   });
 
-  return (
+  const content = (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        width: canvasWidth,
+        height: canvasHeight,
         backgroundColor: backgroundDataUrl
           ? 'transparent'
           : (layout.background_color ?? '#ffffff'),
@@ -1393,14 +1419,14 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
         <img
           src={backgroundDataUrl}
           alt=""
-          width={CARD_WIDTH}
-          height={CARD_HEIGHT}
+          width={canvasWidth}
+          height={canvasHeight}
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
-            width: CARD_WIDTH,
-            height: CARD_HEIGHT,
+            width: canvasWidth,
+            height: canvasHeight,
             objectFit: 'cover'
           }}
         />
@@ -1483,4 +1509,8 @@ export function buildBackElement(input: BackRenderInput): ReactElement {
       )}
     </div>
   );
+
+  return portrait && layout.orientation
+    ? rotatePortraitIntoCanvas(content, layout.orientation)
+    : content;
 }

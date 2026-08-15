@@ -35,7 +35,8 @@ import {
   assembleCardData,
   isAssembleFailure,
   parseFieldMappings,
-  defaultValidUntilLabel,
+  parseValidityPolicy,
+  resolveValidUntilLabel,
   resolvePhotoDataUrl,
   resolveBackgroundDataUrl,
   makeQrDataUrl
@@ -147,6 +148,28 @@ export async function GET(
     }
     const person = assembled.data;
 
+    // 2b. Card validity policy (id_card.validity.* in platform_policies).
+    // Read ONCE, and compute the label ONCE — above the front/back branch, so
+    // a card can never print one date on the front and another on the back.
+    // Fail-soft like every other read here: an error, or a database that
+    // predates the validity keys, falls back to the built-in defaults, which
+    // are the Director's rules (learner = whole course, team member = yearly).
+    const { data: policyJson, error: policyError } = await supabase.rpc(
+      'fn_get_id_card_policy',
+      { p_institution_id: templateRow.institution_id }
+    );
+    if (policyError) {
+      console.warn(
+        '[id-cards/templates/render] policy read failed, using built-in validity rules:',
+        policyError.message
+      );
+    }
+    const validUntilLabel = resolveValidUntilLabel({
+      kind: person.kind,
+      courseEndDate: person.courseEndDate,
+      policy: parseValidityPolicy(policyError ? null : policyJson)
+    });
+
     let element: ReactElement;
     if (side === 'back') {
       // 3b. Back composite (DARK): Code 39 barcode of the learner's roll
@@ -166,7 +189,7 @@ export async function GET(
         barcodeDataUrl,
         layout: backLayout,
         mappings: parseFieldMappings(templateRow.field_mappings),
-        validUntilLabel: defaultValidUntilLabel()
+        validUntilLabel
       });
     } else {
       // 3. Photo fallback chain + QR + card artwork — all fail-soft (never 500
@@ -187,7 +210,7 @@ export async function GET(
         backgroundDataUrl,
         layout,
         mappings: parseFieldMappings(templateRow.field_mappings),
-        validUntilLabel: defaultValidUntilLabel()
+        validUntilLabel
       });
     }
 

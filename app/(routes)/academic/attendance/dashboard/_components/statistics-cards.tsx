@@ -5,6 +5,7 @@ import {
   Users,
   UserCheck,
   UserX,
+  UserMinus,
   TrendingUp,
   Building2,
   RefreshCw,
@@ -138,17 +139,35 @@ export function StatisticsCards({
       acc.totalStudents += institution.total_students;
       acc.totalPresent += institution.total_present;
       acc.totalAbsent += institution.total_absent;
+      acc.totalMarked += institution.total_marked;
+      acc.totalUnmarked += institution.total_unmarked;
       return acc;
     },
-    { totalStudents: 0, totalPresent: 0, totalAbsent: 0 }
+    {
+      totalStudents: 0,
+      totalPresent: 0,
+      totalAbsent: 0,
+      totalMarked: 0,
+      totalUnmarked: 0
+    }
   );
 
+  // Denominator is learners ACTUALLY MARKED (Director decision 2026-08-11).
+  // A learner nobody marked is unknown, not absent — counting them against the
+  // rate reports a marking backlog as poor attendance. The headline therefore
+  // reads higher than it used to; the "Not yet marked" card beside it is what
+  // makes that honest rather than flattering, and the two must never be
+  // separated.
   const overallPercentage =
-    aggregateStats.totalStudents > 0
+    aggregateStats.totalMarked > 0
       ? Math.round(
-          (aggregateStats.totalPresent / aggregateStats.totalStudents) * 100
+          (aggregateStats.totalPresent / aggregateStats.totalMarked) * 100
         )
       : 0;
+
+  // Colleges listed with an explicit zero because they hold no learners once
+  // this view's narrowing is applied. Named, never silently dropped.
+  const emptyViewInstitutions = stats.filter((i) => i.is_empty_view);
 
   const getAttendanceColor = (percentage: number) => {
     if (percentage >= 80) return 'success';
@@ -193,35 +212,73 @@ export function StatisticsCards({
           ))}
         </div>
       ) : (
-        <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+        <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-5'>
           <StatCard
-            title='Total Students'
+            title='Total Learners'
             value={aggregateStats.totalStudents}
-            subtitle='Students enrolled today'
+            subtitle='Admitted, reserved or active — not gated on fees'
             icon={Users}
           />
           <StatCard
             title='Present'
             value={aggregateStats.totalPresent}
-            subtitle='Students marked present'
+            subtitle='Learners marked present'
             icon={UserCheck}
             color='success'
           />
           <StatCard
             title='Absent'
             value={aggregateStats.totalAbsent}
-            subtitle='Students marked absent'
+            subtitle='Learners marked absent'
             icon={UserX}
             color='destructive'
+          />
+          {/* Ships beside the rate, never without it. Removing this card turns
+              "1 present of 1 marked" into a 100% attendance claim over a
+              college where 92 learners were never marked at all. */}
+          <StatCard
+            title='Not yet marked'
+            value={aggregateStats.totalUnmarked}
+            subtitle='Nobody has recorded these learners today'
+            icon={UserMinus}
+            color='warning'
           />
           <StatCard
             title='Attendance Rate'
             value={overallPercentage}
-            subtitle='Overall percentage'
+            subtitle={`Of ${aggregateStats.totalMarked.toLocaleString()} learners actually marked`}
             icon={TrendingUp}
             color={getAttendanceColor(overallPercentage)}
           />
         </div>
+      )}
+
+      {/* Colleges that hold learners but none in this view. Listed with the
+          reason rather than dropped from the breakdown below (CLAUDE.md #27). */}
+      {!isLoading && emptyViewInstitutions.length > 0 && (
+        <Card className='border-dashed'>
+          <CardHeader className='pb-2'>
+            <CardTitle className='text-sm font-medium'>
+              Showing zero, and why
+            </CardTitle>
+            <CardDescription>
+              These colleges have no learners matching the current view — they
+              are listed here rather than dropped from the list.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='flex flex-wrap gap-2'>
+            {emptyViewInstitutions.map((institution) => (
+              <Badge
+                key={institution.institution_id}
+                variant='outline'
+                className='font-normal'
+              >
+                {institution.institution_name}: 0 — no learners admitted in this
+                intake yet
+              </Badge>
+            ))}
+          </CardContent>
+        </Card>
       )}
 
       {/* Post-Class Feedback Confirmation split (visibility-only; hidden when

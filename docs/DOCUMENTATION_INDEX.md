@@ -23,6 +23,7 @@ Architecture and design specs live under `specs/` at the repo root (not under `d
 - [docs/SPEC-CALL-INTELLIGENCE-PIPELINE.md](SPEC-CALL-INTELLIGENCE-PIPELINE.md) — Call intelligence pipeline
 - [docs/SPEC-EXOTEL-ADVANCED.md](SPEC-EXOTEL-ADVANCED.md) — Exotel advanced integration
 - [docs/architecture/ai-max-lane-recovery-runbook.md](architecture/ai-max-lane-recovery-runbook.md) — AI Max-lane Windows box: how it's wired, health checks & recovery runbook
+- [docs/architecture/2026-08-12-MIGRATION-ledger-drift-unrecorded-applied-versions.md](architecture/2026-08-12-MIGRATION-ledger-drift-unrecorded-applied-versions.md) — Seven `20260809*` accreditation migrations are live on production but absent from `supabase_migrations.schema_migrations`; the catalog evidence for each, why a blanket `db push` must never be used to reconcile it, and why backfilling the ledger was rejected as a one-way door
 
 ---
 
@@ -35,6 +36,15 @@ See `docs/features/` for per-feature docs (admission CRM handoff, marathon ops, 
 ## Fixes
 
 See `docs/fixes/` for bug-fix writeups, organized by month (`YYYY-MM/`).
+
+---
+
+## Audits
+
+- [docs/audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md](audit/2026-08-06-AUDIT-campus-living-permission-keys-by-area.md) — Director decision 12, area 1 of N: the closed `campus_living` permission keys grouped by area, with distinct real holders counted live on production. 215 keys; 0 ungrantable, 0 effective-but-invisible, 61 ungranted, 1 granted to an empty role. Includes the "open these first" shortlist and the keys that need a Director call.
+- [Test-pattern accounts and active academic years (2026-08-06)](audits/2026-08-06-AUDIT-test-accounts-and-active-academic-years.md) — read-only production audit, two sections. (A) 48 test-pattern accounts checked for real roles; revoking takes TWO layers because `is_admin()` (1,295 policies) reads `profiles.role`, which a `user_roles` delete never clears. (B) `academic_years.is_active` is true on 38 of 42 rows; the `ORDER BY start_date DESC LIMIT 1` idiom resolves 4 years wrong at Pharmacy and 2 at Dental, the enquiry importer throws PGRST116 and reports "not found", and ₹9.54 cr of deliberate forward bills means the extra years must NOT simply be deactivated.
+
+See `docs/audit/` and `docs/audits/` for earlier audit writeups.
 
 ---
 

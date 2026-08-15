@@ -93,16 +93,16 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
             <CardContent className="p-4">
               <div className="flex items-start gap-2">
                 <div className="flex flex-col gap-1 pt-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
+                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move column up" onClick={() => moveColumn(index, 'up')} disabled={index === 0}>
                     <ChevronUp className="h-3 w-3" />
                   </Button>
-                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
+                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6" aria-label="Move column down" onClick={() => moveColumn(index, 'down')} disabled={index === columns.length - 1}>
                     <ChevronDown className="h-3 w-3" />
                   </Button>
                 </div>
 
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-12 gap-3">
-                  <div className="sm:col-span-3 space-y-1">
+                <div className="min-w-0 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3">
+                  <div className="lg:col-span-3 space-y-1">
                     <Label className="text-xs">Column Label</Label>
                     <Input
                       placeholder="e.g. HSN/SAC"
@@ -111,7 +111,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                     />
                   </div>
 
-                  <div className="sm:col-span-4 space-y-1">
+                  <div className="lg:col-span-4 space-y-1 min-w-0">
                     <Label className="text-xs">Source</Label>
                     <Select
                       value={custom ? CUSTOM_SOURCE : col.source}
@@ -143,7 +143,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                     )}
                   </div>
 
-                  <div className="sm:col-span-2 space-y-1">
+                  <div className="lg:col-span-2 space-y-1">
                     <Label className="text-xs">Align</Label>
                     <Select
                       value={col.align || 'left'}
@@ -160,7 +160,7 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                     </Select>
                   </div>
 
-                  <div className="sm:col-span-2 space-y-1">
+                  <div className="lg:col-span-2 space-y-1">
                     <Label className="text-xs">Format</Label>
                     <Select
                       value={col.format || 'none'}
@@ -179,8 +179,8 @@ export function ItemColumnsEditor({ columns, onChange }: ItemColumnsEditorProps)
                     </Select>
                   </div>
 
-                  <div className="sm:col-span-1 flex items-end justify-end">
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" onClick={() => removeColumn(index)}>
+                  <div className="lg:col-span-1 flex items-end justify-end">
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700" aria-label="Remove column" onClick={() => removeColumn(index)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>

@@ -9,9 +9,26 @@
 import { z } from 'zod';
 
 export const onboardingTierSchema = z
-  .enum(['all', 'critical', 'needs_work', 'almost'])
+  .enum([
+    'all',
+    'critical',
+    'needs_work',
+    'almost',
+    'ready_to_activate',
+    'awaiting_payment'
+  ])
   .optional()
   .catch('all');
+
+/**
+ * Which pre-active status to show. Omitted = both.
+ * `.catch(undefined)` matters: a tampered ?lifecycle_status=active must fall
+ * back to "both" rather than reaching `.in()` and matching zero rows.
+ */
+export const onboardingStatusSchema = z
+  .enum(['reserved', 'admitted'])
+  .optional()
+  .catch(undefined);
 
 export const onboardingMissingFieldSchema = z
   .enum(['college_email', 'academic_year_id', 'semester_id', 'section_id'])
@@ -32,6 +49,7 @@ export const onboardingSearchParamsSchema = z.object({
   // Tier filter (also driven by tab selection)
   tier: onboardingTierSchema,
   missing_field: onboardingMissingFieldSchema,
+  lifecycle_status: onboardingStatusSchema,
 
   // Cascading filters
   institution_id: z.string().uuid().optional().catch(undefined),

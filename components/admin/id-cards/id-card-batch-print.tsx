@@ -117,17 +117,30 @@ interface NoPhotoLearner {
 }
 
 /**
+ * Mirrors the render engine's photo shape check (lib/id-cards/render-data.ts):
+ * only an inline data:image/ URI or an http(s) URL can actually render.
+ * Anything else — a roll number, a bare filename — renders as NO photo.
+ */
+function isRenderablePhotoRef(value: string | null): boolean {
+  const trimmed = (value ?? '').trim();
+  if (trimmed === '') return false;
+  return trimmed.startsWith('data:image/') || /^https?:\/\//i.test(trimmed);
+}
+
+/**
  * "Has a photo" = the card would render with a real photo, per the render
  * engine's fallback chain (learners_profiles photo → profiles.avatar_url).
- * Either being a non-empty string counts — never skip a learner whose card
- * would print fine off their account avatar. (Exported for unit tests.)
+ * Either slot holding a renderable value counts — never skip a learner whose
+ * card would print fine off their account avatar. Junk values (e.g. a roll
+ * number stored in the photo column) count as no photo, matching what the
+ * engine would actually draw. (Exported for unit tests.)
  */
 export function hasPrintablePhoto(
   learnerPhotoUrl: string | null,
   avatarUrl: string | null
 ): boolean {
   return (
-    (learnerPhotoUrl ?? '').trim() !== '' || (avatarUrl ?? '').trim() !== ''
+    isRenderablePhotoRef(learnerPhotoUrl) || isRenderablePhotoRef(avatarUrl)
   );
 }
 
