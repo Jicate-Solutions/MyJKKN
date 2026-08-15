@@ -3,10 +3,19 @@
 // Bloom's (JABT) taxonomies.
 
 /*
- * THREE frameworks, not two. Both database CHECK constraints
- * (obe_regulation_config_taxonomy_type_check and chk_curriculum_lesson_primary_taxonomy)
- * admit 'jkkn_advanced', and bos_taxonomy carries it seeded with all eleven levels,
- * so every surface reading this type can receive the third value today.
+ * THREE frameworks, not two. 'jkkn_advanced' is seeded in bos_taxonomy with all
+ * eleven levels (spec §3, verified against the live catalog 2026-08-15), and
+ * bos_regulation_taxonomies.taxonomy_type is an unconstrained varchar — so the third
+ * value reaches the surfaces reading this type today.
+ *
+ * CAVEAT, recorded here on purpose: the repo's migrations do NOT admit it everywhere.
+ * chk_curriculum_lesson_primary_taxonomy (supabase/migrations/20260801110000) still
+ * reads IN ('finks','blooms'), and no migration in this repo defines
+ * obe_regulation_config_taxonomy_type_check at all. Spec §8.3/§10 records both as
+ * altered on production, but that alter has no migration file, so the repo is not the
+ * authority. Verify the LIVE constraint before writing 'jkkn_advanced' to
+ * curriculum_lesson.primary_taxonomy or obe_regulation_config.
+ *
  * See specs/jkkn-advanced-blooms-taxonomy-2026-07-30.md (§2.2, §8.3, §8.4).
  */
 export type TaxonomyType = 'blooms' | 'finks' | 'jkkn_advanced';

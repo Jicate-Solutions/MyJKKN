@@ -21,10 +21,15 @@ import type { BloomsLevel, FinksDimension, TaxonomyType } from '@/types/obe';
 import { toast } from 'react-hot-toast';
 
 /*
- * A regulation can be configured against THREE frameworks. This screen WRITES the
- * stored value, so a missing option here is not cosmetic: before this, a regulation
- * already set to 'jkkn_advanced' rendered with neither radio selected and a summary
- * reading "Fink's". Spec §8.4.
+ * A regulation can be configured against THREE frameworks. This is the screen that
+ * SETS the value, so a missing option here is not cosmetic: given a config already on
+ * 'jkkn_advanced', the old binary branches rendered neither radio selected and a
+ * summary reading "Fink's" — and saving from that state would have replaced the
+ * framework with whichever legacy option the user then clicked.
+ *
+ * (The config source is still useMockRegulationConfig, so today that input arrives
+ * from a mock rather than the stored row. The branching defect is the same either way,
+ * and this screen is what a real config would be wired to.) Spec §8.4.
  */
 const TAXONOMY_SUMMARY: Record<TaxonomyType, { name: string; shape: string }> = {
   blooms: { name: "Bloom's", shape: 'Hierarchical - 6 Levels' },

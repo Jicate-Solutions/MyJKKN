@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
  * scannable at a glance across the taxonomy screens. Renders the human label
  * ("Fink's") rather than the raw code ("finks").
  *
- * Three seeded frameworks, not two: 'jkkn_advanced' is live in bos_taxonomy with
- * all eleven levels, and without its own branch it fell through to the custom
- * style and showed the raw code. See
+ * Three seeded frameworks, not two: 'jkkn_advanced' is seeded in bos_taxonomy with
+ * all eleven levels (spec §3), and without its own branch it fell through to the
+ * custom style and showed the raw code. See
  * specs/jkkn-advanced-blooms-taxonomy-2026-07-30.md (§3, §8.4).
  */
 export function TaxonomyBadge({ type, className }: { type: string; className?: string }) {
