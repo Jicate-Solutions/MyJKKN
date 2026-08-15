@@ -61,19 +61,19 @@ export function useApplication(applicationId: string | undefined) {
 
 export function useLeaveBalance(
   employeeId: string | undefined,
-  academicYearId: string | undefined
+  hrAcademicYearId: string | undefined
 ) {
   return useQuery({
-    queryKey: ['hr-leave-balance', employeeId, academicYearId],
+    queryKey: ['hr-leave-balance', employeeId, hrAcademicYearId],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (employeeId) params.set('employee_id', employeeId);
-      if (academicYearId) params.set('academic_year_id', academicYearId);
+      if (hrAcademicYearId) params.set('hr_academic_year_id', hrAcademicYearId);
       const res = await fetch(`${BASE}/balance?${params}`);
       if (!res.ok) throw new Error(`Balance failed: ${res.status}`);
       return ((await res.json()).data ?? []) as HRLeaveBalanceWithType[];
     },
-    enabled: !!employeeId && !!academicYearId,
+    enabled: !!employeeId && !!hrAcademicYearId,
   });
 }
 
@@ -248,7 +248,7 @@ export function useRequestEncashment() {
     mutationFn: async (payload: {
       hr_organization_id: string;
       employee_id: string;
-      academic_year_id: string;
+      hr_academic_year_id: string;
       leave_type_id: string;
       days_encashed: number;
       per_diem_rate: number;

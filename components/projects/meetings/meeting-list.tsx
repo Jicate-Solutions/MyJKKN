@@ -21,6 +21,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import {
   AlertDialog,
@@ -220,7 +221,7 @@ export function MeetingList({ projectId }: MeetingListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                          className={`h-7 w-7 text-destructive/70 hover:text-destructive ${TAP_TARGET_ICON}`}
                           onClick={() => setDeletingMeeting(meeting)}
                           aria-label="Unlink meeting"
                         >

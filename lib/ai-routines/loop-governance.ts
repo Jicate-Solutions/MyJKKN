@@ -189,4 +189,26 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     notes:
       'Auth: CRON_SECRET Bearer only (dispatcher and the AI Routines manual trigger both send the header; secrets never sit in URLs). Escalation target of the loop_edges mentor-checkins→decisions and referral-desk→decisions edges (both seeded 2026-07-13). The super-admin lookup failing FAILS the run (mirrors the watchdog r4 fix) rather than fanning out to nobody.',
   },
+  {
+    id: 'metaloop-charter-drafts',
+    name: 'MetaLoop — Charter Drafter (machine drafts, humans sign)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Sundays 10:41 IST (dispatcher-managed, after the 07:53 loops-regress)',
+    triggerPath: '/api/cron/metaloop-charter-drafts',
+    callsClaude: true,
+    featureKey: null,
+    featureKeyNote:
+      "Enqueues the 'loops.charter_draft' ai_jobs type on the ₹0 Max lane (provider/model live on the ai_job_types row); no ai_model_config feature row is resolved by the route itself.",
+    whatItDoes:
+      'The chartering factory. Each week it picks up to 3 active loops whose charter is incomplete (any of the 5 legs NULL) but that have real evidence (a scheduled routine or audit history), bundles that evidence (registry row + last 5 loop_audits + last 5 dispatcher runs), and asks the Max-lane model to DRAFT the charter — the 5 legs plus a mandatory kill rule and a suggested verdict owner. Finished drafts are filed as proposals on /admin/loops/charters, where a super admin approves (writing the legs onto loop_registry via fn_loop_apply_charter_proposal) or rejects. Drafts that self-report insufficient evidence are logged, never filed.',
+    configKnobs:
+      'ENQUEUE_CAP=3 per run, EVIDENCE_AUDITS=5, EVIDENCE_RUNS=5 (route constants). Schedule editable on /admin/ai-routines. The prompt is the loops.charter_draft champion in ai_prompt_versions — editing it on /admin/ai-models mints a challenger.',
+    sideEffects:
+      "DB writes only, all human-gated: INSERTs status='proposed' rows into loop_charter_proposals and enqueues up to 3 ai_jobs on the Max lane. NEVER writes loop_registry — only a super admin approving on /admin/loops/charters does (fn_loop_apply_charter_proposal). No notifications, no emails.",
+    safeToManualTrigger: true,
+    maxLane: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-drafts' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Idempotent: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE + one-undecided-proposal-per-loop partial index + fn_ai_enqueue_system's in-flight dedupe. Safe no-op while the loops.charter_draft job type is unapplied/disabled.",
+  },
 ];

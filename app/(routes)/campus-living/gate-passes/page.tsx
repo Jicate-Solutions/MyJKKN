@@ -43,6 +43,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   QrCode,
+  ScanLine,
   Download,
   Check,
   X,
@@ -192,6 +193,12 @@ export default function GatePassesPage() {
           </div>
           <div className="flex gap-2">
             <Button asChild>
+              <Link href="/campus-living/gate-passes/scan">
+                <ScanLine className="mr-2 h-4 w-4" />
+                Scan at Gate
+              </Link>
+            </Button>
+            <Button variant="outline" asChild>
               <Link href="/campus-living/gate-passes/new">
                 <DoorOpen className="mr-2 h-4 w-4" />
                 Issue Gate Pass

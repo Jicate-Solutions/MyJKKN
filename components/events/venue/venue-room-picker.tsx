@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/popover';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { ParentCategoryService } from '@/lib/services/resource-management/parent-category-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { formatVenueDirections } from '@/lib/services/meetings/venue-directions';
 import type { Resource } from '@/types/resource-management';
 
@@ -106,6 +107,26 @@ export function VenueRoomPicker({ value, onChange, initialName, disabled }: Venu
             search: [r.name, directions, institutionName].filter(Boolean).join(' '),
           };
         });
+        // An empty result is AMBIGUOUS and must never be shown as a bare
+        // "No matching rooms." Both SELECT policies on `resources` require
+        // auth.uid(), and PostgREST answers an unauthenticated read with
+        // 200 [] — not an error — so a lapsed browser session renders as an
+        // empty picker while the registry actually holds 100+ bookable rooms.
+        // (The category step does NOT catch this: its policy is
+        // `status = 'active'`, which anon passes, so the registry lookup still
+        // succeeds and the organizer gets no clue anything is wrong.)
+        // Tell them which of the two it is, because the actions differ.
+        if (opts.length === 0) {
+          const {
+            data: { session },
+          } = await createClientSupabaseClient().auth.getSession();
+          if (cancelled) return;
+          setLoadError(
+            session
+              ? 'No bookable rooms found in the venue registry.'
+              : 'Your session has expired — sign out and sign in again to load the room list.',
+          );
+        }
         setRooms(opts);
         setLoading(false);
       } catch (err) {

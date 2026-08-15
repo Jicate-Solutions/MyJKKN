@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle, ArrowDown, ArrowUp, GitBranch, Plus, Trash2, UserCheck,
+  AlertCircle, ArrowDown, ArrowUp, Building2, GitBranch, Plus, Trash2,
 } from 'lucide-react';
 
 import {
@@ -34,15 +34,16 @@ import {
 import {
   useClearLeaveApprovalFlow,
   useLeaveApprovalFlow,
-  useLeaveApproverCandidates,
   useLeaveApproverRoles,
   useSaveLeaveApprovalFlow,
 } from '@/hooks/hr/use-leave-approval-flows';
+import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
 import type {
   HRLeaveType, LeaveApprovalFlowStep, LeaveApproverMode,
 } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { toast } from 'sonner';
+import { ApproverPersonPicker } from './approver-person-picker';
 
 interface DraftStep {
   key: string;
@@ -76,8 +77,12 @@ export function LeaveApprovalFlowDialog({
   const hrOrgId = leaveType?.hr_organization_id;
   const { data: resolved, isLoading } = useLeaveApprovalFlow(hrOrgId, leaveType?.id);
   const { data: roles } = useLeaveApproverRoles(open);
-  const [search, setSearch] = useState('');
-  const { data: candidates } = useLeaveApproverCandidates(hrOrgId, search, open);
+
+  // Leave types are keyed on hr_organization_id, which is meaningless on screen.
+  // hr_organizations.name is maintained identical to institutions.name for every
+  // mapped org, so this map is the institution label without a second join.
+  const { orgNameById, isLoading: orgsLoading } = useHrOrgMappings();
+  const institutionName = hrOrgId ? orgNameById.get(hrOrgId) : undefined;
 
   const save = useSaveLeaveApprovalFlow();
   const clear = useClearLeaveApprovalFlow();
@@ -109,7 +114,7 @@ export function LeaveApprovalFlowDialog({
   }, [open, isLoading, leaveType, resolved, seeded]);
 
   useEffect(() => {
-    if (!open) { setSeeded(null); setSearch(''); }
+    if (!open) setSeeded(null);
   }, [open]);
 
   const roleByKey = useMemo(
@@ -193,6 +198,36 @@ export function LeaveApprovalFlowDialog({
             submitted, so editing here never changes requests already in flight.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Which institution this flow belongs to. Every leave type is scoped to
+            one organization and each organization maintains its own catalog, so
+            several institutions can each have a "Casual Leave" whose approvers
+            differ — the type name alone does not say which one is open. The list
+            page can be filtered to one organization or left showing all, so the
+            row that opened this dialog does not reliably carry that context. */}
+        {leaveType && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className={institutionName ? 'font-medium' : 'text-muted-foreground'}>
+              {institutionName ?? (orgsLoading ? 'Loading institution…' : 'Unmapped organization')}
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: leaveType.color_code }}
+                aria-hidden
+              />
+              {leaveType.leave_type_name}
+            </span>
+            <Badge variant="outline" className="font-mono text-[10px]">
+              {leaveType.leave_type_code}
+            </Badge>
+            {!leaveType.is_active && (
+              <Badge variant="secondary" className="text-[10px]">inactive</Badge>
+            )}
+          </div>
+        )}
 
         {isLoading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
@@ -307,48 +342,19 @@ export function LeaveApprovalFlowDialog({
                     </div>
                   ) : (
                     <div className="mt-3">
-                      <Label>Person</Label>
-                      <Input className="mt-1" placeholder="Search by name or email"
-                        value={search} onChange={(e) => setSearch(e.target.value)} />
-                      {s.approver_name && (
-                        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                          <UserCheck className="h-3 w-3" /> Selected: {s.approver_name}
-                        </p>
-                      )}
-                      <div className="mt-2 max-h-40 overflow-y-auto rounded-md border">
-                        {(candidates ?? []).length === 0 ? (
-                          <p className="p-3 text-xs text-muted-foreground">
-                            No matching team members with a login account.
-                          </p>
-                        ) : (
-                          (candidates ?? []).map((c) => (
-                            <button key={c.profile_id} type="button"
-                              onClick={() =>
-                                patch(s.key, {
-                                  approver_user_id: c.profile_id,
-                                  approver_name: c.full_name ?? c.email,
-                                })
-                              }
-                              className={`flex w-full items-start justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted ${
-                                s.approver_user_id === c.profile_id ? 'bg-muted' : ''
-                              }`}>
-                              <span className="min-w-0">
-                                <span className="block font-medium">
-                                  {c.full_name ?? c.email}
-                                </span>
-                                <span className="block truncate text-muted-foreground">
-                                  {c.role_names ?? 'No role assigned'}
-                                </span>
-                              </span>
-                              {!c.can_approve && (
-                                <Badge variant="destructive" className="shrink-0 text-[10px]">
-                                  cannot approve
-                                </Badge>
-                              )}
-                            </button>
-                          ))
-                        )}
-                      </div>
+                      <ApproverPersonPicker
+                        hrOrgId={hrOrgId}
+                        roles={roles}
+                        selectedId={s.approver_user_id}
+                        selectedName={s.approver_name}
+                        onSelect={(picked) =>
+                          patch(s.key, {
+                            approver_user_id: picked?.id ?? null,
+                            approver_name: picked?.name ?? null,
+                          })
+                        }
+                        enabled={open}
+                      />
                     </div>
                   )}
                 </div>

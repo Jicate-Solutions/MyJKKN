@@ -30,6 +30,17 @@
 // 2026-08-05: Principal and Vice Principal now live in institution_leadership,
 // one row per college, so one person can hold the post at more than one. See
 //   supabase/migrations/20260809102100_institution_leadership_posts.sql
+//
+// 2026-08-05: a post also carries WHY it was given and the condition on which it
+// ends, and this page SHOWS it. Dr. RAJENDIRAN K M is Principal of JKKN College
+// of Education personally — explicitly not because he is CAO — until he leaves
+// JKKN. Stored, that fact was indistinguishable from every other principalship,
+// so the reasonable reading was that the next CAO inherits the post. A column
+// nobody can see does not prevent the misunderstanding it exists to prevent, so
+// "Personal — does not pass to a successor" is rendered next to the name, and a
+// post whose basis was never recorded says exactly that rather than implying
+// ex officio. See
+//   supabase/migrations/20260809103500_leadership_appointment_basis.sql
 // ============================================================================
 
 'use client';
@@ -37,7 +48,15 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { AlertCircle, Building, CheckCircle2, RefreshCw, UserX } from 'lucide-react';
+import {
+  AlertCircle,
+  Building,
+  CheckCircle2,
+  HelpCircle,
+  Lock,
+  RefreshCw,
+  UserX,
+} from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -46,6 +65,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -71,6 +91,23 @@ interface Person {
   user_id: string;
   full_name: string | null;
   email: string | null;
+  // Only Principal and Vice Principal carry these, and only once
+  // 20260809103500 has been applied — before that the RPC simply omits the keys,
+  // which is what basisEnabled below detects. `basis_code: null` means nobody
+  // has recorded why; it must never be rendered as ex officio.
+  basis_code?: string | null;
+  basis_label?: string | null;
+  basis_passes_to_successor?: boolean | null;
+  basis_note?: string | null;
+  assigned_at?: string | null;
+  assigned_by_name?: string | null;
+}
+
+interface AppointmentBasis {
+  code: string;
+  label: string;
+  description: string;
+  passes_to_successor: boolean;
 }
 
 interface DepartmentRow {
@@ -150,6 +187,140 @@ function NotAssigned() {
   );
 }
 
+function recordedOn(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Why this post was given. The whole reason the columns exist: a record that
+// only the database can see does not stop anyone assuming the successor
+// inherits the post.
+//
+// An unrecorded basis says "Not recorded" in those words. It is never rendered
+// as ex officio, because for the eleven appointments nobody has discussed, "it
+// comes with the other post" is a guess — and it is the exact guess the
+// Director ruled out for the one appointment we do know about.
+// ---------------------------------------------------------------------------
+function BasisLine({ holder }: { holder: Person }) {
+  const recorded = holder.basis_code != null;
+  const personal = holder.basis_passes_to_successor === false;
+  const when = recordedOn(holder.assigned_at);
+
+  if (!recorded) {
+    return (
+      <p className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <HelpCircle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        Why this post was given is not recorded.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      <Badge
+        variant="outline"
+        className={
+          personal
+            ? 'border-violet-500 text-violet-700 dark:text-violet-400'
+            : 'border-border text-muted-foreground'
+        }
+      >
+        {personal && <Lock className="mr-1 h-3 w-3" aria-hidden />}
+        {holder.basis_label ?? holder.basis_code}
+      </Badge>
+      {personal && (
+        <p className="text-xs font-medium text-violet-700 dark:text-violet-400">
+          Does not pass to a successor.
+        </p>
+      )}
+      {holder.basis_note && (
+        <p className="max-w-prose text-xs text-muted-foreground">{holder.basis_note}</p>
+      )}
+      {(holder.assigned_by_name || when) && (
+        <p className="text-xs text-muted-foreground">
+          Recorded
+          {holder.assigned_by_name ? ` by ${holder.assigned_by_name}` : ''}
+          {when ? ` on ${when}` : ''}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recording it. Without a way in, the only appointment that would ever carry a
+// basis is the one the migration backfilled.
+// ---------------------------------------------------------------------------
+function BasisEditor({
+  holder,
+  options,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  holder: Person;
+  options: AppointmentBasis[];
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (basisCode: string, basisNote: string) => void;
+}) {
+  const [code, setCode] = useState<string>(holder.basis_code ?? '');
+  const [note, setNote] = useState<string>(holder.basis_note ?? '');
+  const chosen = options.find((o) => o.code === code);
+
+  return (
+    <div className="mt-3 space-y-3 rounded-md border border-border bg-muted/30 p-3">
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          Why was this post given?
+        </label>
+        <SearchableSelect
+          value={code}
+          onValueChange={setCode}
+          options={options.map((o) => ({ value: o.code, label: o.label }))}
+          placeholder="Choose a reason…"
+          searchPlaceholder="Search reasons…"
+          disabled={busy}
+          className="w-full sm:w-[340px]"
+        />
+        {chosen && (
+          <p className="mt-1.5 max-w-prose text-xs text-muted-foreground">
+            {chosen.description}
+          </p>
+        )}
+      </div>
+      <div>
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+          Conditions, in your own words — including when it ends
+        </label>
+        <Textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          disabled={busy}
+          rows={3}
+          placeholder="e.g. Personal to this individual, until they leave JKKN. Does not pass to whoever succeeds them as CAO."
+          className="max-w-prose"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" disabled={busy || !code} onClick={() => onSave(code, note)}>
+          Save reason
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Reads. react-query rather than useEffect + useState: the effect form calls
 // setState from inside the effect, which react-hooks/set-state-in-effect
@@ -160,7 +331,39 @@ const QK = {
   colleges: ['organizations', 'leadership', 'colleges'] as const,
   detail: (id: string) => ['organizations', 'leadership', 'detail', id] as const,
   people: (id: string) => ['organizations', 'leadership', 'people', id] as const,
+  basis: ['organizations', 'leadership', 'basis'] as const,
 };
+
+/** The appointment-basis vocabulary.
+ *
+ *  Read from the table rather than hardcoded here, and `passes_to_successor`
+ *  comes from the row rather than from a map keyed on the code. That is the
+ *  point of storing the vocabulary as a table: a basis added later ("acting",
+ *  "in charge") arrives with its own answer to "does this pass on?" instead of
+ *  falling into whatever branch a hardcoded list happened to default to — which
+ *  would be the same wrong inheritance assumption this feature exists to stop.
+ *
+ *  `retry: false` because the one failure worth distinguishing is "the table is
+ *  not there yet" (the migration is Director-gated and may not be applied), and
+ *  that is not worth three round trips. An error simply hides the basis UI: the
+ *  rest of the page keeps working exactly as before. */
+function useAppointmentBasis() {
+  return useQuery({
+    queryKey: QK.basis,
+    retry: false,
+    staleTime: 60 * 60 * 1000,
+    queryFn: async (): Promise<AppointmentBasis[]> => {
+      const sb = createClientSupabaseClient() as any;
+      const { data, error } = await sb
+        .from('leadership_appointment_basis')
+        .select('code, label, description, passes_to_successor')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as AppointmentBasis[];
+    },
+  });
+}
 
 function useLeadershipColleges() {
   return useQuery({
@@ -222,9 +425,18 @@ function LeadershipPageBody() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string>('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [editingBasis, setEditingBasis] = useState<string | null>(null);
 
   const collegesQuery = useLeadershipColleges();
   const colleges = collegesQuery.data ?? [];
+
+  // The basis feature is inert until 20260809103500 is applied. Failing to read
+  // the vocabulary is the signal, and it is a soft one on purpose: the rest of
+  // this page must keep working unchanged whether the migration has landed or
+  // not, so the code half of the PR can deploy in either order.
+  const basisQuery = useAppointmentBasis();
+  const basisOptions = basisQuery.data ?? [];
+  const basisEnabled = !basisQuery.isError && basisOptions.length > 0;
 
   // The picker defaults to the first college without storing that in an
   // effect: an empty selection simply resolves to the first row.
@@ -247,18 +459,32 @@ function LeadershipPageBody() {
     async (
       position: PositionKey,
       rawUserId: string,
-      opts?: { departmentId?: string; label?: string },
+      opts?: {
+        departmentId?: string;
+        label?: string;
+        basisCode?: string;
+        basisNote?: string;
+      },
     ) => {
       if (!effectiveId) return;
       const userId = rawUserId === UNASSIGNED ? null : rawUserId;
       setSavingKey(opts?.departmentId ?? position);
 
       const sb = createClientSupabaseClient() as any;
+      // The basis arguments are sent ONLY when the caller has one to record.
+      // Omitting them keeps this a four-argument call, which resolves against
+      // the pre-migration function too — so changing a post-holder keeps working
+      // whether or not 20260809103500 has been applied. Omitting them also
+      // leaves an already-recorded reason untouched; the RPC preserves it while
+      // the holder is unchanged.
       const { error } = await sb.rpc('fn_set_college_leadership', {
         p_institution_id: effectiveId,
         p_position: position,
         p_user_id: userId,
         p_department_id: opts?.departmentId ?? null,
+        ...(opts?.basisCode
+          ? { p_basis_code: opts.basisCode, p_basis_note: opts.basisNote ?? null }
+          : {}),
       });
 
       setSavingKey(null);
@@ -272,10 +498,13 @@ function LeadershipPageBody() {
       }
 
       toast.success(
-        userId
-          ? `${opts?.label ?? 'Position'} updated.`
-          : `${opts?.label ?? 'Position'} cleared.`,
+        opts?.basisCode
+          ? `Reason recorded for ${opts?.label ?? 'this position'}.`
+          : userId
+            ? `${opts?.label ?? 'Position'} updated.`
+            : `${opts?.label ?? 'Position'} cleared.`,
       );
+      setEditingBasis(null);
       await Promise.all([
         qc.invalidateQueries({ queryKey: QK.detail(effectiveId) }),
         qc.invalidateQueries({ queryKey: QK.colleges }),
@@ -428,10 +657,17 @@ function LeadershipPageBody() {
               {POSITIONS.map((pos) => {
                 const holder = detail[pos.key];
                 const name = personName(holder);
+                // Only Principal and Vice Principal have anywhere to keep a
+                // basis — IQAC office bearers live on the committee row and the
+                // RPC refuses one for them rather than pretending to store it.
+                const canRecordBasis =
+                  basisEnabled &&
+                  holder !== null &&
+                  (pos.key === 'principal' || pos.key === 'vice_principal');
                 return (
                   <div
                     key={pos.key}
-                    className="flex flex-col gap-3 border-b border-border pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col gap-3 border-b border-border pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-medium">{pos.label}</p>
@@ -450,6 +686,39 @@ function LeadershipPageBody() {
                           <NotAssigned />
                         )}
                       </div>
+
+                      {canRecordBasis && holder && (
+                        <>
+                          <BasisLine holder={holder} />
+                          {editingBasis === pos.key ? (
+                            <BasisEditor
+                              holder={holder}
+                              options={basisOptions}
+                              busy={savingKey !== null}
+                              onCancel={() => setEditingBasis(null)}
+                              onSave={(basisCode, basisNote) =>
+                                void assign(pos.key, holder.user_id, {
+                                  label: pos.label,
+                                  basisCode,
+                                  basisNote,
+                                })
+                              }
+                            />
+                          ) : (
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="h-auto px-0 text-xs"
+                              disabled={savingKey !== null}
+                              onClick={() => setEditingBasis(pos.key)}
+                            >
+                              {holder.basis_code
+                                ? 'Change the reason'
+                                : 'Record why this post was given'}
+                            </Button>
+                          )}
+                        </>
+                      )}
                     </div>
                     <SearchableSelect
                       value={holder?.user_id ?? UNASSIGNED}
@@ -461,7 +730,7 @@ function LeadershipPageBody() {
                       searchPlaceholder="Search people…"
                       disabled={savingKey !== null}
                       loading={savingKey === pos.key}
-                      className="w-full sm:w-[280px]"
+                      className="w-full shrink-0 sm:w-[280px]"
                     />
                   </div>
                 );
@@ -591,6 +860,12 @@ export default function CollegeLeadershipPage() {
               The IQAC rule is <strong>Principal chairs, Vice Principal
               coordinates</strong>. Naming an IQAC Chairman or Coordinator for a
               college that has no committee record creates that record here.
+            </p>
+            <p className="mt-2">
+              A Principal or Vice Principal post can also record{' '}
+              <strong>why it was given</strong>. Some posts come with another job
+              and pass to whoever holds that job next; others are given to one
+              person and end with them. Record it here so nobody has to guess.
             </p>
           </div>
           <LeadershipPageBody />

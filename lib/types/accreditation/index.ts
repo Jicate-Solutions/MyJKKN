@@ -50,8 +50,15 @@ export const EVIDENCE_CONFLICT_TARGET_LEGACY =
   'source_table,source_id,body_code,metric_code,programme_id';
 
 /**
- * Static metadata for the 10 compliance bodies. Rendered on the landing page
- * and drives routing + display. Sequence is intentional:
+ * Display metadata for each compliance body — label, blurb, accent colour.
+ *
+ * ⚠️ NOT the list of bodies. From migration 20260816010000 that is the
+ * `accreditation_bodies` table, and which of them apply to a given college is
+ * `institution_accreditation_bodies`. This array only decorates a code with
+ * something readable, and a code missing from it renders as the code itself
+ * rather than disappearing.
+ *
+ * Sequence is intentional:
  * 1. Cross-cutting (NAAC, UGC) first
  * 2. Rankings (NIRF, QS) next
  * 3. Program/Technical (NBA, AICTE, NCTE) middle
@@ -168,6 +175,66 @@ export const ACCREDITATION_BODIES: BodyMeta[] = [
     scopeLabel: 'JKKN College of Nursing',
     status: 'placeholder',
     accentClass: 'border-lime-300 bg-lime-50 dark:bg-lime-950/30',
+  },
+  // ---------------------------------------------------------------------
+  // Added 2026-08-06 (Director decisions). None of these five has a single
+  // metric defined in sh_accreditation_metrics — creating the body is the
+  // small half, defining what it measures is the real work and is scoped
+  // separately. Their description says so, because an empty body rendered as
+  // a finished one is the same "nothing to do here" problem in a new coat.
+  // ---------------------------------------------------------------------
+  {
+    code: 'NCAHP',
+    name: 'National Commission for Allied and Healthcare Professions',
+    shortLabel: 'NCAHP',
+    description: 'Allied and healthcare professions regulator. No measures defined yet.',
+    cycleLabel: 'To be established',
+    scopeLabel: 'JKKN College of Allied Health Sciences',
+    status: 'placeholder',
+    accentClass: 'border-cyan-300 bg-cyan-50 dark:bg-cyan-950/30',
+  },
+  {
+    code: 'ABET',
+    name: 'Accreditation Board for Engineering and Technology',
+    shortLabel: 'ABET',
+    description: 'US engineering accreditation, chosen over the ranking route. No measures defined yet.',
+    cycleLabel: 'To be established',
+    scopeLabel: 'JKKN College of Engineering and Technology',
+    status: 'placeholder',
+    accentClass: 'border-blue-300 bg-blue-50 dark:bg-blue-950/30',
+  },
+  {
+    code: 'THE',
+    name: 'Times Higher Education',
+    shortLabel: 'THE',
+    description: 'World university ranking. No measures defined yet.',
+    cycleLabel: 'To be established',
+    scopeLabel: 'Both Arts and Science colleges',
+    status: 'placeholder',
+    accentClass: 'border-orange-300 bg-orange-50 dark:bg-orange-950/30',
+  },
+  {
+    code: 'CBSE',
+    name: 'Central Board of Secondary Education',
+    shortLabel: 'CBSE',
+    description: 'School board. NAAC does not accredit schools. No measures defined yet.',
+    cycleLabel: 'To be established',
+    scopeLabel: 'Nattraja Vidhyalya',
+    status: 'placeholder',
+    accentClass: 'border-stone-300 bg-stone-50 dark:bg-stone-950/30',
+  },
+  {
+    code: 'MATRIC',
+    // ⚠️ Working label, not the registered name of the board. The Director
+    // supplied "State Matric Board" and the exact official name is still to be
+    // confirmed; it must be corrected before it appears on anything filed.
+    name: 'State Matric Board',
+    shortLabel: 'Matric',
+    description: 'School board (exact official name to be confirmed). No measures defined yet.',
+    cycleLabel: 'To be established',
+    scopeLabel: 'JKKN Matric Higher Secondary School',
+    status: 'placeholder',
+    accentClass: 'border-zinc-300 bg-zinc-50 dark:bg-zinc-950/30',
   },
 ];
 

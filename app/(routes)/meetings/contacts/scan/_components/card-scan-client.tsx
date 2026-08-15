@@ -104,6 +104,29 @@ const WHO_OPTIONS = [
   'Just a contact',
 ] as const;
 
+// Destinations that need a parent row a card cannot name, and the follow-up
+// choices where one "Who is this?" answer serves two different module tables.
+// Both are refinements UNDER decision 17's seven locked options — not new ones.
+const NEEDS_PARENT: Record<string, 'event' | 'site'> = {
+  'Event sponsor': 'event',
+  'Hospital / internship site': 'site',
+};
+
+const SUB_CHOICES: Record<string, Array<{ key: string; label: string }>> = {
+  'Hospital / internship site': [
+    { key: '', label: 'Office contact' },
+    { key: 'preceptor', label: 'Supervising doctor' },
+  ],
+  'Industry partner': [
+    { key: '', label: 'Partner only' },
+    { key: 'mentor', label: 'Also mentors students' },
+  ],
+  'Employer / recruiter': [
+    { key: '', label: 'Hiring only' },
+    { key: 'prospect', label: 'Interested in our services' },
+  ],
+};
+
 const EDITABLE_LABELS: Array<[keyof ScanFields, string]> = [
   ['name', 'Name'],
   ['organization', 'Organisation'],
@@ -145,6 +168,12 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ScanFields>({});
   const [who, setWho] = useState<string>('');
+  const [subChoice, setSubChoice] = useState<string>('');
+  const [parentId, setParentId] = useState<string>('');
+  const [parentSkipped, setParentSkipped] = useState(false);
+  const [parentOptions, setParentOptions] = useState<
+    Array<{ id: string; label: string; hint: string | null }> | null
+  >(null);
   const [matches, setMatches] = useState<CardMatch[] | null>(null);
   const [matchWarning, setMatchWarning] = useState<string | null>(null);
   const [enrichTarget, setEnrichTarget] = useState<string | null>(null);
@@ -323,6 +352,10 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
       setActiveId(scan.job_id);
       setDraft({ ...(scan.fields ?? {}) });
       setWho('');
+      setSubChoice('');
+      setParentId('');
+      setParentSkipped(false);
+      setParentOptions(null);
       setMatches(null);
       setMatchWarning(null);
       setEnrichTarget(null);
@@ -371,6 +404,33 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
     [],
   );
 
+  // Load the picker only when the chosen type actually needs one — most scans
+  // never see it, and a fair-ground connection should not fetch what it cannot use.
+  useEffect(() => {
+    const kind = NEEDS_PARENT[who];
+    if (!kind) {
+      setParentOptions(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/contacts/card-scan/options?kind=${kind}`, {
+          cache: 'no-store',
+        });
+        const json = await res.json();
+        if (!cancelled) setParentOptions(json.ok ? json.options : []);
+      } catch {
+        // An unreachable picker must not trap the user: an empty list falls
+        // through to Skip, which is always allowed.
+        if (!cancelled) setParentOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [who]);
+
   const save = async () => {
     if (!active) return;
     if (!draft.name?.trim()) {
@@ -391,7 +451,9 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
           fields: draft,
           mode: enrichTarget ? 'enrich' : 'create',
           target_id: enrichTarget ?? undefined,
-          routed_to: who || undefined,
+          routed_to: who ? (subChoice ? `${who}::${subChoice}` : who) : undefined,
+          event_id: NEEDS_PARENT[who] === 'event' ? parentId || undefined : undefined,
+          site_id: NEEDS_PARENT[who] === 'site' ? parentId || undefined : undefined,
         }),
       });
       const json = await res.json();
@@ -408,13 +470,22 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
       // recorded and names those fields. Show them — a partial save must not
       // look like a clean one.
       const skipped: string[] = json.skipped ?? [];
+      const routing = json.routing;
+      const routingNote =
+        routing?.status === 'pending_parent'
+          ? ` Saved as a contact — a to-do was left to attach them to a ${routing.needs}.`
+          : routing?.status === 'routed' && routing.missing_fields?.length
+            ? ` Added to ${routing.table?.replace(/_/g, ' ')} — needs completion, ${routing.missing_fields.length} field(s) missing.`
+            : routing?.status === 'routed'
+              ? ` Also added to ${routing.table?.replace(/_/g, ' ')}.`
+              : '';
       toast({
         title: json.mode === 'enriched' ? 'Contact updated' : 'Contact saved',
         description: skipped.length
-          ? `Kept the existing ${skipped.join(', ')} — the card disagreed, so nothing was overwritten.`
+          ? `Kept the existing ${skipped.join(', ')} — the card disagreed, so nothing was overwritten.${routingNote}`
           : json.mode === 'no_change'
-            ? 'Everything on this card was already recorded.'
-            : 'Added to the contact book.',
+            ? `Everything on this card was already recorded.${routingNote}`
+            : `Added to the contact book.${routingNote}`,
       });
 
       setActiveId(null);
@@ -768,12 +839,90 @@ export function CardScanClient({ userEmail }: { userEmail: string | null }) {
                         type="button"
                         size="sm"
                         variant={who === opt ? 'default' : 'outline'}
-                        onClick={() => setWho(who === opt ? '' : opt)}
+                        onClick={() => {
+                          const next = who === opt ? '' : opt;
+                          setWho(next);
+                          setSubChoice('');
+                          setParentId('');
+                          setParentSkipped(false);
+                        }}
                       >
                         {opt}
                       </Button>
                     ))}
                   </div>
+
+                  {/* One follow-up only where two module tables genuinely differ
+                      and a card cannot tell them apart. */}
+                  {SUB_CHOICES[who] && (
+                    <div className="flex flex-wrap gap-2 mt-2 pl-1">
+                      {SUB_CHOICES[who].map((sc) => (
+                        <Button
+                          key={sc.key || 'default'}
+                          type="button"
+                          size="sm"
+                          variant={subChoice === sc.key ? 'secondary' : 'ghost'}
+                          className="text-xs"
+                          onClick={() => setSubChoice(sc.key)}
+                        >
+                          {sc.label}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* The parent a card cannot name. ALWAYS skippable — at a stall
+                      the person is still standing there (decisions 13, 18). */}
+                  {NEEDS_PARENT[who] && !parentSkipped && (
+                    <div className="mt-2 rounded-md border p-2 space-y-2">
+                      <p className="text-xs font-medium">
+                        Which {NEEDS_PARENT[who]}?
+                      </p>
+                      {parentOptions === null ? (
+                        <p className="text-xs text-muted-foreground">Loading…</p>
+                      ) : parentOptions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          No {NEEDS_PARENT[who]}s are set up yet — skip for now and
+                          someone can attach them later.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {parentOptions.map((o) => (
+                            <Button
+                              key={o.id}
+                              type="button"
+                              size="sm"
+                              variant={parentId === o.id ? 'default' : 'outline'}
+                              className="text-xs"
+                              onClick={() => setParentId(parentId === o.id ? '' : o.id)}
+                            >
+                              {o.label}
+                              {o.hint ? ` · ${o.hint}` : ''}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-xs"
+                        onClick={() => {
+                          setParentId('');
+                          setParentSkipped(true);
+                        }}
+                      >
+                        I don&rsquo;t know — skip
+                      </Button>
+                    </div>
+                  )}
+
+                  {NEEDS_PARENT[who] && parentSkipped && (
+                    <p className="text-xs text-muted-foreground mt-2 pl-1">
+                      Skipped. They&rsquo;ll be saved as a contact and someone will be
+                      asked to attach them to a {NEEDS_PARENT[who]}.
+                    </p>
+                  )}
                 </div>
 
                 <Button

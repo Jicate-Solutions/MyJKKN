@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyHostelSummary, useMyRoommates } from '@/hooks/campus-living/use-my-hostel';
 import { WinsFeedCard } from './wins-feed-card';
+import { RoomSharingChoiceCard } from './room-sharing-choice-card';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import {
   BedDouble,
@@ -57,7 +58,8 @@ export function OverviewTab() {
 
   // Display query includes a not-yet-approved (proposed) allocation so a freshly
   // allocated student sees "awaiting approval" instead of "no allocation yet".
-  // Distinct key from the active-only gating query in page.tsx (canRequestVacate).
+  // Distinct query key ('…by-learner-display') from the plain active-only lookup
+  // used elsewhere, so the wider status list here can't overwrite that cache.
   const { data: allocations, isLoading: allocLoading } = useQuery({
     queryKey: ['hostel-allocations', 'by-learner-display', profileId],
     queryFn: () =>
@@ -200,6 +202,20 @@ export function OverviewTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Any empty bed in a multi-bed room → she is carrying it. Names the
+          cost, shows the deadline, and offers invite / buy-out / move.
+          Self-gates away when the room is full.
+          ACTIVE allocations only: this display query also returns
+          pending_approval and pending_vacate rows, and neither should be told
+          she is overpaying or nudged toward an irreversible charge — one is not
+          hers yet, the other she is leaving. */}
+      <RoomSharingChoiceCard
+        roomId={activeAllocation?.status === 'active' ? activeAllocation.room_id ?? null : null}
+        roomNumber={activeAllocation?.hostel_rooms?.room_number ?? null}
+        messCategoryId={summary?.messCategory?.id ?? null}
+        tierId={activeAllocation?.tier_id ?? null}
+      />
 
       {/* Roommates — co-residents of the assigned room */}
       {hasAllocation && (
