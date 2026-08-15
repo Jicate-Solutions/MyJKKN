@@ -1,4 +1,13 @@
--- 20260812100000_fp_items_bloom_level.sql
+-- 20260908010000_fp_items_bloom_level.sql
+--
+-- Renumbered 2026-08-15 from 20260812100000. That version was free when this
+-- file was written on 2026-08-06, but `jicate/main` has since merged
+-- 20260812100000_seed_hr_onboarding_checklists_all_orgs.sql, so the two files
+-- collided the moment main was merged in here. Safe to renumber: this migration
+-- is unapplied — verified live 2026-08-15, `fp_items.advanced_dimension` absent
+-- from information_schema.columns — so no already-applied version is being
+-- renamed. 20260908010000 is absent from both the repo files and
+-- supabase_migrations.schema_migrations (both checked 2026-08-15).
 --
 -- Foundation Programme item bank: record what each question asks for, in the
 -- vocabulary of the JKKN Advanced Bloom's Taxonomy (`jkkn_advanced`).
