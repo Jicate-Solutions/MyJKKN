@@ -75,10 +75,20 @@
 -- write-ordering problem, not a shape problem, and fixing it needs a decision
 -- about back-writing identity onto existing rows. Out of scope for this PR.
 --
--- Also observed and NOT changed: the `LIMIT 1` that picks the student_attendance
--- row has no ORDER BY, and 186 of the 1,601 distinct (timetable_id,
--- attendance_date, period_id) keys behind these NULLs match MORE THAN ONE
--- student_attendance row (up to 5). That non-determinism predates this change.
+-- THIRD DEFECT (measured, FIXED here)
+--
+-- The `LIMIT 1` that picks the student_attendance row had NO ORDER BY, and 186
+-- of the 1,601 distinct (timetable_id, attendance_date, period_id) keys behind
+-- these NULLs match MORE THAN ONE student_attendance row (up to 5). Which of
+-- those rows won — and therefore which teacher received the weekly HOD
+-- escalation — was decided by the planner, not by a rule. Naming the WRONG
+-- teacher to their HOD is worse than naming none, so this is now ordered.
+--
+-- Rule: the most recently edited attendance row wins —
+--   ORDER BY sa.updated_at DESC, sa.id DESC
+-- with id as a deterministic tiebreak so two equal timestamps cannot
+-- reintroduce the coin flip. public.student_attendance.updated_at is
+-- timestamptz NOT NULL, so this needs no schema change.
 --
 -- NO BACKFILL. This migration changes the WRITE PATH only. The 19,804 existing
 -- rows are untouched; recovering 9,996 + 1,728 = 11,724 of them is a separate,
@@ -185,6 +195,10 @@ BEGIN
   WHERE sa.timetable_id = p_timetable_id
     AND sa.attendance_date = p_attendance_date
     AND sa.attendance_data ? p_period_id
+  -- Most recently edited wins. 186 of 1,601 keys match up to 5 rows; without
+  -- this ORDER BY the planner decided which teacher the HOD escalation named.
+  -- sa.id DESC is the deterministic tiebreak for equal timestamps.
+  ORDER BY sa.updated_at DESC, sa.id DESC
   LIMIT 1;
 
   IF v_period IS NULL THEN
