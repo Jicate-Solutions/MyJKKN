@@ -63,15 +63,6 @@ export const JABT_ELEMENT_LABELS: Record<JabtElement, string> = {
   A5: 'Accountable AI Use',
 };
 
-// Display names for the taxonomy frameworks themselves.
-export const TAXONOMY_TYPE_LABELS: Record<TaxonomyType, string> = {
-  blooms: "Bloom's",
-  finks: "Fink's",
-  jkkn_advanced: 'JKKN Advanced',
-};
-
-export const JABT_FULL_NAME = "JKKN Advanced Bloom's Taxonomy";
-
 /*
  * Mandatory attribution line — spec §1. Must appear wherever JABT is formally
  * defined or named as the framework in force.
