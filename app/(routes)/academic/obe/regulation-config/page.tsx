@@ -8,13 +8,38 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useMockRegulationConfig } from '@/hooks/obe/use-mock-obe-data';
-import { BLOOMS_LEVEL_LABELS, FINKS_DIMENSION_LABELS } from '@/types/obe';
-import type { BloomsLevel, FinksDimension } from '@/types/obe';
+import {
+  BLOOMS_LEVEL_LABELS,
+  FINKS_DIMENSION_LABELS,
+  JABT_A_DIMENSIONS,
+  JABT_ATTRIBUTION,
+  JABT_ELEMENTS,
+  JABT_ELEMENT_LABELS,
+  JABT_K_LEVELS,
+} from '@/types/obe';
+import type { BloomsLevel, FinksDimension, TaxonomyType } from '@/types/obe';
 import { toast } from 'react-hot-toast';
+
+/*
+ * A regulation can be configured against THREE frameworks. This screen WRITES the
+ * stored value, so a missing option here is not cosmetic: before this, a regulation
+ * already set to 'jkkn_advanced' rendered with neither radio selected and a summary
+ * reading "Fink's". Spec §8.4.
+ */
+const TAXONOMY_SUMMARY: Record<TaxonomyType, { name: string; shape: string }> = {
+  blooms: { name: "Bloom's", shape: 'Hierarchical - 6 Levels' },
+  finks: { name: "Fink's", shape: 'Non-hierarchical - 6 Dimensions' },
+  jkkn_advanced: {
+    name: "JKKN Advanced Bloom's",
+    // Mixed on purpose: K1-K6 is a hierarchy, A1-A5 is a flat unordered series.
+    // Spec §3 — forcing it into one bucket would misstate the framework.
+    shape: 'Mixed - hierarchical K1-K6 plus a flat A1-A5 series, 11 elements',
+  },
+};
 
 export default function RegulationConfigPage() {
   const { config, loading, updateConfig } = useMockRegulationConfig();
-  const [taxonomyType, setTaxonomyType] = useState<'blooms' | 'finks'>(config.taxonomy_type);
+  const [taxonomyType, setTaxonomyType] = useState<TaxonomyType>(config.taxonomy_type);
   const [directWeightage, setDirectWeightage] = useState(config.direct_weightage);
   const [bloomsLevels, setBloomsLevels] = useState<BloomsLevel[]>(config.blooms_active_levels);
   const [finksLevels, setFinksLevels] = useState<FinksDimension[]>(config.finks_active_dimensions);
@@ -63,43 +88,62 @@ export default function RegulationConfigPage() {
         <CardHeader>
           <CardTitle>Taxonomy Type</CardTitle>
           <CardDescription>
-            Choose between Bloom's Taxonomy (UGC regulations) or Fink's Taxonomy (Management regulations)
+            Choose between Bloom&apos;s Taxonomy (UGC regulations), Fink&apos;s Taxonomy (Management
+            regulations), or JKKN Advanced Bloom&apos;s Taxonomy (R-2026 onward)
           </CardDescription>
         </CardHeader>
         <CardContent className='space-y-6'>
-          <div className='space-y-4'>
+          {/* One radio group across all three options — separate groups would break
+              keyboard navigation and cannot express a third choice cleanly. */}
+          <RadioGroup
+            value={taxonomyType}
+            onValueChange={(val) => setTaxonomyType(val as TaxonomyType)}
+            className='gap-4'
+          >
             <div className='flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer'>
-              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks')}>
-                <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='blooms' id='blooms' />
-                  <Label htmlFor='blooms' className='cursor-pointer flex-1'>
-                    <div>
-                      <p className='font-medium'>Bloom's Taxonomy</p>
-                      <p className='text-sm text-muted-foreground mt-1'>
-                        Hierarchical model with 6 cognitive levels (L1-L6). Recommended for UGC, engineering, and general education programs.
-                      </p>
-                    </div>
-                  </Label>
-                </div>
-              </RadioGroup>
+              <div className='flex items-center space-x-2'>
+                <RadioGroupItem value='blooms' id='blooms' />
+                <Label htmlFor='blooms' className='cursor-pointer flex-1'>
+                  <div>
+                    <p className='font-medium'>Bloom&apos;s Taxonomy</p>
+                    <p className='text-sm text-muted-foreground mt-1'>
+                      Hierarchical model with 6 cognitive levels (L1-L6). Recommended for UGC, engineering, and general education programs.
+                    </p>
+                  </div>
+                </Label>
+              </div>
             </div>
 
             <div className='flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer'>
-              <RadioGroup value={taxonomyType} onValueChange={(val) => setTaxonomyType(val as 'blooms' | 'finks')}>
-                <div className='flex items-center space-x-2'>
-                  <RadioGroupItem value='finks' id='finks' />
-                  <Label htmlFor='finks' className='cursor-pointer flex-1'>
-                    <div>
-                      <p className='font-medium'>Fink's Taxonomy</p>
-                      <p className='text-sm text-muted-foreground mt-1'>
-                        Non-hierarchical model with 6 independent dimensions (FK, AP, IN, HD, CA, LL). Recommended for management and specialized programs.
-                      </p>
-                    </div>
-                  </Label>
-                </div>
-              </RadioGroup>
+              <div className='flex items-center space-x-2'>
+                <RadioGroupItem value='finks' id='finks' />
+                <Label htmlFor='finks' className='cursor-pointer flex-1'>
+                  <div>
+                    <p className='font-medium'>Fink&apos;s Taxonomy</p>
+                    <p className='text-sm text-muted-foreground mt-1'>
+                      Non-hierarchical model with 6 independent dimensions (FK, AP, IN, HD, CA, LL). Recommended for management and specialized programs.
+                    </p>
+                  </div>
+                </Label>
+              </div>
             </div>
-          </div>
+
+            <div className='flex items-center space-x-4 p-4 border rounded-lg hover:bg-gray-50 cursor-pointer'>
+              <div className='flex items-center space-x-2'>
+                <RadioGroupItem value='jkkn_advanced' id='jkkn_advanced' />
+                <Label htmlFor='jkkn_advanced' className='cursor-pointer flex-1'>
+                  <div>
+                    <p className='font-medium'>JKKN Advanced Bloom&apos;s Taxonomy</p>
+                    <p className='text-sm text-muted-foreground mt-1'>
+                      Mixed model with 11 elements. Bloom&apos;s 6 cognitive levels retained unchanged as a
+                      hierarchy (K1-K6), extended by a flat, unordered series of 5 added dimensions
+                      (A1-A5) that a cognitive taxonomy cannot assess. Applies to regulation R-2026 onward.
+                    </p>
+                  </div>
+                </Label>
+              </div>
+            </div>
+          </RadioGroup>
         </CardContent>
       </Card>
 
@@ -151,6 +195,48 @@ export default function RegulationConfigPage() {
                   </Label>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {taxonomyType === 'jkkn_advanced' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>JKKN Advanced Elements</CardTitle>
+            <CardDescription>
+              All eleven elements are carried by this framework. The six cognitive levels are a
+              hierarchy; the five added dimensions are flat and unordered — A1 does not rank below A3.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-5'>
+            <div className='space-y-2'>
+              <p className='text-sm font-medium'>Cognitive levels (K1-K6) — hierarchical, retained from Bloom&apos;s unchanged</p>
+              <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
+                {JABT_K_LEVELS.map(code => (
+                  <div key={code} className='p-3 border rounded'>
+                    <div className='text-sm font-medium'>{code}</div>
+                    <div className='text-xs text-muted-foreground'>{JABT_ELEMENT_LABELS[code]}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className='space-y-2'>
+              <p className='text-sm font-medium'>Added dimensions (A1-A5) — flat and unordered</p>
+              <div className='grid grid-cols-2 md:grid-cols-3 gap-4'>
+                {JABT_A_DIMENSIONS.map(code => (
+                  <div key={code} className='p-3 border rounded'>
+                    <div className='text-sm font-medium'>{code}</div>
+                    <div className='text-xs text-muted-foreground'>{JABT_ELEMENT_LABELS[code]}</div>
+                    {code === 'A5' && (
+                      <div className='text-xs text-muted-foreground mt-1'>
+                        Used sparingly — a Board of Studies opts a course in.
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -208,14 +294,22 @@ export default function RegulationConfigPage() {
         </CardHeader>
         <CardContent className='space-y-2 text-sm'>
           <p>
-            <strong>Taxonomy:</strong> {taxonomyType === 'blooms' ? 'Bloom\'s (Hierarchical - 6 Levels)' : 'Fink\'s (Non-hierarchical - 6 Dimensions)'}
+            <strong>Taxonomy:</strong> {TAXONOMY_SUMMARY[taxonomyType].name} ({TAXONOMY_SUMMARY[taxonomyType].shape})
           </p>
           <p>
-            <strong>Active Levels:</strong> {taxonomyType === 'blooms' ? bloomsLevels.join(', ') : finksLevels.join(', ')}
+            <strong>Active Levels:</strong>{' '}
+            {taxonomyType === 'blooms'
+              ? bloomsLevels.join(', ')
+              : taxonomyType === 'finks'
+                ? finksLevels.join(', ')
+                : JABT_ELEMENTS.join(', ')}
           </p>
           <p>
             <strong>Weightage:</strong> {directWeightage}% direct + {100 - directWeightage}% indirect
           </p>
+          {taxonomyType === 'jkkn_advanced' && (
+            <p className='text-xs text-muted-foreground'>{JABT_ATTRIBUTION}</p>
+          )}
         </CardContent>
       </Card>
 

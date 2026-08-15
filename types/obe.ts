@@ -1,7 +1,15 @@
 // ── OBE Type Definitions ────────────────────────────────────────────────
-// Outcome-Based Education system supporting Bloom's and Fink's taxonomies
+// Outcome-Based Education system supporting Bloom's, Fink's and JKKN Advanced
+// Bloom's (JABT) taxonomies.
 
-export type TaxonomyType = 'blooms' | 'finks';
+/*
+ * THREE frameworks, not two. Both database CHECK constraints
+ * (obe_regulation_config_taxonomy_type_check and chk_curriculum_lesson_primary_taxonomy)
+ * admit 'jkkn_advanced', and bos_taxonomy carries it seeded with all eleven levels,
+ * so every surface reading this type can receive the third value today.
+ * See specs/jkkn-advanced-blooms-taxonomy-2026-07-30.md (§2.2, §8.3, §8.4).
+ */
+export type TaxonomyType = 'blooms' | 'finks' | 'jkkn_advanced';
 export type BloomsLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 export type FinksDimension = 'FK' | 'AP' | 'IN' | 'HD' | 'CA' | 'LL';
 export type CorrelationLevel = 0 | 1 | 2 | 3;
@@ -26,6 +34,55 @@ export const FINKS_DIMENSION_LABELS: Record<FinksDimension, string> = {
   CA: 'Caring',
   LL: 'Learning How to Learn',
 };
+
+// ── JKKN Advanced Bloom's Taxonomy (JABT) ─────────────────────────────
+// Spec §2.2 — eleven elements: Bloom's six retained unchanged (K1-K6, a
+// hierarchy) plus five added (A1-A5, deliberately FLAT and unordered — A1 is
+// not lower than A3). The mixed shape is the point; do not force it into one
+// bucket.
+
+export type JabtKLevel = 'K1' | 'K2' | 'K3' | 'K4' | 'K5' | 'K6';
+export type JabtADimension = 'A1' | 'A2' | 'A3' | 'A4' | 'A5';
+export type JabtElement = JabtKLevel | JabtADimension;
+
+export const JABT_K_LEVELS: JabtKLevel[] = ['K1', 'K2', 'K3', 'K4', 'K5', 'K6'];
+export const JABT_A_DIMENSIONS: JabtADimension[] = ['A1', 'A2', 'A3', 'A4', 'A5'];
+export const JABT_ELEMENTS: JabtElement[] = [...JABT_K_LEVELS, ...JABT_A_DIMENSIONS];
+
+export const JABT_ELEMENT_LABELS: Record<JabtElement, string> = {
+  K1: 'Remember',
+  K2: 'Understand',
+  K3: 'Apply',
+  K4: 'Analyze',
+  K5: 'Evaluate',
+  K6: 'Create',
+  A1: 'Human Dimension',
+  A2: 'Caring',
+  A3: 'Learning How to Learn',
+  A4: 'Performed Skill',
+  A5: 'Accountable AI Use',
+};
+
+// Display names for the taxonomy frameworks themselves.
+export const TAXONOMY_TYPE_LABELS: Record<TaxonomyType, string> = {
+  blooms: "Bloom's",
+  finks: "Fink's",
+  jkkn_advanced: 'JKKN Advanced',
+};
+
+export const JABT_FULL_NAME = "JKKN Advanced Bloom's Taxonomy";
+
+/*
+ * Mandatory attribution line — spec §1. Must appear wherever JABT is formally
+ * defined or named as the framework in force.
+ */
+export const JABT_ATTRIBUTION =
+  "JKKN Advanced Bloom's Taxonomy: Bloom's revised cognitive taxonomy (Bloom et al., 1956; " +
+  "Anderson & Krathwohl, 2001) retained in full, extended by three dimensions drawn from " +
+  "L. Dee Fink's Taxonomy of Significant Learning (Creating Significant Learning Experiences, " +
+  '2003) — Human Dimension, Caring, and Learning How to Learn; by Performed Skill, ' +
+  "operationalising Bloom's uncompleted psychomotor domain in three bands after Simpson (1972); " +
+  'and by Accountable AI Use, which has no precedent in either author.';
 
 // ── Regulation Config ────────────────────────────────────────────────
 
