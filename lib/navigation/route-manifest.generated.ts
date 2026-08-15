@@ -661,6 +661,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/id-cards/morning",
+            "label": "ID Card Morning Page",
+            "iconName": "Sunrise",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/policy",
             "label": "ID Card Policy",
             "iconName": "CreditCard",
