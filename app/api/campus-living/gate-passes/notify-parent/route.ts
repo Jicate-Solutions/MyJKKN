@@ -16,9 +16,20 @@ export const dynamic = 'force-dynamic';
  * write therefore happens here under the service-role client, with the
  * caller's own permission checked first so the route is not an open relay.
  *
- * The gate write has ALREADY happened by the time this is called. Every
- * failure below is logged and swallowed into a 200-with-counts: a parent who
- * has no linked account must never make a gate look broken.
+ * The gate write has ALREADY happened by the time this is called, so nothing
+ * below is allowed to fail the request: a parent who cannot be reached must
+ * never make a gate look broken. FAIL-SOFT IS NOT THE SAME AS PRETENDING IT
+ * WORKED. Every path returns HTTP 200, and the body says plainly whether a
+ * parent actually learned of this movement:
+ *
+ *   { ok, delivered, notified, attempted, reason, message }
+ *
+ * `ok` and `delivered` are the same fact — a parent was told — so the naive
+ * `if (body.ok)` read is true only when someone was really reached. `reason`
+ * is a stable machine code and `message` is a sentence the person at the gate
+ * can read. Before this, the route answered `{ ok: true, notified: 0 }` for a
+ * learner nobody could be told about, which is a lie of omission the guard
+ * recording the exit had no way to see.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -37,6 +48,50 @@ const LOG = 'campus-living/gate-pass-notify';
 const EDIT_PERMISSION = 'campus_living.gate_passes.edit';
 
 type GateEvent = 'out' | 'late_return';
+
+/**
+ * Why a parent was or was not told. Stable codes — a UI may switch on these.
+ *
+ * `parent_account_not_in_gate_directory` is the honest name for the state
+ * production is actually in. There are two disjoint parent directories in this
+ * codebase: the gate flow reads `parent_learner_links` -> `parent_profiles`,
+ * while the Parent Portal keeps its accounts in `pp_parent_accounts`. Reporting
+ * "no parent linked" when a portal account exists for that learner would be
+ * true about the lookup and false about the world, so the route checks and says
+ * which it is.
+ */
+export type ParentNotifyReason =
+  | 'delivered'
+  | 'no_parent_linked'
+  | 'parent_account_not_in_gate_directory'
+  | 'no_parent_account'
+  | 'delivery_failed';
+
+export interface ParentNotifyResult {
+  /** Same fact as `delivered` — a parent was actually told. */
+  ok: boolean;
+  delivered: boolean;
+  /** Parent accounts a notification was written for. */
+  notified: number;
+  /** Parent accounts we tried to reach. */
+  attempted: number;
+  reason: ParentNotifyReason;
+  /** A sentence the person at the gate can read. */
+  message: string;
+}
+
+/** Always HTTP 200 — the gate movement is already recorded and must stand. */
+function respond(result: ParentNotifyResult) {
+  return NextResponse.json(result);
+}
+
+function notDelivered(
+  reason: Exclude<ParentNotifyReason, 'delivered'>,
+  message: string,
+  attempted = 0
+): ParentNotifyResult {
+  return { ok: false, delivered: false, notified: 0, attempted, reason, message };
+}
 
 export async function POST(request: NextRequest) {
   // ── Caller must be signed in and hold the gate write permission ─────
@@ -132,11 +187,30 @@ export async function POST(request: NextRequest) {
     .filter((v): v is string => Boolean(v));
 
   if (parentIds.length === 0) {
-    logger.warn(LOG, 'no parent linked to learner — nothing to notify', {
+    // Say WHICH kind of gap this is. A Parent Portal account keyed on
+    // learners_profiles.id may well exist for this learner while the gate
+    // directory holds nothing — measured on production 2026-08-14, that is the
+    // case estate-wide. Read-only, and any failure falls back to the plain
+    // reason rather than blocking the answer.
+    const portalAccountExists = await hasParentPortalAccount(db, pass.learner_id);
+
+    logger.warn(LOG, 'no parent in the gate directory — nobody was notified', {
       passId,
       learner_id: pass.learner_id,
+      portalAccountExists,
     });
-    return NextResponse.json({ ok: true, notified: 0, reason: 'no_parent_linked' });
+
+    return respond(
+      portalAccountExists
+        ? notDelivered(
+            'parent_account_not_in_gate_directory',
+            `Nobody was told. ${learnerName} has a Parent Portal account, but no parent is linked to this learner in the gate directory, so the gate cannot reach them.`
+          )
+        : notDelivered(
+            'no_parent_linked',
+            `Nobody was told. No parent is linked to ${learnerName}.`
+          )
+    );
   }
 
   const { data: parentProfiles } = await db
@@ -154,7 +228,12 @@ export async function POST(request: NextRequest) {
 
   if (userIds.length === 0) {
     logger.warn(LOG, 'parent linked but has no login account', { passId });
-    return NextResponse.json({ ok: true, notified: 0, reason: 'no_parent_account' });
+    return respond(
+      notDelivered(
+        'no_parent_account',
+        `Nobody was told. A parent is linked to ${learnerName} but has no login account to receive it.`
+      )
+    );
   }
 
   // ── The message ─────────────────────────────────────────────────────
@@ -223,5 +302,65 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, notified });
+  if (notified === 0) {
+    return respond(
+      notDelivered(
+        'delivery_failed',
+        `Nobody was told. ${userIds.length === 1 ? "The parent's" : 'Every parent'} notification failed to send.`,
+        userIds.length
+      )
+    );
+  }
+
+  return respond({
+    ok: true,
+    delivered: true,
+    notified,
+    attempted: userIds.length,
+    reason: 'delivered',
+    message:
+      notified === userIds.length
+        ? `Parent notified (${notified}).`
+        : `Notified ${notified} of ${userIds.length} parents — the rest failed to send.`,
+  });
+}
+
+/**
+ * Does a Parent Portal account exist for this learner?
+ *
+ * `hostel_gate_passes.learner_id` is a `profiles.id`, but
+ * `pp_parent_accounts.learner_profile_id` is a `learners_profiles.id` — two
+ * different ID spaces, so the hop through `profiles.learner_id` is required.
+ * (Verified against production 2026-08-14: a portal account's
+ * `learner_profile_id` matches a `learners_profiles.id` and matches no
+ * `profiles.id`.)
+ *
+ * Read-only and best-effort: this only sharpens the wording of a failure that
+ * has already happened, so any error here answers `false` rather than throwing.
+ */
+async function hasParentPortalAccount(
+  db: ReturnType<typeof createServiceRoleClient>,
+  profileId: string
+): Promise<boolean> {
+  try {
+    const { data: profileRow } = await db
+      .from('profiles')
+      .select('learner_id')
+      .eq('id', profileId)
+      .maybeSingle();
+
+    const learnerProfileId = (profileRow as { learner_id: string | null } | null)?.learner_id;
+    if (!learnerProfileId) return false;
+
+    const { data: account } = await db
+      .from('pp_parent_accounts')
+      .select('id')
+      .eq('learner_profile_id', learnerProfileId)
+      .limit(1)
+      .maybeSingle();
+
+    return Boolean(account);
+  } catch {
+    return false;
+  }
 }
