@@ -63,7 +63,7 @@ import {
   type ScannedLearner,
 } from '@/lib/services/campus-living/gate-scan-service';
 import {
-  decideGateAction,
+  decideScan,
   type GateDecision,
 } from '@/lib/services/campus-living/gate-scan-resolve';
 
@@ -158,7 +158,9 @@ export default function GatePassScanPage() {
       }
 
       const passes = await GatePassService.getScannablePassesForLearner(learner.profileId);
-      const decision = decideGateAction(passes, new Date());
+      // The subject is judged before the passes: a learner who has left can
+      // still be holding a valid-looking card, and often an open pass too.
+      const decision = decideScan(learner.subject, passes, new Date());
 
       // Only GREEN shows an approver — on AMBER the guard needs the clock,
       // not the paperwork.
@@ -496,12 +498,27 @@ export default function GatePassScanPage() {
 
               {result.decision.verdict === 'blocked' && (
                 <div className="rounded-lg border-2 border-red-300 bg-red-50 p-3 text-center dark:border-red-800 dark:bg-red-950/40">
-                  <p className="text-base font-semibold text-red-800 dark:text-red-200">
-                    Do not let this learner out.
-                  </p>
-                  <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-                    A warden must issue a pass first.
-                  </p>
+                  {result.decision.blockedReason === 'has_left' ? (
+                    <>
+                      <p className="flex items-center justify-center gap-2 text-base font-semibold text-red-800 dark:text-red-200">
+                        <ShieldAlert className="h-5 w-5 shrink-0" />
+                        Do not accept this card.
+                      </p>
+                      <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                        This person has left. A new pass must not be issued —
+                        send them to the office.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-base font-semibold text-red-800 dark:text-red-200">
+                        Do not let this learner out.
+                      </p>
+                      <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                        A warden must issue a pass first.
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 

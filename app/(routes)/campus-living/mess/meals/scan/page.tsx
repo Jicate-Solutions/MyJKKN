@@ -45,6 +45,7 @@ import {
   CheckCircle2,
   XCircle,
   AlertTriangle,
+  ShieldAlert,
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -67,7 +68,14 @@ export const navMeta = {
   invokedFrom: '/campus-living/mess/meals',
 } as const;
 
-type ScanTone = 'success' | 'warning' | 'error';
+/**
+ * 'blocked' is a refusal about the PERSON, not about the scan — a card that
+ * read perfectly and belongs to someone who has left. It gets a solid red
+ * band rather than the ordinary pale error box, because the one thing the
+ * server behind the counter must not do is mistake it for a reader fault and
+ * wave the queue through.
+ */
+type ScanTone = 'success' | 'warning' | 'error' | 'blocked';
 
 interface LastScan {
   tone: ScanTone;
@@ -101,6 +109,12 @@ function describeOutcome(outcome: MessScanOutcome): LastScan {
         tone: 'error',
         title: 'Card not recognised',
         detail: `${outcome.displayName} is on record but has no login account yet, so a meal cannot be filed against them. Send them to the office.`,
+      };
+    case 'has_left':
+      return {
+        tone: 'blocked',
+        title: `${outcome.displayName} — card no longer valid`,
+        detail: `${outcome.reason} No meal was recorded. Do not serve on this card; send them to the office.`,
       };
     case 'failed':
     default:
@@ -422,7 +436,9 @@ export default function MealScanPage() {
                       ? 'bg-green-50 border-green-200'
                       : lastScan.tone === 'warning'
                         ? 'bg-amber-50 border-amber-200'
-                        : 'bg-red-50 border-red-200'
+                        : lastScan.tone === 'blocked'
+                          ? 'bg-red-600 border-red-800 text-white'
+                          : 'bg-red-50 border-red-200'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -430,12 +446,26 @@ export default function MealScanPage() {
                       <CheckCircle2 className="h-6 w-6 text-green-600 shrink-0" />
                     ) : lastScan.tone === 'warning' ? (
                       <AlertTriangle className="h-6 w-6 text-amber-600 shrink-0" />
+                    ) : lastScan.tone === 'blocked' ? (
+                      <ShieldAlert className="h-7 w-7 shrink-0 text-white" />
                     ) : (
                       <XCircle className="h-6 w-6 text-red-600 shrink-0" />
                     )}
                     <div>
-                      <p className="font-medium">{lastScan.title}</p>
-                      <p className="text-sm text-muted-foreground">{lastScan.detail}</p>
+                      <p
+                        className={
+                          lastScan.tone === 'blocked' ? 'text-lg font-bold' : 'font-medium'
+                        }
+                      >
+                        {lastScan.title}
+                      </p>
+                      <p
+                        className={`text-sm ${
+                          lastScan.tone === 'blocked' ? 'text-white/90' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {lastScan.detail}
+                      </p>
                     </div>
                   </div>
                 </div>
