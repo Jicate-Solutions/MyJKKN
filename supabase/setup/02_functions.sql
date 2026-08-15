@@ -2897,30 +2897,77 @@ BEGIN
 END;
 $$;
 
--- Check orphaned profiles (Updated: 2025-01-27 - Use profiles table only)
+-- Check orphaned profiles
+-- Updated: 2026-08-15 - The stub returned WHERE 1 = 0 and always answered zero.
+-- Now a real query, discriminated so the 269 healthy pre-registered rows awaiting
+-- a first sign-in are never confused with the 959 whose email already resolves to a
+-- DIFFERENT auth id. has_signed_in separates the dormant rows (which the
+-- /auth/callback email-migration path heals on first Google sign-in) from rows where
+-- someone has already authenticated and was not healed. Detection only — nothing is
+-- repaired here. See supabase/migrations/20260815091500_profile_identity_link_detector.sql
 CREATE OR REPLACE FUNCTION public.check_orphaned_profiles()
-RETURNS TABLE(
-    profile_id uuid,
-    profile_email text,
-    profile_role text,
-    created_at timestamptz
+RETURNS TABLE (
+    profile_id          uuid,
+    profile_email       text,
+    profile_role        text,
+    created_at          timestamptz,
+    link_state          text,
+    linked_auth_user_id uuid,
+    has_signed_in       boolean,
+    last_sign_in_at     timestamptz,
+    is_pre_registered   boolean,
+    is_active           boolean,
+    heal_blocked_reason text
 )
 LANGUAGE plpgsql
-SECURITY INVOKER
+STABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-    -- Since we can't access auth.users table, return empty result set
-    -- This function is kept for compatibility but will return no rows
+    IF NOT (public.is_super_admin() OR public.is_admin()) THEN
+        RAISE EXCEPTION 'check_orphaned_profiles: administrator access required';
+    END IF;
+
     RETURN QUERY
     SELECT
         p.id,
-        p.email,
-        p.role,
-        p.created_at
-    FROM profiles p
-    WHERE 1 = 0; -- Always returns empty set since we can't check auth.users
+        p.email::text,
+        p.role::text,
+        p.created_at,
+        CASE WHEN au.id IS NULL THEN 'awaiting_first_signin' ELSE 'broken_link' END,
+        au.id,
+        (au.last_sign_in_at IS NOT NULL),
+        au.last_sign_in_at,
+        COALESCE(p.is_pre_registered, false),
+        COALESCE(p.is_active, false),
+        CASE
+            WHEN au.id IS NULL THEN NULL
+            WHEN EXISTS (SELECT 1 FROM public.profiles px WHERE px.id = au.id)
+                THEN 'profile_exists_at_auth_id'
+            WHEN p.email::text <> au.email::text
+                THEN 'email_case_mismatch'
+            ELSE NULL
+        END
+    FROM public.profiles p
+    LEFT JOIN auth.users own
+      ON own.id = p.id
+    LEFT JOIN LATERAL (
+        SELECT u.id, u.email, u.last_sign_in_at
+        FROM auth.users u
+        WHERE lower(u.email::text) = lower(p.email::text)
+          AND u.deleted_at IS NULL
+        ORDER BY u.last_sign_in_at DESC NULLS LAST, u.created_at
+        LIMIT 1
+    ) au ON true
+    WHERE own.id IS NULL
+      AND p.email IS NOT NULL
+    ORDER BY (au.last_sign_in_at IS NOT NULL) DESC, au.last_sign_in_at DESC NULLS LAST;
 END;
 $$;
+
+REVOKE EXECUTE ON FUNCTION public.check_orphaned_profiles() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.check_orphaned_profiles() TO authenticated;
 
 -- Create missing profiles (Updated: 2025-01-27 - Use profiles table only)
 CREATE OR REPLACE FUNCTION public.create_missing_profiles()
