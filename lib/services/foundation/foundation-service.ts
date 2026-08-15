@@ -426,30 +426,30 @@ export class FoundationService {
   static async addLearnerToCohort(
     input: AddLearnerToCohortInput,
   ): Promise<{ student: FoundationStudent; enrollment: FoundationEnrollment }> {
-    const { cohort_id, ...studentInput } = input;
-    const student = await FoundationService.createStudent(studentInput);
+    const { cohort_id, ...learnerInput } = input;
+    const learner = await FoundationService.createStudent(learnerInput);
 
     try {
       const enrollment = await FoundationService.enrollStudent(
-        student.id,
+        learner.id,
         cohort_id,
       );
-      return { student, enrollment };
+      return { student: learner, enrollment };
     } catch (enrollError) {
-      // Compensating delete. If it also fails the student row survives with no
+      // Compensating delete. If it also fails the row survives with no
       // enrolment, which is harmless but invisible — so we say the id out loud.
       const { error: cleanupError } = await getSupabase()
         .from('fp_students')
         .delete()
-        .eq('id', student.id);
+        .eq('id', learner.id);
 
       if (cleanupError) {
         logger.error(LOG, 'addLearnerToCohort: cleanup failed too', {
-          studentId: student.id,
+          learnerId: learner.id,
           cleanupError,
         });
         throw new Error(
-          `${student.full_name ?? 'The learner'} was created (id ${student.id}) ` +
+          `${learner.full_name ?? 'The learner'} was created (id ${learner.id}) ` +
             `but could not be enrolled, and could not be removed either. ` +
             `Enrol or delete that row by hand.`,
         );
