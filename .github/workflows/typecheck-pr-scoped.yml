@@ -11,6 +11,17 @@ name: TypeCheck (PR-scoped)
 # but legacy reset sites still pass empty string. The local `setCounterBreakdown('')`
 # at line 579 was visible to tsc but masked by ignoreBuildErrors. This gate
 # would have caught it pre-merge.
+#
+# 2026-08-16 — IT DID NOT, AND NEVER HAD. From the day it shipped until this
+# commit the filter was structurally incapable of matching a single error, so the
+# job reported success on every pull request ever opened. Receipt, re-measured
+# against main today: PR #2891 (merged 2026-08-13, 8169b59d91) changed exactly one
+# file, app/api/cron/aipulse-domain-starter-notify/route.ts, and left NINE type
+# errors in it — six `TS2304: Cannot find name`, two TS18004, one TS2552 — while
+# `TypeCheck (PR-scoped)` reported conclusion=success on head bed455df36. The PR
+# head blob and main's blob are the same object (0aab25de8d), so this was not a
+# bad merge. Read scripts/ci/filter-tsc-scoped-errors.sh for the two independent
+# reasons, and treat every green run of this gate before 2026-08-16 as meaningless.
 
 on:
   pull_request:
@@ -87,6 +98,13 @@ jobs:
         if: steps.changed.outputs.count != '0' && steps.nm.outputs.cache-hit != 'true'
         run: npm ci --no-audit --no-fund
 
+      # The filtering lives in scripts/ci/filter-tsc-scoped-errors.sh rather than
+      # inline here, because inline shell in a workflow cannot be run against a
+      # fixture — and this gate's failure mode is "goes green". It shipped with a
+      # grep that could never match (tsc --pretty writes ANSI colour codes even
+      # into a file, so the `^path:` anchor never landed) and stayed that way
+      # until PR #2891 merged seven TS2304 errors past a successful run of it.
+      # See the script header, and __tests__/ci/filter-tsc-scoped-errors.test.ts.
       - name: Run tsc + filter to PR-touched files
         if: steps.changed.outputs.count != '0'
         run: |
@@ -95,34 +113,31 @@ jobs:
           tsc_exit=$?
           set -e
 
-          # Build the regex of changed file paths (escaped for grep -E)
-          escaped=$(sed 's/[][\.*^$(){}?+|/]/\\&/g' /tmp/changed-ts.txt | tr '\n' '|' | sed 's/|$//')
+          scripts/ci/filter-tsc-scoped-errors.sh \
+            --tsc-output /tmp/tsc-output.txt \
+            --changed /tmp/changed-ts.txt \
+            --tsc-exit "$tsc_exit"
 
-          if [ -z "$escaped" ]; then
-            echo "::notice::No changed files to filter against. Pass."
-            exit 0
-          fi
+  self-test:
+    name: The gate's own tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    if: ${{ !github.event.pull_request.draft }}
 
-          # tsc errors look like:  path/file.tsx:LINE:COL - error TSnnn: message
-          grep -E "^($escaped):" /tmp/tsc-output.txt > /tmp/scoped-errors.txt || true
-          scoped_count=$(wc -l < /tmp/scoped-errors.txt | tr -d ' ')
+    steps:
+      - uses: actions/checkout@v4
 
-          if [ "$scoped_count" -eq 0 ]; then
-            echo "::notice::tsc found errors elsewhere (legacy baseline, ignored) but none in PR-touched files. Pass."
-            echo "(tsc exited $tsc_exit — baseline state, not failing this PR.)"
-            exit 0
-          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
 
-          echo "::error::tsc found $scoped_count type error(s) in files this PR modified:"
-          echo ""
-          head -50 /tmp/scoped-errors.txt | while IFS= read -r line; do
-            # Convert "path:LINE:COL - error TSnnn: msg" to GH-annotation
-            file=$(echo "$line" | cut -d':' -f1)
-            ln=$(echo "$line" | cut -d':' -f2)
-            msg=$(echo "$line" | cut -d':' -f3-)
-            echo "::error file=$file,line=$ln::$msg"
-          done
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
 
-          echo ""
-          echo "Note: next.config.ts has \`typescript.ignoreBuildErrors: true\` so the Vercel build will not fail on these. This gate exists BECAUSE of that mask. Fix or downgrade the type before merge."
-          exit 1
+      # A gate that is not itself tested is a gate that quietly stops gating, and
+      # this one already did it once for its whole life. Every fixture here is a
+      # shape that made the old filter report zero: ANSI-coloured paths, the
+      # indented "Errors  Files" summary, a tsc that crashed instead of running.
+      - name: Test the gate
+        run: npx vitest run __tests__/ci/filter-tsc-scoped-errors.test.ts
