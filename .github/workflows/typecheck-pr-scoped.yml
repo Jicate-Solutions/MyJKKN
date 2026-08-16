@@ -22,6 +22,11 @@ name: TypeCheck (PR-scoped)
 # head blob and main's blob are the same object (0aab25de8d), so this was not a
 # bad merge. Read scripts/ci/filter-tsc-scoped-errors.sh for the two independent
 # reasons, and treat every green run of this gate before 2026-08-16 as meaningless.
+#
+# AND THE COMPILER WAS NEVER FINISHING EITHER. The crash guard added in the same
+# commit fired on its first run: tsc OOMs at the default ~2 GB heap after ~27 s.
+# Two independent causes, either one sufficient — which is why the fix is both a
+# formatting-proof filter AND a heap large enough to compile (see the step's env).
 
 on:
   pull_request:
@@ -107,6 +112,23 @@ jobs:
       # See the script header, and __tests__/ci/filter-tsc-scoped-errors.test.ts.
       - name: Run tsc + filter to PR-touched files
         if: steps.changed.outputs.count != '0'
+        env:
+          # THE COMPILER HAS NEVER FINISHED ON A RUNNER. Found by the crash guard
+          # below on the very first run of it (2026-08-16, run 31921352286): tsc
+          # reaches the default ~2 GB V8 heap in about 27 seconds and aborts —
+          # "Reached heap limit Allocation failed - JavaScript heap out of memory",
+          # 2045.0 (2083.3) MB, "Aborted (core dumped)".
+          #
+          # So this gate was passing for TWO reasons at once, and the ANSI bug was
+          # the smaller one: even with a filter that matched perfectly, it was
+          # filtering an output file that contains a stack trace and no
+          # diagnostics. Fixing the grep alone would have left the gate exactly as
+          # decorative as it was.
+          #
+          # 12288 is not a guess: package.json's `build` script already compiles
+          # this codebase with --max-old-space-size=12288, so it is the heap size
+          # this repository is known to need. ubuntu-latest has 16 GB.
+          NODE_OPTIONS: --max-old-space-size=12288
         run: |
           set +e
           npm run typecheck > /tmp/tsc-output.txt 2>&1
