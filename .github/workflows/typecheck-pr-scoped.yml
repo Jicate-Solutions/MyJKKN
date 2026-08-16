@@ -47,12 +47,13 @@ jobs:
     name: TypeCheck (PR-scoped)
     runs-on: ubuntu-latest
     # 15 was never enough and nobody could tell, because the job had been dying of
-    # an OOM at ~27 s long before the clock mattered. With a heap it can finish in,
-    # tsc was still compiling when the 15-minute limit killed it as an orphan
-    # process (run 31921510185, 02:16:13 → 02:31:31). A type-check of this
-    # codebase is genuinely a ~15-minute job; give it room rather than let a
-    # timeout masquerade as a verdict.
-    timeout-minutes: 30
+    # an OOM at ~27 s long before the clock was ever the binding constraint. With a
+    # heap it can finish in, tsc was still compiling when the 15-minute limit
+    # killed it as an orphan process (run 31921510185). A full `tsc --noEmit` over
+    # this codebase is a long job; 45 is set so that a timeout cannot masquerade as
+    # a verdict — a timeout reports `cancelled`, which is neither pass nor fail and
+    # reads as neither.
+    timeout-minutes: 45
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
@@ -114,7 +115,7 @@ jobs:
       # fixture — and this gate's failure mode is "goes green". It shipped with a
       # grep that could never match (tsc --pretty writes ANSI colour codes even
       # into a file, so the `^path:` anchor never landed) and stayed that way
-      # until PR #2891 merged seven TS2304 errors past a successful run of it.
+      # until PR #2891 merged nine type errors past a successful run of it.
       # See the script header, and __tests__/ci/filter-tsc-scoped-errors.test.ts.
       - name: Run tsc + filter to PR-touched files
         if: steps.changed.outputs.count != '0'
@@ -131,14 +132,23 @@ jobs:
           # diagnostics. Fixing the grep alone would have left the gate exactly as
           # decorative as it was.
           #
-          # These are not a guess: package.json's `build` script already compiles
-          # this codebase with exactly --max-old-space-size=12288
-          # --max-semi-space-size=128, so it is the heap this repository is
-          # documented to need. ubuntu-latest has 16 GB. The larger semi-space
-          # matters as much as the old-space here — it cuts the scavenge rate on a
-          # program that allocates as hard as tsc does, and the first run with only
-          # the old-space raised survived the heap but ran past the clock.
-          NODE_OPTIONS: --max-old-space-size=12288 --max-semi-space-size=128
+          # MEASURED, not copied. package.json's `build` script uses
+          # --max-old-space-size=12288 --max-semi-space-size=128, and borrowing that
+          # pair wholesale was a mistake: those are tuned for `next build` on a
+          # Vercel builder, not for tsc on a 16 GB ubuntu-latest runner. What the
+          # three runs on this PR actually showed:
+          #
+          #   default (~2 GB)          OOM after 27 s              run 31921352286
+          #   12288                    no OOM, killed at 15 min    run 31921510185
+          #   12288 + semi-space 128   no OOM, still going >31 min run 31922158016
+          #
+          # A 12 GB old-space on a 16 GB box lets V8 defer full GC until the
+          # process is competing with the OS for physical memory, and the run got
+          # SLOWER when the semi-space was widened on top — the opposite of the
+          # throughput argument for widening it. 8192 keeps the whole heap
+          # comfortably inside RAM while leaving four times the headroom over the
+          # ~2 GB ceiling that was actually being hit.
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set +e
           npm run typecheck > /tmp/tsc-output.txt 2>&1
