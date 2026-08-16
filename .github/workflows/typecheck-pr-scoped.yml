@@ -46,7 +46,13 @@ jobs:
   typecheck:
     name: TypeCheck (PR-scoped)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 was never enough and nobody could tell, because the job had been dying of
+    # an OOM at ~27 s long before the clock mattered. With a heap it can finish in,
+    # tsc was still compiling when the 15-minute limit killed it as an orphan
+    # process (run 31921510185, 02:16:13 → 02:31:31). A type-check of this
+    # codebase is genuinely a ~15-minute job; give it room rather than let a
+    # timeout masquerade as a verdict.
+    timeout-minutes: 30
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
@@ -125,10 +131,14 @@ jobs:
           # diagnostics. Fixing the grep alone would have left the gate exactly as
           # decorative as it was.
           #
-          # 12288 is not a guess: package.json's `build` script already compiles
-          # this codebase with --max-old-space-size=12288, so it is the heap size
-          # this repository is known to need. ubuntu-latest has 16 GB.
-          NODE_OPTIONS: --max-old-space-size=12288
+          # These are not a guess: package.json's `build` script already compiles
+          # this codebase with exactly --max-old-space-size=12288
+          # --max-semi-space-size=128, so it is the heap this repository is
+          # documented to need. ubuntu-latest has 16 GB. The larger semi-space
+          # matters as much as the old-space here — it cuts the scavenge rate on a
+          # program that allocates as hard as tsc does, and the first run with only
+          # the old-space raised survived the heap but ran past the clock.
+          NODE_OPTIONS: --max-old-space-size=12288 --max-semi-space-size=128
         run: |
           set +e
           npm run typecheck > /tmp/tsc-output.txt 2>&1
