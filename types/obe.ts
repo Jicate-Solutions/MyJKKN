@@ -1,9 +1,13 @@
 // ── OBE Type Definitions ────────────────────────────────────────────────
 // Outcome-Based Education system supporting Bloom's and Fink's taxonomies
 
-export type TaxonomyType = 'blooms' | 'finks';
+export type TaxonomyType = 'blooms' | 'finks' | 'jkkn_advanced';
 export type BloomsLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5' | 'L6';
 export type FinksDimension = 'FK' | 'AP' | 'IN' | 'HD' | 'CA' | 'LL';
+/** JKKN Advanced adds five flat dimensions alongside the six cognitive levels.
+ *  Flat by design: they are not rungs, so none outranks another. */
+export type AdvancedDimension = 'A1' | 'A2' | 'A3' | 'A4' | 'A5';
+
 export type CorrelationLevel = 0 | 1 | 2 | 3;
 export type AssessmentComponentType = 'cia' | 'ese' | 'assignment' | 'lab' | 'seminar' | 'project' | 'other';
 
@@ -15,6 +19,15 @@ export const BLOOMS_LEVEL_LABELS: Record<BloomsLevel, string> = {
   L4: 'Analyze',
   L5: 'Evaluate',
   L6: 'Create',
+};
+
+// JKKN Advanced — the five added dimensions
+export const ADVANCED_DIMENSION_LABELS: Record<AdvancedDimension, string> = {
+  A1: 'Human Dimension',
+  A2: 'Caring',
+  A3: 'Learning How to Learn',
+  A4: 'Performed Skill',
+  A5: 'Accountable AI Use',
 };
 
 // Fink's labels

@@ -63,7 +63,7 @@ export interface DraftArtifact {
   primary_fink_dimension: FinkDimension | null;
   // BoS-fixed taxonomy this lesson's PRIMARY tag follows. 'blooms' → primary_bloom_level is
   // the lesson's primary axis; 'finks' (or null = legacy) → primary_fink_dimension is.
-  primary_taxonomy: 'finks' | 'blooms' | null;
+  primary_taxonomy: 'finks' | 'blooms' | 'jkkn_advanced' | null;
   primary_bloom_level: string | null;   // K1..K6, when primary_taxonomy = 'blooms'
   co_refs: string[];
   source: 'bos_ai' | 'title_ai';
@@ -106,10 +106,16 @@ export function bloomLabel(level?: string | null): string {
   return BLOOM_OPTIONS.find((b) => b.value === level)?.label ?? 'Pick a Bloom level';
 }
 
-/** A lesson is Bloom-primary only when its BoS-fixed taxonomy is 'blooms'; NULL (legacy) or
- *  'finks' both read as Fink-primary. Central so the UI and service agree on the branch. */
+/** A lesson is Bloom-primary when its BoS-fixed taxonomy is 'blooms' OR 'jkkn_advanced';
+ *  NULL (legacy) and 'finks' read as Fink-primary. Central so the UI and service agree.
+ *
+ *  'jkkn_advanced' belongs on the Bloom side because JABT keeps its primary tag in
+ *  `primary_bloom_level` (K1-K6 for the cognitive half, A1-A5 for the added half) —
+ *  `primary_fink_dimension` is retained on converted rows only as the record of the
+ *  original label, never as the value to display. Omitting it here silently showed the
+ *  OLD Fink label for all 15,150 rows converted on 2026-08-16. */
 export function isBloomPrimary(taxonomy?: string | null): boolean {
-  return taxonomy === 'blooms';
+  return taxonomy === 'blooms' || taxonomy === 'jkkn_advanced';
 }
 
 export class CurriculumService {
@@ -214,7 +220,7 @@ export class CurriculumService {
       learningOutcomes?: LessonOutcome[];
       primaryFink?: FinkDimension;
       primaryBloom?: string;
-      primaryTaxonomy?: 'finks' | 'blooms';
+      primaryTaxonomy?: 'finks' | 'blooms' | 'jkkn_advanced';
       coRefs?: string[];
     },
   ): Promise<string> {

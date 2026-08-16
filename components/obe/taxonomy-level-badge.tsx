@@ -1,8 +1,8 @@
 'use client';
 
 import { Badge } from '@/components/ui/badge';
-import { BLOOMS_LEVEL_LABELS, FINKS_DIMENSION_LABELS } from '@/types/obe';
-import type { BloomsLevel, FinksDimension, TaxonomyType } from '@/types/obe';
+import { BLOOMS_LEVEL_LABELS, FINKS_DIMENSION_LABELS, ADVANCED_DIMENSION_LABELS } from '@/types/obe';
+import type { BloomsLevel, FinksDimension, AdvancedDimension, TaxonomyType } from '@/types/obe';
 
 const BLOOMS_COLORS: Record<BloomsLevel, string> = {
   L1: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -22,10 +22,22 @@ const FINKS_COLORS: Record<FinksDimension, string> = {
   LL: 'bg-teal-200 text-teal-800 border-teal-300',
 };
 
+/** JKKN Advanced keeps Bloom's palette for L1-L6 and gets its own amber family for
+ *  the five added dimensions, so the two halves stay distinguishable at a glance. */
+const ADVANCED_COLORS: Record<AdvancedDimension, string> = {
+  A1: 'bg-amber-100 text-amber-800 border-amber-200',
+  A2: 'bg-orange-100 text-orange-800 border-orange-200',
+  A3: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  A4: 'bg-amber-200 text-amber-900 border-amber-300',
+  A5: 'bg-orange-200 text-orange-900 border-orange-300',
+};
+
 interface TaxonomyLevelBadgeProps {
   taxonomyType: TaxonomyType;
   level?: BloomsLevel;
   dimension?: FinksDimension;
+  /** JKKN Advanced only — one of A1-A5. L1-L6 continue to arrive via `level`. */
+  advanced?: AdvancedDimension;
   showLabel?: boolean;
 }
 
@@ -33,9 +45,24 @@ export function TaxonomyLevelBadge({
   taxonomyType,
   level,
   dimension,
+  advanced,
   showLabel = true,
 }: TaxonomyLevelBadgeProps) {
-  if (taxonomyType === 'blooms' && level) {
+  // JKKN Advanced carries BOTH halves: L1-L6 render exactly as Bloom's (they are
+  // Bloom's, unchanged), A1-A5 render in the added-half palette.
+  if (taxonomyType === 'jkkn_advanced' && advanced) {
+    return (
+      <Badge
+        variant='outline'
+        className={`text-xs font-medium ${ADVANCED_COLORS[advanced]}`}
+      >
+        {advanced}
+        {showLabel && ` – ${ADVANCED_DIMENSION_LABELS[advanced]}`}
+      </Badge>
+    );
+  }
+
+  if ((taxonomyType === 'blooms' || taxonomyType === 'jkkn_advanced') && level) {
     return (
       <Badge
         variant='outline'

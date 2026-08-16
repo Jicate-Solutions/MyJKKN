@@ -57,7 +57,7 @@ type EditState = Record<
     title: string;
     primaryFink: FinkDimension | '';
     primaryBloom: string;                         // K1..K6, used when taxonomy = 'blooms'
-    primaryTaxonomy: 'finks' | 'blooms' | null;   // read-only branch: which primary picker to show
+    primaryTaxonomy: 'finks' | 'blooms' | 'jkkn_advanced' | null;   // read-only branch: which primary picker to show
     outcomes: LessonOutcome[];
   }
 >;
