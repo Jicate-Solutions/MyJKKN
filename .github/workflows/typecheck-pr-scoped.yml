@@ -118,8 +118,16 @@ jobs:
             --changed /tmp/changed-ts.txt \
             --tsc-exit "$tsc_exit"
 
+  # A separate job rather than a step inside `typecheck` (which is how
+  # ai-estate-guard and anon-exposure-live do it) because that job is skipped
+  # entirely when a PR changes no .ts/.tsx files — and a PR that edits ONLY the
+  # filter script is exactly that shape. The tests have to run then most of all.
+  #
+  # The job name is the status-check identity and must be unique across the repo:
+  # `ungrantable-permissions.yml` already owns the bare "The gate's own tests",
+  # and two check runs sharing a name cannot be told apart by branch protection.
   self-test:
-    name: The gate's own tests
+    name: The typecheck gate's own tests
     runs-on: ubuntu-latest
     timeout-minutes: 8
     if: ${{ !github.event.pull_request.draft }}
