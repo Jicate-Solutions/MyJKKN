@@ -24,9 +24,17 @@ name: TypeCheck (PR-scoped)
 # reasons, and treat every green run of this gate before 2026-08-16 as meaningless.
 #
 # AND THE COMPILER WAS NEVER FINISHING EITHER. The crash guard added in the same
-# commit fired on its first run: tsc OOMs at the default ~2 GB heap after ~27 s.
-# Two independent causes, either one sufficient — which is why the fix is both a
-# formatting-proof filter AND a heap large enough to compile (see the step's env).
+# commit fired on its first run: tsc OOMs at the default ~2 GB heap after ~27 s,
+# and does NOT complete at 8 GB either (~35 min, then "Ineffective mark-compacts
+# near heap limit"). Two independent causes, either one on its own enough to make
+# every run of this gate meaningless.
+#
+# ⚠️ READ BEFORE MERGING. The filter is fixed and tested. The compiler is not:
+# `tsc --noEmit` over this project does not fit on a standard ubuntu-latest runner
+# at any heap tried. So this gate is now HONEST but RED — it reports that it
+# cannot check, which is the truth and is strictly better than the green it used
+# to report, but it will block every PR until someone decides how to give the
+# type-check enough machine. See the step env below for the measurements.
 
 on:
   pull_request:
@@ -132,22 +140,32 @@ jobs:
           # diagnostics. Fixing the grep alone would have left the gate exactly as
           # decorative as it was.
           #
-          # MEASURED, not copied. package.json's `build` script uses
-          # --max-old-space-size=12288 --max-semi-space-size=128, and borrowing that
-          # pair wholesale was a mistake: those are tuned for `next build` on a
-          # Vercel builder, not for tsc on a 16 GB ubuntu-latest runner. What the
-          # three runs on this PR actually showed:
+          # ⚠️ NO VALUE HERE IS KNOWN TO WORK. `tsc --noEmit` over this project has
+          # not once completed on a standard ubuntu-latest runner (4 vCPU, 16 GB).
+          # Four measured runs on this PR, in order:
           #
-          #   default (~2 GB)          OOM after 27 s              run 31921352286
-          #   12288                    no OOM, killed at 15 min    run 31921510185
-          #   12288 + semi-space 128   no OOM, still going >31 min run 31922158016
+          #   default (~2 GB)          OOM at 27 s                run 31921352286
+          #   12288                    no OOM, hit 15 min limit   run 31921510185
+          #   12288 + semi-space 128   no OOM, past 31 min, killed run 31922158016
+          #   8192                     OOM at ~35 min             run 31922158016+
           #
-          # A 12 GB old-space on a 16 GB box lets V8 defer full GC until the
-          # process is competing with the OS for physical memory, and the run got
-          # SLOWER when the semi-space was widened on top — the opposite of the
-          # throughput argument for widening it. 8192 keeps the whole heap
-          # comfortably inside RAM while leaving four times the headroom over the
-          # ~2 GB ceiling that was actually being hit.
+          # The last one is the informative one. tsc filled the whole 8 GB heap and
+          # died with "Ineffective mark-compacts near heap limit" after mark-compact
+          # pauses of 193 s and 228 s — average mu = 0.044, i.e. it spent ~96% of
+          # its time in GC. The working set genuinely exceeds 8 GB; this is not a
+          # flag that wants nudging.
+          #
+          # Borrowing the `build` script's --max-semi-space-size=128 was my error:
+          # those flags are tuned for `next build` on a Vercel builder and made this
+          # slower, not faster.
+          #
+          # 8192 is kept because it is the largest heap that stays comfortably
+          # inside the runner's RAM, and because its clean OOM is far more legible
+          # than 12288's slow thrash. Making this gate actually pass needs a
+          # decision, not a bigger number — see the PR discussion: a larger runner,
+          # or splitting the program with project references, or scoping tsc to the
+          # changed files' closure. Until then the gate reports, correctly and
+          # loudly, that the compiler cannot run.
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set +e
