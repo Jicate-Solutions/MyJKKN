@@ -655,6 +655,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/id-cards/address-check",
+            "label": "Address Check",
+            "iconName": "MapPin",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/batch-print",
             "label": "Batch ID-Card Print",
             "iconName": "Printer",
