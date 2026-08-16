@@ -1922,6 +1922,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
       { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
       { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
+      // Read-only conformance audit (/campus-living/allocations/audit). Granted
+      // to NO role on purpose: user_has_permission() super-admin-bypasses, so
+      // this is super-admin-only today and can be handed to a warden/registrar
+      // from Role Management later without a code change. Never gate on a role
+      // name — the RPC fn_hostel_allocation_audit reads THIS key.
+      { key: 'campus_living.allocations.audit', label: 'View Allocation Audit (Super Admin)' },
 
       // Residents (master data — added 2026-04-22 PR-2, classifies non-learner residents: staff / international / married / visitor / other)
       { key: 'campus_living.residents.view', label: 'View Hostel Residents' },

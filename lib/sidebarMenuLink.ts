@@ -1162,6 +1162,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/blocks': 'campus_living.blocks.view',
   '/campus-living/allocations': 'campus_living.allocations.view',
   '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  // Read-only audit. Its own key (held by no role) so the nav chip and the
+  // route guard agree it is super-admin-only — a link the sidebar hides but
+  // the guard opens is still a reachable page.
+  '/campus-living/allocations/audit': 'campus_living.allocations.audit',
   '/campus-living/residents': 'campus_living.residents.view',
   '/campus-living/my-hostel': 'campus_living.my_hostel.view',
   '/campus-living/my-hostel/vacate-request': 'campus_living.vacate_requests.submit',
