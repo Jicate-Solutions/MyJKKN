@@ -68,6 +68,8 @@ import {
   useCacCollaborationIsolation,
   useCacCollegeSizes,
   summariseFunnel,
+  solutionStages,
+  finishLines,
   splitExchange,
   concentration,
   sizeStanding,
@@ -158,6 +160,17 @@ const instLabel = (name: string | null, code: string | null) =>
 // The drop-off is the finding, so the stages are laid out in order and the
 // falls between them are shown rather than left to be inferred. A department
 // count on its own describes an intention; the funnel describes what came of it.
+//
+// THREE STAGES AND TWO FINISH LINES (Director decisions #2, #3, #13).
+//   Started, built and used are counted SEPARATELY rather than read off one
+//   status column. Then the run ENDS IN TWO PLACES, not one: 'used by someone'
+//   and 'published' sit side by side, same size, same weight, in a fixed order
+//   that does not follow their values — and with no arrow between them, because
+//   neither leads to the other and neither outranks the other. A publication is
+//   recorded because NAAC and NIRF ask for it; it never beats a real user.
+//
+//   The stage row keeps its arrows. Started → built → used IS a sequence and
+//   drawing it as one is honest. The finish-line row must never grow one.
 // ----------------------------------------------------------------------------
 
 function SolutionFunnelPanel() {
@@ -165,40 +178,17 @@ function SolutionFunnelPanel() {
   const rows = useMemo<CacFunnelRow[]>(() => data ?? [], [data]);
   const totals = useMemo(() => summariseFunnel(rows), [rows]);
 
-  const stages = [
-    {
-      key: 'departments',
-      label: 'Departments activated',
-      value: totals.departmentsActivated,
-      empty: 'none activated yet',
-    },
-    {
-      key: 'solutions',
-      label: 'Solutions produced',
-      value: totals.solutions,
-      empty: 'nothing recorded yet',
-    },
-    {
-      key: 'phases',
-      label: 'Phases opened',
-      value: totals.phases,
-      empty: 'nothing recorded yet',
-    },
-    {
-      key: 'publications',
-      label: 'Publications',
-      value: totals.publications,
-      empty: 'nothing recorded yet',
-    },
-  ];
+  // Both derived in the hook, where they can be tested without a database.
+  const stages = useMemo(() => solutionStages(totals), [totals]);
+  const endings = useMemo(() => finishLines(totals), [totals]);
 
   const silent = totals.departmentsActivated - totals.departmentsProducing;
 
   return (
     <PanelShell
       icon={<TrendingDown className="h-4 w-4 text-amber-600" />}
-      title="From activated department to published work"
-      lead="Each college nominates departments to produce solutions. This follows what happened next, stage by stage."
+      title="From a started solution to a real user"
+      lead="Each college nominates departments to produce solutions. This follows what happened next — started, built, used — and where the work landed."
     >
       {error ? (
         <ReadFailed what="The solution funnel" error={error} />
@@ -211,18 +201,47 @@ function SolutionFunnelPanel() {
         </p>
       ) : (
         <>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {stages.map((s, idx) => (
               <div key={s.key} className="relative rounded-md border bg-card p-3">
                 <div className="text-xs text-muted-foreground">{s.label}</div>
                 <div className="mt-1">
                   <Figure value={s.value} reason={s.empty} />
                 </div>
+                {s.derivedFrom ? (
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                    {s.derivedFrom}
+                  </p>
+                ) : null}
                 {idx > 0 && (
                   <ArrowRight className="absolute -left-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-muted-foreground lg:block" />
                 )}
               </div>
             ))}
+          </div>
+
+          {/* THE TWO FINISH LINES. Same grid cell, same type scale, no arrow
+              between them and no order that depends on their values — the run
+              ends in two places and neither is the better one. */}
+          <div>
+            <p className="text-xs font-medium">Where the work landed</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Two ways for the same work to land. Neither is ranked above the
+              other, and one does not lead to the other.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {endings.map((f) => (
+                <div key={f.key} className="rounded-md border bg-card p-3">
+                  <div className="text-xs text-muted-foreground">{f.label}</div>
+                  <div className="mt-1">
+                    <Figure value={f.value} reason={f.empty} />
+                  </div>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                    {f.meaning}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
 
           {silent > 0 && (

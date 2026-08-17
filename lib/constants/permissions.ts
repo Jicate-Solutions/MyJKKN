@@ -1881,6 +1881,13 @@ export const PERMISSION_CATEGORIES = [
         label: 'Declare Department Capabilities',
       },
 
+      // First real use (2026-09-07). The producing department records, at one
+      // checkpoint, the first time somebody outside the team used the solution.
+      // Both keys gate `sh_solution_first_use` in RLS, so leaving either
+      // unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.first_use.view', label: 'View First Real Use' },
+      { key: 'solutions.first_use.record', label: 'Record First Real Use' },
+
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
