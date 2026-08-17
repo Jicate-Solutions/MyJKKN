@@ -323,7 +323,7 @@ export function PracticalAttendanceSelector({
                     {selectedBatch.student_ids && selectedBatch.student_ids.length > 0 ? (
                       <>{selectedBatch.student_ids.length} assigned learners</>
                     ) : (
-                      <>~{selectedBatch.estimated_count} students</>
+                      <>~{selectedBatch.estimated_count} learners</>
                     )}
                     {selectedBatch.section_ids && selectedBatch.section_ids.length > 0 && (
                       <> &middot; {selectedBatch.section_ids.length} section{selectedBatch.section_ids.length !== 1 ? 's' : ''}</>

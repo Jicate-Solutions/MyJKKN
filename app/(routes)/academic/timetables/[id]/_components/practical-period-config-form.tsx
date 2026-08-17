@@ -327,11 +327,10 @@ export function PracticalPeriodConfigForm({
                         <SelectItem value='section'>
                           Students from specific sections
                         </SelectItem>
-                        {/* Updated: 2026-08-17 (BUG-005826) - this used to read
-                            "Manual student selection at attendance", promising a
-                            picker on the marking screen that never existed. The
-                            learners are chosen here, now that there is a field to
-                            keep them in. */}
+                        {/* Updated: 2026-08-17 (BUG-005826) - the old wording
+                            promised a manual picker on the marking screen that
+                            never existed. The learners are chosen here, now that
+                            there is a field to keep them in. */}
                         <SelectItem value='manual'>
                           Specific learners (choose below)
                         </SelectItem>
@@ -532,8 +531,8 @@ export function PracticalPeriodConfigForm({
                   <div className='space-y-2'>
                     <Label className='text-xs'>
                       {batch.assignment_type === 'manual'
-                        ? 'Student Count (from selection)'
-                        : 'Estimated Student Count'}
+                        ? 'Learner Count (from selection)'
+                        : 'Estimated Learner Count'}
                     </Label>
                     <Input
                       type='number'

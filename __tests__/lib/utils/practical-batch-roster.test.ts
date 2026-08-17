@@ -76,8 +76,8 @@ describe('narrowRosterToPracticalBatch', () => {
     const result = narrowRosterToPracticalBatch(FULL_ROSTER, ZOOLOGY_ALLIED);
 
     expect(result.source).toBe('batch_students');
-    expect(result.students).toHaveLength(8);
-    expect(result.students.map((s) => s.id).sort()).toEqual([...ZOOLOGY_ALLIED].sort());
+    expect(result.learners).toHaveLength(8);
+    expect(result.learners.map((s) => s.id).sort()).toEqual([...ZOOLOGY_ALLIED].sort());
     expect(result.unmatchedIds).toEqual([]);
   });
 
@@ -85,8 +85,8 @@ describe('narrowRosterToPracticalBatch', () => {
     const result = narrowRosterToPracticalBatch(FULL_ROSTER, MATHS_ALLIED);
 
     expect(result.source).toBe('batch_students');
-    expect(result.students).toHaveLength(11);
-    expect(result.students.every((s) => MATHS_ALLIED.includes(s.id))).toBe(true);
+    expect(result.learners).toHaveLength(11);
+    expect(result.learners.every((s) => MATHS_ALLIED.includes(s.id))).toBe(true);
   });
 
   it('preserves roster order rather than the order ids were configured in', () => {
@@ -96,7 +96,7 @@ describe('narrowRosterToPracticalBatch', () => {
     const scrambled = [...ZOOLOGY_ALLIED].reverse();
     const result = narrowRosterToPracticalBatch(FULL_ROSTER, scrambled);
 
-    expect(result.students.map((s) => s.id)).toEqual(
+    expect(result.learners.map((s) => s.id)).toEqual(
       FULL_ROSTER.filter((s) => ZOOLOGY_ALLIED.includes(s.id)).map((s) => s.id)
     );
   });
@@ -108,7 +108,7 @@ describe('narrowRosterToPracticalBatch', () => {
       const result = narrowRosterToPracticalBatch(FULL_ROSTER, empty);
 
       expect(result.source).toBe('unnarrowed');
-      expect(result.students).toBe(FULL_ROSTER);
+      expect(result.learners).toBe(FULL_ROSTER);
       expect(result.unmatchedIds).toEqual([]);
     }
   });
@@ -118,7 +118,7 @@ describe('narrowRosterToPracticalBatch', () => {
     const result = narrowRosterToPracticalBatch(FULL_ROSTER, messy);
 
     expect(result.source).toBe('batch_students');
-    expect(result.students.map((s) => s.id)).toEqual([ZOOLOGY_ALLIED[0]]);
+    expect(result.learners.map((s) => s.id)).toEqual([ZOOLOGY_ALLIED[0]]);
     expect(result.unmatchedIds).toEqual([]);
   });
 
@@ -133,7 +133,7 @@ describe('narrowRosterToPracticalBatch', () => {
       notEnrolled
     ]);
 
-    expect(result.students).toHaveLength(8);
+    expect(result.learners).toHaveLength(8);
     expect(result.unmatchedIds).toEqual([notEnrolled]);
   });
 
@@ -144,14 +144,14 @@ describe('narrowRosterToPracticalBatch', () => {
     const result = narrowRosterToPracticalBatch(FULL_ROSTER, stale);
 
     expect(result.source).toBe('batch_students');
-    expect(result.students).toEqual([]);
+    expect(result.learners).toEqual([]);
     expect(result.unmatchedIds).toEqual(stale);
   });
 
   it('tolerates an empty roster without claiming unmatched learners are missing data', () => {
     const result = narrowRosterToPracticalBatch([], ZOOLOGY_ALLIED);
 
-    expect(result.students).toEqual([]);
+    expect(result.learners).toEqual([]);
     expect(result.unmatchedIds).toEqual(ZOOLOGY_ALLIED);
   });
 });

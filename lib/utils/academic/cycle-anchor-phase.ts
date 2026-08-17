@@ -117,7 +117,7 @@ export function formatCycleAnchorWarning(warning: CycleAnchorPhaseWarning): stri
   return (
     `This start date puts the rotation ${warning.offset} ${cycles} out of phase with ` +
     `${warning.peerCount} other active cycle ${tables} (anchored ${warning.suggestedStartDate}, ` +
-    `${warning.workingDayGap} working days apart). Classes shared with those cohorts — ` +
+    `${warning.workingDayGap} working days apart). Sessions shared with those cohorts — ` +
     `combined, allied and non-major electives — will show at a different hour here than ` +
     `they do for everyone else.`
   );

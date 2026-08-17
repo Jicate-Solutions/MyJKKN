@@ -1062,7 +1062,7 @@ export default function AttendanceMarkPage() {
             filteredStudents as any[],
             practicalSelection.student_ids
           );
-          filteredStudents = batchRoster.students;
+          filteredStudents = batchRoster.learners;
 
           if (batchRoster.unmatchedIds.length > 0) {
             // The batch and the enrolment data disagree. Report it rather than

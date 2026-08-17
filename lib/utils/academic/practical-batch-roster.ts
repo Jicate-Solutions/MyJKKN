@@ -29,7 +29,7 @@ export type PracticalRosterSource = 'batch_students' | 'unnarrowed';
 
 export interface PracticalBatchRosterResult<T> {
   /** The learners to show. Identical reference to the input when unnarrowed. */
-  students: T[];
+  learners: T[];
   source: PracticalRosterSource;
   /**
    * Configured learner ids with no matching row in the loaded roster. Non-empty
@@ -72,14 +72,14 @@ export function narrowRosterToPracticalBatch<T extends { id: string }>(
   const configured = cleanIds(batchStudentIds);
 
   if (configured.length === 0) {
-    return { students: roster, source: 'unnarrowed', unmatchedIds: [] };
+    return { learners: roster, source: 'unnarrowed', unmatchedIds: [] };
   }
 
   const configuredSet = new Set(configured);
-  const students = (roster || []).filter((student) => configuredSet.has(student.id));
+  const learners = (roster || []).filter((learner) => configuredSet.has(learner.id));
 
-  const present = new Set(students.map((student) => student.id));
+  const present = new Set(learners.map((learner) => learner.id));
   const unmatchedIds = configured.filter((id) => !present.has(id));
 
-  return { students, source: 'batch_students', unmatchedIds };
+  return { learners, source: 'batch_students', unmatchedIds };
 }
