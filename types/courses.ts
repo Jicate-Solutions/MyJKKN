@@ -189,3 +189,166 @@ export interface CourseSessionSaveResult {
   /** True when the hold exists but is 'pending' a caretaker's approval. */
   awaitingApproval?: boolean;
 }
+
+// ── Registration forms (Phase 3) ─────────────────────────────────────────────
+
+export type CourseFormRow = Database['public']['Tables']['course_registration_forms']['Row'];
+export type CourseFormSectionRow =
+  Database['public']['Tables']['course_registration_form_sections']['Row'];
+export type CourseFormFieldRow =
+  Database['public']['Tables']['course_registration_form_fields']['Row'];
+
+/** Mirrors course_registration_form_fields_field_type_check. Keep in step with it. */
+export const COURSE_FIELD_TYPES = [
+  'text', 'textarea', 'number', 'email', 'phone', 'date',
+  'select', 'multiselect', 'checkbox', 'radio', 'file',
+] as const;
+export type CourseFieldType = (typeof COURSE_FIELD_TYPES)[number];
+
+/** The field types whose `options` array is meaningful. */
+export const COURSE_FIELD_TYPES_WITH_OPTIONS: CourseFieldType[] = [
+  'select', 'multiselect', 'radio',
+];
+
+export type CourseFormField = CourseFormFieldRow;
+
+export interface CourseFormSection extends CourseFormSectionRow {
+  fields?: CourseFormField[];
+}
+
+export interface CourseForm extends CourseFormRow {
+  sections?: CourseFormSection[];
+  /** Convenience count for the panel; not a column. */
+  field_count?: number;
+}
+
+/** One field as the builder submits it. `display_order` is absent because the
+ *  RPC renumbers from 0 in array order — the client never sends it. */
+export interface CourseFormFieldInput {
+  field_key: string;
+  label: string;
+  field_type: CourseFieldType;
+  is_required?: boolean;
+  options?: string[];
+  placeholder?: string | null;
+  help_text?: string | null;
+  validation?: Record<string, unknown>;
+}
+
+export interface CourseFormSectionInput {
+  title: string;
+  description?: string | null;
+  fields: CourseFormFieldInput[];
+}
+
+/**
+ * Form + structure together, because that is what fn_save_course_registration_form
+ * takes and what one builder submit produces. A DTO that separated them would
+ * invite a two-call save, and a failure between the two leaves a live PUBLIC form
+ * with no fields.
+ *
+ * `institution_id` is absent on purpose — the RPC resolves it from course_events.
+ */
+export interface SaveCourseFormDto {
+  form: {
+    id?: string | null;
+    course_event_id: string;
+    name: string;
+    slug: string;
+    description?: string | null;
+    display_order?: number | null;
+    /** Enabling is what opens public intake. Defaults to false in the RPC. */
+    is_enabled?: boolean;
+  };
+  sections: CourseFormSectionInput[];
+}
+
+export interface SaveCourseFormResult {
+  ok: boolean;
+  form_id: string;
+  section_count: number;
+  field_count: number;
+}
+
+// ── PUBLIC shapes (Phase 3) ──────────────────────────────────────────────────
+//
+// These are the ONLY shapes that may cross to an unauthenticated browser. They
+// are deliberately separate types rather than reuses of the admin ones: an
+// accidental institution_id or created_by in a public payload should be a type
+// error, not something a reviewer has to spot. Nothing here carries a tenant id.
+
+export interface PublicCoursePackageInstallment {
+  label: string | null;
+  amount: number;
+  due_date: string;
+}
+
+export interface PublicCoursePackage {
+  id: string;
+  name: string;
+  description: string | null;
+  total_amount: number;
+  currency: string;
+  seat_cap: number | null;
+  installments: PublicCoursePackageInstallment[];
+}
+
+export interface PublicCourseFormSummary {
+  name: string;
+  slug: string;
+  description: string | null;
+}
+
+export interface PublicCourseSummary {
+  title: string;
+  slug: string;
+  description: string | null;
+  mode: CourseEventMode;
+  start_date: string | null;
+  end_date: string | null;
+  venue_text: string | null;
+  cover_image_url: string | null;
+  application_opens_at: string | null;
+  application_closes_at: string | null;
+  /** Computed server-side from the window — there is no 'closed' status. */
+  applicationsOpen: boolean;
+  packages: PublicCoursePackage[];
+  forms: PublicCourseFormSummary[];
+}
+
+/** A field as the public apply form renders it. No ids, no form_id, no ordering
+ *  metadata — the array order IS the order. */
+export interface PublicFormField {
+  field_key: string;
+  label: string;
+  field_type: CourseFieldType;
+  is_required: boolean;
+  options: string[];
+  placeholder: string | null;
+  help_text: string | null;
+}
+
+export interface PublicFormSection {
+  title: string;
+  description: string | null;
+  fields: PublicFormField[];
+}
+
+export interface PublicCourseApplyForm {
+  courseTitle: string;
+  courseSlug: string;
+  formName: string;
+  formSlug: string;
+  formDescription: string | null;
+  applicationsOpen: boolean;
+  sections: PublicFormSection[];
+  packages: PublicCoursePackage[];
+}
+
+/** What the submit route returns. Deliberately minimal — never the row. */
+export interface PublicApplyResult {
+  ok: boolean;
+  /** A short human-quotable reference, not the application's uuid. */
+  reference?: string;
+  error?: string;
+}

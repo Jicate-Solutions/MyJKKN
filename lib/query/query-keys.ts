@@ -93,4 +93,15 @@ export const queryKeys = {
     details: () => [...queryKeys.courseSessions.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courseSessions.details(), id] as const,
   },
+  /** Own root, same reasoning as coursePackages/courseSessions. Public course
+   *  pages do NOT use React Query at all — they are server components reading
+   *  through service-role route handlers — so nothing here is ever a public key. */
+  courseForms: {
+    all: ['course-forms'] as const,
+    lists: () => [...queryKeys.courseForms.all, 'list'] as const,
+    list: (courseEventId: string) =>
+      [...queryKeys.courseForms.lists(), courseEventId] as const,
+    details: () => [...queryKeys.courseForms.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courseForms.details(), id] as const,
+  },
 } as const;
