@@ -1,11 +1,12 @@
 'use client';
 
 // Course Events — /courses/[id] detail console (Phase 2a Task 7). Header +
-// tab scaffold: Overview (read-only summary), Settings (CourseForm in edit
-// mode, gated on courses.edit), and Packages/Sessions — clickable tabs that
-// render a short Coming Soon card until Phase 2b and 2c fill them in.
-// Rendered now, not omitted, so the shape of the console is legible and
-// 2b/2c have an obvious insertion point.
+// tabs: Overview (read-only summary), Settings (CourseForm in edit mode, gated
+// on courses.edit), Packages (Phase 2b — pricing tiers and their instalment
+// schedules, gated on courses.packages.manage inside the panel), and Sessions,
+// which still renders a Coming Soon card until Phase 2c fills it in. The
+// placeholder is rendered rather than omitted so the shape of the console is
+// legible and 2c has an obvious insertion point.
 //
 // Tab state is URL-synced via useTabParam per the 2026-07-17 system standard
 // for every tabbed page (deep-linkable + favoritable via ?tab=) — hence the
@@ -32,6 +33,7 @@ import {
   CourseForm,
   type CourseFormOutput,
 } from '@/app/(routes)/courses/_components/course-form';
+import { PackagesPanel } from './_components/packages-panel';
 
 const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions'] as const;
 
@@ -106,10 +108,10 @@ function Fact({
   );
 }
 
-/** Placeholder body for the Packages/Sessions tabs — clickable like every
- *  other tab, so a browsing user can actually see what's coming rather than
- *  hovering a disabled trigger's tooltip. Stays as the literal insertion
- *  point 2b/2c swap real content into. */
+/** Placeholder body for the Sessions tab — clickable like every other tab, so
+ *  a browsing user can actually see what's coming rather than hovering a
+ *  disabled trigger's tooltip. Stays as the literal insertion point 2c swaps
+ *  real content into, exactly as 2b did for Packages. */
 function ComingSoonPanel({ note }: { note: string }) {
   return (
     <Card>
@@ -311,7 +313,7 @@ function CourseDetailPageInner() {
           </TabsContent>
 
           <TabsContent value="packages">
-            <ComingSoonPanel note="Course packages and instalment pricing — coming in Phase 2b." />
+            <PackagesPanel courseEventId={course.id} />
           </TabsContent>
 
           <TabsContent value="sessions">
