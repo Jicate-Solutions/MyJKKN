@@ -38,15 +38,15 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
   return [
     {
       id: 'person',
-      // Was 'Learner'. This list has always carried team members too — the
+      // Was 'Learner'. This list has always carried Senior Learners too — the
       // header simply never said so.
       header: 'Name',
       accessorFn: (r) => [r.first_name, r.last_name].filter(Boolean).join(' '),
       cell: ({ row }) => {
         const r = row.original;
         const name = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || '—';
-        // The billing schedule page is keyed by learners_profiles.id. A team
-        // member's id is a staff.id, so linking there resolves to nothing —
+        // The billing schedule page is keyed by learners_profiles.id. A Senior
+        // Learner's id is a staff.id, so linking there resolves to nothing —
         // which is what this cell did for all 35 of them before person_type
         // existed to tell them apart. Their name is plain text instead.
         const isLearner = r.person_type === 'learner';

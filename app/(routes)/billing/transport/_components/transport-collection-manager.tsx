@@ -52,9 +52,9 @@ export function TransportCollectionManager() {
   const [fSemester, setFSemester] = useState(ALL);
   const [fBillStatus, setFBillStatus] = useState(ALL);
   /**
-   * Learner vs team member. Both populations have always been in this list —
+   * Learner vs Senior Learner. Both populations have always been in this list —
    * fn_list_transport_collectables UNIONs them — but until person_type was
-   * added (2026-08-17) nothing distinguished them, so 35 team members sat
+   * added (2026-08-17) nothing distinguished them, so 35 Senior Learners sat
    * among 1,266 learners with no way to see or separate them.
    */
   const [fPersonType, setFPersonType] = useState(ALL);
@@ -94,21 +94,21 @@ export function TransportCollectionManager() {
   }, [rows, fPersonType, fDegree, fDepartment, fProgram, fSemester, fBillStatus]);
 
   /**
-   * Degree / programme / semester are learner-only dimensions — a team-member
-   * row carries null for all three. Selecting one alongside "Team members"
-   * therefore ANDs to zero rows, which reads as "no team members have transport
+   * Degree / programme / semester are learner-only dimensions — a Senior Learner
+   * row carries null for all three. Selecting one alongside "Senior Learners"
+   * therefore ANDs to zero rows, which reads as "no Senior Learners have transport
    * fees" rather than "these two filters cannot both apply". Disabled and
    * explained instead of left to produce a silent empty table.
    */
   const learnerOnlyFiltersDisabled = fPersonType === 'staff';
 
   /**
-   * tms_fee_bill (the team-member side) is keyed by transport_year_id, a
+   * tms_fee_bill (the Senior Learner side) is keyed by transport_year_id, a
    * different dimension from the academic_year_id this filter carries, so the
-   * RPC returns no team members at all once a year is chosen. Say so rather
+   * RPC returns no Senior Learners at all once a year is chosen. Say so rather
    * than show an empty table.
    */
-  const yearHidesTeamMembers = !!academicYearId && fPersonType !== 'learner';
+  const yearHidesSeniorLearners = !!academicYearId && fPersonType !== 'learner';
 
   const instName = useMemo(() => {
     const map = new Map(institutions.map((i) => [i.id, i.name]));
@@ -130,7 +130,7 @@ export function TransportCollectionManager() {
   }
 
   /**
-   * Switching to team members clears the learner-only picks in the same gesture.
+   * Switching to Senior Learners clears the learner-only picks in the same gesture.
    * Leaving them set would keep a degree filter applied to a population that has
    * no degree, and the table would go empty for a reason nothing on screen
    * explains.
@@ -162,7 +162,7 @@ export function TransportCollectionManager() {
   return (
     <div className='space-y-4'>
       <p className='text-muted-foreground text-sm'>
-        Bus (transport) fees for everyone who uses college transport — learners and team members
+        Bus (transport) fees for everyone who uses college transport — learners and Senior Learners
         alike — paid online to the dedicated transport account, or collected manually. Stats
         reflect the active filters.
       </p>
@@ -208,7 +208,7 @@ export function TransportCollectionManager() {
               <SelectContent>
                 <SelectItem value={ALL}>Everyone</SelectItem>
                 <SelectItem value='learner'>Learners</SelectItem>
-                <SelectItem value='staff'>Team members</SelectItem>
+                <SelectItem value='staff'>Senior Learners</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -289,17 +289,17 @@ export function TransportCollectionManager() {
           {/* Both notes exist so an empty table is never left unexplained. */}
           {learnerOnlyFiltersDisabled && (
             <p className='text-muted-foreground w-full text-xs'>
-              Degree, program and semester apply to learners only — a team member&apos;s
-              transport bill carries none of them, so those filters are off while
-              Type is set to Team members.
+              Degree, program and semester apply to learners only — a Senior
+              Learner&apos;s transport bill carries none of them, so those filters
+              are off while Type is set to Senior Learners.
             </p>
           )}
-          {yearHidesTeamMembers && (
+          {yearHidesSeniorLearners && (
             <p className='w-full text-xs text-amber-700'>
-              Team members are not shown while an academic year is selected. Their
-              transport bills are billed against a transport year, which is a
-              separate cycle from the academic year — so there is no academic year
-              to match them on. Clear the year to see them.
+              Senior Learners are not shown while an academic year is selected.
+              Their transport bills are billed against a transport year, which is
+              a separate cycle from the academic year — so there is no academic
+              year to match them on. Clear the year to see them.
             </p>
           )}
         </CardContent>
