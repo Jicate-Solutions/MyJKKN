@@ -41,6 +41,8 @@ interface PracticalAttendanceSelectorProps {
     course_name: string;
     course_code?: string;
     section_ids: string[];
+    /** Added: 2026-08-17 (BUG-005826) - learners named by the batch itself. */
+    student_ids?: string[];
     staff?: { id: string; first_name: string; last_name: string; email?: string }[];
   }) => void;
   onConflictCheck?: (params: {
@@ -231,6 +233,7 @@ export function PracticalAttendanceSelector({
       course_name: resolvedCourse.course_name,
       course_code: resolvedCourse.course_code,
       section_ids: selectedBatch.section_ids || [],
+      student_ids: selectedBatch.student_ids || [],
       staff: resolvedStaff
     });
   };
@@ -312,7 +315,16 @@ export function PracticalAttendanceSelector({
                     {selectedBatch.batch_name}
                   </Badge>
                   <span className='text-xs text-muted-foreground'>
-                    ~{selectedBatch.estimated_count} students
+                    {/* Updated: 2026-08-17 (BUG-005826) - a batch that names its
+                        learners knows exactly how many it has, so show that
+                        instead of the hand-typed estimate. The estimate is what
+                        the faculty had to compare the on-screen count against
+                        while the roster was silently wrong. */}
+                    {selectedBatch.student_ids && selectedBatch.student_ids.length > 0 ? (
+                      <>{selectedBatch.student_ids.length} assigned learners</>
+                    ) : (
+                      <>~{selectedBatch.estimated_count} learners</>
+                    )}
                     {selectedBatch.section_ids && selectedBatch.section_ids.length > 0 && (
                       <> &middot; {selectedBatch.section_ids.length} section{selectedBatch.section_ids.length !== 1 ? 's' : ''}</>
                     )}
