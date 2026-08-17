@@ -29,7 +29,9 @@ import { getBookingPixelConfig } from '@/lib/services/analytics/booking-pixel-se
 import {
   groupPurposes,
   purposeDurationLabel,
+  LOCATION_MODE_LABEL,
   type PurposeChoice,
+  type PurposeLocationMode,
 } from '@/lib/services/meetings/group-purposes';
 
 interface MeetingTypeOption {
@@ -267,6 +269,38 @@ function LocationLine({ mt }: { mt: MeetingTypeOption }) {
     <span className="inline-flex items-center gap-1">
       <MapPin className="h-3.5 w-3.5" aria-hidden />{' '}
       {mt.locationDetails || mt.locationText || 'In person'}
+    </span>
+  );
+}
+
+const MODE_ICON: Record<PurposeLocationMode, typeof Video> = {
+  in_person: MapPin,
+  online: Video,
+  phone: Phone,
+};
+
+/**
+ * The formats a grouped purpose is offered in, shown on the FIRST screen.
+ *
+ * Before this, a grouped card said only "N ways to meet", so a booker could
+ * not tell whether one of those ways was online without clicking in — the
+ * exact thing that made the module look like it had no online option at all.
+ * The count is kept alongside the formats because it still tells the booker
+ * there is a choice of length behind the card.
+ */
+function PurposeFormats({ choice }: { choice: PurposeChoice<MeetingTypeOption> }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {choice.locationModes.map((mode, i) => {
+        const Icon = MODE_ICON[mode];
+        return (
+          <span key={mode} className="inline-flex items-center gap-1">
+            {i > 0 && <span aria-hidden className="text-[#1C2B24]/30">·</span>}
+            <Icon className="h-3.5 w-3.5" aria-hidden /> {LOCATION_MODE_LABEL[mode]}
+          </span>
+        );
+      })}
+      <span className="text-[#1C2B24]/45">({choice.options.length} to choose from)</span>
     </span>
   );
 }
@@ -691,7 +725,7 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                   {p.options.length === 1 ? (
                     <LocationLine mt={p.options[0]} />
                   ) : (
-                    <span>{p.options.length} ways to meet</span>
+                    <PurposeFormats choice={p} />
                   )}
                   <EarliestLine earliest={earliestForPurpose(p)} />
                 </span>
