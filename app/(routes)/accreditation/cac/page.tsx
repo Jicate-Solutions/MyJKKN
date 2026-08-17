@@ -58,6 +58,7 @@ import {
   type SpanInstitution,
 } from './_lib/cluster-scope';
 import { ClusterCollaborationSection } from './_components/cluster-collaboration-section';
+import { UgcReadinessSection } from './_components/ugc-readiness-section';
 
 const COMMITTEES_HUB = '/accreditation/naac/committees';
 
@@ -260,6 +261,23 @@ export default function ClusterAcademicCouncilPage() {
             score, no ranking — and it stores nothing, every figure being derived
             from records other modules already own. */}
         <ClusterCollaborationSection />
+
+        {/* The UGC readiness checklist. Added 2026-08-14. The section above
+            reports what the colleges do with one another; this one sets that
+            beside what the UGC's cluster guidance describes a cluster as
+            having, so the asymmetry between the two is on one screen — JKKN
+            does the cluster behaviour and files none of the cluster governance.
+
+            It is NOT a compliance countdown. JKKN is not pursuing formal
+            cluster status (Director decision, 2026-08-14); the guidance is read
+            here because it describes something worth having, and the section
+            says so in its own opening sentence rather than in a footnote.
+
+            Gated separately on accreditation.cac.readiness.view — the reading
+            is about what the council has and has not done, which is a narrower
+            audience than the council's own roster and meeting record. A reader
+            without the key is told the key's name, never bounced. */}
+        <UgcReadinessSection />
 
         {/* Footer — where the row physically lives, which is not the same as
             whose council it is. Both facts matter and neither is obvious. */}
