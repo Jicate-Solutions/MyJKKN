@@ -5470,6 +5470,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/meetings/schedule",
+        "label": "Schedule",
+        "iconName": "CalendarClock",
+        "children": []
+      },
+      {
         "path": "/meetings/triggers",
         "label": "Auto-Meetings",
         "iconName": "CalendarClock",
