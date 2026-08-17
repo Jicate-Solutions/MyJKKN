@@ -128,13 +128,13 @@ export class StaffService {
   }
 
   /**
-   * Resolve who already holds a Staff ID, for the 23505 on staff_staff_id_key.
+   * Resolve who already holds an ID, for the 23505 on `staff_staff_id_key`.
    *
-   * staff_id is GLOBALLY unique, but the staff SELECT policy is
+   * `staff_id` is GLOBALLY unique, but the table's SELECT policy is
    * institution-scoped. So an HR user on 'own_institution' scope can collide
-   * with a row they are not allowed to see — a plain `.from('staff')` lookup
+   * with a row they are not allowed to see — a plain table lookup
    * returns nothing and the operator is left retyping against an invisible
-   * wall. fn_staff_id_conflict is SECURITY DEFINER and gated on staff.view, so
+   * wall. `fn_staff_id_conflict` is SECURITY DEFINER and permission-gated, so
    * it can name the holder across that boundary.
    *
    * Best-effort by design, exactly like findBiometricConflict: called only
@@ -159,7 +159,7 @@ export class StaffService {
 
     return {
       staff_id: row.staff_id,
-      name: row.full_name ?? 'another staff member',
+      name: row.full_name ?? 'another team member',
       institution: row.institution_name ?? 'another institution',
       is_active: !!row.is_active
     };
@@ -189,7 +189,7 @@ export class StaffService {
     });
 
     if (error) {
-      console.warn('[StaffService] staff email conflict lookup failed:', error);
+      console.warn('[StaffService] email conflict lookup failed:', error);
       return null;
     }
 
@@ -199,7 +199,7 @@ export class StaffService {
     return {
       matchedField: row.matched_field === 'email' ? 'email' : 'institution_email',
       staff_id: row.staff_id ?? null,
-      name: row.full_name ?? 'another staff member',
+      name: row.full_name ?? 'another team member',
       institution: row.institution_name ?? 'another institution',
       is_active: !!row.is_active
     };

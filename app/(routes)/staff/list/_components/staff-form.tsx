@@ -596,7 +596,7 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           errorMessage.includes('staff_id'))
       ) {
         // Name the holder, same as the biometric branch above. The ID is
-        // globally unique but the staff list is institution-scoped, so the
+        // globally unique but the list is institution-scoped, so the
         // colliding row is frequently one this operator cannot see — without
         // the holder's name and college the error is a dead end.
         const enteredId = (form.getValues('staff_id') ?? '').trim();
@@ -606,15 +606,15 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           type: 'manual',
           message: holder
             ? `Already used by ${holder.name} at ${holder.institution}.`
-            : 'This Staff ID is already taken.'
+            : 'This ID is already taken.'
         });
 
         toast.error(
           holder
-            ? `Staff ID "${enteredId}" belongs to ${holder.name} at ${holder.institution}${
+            ? `The ID "${enteredId}" belongs to ${holder.name} at ${holder.institution}${
                 holder.is_active ? '' : ' (inactive)'
-              }. Staff IDs are unique across all colleges — please use a different ID.`
-            : 'Staff ID already exists. Please use a different ID.'
+              }. These IDs are unique across all colleges — please use a different one.`
+            : 'That ID already exists. Please use a different one.'
         );
       } else if (
         errorMessage.includes('staff_institution_email_key') ||
@@ -651,10 +651,10 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
                 holder.staff_id ? ` (${holder.staff_id})` : ''
               } at ${holder.institution}${heldAs}${
                 holder.is_active ? '' : ' (inactive)'
-              }. Each email can belong to only one staff record.`
+              }. Each email can belong to only one team member record.`
             : isInstitutionField
-              ? 'That institution email is already registered to another staff member.'
-              : 'That email is already registered to another staff member.'
+              ? 'That institution email is already registered to another team member.'
+              : 'That email is already registered to another team member.'
         );
       }
       // Check for other common validation patterns
