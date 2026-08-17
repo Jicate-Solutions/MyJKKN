@@ -41372,6 +41372,194 @@ COMMENT ON FUNCTION public.fn_save_course_package(jsonb, jsonb) IS
   'under RLS, the function verifies its writes and raises 42501 rather than assuming.';
 
 
+-- ----------------------------------------------------------------------------
+-- Added: 2026-08-20 - Course Events Phase 3: atomic registration-form save
+-- ----------------------------------------------------------------------------
+-- A form save is a parent plus two levels of children and REPLACES rather than
+-- merges. Split across REST calls, a failure between "delete the old structure"
+-- and "insert the new one" leaves a live PUBLIC form with no fields — worse than
+-- not saving, because it stays reachable and collects nothing.
+--
+-- SECURITY INVOKER is load-bearing: course_registration_forms_manage already
+-- gates on courses.forms.manage AND role_has_institution_access(), so the caller
+-- inherits the predicate and it cannot drift. The cost is that a blocked
+-- UPDATE/DELETE affects zero rows SILENTLY under RLS, so the body verifies its
+-- own writes and raises 42501.
+--
+-- Every field is written with an EXPLICIT form_id rather than relying on its
+-- section link. The Events builder hung fields off sections only while callers
+-- filtered by event_id, and the moment a second form existed every form rendered
+-- every other form's fields.
+-- Full rationale: supabase/migrations/20260820010000_course_form_save_rpc.sql
+
+CREATE OR REPLACE FUNCTION public.fn_save_course_registration_form(
+  p_form     jsonb,
+  p_sections jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_form_id         uuid;
+  v_course_event_id uuid;
+  v_institution_id  uuid;
+  v_rows            int;
+  v_remaining       int;
+  v_sections        jsonb;
+  v_section         jsonb;
+  v_section_id      uuid;
+  v_field           jsonb;
+  v_section_no      int := 0;
+  v_field_no        int := 0;
+  v_field_count     int := 0;
+BEGIN
+  v_form_id         := NULLIF(btrim(COALESCE(p_form->>'id', '')), '')::uuid;
+  v_course_event_id := NULLIF(btrim(COALESCE(p_form->>'course_event_id', '')), '')::uuid;
+
+  IF v_course_event_id IS NULL THEN
+    RAISE EXCEPTION 'course_event_id is required to save a registration form'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- The tenant is resolved from the course, NEVER trusted from the payload.
+  SELECT institution_id INTO v_institution_id
+    FROM course_events
+   WHERE id = v_course_event_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Course % was not found, or you do not have access to it', v_course_event_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_form_id IS NULL THEN
+    INSERT INTO course_registration_forms (
+      course_event_id, institution_id, name, slug, description, display_order, is_enabled
+    ) VALUES (
+      v_course_event_id,
+      v_institution_id,
+      btrim(p_form->>'name'),
+      btrim(p_form->>'slug'),
+      NULLIF(btrim(COALESCE(p_form->>'description', '')), ''),
+      COALESCE(NULLIF(btrim(COALESCE(p_form->>'display_order', '')), '')::int, 0),
+      -- A form is born CLOSED. Enabling it opens public intake and must be
+      -- deliberate — never a side effect of saving a draft.
+      COALESCE((p_form->>'is_enabled')::boolean, false)
+    )
+    RETURNING id INTO v_form_id;
+  ELSE
+    -- course_event_id is in the WHERE, not the SET: a form must never move
+    -- between courses.
+    UPDATE course_registration_forms SET
+      name          = btrim(p_form->>'name'),
+      slug          = btrim(p_form->>'slug'),
+      description   = NULLIF(btrim(COALESCE(p_form->>'description', '')), ''),
+      display_order = COALESCE(NULLIF(btrim(COALESCE(p_form->>'display_order', '')), '')::int, 0),
+      is_enabled    = COALESCE((p_form->>'is_enabled')::boolean, false)
+    WHERE id = v_form_id
+      AND course_event_id = v_course_event_id;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION
+        'Form % could not be updated — it does not belong to course %, or you lack courses.forms.manage on it',
+        v_form_id, v_course_event_id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- Fields are deleted BY FORM, not left to cascade off sections: a field may
+  -- legitimately have section_id NULL, and those would survive a sections-only
+  -- delete then collide on UNIQUE (form_id, field_key).
+  DELETE FROM course_registration_form_fields WHERE form_id = v_form_id;
+  DELETE FROM course_registration_form_sections WHERE form_id = v_form_id;
+
+  SELECT (SELECT count(*) FROM course_registration_form_fields WHERE form_id = v_form_id)
+       + (SELECT count(*) FROM course_registration_form_sections WHERE form_id = v_form_id)
+    INTO v_remaining;
+
+  IF v_remaining > 0 THEN
+    RAISE EXCEPTION
+      'Could not clear the existing structure of form % — % row(s) remain; you lack courses.forms.manage on them',
+      v_form_id, v_remaining
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sections := CASE
+    WHEN jsonb_typeof(p_sections) = 'array' THEN p_sections
+    ELSE '[]'::jsonb
+  END;
+
+  FOR v_section IN SELECT * FROM jsonb_array_elements(v_sections)
+  LOOP
+    INSERT INTO course_registration_form_sections (form_id, title, description, display_order)
+    VALUES (
+      v_form_id,
+      COALESCE(NULLIF(btrim(COALESCE(v_section->>'title', '')), ''), 'Section'),
+      NULLIF(btrim(COALESCE(v_section->>'description', '')), ''),
+      v_section_no
+    )
+    RETURNING id INTO v_section_id;
+    v_section_no := v_section_no + 1;
+
+    FOR v_field IN
+      SELECT * FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(v_section->'fields') = 'array'
+             THEN v_section->'fields' ELSE '[]'::jsonb END)
+    LOOP
+      INSERT INTO course_registration_form_fields (
+        -- form_id EXPLICIT, not inferred from the section. This is the whole
+        -- point: a reader filtering by form_id cannot pick up another form's
+        -- fields, which is the bug the Events builder shipped.
+        form_id, section_id, field_key, label, field_type, is_required,
+        options, placeholder, help_text, validation, display_order
+      ) VALUES (
+        v_form_id,
+        v_section_id,
+        btrim(v_field->>'field_key'),
+        btrim(v_field->>'label'),
+        v_field->>'field_type',
+        COALESCE((v_field->>'is_required')::boolean, false),
+        -- options/validation are NOT NULL jsonb — a missing key, JSON null or
+        -- wrong type must become the empty default, not a 23502.
+        CASE WHEN jsonb_typeof(v_field->'options') = 'array'
+             THEN v_field->'options' ELSE '[]'::jsonb END,
+        NULLIF(btrim(COALESCE(v_field->>'placeholder', '')), ''),
+        NULLIF(btrim(COALESCE(v_field->>'help_text', '')), ''),
+        CASE WHEN jsonb_typeof(v_field->'validation') = 'object'
+             THEN v_field->'validation' ELSE '{}'::jsonb END,
+        v_field_no
+      );
+      v_field_no    := v_field_no + 1;
+      v_field_count := v_field_count + 1;
+    END LOOP;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'form_id', v_form_id,
+    'section_count', v_section_no,
+    'field_count', v_field_count
+  );
+END;
+$function$;
+
+-- Supabase's default privileges grant EXECUTE to anon DIRECTLY, so revoking from
+-- PUBLIC alone leaves anon holding it. Revoke from both, explicitly.
+REVOKE ALL ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) IS
+  'Saves a course registration form and REPLACES its sections and fields in ONE '
+  'transaction — a half-replaced form would stay publicly reachable while '
+  'collecting nothing. SECURITY INVOKER: the caller''s own RLS '
+  '(courses.forms.manage) applies inside the body, and because a blocked '
+  'UPDATE/DELETE affects zero rows silently under RLS the function verifies its '
+  'writes and raises 42501. Every field is written with an explicit form_id so a '
+  'reader filtering by form_id can never pick up another form''s fields.';
+
+
 -- ============================================================================
 -- Bill Coverage Audit: count TUITION-EQUIVALENT categories as year coverage
 -- ============================================================================
