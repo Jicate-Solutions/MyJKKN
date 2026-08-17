@@ -237,6 +237,13 @@ export interface AdmittedSourceRow {
   full_name: string | null;
   application_id: string | null;
   roll_number: string | null;
+  /**
+   * Learner's own mobile, falling back to the originating lead's phone when the
+   * profile column is blank. Populated for every admitted/active learner today.
+   */
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
   institution_id: string;
   institution_name: string;
   program_name: string | null;

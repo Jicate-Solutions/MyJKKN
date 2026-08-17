@@ -607,7 +607,14 @@ export interface LearnerProfileFilters {
   religion?: string;
   community_category_id?: string | null;
   entry_type?: string;
+  /**
+   * @deprecated Names the RETIRED learners_profiles.accommodation_type TEXT
+   * column and is not read by getLearnerProfiles — setting it filters nothing.
+   * Use accommodation_type_id.
+   */
   accommodation_type?: string;
+  /** accommodation_types.id — the FK rows are actually stored against. */
+  accommodation_type_id?: string;
 
   // Date ranges
   created_from?: Date;

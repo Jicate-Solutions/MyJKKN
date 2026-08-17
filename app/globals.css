@@ -32,6 +32,47 @@ body {
     hsl(var(--background));
 }
 
+/* Wide forensic tables (Allocation Audit): ten-plus columns that must stay
+   READABLE rather than merely fit.
+
+   The bug this fixes: components/ui/table.tsx renders <table class="w-full">,
+   so the table always shrinks to its container. .table-container's
+   overflow-x-auto therefore never engages, every column gets squeezed below
+   its declared `size`, and cells clip mid-word ("JKKN College of .", "Boys
+   Host") with no scrollbar to recover them. A per-column width is only a
+   *hint* to the browser once the table is constrained to 100%.
+
+   min-width forces the table past its container so the existing horizontal
+   scroll actually engages and each column gets its declared size. Pair it with
+   .pinned-actions-col (above) and the sticky first column below, so the
+   learner's identity and the row actions both stay on screen while scrolling.
+   Opt-in and unlayered, exactly like .pinned-actions-col. */
+/* 1980px = the sum of the 11 declared column sizes (1975) plus slack, so the
+   browser never has to steal width from a column to make the table fit. */
+.audit-wide-table .table-container table {
+  min-width: 1980px;
+}
+.audit-wide-table .table-container table thead th:first-child,
+.audit-wide-table .table-container table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: hsl(var(--background));
+  box-shadow: 6px 0 8px -8px rgb(0 0 0 / 0.25);
+}
+/* Above the pinned action column's header (z-3) so the two sticky cells never
+   fight when the table is scrolled to either extreme. */
+.audit-wide-table .table-container table thead th:first-child {
+  z-index: 4;
+}
+.audit-wide-table .table-container table tbody td:first-child {
+  z-index: 2;
+}
+.audit-wide-table .table-container table tbody tr:hover td:first-child {
+  background:
+    linear-gradient(hsl(var(--muted) / 0.5), hsl(var(--muted) / 0.5)),
+    hsl(var(--background));
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

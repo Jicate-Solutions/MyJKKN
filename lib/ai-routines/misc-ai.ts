@@ -434,5 +434,37 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) only, each carrying an expires_at of the term end date so an unattended warning ages out of the bell instead of accumulating. Changes NO committee, roster row or permission, and revokes nobody's access — no term_end cut-off exists in the database today, so this warning is currently the only thing that would tell anyone the date is coming. No email, WhatsApp or push.",
     "safeToManualTrigger": false,
     "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_accreditation_committee_term_warnings (migration 20260809103200, service_role only). Fires via the AI-routine dispatcher (ai_routine_schedules row 'committee-term-reminders' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron, which is already at its 100-entry ceiling. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent on notifications.idempotency_key keyed by (member, term_end, threshold, audience), so each warning is sent exactly ONCE EVER rather than once per day — an extended term produces new keys and is warned again. Marked unsafe-to-manual because a run delivers notifications naming real people to real cluster officers. Every real term today ends 2027-03-31, so the honest nightly answer is 'nothing due' — the response therefore always reports `examined` alongside `candidates`, and `unreachable` when a warning had nobody who could act, because a quiet zero must not be mistakable for a quiet failure."
+  },
+  {
+    "id": "solutions-director-digest",
+    "name": "Solutions Hub — Weekly Director Digest",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Weekly · Monday 08:07 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/solutions-director-digest",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based SQL digest over Solutions Hub + Projects tables; the route resolves no model.",
+    "whatItDoes": "The hub reports itself every Monday morning: one in-app digest to the Director and Mohanraj V with the pipeline by stage, client-linked delivery (task rollups + overdue milestones via the Solutions↔Projects bridge), clients quiet more than 14 days, payment totals and last week's communication count. The card links to /solutions/digest, which renders the SAME shared compute (lib/solutions/digest.ts), so the notification and the page can never disagree.",
+    "configKnobs": "QUIET_CLIENT_DAYS=14 (lib/solutions/digest.ts). Recipients resolved from profiles BY EMAIL at runtime (director@jkkn.ac.in, mohanraj_v@jkkn.ac.in) — never a hardcoded uuid. Day/time editable at /admin/ai-routines (ai_routine_schedules row 'solutions-director-digest'). No model, no LLM.",
+    "sideEffects": "WRITES one in-app notification (notifications + user_notifications fan-out) to the two recipients, expiring just past the next edition (8 days) per the 2026-08-10 notification-expiry ruling. Reads sh_prospects, sh_client_communications, sh_payments, projects, project_tasks, project_milestones — and sh_proposals defensively (that table ships from a parallel lane; until it exists the section reports 'not yet available' rather than failing).",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. Fires via the AI-routine dispatcher (ai_routine_schedules row 'solutions-director-digest', seeded by migration 20260826110000 — Monday, minute_of_day 487 = 08:07 IST, deliberately off the :00/:30 marks; the dispatcher's 15-minute claim slot fires it in the 08:00–08:15 window), NOT a raw vercel.json cron — `crons` sits at the hard 100-entry plan cap. Auth: CRON_SECRET (Bearer or ?secret=). Idempotent per IST week (idempotency key embeds the Monday date), so a re-fire in the same week reports skipped rather than double-sending. Marked unsafe-to-manual because a run delivers a real notification to real leadership. Fails LOUD (500) when the recipient lookup returns nobody — a digest silently fanned out to zero people must land in last_status, not pass as green."
+  },
+  {
+    "id": "solutions-client-touch-nudge",
+    "name": "Solutions Hub — Quiet-Client Touch Nudge",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 09:23 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/solutions-client-touch-nudge",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "Rules-based quiet-window sweep over sh_client_communications; the route resolves no model.",
+    "whatItDoes": "When an active client with an active client-linked delivery project has had no logged communication for more than 14 days, one in-app nudge goes to Mohanraj V (resolved from profiles by email) naming the client, how long the silence has lasted, and which delivery is underway. One nudge per quiet EPISODE — the idempotency key embeds the episode's start, so a still-quiet client is not re-nudged daily, and any new logged communication naturally resets the clock and the key.",
+    "configKnobs": "QUIET_CLIENT_DAYS=14 (lib/solutions/digest.ts). Recipient resolved at runtime by email mohanraj_v@jkkn.ac.in — the circulated 18f56a8d… id is a team-member record id from a different table, not a profiles.id, and hardcoding it would deliver to nobody silently. Day/time editable at /admin/ai-routines. No model, no LLM.",
+    "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to one recipient, each expiring after one more quiet cycle (14 days). Reads sh_clients, sh_client_communications, projects (+ statuses/tasks/milestones via the shared digest compute) and its OWN ai_routine_schedules row. Sends nothing and says so when its schedule row is missing.",
+    "safeToManualTrigger": false,
+    "notes": "Rules-based, no LLM. BACKLOG FLOOR (memory feedback_a_time_window_rule_judges_the_backlog): the quiet clock is clamped at this routine's own ai_routine_schedules row's created_at — quiet_since = GREATEST(latest communication_date, floor) — so tick one never judges silence that predates the rule's existence; the floor is echoed in every response as a self-check, and a missing schedule row nudges NOBODY (explicit floorMissing, never silent). Fires via the AI-routine dispatcher (ai_routine_schedules row 'solutions-client-touch-nudge', seeded by migration 20260826110000 — daily, minute_of_day 563 = 09:23 IST, deliberately off the :00/:30 marks; fires in the 09:15–09:30 slot), NOT a raw vercel.json cron (hard 100-entry cap). Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real nudges naming real clients; re-running is safe (per-episode idempotency surfaces repeats as duplicates). Fails LOUD (500) when the recipient profile cannot be resolved."
   }
 ];

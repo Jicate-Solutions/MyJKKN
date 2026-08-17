@@ -738,6 +738,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.categories.create', label: 'Create Billing Categories' },
       { key: 'billing.categories.edit', label: 'Edit Billing Categories' },
       { key: 'billing.categories.delete', label: 'Delete Billing Categories' },
+      // Instalment plans (2026-08-13): config rows that let bill generation
+      // split a yearly fee into N instalment bills, per programme x billing
+      // category x academic year (migration 20260825013000 — Director-gated).
+      // DORMANT until plans are configured; zero plans = single-bill behaviour
+      // everywhere. These keys gate the RLS on billing_instalment_plans(_lines).
+      // No admin page yet — the keys are registered now so the RLS lanes are
+      // grantable from day one instead of being permanently super-admin-only.
+      { key: 'billing.instalment_plans.view', label: 'View Instalment Plans' },
+      { key: 'billing.instalment_plans.manage', label: 'Manage Instalment Plans' },
       { key: 'billing.schedule.view', label: 'View Schedule' },
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
@@ -1913,6 +1922,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
       { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
       { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
+      // Read-only conformance audit (/campus-living/allocations/audit). Granted
+      // to NO role on purpose: user_has_permission() super-admin-bypasses, so
+      // this is super-admin-only today and can be handed to a warden/registrar
+      // from Role Management later without a code change. Never gate on a role
+      // name — the RPC fn_hostel_allocation_audit reads THIS key.
+      { key: 'campus_living.allocations.audit', label: 'View Allocation Audit (Super Admin)' },
 
       // Residents (master data — added 2026-04-22 PR-2, classifies non-learner residents: staff / international / married / visitor / other)
       { key: 'campus_living.residents.view', label: 'View Hostel Residents' },

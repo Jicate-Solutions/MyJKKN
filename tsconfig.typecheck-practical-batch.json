@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "types/academics.ts",
+    "lib/utils/academic/practical-batch-roster.ts",
+    "hooks/use-batch-learners.ts",
+    "app/(routes)/academic/attendance/mark/page.tsx",
+    "app/(routes)/academic/attendance/mark/_components/practical-attendance-selector.tsx",
+    "app/(routes)/academic/timetables/[id]/_components/practical-period-config-form.tsx",
+    "app/(routes)/academic/timetables/[id]/_components/slot-dialog.tsx"
+  ]
+}

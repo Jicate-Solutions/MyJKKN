@@ -282,6 +282,11 @@ function buildFilterBadges(
   if (filters.section_id) badges.push({ label: 'Section', value: 'Filtered' });
   if (filters.academic_year_id) badges.push({ label: 'Academic Year', value: 'Filtered' });
   if (filters.gender) badges.push({ label: 'Gender', value: filters.gender });
+  // 'Filtered' rather than the name: this builder is pure and synchronous, and
+  // the id→name lookup is an async query. Matches how every other id-valued
+  // filter above reports itself.
+  if (filters.accommodation_type_id)
+    badges.push({ label: 'Accommodation', value: 'Filtered' });
   if (filters.is_profile_complete !== undefined && filters.is_profile_complete !== '')
     badges.push({
       label: 'Profile Complete',
@@ -412,6 +417,7 @@ export function LearnerExportDialog({
         section_id: filters.section_id,
         academic_year_id: filters.academic_year_id,
         gender: filters.gender,
+        accommodation_type_id: filters.accommodation_type_id,
         is_profile_complete:
           filters.is_profile_complete !== undefined && filters.is_profile_complete !== ''
             ? filters.is_profile_complete === 'true'
