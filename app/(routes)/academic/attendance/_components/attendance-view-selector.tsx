@@ -689,9 +689,9 @@ export function AttendanceViewSelector({
           <AlertTriangle className='h-4 w-4' />
           <AlertDescription className='space-y-3'>
             <p>
-              We could not check your staff record just now, so your classes
-              cannot be listed. This is a problem on our side, not with your
-              account — nothing needs changing.
+              We could not check your team member record just now, so your
+              sessions cannot be listed. This is a problem on our side, not with
+              your account — nothing needs changing.
             </p>
             <p className='text-xs opacity-80'>{staffLookupError}</p>
             <Button
@@ -716,18 +716,18 @@ export function AttendanceViewSelector({
           <AlertTriangle className='h-4 w-4' />
           <AlertDescription>
             {/* Names the column that is actually searched, and the failure mode
-                that caused BUG-005820: a staff record DID exist for this person,
-                with a misspelled institution email, so it could not be found.
-                The old wording ("link your email to your staff profile") read as
-                "create the link", and an administrator created a SECOND staff
-                record — which resolved this screen and still showed no classes,
-                because the timetable assignments stayed on the original row. */}
-            No staff record was found with the institution email{' '}
-            <strong>{profile?.email}</strong>, so your classes cannot be listed.
-            Please ask the administrator to check whether a staff record already
-            exists for you under a different or misspelled institution email and
-            correct that one — creating a new staff record will not carry your
-            timetable across.
+                that caused BUG-005820: a record DID exist for this person, with
+                a misspelled institution email, so it could not be found. The old
+                wording ("link your email to your profile") read as "create the
+                link", and an administrator created a SECOND record — which
+                resolved this screen and still showed no sessions, because the
+                timetable assignments stayed on the original row. */}
+            No team member record was found with the institution email{' '}
+            <strong>{profile?.email}</strong>, so your sessions cannot be listed.
+            Please ask the administrator to check whether a team member record
+            already exists for you under a different or misspelled institution
+            email and correct that one — creating a new record will not carry
+            your timetable across.
           </AlertDescription>
         </Alert>
       </div>

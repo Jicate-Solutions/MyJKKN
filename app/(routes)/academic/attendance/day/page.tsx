@@ -128,9 +128,9 @@ export default function DayAttendancePage() {
                 <Info className='h-4 w-4' />
                 <AlertDescription className='space-y-3'>
                   <p>
-                    We could not check your staff record just now, so day-wise
-                    classes cannot be loaded. This is a problem on our side —
-                    nothing about your account needs changing.
+                    We could not check your team member record just now, so
+                    day-wise sessions cannot be loaded. This is a problem on our
+                    side — nothing about your account needs changing.
                   </p>
                   <p className='text-xs opacity-80'>{lookupError}</p>
                   <Button
@@ -147,10 +147,10 @@ export default function DayAttendancePage() {
               <Alert>
                 <Info className='h-4 w-4' />
                 <AlertDescription>
-                  No staff record was found with the institution email{' '}
-                  <strong>{profile?.email}</strong>, so day-wise classes cannot
+                  No team member record was found with the institution email{' '}
+                  <strong>{profile?.email}</strong>, so day-wise sessions cannot
                   be loaded. Please ask the administrator to check whether a
-                  staff record already exists for you under a different or
+                  team member record already exists for you under a different or
                   misspelled institution email and correct that one, rather than
                   creating a new record.
                 </AlertDescription>
