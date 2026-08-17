@@ -655,9 +655,21 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/id-cards/address-check",
+            "label": "Address Check",
+            "iconName": "MapPin",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/batch-print",
             "label": "Batch ID-Card Print",
             "iconName": "Printer",
+            "children": []
+          },
+          {
+            "path": "/admin/id-cards/morning",
+            "label": "ID Card Morning Page",
+            "iconName": "Sunrise",
             "children": []
           },
           {
@@ -2371,6 +2383,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Allocations",
         "iconName": "PackageCheck",
         "children": [
+          {
+            "path": "/campus-living/allocations/audit",
+            "label": "Audit",
+            "iconName": "PackageCheck",
+            "children": []
+          },
           {
             "path": "/campus-living/allocations/auto",
             "label": "Auto",

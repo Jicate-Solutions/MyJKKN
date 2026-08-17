@@ -142,6 +142,10 @@ export default function GatePassesPage() {
     setIsApproving(id);
     try {
       await approveGatePass.mutateAsync({ id, approverId: profile.id });
+    } catch {
+      // Surfaced to the operator by the mutation's own onError toast. Caught
+      // here so a refusal (no permission, or somebody already decided this
+      // request) does not leave an unhandled rejection behind the toast.
     } finally {
       setIsApproving(null);
     }
@@ -155,6 +159,8 @@ export default function GatePassesPage() {
         rejectedBy: profile.id,
         reason: rejectReason.trim(),
       });
+    } catch {
+      // Same as approve: the toast is the operator-facing report.
     } finally {
       setRejectDialogOpen(false);
       setRejectingId(null);
