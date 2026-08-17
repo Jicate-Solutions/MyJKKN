@@ -76,6 +76,7 @@ import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { useTemplates, useCreateFromTemplate } from '@/hooks/use-templates';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { CycleAnchorPhaseWarningBanner } from '../_components/cycle-anchor-phase-warning';
 
 /**
  * navMeta — documents that this page is invoked via a button click on the
@@ -1384,7 +1385,18 @@ export default function NewTimetablePage() {
                         <FormDescription>
                           The start date of the timetable period. Required for
                           date overlap validation.
+                          {form.watch('timetable_format') === 'cycle' &&
+                            ' For a cycle timetable this is also where the rotation is anchored.'}
                         </FormDescription>
+                        {/* Added: 2026-08-17 (BUG-005837) */}
+                        <CycleAnchorPhaseWarningBanner
+                          timetableFormat={form.watch('timetable_format')}
+                          institutionId={watchInstitutionId}
+                          startDate={
+                            field.value ? format(field.value, 'yyyy-MM-dd') : null
+                          }
+                          numCycles={form.watch('num_cycles')}
+                        />
                         <FormMessage />
                       </FormItem>
                     )}

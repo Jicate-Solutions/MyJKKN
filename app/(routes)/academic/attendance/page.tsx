@@ -26,6 +26,7 @@ import { AttendanceViewSelector } from './_components/attendance-view-selector';
 import { SectionSelectionModal } from './_components/section-selection-modal';
 import { formatTimeRange } from '@/utils/time-format';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { resolvePeriodSectionId } from '@/lib/utils/academic/attendance-section-scope';
 import type {
   AttendanceSearchContext,
   AttendancePeriodOption
@@ -161,10 +162,10 @@ export default function AttendancePage() {
     // Navigate directly to mark page where batch/course selection happens at runtime
     if (period.period_mode === 'practical') {
       // For practical periods, try to get section_id from batch config or search context
-      const sectionId = searchContext.section_id ||
-        period.sections?.[0]?.id ||
-        period.section_ids?.[0] ||
-        undefined;
+      // Updated: 2026-08-16 - The period's own section now outranks the filter panel's;
+      // see resolvePeriodSectionId. Sending the filter's section was showing "The selected
+      // section belongs to a different semester than this timetable and was ignored."
+      const sectionId = resolvePeriodSectionId(period, searchContext.section_id);
       navigateToMarkAttendance(period, sectionId);
       return;
     }
@@ -173,10 +174,8 @@ export default function AttendancePage() {
     // section_id on semester-level timetables. Navigate with optional sectionId and let
     // the mark page resolve sections from the timetable slot data.
     if ((period as any).is_subdivided) {
-      const sectionId = searchContext.section_id ||
-        period.sections?.[0]?.id ||
-        period.section_ids?.[0] ||
-        undefined;
+      // Updated: 2026-08-16 - Period's own section outranks the filter panel's.
+      const sectionId = resolvePeriodSectionId(period, searchContext.section_id);
       navigateToMarkAttendance(period, sectionId);
       return;
     }
@@ -209,12 +208,11 @@ export default function AttendancePage() {
   ): string | undefined => {
     // Try multiple sources in priority order
     // Updated: 2026-03-13 - Removed section_name fallback (it's a display string, not an ID)
-    return (
-      searchContext.section_id ||
-      period.sections?.[0]?.id ||
-      period.section_ids?.[0] ||
-      undefined
-    );
+    // Updated: 2026-08-16 - The period's own section now comes FIRST. Only single-section
+    // periods reach here (isMultiSection is routed away above), so this cannot override a
+    // deliberate choice between sections — it only stops a stale filter selection from a
+    // different semester being sent to the mark page and rejected there.
+    return resolvePeriodSectionId(period, searchContext.section_id);
   };
 
   // Handle section selection from modal
