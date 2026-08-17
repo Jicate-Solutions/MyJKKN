@@ -297,9 +297,19 @@ export class ReservationService {
       status: initialStatus,
       approved_at: requiresApproval ? null : new Date().toISOString(),
       // Booking-spine links — only set when the caller provides them.
+      // These are an ALLOW-LIST, not a passthrough: a link column absent from
+      // this list is silently dropped before it ever reaches PostgREST. That is
+      // exactly what happened to course_session_id between Phase 1 (which added
+      // the column) and Phase 2c (which added the line below) — course venue
+      // holds would have looked successful and linked to nothing.
       ...(dto.event_id ? { event_id: dto.event_id } : {}),
       ...(dto.session_id ? { session_id: dto.session_id } : {}),
       ...(dto.bundle_id ? { bundle_id: dto.bundle_id } : {}),
+      // resource_reservations_single_owner_check is
+      // num_nonnulls(event_id, session_id, course_session_id) <= 1 — a COURSE
+      // hold passes course_session_id and NEITHER event_id nor session_id.
+      // Setting two of the three is a 23514, not a richer link.
+      ...(dto.course_session_id ? { course_session_id: dto.course_session_id } : {}),
       ...(dto.session_label ? { session_label: dto.session_label } : {})
     };
 

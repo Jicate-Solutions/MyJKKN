@@ -71,4 +71,37 @@ export const queryKeys = {
     details: () => [...queryKeys.courses.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courses.details(), id] as const,
   },
+  /** Separate root from `courses` so invalidating a course list never refetches
+   *  every package list, and vice versa. `list()` spreads `lists()` so one
+   *  invalidate of lists() still reaches every course's packages. */
+  coursePackages: {
+    all: ['course-packages'] as const,
+    lists: () => [...queryKeys.coursePackages.all, 'list'] as const,
+    list: (courseEventId: string) =>
+      [...queryKeys.coursePackages.lists(), courseEventId] as const,
+    details: () => [...queryKeys.coursePackages.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.coursePackages.details(), id] as const,
+  },
+  /** Own root, same reasoning as coursePackages. Note a session mutation can also
+   *  change a resource_reservations row, so anything caching the Resource
+   *  Management calendar needs invalidating too — that lives outside this file. */
+  courseSessions: {
+    all: ['course-sessions'] as const,
+    lists: () => [...queryKeys.courseSessions.all, 'list'] as const,
+    list: (courseEventId: string) =>
+      [...queryKeys.courseSessions.lists(), courseEventId] as const,
+    details: () => [...queryKeys.courseSessions.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courseSessions.details(), id] as const,
+  },
+  /** Own root, same reasoning as coursePackages/courseSessions. Public course
+   *  pages do NOT use React Query at all — they are server components reading
+   *  through service-role route handlers — so nothing here is ever a public key. */
+  courseForms: {
+    all: ['course-forms'] as const,
+    lists: () => [...queryKeys.courseForms.all, 'list'] as const,
+    list: (courseEventId: string) =>
+      [...queryKeys.courseForms.lists(), courseEventId] as const,
+    details: () => [...queryKeys.courseForms.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courseForms.details(), id] as const,
+  },
 } as const;

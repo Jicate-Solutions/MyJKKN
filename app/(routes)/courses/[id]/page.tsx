@@ -1,11 +1,13 @@
 'use client';
 
-// Course Events — /courses/[id] detail console (Phase 2a Task 7). Header +
-// tab scaffold: Overview (read-only summary), Settings (CourseForm in edit
-// mode, gated on courses.edit), and Packages/Sessions — clickable tabs that
-// render a short Coming Soon card until Phase 2b and 2c fill them in.
-// Rendered now, not omitted, so the shape of the console is legible and
-// 2b/2c have an obvious insertion point.
+// Course Events — /courses/[id] detail console (Phase 2a Task 7). Header + four
+// tabs, each gated inside its own panel rather than by hiding the trigger:
+//   Overview  read-only summary
+//   Settings  CourseForm in edit mode, gated on courses.edit
+//   Packages  pricing tiers + instalment schedules (2b), courses.packages.manage
+//   Sessions  the schedule + venue holds (2c), courses.sessions.manage
+// The Coming-Soon placeholder that stood in for the last two is gone — both are
+// real now. Forms, applications, enrollments and billing arrive in Phases 3-5.
 //
 // Tab state is URL-synced via useTabParam per the 2026-07-17 system standard
 // for every tabbed page (deep-linkable + favoritable via ?tab=) — hence the
@@ -32,8 +34,13 @@ import {
   CourseForm,
   type CourseFormOutput,
 } from '@/app/(routes)/courses/_components/course-form';
+import { PackagesPanel } from './_components/packages-panel';
+import { SessionsPanel } from './_components/sessions-panel';
+import { FormsPanel } from './_components/forms-panel';
 
-const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions'] as const;
+// This array is the allow-list useTabParam validates ?tab= against — a trigger
+// added below but not added here silently falls back to 'overview'.
+const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions', 'forms'] as const;
 
 /** Status is a CHECK constraint, not a Postgres enum — mirrors
  *  _components/columns.tsx's own STATUS_LABEL/STATUS_VARIANT, which aren't
@@ -103,20 +110,6 @@ function Fact({
         </p>
       </div>
     </div>
-  );
-}
-
-/** Placeholder body for the Packages/Sessions tabs — clickable like every
- *  other tab, so a browsing user can actually see what's coming rather than
- *  hovering a disabled trigger's tooltip. Stays as the literal insertion
- *  point 2b/2c swap real content into. */
-function ComingSoonPanel({ note }: { note: string }) {
-  return (
-    <Card>
-      <CardContent className="py-16 text-center text-sm text-muted-foreground">
-        {note}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -245,6 +238,7 @@ function CourseDetailPageInner() {
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="packages">Packages</TabsTrigger>
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
+            <TabsTrigger value="forms">Forms</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -311,11 +305,19 @@ function CourseDetailPageInner() {
           </TabsContent>
 
           <TabsContent value="packages">
-            <ComingSoonPanel note="Course packages and instalment pricing — coming in Phase 2b." />
+            <PackagesPanel courseEventId={course.id} />
           </TabsContent>
 
           <TabsContent value="sessions">
-            <ComingSoonPanel note="Sessions and venue booking — coming in Phase 2c." />
+            <SessionsPanel courseEventId={course.id} />
+          </TabsContent>
+
+          <TabsContent value="forms">
+            <FormsPanel
+              courseEventId={course.id}
+              courseSlug={course.slug}
+              coursePublished={status === 'published'}
+            />
           </TabsContent>
         </Tabs>
       </div>
