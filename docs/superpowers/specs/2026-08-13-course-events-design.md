@@ -155,6 +155,27 @@ This is a FK to a **different** table than the existing `event_id`/`session_id` 
 so it does not trip the "second FK to the same table breaks every PostgREST embed"
 failure this repo has hit before.
 
+> **INCOMPLETE — amended 2026-08-17 during Phase 2c.** The paragraph above is true
+> about the *reservations* side: `event_id`, `session_id` and `course_session_id`
+> point at three different tables, so none of them is ambiguous. What it missed is
+> the **reverse edge**. `course_sessions.reservation_id` → `resource_reservations`
+> AND `resource_reservations.course_session_id` → `course_sessions` means the two
+> tables now reference **each other**, so a bare embed between them is ambiguous in
+> the other direction. Verified live against PostgREST:
+>
+> ```
+> GET /course_sessions?select=id,reservation:resource_reservations(id,status)
+> PGRST201 — two relationships found:
+>   resource_reservations_course_session_id_fkey  (one-to-many)
+>   course_sessions_reservation_id_fkey           (many-to-one)
+> ```
+>
+> **Every embed between these two tables must name its constraint**, e.g.
+> `reservation:resource_reservations!course_sessions_reservation_id_fkey(...)`.
+> With the name supplied the same request resolves and fails only at `42501`
+> (anon is revoked, as intended) — proving it is the relationship, not the grant,
+> that the bare form trips on. Phases 5 and 6 embed these tables too.
+
 ### 3.3 Registration forms
 
 Mirrors the Events form builder, **after** its bug fix:
