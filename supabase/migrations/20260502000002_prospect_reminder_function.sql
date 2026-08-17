@@ -49,8 +49,27 @@ AS $$
   ORDER BY p.next_action_date ASC, p.company_name ASC;
 $$;
 
-REVOKE ALL ON FUNCTION public.sh_get_overdue_prospects() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.sh_get_overdue_prospects() TO authenticated, service_role;
+-- Anon lock. `REVOKE ... FROM PUBLIC` alone is NOT enough here: Supabase ships
+-- `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon`, so
+-- every new function is born with a DIRECT anon grant that survives a PUBLIC
+-- revoke. Without naming anon explicitly this RPC would be callable by any
+-- unauthenticated client holding the public anon key, which is embedded in every
+-- Next.js bundle. anon must be named. (CLAUDE.md, "Lock new RPCs from anon".)
+REVOKE ALL     ON FUNCTION public.sh_get_overdue_prospects() FROM anon, PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.sh_get_overdue_prospects() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.sh_get_overdue_prospects() TO authenticated, service_role;
+
+-- Guard: refuse the migration if anon can still reach it.
+DO $anon_check$
+BEGIN
+  IF has_function_privilege('anon', 'public.sh_get_overdue_prospects()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'sh_get_overdue_prospects is still EXECUTE-able by anon - refusing to ship an unauthenticated RPC';
+  END IF;
+  IF NOT has_function_privilege('service_role', 'public.sh_get_overdue_prospects()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'service_role cannot EXECUTE sh_get_overdue_prospects - the cron would still fail';
+  END IF;
+END
+$anon_check$;
 
 COMMENT ON FUNCTION public.sh_get_overdue_prospects() IS
   'Solutions Hub C2: returns prospects whose next_action_date is overdue. Consumed by /api/cron/prospect-reminders. Active stages only.';
