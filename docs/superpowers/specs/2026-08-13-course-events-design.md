@@ -491,15 +491,35 @@ enrollments and bills. The asymmetry is the safeguard — do not "fix" it for co
 /courses/[id]                 console: overview | packages | sessions | forms
                                        | applications | enrollments | billing
 /my-courses                   participant portal (learners, staff, external)
-/learn/[slug]                 PUBLIC course landing + package tiers
-/learn/[slug]/apply           PUBLIC application form (?form=<slug>)
+/course/[slug]                PUBLIC course landing + package tiers
+/course/[slug]/apply          PUBLIC application form (?form=<slug>)
 /api/courses/*                authenticated, withAuth-wrapped
 /api/public/courses/*         service-role: apply, package list, phone lookup
 ```
 
-**`proxy.ts` must gain `'/learn/'` and `'/api/public/courses/'` in
+**`proxy.ts` must gain `'/course/'` and `'/api/public/courses/'` in
 `PUBLIC_PATH_PREFIXES`** — otherwise applicants are 302'd to `/auth/login` before the
 route handler ever runs.
+
+> **CORRECTED 2026-08-17 — the public prefix was `'/learn/'` and that was an auth
+> hole, not a naming preference.** `app/(routes)/learn/` is the **authenticated**
+> Foundation learning module: 16 routes, including `/learn/profile`,
+> `/learn/profile/badges`, `/learn/leaderboard`, `/learn/channels`, `/learn/quests`,
+> `/learn/assess/[id]/results` and `/learn/certificate/[id]`. `isPublicPath` matches
+> with `path.startsWith(prefix)` (`proxy.ts:210-212`), so a single `'/learn/'` entry
+> would have made every one of them reachable with no session — a learner's profile,
+> badges and assessment results included. This is the mirror image of the incidents
+> already recorded in `proxy.ts` against `'/verify/'` and `'/r/'`: those were public
+> pages nobody allow-listed; this would have been an allow-list entry that swallowed
+> authenticated pages. (`app/(routes)/pde/learn/` also exists but sits under `/pde/`,
+> so it was never in range.)
+>
+> **The replacement is deliberately singular.** `/course/` is the public page;
+> `/courses` stays the admin catalog. They differ by ONE character, and the only
+> reason the prefix is safe is that `'/courses/123'.startsWith('/course/')` is
+> `false` — the `s` lands where the `/` is expected. Say that in the `proxy.ts`
+> comment when the entry is added, or a later reader will "tidy" it to `'/course'`
+> and silently unauthenticate the entire admin module.
 
 Public submission goes through service-role API routes, not anon RLS. `REVOKE ... FROM
 anon` on all course tables (revoke from `anon`, not `PUBLIC`).
@@ -636,7 +656,8 @@ New `boolean NOT NULL DEFAULT false`. See §5.1.
 | Package installments don't sum to the total | Deferred constraint trigger (I1) |
 | Razorpay callback + webhook double-credit | Derived balances (I2) + partial unique index on `razorpay_payment_id` |
 | NULL-institution profile leaks into admin scope | `is_external_participant` discriminator + portal isolation + additive RLS (§5.1) |
-| Public pages 302 to login | Register both prefixes in `proxy.ts` (§7.2) |
+| Public pages 302 to login | Register `'/course/'` + `'/api/public/courses/'` in `proxy.ts` (§7.2) |
+| A public prefix that swallows authenticated routes | `isPublicPath` is `startsWith`. Never allow-list `'/learn/'` (16 live authenticated routes) and never shorten `'/course/'` to `'/course'` (§7.2) |
 | Permission keys declared but not granted → empty pages | Grant into `custom_roles.permissions` in the same migration |
 | Supabase errors are plain objects, not `Error` | Use `getErrorMessage()`; never `err instanceof Error` |
 | Fire-and-forget mutations hide RLS denials | Always destructure and check `{ error }`; try/catch does not catch them |

@@ -284,6 +284,7 @@ Observe, do not assume:
 
 ## Notes for Phase 3
 
-- Phase 3 (registration forms + public `/learn/[slug]`) is the first phase that adds **public** routes. `proxy.ts` must gain `'/learn/'` and `'/api/public/courses/'` in `PUBLIC_PATH_PREFIXES`, or applicants are 302'd to `/auth/login` before the route handler runs. Public routes also need their own `<Toaster>`.
+- Phase 3 (registration forms + public `/course/[slug]`) is the first phase that adds **public** routes. `proxy.ts` must gain `'/course/'` and `'/api/public/courses/'` in `PUBLIC_PATH_PREFIXES`, or applicants are 302'd to `/auth/login` before the route handler runs. Public routes also need their own `<Toaster>`.
+- **The public prefix is `'/course/'`, singular, and NEVER `'/learn/'`.** The spec originally said `/learn/[slug]`; that was corrected on 2026-08-17 (see spec §7.2) because `app/(routes)/learn/` is the authenticated Foundation module — 16 live routes — and `isPublicPath` matches by `startsWith`, so allow-listing `'/learn/'` would have unauthenticated all of them. Equally, do not shorten `'/course/'` to `'/course'`: the trailing slash is the only thing stopping it matching `/courses/[id]`.
 - Build the form builder with `form_id` on fields **from day one** (spec §3.3). The Events module hung fields off sections only, and the moment a second form existed it rendered every other form's fields.
 - Spec §9a: an external applicant cannot read their own pending application — the self-clause keys on `profile_id`, which is NULL until approval. Design the status page around a token or a service-role read.
