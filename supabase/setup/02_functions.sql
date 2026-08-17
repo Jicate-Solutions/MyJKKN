@@ -41212,6 +41212,354 @@ COMMENT ON FUNCTION public.fn_course_recompute_balances() IS
   'Sole writer of course_bills.paid_amount/balance_amount/status and course_enrollments.total_paid/balance/status. Voided bills are excluded from rollups; withdrawn/cancelled/completed are terminal.';
 
 
+-- ----------------------------------------------------------------------------
+-- Added: 2026-08-19 - Course Events Phase 2b: atomic package + schedule save
+-- ----------------------------------------------------------------------------
+-- fn_course_package_amounts_chk (above) is DEFERRABLE INITIALLY DEFERRED on BOTH
+-- package tables, so it evaluates at COMMIT. PostgREST wraps each request in its
+-- own transaction, which makes repricing a package impossible in two calls --
+-- whichever half commits first trips 23514 against the other half's stale value.
+-- This RPC is the single save path for both create and edit.
+--
+-- SECURITY INVOKER is load-bearing, not an oversight: course_packages_manage and
+-- course_package_installments_manage already gate on courses.packages.manage AND
+-- role_has_institution_access(), so running as the caller inherits the predicate
+-- and it cannot drift. A DEFINER rewrite would bypass RLS and have to re-copy it.
+-- The cost is that a blocked UPDATE/DELETE affects zero rows SILENTLY under RLS,
+-- so the body verifies its own writes and raises 42501 rather than assuming.
+-- Full rationale: supabase/migrations/20260819010000_course_package_save_rpc.sql
+
+CREATE OR REPLACE FUNCTION public.fn_save_course_package(
+  p_package      jsonb,
+  p_installments jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_package_id      uuid;
+  v_course_event_id uuid;
+  v_institution_id  uuid;
+  v_rows            int;
+  v_remaining       int;
+  v_installments    jsonb;
+  v_inst            jsonb;
+  v_no              smallint := 0;
+BEGIN
+  v_package_id      := NULLIF(btrim(COALESCE(p_package->>'id', '')), '')::uuid;
+  v_course_event_id := NULLIF(btrim(COALESCE(p_package->>'course_event_id', '')), '')::uuid;
+
+  IF v_course_event_id IS NULL THEN
+    RAISE EXCEPTION 'course_event_id is required to save a package'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- The tenant is resolved from the course, NEVER trusted from the payload.
+  SELECT institution_id INTO v_institution_id
+    FROM course_events
+   WHERE id = v_course_event_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Course % was not found, or you do not have access to it', v_course_event_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_package_id IS NULL THEN
+    INSERT INTO course_packages (
+      course_event_id, institution_id, name, description, total_amount, currency,
+      seat_cap, sale_opens_at, sale_closes_at, is_active, display_order
+    ) VALUES (
+      v_course_event_id,
+      v_institution_id,
+      btrim(p_package->>'name'),
+      NULLIF(btrim(COALESCE(p_package->>'description', '')), ''),
+      (p_package->>'total_amount')::numeric,
+      COALESCE(NULLIF(btrim(COALESCE(p_package->>'currency', '')), ''), 'INR'),
+      NULLIF(btrim(COALESCE(p_package->>'seat_cap', '')), '')::int,
+      NULLIF(btrim(COALESCE(p_package->>'sale_opens_at', '')), '')::timestamptz,
+      NULLIF(btrim(COALESCE(p_package->>'sale_closes_at', '')), '')::timestamptz,
+      COALESCE((p_package->>'is_active')::boolean, true),
+      COALESCE(NULLIF(btrim(COALESCE(p_package->>'display_order', '')), '')::int, 0)
+    )
+    RETURNING id INTO v_package_id;
+    -- No row-count check needed: an RLS WITH CHECK failure on INSERT raises 42501.
+  ELSE
+    -- course_event_id is in the WHERE, not the SET: a package must never move
+    -- between courses, and this also stops a caller from editing some other
+    -- course's package by pairing its id with a course they can reach.
+    UPDATE course_packages SET
+      name           = btrim(p_package->>'name'),
+      description    = NULLIF(btrim(COALESCE(p_package->>'description', '')), ''),
+      total_amount   = (p_package->>'total_amount')::numeric,
+      currency       = COALESCE(NULLIF(btrim(COALESCE(p_package->>'currency', '')), ''), 'INR'),
+      seat_cap       = NULLIF(btrim(COALESCE(p_package->>'seat_cap', '')), '')::int,
+      sale_opens_at  = NULLIF(btrim(COALESCE(p_package->>'sale_opens_at', '')), '')::timestamptz,
+      sale_closes_at = NULLIF(btrim(COALESCE(p_package->>'sale_closes_at', '')), '')::timestamptz,
+      is_active      = COALESCE((p_package->>'is_active')::boolean, true),
+      display_order  = COALESCE(NULLIF(btrim(COALESCE(p_package->>'display_order', '')), '')::int, 0)
+    WHERE id = v_package_id
+      AND course_event_id = v_course_event_id;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION
+        'Package % could not be updated — it does not belong to course %, or you lack courses.packages.manage on it',
+        v_package_id, v_course_event_id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- Full replace, never a diff: the deferred trigger validates the end state.
+  DELETE FROM course_package_installments WHERE package_id = v_package_id;
+
+  -- Zero deleted rows is legitimate (a package that had no schedule), so the
+  -- check is "is anything still there?" -- what an RLS-blocked DELETE leaves.
+  SELECT count(*) INTO v_remaining
+    FROM course_package_installments
+   WHERE package_id = v_package_id;
+
+  IF v_remaining > 0 THEN
+    RAISE EXCEPTION
+      'Could not clear the existing schedule for package % — % row(s) remain; you lack courses.packages.manage on them',
+      v_package_id, v_remaining
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- A JSON null, a missing key or a non-array all mean "no schedule". COALESCE
+  -- would not catch a JSON null, and jsonb_array_elements raises on a scalar.
+  v_installments := CASE
+    WHEN jsonb_typeof(p_installments) = 'array' THEN p_installments
+    ELSE '[]'::jsonb
+  END;
+
+  FOR v_inst IN SELECT * FROM jsonb_array_elements(v_installments)
+  LOOP
+    -- Renumbered from 1 in array order rather than taken from the client, so a
+    -- reordered UI can never violate UNIQUE (package_id, installment_no).
+    v_no := v_no + 1;
+
+    INSERT INTO course_package_installments (package_id, installment_no, label, amount, due_date)
+    VALUES (
+      v_package_id,
+      v_no,
+      NULLIF(btrim(COALESCE(v_inst->>'label', '')), ''),
+      (v_inst->>'amount')::numeric,
+      NULLIF(btrim(COALESCE(v_inst->>'due_date', '')), '')::date
+    );
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'package_id', v_package_id,
+    'installment_count', v_no
+  );
+END;
+$function$;
+
+-- Supabase's default privileges grant EXECUTE to anon DIRECTLY, so revoking from
+-- PUBLIC alone leaves anon holding it. Revoke from both, explicitly.
+REVOKE ALL ON FUNCTION public.fn_save_course_package(jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_save_course_package(jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_course_package(jsonb, jsonb) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_save_course_package(jsonb, jsonb) IS
+  'Saves a course package and replaces its installment schedule in ONE transaction. '
+  'Required because fn_course_package_amounts_chk is a DEFERRABLE INITIALLY DEFERRED '
+  'constraint trigger evaluated at COMMIT, so a reprice cannot be split across two '
+  'PostgREST calls. SECURITY INVOKER: the caller''s own RLS (courses.packages.manage) '
+  'applies inside the body. Because a blocked UPDATE/DELETE affects zero rows silently '
+  'under RLS, the function verifies its writes and raises 42501 rather than assuming.';
+
+
+-- ----------------------------------------------------------------------------
+-- Added: 2026-08-20 - Course Events Phase 3: atomic registration-form save
+-- ----------------------------------------------------------------------------
+-- A form save is a parent plus two levels of children and REPLACES rather than
+-- merges. Split across REST calls, a failure between "delete the old structure"
+-- and "insert the new one" leaves a live PUBLIC form with no fields — worse than
+-- not saving, because it stays reachable and collects nothing.
+--
+-- SECURITY INVOKER is load-bearing: course_registration_forms_manage already
+-- gates on courses.forms.manage AND role_has_institution_access(), so the caller
+-- inherits the predicate and it cannot drift. The cost is that a blocked
+-- UPDATE/DELETE affects zero rows SILENTLY under RLS, so the body verifies its
+-- own writes and raises 42501.
+--
+-- Every field is written with an EXPLICIT form_id rather than relying on its
+-- section link. The Events builder hung fields off sections only while callers
+-- filtered by event_id, and the moment a second form existed every form rendered
+-- every other form's fields.
+-- Full rationale: supabase/migrations/20260820010000_course_form_save_rpc.sql
+
+CREATE OR REPLACE FUNCTION public.fn_save_course_registration_form(
+  p_form     jsonb,
+  p_sections jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_form_id         uuid;
+  v_course_event_id uuid;
+  v_institution_id  uuid;
+  v_rows            int;
+  v_remaining       int;
+  v_sections        jsonb;
+  v_section         jsonb;
+  v_section_id      uuid;
+  v_field           jsonb;
+  v_section_no      int := 0;
+  v_field_no        int := 0;
+  v_field_count     int := 0;
+BEGIN
+  v_form_id         := NULLIF(btrim(COALESCE(p_form->>'id', '')), '')::uuid;
+  v_course_event_id := NULLIF(btrim(COALESCE(p_form->>'course_event_id', '')), '')::uuid;
+
+  IF v_course_event_id IS NULL THEN
+    RAISE EXCEPTION 'course_event_id is required to save a registration form'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- The tenant is resolved from the course, NEVER trusted from the payload.
+  SELECT institution_id INTO v_institution_id
+    FROM course_events
+   WHERE id = v_course_event_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Course % was not found, or you do not have access to it', v_course_event_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_form_id IS NULL THEN
+    INSERT INTO course_registration_forms (
+      course_event_id, institution_id, name, slug, description, display_order, is_enabled
+    ) VALUES (
+      v_course_event_id,
+      v_institution_id,
+      btrim(p_form->>'name'),
+      btrim(p_form->>'slug'),
+      NULLIF(btrim(COALESCE(p_form->>'description', '')), ''),
+      COALESCE(NULLIF(btrim(COALESCE(p_form->>'display_order', '')), '')::int, 0),
+      -- A form is born CLOSED. Enabling it opens public intake and must be
+      -- deliberate — never a side effect of saving a draft.
+      COALESCE((p_form->>'is_enabled')::boolean, false)
+    )
+    RETURNING id INTO v_form_id;
+  ELSE
+    -- course_event_id is in the WHERE, not the SET: a form must never move
+    -- between courses.
+    UPDATE course_registration_forms SET
+      name          = btrim(p_form->>'name'),
+      slug          = btrim(p_form->>'slug'),
+      description   = NULLIF(btrim(COALESCE(p_form->>'description', '')), ''),
+      display_order = COALESCE(NULLIF(btrim(COALESCE(p_form->>'display_order', '')), '')::int, 0),
+      is_enabled    = COALESCE((p_form->>'is_enabled')::boolean, false)
+    WHERE id = v_form_id
+      AND course_event_id = v_course_event_id;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION
+        'Form % could not be updated — it does not belong to course %, or you lack courses.forms.manage on it',
+        v_form_id, v_course_event_id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- Fields are deleted BY FORM, not left to cascade off sections: a field may
+  -- legitimately have section_id NULL, and those would survive a sections-only
+  -- delete then collide on UNIQUE (form_id, field_key).
+  DELETE FROM course_registration_form_fields WHERE form_id = v_form_id;
+  DELETE FROM course_registration_form_sections WHERE form_id = v_form_id;
+
+  SELECT (SELECT count(*) FROM course_registration_form_fields WHERE form_id = v_form_id)
+       + (SELECT count(*) FROM course_registration_form_sections WHERE form_id = v_form_id)
+    INTO v_remaining;
+
+  IF v_remaining > 0 THEN
+    RAISE EXCEPTION
+      'Could not clear the existing structure of form % — % row(s) remain; you lack courses.forms.manage on them',
+      v_form_id, v_remaining
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sections := CASE
+    WHEN jsonb_typeof(p_sections) = 'array' THEN p_sections
+    ELSE '[]'::jsonb
+  END;
+
+  FOR v_section IN SELECT * FROM jsonb_array_elements(v_sections)
+  LOOP
+    INSERT INTO course_registration_form_sections (form_id, title, description, display_order)
+    VALUES (
+      v_form_id,
+      COALESCE(NULLIF(btrim(COALESCE(v_section->>'title', '')), ''), 'Section'),
+      NULLIF(btrim(COALESCE(v_section->>'description', '')), ''),
+      v_section_no
+    )
+    RETURNING id INTO v_section_id;
+    v_section_no := v_section_no + 1;
+
+    FOR v_field IN
+      SELECT * FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(v_section->'fields') = 'array'
+             THEN v_section->'fields' ELSE '[]'::jsonb END)
+    LOOP
+      INSERT INTO course_registration_form_fields (
+        -- form_id EXPLICIT, not inferred from the section. This is the whole
+        -- point: a reader filtering by form_id cannot pick up another form's
+        -- fields, which is the bug the Events builder shipped.
+        form_id, section_id, field_key, label, field_type, is_required,
+        options, placeholder, help_text, validation, display_order
+      ) VALUES (
+        v_form_id,
+        v_section_id,
+        btrim(v_field->>'field_key'),
+        btrim(v_field->>'label'),
+        v_field->>'field_type',
+        COALESCE((v_field->>'is_required')::boolean, false),
+        -- options/validation are NOT NULL jsonb — a missing key, JSON null or
+        -- wrong type must become the empty default, not a 23502.
+        CASE WHEN jsonb_typeof(v_field->'options') = 'array'
+             THEN v_field->'options' ELSE '[]'::jsonb END,
+        NULLIF(btrim(COALESCE(v_field->>'placeholder', '')), ''),
+        NULLIF(btrim(COALESCE(v_field->>'help_text', '')), ''),
+        CASE WHEN jsonb_typeof(v_field->'validation') = 'object'
+             THEN v_field->'validation' ELSE '{}'::jsonb END,
+        v_field_no
+      );
+      v_field_no    := v_field_no + 1;
+      v_field_count := v_field_count + 1;
+    END LOOP;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'form_id', v_form_id,
+    'section_count', v_section_no,
+    'field_count', v_field_count
+  );
+END;
+$function$;
+
+-- Supabase's default privileges grant EXECUTE to anon DIRECTLY, so revoking from
+-- PUBLIC alone leaves anon holding it. Revoke from both, explicitly.
+REVOKE ALL ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_save_course_registration_form(jsonb, jsonb) IS
+  'Saves a course registration form and REPLACES its sections and fields in ONE '
+  'transaction — a half-replaced form would stay publicly reachable while '
+  'collecting nothing. SECURITY INVOKER: the caller''s own RLS '
+  '(courses.forms.manage) applies inside the body, and because a blocked '
+  'UPDATE/DELETE affects zero rows silently under RLS the function verifies its '
+  'writes and raises 42501. Every field is written with an explicit form_id so a '
+  'reader filtering by form_id can never pick up another form''s fields.';
+
+
 -- ============================================================================
 -- Bill Coverage Audit: count TUITION-EQUIVALENT categories as year coverage
 -- ============================================================================
@@ -43326,3 +43674,441 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'invite_id', v_invite.id, 'reason', 'ok');
 END;
 $function$;
+
+
+
+
+-- ============================================================================
+-- fn_hostel_allocation_audit — read-only allocation conformance audit powering
+-- /campus-living/allocations/audit and the audit panel on the allocation detail
+-- page. Mirrored from migration 20260816120000_hostel_allocation_audit_rpc.sql.
+-- Grants are part of the definition: SECURITY DEFINER over billing + PII, so
+-- anon must stay revoked.
+-- ============================================================================
+-- ============================================================================
+-- Allocation Audit — /campus-living/allocations/audit
+--
+-- One row per hostel allocation, answering "was this learner placed correctly?"
+-- against the TWO gates the auto-allocator actually applies:
+--
+--   GATE 1  fee band   hostel_program_eligibility, resolved from the academic
+--                      bill total of the learner's ANCHOR academic year.
+--                      fn_learner_band_academic_fee() picks the ADMISSION
+--                      academic year if a bill exists for it, otherwise the
+--                      EARLIEST billed year — that fallback is invisible in
+--                      every other screen and it silently changes which band
+--                      applies, so band_year_source is returned explicitly.
+--
+--   GATE 2  physical   hostel_room_eligibility_rules covering the room the
+--                      learner ACTUALLY occupies (block + floor, or the
+--                      explicit room list when the rule has one).
+--
+-- A category ABOVE the band is not automatically a defect: the upgrade path
+-- legitimises it. Upgrade legitimacy comes from billing_student_bills with
+-- fee_source = 'hostel_category' -- NOT from hostel_waitlist, whose upgrade
+-- trail is 305/334 expired|cancelled|declined and disagrees with the bills.
+-- So "above band" is split by whether a bill exists and whether it was
+-- collected: paid / partial / unpaid / cancelled-only / never billed.
+--
+-- Read-only: no writes, no repair, no side effects.
+--
+-- Access: gated on the catalog key campus_living.allocations.audit, which is
+-- deliberately granted to NO role. user_has_permission() super-admin-bypasses,
+-- so this is super-admin-only today and grantable from Role Management later
+-- without a code change. Never gate on a role name.
+-- ============================================================================
+
+-- Both signatures dropped: the 5-arg form shipped first, and leaving it behind
+-- would give PostgREST two overloads to choose between (PGRST203) rather than
+-- replacing it.
+DROP FUNCTION IF EXISTS public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text);
+DROP FUNCTION IF EXISTS public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid);
+
+CREATE FUNCTION public.fn_hostel_allocation_audit(
+  p_hostel_type    text DEFAULT NULL,
+  p_institution_id uuid DEFAULT NULL,
+  p_program_id     uuid DEFAULT NULL,
+  p_semester_id    uuid DEFAULT NULL,
+  p_status         text DEFAULT 'active',
+  -- Single-allocation lookup for the allocation detail page. Callers passing
+  -- this should also pass p_status => 'all': a superseded ('vacated') row is
+  -- still a row someone can open, and the 'active' default would return
+  -- nothing for it.
+  p_allocation_id  uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  -- identity
+  allocation_id                 uuid,
+  learner_profile_id            uuid,
+  learner_id                    uuid,
+  full_name                     text,
+  roll_number                   text,
+  email                         text,
+  gender                        text,
+  institution_id                uuid,
+  institution_name              text,
+  degree_name                   text,
+  department_name               text,
+  program_id                    uuid,
+  program_name                  text,
+  semester_id                   uuid,
+  semester_name                 text,
+  quota_name                    text,
+  -- years: admitted vs the year the fee band was read from
+  admission_year                integer,
+  admission_academic_year_name  text,
+  band_academic_year_name       text,
+  band_year_source              text,   -- admission_year | earliest_billed | no_admission_anchor | none
+  -- the bills of that academic year (what the band was computed from)
+  band_fee                      numeric,
+  band_year_bill_count          integer,
+  band_year_bill_paid           numeric,
+  band_year_bill_balance        numeric,
+  academic_bill_count           integer,
+  -- fee band resolution
+  matched_fee_min               numeric,
+  matched_fee_max               numeric,
+  entitled_room_category_name   text,
+  entitled_mess_category_name   text,
+  band_verdict                  text,   -- in_band | above_band | below_band | no_band | unranked
+  -- the placement
+  hostel_type                   text,
+  block_name                    text,
+  room_number                   text,
+  floor                         integer,
+  bed_number                    text,
+  allocation_type               text,
+  allocation_status             text,
+  allocation_date               date,
+  -- room_id is returned purely so the audit page can reuse the Allocations
+  -- module's Advanced Filters verbatim -- its Room dropdown keys on it.
+  room_id                       uuid,
+  occupied_room_category_id     uuid,
+  occupied_room_category_name   text,
+  current_mess_category_name    text,
+  mess_in_band                  boolean,
+  -- first placement vs now (the upgrade story)
+  first_room_category_name      text,
+  first_allocation_date         date,
+  is_upgraded                   boolean,
+  upgrade_bill_state            text,   -- paid | partial | unpaid | cancelled_only | none
+  upgrade_bill_count            integer,
+  upgrade_bill_total            numeric,
+  upgrade_bill_paid             numeric,
+  upgrade_bill_balance          numeric,
+  upgrade_bill_descriptions     text,
+  -- physical room rules
+  room_rule_verdict             text,   -- rule_matched | open_room | violation
+  matched_rule_name             text,
+  pinned_blocks                 text,
+  serves_institution            boolean,
+  -- overall
+  verdict                       text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NOT public.user_has_permission('campus_living.allocations.audit') THEN
+    RAISE EXCEPTION 'Not authorised to read the allocation audit'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+  WITH cur_year AS MATERIALIZED (
+    SELECT id FROM hostel_years WHERE is_current LIMIT 1
+  ),
+  -- Per-bed annual rate for the current hostel year. This is what ranks
+  -- categories -- NOT hostel_categories.sort_order, which has Deluxe Plus at 0
+  -- (below Classic) while it is priced above Deluxe. Ranking on sort_order
+  -- inverts above/below band for that tier.
+  price AS MATERIALIZED (
+    SELECT hf.hostel_category_id AS cid, hf.amount
+    FROM hostel_fees hf, cur_year y
+    WHERE hf.hostel_year_id = y.id
+      AND hf.mess_category_id IS NULL
+      AND hf.is_active
+  ),
+  alloc AS MATERIALIZED (
+    SELECT
+      a.id                AS alloc_id,
+      a.learner_id        AS profile_id,
+      a.room_id, a.block_id, a.bed_id,
+      a.allocation_type::text  AS alloc_type,
+      a.status::text           AS alloc_status,
+      a.allocation_date        AS alloc_date,
+      r.room_number::text      AS room_number,
+      r.floor                  AS floor,
+      r.category_id            AS room_cat_id,
+      hb.name::text            AS block_name,
+      hb.hostel_type::text     AS hostel_type,
+      bd.bed_number::text      AS bed_number,
+      lp.id                    AS lp_id,
+      lp.institution_id, lp.degree_id, lp.department_id,
+      lp.program_id, lp.semester_id, lp.quota_id,
+      lp.mess_category_id,
+      NULLIF(btrim(lp.roll_number), '')::text AS roll_number,
+      -- Category resolution keys on learners_profiles.gender, matching both
+      -- fn_hostel_learner_room_categories and the allocator's own cats CTE.
+      -- profiles.gender is shown to the operator but never used to resolve.
+      CASE WHEN lower(lp.gender) LIKE 'm%' THEN 'boys'
+           WHEN lower(lp.gender) LIKE 'f%' THEN 'girls' END AS gt,
+      lower(btrim(COALESCE(NULLIF(btrim(p.gender), ''), lp.gender)))::text AS eff_gender,
+      COALESCE(p.full_name,
+               NULLIF(btrim(concat_ws(' ', lp.first_name, lp.last_name)), ''),
+               p.email, '—')::text AS full_name,
+      p.email::text AS email
+    FROM hostel_allocations a
+    JOIN profiles p           ON p.id = a.learner_id
+    JOIN learners_profiles lp ON lp.id = p.learner_id
+    LEFT JOIN hostel_rooms r  ON r.id = a.room_id
+    LEFT JOIN hostel_blocks hb ON hb.id = a.block_id
+    LEFT JOIN hostel_beds bd  ON bd.id = a.bed_id
+    WHERE (p_allocation_id IS NULL OR a.id = p_allocation_id)
+      AND (p_status IS NULL OR p_status = 'all' OR a.status::text = p_status)
+      AND (p_hostel_type    IS NULL OR hb.hostel_type::text = p_hostel_type)
+      AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+      AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+      AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
+  ),
+  fee AS MATERIALIZED (
+    SELECT al.*,
+           fn_learner_admission_academic_year(al.lp_id) AS adm_ay,
+           bf.academic_year_id AS band_ay,
+           bf.academic_year_name::text AS band_ay_name,
+           bf.fee
+    FROM alloc al
+    LEFT JOIN LATERAL fn_learner_band_academic_fee(al.lp_id) bf ON true
+  ),
+  cats AS MATERIALIZED (
+    SELECT f.*,
+      (SELECT array_agg(category_id)
+         FROM fn_hostel_effective_room_categories(
+                f.institution_id, f.program_id, f.quota_id, f.fee, f.gt)) AS room_cats,
+      (SELECT array_agg(category_id)
+         FROM fn_hostel_effective_mess_categories(
+                f.institution_id, f.program_id, f.quota_id, f.fee, f.gt)) AS mess_cats
+    FROM fee f
+  ),
+  enriched AS (
+    SELECT c.*,
+      w.fee_min AS w_fee_min, w.fee_max AS w_fee_max,
+      fa.first_cat_name, fa.first_date,
+      ub.cnt AS ub_cnt, ub.active_cnt AS ub_active, ub.total AS ub_total,
+      ub.paid AS ub_paid, ub.balance AS ub_balance, ub.descriptions AS ub_desc,
+      bb.cnt AS bb_cnt, bb.paid AS bb_paid, bb.balance AS bb_balance,
+      ab.cnt AS ab_cnt,
+      mr.nm AS matched_rule, pb.bl AS pinned_bl,
+      fn_learner_strictly_eligible_for_room(c.lp_id, c.room_id, true)  AS rule_matched,
+      fn_learner_strictly_eligible_for_room(c.lp_id, c.room_id, false) AS access_ok,
+      fn_room_serves_institution(c.room_id, c.institution_id)          AS serves_inst,
+      (SELECT amount FROM price WHERE cid = c.room_cat_id)             AS occupied_price,
+      (SELECT max(amount) FROM price WHERE cid = ANY(c.room_cats))     AS band_price_max,
+      (SELECT min(amount) FROM price WHERE cid = ANY(c.room_cats))     AS band_price_min
+    FROM cats c
+    -- The winning eligibility row, for display. Replicates the specificity
+    -- ordering inside fn_hostel_effective_room_categories exactly: program x4 +
+    -- quota x2 + fee x1, tie-broken by the NARROWEST fee window.
+    LEFT JOIN LATERAL (
+      SELECT e.fee_min, e.fee_max
+      FROM hostel_program_eligibility e
+      WHERE e.institution_id = c.institution_id
+        AND e.is_active
+        AND e.room_category_id IS NOT NULL
+        AND (c.gt IS NULL OR e.hostel_type = 'both' OR e.hostel_type = c.gt)
+        AND (e.program_id = c.program_id OR e.program_id IS NULL)
+        AND (e.quota_ids IS NULL OR c.quota_id = ANY(e.quota_ids))
+        AND (e.fee_min IS NULL OR c.fee >= e.fee_min)
+        AND (e.fee_max IS NULL OR c.fee <= e.fee_max)
+      ORDER BY ( (e.program_id IS NOT NULL)::int * 4
+               + (e.quota_ids  IS NOT NULL)::int * 2
+               + ((e.fee_min IS NOT NULL OR e.fee_max IS NOT NULL))::int ) DESC,
+               (COALESCE(e.fee_max, 9.9e14::numeric) - COALESCE(e.fee_min, 0)) ASC
+      LIMIT 1
+    ) w ON true
+    -- hostel_allocations is append-only: a room change vacates the old row and
+    -- writes a new one, so the EARLIEST row is the category the learner was
+    -- originally placed in.
+    LEFT JOIN LATERAL (
+      SELECT hc0.name::text AS first_cat_name, a0.allocation_date AS first_date
+      FROM hostel_allocations a0
+      JOIN hostel_rooms r0      ON r0.id = a0.room_id
+      JOIN hostel_categories hc0 ON hc0.id = r0.category_id
+      WHERE a0.learner_id = c.profile_id
+      ORDER BY a0.created_at ASC
+      LIMIT 1
+    ) fa ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS cnt,
+             count(*) FILTER (WHERE b.status <> 'cancelled')::int AS active_cnt,
+             COALESCE(sum(b.final_amount)    FILTER (WHERE b.status <> 'cancelled'), 0) AS total,
+             COALESCE(sum(COALESCE(b.final_amount,0) - COALESCE(b.balance_amount,0))
+                                             FILTER (WHERE b.status <> 'cancelled'), 0) AS paid,
+             COALESCE(sum(b.balance_amount)  FILTER (WHERE b.status <> 'cancelled'), 0) AS balance,
+             string_agg(b.bill_description || ' (' || b.status || ')', ' · '
+                        ORDER BY b.created_at)::text AS descriptions
+      FROM billing_student_bills b
+      WHERE b.student_id = c.lp_id AND b.fee_source = 'hostel_category'
+    ) ub ON true
+    -- The bills of the band year specifically -- what band_fee was summed from.
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS cnt,
+             COALESCE(sum(COALESCE(b.final_amount,0) - COALESCE(b.balance_amount,0)), 0) AS paid,
+             COALESCE(sum(b.balance_amount), 0) AS balance
+      FROM billing_student_bills b
+      WHERE b.student_id = c.lp_id AND b.fee_source = 'academic'
+        AND b.status NOT IN ('cancelled','superseded')
+        AND b.academic_year_id IS NOT DISTINCT FROM c.band_ay
+    ) bb ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*)::int AS cnt
+      FROM billing_student_bills b
+      WHERE b.student_id = c.lp_id AND b.fee_source = 'academic'
+        AND b.status NOT IN ('cancelled','superseded')
+    ) ab ON true
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(NULLIF(btrim(r.rule_name), ''), '(unnamed rule)')::text AS nm
+      FROM hostel_room_eligibility_rules r
+      WHERE r.is_active AND r.block_id = c.block_id
+        AND CASE
+              WHEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr WHERE rr.rule_id = r.id)
+                THEN EXISTS (SELECT 1 FROM hostel_room_eligibility_rule_rooms rr
+                             WHERE rr.rule_id = r.id AND rr.room_id = c.room_id)
+              ELSE (r.floor IS NULL OR r.floor = c.floor)
+            END
+        AND r.institution_id = c.institution_id
+        AND (r.degree_id     IS NULL OR r.degree_id     = c.degree_id)
+        AND (r.department_id IS NULL OR r.department_id = c.department_id)
+        AND (r.program_id    IS NULL OR r.program_id    = c.program_id)
+        AND (cardinality(r.semester_ids) = 0 OR c.semester_id = ANY(r.semester_ids))
+      ORDER BY r.rule_name
+      LIMIT 1
+    ) mr ON true
+    -- Where this cohort's OWN rules do reserve rooms. On a violation this names
+    -- the blocks the learner should have been placed in.
+    LEFT JOIN LATERAL (
+      SELECT string_agg(DISTINCT hb2.name, ', ')::text AS bl
+      FROM hostel_room_eligibility_rules r
+      JOIN hostel_blocks hb2 ON hb2.id = r.block_id
+      WHERE r.is_active AND r.institution_id = c.institution_id
+        AND (r.degree_id     IS NULL OR r.degree_id     = c.degree_id)
+        AND (r.department_id IS NULL OR r.department_id = c.department_id)
+        AND (r.program_id    IS NULL OR r.program_id    = c.program_id)
+        AND (cardinality(r.semester_ids) = 0 OR c.semester_id = ANY(r.semester_ids))
+    ) pb ON true
+  ),
+  scored AS (
+    SELECT e.*,
+      -- array_agg over a zero-row SRF yields NULL, not '{}'. cardinality(NULL)
+      -- is NULL, so a bare cardinality(x)=0 test silently matches nothing --
+      -- that hid every no-band row on the first pass of the 2026-08-11 audit.
+      (COALESCE(cardinality(e.room_cats), 0) = 0) AS no_band,
+      -- Deluxe Plus owns no rooms and sells from Deluxe stock via
+      -- room_source_category_id. Occupying the source category IS conformance,
+      -- not drift -- 58 of 67 apparent mismatches were exactly this.
+      (e.room_cat_id = ANY(COALESCE(e.room_cats, '{}'::uuid[]))
+       OR EXISTS (SELECT 1 FROM hostel_categories x
+                  WHERE x.id = ANY(COALESCE(e.room_cats, '{}'::uuid[]))
+                    AND x.room_source_category_id = e.room_cat_id)) AS in_band,
+      CASE
+        WHEN e.ub_cnt = 0        THEN 'none'
+        WHEN e.ub_active = 0     THEN 'cancelled_only'
+        WHEN e.ub_balance <= 0   THEN 'paid'
+        WHEN e.ub_paid > 0       THEN 'partial'
+        ELSE 'unpaid'
+      END AS bill_state
+    FROM enriched e
+  ),
+  final AS (
+    SELECT s.*,
+      CASE
+        WHEN s.no_band  THEN 'no_band'
+        WHEN s.in_band  THEN 'in_band'
+        WHEN s.occupied_price IS NULL OR s.band_price_max IS NULL THEN 'unranked'
+        WHEN s.occupied_price > s.band_price_max THEN 'above_band'
+        WHEN s.occupied_price < s.band_price_min THEN 'below_band'
+        ELSE 'unranked'
+      END AS band_v,
+      CASE
+        WHEN NOT s.access_ok  THEN 'violation'
+        WHEN s.rule_matched   THEN 'rule_matched'
+        ELSE 'open_room'
+      END AS rule_v
+    FROM scored s
+  )
+  SELECT
+    f.alloc_id, f.lp_id, f.profile_id, f.full_name, f.roll_number, f.email,
+    f.eff_gender,
+    f.institution_id, i.name::text, dg.degree_name::text, dp.department_name::text,
+    f.program_id, pr.program_name::text, f.semester_id, sm.semester_name::text,
+    q.name::text,
+    ady.year,
+    aay.academic_year_name::text,
+    f.band_ay_name,
+    CASE
+      WHEN f.band_ay IS NULL                    THEN 'none'
+      WHEN f.adm_ay  IS NULL                    THEN 'no_admission_anchor'
+      WHEN f.band_ay IS NOT DISTINCT FROM f.adm_ay THEN 'admission_year'
+      ELSE 'earliest_billed'
+    END,
+    f.fee, f.bb_cnt, f.bb_paid, f.bb_balance, f.ab_cnt,
+    f.w_fee_min, f.w_fee_max,
+    erc.name::text, emc.name::text,
+    f.band_v,
+    f.hostel_type, f.block_name, f.room_number, f.floor, f.bed_number,
+    f.alloc_type, f.alloc_status, f.alloc_date,
+    f.room_id,
+    f.room_cat_id, orc.name::text, cmc.name::text,
+    (f.mess_category_id IS NOT NULL
+     AND f.mess_category_id = ANY(COALESCE(f.mess_cats, '{}'::uuid[]))),
+    f.first_cat_name, f.first_date,
+    (f.first_cat_name IS DISTINCT FROM orc.name::text),
+    f.bill_state, f.ub_cnt, f.ub_total, f.ub_paid, f.ub_balance, f.ub_desc,
+    f.rule_v, f.matched_rule, f.pinned_bl, f.serves_inst,
+    CASE
+      WHEN f.band_v = 'no_band'                              THEN 'no_band'
+      WHEN f.band_v <> 'in_band' AND f.rule_v = 'violation'  THEN 'band_and_rule_violation'
+      WHEN f.rule_v = 'violation'                            THEN 'room_rule_violation'
+      WHEN f.band_v = 'below_band'                           THEN 'below_band'
+      WHEN f.band_v = 'unranked'                             THEN 'unranked'
+      WHEN f.band_v = 'above_band' THEN
+        CASE f.bill_state
+          WHEN 'paid'           THEN 'upgrade_paid'
+          WHEN 'partial'        THEN 'upgrade_partial'
+          WHEN 'unpaid'         THEN 'upgrade_unpaid'
+          WHEN 'cancelled_only' THEN 'upgrade_bill_cancelled'
+          ELSE 'upgrade_unbilled'
+        END
+      ELSE 'clean'
+    END
+  FROM final f
+  LEFT JOIN institutions i    ON i.id  = f.institution_id
+  LEFT JOIN degrees dg        ON dg.id = f.degree_id
+  LEFT JOIN departments dp    ON dp.id = f.department_id
+  LEFT JOIN programs pr       ON pr.id = f.program_id
+  LEFT JOIN semesters sm      ON sm.id = f.semester_id
+  LEFT JOIN quotas q          ON q.id  = f.quota_id
+  LEFT JOIN admission_years ady  ON ady.id = (SELECT lp2.admission_year_id
+                                              FROM learners_profiles lp2 WHERE lp2.id = f.lp_id)
+  LEFT JOIN academic_years aay   ON aay.id = f.adm_ay
+  LEFT JOIN hostel_categories orc ON orc.id = f.room_cat_id
+  LEFT JOIN hostel_categories erc ON erc.id = f.room_cats[1]
+  LEFT JOIN mess_categories   emc ON emc.id = f.mess_cats[1]
+  LEFT JOIN mess_categories   cmc ON cmc.id = f.mess_category_id
+  ORDER BY f.full_name;
+END;
+$$;
+
+COMMENT ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) IS
+  'Read-only allocation audit: per-allocation fee-band conformance (anchored on '
+  'the admission academic year, falling back to the earliest billed year), '
+  'physical room-rule conformance, and the upgrade bill trail that legitimises '
+  'an above-band category. Gated on campus_living.allocations.audit.';
+
+-- SECURITY DEFINER over billing + PII. Supabase grants EXECUTE directly to the
+-- anon role, so REVOKE ... FROM PUBLIC alone is a no-op -- anon=X survives it.
+REVOKE ALL ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) TO authenticated;

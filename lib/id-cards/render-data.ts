@@ -518,6 +518,77 @@ export function truncateForCard(value: string | null | undefined, max: number): 
   return `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
+/**
+ * How many characters at the END of an address are reserved as the
+ * DELIVERABLE TAIL. The address is joined street → taluk → district → state →
+ * PIN, so the parts that decide where a letter actually goes sit LAST.
+ * Measured over the 787 active Engineering learners on 2026-08-14: the
+ * district+state+PIN tail is at most 35 characters (p99 = 34), so 40 covers
+ * the whole estate with the joining ", " included.
+ */
+export const ADDRESS_TAIL_CHARS = 40;
+
+/**
+ * Truncate an address so its END survives.
+ *
+ * `truncateForCard` cuts from the front and keeps a prefix, which is right for
+ * a name or a course line. For an address it throws away exactly the parts
+ * that matter: 402 of 787 active Engineering learners (51.1%) joined to more
+ * than the generic 80-character cap, and the worst case (214 characters) had
+ * its district, state and PIN cut off — the card printed a street fragment
+ * ending mid-word, which no postal service can deliver to.
+ *
+ * When the value does not fit, the MIDDLE is elided instead: a head from the
+ * start, then " … ", then the tail. The tail is snapped FORWARD to the next
+ * component boundary (", ") so it starts on a whole component rather than
+ * mid-word, and the head is snapped BACK to a whole component or word for the
+ * same reason. Junk in the street field (this estate has records carrying a
+ * mobile number and a second, contradictory PIN) is what the elision eats
+ * first, which is the correct thing to sacrifice.
+ *
+ * Values within `max` are returned identically to `truncateForCard`.
+ */
+export function truncateAddressForCard(
+  value: string | null | undefined,
+  max: number,
+  tailChars: number = ADDRESS_TAIL_CHARS
+): string {
+  const s = (value ?? '').trim();
+  if (s.length <= max) return s;
+
+  const separator = ' … ';
+  // Not enough room to show a head, a separator and a tail — fall back to the
+  // plain head-only cut rather than emitting something unreadable.
+  const minHead = 8;
+  if (max < minHead + separator.length + 8) return truncateForCard(s, max);
+
+  const tailBudget = Math.min(tailChars, max - separator.length - minHead);
+  let tail = s.slice(s.length - tailBudget);
+  // Snap forward to a whole component (", ") if one is in reach, else to a
+  // whole word, so the tail never opens mid-token.
+  const compAt = tail.indexOf(', ');
+  if (compAt !== -1) tail = tail.slice(compAt + 2);
+  else {
+    const spaceAt = tail.indexOf(' ');
+    if (spaceAt !== -1) tail = tail.slice(spaceAt + 1);
+  }
+  tail = tail.trim();
+
+  const headBudget = max - separator.length - tail.length;
+  let head = s.slice(0, Math.max(minHead, headBudget));
+  // Snap back to a whole component, else a whole word, so the head never ends
+  // mid-token either.
+  const lastComp = head.lastIndexOf(', ');
+  if (lastComp >= minHead) head = head.slice(0, lastComp);
+  else {
+    const lastSpace = head.lastIndexOf(' ');
+    if (lastSpace >= minHead) head = head.slice(0, lastSpace);
+  }
+  head = head.replace(/[\s,]+$/, '');
+
+  return `${head}${separator}${tail}`;
+}
+
 /** Defensive parse of id_card_templates.field_mappings (JSONB, default '[]'). */
 export function parseFieldMappings(raw: unknown): FieldMapping[] {
   if (!Array.isArray(raw)) return [];
