@@ -145,10 +145,23 @@ jobs:
           echo "::error::tsc found $scoped_count type error(s) in files this PR modified:"
           echo ""
           head -50 /tmp/scoped-errors.txt | while IFS= read -r line; do
-            # Convert "path:LINE:COL - error TSnnn: msg" to GH-annotation
-            file=$(echo "$line" | cut -d':' -f1)
-            ln=$(echo "$line" | cut -d':' -f2)
-            msg=$(echo "$line" | cut -d':' -f3-)
+            # Two shapes reach here, so parse both rather than assuming one:
+            #   pretty : path:LINE:COL - error TSnnn: msg
+            #   plain  : path(LINE,COL): error TSnnn: msg
+            # `cut -d':' -f1` alone mis-parses the plain shape into "path(1,7)".
+            case "$line" in
+              *'('[0-9]*','[0-9]*')'*)
+                file=${line%%(*}
+                rest=${line#*(}
+                ln=${rest%%,*}
+                msg=${line#*): }
+                ;;
+              *)
+                file=$(echo "$line" | cut -d':' -f1)
+                ln=$(echo "$line" | cut -d':' -f2)
+                msg=$(echo "$line" | cut -d':' -f3-)
+                ;;
+            esac
             echo "::error file=$file,line=$ln::$msg"
           done
 
