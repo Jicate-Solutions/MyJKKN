@@ -218,7 +218,7 @@ export const GUIDES: GuideBook = {
             {
               action: 'Add **several people** to the same meeting, not just one.',
               detail:
-                'Search JKKN staff and learners by name, pick anyone who has booked you before, or type any email address — so external examiners, candidates and parents can be invited too.',
+                'Search JKKN team members and learners by name, pick anyone who has booked you before, or type any email address — so external examiners, candidates and parents can be invited too.',
               tip: 'Everyone you add lands on the same Google Calendar invitation, so nobody is left out of the Meet link.',
             },
             {
