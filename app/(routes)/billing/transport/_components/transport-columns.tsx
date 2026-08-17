@@ -6,7 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TransportPayOnlineButton } from './transport-pay-online-button';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
-import type { TransportCollectable } from '@/hooks/billing/use-transport-collectables';
+import {
+  PERSON_TYPE_LABEL,
+  type TransportCollectable,
+} from '@/hooks/billing/use-transport-collectables';
 
 const RETURN_TO = '/billing/transport';
 
@@ -34,20 +37,51 @@ const paidOf = (r: TransportCollectable) =>
 export function getTransportColumns({ instName, canCollect, canReceipt }: ColumnOpts): PermissionColumnDef<TransportCollectable>[] {
   return [
     {
-      id: 'learner',
-      header: 'Learner',
+      id: 'person',
+      // Was 'Learner'. This list has always carried team members too — the
+      // header simply never said so.
+      header: 'Name',
       accessorFn: (r) => [r.first_name, r.last_name].filter(Boolean).join(' '),
       cell: ({ row }) => {
         const r = row.original;
         const name = [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || '—';
+        // The billing schedule page is keyed by learners_profiles.id. A team
+        // member's id is a staff.id, so linking there resolves to nothing —
+        // which is what this cell did for all 35 of them before person_type
+        // existed to tell them apart. Their name is plain text instead.
+        const isLearner = r.person_type === 'learner';
         const href = `/billing/schedule/students/${r.student_id}?returnTo=${encodeURIComponent(RETURN_TO)}`;
         return (
           <div>
-            <Link href={href} className='font-medium underline-offset-2 hover:text-primary hover:underline'>
-              {name}
-            </Link>
+            {isLearner ? (
+              <Link href={href} className='font-medium underline-offset-2 hover:text-primary hover:underline'>
+                {name}
+              </Link>
+            ) : (
+              <span className='font-medium'>{name}</span>
+            )}
             <div className='text-muted-foreground font-mono text-xs'>{r.roll_number || '—'}</div>
           </div>
+        );
+      },
+    },
+    {
+      id: 'person_type',
+      header: 'Type',
+      accessorFn: (r) => PERSON_TYPE_LABEL[r.person_type] ?? r.person_type,
+      cell: ({ row }) => {
+        const r = row.original;
+        return (
+          <Badge
+            variant='outline'
+            className={`whitespace-nowrap text-xs ${
+              r.person_type === 'staff'
+                ? 'border-purple-200 bg-purple-50 text-purple-800'
+                : 'border-blue-200 bg-blue-50 text-blue-800'
+            }`}
+          >
+            {PERSON_TYPE_LABEL[r.person_type] ?? r.person_type}
+          </Badge>
         );
       },
     },
