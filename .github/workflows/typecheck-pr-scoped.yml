@@ -103,9 +103,38 @@ jobs:
             exit 0
           fi
 
-          # tsc errors look like:  path/file.tsx:LINE:COL - error TSnnn: message
-          grep -E "^($escaped):" /tmp/tsc-output.txt > /tmp/scoped-errors.txt || true
+          # `npm run typecheck` is `tsc --noEmit --pretty`, and tsc emits NEITHER of
+          # the shapes the old filter looked for:
+          #
+          #   --pretty : \033[96mapp/(routes)/x.tsx\033[0m:\033[93m1\033[0m:...
+          #              the line STARTS with an ANSI colour code, so a `^path`
+          #              anchor can never match.
+          #   plain    : app/(routes)/x.tsx(1,7): error TS2322: ...
+          #              line:col is in PARENTHESES, so `^path:` cannot match either.
+          #
+          # So `scoped_count` was always 0 and this gate — a REQUIRED context —
+          # reported "none in PR-touched files. Pass." unconditionally. A real
+          # TS2459 reached main this way (see the PR that introduced this fix).
+          #
+          # Strip the colour codes first, then accept both shapes with [:(].
+          sed -e 's/\x1b\[[0-9;]*m//g' /tmp/tsc-output.txt > /tmp/tsc-plain.txt
+          grep -E "^($escaped)[:(]" /tmp/tsc-plain.txt > /tmp/scoped-errors.txt || true
           scoped_count=$(wc -l < /tmp/scoped-errors.txt | tr -d ' ')
+
+          # SELF-TEST — the reason this gate rotted silently is that a filter which
+          # matches nothing is indistinguishable from a codebase with no errors.
+          # If tsc failed but we parsed out zero error lines of ANY kind, the filter
+          # is broken again: fail loudly instead of printing "Pass".
+          if [ "$tsc_exit" -ne 0 ]; then
+            total_parsed=$(grep -cE "^[^[:space:]]+\.(ts|tsx)[:(][0-9]+" /tmp/tsc-plain.txt || true)
+            if [ "$total_parsed" -eq 0 ]; then
+              echo "::error::tsc exited $tsc_exit but this workflow parsed 0 error lines."
+              echo "That means the output format changed and the filter is matching nothing —"
+              echo "the same failure that let a real type error reach main. First lines were:"
+              head -5 /tmp/tsc-plain.txt
+              exit 1
+            fi
+          fi
 
           if [ "$scoped_count" -eq 0 ]; then
             echo "::notice::tsc found errors elsewhere (legacy baseline, ignored) but none in PR-touched files. Pass."
