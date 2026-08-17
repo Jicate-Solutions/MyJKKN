@@ -36,11 +36,31 @@ export function TransportStatsCards({ rows }: { rows: TransportCollectable[] }) 
     }
     const collected = Math.max(0, billed - outstanding);
     const rate = billed > 0 ? Math.round((collected / billed) * 100) : 0;
-    return { learners: rows.length, bills, billed, collected, outstanding, rate, paid, partial, unpaid };
+    return { people: rows.length, bills, billed, collected, outstanding, rate, paid, partial, unpaid };
+  }, [rows]);
+
+  /**
+   * This card counted every row and called them all "Learners" — so with 1,266
+   * learners and 35 Senior Learners in view it read "Learners 1301", which is
+   * simply a wrong number for the word beside it. The head count now names
+   * whichever populations are actually on screen, and follows the Type filter:
+   * narrow to Senior Learners and it says Senior Learners.
+   */
+  const headLabel = useMemo(() => {
+    let hasLearner = false;
+    let hasSenior = false;
+    for (const r of rows) {
+      if (r.person_type === 'staff') hasSenior = true;
+      else hasLearner = true;
+      if (hasLearner && hasSenior) break;
+    }
+    if (hasLearner && hasSenior) return 'Learners + Senior Learners';
+    if (hasSenior) return 'Senior Learners';
+    return 'Learners';
   }, [rows]);
 
   const cards = [
-    { label: 'Learners', value: String(s.learners), sub: `${s.bills} bill${s.bills === 1 ? '' : 's'}`, icon: Users, tint: 'text-blue-600' },
+    { label: headLabel, value: String(s.people), sub: `${s.bills} bill${s.bills === 1 ? '' : 's'}`, icon: Users, tint: 'text-blue-600' },
     { label: 'Total Billed', value: inr(s.billed), sub: 'transport fees', icon: IndianRupee, tint: 'text-indigo-600' },
     { label: 'Collected', value: inr(s.collected), sub: `${s.rate}% collected`, icon: Wallet, tint: 'text-green-600' },
     { label: 'Outstanding', value: inr(s.outstanding), sub: 'pending dues', icon: AlertCircle, tint: 'text-orange-600' },
