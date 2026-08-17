@@ -36,8 +36,11 @@ import {
 } from '@/app/(routes)/courses/_components/course-form';
 import { PackagesPanel } from './_components/packages-panel';
 import { SessionsPanel } from './_components/sessions-panel';
+import { FormsPanel } from './_components/forms-panel';
 
-const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions'] as const;
+// This array is the allow-list useTabParam validates ?tab= against — a trigger
+// added below but not added here silently falls back to 'overview'.
+const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions', 'forms'] as const;
 
 /** Status is a CHECK constraint, not a Postgres enum — mirrors
  *  _components/columns.tsx's own STATUS_LABEL/STATUS_VARIANT, which aren't
@@ -235,6 +238,7 @@ function CourseDetailPageInner() {
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="packages">Packages</TabsTrigger>
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
+            <TabsTrigger value="forms">Forms</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -306,6 +310,14 @@ function CourseDetailPageInner() {
 
           <TabsContent value="sessions">
             <SessionsPanel courseEventId={course.id} />
+          </TabsContent>
+
+          <TabsContent value="forms">
+            <FormsPanel
+              courseEventId={course.id}
+              courseSlug={course.slug}
+              coursePublished={status === 'published'}
+            />
           </TabsContent>
         </Tabs>
       </div>
