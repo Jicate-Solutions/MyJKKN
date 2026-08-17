@@ -2,11 +2,11 @@
 --
 -- fn_list_transport_collectables has always returned two populations UNIONed
 -- together: learners (billing_student_bills joined to a 'transport' billing
--- category) and team members (tms_fee_bill where person_type = 'staff').
--- Today that is 1,266 learners and 35 team members in one undifferentiated list.
+-- category) and Senior Learners (tms_fee_bill where person_type = 'staff').
+-- Today that is 1,266 learners and 35 Senior Learners in one undifferentiated list.
 --
 -- It returned NO discriminator, so /billing/transport could not tell them apart,
--- could not filter by type, and could not stop itself linking a team member's
+-- could not filter by type, and could not stop itself linking a Senior Learner's
 -- name at /billing/schedule/students/<id> — a learner billing page that will
 -- never resolve a staff.id. The only signal available to the UI was "degree,
 -- programme and semester are all NULL", which is a guess, not a fact: a learner
@@ -28,7 +28,7 @@
 -- (`AND p_academic_year_id IS NULL`). That is not an oversight to quietly patch:
 -- tms_fee_bill is keyed by transport_year_id, a different dimension from the
 -- academic_year_id this filter carries, and there is no defensible mapping
--- between them. Inventing one here would silently attribute a team member's
+-- between them. Inventing one here would silently attribute a Senior Learner's
 -- transport bill to an academic year nobody assigned it to. The UI now states
 -- this in words instead.
 
@@ -170,8 +170,23 @@ BEGIN
 END;
 $function$;
 
+-- Restore the OWNER. CREATE FUNCTION makes the running role the owner, and a
+-- SECURITY DEFINER function executes with its owner's privileges — so applying
+-- this migration as supabase_admin (or any migrator that is not postgres) would
+-- silently change whose privileges a privilege-bypassing function runs with.
+-- One level deeper than the grant loss the header warns about.
+ALTER FUNCTION public.fn_list_transport_collectables(uuid[], uuid) OWNER TO postgres;
+
 -- Restore the pre-drop ACL exactly. Without this the function is executable by
 -- nobody but its owner and every caller gets a permission error.
+--
+-- anon is revoked EXPLICITLY, not just via PUBLIC. Supabase issues a standing
+-- GRANT EXECUTE ON ALL FUNCTIONS TO anon, and that explicit grant SURVIVES a
+-- REVOKE ... FROM PUBLIC — so "revoke PUBLIC + grant authenticated" alone can
+-- leave a SECURITY DEFINER function callable by any holder of the anon key,
+-- which is embedded in every browser bundle. This function reads billing
+-- figures for a whole institution.
 REVOKE ALL ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_list_transport_collectables(uuid[], uuid) TO service_role;

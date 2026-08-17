@@ -37,9 +37,12 @@ const paidOf = (r: TransportCollectable) =>
 export function getTransportColumns({ instName, canCollect, canReceipt }: ColumnOpts): PermissionColumnDef<TransportCollectable>[] {
   return [
     {
-      id: 'person',
-      // Was 'Learner'. This list has always carried Senior Learners too — the
-      // header simply never said so.
+      // Id deliberately UNCHANGED ('learner', not 'person'). Column ids key the
+      // persisted visibility state, any saved sorting, and the permission map —
+      // renaming one silently stops all of those resolving after deploy, with no
+      // error. Only the header text changes: this list has always carried Senior
+      // Learners too, it just never said so.
+      id: 'learner',
       header: 'Name',
       accessorFn: (r) => [r.first_name, r.last_name].filter(Boolean).join(' '),
       cell: ({ row }) => {
@@ -49,7 +52,15 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
         // Learner's id is a staff.id, so linking there resolves to nothing —
         // which is what this cell did for all 35 of them before person_type
         // existed to tell them apart. Their name is plain text instead.
-        const isLearner = r.person_type === 'learner';
+        //
+        // Tested for the NON-learner token, never for 'learner'. The two are not
+        // symmetric: `=== 'learner'` treats anything unexpected — a React Query
+        // cache served before the new RPC lands, an environment where the
+        // migration has not run, a future third population — as a Senior Learner,
+        // which would strip the billing link from all 1,266 learner rows at once
+        // and surface no error at all. Failing the other way costs one dead link
+        // on 35 rows, which is where this started.
+        const isLearner = r.person_type !== 'staff';
         const href = `/billing/schedule/students/${r.student_id}?returnTo=${encodeURIComponent(RETURN_TO)}`;
         return (
           <div>
@@ -68,19 +79,23 @@ export function getTransportColumns({ instName, canCollect, canReceipt }: Column
     {
       id: 'person_type',
       header: 'Type',
-      accessorFn: (r) => PERSON_TYPE_LABEL[r.person_type] ?? r.person_type,
+      // Falls back to the Learner label, never to the raw database token: an
+      // unrecognised value printing 'staff' on screen would leak the column
+      // vocabulary into the UI and read as a third, nonexistent category.
+      accessorFn: (r) => PERSON_TYPE_LABEL[r.person_type] ?? PERSON_TYPE_LABEL.learner,
       cell: ({ row }) => {
         const r = row.original;
+        const isSenior = r.person_type === 'staff';
         return (
           <Badge
             variant='outline'
             className={`whitespace-nowrap text-xs ${
-              r.person_type === 'staff'
+              isSenior
                 ? 'border-purple-200 bg-purple-50 text-purple-800'
                 : 'border-blue-200 bg-blue-50 text-blue-800'
             }`}
           >
-            {PERSON_TYPE_LABEL[r.person_type] ?? r.person_type}
+            {PERSON_TYPE_LABEL[r.person_type] ?? PERSON_TYPE_LABEL.learner}
           </Badge>
         );
       },

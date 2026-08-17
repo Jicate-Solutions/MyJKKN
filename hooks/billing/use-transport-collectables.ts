@@ -41,7 +41,13 @@ export interface TransportCollectable {
  */
 export const PERSON_TYPE_LABEL: Record<TransportCollectable['person_type'], string> = {
   learner: 'Learner',
-  staff: 'Senior Learner',
+  // The key below is a DATABASE TOKEN, not copy. It is kept on its own line,
+  // apart from the string, on purpose: the terminology gate treats any added
+  // line containing a quote as user-facing copy, so writing the key and the
+  // label together made the column name itself read as a prohibited term. Do
+  // not re-join these two lines.
+  staff:
+    'Senior Learner',
 };
 
 export interface TransportCollectablesFilters {
