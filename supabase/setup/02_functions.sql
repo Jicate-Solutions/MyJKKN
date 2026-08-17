@@ -41212,6 +41212,166 @@ COMMENT ON FUNCTION public.fn_course_recompute_balances() IS
   'Sole writer of course_bills.paid_amount/balance_amount/status and course_enrollments.total_paid/balance/status. Voided bills are excluded from rollups; withdrawn/cancelled/completed are terminal.';
 
 
+-- ----------------------------------------------------------------------------
+-- Added: 2026-08-19 - Course Events Phase 2b: atomic package + schedule save
+-- ----------------------------------------------------------------------------
+-- fn_course_package_amounts_chk (above) is DEFERRABLE INITIALLY DEFERRED on BOTH
+-- package tables, so it evaluates at COMMIT. PostgREST wraps each request in its
+-- own transaction, which makes repricing a package impossible in two calls --
+-- whichever half commits first trips 23514 against the other half's stale value.
+-- This RPC is the single save path for both create and edit.
+--
+-- SECURITY INVOKER is load-bearing, not an oversight: course_packages_manage and
+-- course_package_installments_manage already gate on courses.packages.manage AND
+-- role_has_institution_access(), so running as the caller inherits the predicate
+-- and it cannot drift. A DEFINER rewrite would bypass RLS and have to re-copy it.
+-- The cost is that a blocked UPDATE/DELETE affects zero rows SILENTLY under RLS,
+-- so the body verifies its own writes and raises 42501 rather than assuming.
+-- Full rationale: supabase/migrations/20260819010000_course_package_save_rpc.sql
+
+CREATE OR REPLACE FUNCTION public.fn_save_course_package(
+  p_package      jsonb,
+  p_installments jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_package_id      uuid;
+  v_course_event_id uuid;
+  v_institution_id  uuid;
+  v_rows            int;
+  v_remaining       int;
+  v_installments    jsonb;
+  v_inst            jsonb;
+  v_no              smallint := 0;
+BEGIN
+  v_package_id      := NULLIF(btrim(COALESCE(p_package->>'id', '')), '')::uuid;
+  v_course_event_id := NULLIF(btrim(COALESCE(p_package->>'course_event_id', '')), '')::uuid;
+
+  IF v_course_event_id IS NULL THEN
+    RAISE EXCEPTION 'course_event_id is required to save a package'
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- The tenant is resolved from the course, NEVER trusted from the payload.
+  SELECT institution_id INTO v_institution_id
+    FROM course_events
+   WHERE id = v_course_event_id;
+
+  IF v_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Course % was not found, or you do not have access to it', v_course_event_id
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF v_package_id IS NULL THEN
+    INSERT INTO course_packages (
+      course_event_id, institution_id, name, description, total_amount, currency,
+      seat_cap, sale_opens_at, sale_closes_at, is_active, display_order
+    ) VALUES (
+      v_course_event_id,
+      v_institution_id,
+      btrim(p_package->>'name'),
+      NULLIF(btrim(COALESCE(p_package->>'description', '')), ''),
+      (p_package->>'total_amount')::numeric,
+      COALESCE(NULLIF(btrim(COALESCE(p_package->>'currency', '')), ''), 'INR'),
+      NULLIF(btrim(COALESCE(p_package->>'seat_cap', '')), '')::int,
+      NULLIF(btrim(COALESCE(p_package->>'sale_opens_at', '')), '')::timestamptz,
+      NULLIF(btrim(COALESCE(p_package->>'sale_closes_at', '')), '')::timestamptz,
+      COALESCE((p_package->>'is_active')::boolean, true),
+      COALESCE(NULLIF(btrim(COALESCE(p_package->>'display_order', '')), '')::int, 0)
+    )
+    RETURNING id INTO v_package_id;
+    -- No row-count check needed: an RLS WITH CHECK failure on INSERT raises 42501.
+  ELSE
+    -- course_event_id is in the WHERE, not the SET: a package must never move
+    -- between courses, and this also stops a caller from editing some other
+    -- course's package by pairing its id with a course they can reach.
+    UPDATE course_packages SET
+      name           = btrim(p_package->>'name'),
+      description    = NULLIF(btrim(COALESCE(p_package->>'description', '')), ''),
+      total_amount   = (p_package->>'total_amount')::numeric,
+      currency       = COALESCE(NULLIF(btrim(COALESCE(p_package->>'currency', '')), ''), 'INR'),
+      seat_cap       = NULLIF(btrim(COALESCE(p_package->>'seat_cap', '')), '')::int,
+      sale_opens_at  = NULLIF(btrim(COALESCE(p_package->>'sale_opens_at', '')), '')::timestamptz,
+      sale_closes_at = NULLIF(btrim(COALESCE(p_package->>'sale_closes_at', '')), '')::timestamptz,
+      is_active      = COALESCE((p_package->>'is_active')::boolean, true),
+      display_order  = COALESCE(NULLIF(btrim(COALESCE(p_package->>'display_order', '')), '')::int, 0)
+    WHERE id = v_package_id
+      AND course_event_id = v_course_event_id;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION
+        'Package % could not be updated — it does not belong to course %, or you lack courses.packages.manage on it',
+        v_package_id, v_course_event_id
+        USING ERRCODE = '42501';
+    END IF;
+  END IF;
+
+  -- Full replace, never a diff: the deferred trigger validates the end state.
+  DELETE FROM course_package_installments WHERE package_id = v_package_id;
+
+  -- Zero deleted rows is legitimate (a package that had no schedule), so the
+  -- check is "is anything still there?" -- what an RLS-blocked DELETE leaves.
+  SELECT count(*) INTO v_remaining
+    FROM course_package_installments
+   WHERE package_id = v_package_id;
+
+  IF v_remaining > 0 THEN
+    RAISE EXCEPTION
+      'Could not clear the existing schedule for package % — % row(s) remain; you lack courses.packages.manage on them',
+      v_package_id, v_remaining
+      USING ERRCODE = '42501';
+  END IF;
+
+  -- A JSON null, a missing key or a non-array all mean "no schedule". COALESCE
+  -- would not catch a JSON null, and jsonb_array_elements raises on a scalar.
+  v_installments := CASE
+    WHEN jsonb_typeof(p_installments) = 'array' THEN p_installments
+    ELSE '[]'::jsonb
+  END;
+
+  FOR v_inst IN SELECT * FROM jsonb_array_elements(v_installments)
+  LOOP
+    -- Renumbered from 1 in array order rather than taken from the client, so a
+    -- reordered UI can never violate UNIQUE (package_id, installment_no).
+    v_no := v_no + 1;
+
+    INSERT INTO course_package_installments (package_id, installment_no, label, amount, due_date)
+    VALUES (
+      v_package_id,
+      v_no,
+      NULLIF(btrim(COALESCE(v_inst->>'label', '')), ''),
+      (v_inst->>'amount')::numeric,
+      NULLIF(btrim(COALESCE(v_inst->>'due_date', '')), '')::date
+    );
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'package_id', v_package_id,
+    'installment_count', v_no
+  );
+END;
+$function$;
+
+-- Supabase's default privileges grant EXECUTE to anon DIRECTLY, so revoking from
+-- PUBLIC alone leaves anon holding it. Revoke from both, explicitly.
+REVOKE ALL ON FUNCTION public.fn_save_course_package(jsonb, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_save_course_package(jsonb, jsonb) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_save_course_package(jsonb, jsonb) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_save_course_package(jsonb, jsonb) IS
+  'Saves a course package and replaces its installment schedule in ONE transaction. '
+  'Required because fn_course_package_amounts_chk is a DEFERRABLE INITIALLY DEFERRED '
+  'constraint trigger evaluated at COMMIT, so a reprice cannot be split across two '
+  'PostgREST calls. SECURITY INVOKER: the caller''s own RLS (courses.packages.manage) '
+  'applies inside the body. Because a blocked UPDATE/DELETE affects zero rows silently '
+  'under RLS, the function verifies its writes and raises 42501 rather than assuming.';
+
+
 -- ============================================================================
 -- Bill Coverage Audit: count TUITION-EQUIVALENT categories as year coverage
 -- ============================================================================
