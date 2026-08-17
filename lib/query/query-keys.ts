@@ -82,4 +82,15 @@ export const queryKeys = {
     details: () => [...queryKeys.coursePackages.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.coursePackages.details(), id] as const,
   },
+  /** Own root, same reasoning as coursePackages. Note a session mutation can also
+   *  change a resource_reservations row, so anything caching the Resource
+   *  Management calendar needs invalidating too — that lives outside this file. */
+  courseSessions: {
+    all: ['course-sessions'] as const,
+    lists: () => [...queryKeys.courseSessions.all, 'list'] as const,
+    list: (courseEventId: string) =>
+      [...queryKeys.courseSessions.lists(), courseEventId] as const,
+    details: () => [...queryKeys.courseSessions.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courseSessions.details(), id] as const,
+  },
 } as const;

@@ -117,3 +117,75 @@ export interface SaveCoursePackageResult {
   package_id: string;
   installment_count: number;
 }
+
+// ── Sessions & venue holds (Phase 2c) ────────────────────────────────────────
+
+export type CourseSessionRow = Database['public']['Tables']['course_sessions']['Row'];
+
+/** Mirrors reservation_status in Postgres. A course hold is only really "held"
+ *  when this is 'approved'; 'pending' means somebody else's caretaker still has
+ *  to release the room. The panel must show those as different states. */
+export type CourseSessionHoldStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+export interface CourseSession extends CourseSessionRow {
+  /** Left joins — absent on reads that don't ask for them, null when unset. */
+  venue_resource?: { id: string; name: string } | null;
+  trainer?: { id: string; full_name: string | null } | null;
+  reservation?: {
+    id: string;
+    status: CourseSessionHoldStatus;
+    start_time: string;
+    end_time: string;
+  } | null;
+}
+
+/**
+ * `reservation_id` is deliberately absent. It cannot be supplied by a caller:
+ * course_sessions.reservation_id and resource_reservations.course_session_id are
+ * FKs to each other, so the session row must exist before the reservation can
+ * name it. CourseSessionService owns that ordering — see its create().
+ */
+export interface CreateCourseSessionDto {
+  course_event_id: string;
+  session_no?: number | null;
+  title?: string | null;
+  session_date: string;
+  start_time: string;
+  end_time: string;
+  trainer_profile_id?: string | null;
+  trainer_name?: string | null;
+  /** The room to TRY to hold. A hold that is refused does not fail the session. */
+  venue_resource_id?: string | null;
+  venue_text?: string | null;
+}
+
+export type UpdateCourseSessionDto = Partial<
+  Omit<CreateCourseSessionDto, 'course_event_id'>
+>;
+
+/** Why a venue hold was refused. Mirrors holdEventVenue's vocabulary so the two
+ *  modules explain the same failure the same way. */
+export type VenueHoldRefusal =
+  | 'no_venue'
+  | 'not_reservable'
+  | 'walk_in'
+  | 'no_approver'
+  | 'taken'
+  | 'error';
+
+/**
+ * A session write returns the row AND what happened to the room, because those
+ * two can disagree: the sitting is scheduled but the hall was busy. Collapsing
+ * them into one success/failure would either lose the session or claim a room
+ * that was never held.
+ */
+export interface CourseSessionSaveResult {
+  session: CourseSession;
+  held: boolean;
+  /** Set when held === false. */
+  reason?: VenueHoldRefusal;
+  /** Human detail from the booking spine, when it gave one. */
+  message?: string;
+  /** True when the hold exists but is 'pending' a caretaker's approval. */
+  awaitingApproval?: boolean;
+}
