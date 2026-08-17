@@ -195,6 +195,26 @@ const PUBLIC_PATH_PREFIXES = [
   '/embed/', // Embeddable booking widget (/embed/[handle]) — same story. An embed
   //        that demands a login is not an embed: it is loaded in an iframe on
   //        somebody else's website, where the visitor has no JKKN session at all.
+  '/course/', // PUBLIC course landing + apply (/course/[slug], /course/[slug]/apply)
+  //        for the paid-courses module. External participants have no JKKN
+  //        account by definition — that is the whole point of the module.
+  //
+  //        THE TRAILING SLASH IS LOAD-BEARING. isPublicPath matches with
+  //        startsWith, so '/course' without it would also match '/courses' and
+  //        '/courses/[id]' — the AUTHENTICATED admin console — and make the
+  //        entire module public. Singular here, plural behind login. Do not
+  //        "tidy" this.
+  //
+  //        The design spec originally specified '/learn/[slug]' for these pages
+  //        and was corrected on 2026-08-17: app/(routes)/learn/ is the
+  //        authenticated Foundation module (16 routes — profile, badges,
+  //        leaderboard, channels, quests, assessments, certificates), so
+  //        allow-listing '/learn/' would have unauthenticated all of them.
+  //        Never add it.
+  '/api/public/courses/', // Service-role read + apply for the pages above. The
+  //        course tables REVOKE from anon, so these routes are the only public
+  //        path to that data and they project columns explicitly — no tenant ids
+  //        reach the browser.
 ];
 
 // Regex for static assets - single check instead of multiple endsWith
