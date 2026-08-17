@@ -383,18 +383,18 @@ export default function PhaseDetailPage({ params }: PhaseDetailPageProps) {
                         <Badge variant="outline" className="capitalize">
                           {deployment.environment}
                         </Badge>
-                        {deployment.version && (
-                          <span className="text-sm font-medium">v{deployment.version}</span>
+                        {deployment.deployment_number && (
+                          <span className="text-sm font-medium">#{deployment.deployment_number}</span>
                         )}
                         <Badge className={deploymentStatusColors[deployment.status] || 'bg-gray-100'}>
                           {deployment.status}
                         </Badge>
                       </div>
                       <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                        {deployment.deployed_date && (
+                        {deployment.deployed_at && (
                           <span className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            {format(new Date(deployment.deployed_date), 'dd MMM yyyy')}
+                            {format(new Date(deployment.deployed_at), 'dd MMM yyyy')}
                           </span>
                         )}
                         {deployment.deployed_by && (
