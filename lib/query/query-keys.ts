@@ -71,4 +71,15 @@ export const queryKeys = {
     details: () => [...queryKeys.courses.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courses.details(), id] as const,
   },
+  /** Separate root from `courses` so invalidating a course list never refetches
+   *  every package list, and vice versa. `list()` spreads `lists()` so one
+   *  invalidate of lists() still reaches every course's packages. */
+  coursePackages: {
+    all: ['course-packages'] as const,
+    lists: () => [...queryKeys.coursePackages.all, 'list'] as const,
+    list: (courseEventId: string) =>
+      [...queryKeys.coursePackages.lists(), courseEventId] as const,
+    details: () => [...queryKeys.coursePackages.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.coursePackages.details(), id] as const,
+  },
 } as const;
