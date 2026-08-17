@@ -1,12 +1,13 @@
 'use client';
 
-// Course Events — /courses/[id] detail console (Phase 2a Task 7). Header +
-// tabs: Overview (read-only summary), Settings (CourseForm in edit mode, gated
-// on courses.edit), Packages (Phase 2b — pricing tiers and their instalment
-// schedules, gated on courses.packages.manage inside the panel), and Sessions,
-// which still renders a Coming Soon card until Phase 2c fills it in. The
-// placeholder is rendered rather than omitted so the shape of the console is
-// legible and 2c has an obvious insertion point.
+// Course Events — /courses/[id] detail console (Phase 2a Task 7). Header + four
+// tabs, each gated inside its own panel rather than by hiding the trigger:
+//   Overview  read-only summary
+//   Settings  CourseForm in edit mode, gated on courses.edit
+//   Packages  pricing tiers + instalment schedules (2b), courses.packages.manage
+//   Sessions  the schedule + venue holds (2c), courses.sessions.manage
+// The Coming-Soon placeholder that stood in for the last two is gone — both are
+// real now. Forms, applications, enrollments and billing arrive in Phases 3-5.
 //
 // Tab state is URL-synced via useTabParam per the 2026-07-17 system standard
 // for every tabbed page (deep-linkable + favoritable via ?tab=) — hence the
@@ -34,6 +35,7 @@ import {
   type CourseFormOutput,
 } from '@/app/(routes)/courses/_components/course-form';
 import { PackagesPanel } from './_components/packages-panel';
+import { SessionsPanel } from './_components/sessions-panel';
 
 const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions'] as const;
 
@@ -105,20 +107,6 @@ function Fact({
         </p>
       </div>
     </div>
-  );
-}
-
-/** Placeholder body for the Sessions tab — clickable like every other tab, so
- *  a browsing user can actually see what's coming rather than hovering a
- *  disabled trigger's tooltip. Stays as the literal insertion point 2c swaps
- *  real content into, exactly as 2b did for Packages. */
-function ComingSoonPanel({ note }: { note: string }) {
-  return (
-    <Card>
-      <CardContent className="py-16 text-center text-sm text-muted-foreground">
-        {note}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -317,7 +305,7 @@ function CourseDetailPageInner() {
           </TabsContent>
 
           <TabsContent value="sessions">
-            <ComingSoonPanel note="Sessions and venue booking — coming in Phase 2c." />
+            <SessionsPanel courseEventId={course.id} />
           </TabsContent>
         </Tabs>
       </div>
