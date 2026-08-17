@@ -106,38 +106,108 @@ function localToInstant(local: string, timeZone: string): string | null {
   return new Date(guess - (shown - guess)).toISOString();
 }
 
-/** People search across MyJKKN profiles — name or email, active accounts only. */
+/**
+ * Whether this caller may see people from EVERY institution.
+ *
+ * Mirrors the first two checks of `role_has_institution_access()`: super admins
+ * bypass, and any active role carrying `institution_scope = 'all'` grants
+ * cross-institution reach. Everyone else is confined to their own institution.
+ *
+ * Deliberately fail-CLOSED — an error resolving the caller's roles returns
+ * false, which narrows the search rather than widening it.
+ */
+async function callerInstitutionScope(
+  db: SupabaseClient,
+  userId: string,
+): Promise<{ crossInstitution: boolean; institutionId: string | null }> {
+  const { data: profile } = await db
+    .from('profiles')
+    .select('institution_id, is_super_admin')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const institutionId = ((profile as any)?.institution_id as string | null) ?? null;
+  if ((profile as any)?.is_super_admin === true) {
+    return { crossInstitution: true, institutionId };
+  }
+
+  const { data: roles, error } = await db
+    .from('user_roles')
+    .select('custom_roles!inner(institution_scope, is_active)')
+    .eq('user_id', userId);
+  if (error) return { crossInstitution: false, institutionId };
+
+  const crossInstitution = (roles ?? []).some((r: any) => {
+    const role = Array.isArray(r.custom_roles) ? r.custom_roles[0] : r.custom_roles;
+    return role?.is_active !== false && role?.institution_scope === 'all';
+  });
+  return { crossInstitution, institutionId };
+}
+
+/**
+ * People search across MyJKKN profiles — name or email, active accounts only.
+ *
+ * SCOPING (do not remove): `profiles_select_policy` is
+ * `FOR SELECT USING (auth.uid() IS NOT NULL)`, so RLS does NOT scope this table
+ * — every signed-in user can read all 6,000+ profiles across all 14
+ * institutions. The institution filter below is therefore the ONLY thing
+ * standing between a two-letter query and cross-tenant enumeration of names,
+ * emails and designations. Switching to the anon/RLS client would not help.
+ *
+ * The search runs as two PARAMETERISED `.ilike()` queries rather than one
+ * interpolated `.or()` string: PostgREST's `.or()` takes a filter grammar, so
+ * `,` `(` `)` `.` in user input become operators and can widen the result set.
+ * Escaping only `%` and `_` is not enough.
+ */
 export async function searchPeople(query: string): Promise<ActionResult<PersonOption[]>> {
   try {
-    await currentUserId();
+    const userId = await currentUserId();
     const term = (query ?? '').trim();
     if (term.length < 2) return { success: true, data: [] };
 
     const db = createServiceRoleClient() as unknown as SupabaseClient;
-    // Escape PostgREST's LIKE wildcards; `_` is legal in an email local-part.
-    const escaped = term.replace(/[%_]/g, (c) => `\\${c}`);
-    const { data, error } = await db
-      .from('profiles')
-      .select('id, full_name, email, designation')
-      .or(`full_name.ilike.%${escaped}%,email.ilike.%${escaped}%`)
-      .eq('is_active', true)
-      .not('email', 'is', null)
-      .limit(15);
+    const { crossInstitution, institutionId } = await callerInstitutionScope(db, userId);
 
-    if (error) return { success: false, error: error.message };
+    // Fail closed: a caller with no institution and no cross-institution role
+    // gets no results rather than everyone's.
+    if (!crossInstitution && !institutionId) return { success: true, data: [] };
 
-    return {
-      success: true,
-      data: (data ?? [])
-        .filter((r: any) => Boolean(r.email))
-        .map((r: any) => ({
-          profileId: r.id as string,
-          name: (r.full_name as string) || (r.email as string),
-          email: r.email as string,
-          origin: 'jkkn' as const,
-          subtitle: (r.designation as string | null) ?? null,
-        })),
+    // Only LIKE wildcards need escaping now that the term is passed as a value.
+    const pattern = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+
+    const base = () => {
+      let q = db
+        .from('profiles')
+        .select('id, full_name, email, designation')
+        .eq('is_active', true)
+        .not('email', 'is', null);
+      if (!crossInstitution) q = q.eq('institution_id', institutionId as string);
+      return q;
     };
+
+    const [byName, byEmail] = await Promise.all([
+      base().ilike('full_name', pattern).limit(15),
+      base().ilike('email', pattern).limit(15),
+    ]);
+    if (byName.error) return { success: false, error: byName.error.message };
+    if (byEmail.error) return { success: false, error: byEmail.error.message };
+
+    const seen = new Set<string>();
+    const merged: PersonOption[] = [];
+    for (const r of [...(byName.data ?? []), ...(byEmail.data ?? [])] as any[]) {
+      const email = (r.email as string | null)?.trim();
+      if (!email || seen.has(email.toLowerCase())) continue;
+      seen.add(email.toLowerCase());
+      merged.push({
+        profileId: r.id as string,
+        name: (r.full_name as string) || email,
+        email,
+        origin: 'jkkn',
+        subtitle: (r.designation as string | null) ?? null,
+      });
+      if (merged.length >= 15) break;
+    }
+    return { success: true, data: merged };
   } catch (err: any) {
     return { success: false, error: err?.message ?? 'Could not search people.' };
   }

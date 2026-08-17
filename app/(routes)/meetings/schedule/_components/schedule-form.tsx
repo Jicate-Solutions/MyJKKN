@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
+  AlertTriangle,
   CalendarDays,
   CheckCircle2,
   Clock,
@@ -152,19 +153,36 @@ export function ScheduleForm() {
       return;
     }
     startSave(async () => {
-      const res = await scheduleMeeting({
-        title,
-        startLocal,
-        durationMin,
-        locationMode,
-        locationText: locationMode === 'in_person' ? locationText : null,
-        note,
-        attendees: chips.map((c) => ({
-          email: c.email,
-          name: c.name,
-          profileId: c.profileId,
-        })),
-      });
+      // The action awaits Google Calendar plus one email per attendee. If a
+      // provider hangs there is no server-side ceiling, so without this race
+      // the button would sit on "Scheduling…" forever with no way to tell.
+      // The timeout only ends the WAIT — the booking may still have committed,
+      // which is why the message says "check your Inbox" rather than "failed".
+      const TIMEOUT_MS = 20_000;
+      const timedOut = Symbol('timeout');
+      const res = await Promise.race([
+        scheduleMeeting({
+          title,
+          startLocal,
+          durationMin,
+          locationMode,
+          locationText: locationMode === 'in_person' ? locationText : null,
+          note,
+          attendees: chips.map((c) => ({
+            email: c.email,
+            name: c.name,
+            profileId: c.profileId,
+          })),
+        }),
+        new Promise<typeof timedOut>((r) => setTimeout(() => r(timedOut), TIMEOUT_MS)),
+      ]);
+
+      if (res === timedOut) {
+        toast.warning(
+          'Still working — this is taking longer than usual. Check Meetings → Inbox before trying again, so you do not book it twice.',
+        );
+        return;
+      }
 
       if (!res.success || !res.data) {
         toast.error(res.error ?? 'The meeting could not be scheduled.');
@@ -194,11 +212,22 @@ export function ScheduleForm() {
     return (
       <Card>
         <CardContent className="space-y-4 py-8 text-center">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-green-600" aria-hidden />
+          {/* The headline must not claim invitations went out when `warning`
+              says they did not — a green tick above a contradicting warning is
+              exactly the silent-partial-success the service guards against. */}
+          {booked.warning ? (
+            <AlertTriangle className="mx-auto h-10 w-10 text-amber-600" aria-hidden />
+          ) : (
+            <CheckCircle2 className="mx-auto h-10 w-10 text-green-600" aria-hidden />
+          )}
           <div>
-            <h3 className="text-base font-semibold">Meeting scheduled</h3>
+            <h3 className="text-base font-semibold">
+              {booked.warning ? 'Meeting saved — but read this' : 'Meeting scheduled'}
+            </h3>
             <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-              Everyone you added has been invited by Google Calendar.
+              {booked.warning
+                ? 'The time is booked on your calendar. Something below still needs your attention.'
+                : 'Everyone you added has been invited by Google Calendar.'}
             </p>
           </div>
 
