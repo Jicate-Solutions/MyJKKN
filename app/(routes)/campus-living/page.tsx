@@ -44,9 +44,9 @@ export default function CampusLivingDashboardPage() {
   const { data: dashboardData, isLoading, error } = useCampusLivingOverview(institutionId);
 
   // permsLoading keeps the spinner up while the viewer's scope resolves — the
-  // overview query is deliberately disabled until then (useDashboardScope), and
-  // without this gate the page would flash the null-stats zeros it renders when
-  // dashboardData is absent (the very symptom of BUG-005831).
+  // overview query is deliberately disabled until then (useCampusLivingScope),
+  // and a disabled React Query reports isLoading:false, so without this gate the
+  // page renders its blank/zero stats before the first fetch starts (BUG-005831).
   if (isLoading || permsLoading) {
     return (
       <ContentLayout title="Campus Living">

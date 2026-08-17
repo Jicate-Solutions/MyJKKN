@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { CampusLivingDashboard } from '@/lib/services/campus-living/campus-living-dashboard';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useCampusLivingScope } from '@/hooks/campus-living/use-campus-living-scope';
 
 // Query key factory
 export const campusLivingDashboardKeys = {
@@ -20,36 +20,14 @@ export const campusLivingDashboardKeys = {
     ['campus-living-dashboard', 'institution-residents', scope] as const,
 };
 
-/**
- * Resolve the viewer's data scope BEFORE any dashboard query runs, and put the
- * RESOLVED scope in the query key. Two bugs live in the old shape (BUG-005831):
- *
- *  1. While usePermissions loads, isSuperAdmin is still false, so a super
- *     admin's first fetch ran scoped to their own profile institution — for
- *     director@ that is the blockless JKKN Testing Institution, which renders
- *     an all-zero dashboard under a working Allocations page.
- *  2. The query key carried only institutionId, so when isSuperAdmin resolved
- *     to true the key did not change and React Query re-served the cached
- *     scoped answer instead of refetching cluster-wide.
- *
- * Same class as the Allocations "0 Allocated" bug (#2453): asking before you
- * know who is asking, then caching the wrong answer under a key that can never
- * notice. `enabled` waits for permissions, and the key is the resolved scope,
- * so neither half can recur.
- */
-function useDashboardScope(institutionId: string | undefined) {
-  const { isSuperAdmin, isLoading: permsLoading } = usePermissions();
-  return {
-    scopeKey: permsLoading ? 'resolving' : isSuperAdmin ? 'all' : institutionId ?? 'none',
-    serviceArg: isSuperAdmin ? undefined : institutionId,
-    ready: !permsLoading && (isSuperAdmin || !!institutionId),
-  };
-}
-
 // --- Query hooks ---
+//
+// Every hook below resolves the viewer's scope through useCampusLivingScope
+// BEFORE fetching, and keys the cache on the RESOLVED scope. See that hook for
+// why both halves are load-bearing (BUG-005831).
 
 export function useCampusLivingOverview(institutionId: string | undefined) {
-  const { scopeKey, serviceArg, ready } = useDashboardScope(institutionId);
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
     queryKey: campusLivingDashboardKeys.overview(scopeKey),
     queryFn: () => CampusLivingDashboard.getDashboardData(serviceArg),
@@ -59,7 +37,7 @@ export function useCampusLivingOverview(institutionId: string | undefined) {
 }
 
 export function useResidentDemographics(institutionId: string | undefined) {
-  const { scopeKey, serviceArg, ready } = useDashboardScope(institutionId);
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
     queryKey: campusLivingDashboardKeys.demographics(scopeKey),
     queryFn: () => CampusLivingDashboard.getResidentDemographics(serviceArg),
@@ -69,7 +47,7 @@ export function useResidentDemographics(institutionId: string | undefined) {
 }
 
 export function useBlockCategoryOccupancy(institutionId: string | undefined) {
-  const { scopeKey, serviceArg, ready } = useDashboardScope(institutionId);
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
     queryKey: campusLivingDashboardKeys.blockCategoryOccupancy(scopeKey),
     queryFn: () => CampusLivingDashboard.getBlockCategoryOccupancy(serviceArg),
@@ -79,7 +57,7 @@ export function useBlockCategoryOccupancy(institutionId: string | undefined) {
 }
 
 export function useInstitutionResidents(institutionId: string | undefined) {
-  const { scopeKey, serviceArg, ready } = useDashboardScope(institutionId);
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
     queryKey: campusLivingDashboardKeys.institutionResidents(scopeKey),
     queryFn: () => CampusLivingDashboard.getInstitutionResidents(serviceArg),
@@ -89,7 +67,7 @@ export function useInstitutionResidents(institutionId: string | undefined) {
 }
 
 export function useQuickStats(institutionId: string | undefined) {
-  const { scopeKey, serviceArg, ready } = useDashboardScope(institutionId);
+  const { scopeKey, serviceArg, ready } = useCampusLivingScope(institutionId);
   return useQuery({
     queryKey: campusLivingDashboardKeys.hostelSummary(scopeKey),
     queryFn: () => CampusLivingDashboard.getQuickStats(serviceArg),
