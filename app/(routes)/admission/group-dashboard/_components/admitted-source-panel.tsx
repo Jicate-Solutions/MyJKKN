@@ -144,6 +144,12 @@ export function AdmittedSourcePanel({
         { header: 'Name',           accessor: (r) => r.full_name ?? '' },
         { header: 'Application No', accessor: (r) => r.application_id ?? '' },
         { header: 'Roll No',        accessor: (r) => r.roll_number ?? '' },
+        // Contact numbers. Kept as three separate columns rather than one
+        // joined cell so the file can be used directly for a call list or a
+        // WhatsApp upload without splitting a field first.
+        { header: 'Mobile',         accessor: (r) => r.student_mobile ?? '' },
+        { header: 'Father Mobile',  accessor: (r) => r.father_mobile ?? '' },
+        { header: 'Mother Mobile',  accessor: (r) => r.mother_mobile ?? '' },
         { header: 'Institution',    accessor: (r) => r.institution_name },
         { header: 'Program',        accessor: (r) => r.program_name ?? '' },
         { header: 'Source',         accessor: (r) => sourceLabel(r.source) },
