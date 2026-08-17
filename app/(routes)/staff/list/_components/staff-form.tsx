@@ -595,23 +595,67 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
         (errorMessage.includes('duplicate key') &&
           errorMessage.includes('staff_id'))
       ) {
+        // Name the holder, same as the biometric branch above. The ID is
+        // globally unique but the staff list is institution-scoped, so the
+        // colliding row is frequently one this operator cannot see — without
+        // the holder's name and college the error is a dead end.
+        const enteredId = (form.getValues('staff_id') ?? '').trim();
+        const holder = await StaffService.findStaffIdConflict(enteredId).catch(() => null);
+
         form.setError('staff_id', {
           type: 'manual',
-          message: 'This Staff ID is already taken.'
+          message: holder
+            ? `Already used by ${holder.name} at ${holder.institution}.`
+            : 'This Staff ID is already taken.'
         });
-        toast.error('Staff ID already exists. Please use a different ID.');
-      } else if (errorMessage.includes('staff_institution_email_key')) {
-        form.setError('institution_email', {
+
+        toast.error(
+          holder
+            ? `Staff ID "${enteredId}" belongs to ${holder.name} at ${holder.institution}${
+                holder.is_active ? '' : ' (inactive)'
+              }. Staff IDs are unique across all colleges — please use a different ID.`
+            : 'Staff ID already exists. Please use a different ID.'
+        );
+      } else if (
+        errorMessage.includes('staff_institution_email_key') ||
+        errorMessage.includes('staff_email_key')
+      ) {
+        // Which constraint fired tells us which field the operator typed into;
+        // the lookup tells us which field the address is stored in on the
+        // OTHER row. Those differ often enough to be worth reporting, and the
+        // holder is frequently at a college this operator cannot see.
+        const isInstitutionField = errorMessage.includes('staff_institution_email_key');
+        const field = isInstitutionField ? 'institution_email' : 'email';
+        const entered = (form.getValues(field) ?? '').trim();
+        const holder = await StaffService.findStaffEmailConflict(entered).catch(() => null);
+
+        const heldAs =
+          holder && holder.matchedField !== field
+            ? holder.matchedField === 'email'
+              ? ' — stored there as their personal email'
+              : ' — stored there as their institution email'
+            : '';
+
+        form.setError(field, {
           type: 'manual',
-          message: 'This institution email is already registered.'
+          message: holder
+            ? `Already used by ${holder.name}${holder.staff_id ? ` (${holder.staff_id})` : ''} at ${holder.institution}.`
+            : isInstitutionField
+              ? 'This institution email is already registered.'
+              : 'This email is already registered.'
         });
-        toast.error('That institution email is already registered to another staff member.');
-      } else if (errorMessage.includes('staff_email_key')) {
-        form.setError('email', {
-          type: 'manual',
-          message: 'This email is already registered.'
-        });
-        toast.error('That email is already registered to another staff member.');
+
+        toast.error(
+          holder
+            ? `"${entered}" is already registered to ${holder.name}${
+                holder.staff_id ? ` (${holder.staff_id})` : ''
+              } at ${holder.institution}${heldAs}${
+                holder.is_active ? '' : ' (inactive)'
+              }. Each email can belong to only one staff record.`
+            : isInstitutionField
+              ? 'That institution email is already registered to another staff member.'
+              : 'That email is already registered to another staff member.'
+        );
       }
       // Check for other common validation patterns
       else if (

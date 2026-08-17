@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "next-env.d.ts",
+    "app/(routes)/academic/attendance/**/*.tsx",
+    "app/(routes)/academic/attendance/**/*.ts",
+    "lib/services/academic/faculty-attendance-service.ts",
+    "lib/services/academic/daily-session-attendance-service.ts"
+  ]
+}
