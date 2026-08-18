@@ -21246,6 +21246,48 @@ REVOKE EXECUTE ON FUNCTION public.fn_induction_list_event_coordinators(UUID) FRO
 GRANT  EXECUTE ON FUNCTION public.fn_induction_list_event_coordinators(UUID) TO authenticated;
 
 -- ----------------------------------------------------------------------------
+-- 3b. Coordinators of EVERY visible induction, in one call (migration
+--     20260818092000). Feeds the Coordinators column on the /events/induction
+--     list, which replaced the retired college-wide coordinators panel.
+--
+--     Not a table select: induction_event_coordinators carries a single
+--     is_super_admin()/is_admin() policy, so a Lead or a coordinator would read
+--     zero rows silently; it also holds two FKs to profiles, which makes a
+--     PostgREST embed ambiguous. Not fn_induction_list_event_coordinators in a
+--     loop either: that one is Lead-gated, excluding the coordinators
+--     themselves, and would be one call per row.
+--
+--     Self-authorizing per row, strictly narrower than events_auth_read.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_coordinators_by_event()
+RETURNS TABLE (event_id UUID, user_id UUID, full_name TEXT, email TEXT)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  -- ::text casts: profiles.full_name/email are varchar and RETURNS TABLE
+  -- declares text; SECURITY DEFINER is strict about the mismatch (42804).
+  SELECT iec.event_id, iec.user_id, p.full_name::text, p.email::text
+  FROM public.induction_event_coordinators iec
+  JOIN public.profiles p ON p.id = iec.user_id
+  JOIN public.induction_programs ip ON ip.event_id = iec.event_id
+  WHERE ip.institution_id IS NOT NULL
+    AND (
+      is_super_admin()
+      OR public.fn_induction_is_event_coordinator(iec.event_id)
+      OR (
+        public.user_has_permission('induction.view')
+        AND public.role_has_institution_access(ip.institution_id)
+      )
+    )
+  ORDER BY p.full_name;
+$$;
+REVOKE ALL ON FUNCTION public.fn_induction_coordinators_by_event() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_induction_coordinators_by_event() FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_induction_coordinators_by_event() TO authenticated;
+
+-- ----------------------------------------------------------------------------
 -- 4. search assignable staff of THIS event's institution.
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.fn_induction_assignable_event_staff(p_event_id UUID, p_query TEXT DEFAULT NULL)
@@ -27580,6 +27622,7 @@ DECLARE
   v_found          boolean;
   v_registrations  integer;
   v_payments       integer;
+  v_induction      integer;
 BEGIN
   SELECT e.institution_id, true
     INTO v_institution_id, v_found
@@ -27603,16 +27646,24 @@ BEGIN
   SELECT count(*) INTO v_payments
     FROM public.event_payment_transactions t WHERE t.event_id = p_event_id;
 
+  -- Induction learners (migration 20260818090000). An induction never writes
+  -- events_registrations - freshers arrive through fn_induction_auto_enroll -
+  -- so without this arm every induction reported 'safe to delete' while holding
+  -- hundreds of learners across 13 cascading induction_* tables.
+  SELECT count(*) INTO v_induction
+    FROM public.induction_enrollment ie WHERE ie.event_id = p_event_id;
+
   RETURN jsonb_build_object(
-    'registrations', v_registrations,
-    'payments',      v_payments,
-    'blocked',       (v_registrations > 0 OR v_payments > 0)
+    'registrations',      v_registrations,
+    'payments',           v_payments,
+    'induction_learners', v_induction,
+    'blocked',            (v_registrations > 0 OR v_payments > 0 OR v_induction > 0)
   );
 END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_event_delete_blockers(uuid) IS
-  'Events Hub delete pre-check. Returns {registrations, payments, blocked} past RLS; self-authorizes on events.delete + institution access.';
+  'Events Hub delete pre-check. Returns {registrations, payments, induction_learners, blocked} past RLS; self-authorizes on events.delete + institution access.';
 
 REVOKE ALL ON FUNCTION public.fn_event_delete_blockers(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fn_event_delete_blockers(uuid) FROM anon;
@@ -27631,12 +27682,16 @@ AS $fn$
 DECLARE
   v_registrations integer;
   v_payments      integer;
+  v_induction     integer;
 BEGIN
   SELECT count(*) INTO v_registrations
     FROM public.events_registrations r WHERE r.event_id = OLD.id;
 
   SELECT count(*) INTO v_payments
     FROM public.event_payment_transactions t WHERE t.event_id = OLD.id;
+
+  SELECT count(*) INTO v_induction
+    FROM public.induction_enrollment ie WHERE ie.event_id = OLD.id;
 
   IF v_registrations > 0 OR v_payments > 0 THEN
     RAISE EXCEPTION
@@ -27645,12 +27700,22 @@ BEGIN
       USING ERRCODE = 'P0001';
   END IF;
 
+  -- Separate arm, separate message (migration 20260818090000): an induction has
+  -- 0 registrations and 0 payments by construction, so folding it into the
+  -- clause above would refuse the delete while naming two counts that are zero.
+  IF v_induction > 0 THEN
+    RAISE EXCEPTION
+      'Cannot delete induction "%": % enrolled learner(s) - along with their batches, attendance, feedback and completion records - would be permanently destroyed by ON DELETE CASCADE. Remove the enrolment first, or move the induction to Draft to take it out of circulation.',
+      OLD.name, v_induction
+      USING ERRCODE = 'P0001';
+  END IF;
+
   RETURN OLD;
 END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_events_block_delete_with_dependents() IS
-  'Refuses DELETE on an event holding registrations or payment transactions - those cascade away irreversibly. Enforced here so PostgREST cannot bypass it.';
+  'Refuses DELETE on an event holding registrations, payment transactions, or enrolled induction learners - those cascade away irreversibly. Enforced here so PostgREST cannot bypass it.';
 
 -- No EXECUTE grants: a trigger function must not be reachable at /rest/v1/rpc/.
 -- Postgres checks EXECUTE at CREATE TRIGGER time, not at fire time, so this does
