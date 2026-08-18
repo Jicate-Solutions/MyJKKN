@@ -106,6 +106,7 @@ import {
   UserCog,
   SearchCheck,
   BadgeCheck,
+  Presentation,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -515,6 +516,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
   // Role Management to reveal the Projects sidebar entry.
   '/events': 'events.view',
+  '/courses': 'courses.view',
+  '/courses/new': 'courses.create',
   '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
@@ -667,6 +670,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // has no segment the terminology delta gate matches, so no value split is
   // needed here.
   '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
+  // Cross-cycle session trend. Deliberately NOT 'aiPulse:cycles.manage', even
+  // though it sits beside the Champion Console: the SELECT policy on
+  // ai_pulse_live_attendance (20260611) admits `aiPulse:attendance.mark` and
+  // `aiPulse:anomaly.review` but not `cycles.manage`, so gating on cycles.manage
+  // would open a page whose every rate then read "not captured" for want of
+  // rows. The ai_pulse_champion role holds both keys, so the Champion and
+  // Co-Champion are admitted either way — this key also guarantees the data.
+  '/ai-pulse/admin/trends': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -711,8 +722,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards': 'id_cards.jobs.view',
   '/admin/id-cards/template': 'id_cards.templates.view',
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Morning page (2026-08-14) — the daily exception/coverage read. Same key as
+  // the print queue: anyone who can see the ID Cards menu can read it.
+  '/admin/id-cards/morning': 'id_cards.jobs.view',
   // Batch print enqueues jobs, so it needs the manage key (not just view).
   '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Address Check (2026-08-14) is read-only — it lists the addresses that will
+  // print wrong and links out to the learner's edit screen, so it shares the
+  // view key rather than requiring manage.
+  '/admin/id-cards/address-check': 'id_cards.jobs.view',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -1087,6 +1105,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
   '/solutions/list': 'solutions.dashboard.view',
+  // Deliberately REUSES the dashboard key (2026-08-14): a freshly minted
+  // solutions.digest.view would be true on almost no role — the trap hit
+  // three times the week of 08-13. Anyone who can see the dashboard can
+  // see its weekly digest.
+  '/solutions/digest': 'solutions.dashboard.view',
   '/solutions/pipeline': 'solutions.pipeline.view',
   '/solutions/pipeline/list': 'solutions.pipeline.view',
   '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
@@ -1147,6 +1170,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/blocks': 'campus_living.blocks.view',
   '/campus-living/allocations': 'campus_living.allocations.view',
   '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  // Read-only audit. Its own key (held by no role) so the nav chip and the
+  // route guard agree it is super-admin-only — a link the sidebar hides but
+  // the guard opens is still a reachable page.
+  '/campus-living/allocations/audit': 'campus_living.allocations.audit',
   '/campus-living/residents': 'campus_living.residents.view',
   '/campus-living/my-hostel': 'campus_living.my_hostel.view',
   '/campus-living/my-hostel/vacate-request': 'campus_living.vacate_requests.submit',
@@ -1157,6 +1184,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  // Gated on the WRITE key, not .view: the scan screen exists only to record
+  // exits and returns, so a read-only holder has nothing to do there.
+  '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
@@ -1492,6 +1522,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // Host-initiated scheduling. Same gate as the rest of the module: the page
+  // can only ever book the SIGNED-IN user's own calendar, so a separate key
+  // would add a role-config burden without adding any protection.
+  '/meetings/schedule': 'meetings.view',
   '/meetings/routing-forms': 'meetings.routing.view',
   '/meetings/workflows': 'meetings.workflows.view',
   '/meetings/polls': 'meetings.polls.view',
@@ -3055,8 +3089,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/admin/id-cards'),
           icon: IdCard,
           submenus: [
+            { href: '/admin/id-cards/morning', label: 'Morning Page', active: pathname.startsWith('/admin/id-cards/morning') },
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/address-check', label: 'Address Check', active: pathname.startsWith('/admin/id-cards/address-check') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
@@ -3129,6 +3165,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
+            { href: '/ai-pulse/admin/trends', label: 'Champion · Session Trend', active: pathname.startsWith('/ai-pulse/admin/trends') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
@@ -3151,6 +3188,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarClock,
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
@@ -3295,6 +3333,25 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/events/tournament/new', label: 'Tournament · New', active: pathname === '/events/tournament/new' },
             // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
             { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Courses',
+      menus: [
+        {
+          href: '/courses',
+          label: 'Courses',
+          // Same parent-href-as-leaf trap as '/events' above: the parent row is
+          // a pure accordion toggle at runtime, so its own href is never
+          // clickable. The 'All Courses' submenu leaf below is what actually
+          // makes /courses reachable by check:reachability's chip-click walk.
+          active: pathname === '/courses' || pathname.startsWith('/courses/'),
+          icon: Presentation,
+          submenus: [
+            { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
+            { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
           ]
         }
       ]

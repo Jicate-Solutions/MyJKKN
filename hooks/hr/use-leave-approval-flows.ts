@@ -57,16 +57,29 @@ export function useLeaveApproverRoles(enabled = true) {
   });
 }
 
+/**
+ * People pinnable as a step's approver, optionally narrowed to one role.
+ *
+ * roleKey is part of the query key AND is sent to the RPC — the server applies
+ * it before its 50-row cap, so a client-side filter would search a truncated
+ * page.
+ *
+ * placeholderData keeps the previous list on screen while a new search or role
+ * runs, so the picker does not flash empty between keystrokes.
+ */
 export function useLeaveApproverCandidates(
   hrOrgId: string | undefined,
   search: string,
+  roleKey: string | null,
   enabled = true
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: [KEY, 'candidates', hrOrgId, search],
-    queryFn: () => LeaveApprovalFlowService.candidates(supabase, hrOrgId!, search),
+    queryKey: [KEY, 'candidates', hrOrgId, search, roleKey],
+    queryFn: () =>
+      LeaveApprovalFlowService.candidates(supabase, hrOrgId!, search, roleKey ?? undefined),
     enabled: enabled && !!hrOrgId,
+    placeholderData: (prev) => prev,
   });
 }
 

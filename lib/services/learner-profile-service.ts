@@ -482,6 +482,7 @@ export class LearnerProfileService {
       gender,
       entry_type,
       is_profile_complete,
+      accommodation_type_id,
       page = 1,
       limit = 50,
       sortBy = 'created_at',
@@ -541,6 +542,18 @@ export class LearnerProfileService {
     // older forms wrote mixed case. An eq() here silently returned zero rows.
     if (gender) query = query.ilike('gender', gender);
     if (entry_type) query = query.eq('entry_type', entry_type);
+
+    // Matches the Learners Profiles filter bar predicate exactly. The export
+    // dialog reuses THIS function while the list page uses its own
+    // _data/get-learner-profiles.ts, so a filter added to one and not the other
+    // makes "Export" quietly return more rows than the table on screen.
+    //
+    // On the FK, never on the sibling `accommodation_type` field in this same
+    // filter type: that one names the RETIRED TEXT column, is not destructured
+    // anywhere in this method, and has therefore never filtered anything.
+    if (accommodation_type_id) {
+      query = query.eq('accommodation_type_id', accommodation_type_id);
+    }
 
     if (typeof is_profile_complete === 'boolean') {
       if (is_profile_complete === false) {

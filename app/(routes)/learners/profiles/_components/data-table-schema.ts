@@ -39,6 +39,10 @@ export const profilesSearchParamsSchema = z.object({
   status: z.string().optional().catch(undefined),
   gender: z.string().optional().catch(undefined),
   is_profile_complete: z.string().optional().catch(undefined),
+  // FK to the global accommodation_types lookup. NOT the retired
+  // learners_profiles.accommodation_type TEXT column — that one is derived for
+  // legacy readers and is not what any row is actually stored against.
+  accommodation_type_id: z.string().uuid().optional().catch(undefined),
 
   // Date range
   from_date: z.string().optional().catch(undefined),

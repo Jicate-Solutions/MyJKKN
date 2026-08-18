@@ -162,10 +162,13 @@ export async function POST(request: NextRequest) {
     let pushed = 0;
     try {
       if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+        // is_active=false is how an unsubscribe is recorded, so pushing to
+        // those rows would buzz someone who explicitly opted out.
         const { data: subs } = await admin
           .from('push_subscriptions')
           .select('id, subscription')
-          .eq('user_id', userId);
+          .eq('user_id', userId)
+          .eq('is_active', true);
         if (subs && subs.length) {
           const payload = JSON.stringify({
             title,

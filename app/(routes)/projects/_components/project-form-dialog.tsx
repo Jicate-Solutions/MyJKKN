@@ -53,6 +53,7 @@ import {
 import { useInstitutions } from '@/hooks/hr/recruitment-need/use-data-entry';
 import { useClients } from '@/hooks/solutions/use-clients';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 import type {
   Project,
   ProjectInsert,
@@ -215,7 +216,7 @@ export function ProjectFormDialog({
                 <FormItem>
                   <FormLabel>Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g. NAAC re-accreditation 2027" {...field} />
+                    <Input placeholder="e.g. NAAC re-accreditation 2027" className={TAP_TARGET} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -250,7 +251,7 @@ export function ProjectFormDialog({
                     <FormLabel>Type</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={TAP_TARGET}>
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                       </FormControl>
@@ -276,7 +277,7 @@ export function ProjectFormDialog({
                     <FormLabel>Priority</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={TAP_TARGET}>
                           <SelectValue placeholder="Select priority" />
                         </SelectTrigger>
                       </FormControl>
@@ -304,7 +305,7 @@ export function ProjectFormDialog({
                     <FormLabel>Scope</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={TAP_TARGET}>
                           <SelectValue placeholder="Select scope" />
                         </SelectTrigger>
                       </FormControl>
@@ -329,7 +330,7 @@ export function ProjectFormDialog({
                     <FormLabel>Institution</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={TAP_TARGET}>
                           <SelectValue placeholder="Select institution" />
                         </SelectTrigger>
                       </FormControl>
@@ -365,7 +366,7 @@ export function ProjectFormDialog({
                       }}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={TAP_TARGET}>
                           <SelectValue placeholder="Internal (no client)" />
                         </SelectTrigger>
                       </FormControl>
@@ -395,7 +396,7 @@ export function ProjectFormDialog({
                       disabled={!hasClient}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={TAP_TARGET}>
                           <SelectValue
                             placeholder={hasClient ? 'Select solution' : 'Pick a client first'}
                           />
@@ -424,7 +425,7 @@ export function ProjectFormDialog({
                   <FormItem>
                     <FormLabel>Start date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} value={field.value ?? ''} />
+                      <Input type="date" className={TAP_TARGET} {...field} value={field.value ?? ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -438,7 +439,7 @@ export function ProjectFormDialog({
                   <FormItem>
                     <FormLabel>End date</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} value={field.value ?? ''} />
+                      <Input type="date" className={TAP_TARGET} {...field} value={field.value ?? ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -450,12 +451,13 @@ export function ProjectFormDialog({
               <Button
                 type="button"
                 variant="outline"
+                className={TAP_TARGET}
                 onClick={() => onOpenChange(false)}
                 disabled={isPending}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isPending} className="gap-1.5">
+              <Button type="submit" disabled={isPending} className={`gap-1.5 ${TAP_TARGET}`}>
                 {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 {isEdit ? 'Save changes' : 'Create project'}
               </Button>

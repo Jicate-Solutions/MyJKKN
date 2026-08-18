@@ -1,10 +1,30 @@
-// app/(routes)/accreditation/cac/_components/measured-metrics-section.tsx
+// app/(routes)/accreditation/iqac/_components/measured-metrics-section.tsx
 // ============================================================================
-// The measured half of the Cluster Academic Council page.
+// The CEO's July 2026 metric framework, measured.
 //
-// The page above it describes the council. This section describes what the
-// council can actually see. Four Director decisions shape every choice here, and
-// each is load-bearing rather than cosmetic:
+// MOVED HERE FROM THE CLUSTER ACADEMIC COUNCIL PAGE, 2026-08-14, by Director
+// decision. Nothing was deleted and no metric changed; only where it is read.
+//
+// WHY. The council is a cluster body — UGC prescribes it for a cluster of
+// colleges, to develop new programmes, develop a research agenda, and review the
+// progress of research. Apply the boundary test to this framework, one metric at
+// a time: CAN ONE COLLEGE MOVE THIS NUMBER ALONE? All of them can. Not one
+// measures an act that requires two colleges. That makes them measurements of an
+// institution's own quality, which is what an IQAC exists to hold, and it is why
+// the council's page had come to read as a repeat of the IQAC and NAAC surfaces
+// sitting beside it.
+//
+// The audience did not narrow. The page this now lives on is gated on
+// `accreditation.metrics.view` and the one it left was gated on
+// `accreditation.cac.view`; the same eight roles hold both, reaching the same
+// 153 people. Nobody who could read these metrics yesterday has lost them.
+//
+// A pointer with a link is left on the council's page, so a reader who knows
+// this framework by where it used to be is told where it went rather than
+// finding a gap.
+//
+// The section itself is unchanged below. Four Director decisions shape every
+// choice here, and each is load-bearing rather than cosmetic:
 //
 //   1. Measurement, no grade. There is no total, no score, no coverage
 //      percentage and no ordering of institutions against each other. Domain
@@ -60,11 +80,11 @@ import {
   substrateReason,
   summariseCatalog,
   type CacMetric,
-} from '../_lib/cac-metric-catalog';
+} from '@/app/(routes)/accreditation/cac/_lib/cac-metric-catalog';
 import {
   groupInstitutions,
   type GroupableInstitution,
-} from '../_lib/cac-institution-groups';
+} from '@/app/(routes)/accreditation/cac/_lib/cac-institution-groups';
 import {
   useCacMeasuredMetrics,
   useCacAttendanceRollupFreshness,

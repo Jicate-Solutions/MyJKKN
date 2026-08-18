@@ -6,7 +6,7 @@
  * The base ProjectService.listProjects returns project rows + master relations.
  * The portfolio cards additionally need metrics that live in sibling tables:
  *   - task counts (project_tasks)          → % complete corroboration, X/Y tasks
- *   - budget summary (project_budgets)     → planned vs actual INR
+ *   - budget summary (project_budget)     → planned vs actual INR
  *   - open risk count (project_risks)      → risk count badge
  *   - owner name (staff)                   → owner avatar/initials
  *   - institution name (institutions)      → grouping + heatmap rows
@@ -21,7 +21,7 @@
  *   - taskTotal / taskDone: COMPUTED from project_tasks (status_key 'done'-family
  *     heuristic + completed_at). The status_key vocabulary is board-defined, so
  *     "done" detection is best-effort; completed_at is the firmer signal.
- *   - budgetPlanned / budgetActual: COMPUTED summing project_budgets rows.
+ *   - budgetPlanned / budgetActual: COMPUTED summing project_budget rows.
  *   - openRiskCount: COMPUTED counting project_risks not in a closed status_key.
  *   - lastActivityAt: COMPUTED as max(project_activity_feed.created_at), falling
  *     back to projects.updated_at when no feed entries exist.
@@ -41,9 +41,9 @@ import { ProjectService } from './project-service';
 export interface PortfolioCardMetrics {
   taskTotal: number;
   taskDone: number;
-  /** Sum of project_budgets.planned_amount_inr (INR). */
+  /** Sum of project_budget.planned_amount_inr (INR). */
   budgetPlanned: number;
-  /** Sum of project_budgets.actual_amount_inr (INR). */
+  /** Sum of project_budget.actual_amount_inr (INR). */
   budgetActual: number;
   /** project_risks rows in an open status. */
   openRiskCount: number;
@@ -255,7 +255,7 @@ export class PortfolioService {
     }>
   > {
     const { data, error } = await supabase
-      .from('project_budgets')
+      .from('project_budget')
       .select('project_id, planned_amount_inr, actual_amount_inr')
       .in('project_id', projectIds);
     if (error) throw error;

@@ -1,0 +1,105 @@
+name: Nattraja ID-card template guard
+
+# One check: the seeded Nattraja Vidhyalya CBSE card template stays dark, stays
+# renderable, and carries no JKKN College of Engineering branding.
+#
+# WHY THIS FILE HAS TO EXIST. A test file is NOT a CI gate in this repo. There
+# is no `test` script in package.json and no job that globs `__tests__/**` —
+# only a handful of workflows run vitest, each naming its files by exact path.
+# The sibling id-card-template-picker.yml already records this trap (it was hit
+# by PR #2971). That workflow runs the whole `__tests__/lib/id-cards/` directory,
+# so it WOULD execute this suite — but only when its own `paths:` filter matches,
+# and that filter lists renderer and picker sources, none of which this change
+# touches. Adding a path to a sibling workflow would also change the meaning of
+# an existing status check and collide with the agents editing the id-card print
+# surfaces in parallel. A separate workflow is the convention here: its own
+# status-check name, its own pass/fail meaning.
+#
+# WHAT IS AT STAKE. Nattraja Vidhyalya CBSE has 93% photo coverage, the highest
+# in the cluster, which is why it is first in the ID-card rollout — the photo,
+# not the QR code, is what a card actually controls. But the template is seeded
+# with active = false because no Nattraja artwork exists yet and no verification
+# print has been checked by eye. Two failures would be expensive and both are
+# silent: a template flipped on before its artwork lands prints a card with a
+# blank design, and a layout element whose `field` the renderer does not know is
+# skipped rather than rejected, so the card prints with a value simply missing.
+# Either one is plastic, ink and a ribbon panel spent per learner.
+#
+# SCOPE. Runs the id-card suite (this guard plus the eight pre-existing files).
+# No database, no secret, no network — it parses the migration and calls the
+# pure layout parsers, so it passes on forks.
+#
+# NOTE the workflow `name:` and the job `name:` are the status-check identity
+# that branch protection matches on. Renaming either string silently orphans a
+# rule pointing at the old name.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      # The seed row being asserted over.
+      - 'supabase/migrations/20260904010000_id_card_template_nattraja_vidhyalya.sql'
+      # The guard itself.
+      - '__tests__/lib/id-cards/nattraja-template-seed.test.ts'
+      - '.github/workflows/id-card-nattraja-template.yml'
+      # The parsers it runs the seeded JSON through.
+      - 'lib/id-cards/render-card.tsx'
+      - 'lib/id-cards/render-data.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: id-card-nattraja-template-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nattraja-template-guard:
+    name: The Nattraja ID-card template stays dark and renderable
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --fund=false
+
+      - name: Run the Nattraja template guard
+        run: npx vitest run __tests__/lib/id-cards/
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error::The seeded Nattraja ID-card template changed in a way that is unsafe to print."
+          echo ""
+          echo "Three rules are asserted, and each one costs plastic when it breaks:"
+          echo ""
+          echo "  1. active = FALSE. The template is built DARK on purpose. There is"
+          echo "     no Nattraja card artwork yet and no verification print has been"
+          echo "     checked by eye. Switching it on is a deliberate Director action"
+          echo "     taken in the admin UI, never something a migration does."
+          echo ""
+          echo "  2. Every element parses. parseElements SKIPS an element whose"
+          echo "     'field' it does not recognise — it does not raise. A typo there"
+          echo "     prints a card with the roll number, course or photo missing and"
+          echo "     nothing anywhere reports an error. The guard compares the parsed"
+          echo "     element list against the seeded one, so a dropped or clamped"
+          echo "     element fails here instead of at the printer."
+          echo ""
+          echo "  3. No Engineering branding. The LAYOUT is deliberately shared with"
+          echo "     'Engineering Learner — Tall (2026)' (Director decision 11); the"
+          echo "     BRANDING is not. The Engineering artwork URL, email, website and"
+          echo "     phone block must not travel with the copy."
+          echo ""
+          echo "If you are adding Nattraja artwork: the artwork will bake its own"
+          echo "labels into the bitmap. DELETE the matching static_text elements in"
+          echo "the same change. The live Engineering templates print every label"
+          echo "twice for exactly that reason, and this template exists partly to"
+          echo "avoid repeating it."

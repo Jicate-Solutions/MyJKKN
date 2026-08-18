@@ -738,6 +738,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'billing.categories.create', label: 'Create Billing Categories' },
       { key: 'billing.categories.edit', label: 'Edit Billing Categories' },
       { key: 'billing.categories.delete', label: 'Delete Billing Categories' },
+      // Instalment plans (2026-08-13): config rows that let bill generation
+      // split a yearly fee into N instalment bills, per programme x billing
+      // category x academic year (migration 20260825013000 — Director-gated).
+      // DORMANT until plans are configured; zero plans = single-bill behaviour
+      // everywhere. These keys gate the RLS on billing_instalment_plans(_lines).
+      // No admin page yet — the keys are registered now so the RLS lanes are
+      // grantable from day one instead of being permanently super-admin-only.
+      { key: 'billing.instalment_plans.view', label: 'View Instalment Plans' },
+      { key: 'billing.instalment_plans.manage', label: 'Manage Instalment Plans' },
       { key: 'billing.schedule.view', label: 'View Schedule' },
       { key: 'billing.schedule.create', label: 'Create Schedule' },
       { key: 'billing.schedule.update', label: 'Update Schedule' },
@@ -1707,6 +1716,15 @@ export const PERMISSION_CATEGORIES = [
       // accreditation.naac.committees.* keys.
       { key: 'accreditation.cac.view', label: 'View Cluster Academic Council (CAC)' },
 
+      // The UGC readiness checklist on the same page (2026-08-14) — a separate
+      // key because the reading is narrower than the council's roster and
+      // meeting record: it is a list of what the council has and has not done.
+      // Registered here in the SAME pull request that grants it, so it can be
+      // ticked in Role Management rather than being grantable only by hand —
+      // an unregistered key is how this repo produced pages gated on something
+      // nobody could hold.
+      { key: 'accreditation.cac.readiness.view', label: 'View CAC UGC Readiness Checklist' },
+
       // CRUD retrofit 2026-04-23 — admin UIs for catalog tables (metrics + source registry).
       // Required for /accreditation/manage/metrics + the source-kind picker in evidence admin.
       { key: 'accreditation.metrics.view', label: 'View Accreditation Metrics Catalog' },
@@ -1863,6 +1881,13 @@ export const PERMISSION_CATEGORIES = [
         label: 'Declare Department Capabilities',
       },
 
+      // First real use (2026-09-07). The producing department records, at one
+      // checkpoint, the first time somebody outside the team used the solution.
+      // Both keys gate `sh_solution_first_use` in RLS, so leaving either
+      // unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.first_use.view', label: 'View First Real Use' },
+      { key: 'solutions.first_use.record', label: 'Record First Real Use' },
+
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
@@ -1913,6 +1938,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'campus_living.allocations.transfer', label: 'Transfer Learner Between Rooms' },
       { key: 'campus_living.allocations.vacate', label: 'Vacate Allocation' },
       { key: 'campus_living.allocations.approve', label: 'Approve Allocation' },
+      // Read-only conformance audit (/campus-living/allocations/audit). Granted
+      // to NO role on purpose: user_has_permission() super-admin-bypasses, so
+      // this is super-admin-only today and can be handed to a warden/registrar
+      // from Role Management later without a code change. Never gate on a role
+      // name — the RPC fn_hostel_allocation_audit reads THIS key.
+      { key: 'campus_living.allocations.audit', label: 'View Allocation Audit (Super Admin)' },
 
       // Residents (master data — added 2026-04-22 PR-2, classifies non-learner residents: staff / international / married / visitor / other)
       { key: 'campus_living.residents.view', label: 'View Hostel Residents' },

@@ -30,6 +30,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TAP_TARGET } from '@/app/(routes)/projects/_lib/tap-targets';
 
 type ProjectView = {
   /** URL segment under /projects/[id]/. */
@@ -71,6 +72,7 @@ export function ProjectDetailNav({ projectId }: { projectId: string }) {
             href={href}
             className={cn(
               'flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors',
+              TAP_TARGET,
               'hover:bg-accent hover:text-accent-foreground',
               isActive
                 ? 'border-primary bg-accent font-medium text-accent-foreground'
