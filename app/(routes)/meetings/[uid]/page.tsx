@@ -35,6 +35,7 @@ import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-ser
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
+import { MarkOutcomeButtons } from './_components/mark-outcome-buttons';
 import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
@@ -139,6 +140,16 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     booking.status === 'no_show' ||
     new Date(booking.end_time).getTime() < Date.now();
 
+  // Whether the meeting HAPPENED is a separate question from whether it is
+  // over: a no-show is knowable the moment the slot begins, so this gate uses
+  // start_time while isPast (which hides reschedule/cancel) uses end_time.
+  // canMark stays host-only — fn_meeting_mark_outcome re-checks it server-side.
+  const canMark =
+    booking.status === 'confirmed' &&
+    !!user &&
+    user.id === booking.host_profile_id &&
+    new Date(booking.start_time).getTime() < Date.now();
+
   const answers: Record<string, string> =
     booking.answers && typeof booking.answers === 'object' && !Array.isArray(booking.answers)
       ? booking.answers
@@ -184,6 +195,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
               <div className="rounded-md bg-destructive/10 p-2 text-xs">
                 <strong>Cancellation reason:</strong> {booking.cancellation_reason}
               </div>
+            ) : null}
+            {/* An assumed outcome is not an observed one — say which this is. */}
+            {booking.outcome_marked_by ? (
+              <p className="text-xs text-muted-foreground">
+                {booking.outcome_marked_by === 'host'
+                  ? 'Recorded by the host.'
+                  : 'Closed automatically 7 days after it ended — nobody confirmed it took place.'}
+              </p>
             ) : null}
           </CardContent>
         </Card>
@@ -307,6 +326,21 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             />
           </CardContent>
         </Card>
+
+        {canMark ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Did this meeting happen?</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Nothing is recorded until you say so. If you leave it, the booking closes
+                itself as completed 7 days after it ended.
+              </p>
+              <MarkOutcomeButtons uid={booking.uid} />
+            </CardContent>
+          </Card>
+        ) : null}
 
         {!isCancelled && !isPast ? (
           <Card>
