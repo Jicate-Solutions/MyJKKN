@@ -2921,7 +2921,20 @@ export async function bookPendingMeetings(
         .eq('status', 'meeting_pending')
         .is('booking_id', null)
         .or(`booking_claimed_at.is.null,booking_claimed_at.lt.${staleBefore}`)
-        .select('id');
+        // booking_claimed_at MUST be in this projection even though only `id` is
+        // read below. On an UPDATE with return=representation, PostgREST
+        // qualifies the .or() predicate against the RETURNING projection, so a
+        // filtered column that is not selected resolves to nothing and Postgres
+        // raises 42703 "column meeting_trigger_events.booking_claimed_at does
+        // not exist" — every single run, for every group. That aborted the claim
+        // before any meeting could be created: 28 events sat at meeting_pending
+        // with 0 bookings and booking_claimed_at never once set, while the error
+        // stayed invisible because the caller swallows it into the cron's JSON
+        // response. Not specific to this column — the same shape fails on
+        // booking_error too. Verified against prod PostgREST 2026-08-18:
+        //   or=(booking_claimed_at…)+select=id                    -> 42703
+        //   or=(booking_claimed_at…)+select=id,booking_claimed_at -> 200
+        .select('id, booking_claimed_at');
 
       if (claimErr) {
         result.errors.push(`claim ${group.key}: ${claimErr.message}`);

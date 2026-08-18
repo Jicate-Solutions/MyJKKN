@@ -29,6 +29,7 @@ import { LoopTower, type LoopTowerStats } from './_components/loop-tower';
 import { LoopWiring } from './_components/loop-wiring';
 import { ClusterLens } from './_components/cluster-lens';
 import { OwnersPanel, type OwnerPanelRow } from './_components/owners-panel';
+import { ProvenGreenStrip } from './_components/proven-green-strip';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -1027,6 +1028,30 @@ export default async function LoopControlTowerPage({
     ),
   }));
 
+  // ── Proven-green thresholds (spec 2026-08-13) ─────────────────────────────
+  // Two Director-adjustable policy rows (seeded by 20260813033300); in-code
+  // fallbacks keep the strip safe before that migration is applied. Same
+  // scope_type='global' read discipline as the mess master-switch above.
+  const provenGreenPolicies = await admin
+    .from('platform_policies')
+    .select('policy_key, value')
+    .in('policy_key', [
+      'loops.proven_green.sim_max_age_days',
+      'loops.proven_green.walk_max_age_days',
+    ])
+    .eq('scope_type', 'global')
+    .then(
+      (r) => (r.data ?? []) as { policy_key: string; value: unknown }[],
+      () => [] as { policy_key: string; value: unknown }[]
+    );
+  const policyNum = (key: string, fallback: number): number => {
+    const v = provenGreenPolicies.find((p) => p.policy_key === key)?.value;
+    const num = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+    return Number.isFinite(num) && num > 0 ? num : fallback;
+  };
+  const simMaxAgeDays = policyNum('loops.proven_green.sim_max_age_days', 30);
+  const walkMaxAgeDays = policyNum('loops.proven_green.walk_max_age_days', 180);
+
   // Latest audit per loop — audits arrive newest-first, so the first row seen
   // per loop_key wins.
   const latestAuditByKey = new Map<string, LoopAuditRow>();
@@ -1601,11 +1626,30 @@ export default async function LoopControlTowerPage({
       ) : (
         <>
           <div className="mb-6">
+            <ProvenGreenStrip
+              rows={ownersPanelRows}
+              audits={audits}
+              openConflicts={conflicts.length}
+              simMaxAgeDays={simMaxAgeDays}
+              walkMaxAgeDays={walkMaxAgeDays}
+            />
+          </div>
+          <div className="mb-6">
             <LoopTower stats={towerStats} registry={registry} latestAuditByKey={latestAuditByKey} latestSimByKey={latestSimByKey} conflicts={conflicts} />
           </div>
           <LoopControlTower tiers={tiers} summary={summary} asOf={asOf} />
           <div className="mt-6">
             <OwnersPanel rows={ownersPanelRows} />
+          </div>
+          {/* MetaLoop chartering factory (2026-08-13) — kept separate from the
+              proven-green strip wiring above; this is the drafts review queue. */}
+          <div className="mt-2 text-right">
+            <Link
+              href="/admin/loops/charters"
+              className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+            >
+              Charter proposals — MetaLoop drafts awaiting sign-off →
+            </Link>
           </div>
         </>
       )}
