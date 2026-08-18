@@ -29,12 +29,18 @@ name: TypeCheck (PR-scoped)
 # near heap limit"). Two independent causes, either one on its own enough to make
 # every run of this gate meaningless.
 #
-# ⚠️ READ BEFORE MERGING. The filter is fixed and tested. The compiler is not:
-# `tsc --noEmit` over this project does not fit on a standard ubuntu-latest runner
-# at any heap tried. So this gate is now HONEST but RED — it reports that it
-# cannot check, which is the truth and is strictly better than the green it used
-# to report, but it will block every PR until someone decides how to give the
-# type-check enough machine. See the step env below for the measurements.
+# BOTH ARE NOW FIXED. The filter no longer depends on tsc's output formatting, and
+# the compiler is no longer asked to do the impossible: instead of the whole
+# project, it compiles a program rooted at the files THIS PR touched (their
+# transitive imports come along, so the checking is real — only the roots narrow).
+# That is what this gate always meant, since it only ever fails on errors in
+# PR-touched files; compiling the other ~14,000 files bought no part of the verdict.
+#
+# Whole project: 115 min at 16 GB off-runner, OOM at 8 GB on one. Scoped to the one
+# file PR #2891 broke: 2 seconds at 4 GB, reporting exactly its nine errors. Three
+# App Router pages that are clean in the whole-project baseline stay clean when
+# scoped, so the narrowing does not manufacture false failures. Measurements and
+# the one glob that undoes all of it are in the step env below.
 
 on:
   pull_request:
