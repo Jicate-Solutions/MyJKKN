@@ -68,15 +68,28 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
   // more active holders than its max_holders allows, so a filled seat is shown
   // as filled instead of being offered and refused after the fact. Only
   // fetched once a term is chosen and the dialog is open.
-  const { data: termMembers } = useLCMembers(
+  const { data: termMembers, isError: occupancyFailed } = useLCMembers(
     { term_id: termId, status: 'active' },
-    { enabled: open && !!termId }
+    // staleTime 0: occupancy decides whether a seat is DISABLED, and the
+    // default 2-minute cache would keep a seat greyed out for two minutes
+    // after it was freed in another tab — blocking the assignment with no way
+    // to attempt it. Only fetched while the dialog is open, so re-reading on
+    // open is cheap.
+    { enabled: open && !!termId, staleTime: 0 }
   );
 
   // Until the occupancy query answers, nothing can be greyed out — so the
   // Position select stays disabled rather than briefly offering a filled seat
   // under a hint that claims filled seats are already greyed out.
-  const occupancyReady = !termId || termMembers !== undefined;
+  //
+  // An ERROR must count as ready, not as "still loading". This convenience
+  // lookup failing is not a reason to make the seat unassignable: if it were
+  // derived from `data !== undefined` alone, a failed query would leave the
+  // select disabled forever with no error, no retry and no way to assign
+  // anyone for that term. Treat it as ready-but-unknown — offer every seat,
+  // grey out nothing, say so — and let the service guard and the unique index
+  // do what they were built for.
+  const occupancyReady = !termId || termMembers !== undefined || occupancyFailed;
 
   // Holder names per position, so a filled seat can say who holds it. This is
   // a convenience only — the service layer re-checks occupancy before
@@ -207,10 +220,18 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
               </SelectContent>
             </Select>
             {termId && occupancyReady && (
-              <p className="text-xs text-muted-foreground mt-1">
-                Seats already filled are greyed out. To replace someone, set their status to
-                Inactive or Graduated in the members list first — the seat frees up immediately.
-              </p>
+              occupancyFailed ? (
+                <p className="text-xs text-amber-700 mt-1">
+                  Could not check which seats are already filled, so none are greyed out here.
+                  You can still assign — if the seat is taken, it will be refused with the
+                  current holder&apos;s name.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Seats already filled are greyed out. To replace someone, set their status to
+                  Inactive or Graduated in the members list first — the seat frees up immediately.
+                </p>
+              )
             )}
           </div>
 

@@ -234,12 +234,12 @@ export function useLCMembers(
     institution_id?: string;
     tier?: string;
   },
-  options?: { enabled?: boolean }
+  options?: { enabled?: boolean; staleTime?: number }
 ) {
   return useQuery({
     queryKey: lcStructureKeys.members.list(filters as Record<string, unknown>),
     queryFn: () => LCStructureService.getMembers(filters),
-    staleTime: 2 * 60 * 1000,
+    staleTime: options?.staleTime ?? 2 * 60 * 1000,
     enabled: options?.enabled ?? true
   });
 }

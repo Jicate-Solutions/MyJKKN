@@ -359,15 +359,20 @@ export class LCStructureService {
     maxHolders: number;
     holders: { user_id: string; name: string }[];
   }> {
+    // maybeSingle, not single: a position that is missing or invisible must not
+    // take the whole feature down. The insert path never needed SELECT rights
+    // on lc_positions before this check existed, and .single() would turn a
+    // PGRST116 into "Failed to check the position: JSON object requested..."
+    // on EVERY assignment. Fall back to a one-holder seat — strictest sane
+    // default — and let the unique index remain the real backstop.
     const { data: position, error: positionError } = await this.supabase
       .from('lc_positions')
       .select('title, max_holders')
       .eq('id', positionId)
-      .single();
+      .maybeSingle();
 
     if (positionError) {
-      console.error('[lc/structure] Error reading position for occupancy check:', positionError);
-      throw new Error(`Failed to check the position: ${positionError.message}`);
+      console.warn('[lc/structure] Could not read position for occupancy check:', positionError);
     }
 
     const { data: sitting, error: sittingError } = await this.supabase
@@ -425,7 +430,11 @@ export class LCStructureService {
       const names = seat.holders.map((h) => h.name).join(', ');
 
       if (alreadyThisPerson) {
-        throw new Error(`${names} already holds ${seat.title} for this term.`);
+        // Name only the duplicate. Interpolating the full holder list here
+        // would read "A, B already holds President" on a multi-holder seat —
+        // naming people who are not the duplicate, with a singular verb.
+        const duplicate = seat.holders.find((h) => h.user_id === data.user_id);
+        throw new Error(`${duplicate?.name ?? 'This learner'} already holds ${seat.title} for this term.`);
       }
       if (seat.maxHolders === 1) {
         throw new Error(
@@ -500,6 +509,13 @@ export class LCStructureService {
       updateData.ended_at = new Date().toISOString();
     }
 
+    // ...and clear it when coming back, or a reinstated holder is active while
+    // still carrying the timestamp of the day they left. Any report that reads
+    // `ended_at IS NOT NULL` as "retired" would then contradict `status`.
+    if (status === 'active') {
+      updateData.ended_at = null;
+    }
+
     // Bringing someone BACK to active is the other way a seat can end up with
     // two holders: reinstating a retired officer, or returning an on_leave
     // holder while a stand-in is sitting active. Same rule as assignMember --
@@ -544,13 +560,13 @@ export class LCStructureService {
       .single();
 
     if (error) {
+      console.error('[lc/structure] Error updating member status:', error);
       if (error.code === '23505' && error.message.includes('lc_members_one_active_holder_per_seat')) {
         const title = seatForMessage?.title ?? 'That position';
         throw new Error(
           `${title} already has an active holder for this term — a seat can hold only one active person at a time. End their term first, then set this member back to Active.`
         );
       }
-      console.error('[lc/structure] Error updating member status:', error);
       throw new Error(`Failed to update member status: ${error.message}`);
     }
 
