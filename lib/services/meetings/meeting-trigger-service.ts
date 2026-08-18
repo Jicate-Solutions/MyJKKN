@@ -3511,3 +3511,56 @@ export async function sendWeeklyCalendarConnectSummary(
 
   return result;
 }
+
+// ============================================================================
+// CALENDAR-CONNECT LOCK SWEEP (Director decision 2026-08-18)
+// ============================================================================
+// 16 review meetings could not be scheduled because the people in them had never
+// connected Google Calendar. The daily bell nudge above had already fired on all
+// 16 without effect, and the weekly Principal summary had gone out too — so the
+// Director escalated: anyone holding a booking page connects, or MyJKKN stops
+// for them after a 3-day warning.
+//
+// The state machine itself is `fn_calendar_lock_sweep` in SQL, deliberately NOT
+// here: the rule decides who loses access to a multi-tenant platform, so it is
+// one auditable object that a migration has to change, rather than logic spread
+// across a service. This wrapper exists only so the hourly cron can call it the
+// same way it calls every other pass, and so a failure is reported rather than
+// swallowed.
+//
+// While the master switch is off — which is how it ships — this returns zeroes.
+
+export interface CalendarLockSweepResult {
+  /** People who entered the 3-day grace window on this pass. */
+  warned: number;
+  /** People whose grace expired on this pass and who are now held. */
+  locked: number;
+  /** People released because they connected (or the switch went off). */
+  cleared: number;
+}
+
+export async function sweepCalendarConnectLock(
+  opts: { client?: SupabaseClient } = {}
+): Promise<CalendarLockSweepResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const { data, error } = await (db as any).rpc('fn_calendar_lock_sweep');
+  if (error) throw new Error(error.message);
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const result: CalendarLockSweepResult = {
+    warned: Number(row?.warned ?? 0),
+    locked: Number(row?.locked ?? 0),
+    cleared: Number(row?.cleared ?? 0),
+  };
+
+  // Locking someone out of the whole platform is not routine traffic — it should
+  // be findable in the logs on the day someone asks "why can't I get in?".
+  if (result.locked > 0) {
+    logger.warn(
+      MODULE,
+      `calendar-connect lock: ${result.locked} person(s) now held at /auth/connect-calendar`,
+      result
+    );
+  }
+  return result;
+}

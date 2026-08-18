@@ -637,6 +637,37 @@ export async function proxy(request: NextRequest) {
       );
     }
 
+    // ── Calendar-connect lock (Director decision 2026-08-18) ──────────────
+    // 16 review meetings could not be scheduled because the people in them had
+    // never connected Google Calendar; the daily bell nudge had already fired on
+    // all 16 without effect. Anyone holding a booking page must now connect.
+    //
+    // `calendar_lock_active` is a CACHED VERDICT written by fn_calendar_lock_sweep
+    // — the rule itself (scope, 3-day grace, 3-failure escape hatch) lives in SQL.
+    // `profile` is already fetched with select('*'), so reading it here costs
+    // nothing extra and NO policy lookup happens on the request path. Turning the
+    // master switch off clears these flags in the same transaction, so OFF takes
+    // effect on the very next request rather than the next cron tick.
+    //
+    // The allow-list is what stops this becoming a redirect loop: the lock screen
+    // itself, the Google OAuth round-trip that CLEARS the lock, the availability
+    // page the nudge has pointed at for weeks, and every auth path so a locked
+    // person can always still sign out.
+    if (
+      (profile as { calendar_lock_active?: boolean }).calendar_lock_active === true &&
+      !currentPath.startsWith('/auth/connect-calendar') &&
+      !currentPath.startsWith('/api/integrations/google-calendar') &&
+      !currentPath.startsWith('/meetings/availability') &&
+      !currentPath.startsWith('/auth/') &&
+      !currentPath.startsWith('/api/auth') &&
+      !currentPath.startsWith('/unauthorized')
+    ) {
+      const lockUrl = new URL('/auth/connect-calendar', request.url);
+      // Where they were headed, so the screen can send them back on success.
+      lockUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
+      return NextResponse.redirect(lockUrl);
+    }
+
     // Role-based routing
     // Handle guest users first
     if (profile.role === 'guest') {
