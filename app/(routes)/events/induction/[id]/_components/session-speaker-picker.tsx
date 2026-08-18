@@ -75,6 +75,7 @@ export function SessionSpeakerPicker({
   disabled,
   sessionStart,
   sessionEnd,
+  excludeSessionId,
 }: {
   value: DirectoryUser[];
   onChange: (users: DirectoryUser[]) => void;
@@ -84,6 +85,11 @@ export function SessionSpeakerPicker({
    *  teaching / meeting / event-speaking clash. Advisory — never blocks. */
   sessionStart?: string;
   sessionEnd?: string;
+  /** the session being EDITED. Its own already-saved speaker rows are not a
+   *  clash with themselves — without this, re-opening a saved session reported
+   *  every resource person on it as hard double-booked against that same
+   *  session, and it could never be saved again. Undefined when creating. */
+  excludeSessionId?: string | null;
 }) {
   const supabase = useMemo(() => createClientSupabaseClient(), []);
 
@@ -138,7 +144,7 @@ export function SessionSpeakerPicker({
     let cancelled = false;
     const t = setTimeout(async () => {
       try {
-        const rows = await PersonAvailabilityService.getPeopleConflicts(ids, startIso, endIso);
+        const rows = await PersonAvailabilityService.getPeopleConflicts(ids, startIso, endIso, excludeSessionId);
         if (cancelled) return;
         const grouped: Record<string, PersonConflict[]> = {};
         for (const r of rows) {
@@ -153,7 +159,7 @@ export function SessionSpeakerPicker({
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey, startIso, endIso, hasWindow]);
+  }, [idsKey, startIso, endIso, hasWindow, excludeSessionId]);
 
   // Tiered policy: a meeting OR event-speaking clash is a HARD block (a person
   // truly can't be in two of those at once); a teaching/class clash is a SOFT

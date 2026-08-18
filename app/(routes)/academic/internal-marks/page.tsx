@@ -22,8 +22,9 @@ import {
   type InternalMarksFilterState,
 } from './_components/internal-marks-filters';
 import { MarkEntryGrid } from './_components/mark-entry-grid';
+import { QuestionWiseTab } from '../mark-entry/_components/question-wise-tab';
 import { getInstitutionHeader } from '@/lib/utils/internal-marks/institution-header';
-import type { CiaMarkSyncRecord } from '@/types/internal-marks';
+import { resolveMarkEntryType, type CiaMarkSyncRecord } from '@/types/internal-marks';
 
 export default function InternalMarksPage() {
   const { isSuperAdmin, canAccess, isLoading: isLoadingPermissions } = usePermissions();
@@ -63,6 +64,26 @@ export default function InternalMarksPage() {
   const courseMaxMark = filters.course_code && courseInfoMap
     ? courseInfoMap.get(filters.course_code)?.internal_max_mark ?? 0
     : 0;
+
+  /**
+   * How this round is keyed in — decided by the ROUND, not the user.
+   *
+   * COE's cia_rounds[].mark_entry_type drives it: 'question_wise' swaps this page
+   * to the per-question grid built against the round's question paper, 'direct'
+   * (and every legacy round, where the field is absent) keeps the component grid
+   * that has always been here. Same URL, same filters — only the grid changes,
+   * so faculty never have to know which mode a round is in before opening it.
+   */
+  const entryMode = resolveMarkEntryType(selectedRound);
+
+  /** Ceiling a learner's components may sum to for this round. */
+  const roundComponentTotal = useMemo(
+    () => (selectedRound?.components ?? []).reduce((s, c) => s + Number(c.max_marks || 0), 0),
+    [selectedRound]
+  );
+  const maxInternalMarks = selectedSetting?.use_course_max
+    ? courseMaxMark || roundComponentTotal
+    : roundComponentTotal;
 
   // Registrations from COE
   const { data: registrations, isLoading: isLoadingRegistrations } = useRegistrations({
@@ -189,7 +210,54 @@ export default function InternalMarksPage() {
           </div>
         )}
 
-        {isReady && !isLoading && selectedRound && (
+        {isReady && !isLoading && selectedRound && entryMode === 'question_wise' && (
+          <QuestionWiseTab
+            institutionId={institutionId ?? ''}
+            examSessionId={filters.exam_session_id ?? ''}
+            ciaSettingId={selectedSetting?.id ?? ''}
+            round={selectedRound}
+            courseCode={filters.course_code ?? ''}
+            programCode={filters.program_code ?? ''}
+            learners={learners}
+            maxInternalMarks={maxInternalMarks}
+            canEnter={canEdit}
+            /* Reuse the letterhead this page already assembles, so the
+               question-wise sheet prints identically to the component one. */
+            pdf={{
+              institutionName: pdfContext.institutionName,
+              institutionAddress: pdfContext.institutionAddress,
+              institutionAccreditation: pdfContext.institutionAccreditation,
+              logoImage: pdfContext.logoImage,
+              rightLogoImage: pdfContext.rightLogoImage,
+              programName: pdfContext.programName,
+              examSession: pdfContext.examSession,
+              assessmentName: pdfContext.assessmentName,
+            }}
+            /* No authored paper yet? Fall back to the component grid rather than
+               blocking entry — the round can be question-wise before the paper
+               is written, and faculty must never hit a dead end. */
+            renderFallback={() => (
+              <MarkEntryGrid
+                round={selectedRound}
+                learners={learners}
+                existingMarks={existingMarksData?.learners}
+                institutionId={institutionId ?? ''}
+                examSessionId={filters.exam_session_id ?? ''}
+                ciaSettingId={selectedSetting?.id}
+                courseOfferingId={learners[0]?.course_offering_id ?? ''}
+                useCourseMax={selectedSetting?.use_course_max ?? false}
+                courseMaxMark={courseMaxMark}
+                pdfContext={pdfContext}
+                onSubmit={handleSubmitMarks}
+                isSubmitting={submitMutation.isPending}
+                canEdit={canEdit}
+                canSubmit={canSubmit}
+              />
+            )}
+          />
+        )}
+
+        {isReady && !isLoading && selectedRound && entryMode === 'direct' && (
           <MarkEntryGrid
             round={selectedRound}
             learners={learners}

@@ -288,6 +288,8 @@ export class InductionService {
       // STRICT venue: the chosen Resource Management room. The RPC derives
       // venue_text from this resource's name server-side (no free-text path).
       p_venue_resource_id: input.venueResourceId ?? null,
+      // undefined → key omitted → the RPC's NULL default leaves kind as stored.
+      ...(input.kind === undefined ? {} : { p_kind: input.kind }),
     });
     if (error) throw error;
     return data as string;
@@ -803,6 +805,10 @@ export interface RosterRow {
   register_number: string | null;
   batch_label: string | null;
   status: AttendanceStatus | null;
+  /** Identity aids for the marker on a 200+ roster where register_number is
+   *  still NULL pre-enrolment — displayed and searched in AttendanceDialog. */
+  program_name: string | null;
+  father_mobile: string | null;
 }
 
 export interface DayRosterRow {
@@ -812,6 +818,9 @@ export interface DayRosterRow {
   batch_label: string | null;
   status: AttendanceStatus | null;
   is_mixed: boolean;
+  /** Same identity aids as RosterRow — displayed and searched in DayAttendanceDialog. */
+  program_name: string | null;
+  father_mobile: string | null;
 }
 
 /** Per-day "past sessions vs FULLY-marked sessions" — drives the back-mark nudge.
@@ -846,7 +855,14 @@ export interface InductionSessionRow {
   outcome_text: string | null;
   resource_links: ResourceLink[];
   status: string | null;
+  /** null = an ordinary session; 'registration' = the fresher registration desk
+   *  (no resource person needed, Senior Peer Mentors may take its attendance);
+   *  'mentor_checkin' = a monthly mentor check-in, authored elsewhere. */
+  kind: SessionKind;
 }
+
+/** Values `event_sessions.kind` can carry in the induction module. */
+export type SessionKind = null | 'registration' | 'mentor_checkin';
 
 export interface UpsertSessionInput {
   eventId: string;
@@ -865,4 +881,8 @@ export interface UpsertSessionInput {
   outcomeText?: string | null;
   resourceLinks?: ResourceLink[];
   sessionOrder?: number | null;
+  /** 'registration' marks this as the registration desk; '' clears it back to an
+   *  ordinary session. Omit (undefined) to leave the stored kind untouched — that
+   *  is what keeps a 'mentor_checkin' row from being reclassified by an edit. */
+  kind?: 'registration' | '';
 }

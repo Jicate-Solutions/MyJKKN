@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/admission/settings/school-fees/new/page.tsx
+// app/(routes)/billing/school-fees/new/page.tsx
 //
 // Create a fee plan for one class. Reached from the "+" on the class grid,
 // which passes institution / year / program as query params — the three
@@ -48,7 +48,7 @@ function NewPlanContent() {
             so all three are known.
           </p>
           <Button asChild size="sm" variant="outline">
-            <Link href="/admission/settings/school-fees">Go to fee plans</Link>
+            <Link href="/billing/school-fees">Go to fee plans</Link>
           </Button>
         </AlertDescription>
       </Alert>

@@ -817,6 +817,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  // School fees (2026-08-13; moved under /billing 2026-08-13). Gated on
+  // school_fees.read, granted to accounts / accountant_assistant /
+  // administrator / super_admin only.
+  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
+  // institution entity_type, and the accounts staff who run school billing sit
+  // at an admin office, not at the school — hiding it there would lock out the
+  // very people who need it. The institution dropdown inside the page is what
+  // restricts the data to entity_type='school'.
+  '/billing/school-fees': 'school_fees.read',
+  '/billing/school-fees/term-calendar': 'school_fees.read',
+  '/billing/school-fees/new': 'school_fees.manage',
+  '/billing/school-fees/[id]': 'school_fees.read',
+  '/billing/school-fees/concessions': 'school_fees.read',
+  '/billing/school-fees/generate': 'school_fees.generate',
   '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
@@ -983,19 +997,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/years/[id]': 'admission.settings.years.view',
   '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
   '/admission/settings/statuses': 'admission.settings.statuses.view',
-  // School fees (2026-08-13). Gated on school_fees.read, which is granted to
-  // accounts / accountant_assistant / administrator / super_admin only.
-  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
-  // institution entity_type, and the accounts staff who run school billing sit
-  // at an admin office, not at the school — hiding it there would lock out the
-  // very people who need it. The institution dropdown inside the page is what
-  // restricts the data to entity_type='school'.
-  '/admission/settings/school-fees': 'school_fees.read',
-  '/admission/settings/school-fees/term-calendar': 'school_fees.read',
-  '/admission/settings/school-fees/new': 'school_fees.manage',
-  '/admission/settings/school-fees/[id]': 'school_fees.read',
-  '/admission/settings/school-fees/concessions': 'school_fees.read',
-  '/admission/settings/school-fees/generate': 'school_fees.generate',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -2504,34 +2505,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/whatsapp-numbers',
               label: 'WhatsApp Numbers',
               active: pathname === '/admission/settings/whatsapp-numbers'
-            },
-            {
-              href: '/admission/settings/school-fees',
-              label: 'School Fee Plans',
-              // Plans owns /school-fees and its plan sub-routes (/new, /[id]),
-              // but NOT the sibling screens that have their own menu entries —
-              // otherwise two rows highlight at once.
-              active:
-                pathname === '/admission/settings/school-fees' ||
-                (pathname.startsWith('/admission/settings/school-fees/') &&
-                  !pathname.startsWith('/admission/settings/school-fees/term-calendar') &&
-                  !pathname.startsWith('/admission/settings/school-fees/concessions') &&
-                  !pathname.startsWith('/admission/settings/school-fees/generate'))
-            },
-            {
-              href: '/admission/settings/school-fees/term-calendar',
-              label: 'School Term Calendar',
-              active: pathname.startsWith('/admission/settings/school-fees/term-calendar')
-            },
-            {
-              href: '/admission/settings/school-fees/concessions',
-              label: 'School Fee Concessions',
-              active: pathname.startsWith('/admission/settings/school-fees/concessions')
-            },
-            {
-              href: '/admission/settings/school-fees/generate',
-              label: 'Generate School Fees',
-              active: pathname.startsWith('/admission/settings/school-fees/generate')
             }
           ]
         }
@@ -2895,6 +2868,19 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
             { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
             { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+            // School fees (moved here from Admission > Settings 2026-08-13).
+            // 'School Fee Plans' owns /billing/school-fees and its plan
+            // sub-routes (/new, /[id]) but NOT the siblings below, which have
+            // their own rows — otherwise two highlight at once.
+            { href: '/billing/school-fees', label: 'School Fee Plans',
+              active: pathname === '/billing/school-fees' ||
+                (pathname.startsWith('/billing/school-fees/') &&
+                  !pathname.startsWith('/billing/school-fees/term-calendar') &&
+                  !pathname.startsWith('/billing/school-fees/concessions') &&
+                  !pathname.startsWith('/billing/school-fees/generate')) },
+            { href: '/billing/school-fees/term-calendar', label: 'School Term Calendar', active: pathname.startsWith('/billing/school-fees/term-calendar') },
+            { href: '/billing/school-fees/concessions', label: 'School Fee Concessions', active: pathname.startsWith('/billing/school-fees/concessions') },
+            { href: '/billing/school-fees/generate', label: 'Generate School Fees', active: pathname.startsWith('/billing/school-fees/generate') },
           ]
         }
       ]

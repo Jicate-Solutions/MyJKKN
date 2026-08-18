@@ -864,6 +864,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/reconciliation",
+            "label": "Reconciliation",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/referral-rates",
             "label": "Referral Rates",
             "iconName": "Users",
@@ -876,8 +882,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/review-worklist",
+            "label": "Review Worklist",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/rewards",
             "label": "Rewards",
+            "iconName": "Users",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/unlinked-referrals",
+            "label": "Unlinked Referrals",
             "iconName": "Users",
             "children": []
           }
@@ -1443,37 +1461,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
               {
                 "path": "/admission/settings/lookups/quotas",
                 "label": "Quotas",
-                "iconName": "GraduationCap",
-                "children": []
-              }
-            ]
-          },
-          {
-            "path": "/admission/settings/school-fees",
-            "label": "School Fees",
-            "iconName": "GraduationCap",
-            "children": [
-              {
-                "path": "/admission/settings/school-fees/concessions",
-                "label": "Concessions",
-                "iconName": "GraduationCap",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/generate",
-                "label": "Generate",
-                "iconName": "GraduationCap",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/term-calendar",
-                "label": "Term Calendar",
                 "iconName": "GraduationCap",
                 "children": []
               }
@@ -2121,6 +2108,37 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/billing/schedule/students",
             "label": "Students",
             "iconName": "CalendarClock",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/billing/school-fees",
+        "label": "School Fees",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/school-fees/concessions",
+            "label": "Concessions",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/generate",
+            "label": "Generate",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/term-calendar",
+            "label": "Term Calendar",
+            "iconName": "Wallet",
             "children": []
           }
         ]
@@ -4444,6 +4462,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "UserSearch",
         "children": [
           {
+            "path": "/hr/recruitment/applications",
+            "label": "Applications",
+            "iconName": "UserSearch",
+            "children": []
+          },
+          {
             "path": "/hr/recruitment/approvals",
             "label": "Approvals",
             "iconName": "UserSearch",
@@ -5162,6 +5186,19 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Communication",
         "iconName": "GraduationCap",
         "children": [
+          {
+            "path": "/learners-council/communication/broadcasts",
+            "label": "Broadcasts",
+            "iconName": "GraduationCap",
+            "children": [
+              {
+                "path": "/learners-council/communication/broadcasts/approvals",
+                "label": "Approvals",
+                "iconName": "GraduationCap",
+                "children": []
+              }
+            ]
+          },
           {
             "path": "/learners-council/communication/chat",
             "label": "Chat",
@@ -7025,6 +7062,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/users/dashboard",
         "label": "Dashboard",
         "iconName": "LayoutGrid",
+        "children": []
+      },
+      {
+        "path": "/users/jkkn-id",
+        "label": "Jkkn Id",
+        "iconName": "Users",
         "children": []
       },
       {

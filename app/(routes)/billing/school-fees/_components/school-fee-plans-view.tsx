@@ -147,7 +147,7 @@ export function SchoolFeePlansView() {
               <AlertDescription>
                 Plans can be built now, but generation needs due dates.{' '}
                 <Link
-                  href="/admission/settings/school-fees/term-calendar"
+                  href="/billing/school-fees/term-calendar"
                   className="underline underline-offset-2"
                 >
                   Set the term calendar
@@ -237,7 +237,7 @@ export function SchoolFeePlansView() {
                                 canManage ? (
                                   <Button asChild variant="ghost" size="icon" aria-label={`Create plan for ${klass.program_name}`}>
                                     <Link
-                                      href={`/admission/settings/school-fees/new?institution=${institutionId}&year=${academicYearId}&program=${klass.id}`}
+                                      href={`/billing/school-fees/new?institution=${institutionId}&year=${academicYearId}&program=${klass.id}`}
                                     >
                                       <Plus className="h-4 w-4" />
                                     </Link>
@@ -252,7 +252,7 @@ export function SchoolFeePlansView() {
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     <DropdownMenuItem asChild>
-                                      <Link href={`/admission/settings/school-fees/${plan.id}`}>
+                                      <Link href={`/billing/school-fees/${plan.id}`}>
                                         <Pencil className="h-4 w-4 mr-2" />
                                         {plan.locked_at ? 'View grid' : 'Edit grid'}
                                       </Link>

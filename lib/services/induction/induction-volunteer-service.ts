@@ -7,6 +7,9 @@
 // in 20260701094000_induction_volunteer_feedback_rpcs.sql (which depends on PR1's
 // capture_method / submitted_by columns).
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+// The registration desk reuses the coordinator console's roster row shape —
+// same RPC, same columns, so the same dialog can render either source.
+import type { RosterRow } from '@/lib/services/induction/induction-service';
 
 const getSupabase = (): any => createClientSupabaseClient();
 
@@ -61,6 +64,10 @@ export interface MyVolunteerSession {
   end_at: string | null;
   group_size: number;
   captured: number;
+  /** 'registration' = the fresher registration desk. A mentor works it for the
+   *  WHOLE cohort (group_size is 0 there — nobody is assigned yet), so the page
+   *  must not filter it out the way it filters ordinary sessions. */
+  kind: string | null;
 }
 
 /** One assigned fresher in a mentor's group for a session. */
@@ -217,6 +224,18 @@ export class InductionVolunteerService {
     return (data as MyVolunteerSession[]) ?? [];
   }
 
+  /** Full enrolled roster of a REGISTRATION session, for the mentor working the
+   *  desk. Same DEFINER RPC the coordinator console uses; its gate admits an
+   *  active mentor of the event only when the session's kind is 'registration',
+   *  so calling it on any other session raises "not authorized". */
+  static async registrationRoster(sessionId: string): Promise<RosterRow[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_session_roster', {
+      p_session_id: sessionId,
+    });
+    if (error) throw error;
+    return (data as RosterRow[]) ?? [];
+  }
+
   /** My assigned freshers for one session (silent / no-account first). */
   static async myFeedbackGroup(sessionId: string): Promise<FeedbackGroupMember[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_my_feedback_group', {
@@ -240,7 +259,12 @@ export class InductionVolunteerService {
   /** Attendance check-in: mark present/absent for freshers in MY group only, for one
    *  session. Returns rows written. Scoped + anti-clobber server-side — a mentor can
    *  never touch a fresher outside their group, nor overwrite a staff mark
-   *  (fn_induction_volunteer_mark_attendance). */
+   *  (fn_induction_volunteer_mark_attendance).
+   *
+   *  EXCEPTION — a 'registration' session: the same RPC accepts the whole enrolled
+   *  cohort there (a desk checks in whoever arrives) and waives the training gate.
+   *  Anti-clobber and the enrolled/batch test still apply. Pair it with
+   *  `registrationRoster()` for the full list instead of `myFeedbackGroup()`. */
   static async markAttendance(sessionId: string, marks: AttendanceMark[]): Promise<number> {
     const { data, error } = await getSupabase().rpc('fn_induction_volunteer_mark_attendance', {
       p_session_id: sessionId,

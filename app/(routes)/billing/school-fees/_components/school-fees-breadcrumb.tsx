@@ -29,20 +29,14 @@ export function SchoolFeesBreadcrumb({ leaf }: SchoolFeesBreadcrumbProps) {
         <BreadcrumbSeparator />
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link href="/admission/dashboard">Admission</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild>
-            <Link href="/admission/settings">Settings</Link>
+            <Link href="/billing">Billing</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem>
           {leaf ? (
             <BreadcrumbLink asChild>
-              <Link href="/admission/settings/school-fees">School Fees</Link>
+              <Link href="/billing/school-fees">School Fees</Link>
             </BreadcrumbLink>
           ) : (
             <BreadcrumbPage>School Fees</BreadcrumbPage>

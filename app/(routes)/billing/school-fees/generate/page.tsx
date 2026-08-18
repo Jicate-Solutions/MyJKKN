@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/admission/settings/school-fees/generate/page.tsx
+// app/(routes)/billing/school-fees/generate/page.tsx
 //
 // Phase 7 — yearly fee generation.
 // Design: docs/plans/2026-08-13-school-fee-structure-design.md §5.2

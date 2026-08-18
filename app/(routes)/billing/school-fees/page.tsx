@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/admission/settings/school-fees/page.tsx
+// app/(routes)/billing/school-fees/page.tsx
 //
 // Phase 4 — the class fee-plan grid.
 // Design: docs/plans/2026-08-13-school-fee-structure-design.md §6
@@ -35,7 +35,7 @@ export default function SchoolFeePlansPage() {
             </div>
 
             <Button asChild variant="outline" size="sm">
-              <Link href="/admission/settings/school-fees/term-calendar">
+              <Link href="/billing/school-fees/term-calendar">
                 <CalendarDays className="h-4 w-4 mr-1" />
                 Term calendar
               </Link>

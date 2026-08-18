@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/admission/settings/school-fees/concessions/page.tsx
+// app/(routes)/billing/school-fees/concessions/page.tsx
 //
 // Phase 6 — concession schemes and per-learner, per-year assignment.
 // Design: docs/plans/2026-08-13-school-fee-structure-design.md §4.4

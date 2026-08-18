@@ -1,6 +1,6 @@
 'use client';
 
-// app/(routes)/admission/settings/school-fees/[id]/page.tsx
+// app/(routes)/billing/school-fees/[id]/page.tsx
 //
 // View or edit one class's fee grid. A locked plan (bills already generated)
 // renders read-only — PlanForm shows the explanation and disables every input.
@@ -35,7 +35,7 @@ function PlanDetail({ id }: { id: string }) {
         <AlertDescription className="space-y-3">
           <p>{error ?? 'This plan may have been deleted, or you may not have access to it.'}</p>
           <Button asChild size="sm" variant="outline">
-            <Link href="/admission/settings/school-fees">Back to fee plans</Link>
+            <Link href="/billing/school-fees">Back to fee plans</Link>
           </Button>
         </AlertDescription>
       </Alert>

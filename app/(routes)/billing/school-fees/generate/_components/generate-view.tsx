@@ -139,7 +139,7 @@ export function GenerateView() {
                 A bill with no due date can never be chased or fined, so these classes are refused
                 rather than half-billed.{' '}
                 <Link
-                  href="/admission/settings/school-fees/term-calendar"
+                  href="/billing/school-fees/term-calendar"
                   className="underline underline-offset-2"
                 >
                   Complete the term calendar

@@ -103958,9 +103958,11 @@ export type Database = {
         Args: { p_day_number: number; p_event_id: string }
         Returns: {
           batch_label: string
+          father_mobile: string
           is_mixed: boolean
           learner_id: string
           name: string
+          program_name: string
           register_number: string
           status: string
         }[]

@@ -122,7 +122,7 @@ export function PlanForm({
       } else if (plan) {
         await updatePlan(plan.id, { name: name.trim(), notes: notes.trim() || null, items });
       }
-      router.push('/admission/settings/school-fees');
+      router.push('/billing/school-fees');
     } catch (e) {
       // The hook already toasts; keep the message on screen too, because the
       // grid is long enough that a toast can scroll out of view.
@@ -206,7 +206,7 @@ export function PlanForm({
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={() => router.push('/admission/settings/school-fees')}>
+            <Button variant="outline" onClick={() => router.push('/billing/school-fees')}>
               Back to plans
             </Button>
             <div className="flex-1" />
