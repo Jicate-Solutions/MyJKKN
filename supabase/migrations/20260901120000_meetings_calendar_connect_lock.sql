@@ -57,11 +57,18 @@ VALUES
    'boolean', false, true, 'major', 'published'),
   ('meetings.calendar_lock.grace_days', 'global', '3'::jsonb,
    'Days a person is warned before the lock lands. 0 would lock on the next page load with no warning.',
-   'integer', false, true, 'major', 'published'),
+   'number', false, true, 'major', 'published'),
   ('meetings.calendar_lock.max_failures', 'global', '3'::jsonb,
    'Failed connect attempts after which a person is auto-released, so a broken Google flow can never permanently shut someone out of MyJKKN.',
-   'integer', false, true, 'major', 'published')
-ON CONFLICT (policy_key) DO NOTHING;
+   'number', false, true, 'major', 'published')
+-- NOT `ON CONFLICT (policy_key)`: the unique index on this table is an
+-- EXPRESSION index — uq_platform_policies_key_scope on
+-- (policy_key, scope_type, COALESCE(scope_id, '000…'::uuid)) — so a bare
+-- policy_key inference raises 42P10 and takes the whole migration down with it.
+-- A TARGETLESS `ON CONFLICT DO NOTHING` is idempotent against whatever unique
+-- index actually fires, without this migration having to restate that index's
+-- exact expression — which is the thing that would rot if the index changed.
+ON CONFLICT DO NOTHING;
 
 -- ── 3. The kill switch ─────────────────────────────────────────────────────
 -- Flipping OFF must take effect on the NEXT request, not the next cron tick.
