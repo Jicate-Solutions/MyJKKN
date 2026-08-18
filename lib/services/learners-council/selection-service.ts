@@ -835,7 +835,11 @@ export class LCSelectionService {
     positionId: string;
     userId: string;
     electionInstitutionId: string | null;
-  }): Promise<{ ok: true } | { ok: false; reason: string }> {
+    // Not a discriminated union on purpose: this project compiles with
+    // strict/strictNullChecks off, so `{ ok: true } | { ok: false; reason }`
+    // does not narrow under `if (!seating.ok)` and every `.reason` read is a
+    // TS2339. A single optional field needs no narrowing.
+  }): Promise<{ ok: boolean; reason?: string }> {
     const { termId, positionId, userId, electionInstitutionId } = args;
 
     // Already sitting in this seat -- an incumbent re-elected. Nothing to do,
@@ -966,12 +970,12 @@ export class LCSelectionService {
 
         if (!seating.ok) {
           console.error(
-            `[lc/selection] Could not seat winner for "${winner.role_sought}": ${seating.reason}`
+            `[lc/selection] Could not seat winner for "${winner.role_sought}": ${seating.reason ?? "unknown reason"}`
           );
           seatingFailures.push({
             nominee_name: winner.nominee_name,
             role_sought: winner.role_sought,
-            reason: seating.reason,
+            reason: seating.reason ?? "unknown reason",
           });
           // Deliberately skips the notification below: telling a learner
           // "You Won!" for a seat they were never given is worse than silence.
