@@ -44187,3 +44187,166 @@ COMMENT ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, te
 REVOKE ALL ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_hostel_allocation_audit(text, uuid, uuid, uuid, text, uuid) TO authenticated;
+
+
+-- ================================================================================
+-- fn_onboarding_payment_progress (2026-08-18)
+-- ================================================================================
+-- Per-learner fee position against the reserved -> admitted threshold, for the
+-- Awaiting Payment tier of /learners/onboarding.
+--
+-- SECURITY DEFINER for two reasons, in order of weight:
+--   (a) it resolves target status / threshold / basis ONCE, from the same
+--       admission_statuses rows evaluate_learner_status_after_payment reads, so
+--       the number on screen and the number in the gate cannot drift;
+--   (b) it decouples this queue from billing permissions. The view it reads is
+--       security_invoker, so bills_select_scoped would demand billing.bills.view
+--       or billing.schedule.view. Measured 2026-08-18: 0 of 7,204 non-super-admin
+--       users lack those, so RLS works TODAY -- but if that grant is ever
+--       tightened, RLS returns zero rows rather than erroring and every learner
+--       silently renders as "0 billed, 0% paid".
+--
+-- The learner-visibility predicate is re-applied by hand, copied from
+-- learners_profiles_select_policy, so DEFINER never widens who can see a learner.
+-- Aggregates only; never bill rows.
+CREATE OR REPLACE FUNCTION public.fn_onboarding_payment_progress(p_learner_ids uuid[])
+RETURNS TABLE (
+  learner_id          uuid,
+  target_code         text,
+  target_label        text,
+  threshold_pct       numeric,
+  threshold_basis     text,
+  achieved_pct        numeric,
+  basis_billed        numeric,
+  basis_paid          numeric,
+  basis_balance       numeric,
+  total_billed        numeric,
+  total_paid          numeric,
+  total_balance       numeric,
+  amount_to_threshold numeric,
+  meets_threshold     boolean,
+  has_basis_due       boolean
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_target_code   text;
+  v_target_label  text;
+  v_threshold     numeric;
+  v_basis         text;
+  v_is_super      boolean := COALESCE(public.is_super_admin(), false);
+  v_perm          boolean;
+BEGIN
+  IF p_learner_ids IS NULL OR array_length(p_learner_ids, 1) IS NULL THEN
+    RETURN;
+  END IF;
+
+  -- The promotion target for a 'reserved' learner. Resolved with the SAME
+  -- predicate evaluate_learner_status_after_payment uses to find a Stage B
+  -- target: a threshold-bearing status that neither gates a login ('active',
+  -- 60% — never automatic) nor is the universal-paid target ('reserved' itself).
+  -- ORDER BY ASC, not DESC: the engine picks the highest threshold ALREADY MET,
+  -- but this screen answers "which bar is next?", which is the lowest one.
+  SELECT s.code, s.label, s.fee_paid_threshold_percent, s.threshold_basis
+    INTO v_target_code, v_target_label, v_threshold, v_basis
+  FROM public.admission_statuses s
+  WHERE s.scope = 'learner'
+    AND s.is_active = true
+    AND s.fee_paid_threshold_percent IS NOT NULL
+    AND s.gates_login = false
+    AND s.auto_promote_when_universal_paid = false
+  ORDER BY s.fee_paid_threshold_percent ASC
+  LIMIT 1;
+
+  v_basis := COALESCE(v_basis, 'due_to_date');
+
+  -- One permission probe for the whole batch rather than one per learner:
+  -- user_has_permission() is the hot path in every RLS policy on this database
+  -- and calling it 200x per page render is the shape that produces 57014.
+  -- Institution access still varies per row and is checked per row below.
+  v_perm := (
+    COALESCE(public.user_has_permission('learners.admissions.view'::text), false)
+    OR COALESCE(public.user_has_permission('learners.profiles.view'::text), false)
+    OR COALESCE(public.user_has_permission('learners.view'::text), false)
+  );
+
+  RETURN QUERY
+  WITH visible AS (
+    -- Byte-for-byte the predicate in learners_profiles_select_policy. DEFINER
+    -- bypassed that policy, so it is re-applied here by hand. The self-service
+    -- branches are kept so this function is never STRICTER than the policy —
+    -- a learner who can see their own row gets their own figures, nobody else's.
+    SELECT lp.id, lp.institution_id
+    FROM public.learners_profiles lp
+    WHERE lp.id = ANY (p_learner_ids)
+      AND (
+        v_is_super
+        OR (v_perm AND public.role_has_institution_access(lp.institution_id))
+        OR lp.student_email = (SELECT p.email FROM public.profiles p WHERE p.id = auth.uid())
+        OR lp.college_email = (SELECT p.email FROM public.profiles p WHERE p.id = auth.uid())
+      )
+  ),
+  progress AS (
+    SELECT
+      vis.id AS lid,
+      -- Basis-aligned pair. The percent is taken from the view rather than
+      -- recomputed from the amounts: a 0.01 rounding difference between this
+      -- screen and the promotion engine would read as a bug in the gate.
+      CASE v_basis
+        WHEN 'billed_to_date'           THEN v.pct_billed_to_date
+        WHEN 'due_to_date_current_year' THEN v.pct_due_current_year
+        ELSE                                 v.pct_due_to_date
+      END AS pct,
+      CASE v_basis
+        WHEN 'billed_to_date'           THEN v.countable_billed
+        WHEN 'due_to_date_current_year' THEN v.due_cy_billed
+        ELSE                                 v.due_billed
+      END AS b_billed,
+      CASE v_basis
+        WHEN 'billed_to_date'           THEN v.countable_paid
+        WHEN 'due_to_date_current_year' THEN v.due_cy_paid
+        ELSE                                 v.due_paid
+      END AS b_paid,
+      v.countable_billed AS t_billed,
+      v.countable_paid   AS t_paid
+    FROM visible vis
+    JOIN public.vw_learner_payment_progress v ON v.learner_id = vis.id
+  )
+  SELECT
+    p.lid,
+    v_target_code,
+    v_target_label,
+    v_threshold,
+    v_basis,
+    COALESCE(p.pct, 0),
+    COALESCE(p.b_billed, 0),
+    COALESCE(p.b_paid, 0),
+    COALESCE(p.b_billed, 0) - COALESCE(p.b_paid, 0),
+    COALESCE(p.t_billed, 0),
+    COALESCE(p.t_paid, 0),
+    COALESCE(p.t_billed, 0) - COALESCE(p.t_paid, 0),
+    -- NULL, not 0, when nothing is due yet or no threshold is configured.
+    -- Rendering "0 to admit" for a learner whose first instalment has not come
+    -- due would read as "pay nothing and they are in", which is false — they
+    -- are waiting on a due date, not on money.
+    CASE
+      WHEN v_threshold IS NULL OR COALESCE(p.b_billed, 0) <= 0 THEN NULL
+      ELSE GREATEST(0, CEIL(p.b_billed * v_threshold / 100.0) - COALESCE(p.b_paid, 0))
+    END,
+    (v_threshold IS NOT NULL AND COALESCE(p.b_billed, 0) > 0 AND COALESCE(p.pct, 0) >= v_threshold),
+    (COALESCE(p.b_billed, 0) > 0)
+  FROM progress p;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) IS
+  'Per-learner payment position against the configured reserved->admitted fee threshold, for the Awaiting Payment tier of /learners/onboarding. Basis-aware (admission_statuses.threshold_basis). SECURITY DEFINER so bill totals are readable without billing.bills.view, which working this queue does not require; re-applies learners_profiles_select_policy per row so it never widens who can see a learner.';
+
+-- Supabase grants EXECUTE directly to anon, so REVOKE FROM PUBLIC alone is a
+-- no-op — this reads billing aggregates and must not be anon-callable.
+REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO service_role;

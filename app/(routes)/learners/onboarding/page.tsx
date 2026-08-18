@@ -115,7 +115,9 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
             learners (balance fees past the threshold) activate as soon as those four are
             complete. <span className="font-semibold">Reserved</span> learners can be
             prepared here too, but stay reserved until their fees clear — they wait in{' '}
-            <span className="font-semibold">Awaiting Payment</span>.
+            <span className="font-semibold">Awaiting Payment</span>, where each learner&apos;s
+            progress against the configured fee threshold and the amount still needed to
+            promote them are shown per row.
           </p>
         </div>
 

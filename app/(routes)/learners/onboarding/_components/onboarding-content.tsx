@@ -48,10 +48,13 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
   // never reach `.in()` verbatim and silently return an empty table.
   const rawStatus = searchParams.lifecycle_status;
   const lifecycle_status = isOnboardingStatus(rawStatus) ? rawStatus : undefined;
+  // Passed through verbatim: the fetcher decides whether the key is a database
+  // column or one of the fee keys it sorts in JS, and falls back safely either
+  // way. Filtering the allow-list here as well would mean two places to update.
   const sortBy = (searchParams.sort_by as string) || 'first_name';
   const sortOrder = (searchParams.sort_order as 'asc' | 'desc') || 'asc';
 
-  const { data, metadata } = await getOnboardingLearners({
+  const { data, metadata, paymentSummary } = await getOnboardingLearners({
     page,
     limit,
     search,
@@ -73,5 +76,12 @@ export async function OnboardingContent({ searchParams, tier }: OnboardingConten
     sortOrder
   });
 
-  return <OnboardingTableServer initialData={data} metadata={metadata} tier={tier} />;
+  return (
+    <OnboardingTableServer
+      initialData={data}
+      metadata={metadata}
+      tier={tier}
+      paymentSummary={paymentSummary}
+    />
+  );
 }
