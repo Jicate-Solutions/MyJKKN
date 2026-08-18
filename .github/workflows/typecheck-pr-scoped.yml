@@ -128,48 +128,75 @@ jobs:
       - name: Run tsc + filter to PR-touched files
         if: steps.changed.outputs.count != '0'
         env:
-          # THE COMPILER HAS NEVER FINISHED ON A RUNNER. Found by the crash guard
-          # below on the very first run of it (2026-08-16, run 31921352286): tsc
-          # reaches the default ~2 GB V8 heap in about 27 seconds and aborts —
-          # "Reached heap limit Allocation failed - JavaScript heap out of memory",
-          # 2045.0 (2083.3) MB, "Aborted (core dumped)".
+          # WHY THIS DOES NOT RUN `npm run typecheck` (whole-project tsc).
           #
-          # So this gate was passing for TWO reasons at once, and the ANSI bug was
-          # the smaller one: even with a filter that matched perfectly, it was
-          # filtering an output file that contains a stack trace and no
-          # diagnostics. Fixing the grep alone would have left the gate exactly as
-          # decorative as it was.
+          # It cannot finish inside a CI job. Measured on this PR:
           #
-          # ⚠️ NO VALUE HERE IS KNOWN TO WORK. `tsc --noEmit` over this project has
-          # not once completed on a standard ubuntu-latest runner (4 vCPU, 16 GB).
-          # Four measured runs on this PR, in order:
-          #
-          #   default (~2 GB)          OOM at 27 s                run 31921352286
-          #   12288                    no OOM, hit 15 min limit   run 31921510185
+          #   default (~2 GB)          OOM at 27 s                 run 31921352286
+          #   12288                    no OOM, hit 15 min limit    run 31921510185
           #   12288 + semi-space 128   no OOM, past 31 min, killed run 31922158016
-          #   8192                     OOM at ~35 min             run 31922158016+
+          #   8192                     OOM at ~35 min, "Ineffective mark-compacts
+          #                            near heap limit", mark-compact pauses of
+          #                            193 s and 228 s, average mu = 0.044 — i.e.
+          #                            ~96% of the run was garbage collection.
           #
-          # The last one is the informative one. tsc filled the whole 8 GB heap and
-          # died with "Ineffective mark-compacts near heap limit" after mark-compact
-          # pauses of 193 s and 228 s — average mu = 0.044, i.e. it spent ~96% of
-          # its time in GC. The working set genuinely exceeds 8 GB; this is not a
-          # flag that wants nudging.
+          # It is not infinite, though, and that distinction decided the design:
+          # the same compiler DOES complete off-runner at --max-old-space-size=16384,
+          # in 115 minutes, reporting 1,402 baseline errors (measured 2026-08-14).
+          # So whole-project tsc is not impossible — it is unaffordable per PR, and
+          # no heap value fixes that. A bigger runner would only buy a slower pass.
           #
-          # Borrowing the `build` script's --max-semi-space-size=128 was my error:
-          # those flags are tuned for `next build` on a Vercel builder and made this
-          # slower, not faster.
+          # SCOPING THE PROGRAM is what makes it affordable, and it is also what the
+          # gate actually wants: this job only ever fails on errors in PR-touched
+          # files, so compiling the other ~14,000 files was never buying a verdict.
+          # A tsconfig whose `include` is just the changed files still pulls their
+          # transitive imports into the program — the type checking is real, only the
+          # roots are narrowed.
           #
-          # 8192 is kept because it is the largest heap that stays comfortably
-          # inside the runner's RAM, and because its clean OOM is far more legible
-          # than 12288's slow thrash. Making this gate actually pass needs a
-          # decision, not a bigger number — see the PR discussion: a larger runner,
-          # or splitting the program with project references, or scoping tsc to the
-          # changed files' closure. Until then the gate reports, correctly and
-          # loudly, that the compiler cannot run.
+          # Measured on the same machine, same compiler, against the file PR #2891
+          # broke (app/api/cron/aipulse-domain-starter-notify/route.ts):
+          #
+          #   whole project   115 min at 16 GB   1,402 errors (9 of them in that file)
+          #   scoped to it      2 s   at  4 GB       9 errors, exactly those nine
+          #                                          (6× TS2304, 2× TS18004, 1× TS2552)
+          #
+          # And checked for the failure that would matter more — false positives, a
+          # gate that blocks correct PRs: three App Router pages that are CLEAN in
+          # the 1,402-error whole-project baseline, including a dynamic [id] route,
+          # report zero errors under the scoped config. Narrowing the roots did not
+          # invent diagnostics.
+          #
+          # ⚠️ DO NOT add ".next/types/**/*.ts" (or .next/dev/types) to the generated
+          # include. tsconfig.json lists them, but `.next` does not exist in CI (this
+          # job never builds), and where it DOES exist — any developer's checkout — it
+          # is ~1 GB of generated .ts and it OOMs the scoped run in 34 s at the default
+          # heap. That is the whole-project failure reintroduced through a glob.
+          #
+          # 8192 is kept purely as headroom for a very large PR; the scoped run fits
+          # in 4 GB with room to spare.
           NODE_OPTIONS: --max-old-space-size=8192
         run: |
           set +e
-          npm run typecheck > /tmp/tsc-output.txt 2>&1
+
+          # Build the scoped program from the changed-files list. `exclude` here
+          # deliberately DROPS tsconfig.json's "scripts" and "__tests__" entries:
+          # the base config excludes both, which made this gate structurally blind
+          # to every change under them — including its own test file.
+          node -e '
+            const fs = require("fs");
+            const files = fs.readFileSync("/tmp/changed-ts.txt", "utf8")
+              .split("\n").map((s) => s.trim()).filter(Boolean);
+            fs.writeFileSync("tsconfig.pr-scoped.json", JSON.stringify({
+              extends: "./tsconfig.json",
+              include: files,
+              exclude: ["node_modules", "public/sw.js", "whatsapp-service"],
+            }, null, 2));
+          '
+          echo "::group::Scoped tsconfig"
+          cat tsconfig.pr-scoped.json
+          echo "::endgroup::"
+
+          npx tsc --noEmit --pretty -p tsconfig.pr-scoped.json > /tmp/tsc-output.txt 2>&1
           tsc_exit=$?
           set -e
 
