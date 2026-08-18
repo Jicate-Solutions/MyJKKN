@@ -25257,7 +25257,10 @@ BEGIN
     LEFT JOIN public.programs     p   ON p.id   = e.program_id
     LEFT JOIN public.semesters    sem ON sem.id = e.semester_id
     LEFT JOIN public.sections     sec ON sec.id = e.section_id
-    ORDER BY i.name NULLS LAST, e.roll_number NULLS LAST, e.last_name, e.first_name
+    -- e.id last: without a unique tiebreaker the LIMIT picks a different set
+    -- of learners between runs whenever the leading keys tie.
+    ORDER BY i.name NULLS LAST, e.roll_number NULLS LAST,
+             e.last_name, e.first_name, e.id
     LIMIT v_cap
   )
   SELECT c.id,
@@ -25286,7 +25289,14 @@ BEGIN
   LEFT JOIN live_bills lb              ON lb.student_id = c.id
   LEFT JOIN public.billing_categories cat ON cat.id = lb.item_category_id
   LEFT JOIN public.academic_years ay    ON ay.id  = lb.academic_year_id
+  -- LEARNER KEYS BEFORE BILL KEYS, and c.id to close the tie for good.
+  -- Without them the sort fell through from roll_number straight to
+  -- lb.due_date / lb.bill_description, which sorts the WHOLE institution by
+  -- bill name and interleaves every learner who ties on roll number - 1,120
+  -- carry a NULL one, 457 more share one inside their institution. The PDF
+  -- export then printed one box per billing category per learner.
   ORDER BY c.institution_name NULLS LAST, c.roll_number NULLS LAST,
+           c.last_name, c.first_name, c.id,
            lb.due_date NULLS LAST, lb.bill_description;
 END;
 $function$;
