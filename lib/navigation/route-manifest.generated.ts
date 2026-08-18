@@ -1713,6 +1713,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "label": "Reports",
             "iconName": "FileBarChart",
             "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/trends",
+            "label": "Trends",
+            "iconName": "FileText",
+            "children": []
           }
         ]
       },

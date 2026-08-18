@@ -13,10 +13,10 @@ import { toast } from 'sonner';
 import {
   InductionVolunteerService,
   type FeedbackVolunteer,
-  type AssignablePeerMentor,
   type TrainingSession,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
+import { AppointMentorDialog } from './appoint-mentor-dialog';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessagesSquare, UserPlus, X, Loader2, Search, Scale, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck } from 'lucide-react';
+import { MessagesSquare, X, Loader2, Scale, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck } from 'lucide-react';
 
 export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [hidden, setHidden] = useState(false);
@@ -240,86 +240,6 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppointed: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<AssignablePeerMentor[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [appointing, setAppointing] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try {
-        const r = await InductionVolunteerService.assignablePeerMentors(eventId, query);
-        if (active) setResults(r);
-      } catch {
-        /* surfaced on appoint */
-      } finally {
-        if (active) setSearching(false);
-      }
-    }, 300);
-    return () => { active = false; clearTimeout(t); };
-  }, [open, query, eventId]);
-
-  const appoint = async (m: AssignablePeerMentor) => {
-    setAppointing(m.learner_id);
-    try {
-      await InductionVolunteerService.appointVolunteer(eventId, m.learner_id);
-      toast.success(`${m.full_name} is now a Senior Peer Mentor.`);
-      setOpen(false);
-      onAppointed();
-    } catch (e: any) {
-      toast.error(`Couldn't appoint: ${e.message ?? e}`);
-    } finally {
-      setAppointing(null);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><UserPlus className="h-3.5 w-3.5 mr-1" /> Appoint Senior Peer Mentor</Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Appoint a Senior Peer Mentor</DialogTitle>
-          <DialogDescription>
-            Only 3rd-year students (or final-year students of a 2-year PG programme) can be Senior Peer Mentors — the list below is already filtered to them. Freshers being inducted here can&apos;t be appointed.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search by name or register number…"
-            value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
-        </div>
-        <div className="max-h-72 overflow-auto space-y-1">
-          {searching ? (
-            <p className="text-sm text-muted-foreground py-2">Searching…</p>
-          ) : results.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No appointable Senior Peer Mentors found.</p>
-          ) : (
-            results.map((m) => (
-              <button key={m.learner_id} type="button" onClick={() => appoint(m)} disabled={!!appointing}
-                className="w-full flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:border-primary disabled:opacity-50">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{m.full_name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{m.register_number ?? '—'}</div>
-                </div>
-                {appointing === m.learner_id
-                  ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  : <UserPlus className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

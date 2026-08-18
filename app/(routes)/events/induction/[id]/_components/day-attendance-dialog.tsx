@@ -28,7 +28,6 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { CalendarCheck, Search, X, Phone, GraduationCap } from 'lucide-react';
-import { CalendarCheck } from 'lucide-react';
 import { groupRosterByCollege } from './roster-college-groups';
 
 /** Bucket for freshers whose learners_profiles.program_id is still NULL. */
@@ -127,7 +126,10 @@ export function DayAttendanceDialog({ eventId, dayNumber, dayLabel }: { eventId:
   const pendingCount = roster.length - markedCount;
   // Only a day containing sessions shared with other colleges produces more
   // than one group; a single-college roster renders exactly as it did before.
-  const collegeGroups = groupRosterByCollege(roster);
+  // Groups `visible`, not `roster` — this IS the rendered list, so grouping the
+  // unfiltered roster would leave the search box and program filter with nothing
+  // to do (and would contradict the `visible.length === 0` empty state below).
+  const collegeGroups = groupRosterByCollege(visible);
   const showColleges = collegeGroups.length > 1;
 
   return (
@@ -200,8 +202,12 @@ export function DayAttendanceDialog({ eventId, dayNumber, dayLabel }: { eventId:
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto divide-y rounded-md border">
-        <div className="flex-1 overflow-y-auto">
+        {/* One scroll container, merged from the two the college-grouping edit
+            left behind: keeps the original framing (min-h-0 is what lets it
+            actually scroll inside the flex column, plus the rounded border) and
+            drops `divide-y`, because each college group now draws its own
+            dividers and its heading is sticky against THIS box. */}
+        <div className="flex-1 min-h-0 overflow-y-auto rounded-md border">
           {loading ? (
             <p className="text-sm text-muted-foreground p-4">Loading roster…</p>
           ) : roster.length === 0 ? (
@@ -211,66 +217,6 @@ export function DayAttendanceDialog({ eventId, dayNumber, dayLabel }: { eventId:
               {query ? <>No fresher matches &ldquo;{query}&rdquo;</> : 'No fresher in this program'}
               {query && program !== 'all' ? ' in this program' : ''}.
             </p>
-          ) : visible.map((row) => {
-            const current = marks[row.learner_id];
-            return (
-              <div
-                key={row.learner_id}
-                className={`flex items-center justify-between gap-3 px-3 py-2 ${current ? '' : 'bg-muted/30'}`}
-              >
-                <div className="min-w-0">
-                  <div className="text-sm font-medium truncate">
-                    {row.name || 'Unnamed'}
-                    {row.register_number && (
-                      <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
-                        {row.register_number}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                    {row.program_name && (
-                      <span className="inline-flex items-center gap-1 min-w-0">
-                        <GraduationCap className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{row.program_name}</span>
-                      </span>
-                    )}
-                    {row.father_mobile && (
-                      <a
-                        href={`tel:${row.father_mobile}`}
-                        className="inline-flex items-center gap-1 tabular-nums hover:text-foreground hover:underline"
-                        title="Father's mobile"
-                      >
-                        <Phone className="h-3 w-3 shrink-0" />
-                        {row.father_mobile}
-                      </a>
-                    )}
-                    {row.batch_label && <span>Batch {row.batch_label}</span>}
-                    {row.is_mixed && <span className="text-amber-600 dark:text-amber-500">Varies by session</span>}
-                  </div>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  {OPTIONS.map((o) => {
-                    const selected = current === o.value;
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        title={o.title}
-                        onClick={() => set(row.learner_id, o.value)}
-                        className={`h-7 min-w-[32px] px-2 rounded border text-xs font-medium transition-colors ${
-                          selected ? o.on : 'bg-background text-muted-foreground hover:bg-muted'
-                        }`}
-                        aria-pressed={selected}
-                      >
-                        {o.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-            <p className="text-sm text-muted-foreground py-4">No freshers enrolled for this day&apos;s sessions yet.</p>
           ) : collegeGroups.map((group) => (
             <div key={group.key} className="divide-y">
               {showColleges && (

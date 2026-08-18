@@ -18,6 +18,13 @@ export interface AssignablePeerMentor {
   learner_id: string;
   full_name: string;
   register_number: string | null;
+  /** Programme display name (falls back to program_name) — shown in the picker. */
+  program_name: string | null;
+  /** 2 or 3 — the eligibility band (2nd year up to the mentor year). */
+  year_of_study: number | null;
+  college_email: string | null;
+  student_email: string | null;
+  student_mobile: string | null;
 }
 
 /** A peer mentor on an event + their live coverage + training state. */
@@ -159,7 +166,10 @@ export class InductionVolunteerService {
     return Boolean(data);
   }
 
-  /** Search senior students of the event's college appointable as peer mentors. */
+  /** Search senior students of the event's college appointable as peer mentors.
+   *  Eligible band = 2nd year up to the mentor year (3rd, or the final year of a
+   *  2-year PG). `query` matches name / register / roll number / college email /
+   *  student email / mobile / programme as a case-insensitive %value%. */
   static async assignablePeerMentors(eventId: string, query: string): Promise<AssignablePeerMentor[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_assignable_peer_mentors', {
       p_event_id: eventId,
