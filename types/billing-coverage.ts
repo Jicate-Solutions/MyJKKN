@@ -260,6 +260,18 @@ export interface BillCoverageSummary {
 // academic_year_id: institutions carry duplicate rows on one start_date (an
 // active '2025-2026' beside an inactive '2025-2026 Additional 1'), and a bill
 // stamped against either covers the same session.
+//
+// WHAT COUNTS AS "A TUITION BILL" here is wider than kind = 'tuition'. Three
+// categories carry kind = 'other' but are tuition in substance, and are the
+// ONLY fee raised for the years they cover — Government 7-5 quota, CRRI -
+// INTERNSHIP FEE and AHS - INTERNSHIP FEE. Before 20260813130000 the audit
+// reported all 183 of those bills as years nobody had billed. The set is
+// resolved server-side by fn_billing_tuition_equivalent_category_ids() so the
+// summary card and the table under it cannot disagree; there is deliberately
+// no client-side copy of the list to drift from it.
+//
+// ONE EXCEPTION, and it is not an oversight: past_end_bills /
+// is_past_programme_end stay kind = 'tuition'. See their doc comments below.
 
 /** 'cannot_evaluate' means no admission cohort on file, or an institution with
  *  no active academic year that has started — an unknown, never a confirmed
@@ -297,7 +309,9 @@ export interface MissingYearAuditRow {
    *  symptom, and the subset most likely to be a generation bug rather than a
    *  learner who simply joined late. */
   has_current_year: boolean;
-  /** Live tuition bills across ALL years — context, not the audited window. */
+  /** Live tuition bills across ALL years — context, not the audited window.
+   *  "Tuition" here is the tuition-equivalent set, so a Dental learner billed
+   *  only on Government 7-5 quota reads as 4 rather than 0. */
   tuition_bill_count: number;
   total_billed: number;
   /** final_amount - balance_amount over the same bills, matching every other
@@ -417,7 +431,14 @@ export interface DuplicateYearAuditSummary {
    *  programme ends. Tuition-kind only, deliberately — widening it to every
    *  kind returns 62 learners, but a CRRI intern legitimately still carries
    *  hostel and mess bills once the taught years finish, so that would report
-   *  normal operation as an anomaly. */
+   *  normal operation as an anomaly.
+   *
+   *  This is also why it does NOT use the tuition-equivalent set the rest of
+   *  the audit switched to in 20260813130000. program_duration_yrs counts
+   *  TAUGHT years, so an internship fee belongs to the year AFTER the course
+   *  ends: all eight Allied Health BSc programmes are 4.0 years and bill AHS -
+   *  INTERNSHIP FEE in cohort+4. Including them would add 37 entirely correct
+   *  bills to this count. Measured unchanged at 59 after the widening. */
   past_end_bills: number;
   past_end_learners: number;
   past_end_outstanding: number;

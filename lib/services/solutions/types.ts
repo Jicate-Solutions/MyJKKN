@@ -151,6 +151,47 @@ export interface ClientReferral extends BaseEntity {
 }
 
 // ============================================
+// PROPOSAL INTERFACES
+// ============================================
+
+export type ProposalStatus = 'draft' | 'sent' | 'approved' | 'signed' | 'rejected';
+
+export interface Proposal extends BaseEntity {
+  client_id: string;
+  prospect_id?: string;
+  solution_id?: string;
+  title: string;
+  amount_inr?: number;
+  status: ProposalStatus;
+  sent_at?: string;
+  approved_at?: string;
+  signed_at?: string;
+  notes?: string;
+  file_url?: string;
+  created_by?: string;
+}
+
+export interface CreateProposalInput {
+  client_id: string;
+  prospect_id?: string;
+  solution_id?: string;
+  title: string;
+  amount_inr?: number;
+  notes?: string;
+  file_url?: string;
+  created_by?: string;
+}
+
+export interface UpdateProposalInput {
+  title?: string;
+  amount_inr?: number | null;
+  prospect_id?: string | null;
+  solution_id?: string | null;
+  notes?: string;
+  file_url?: string;
+}
+
+// ============================================
 // PROSPECT INTERFACES
 // ============================================
 

@@ -19,6 +19,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -208,7 +209,7 @@ export function StatusReportList({ projectId }: StatusReportListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8"
+                          className={`h-8 w-8 ${TAP_TARGET_ICON}`}
                           aria-label="Report actions"
                         >
                           <MoreHorizontal className="h-4 w-4" />

@@ -13,6 +13,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { useAuth } from '@/hooks/use-auth';
 import type { AccreditationBodyCode } from '@/lib/types/accreditation';
 
 export interface BodyMetricRow {
@@ -94,10 +95,18 @@ export function useBodyEvidenceCounts(
  * All JKKN institutions (8 colleges) with iqac_code. Used by UGC college
  * switcher and by fixed-scope bodies (NCTE + AICTE) to auto-detect target
  * institutions by name or iqac_code.
+ *
+ * The key carries the signed-in user's id because this read goes through RLS
+ * and can therefore differ per reader. Without it, an account switch or a
+ * see-as-user impersonation would be served the previous reader's college list
+ * out of cache — and now that `useVisibleInstitutions()` turns that list into a
+ * printed claim about who you are, a stale cache would be a wrong-identity bug
+ * rather than a stale-data one.
  */
 export function useJKKNInstitutions() {
+  const { profile } = useAuth();
   return useQuery({
-    queryKey: ['institutions', 'jkkn-iqac'],
+    queryKey: ['institutions', 'jkkn-iqac', profile?.id ?? 'anon'],
     queryFn: async (): Promise<JKKNInstitution[]> => {
       const sb = createClientSupabaseClient() as any;
       const { data, error } = await sb

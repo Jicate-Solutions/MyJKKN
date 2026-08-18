@@ -27,6 +27,12 @@ import { LEARNER_SCOPE_DEFAULT } from '@/types/billing-coverage';
 //                           a caller narrow to "3 Year Tuition Fee" would ask
 //                           "is the 3 Year fee missing from every year", which
 //                           is not a question either audit answers.
+//
+// The category set the audit checks against lives in Postgres
+// (fn_billing_tuition_equivalent_category_ids) and is intentionally NOT
+// mirrored here. It is wider than kind = 'tuition' — Government 7-5 quota and
+// the CRRI / AHS internship fees count too — and a second copy on this side
+// would be one more thing to forget when it changes.
 // ============================================================================
 
 interface RawMissingYearRow {

@@ -34,14 +34,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  CheckCircle2,
   ClipboardList,
-  Inbox,
   Loader2,
   RefreshCw,
-  UserCheck,
   Users,
-  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -74,6 +70,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { usePermissions } from '@/hooks/use-permissions';
 
+import { ApplicationsTable } from './applications-table';
 import {
   SoiReviewService,
   type SoiApplicationRow,
@@ -91,40 +88,10 @@ function isDenied(error: unknown): boolean {
   return (error as { status?: number })?.status === 403;
 }
 
-function whenText(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-}
-
-/**
- * The stored token is 'learner' / 'staff' (SoiMemberType, written by S4 from the
- * applicant's own records); the words on screen are JKKN's own vocabulary for
- * the same two groups (.claude/skills/jkkn-terminologies). An unrecognised token
- * is shown as-is rather than guessed at — a reviewer should see what is actually
- * on the record.
- */
-function audienceLabel(token: string): string {
-  if (token === 'learner') return 'Learner';
-  if (token === 'staff') return 'Team member';
-  return token;
-}
-
-/** Render one stored answer without pretending to know its shape. */
-function answerText(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—';
-  if (Array.isArray(value)) return value.map((v) => String(v)).join(', ');
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
+// whenText / audienceLabel / answerText moved to applications-table.tsx along
+// with the per-applicant rendering they existed for. They are not re-exported:
+// the table is their only caller, and a shared copy here would be a second
+// definition of JKKN's own vocabulary waiting to drift from it.
 
 /** Explicit refusal panel — never a redirect, never an empty list (rule 27). */
 function AccessPanel({ message }: { message: string }) {
@@ -156,10 +123,11 @@ export function ApplicationsWorkspace({ eventId }: Props) {
   const [context, setContext] = useState<SoiReviewContext | null>(null);
   const [batches, setBatches] = useState<SoiReviewBatch[]>([]);
   const [waiting, setWaiting] = useState<SoiWaitingCount[]>([]);
-  const [rows, setRows] = useState<SoiApplicationRow[]>([]);
   const [scope, setScope] = useState<SoiReviewScope>('awaiting');
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState<string | null>(null);
+  /** Bumped to make ApplicationsTable refetch after a decision lands. */
+  const [tableRefetchKey, setTableRefetchKey] = useState(0);
 
   /** applicationId → the batch the reviewer picked (staff-assign mode only). */
   const [chosenBatch, setChosenBatch] = useState<Record<string, string>>({});
@@ -191,30 +159,32 @@ export function ApplicationsWorkspace({ eventId }: Props) {
       // rendered as a sentence rather than as a blank screen.
       if (!ctx.can_review) {
         setDenied(NO_ACCESS_MESSAGE);
-        setRows([]);
         setBatches([]);
         setWaiting([]);
         return;
       }
 
-      const [batchRows, applicationRows, waitingRows] = await Promise.all([
+      // The APPLICATION rows are not fetched here — ApplicationsTable owns that
+      // call, so the table's own search, sort and pagination drive it. This
+      // refresh covers everything AROUND the queue (the batch strip, the waiting
+      // counts, the scope tallies) and then bumps the table's refetch key so the
+      // two stay in step after a decision.
+      const [batchRows, waitingRows] = await Promise.all([
         SoiReviewService.listBatches(eventId),
-        SoiReviewService.listApplications(eventId, scope),
         SoiReviewService.listWaitingCounts(eventId),
       ]);
       setBatches(batchRows);
-      setRows(applicationRows);
       setWaiting(waitingRows);
+      setTableRefetchKey((k) => k + 1);
     } catch (error) {
       if (isDenied(error)) setDenied(messageOf(error));
       else toast.error(messageOf(error));
-      setRows([]);
       setBatches([]);
       setWaiting([]);
     } finally {
       setLoading(false);
     }
-  }, [eventId, scope]);
+  }, [eventId]);
 
   useEffect(() => {
     void refresh();
@@ -296,6 +266,34 @@ export function ApplicationsWorkspace({ eventId }: Props) {
     [doAccept, targetBatchFor]
   );
 
+  /**
+   * The three handlers ApplicationsTable is given, and the error reporter.
+   *
+   * All memoised deliberately. The table builds its columns in a useMemo keyed
+   * on these, so an inline arrow here would rebuild every column on every
+   * render — which remounts the batch <Select> inside the actions cell and can
+   * close the dropdown under a coordinator mid-choice.
+   */
+  const handleChooseBatch = useCallback((applicationId: string, cohortId: string) => {
+    setChosenBatch((prev) => ({ ...prev, [applicationId]: cohortId }));
+  }, []);
+
+  const handleAcceptFromTable = useCallback(
+    (row: SoiApplicationRow) => {
+      void handleAccept(row);
+    },
+    [handleAccept]
+  );
+
+  const handleRejectFromTable = useCallback((row: SoiApplicationRow) => {
+    setRejecting(row);
+    setReason('');
+  }, []);
+
+  const reportError = useCallback((message: string) => {
+    toast.error(message);
+  }, []);
+
   const handleReject = useCallback(async () => {
     if (!rejecting) return;
     setBusyId(rejecting.application_id);
@@ -318,16 +316,21 @@ export function ApplicationsWorkspace({ eventId }: Props) {
 
   // ── Shell states ──────────────────────────────────────────────────────────
 
+  // Defensive only. The page shell resolves the programme before rendering this
+  // workspace, so reaching here means the resolver found none. It used to tell
+  // the reader to "add ?event= and the programme's event id to the address" —
+  // an instruction none of the coordinators it was shown to could follow, and
+  // the platform's own appointment notification linked here without it
+  // (BUG-005799 / BUG-005800). No uuid is asked of anybody now.
   if (!eventId) {
     return (
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle className="text-base">Pick a programme</CardTitle>
+          <CardTitle className="text-base">No programme to review</CardTitle>
           <CardDescription>
-            This screen reviews applications for one School of Influence programme.
-            Open it from the programme&rsquo;s batch admin so it knows which one, or add
-            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">?event=</code>
-            and the programme&rsquo;s event id to the address.
+            This screen reviews applications for one School of Influence
+            programme, and none was found for you. Open it from the School of
+            Influence menu, or ask a coordinator to appoint you.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -336,7 +339,10 @@ export function ApplicationsWorkspace({ eventId }: Props) {
 
   if (denied) return <AccessPanel message={denied} />;
 
-  if (loading && rows.length === 0 && !context) {
+  // Gated on `context` alone now that the table owns the application rows: this
+  // skeleton covers the FIRST load, before the review context says whether this
+  // person may see anything at all. The table renders its own loading state.
+  if (loading && !context) {
     return <Skeleton className="mt-4 h-64 w-full rounded-xl" />;
   }
 
@@ -427,187 +433,31 @@ export function ApplicationsWorkspace({ eventId }: Props) {
         </CardContent>
       </Card>
 
-      {rows.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Inbox className="h-4 w-4 text-muted-foreground" />
-              {scope === 'awaiting'
-                ? 'Nothing is waiting for you'
-                : scope === 'decided'
-                  ? 'Nothing has been decided yet'
-                  : 'Nobody has applied yet'}
-            </CardTitle>
-            <CardDescription>
-              {scope === 'awaiting'
-                ? 'Every application to this programme has been dealt with. New ones will appear here as soon as somebody applies.'
-                : 'Applications will show up here once a coordinator has accepted or turned one down.'}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {rows.map((row) => {
-            const awaiting = SoiReviewService.isAwaitingReview(row.application_status);
-            const busy = busyId === row.application_id;
-            const picked = chosenBatch[row.application_id];
-            const canAccept = awaiting && (!reviewerPicksBatch || !!picked);
+      {/* The queue itself. Advanced data table (2026-08-17) — it replaced a
+          one-card-per-applicant list that put each person on most of a screen,
+          so two applicants could not be compared without scrolling and the
+          queue could not be sorted or exported at all.
 
-            return (
-              <Card key={row.application_id}>
-                <CardHeader className="pb-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <CardTitle className="text-base">
-                        {row.applicant_name ?? 'Unnamed applicant'}
-                      </CardTitle>
-                      <CardDescription className="space-x-2">
-                        <span>{row.applicant_email ?? 'no address on record'}</span>
-                        {row.institution_name && <span>· {row.institution_name}</span>}
-                        <span>· applied {whenText(row.submitted_at)}</span>
-                      </CardDescription>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {row.audiences.map((a) => (
-                        <Badge key={a} variant="outline" className="text-[10px] font-normal">
-                          {audienceLabel(a)}
-                        </Badge>
-                      ))}
-                      <Badge
-                        variant={awaiting ? 'secondary' : 'outline'}
-                        className="text-[10px] font-normal"
-                      >
-                        {SoiReviewService.labelFor(row.application_status)}
-                      </Badge>
-                    </div>
-                  </div>
-                </CardHeader>
-
-                <CardContent className="space-y-3">
-                  <p className="text-sm">
-                    <span className="text-muted-foreground">Batch: </span>
-                    {row.requested_batch_name ? (
-                      <span className="font-medium">{row.requested_batch_name}</span>
-                    ) : (
-                      <span className="text-muted-foreground">
-                        none chosen — a coordinator assigns one
-                      </span>
-                    )}
-                  </p>
-
-                  {row.answers.length > 0 && (
-                    <dl className="grid gap-2 rounded-md border bg-muted/30 p-3 sm:grid-cols-2">
-                      {row.answers.map((a) => (
-                        <div key={a.key} className="space-y-0.5">
-                          <dt className="text-xs text-muted-foreground">{a.label}</dt>
-                          <dd className="text-sm">{answerText(a.value)}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-
-                  {/* The decision, once made — including the exact words the
-                      applicant is shown. A reviewer must be able to see what was
-                      said in their name. */}
-                  {row.decision && (
-                    <div
-                      className={`rounded-md border p-3 text-sm ${
-                        row.decision === 'accepted'
-                          ? 'border-green-200 bg-green-50 text-green-900'
-                          : 'border-red-200 bg-red-50 text-red-900'
-                      }`}
-                    >
-                      <p className="font-medium">
-                        {row.decision === 'accepted' ? 'Accepted' : 'Not accepted'}
-                        {row.decided_by_name ? ` by ${row.decided_by_name}` : ''} ·{' '}
-                        {whenText(row.decided_at)}
-                      </p>
-                      {row.decision_reason && (
-                        <p className="mt-1">
-                          Reason shown to the applicant: &ldquo;{row.decision_reason}&rdquo;
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {awaiting && (
-                    <div className="flex flex-wrap items-end gap-2 border-t pt-3">
-                      {reviewerPicksBatch && (
-                        <div className="space-y-1">
-                          <Label className="text-xs" htmlFor={`batch-${row.application_id}`}>
-                            Batch
-                          </Label>
-                          <Select
-                            value={picked ?? ''}
-                            onValueChange={(v) =>
-                              setChosenBatch((prev) => ({ ...prev, [row.application_id]: v }))
-                            }
-                          >
-                            <SelectTrigger
-                              id={`batch-${row.application_id}`}
-                              className="h-9 w-[220px]"
-                            >
-                              <SelectValue placeholder="Choose a batch" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {batches.length === 0 ? (
-                                <SelectItem value="__none" disabled>
-                                  No batch has been set up yet
-                                </SelectItem>
-                              ) : (
-                                /* Full batches are listed and selectable (A3) —
-                                   picking one leads to the over-limit
-                                   confirmation, not straight to an accept. */
-                                batches.map((b) => (
-                                  <SelectItem key={b.cohort_id} value={b.cohort_id}>
-                                    {b.batch_name} —{' '}
-                                    {b.is_full
-                                      ? `FULL, ${b.occupancy} of ${b.capacity}`
-                                      : `${b.capacity - b.occupancy} of ${b.capacity} left`}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-
-                      <Button size="sm" disabled={!canAccept || busy} onClick={() => void handleAccept(row)}>
-                        {busy ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : reviewerPicksBatch ? (
-                          <UserCheck className="mr-1.5 h-4 w-4" />
-                        ) : (
-                          <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                        )}
-                        {reviewerPicksBatch ? 'Accept into batch' : 'Confirm their batch'}
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => {
-                          setRejecting(row);
-                          setReason('');
-                        }}
-                      >
-                        <XCircle className="mr-1.5 h-4 w-4" /> Turn down
-                      </Button>
-
-                      {reviewerPicksBatch && !picked && (
-                        <p className="text-xs text-muted-foreground">
-                          Choose a batch first.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+          Every DECISION still belongs to this file: the table renders the batch
+          picker and the two buttons, then hands the original row straight back
+          to handleAccept / setRejecting below, so the over-capacity
+          confirmation (A3/A7) and the rejection-reason dialog are unchanged and
+          unbypassed. The table also renders its own empty state, which is why
+          the "nothing is waiting for you" card that used to live here is gone. */}
+      <ApplicationsTable
+        eventId={eventId}
+        scope={scope}
+        batches={batches}
+        reviewerPicksBatch={reviewerPicksBatch}
+        chosenBatch={chosenBatch}
+        onChooseBatch={handleChooseBatch}
+        busyId={busyId}
+        onAccept={handleAcceptFromTable}
+        onReject={handleRejectFromTable}
+        refetchKey={tableRefetchKey}
+        onDenied={setDenied}
+        onError={reportError}
+      />
 
       {/* A3 + A7 — the batch is full. Say so in words, say how many people are
           already waiting, and make going over the limit a separate, deliberate

@@ -25,6 +25,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { ClipboardCheck, Search, X, Phone, GraduationCap } from 'lucide-react';
+import { ClipboardCheck } from 'lucide-react';
+import { groupRosterByCollege } from './roster-college-groups';
 
 /** Bucket for freshers whose learners_profiles.program_id is still NULL. */
 const NO_PROGRAM = '__none__';
@@ -147,6 +149,10 @@ export function AttendanceDialog({
   const markedCount = Object.keys(marks).length;
   const presentCount = Object.values(marks).filter((s) => s === 'present' || s === 'od').length;
   const pendingCount = roster.length - markedCount;
+  // Only a session shared with other colleges produces more than one group; a
+  // single-college roster renders exactly as it did before.
+  const collegeGroups = groupRosterByCollege(roster);
+  const showColleges = collegeGroups.length > 1;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -219,6 +225,7 @@ export function AttendanceDialog({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto divide-y rounded-md border">
+        <div className="flex-1 overflow-y-auto">
           {loading ? (
             <p className="text-sm text-muted-foreground p-4">Loading roster…</p>
           ) : roster.length === 0 ? (
@@ -286,6 +293,44 @@ export function AttendanceDialog({
               </div>
             );
           })}
+            <p className="text-sm text-muted-foreground py-4">No freshers enrolled for this session&apos;s batch yet.</p>
+          ) : collegeGroups.map((group) => (
+            <div key={group.key} className="divide-y">
+              {showColleges && (
+                <div className="sticky top-0 z-10 bg-background py-1.5 text-xs font-semibold text-muted-foreground">
+                  {group.label} · {group.rows.length}
+                </div>
+              )}
+              {group.rows.map((row) => (
+                <div key={row.learner_id} className="flex items-center justify-between gap-2 py-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{row.name || 'Unnamed'}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.register_number ?? '—'}{row.batch_label ? ` · Batch ${row.batch_label}` : ''}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    {OPTIONS.map((o) => {
+                      const selected = marks[row.learner_id] === o.value;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => set(row.learner_id, o.value)}
+                          className={`h-7 min-w-[32px] px-2 rounded border text-xs font-medium transition-colors ${
+                            selected ? o.on : 'bg-background text-muted-foreground hover:bg-muted'
+                          }`}
+                          aria-pressed={selected}
+                        >
+                          {o.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
 
         <DialogFooter>

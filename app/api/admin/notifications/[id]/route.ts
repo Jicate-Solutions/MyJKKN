@@ -15,7 +15,10 @@ export const GET = withAuth(async (request, auth, context) => {
 
     // Permission gate is enforced in the wrapper (notifications.view).
 
-    // Fetch the notification with creator profile
+    // Fetch the notification with creator profile.
+    // `metadata` added 2026-08-13: the sender's detail view renders
+    // metadata.link_preview (the YouTube card recipients see). The column
+    // already reached the recipient inbox, but was never selected here.
     const { data: notification, error } = await supabase
       .from('notifications')
       .select(
@@ -30,6 +33,7 @@ export const GET = withAuth(async (request, auth, context) => {
         sent_at,
         expires_at,
         targeting,
+        metadata,
         created_by,
         created_at,
         creator:profiles!created_by(
@@ -63,6 +67,7 @@ export const GET = withAuth(async (request, auth, context) => {
       body: string;
       url?: string;
       icon?: string;
+      metadata?: Record<string, unknown> | null;
       priority: string;
       category?: string;
       sent_at?: string;

@@ -13,6 +13,7 @@ import { InductionService, type PreviewEnrollResult } from '@/lib/services/induc
 import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
+import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
 import {
@@ -303,6 +304,9 @@ export default function InductionDetailPage() {
 
         {/* Peer-mentor feedback scale layer — appoint mentors, auto-balance, coverage */}
         <FeedbackVolunteersSection eventId={id} />
+
+        {/* Each college's own read on a session — split by the fresher's college (D5) */}
+        <FeedbackByCollegeSection eventId={id} />
 
         {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
         <ScorecardSection eventId={id} />

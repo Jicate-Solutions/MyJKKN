@@ -138,18 +138,40 @@ export const useStaffMember = (id: string) => {
 // Lightweight staff query for dropdowns/selection - FAST, no count, minimal fields
 // Updated: 2025-11-07
 export function useStaffForSelection(
-  filters: StaffFilters = {}
+  filters: StaffFilters = {},
+  options: {
+    /**
+     * Fetch even when no `institution_id` is given, returning every staff member
+     * the viewer is allowed to see rather than nothing at all.
+     *
+     * OFF BY DEFAULT, deliberately. Most callers (timetables, interview
+     * scheduling, class-incharge assignment) pick an institution first and
+     * genuinely should not query until they have one — turning that off for
+     * everyone would fire a cluster-wide staff query on every one of those
+     * screens.
+     *
+     * Opt in only where the record legitimately has no single institution — a
+     * cluster-wide project, for instance. Row-level security still scopes the
+     * result to the viewer's own access, so this widens the QUERY, never the
+     * viewer's permissions.
+     */
+    allowAllInstitutions?: boolean;
+  } = {}
 ): UseQueryResult<Array<{ id: string; first_name: string; last_name: string; staff_id: string; email: string }>, Error> {
   const { profile, isLoading: authLoading } = useAuth();
+  const { allowAllInstitutions = false } = options;
 
   const queryKey = useMemo(() => {
     return [
       'staff-selection',
       filters.institution_id || '',
       filters.department_id || '',
-      filters.isActive
+      filters.isActive,
+      // Keeps the unscoped result in its own cache entry, so it can never be
+      // served to a caller that asked for one institution (or the reverse).
+      allowAllInstitutions
     ];
-  }, [filters.institution_id, filters.department_id, filters.isActive]);
+  }, [filters.institution_id, filters.department_id, filters.isActive, allowAllInstitutions]);
 
   const queryFn = useCallback(async () => {
     try {
@@ -163,7 +185,8 @@ export function useStaffForSelection(
   return useQuery({
     queryKey,
     queryFn,
-    enabled: !authLoading && !!profile && !!filters.institution_id,
+    enabled:
+      !authLoading && !!profile && (!!filters.institution_id || allowAllInstitutions),
     staleTime: 60000, // 1 minute - can be cached longer since it's just for dropdowns
     gcTime: 600000 // 10 minutes
   });

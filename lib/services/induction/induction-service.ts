@@ -384,6 +384,24 @@ export class InductionService {
     return (data as SessionFeedbackSummary[]) ?? [];
   }
 
+  /** Coordinator: the same per-session feedback, split by the college of the
+   *  learner who submitted it. Pass a sessionId to narrow to one session.
+   *  Once a session is shared across colleges (event_session_institutions) this
+   *  is the only correct split — the stamped institution_id records the write
+   *  path, not the learner. */
+  static async getSessionFeedbackByCollege(
+    eventId: string,
+    sessionId?: string | null,
+  ): Promise<SessionFeedbackByCollege[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_feedback_by_learner_college', {
+      p_event_id: eventId,
+      p_session_id: sessionId ?? null,
+    });
+    if (error) throw error;
+    return (data as SessionFeedbackByCollege[]) ?? [];
+  }
+
   // ── No-smartphone kiosk capture (volunteer/coordinator proxy on a shared device) ──
 
   /** Existing per-learner feedback for ONE session — powers the kiosk dialog's
@@ -671,6 +689,18 @@ export interface InductionLoopPlaybook {
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
 
+/** One (session × college) cell of the feedback breakdown, where "college" is the
+ *  college of the LEARNER who submitted — derived from learners_profiles, never
+ *  from event_session_feedback.institution_id (that column records the write path
+ *  and mis-attributes 30 live rows to JKKN Main Office). Director decision D5. */
+export interface SessionFeedbackByCollege {
+  feedback_session_id: string;
+  learner_institution_id: string | null;
+  learner_institution_name: string;
+  response_count: number;
+  avg_rating: number;
+}
+
 /** One picked fresher's rating in a kiosk batch (proxy writer payload row). */
 export interface ProxyFeedbackMark { learner_id: string; rating: number; comment?: string | null; }
 
@@ -809,6 +839,10 @@ export interface RosterRow {
    *  still NULL pre-enrolment — displayed and searched in AttendanceDialog. */
   program_name: string | null;
   father_mobile: string | null;
+  /** The learner's OWN college. On a session shared with other colleges this is
+   *  what the roster groups by, so a visiting learner is never filed under the
+   *  host. NULL when the learner has no institution recorded. */
+  institution_name: string | null;
 }
 
 export interface DayRosterRow {
@@ -821,6 +855,8 @@ export interface DayRosterRow {
   /** Same identity aids as RosterRow — displayed and searched in DayAttendanceDialog. */
   program_name: string | null;
   father_mobile: string | null;
+  /** See RosterRow.institution_name. */
+  institution_name: string | null;
 }
 
 /** Per-day "past sessions vs FULLY-marked sessions" — drives the back-mark nudge.

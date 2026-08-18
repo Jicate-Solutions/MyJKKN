@@ -2908,27 +2908,35 @@ export async function bookPendingMeetings(
       const staleBefore = new Date(
         now.getTime() - BOOKING_CLAIM_TTL_MIN * 60_000
       ).toISOString();
-      const { data: claimedRows, error: claimErr } = await db
-        .from('meeting_trigger_events')
-        .update({
-          booking_claimed_at: now.toISOString(),
-          booking_claim_token: claimToken
-        })
-        .in(
-          'id',
-          group.events.map((e) => e.id)
-        )
-        .eq('status', 'meeting_pending')
-        .is('booking_id', null)
-        .or(`booking_claimed_at.is.null,booking_claimed_at.lt.${staleBefore}`)
-        .select('id');
+      // Claimed through an RPC, not a PostgREST UPDATE. PostgREST re-applies the
+      // request's filters to an UPDATE's RETURNING projection — and this claim
+      // WRITES the very column it FILTERS on (booking_claimed_at). The new value
+      // fails the staleness predicate, so the row is filtered out of its own
+      // response body: the UPDATE commits, the caller gets [], concludes another
+      // worker owns the row (skipped_claimed++), and the claim it just wrote
+      // blocks every later run for BOOKING_CLAIM_TTL_MIN. A livelock in which
+      // nothing books and nothing is reported. Reproduced on prod 2026-08-18:
+      //   before 02:18:44Z (stale) -> PATCH … or=(is.null,lt.02:33:07Z) -> body []
+      //   after  02:48:44Z         -> the write LANDED anyway
+      // In SQL, UPDATE … RETURNING returns exactly the rows touched, so the
+      // function returns the truth. Atomicity is unchanged: Postgres serialises
+      // concurrent writers on the row and re-evaluates the predicate against the
+      // winner's version, so the loser matches 0 rows and walks away.
+      const { data: claimedRows, error: claimErr } = await db.rpc(
+        'fn_meeting_claim_pending_events',
+        {
+          p_event_ids: group.events.map((e) => e.id),
+          p_claim_token: claimToken,
+          p_stale_before: staleBefore
+        }
+      );
 
       if (claimErr) {
         result.errors.push(`claim ${group.key}: ${claimErr.message}`);
         continue;
       }
       const claimedIds = new Set(
-        ((claimedRows ?? []) as any[]).map((r) => r.id)
+        ((claimedRows ?? []) as any[]).map((r) => r.claimed_id)
       );
       if (claimedIds.size === 0) {
         // Someone else owns every event in this group right now.

@@ -80,6 +80,7 @@ import { useAdaptiveLabels } from '@/hooks/use-adaptive-labels';
 import { Timetable, UpdateTimetableDto } from '@/types/academics';
 import { cn } from '@/lib/utils';
 import { useResolvedRouteId } from '../_hooks/use-resolved-route-id';
+import { CycleAnchorPhaseWarningBanner } from '../../_components/cycle-anchor-phase-warning';
 
 // Define the schema for timetable editing
 // Updated: 2025-10-08 - Added timetable_type support
@@ -1406,7 +1407,19 @@ export default function EditTimetablePage() {
                         </Popover>
                         <FormDescription>
                           The start date of the timetable period
+                          {timetable?.timetable_format === 'cycle' &&
+                            ' — for a cycle timetable this is also where the rotation is anchored'}
                         </FormDescription>
+                        {/* Added: 2026-08-17 (BUG-005837) */}
+                        <CycleAnchorPhaseWarningBanner
+                          timetableFormat={(timetable as any)?.timetable_format}
+                          institutionId={form.watch('institution_id')}
+                          startDate={
+                            field.value ? format(field.value, 'yyyy-MM-dd') : null
+                          }
+                          numCycles={(timetable as any)?.num_cycles}
+                          excludeTimetableId={timetableId}
+                        />
                         <FormMessage />
                       </FormItem>
                     )}

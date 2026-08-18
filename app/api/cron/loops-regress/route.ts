@@ -16,8 +16,11 @@
 // disposition); manual re-runs appending extra rows is fine — audits are an
 // append-only log and the notification fanout is idempotent.
 // Coverage today: scf (the proven recipe), feeder (cycle_delta known-delta,
-// added 2026-07-13). Additional loops join by adding fn_loops_regress_<loop>
-// + extending LOOP_FNS — see .claude/loop-manifests/.
+// added 2026-07-13), mess (2026-07-26), bug-triage + induction-session
+// (2026-08-13 — the last two chartered-but-unproven loops; each asserts
+// through the loop's REAL measurement fn, never a re-implementation).
+// Additional loops join by adding fn_loops_regress_<loop> + extending
+// LOOP_FNS — see .claude/loop-manifests/.
 //
 // Alerting (wire 2): any verdict that is not 'measure-verified' fans out a
 // HIGH-priority notification to every super admin (two-write pattern).
@@ -43,6 +46,8 @@ const LOOP_FNS: { loopKey: string; fn: string }[] = [
   { loopKey: 'scf', fn: 'fn_loops_regress_scf' },
   { loopKey: 'feeder', fn: 'fn_loops_regress_feeder' },
   { loopKey: 'mess', fn: 'fn_loops_regress_mess' },
+  { loopKey: 'bug-triage', fn: 'fn_loops_regress_bug_triage' },
+  { loopKey: 'induction-session', fn: 'fn_loops_regress_induction' },
 ];
 
 type RegressRow = {

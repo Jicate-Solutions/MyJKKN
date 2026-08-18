@@ -26,6 +26,19 @@
 // Mess fees are deliberately out of scope here: they are flat per learner and
 // do not divide by occupancy, so they are not settle-sensitive and stay with
 // campus_living_generate_hostel_year_bills.
+//
+// THE CHARGE IS INCREMENTAL (2026-08-13). The biller raises the EMPTY BEDS
+// only — settled share minus the one bed the resident already pays for through
+// the admission fee structure plus her upgrade differential. Billing the
+// settled total would charge her own bed twice. See `settlementCharge` below;
+// `canonicalShare` remains the undeducted room share and is what the late-join
+// credit deltas are measured in.
+//
+// Bills land on the dedicated 'Hostel Empty Bed Settlement' billing category
+// (flagged visible_to_learners = false), resolved by fn_settle_billing_category.
+// The biller previously wrote a hostel_categories.id into item_category_id,
+// whose FK is billing_categories(id) — that would have failed 23503 on the
+// first live insert, and made the double-bill guard permanently false.
 // ============================================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -104,6 +117,9 @@ export interface SettleCloseResult extends FeePrimitives {
   ac_room_annual?: number;
   base_share?: number;
   ac_share?: number;
+  /** The whole room at this occupancy — what she'd owe in total. NOT the bill. */
+  settled_share?: number;
+  /** What is actually billed: settled_share minus the bed she already pays for. */
   share_per_resident?: number;
   due_date?: string;
   billed_count?: number;
@@ -247,6 +263,29 @@ export function canonicalShare(p: FeePrimitives, occupants: number): number {
 }
 
 /**
+ * What is actually BILLED for a room's empty beds — the settled share MINUS the
+ * one bed the resident already pays for.
+ *
+ * `canonicalShare` above is the whole room divided by its occupants. That total
+ * is NOT the bill. Every live hostel_category bill in production is an upgrade
+ * differential ("Deluxe Room -> Premium Room" ₹7,500 = 42,500 − 35,000) sitting
+ * on top of a base billed through the admission fee structure, which together
+ * put the learner on the per-bed rate for her own bed. Billing her the settled
+ * total would charge that bed a second time.
+ *
+ * Algebraically this is per_bed × (capacity − occupants) / occupants, so it
+ * falls to exactly 0 at full occupancy and there is nothing to settle.
+ *
+ * ONE derivation, used by both the parity gate that authorizes the biller and
+ * the read-only practice run — so the Director cannot be shown one number and
+ * the family billed another.
+ */
+export function settlementCharge(p: FeePrimitives, occupants: number): number {
+  const settled = canonicalShare(p, occupants);
+  return Math.max(0, settled - Number(p.per_bed_annual_rate ?? 0));
+}
+
+/**
  * Re-derive the close figures. Only a 'closed' result bills anyone, so only
  * that status is verified — but if it IS 'closed' and a primitive is missing,
  * that is a FAILED check, not a skipped one. A gate that passes when it cannot
@@ -267,7 +306,7 @@ function closeParity(result: SettleCloseResult): SettleCloseResult {
     return { ...result, parity_ok: false };
   }
 
-  const expected = canonicalShare(result, Number(result.active_occupants));
+  const expected = settlementCharge(result, Number(result.active_occupants));
   const parity_ok = expected === Number(result.share_per_resident);
   if (!parity_ok) {
     logger.error(LOG, 'Fee parity mismatch — SQL biller disagrees with computeFeeBreakdown', {

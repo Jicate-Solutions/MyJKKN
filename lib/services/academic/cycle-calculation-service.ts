@@ -12,6 +12,8 @@
 //   4. If target date is Sunday or holiday → return null (no classes)
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { describeCycleAnchorPhase } from '@/lib/utils/academic/cycle-anchor-phase';
+import type { CycleAnchorPhaseWarning } from '@/lib/utils/academic/cycle-anchor-phase';
 
 /** A JSONB key in timetable_data for cycle format: "cycle-1", "cycle-2", etc. */
 export type CycleKey = `cycle-${number}`;
@@ -79,6 +81,57 @@ export class CycleCalculationService {
   static async getTodaysCycle(timetableId: string): Promise<number | null> {
     const today = new Date().toISOString().split('T')[0];
     return CycleCalculationService.getCycleForDate(timetableId, today);
+  }
+
+  /**
+   * Checks whether a candidate start_date would put a cycle timetable out of
+   * phase with the rest of its institution.
+   *
+   * Added: 2026-08-17 (BUG-005837). start_date is also the rotation anchor, so
+   * two timetables anchored a non-multiple-of-num_cycles number of working days
+   * apart rotate permanently out of step. That is invisible per-timetable and
+   * only shows up on a class SHARED between cohorts — one combined lecture
+   * advertised at two different hours. Catch it while it is still a typo.
+   *
+   * Returns null when there is nothing to warn about, including on any error:
+   * this decorates a form, it must never block saving a timetable.
+   */
+  static async getAnchorPhaseWarning(params: {
+    institutionId: string;
+    startDate: string; // ISO: "YYYY-MM-DD"
+    numCycles: number;
+    /** Omit when creating; pass the row's own id when editing so it is not compared to itself. */
+    excludeTimetableId?: string | null;
+  }): Promise<CycleAnchorPhaseWarning | null> {
+    const { institutionId, startDate, numCycles, excludeTimetableId } = params;
+
+    if (!institutionId || !startDate || !numCycles || numCycles < 2) return null;
+
+    const supabase = createClientSupabaseClient();
+    // `fn_cycle_anchor_peers` was added 2026-08-17 and is not yet in the
+    // generated types/supabase.ts, which enumerates RPC names as a union. Cast
+    // the call rather than hand-editing a generated file; it types correctly on
+    // the next `generate_typescript_types` run, and this line can drop the cast.
+    const { data, error } = await (supabase.rpc as any)('fn_cycle_anchor_peers', {
+      p_institution_id: institutionId,
+      p_start_date: startDate,
+      p_exclude_timetable_id: excludeTimetableId ?? null
+    });
+
+    if (error) {
+      console.warn('[academic/timetables] fn_cycle_anchor_peers failed', error);
+      return null;
+    }
+
+    return describeCycleAnchorPhase({
+      candidateStartDate: startDate,
+      numCycles,
+      peers: (data ?? []).map((row: any) => ({
+        anchorDate: row.anchor_date,
+        timetableCount: row.timetable_count,
+        workingDayGap: row.working_day_gap
+      }))
+    });
   }
 
   /**
