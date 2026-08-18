@@ -73,6 +73,11 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
     { enabled: open && !!termId }
   );
 
+  // Until the occupancy query answers, nothing can be greyed out — so the
+  // Position select stays disabled rather than briefly offering a filled seat
+  // under a hint that claims filled seats are already greyed out.
+  const occupancyReady = !termId || termMembers !== undefined;
+
   // Holder names per position, so a filled seat can say who holds it. This is
   // a convenience only — the service layer re-checks occupancy before
   // inserting, and a unique index backstops that, so a stale list here cannot
@@ -88,8 +93,10 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
     return map;
   }, [termMembers]);
 
+  // Floored at 1 for the same reason as the service guard: max_holders has no
+  // CHECK constraint, and a stored 0 would otherwise grey out every seat.
   const seatIsFull = (position: LCPosition) =>
-    (holdersByPosition.get(position.id)?.length ?? 0) >= (position.max_holders ?? 1);
+    (holdersByPosition.get(position.id)?.length ?? 0) >= Math.max(1, position.max_holders ?? 1);
 
   // The 4 executive seats are elected FROM the sitting council — a learner
   // becomes an LC member first, then is elected President/VP/Secretary/
@@ -182,9 +189,9 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
           <div>
             <Label htmlFor="assign-position">Position</Label>
-            <Select value={positionId} onValueChange={handlePositionChange}>
+            <Select value={positionId} onValueChange={handlePositionChange} disabled={!occupancyReady}>
               <SelectTrigger id="assign-position">
-                <SelectValue placeholder="Select position" />
+                <SelectValue placeholder={occupancyReady ? 'Select position' : 'Checking which seats are free...'} />
               </SelectTrigger>
               <SelectContent>
                 {positions.map((p) => {
@@ -199,7 +206,7 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
                 })}
               </SelectContent>
             </Select>
-            {termId && (
+            {termId && occupancyReady && (
               <p className="text-xs text-muted-foreground mt-1">
                 Seats already filled are greyed out. To replace someone, set their status to
                 Inactive or Graduated in the members list first — the seat frees up immediately.

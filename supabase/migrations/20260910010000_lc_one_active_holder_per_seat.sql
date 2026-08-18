@@ -45,6 +45,39 @@
 -- max_holders. The service guard already handles that case correctly and needs
 -- no change; only this index does.
 --
+-- WHY THE KEY OMITS institution_id — DELIBERATE, NOT AN OVERSIGHT
+-- lc_members carries a NOT NULL institution_id, so keying the seat on
+-- (term_id, position_id) alone looks at first glance like a multi-tenant hole:
+-- one college's President blocking every other college's. It is not, and
+-- adding institution_id would introduce the very corruption this index exists
+-- to prevent. Verified against production 2026-08-18:
+--
+--   lc_positions, is_active = true:
+--     48 rows have institution_id SET      -- the position row IS the tenant
+--      4 rows have institution_id NULL     -- President, Vice President,
+--                                             Secretary, Treasurer
+--
+-- The 48 institution-scoped positions are not shared: each college has its own
+-- position row (titles are institution-specific, e.g. "Representative 1 -
+-- Nursing"), so (term_id, position_id) already identifies exactly one tenant's
+-- seat. Confirmed there is no counter-example live — zero institution-scoped
+-- positions have members drawn from more than one institution:
+--
+--   SELECT p.title, count(DISTINCT m.institution_id)
+--     FROM lc_members m JOIN lc_positions p ON p.id = m.position_id
+--    WHERE p.institution_id IS NOT NULL
+--    GROUP BY 1 HAVING count(DISTINCT m.institution_id) > 1;   -- 0 rows
+--
+-- The 4 NULL-institution rows are the executive seats, and the Learners
+-- Council is a SINGLE cluster-wide council across all 8 colleges — there is
+-- one President, not one per college. Keying on
+-- (institution_id, term_id, position_id) would permit eight simultaneous
+-- active Presidents, which is precisely the two-holders defect this index
+-- closes.
+--
+-- If the council is ever re-modelled as per-college, this reasoning expires
+-- with it and the key must be revisited alongside lc_positions.
+--
 -- WHY status = 'active' AND NOT 'not ended'
 -- 'active' is the application's own definition of a sitting holder. The five
 -- statuses are active / inactive / on_leave / graduated / removed, and the

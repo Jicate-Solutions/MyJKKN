@@ -384,9 +384,12 @@ export class LCStructureService {
 
     return {
       title: position?.title ?? 'This position',
-      // max_holders is nullable in the database (DEFAULT 1). Treat an unset
-      // value as a single-holder seat rather than as "unlimited".
-      maxHolders: position?.max_holders ?? 1,
+      // max_holders is nullable (DEFAULT 1) and carries no CHECK constraint, so
+      // 0 and negatives are storable — the positions UI coerces via
+      // `parseInt(x) || 1`, but an import or a direct write does not. Treat
+      // unset as a single-holder seat, and floor at 1 so a 0 cannot make every
+      // assignment fail with "already has all 0 of its holders ()".
+      maxHolders: Math.max(1, position?.max_holders ?? 1),
       holders: (sitting ?? []).map((row) => {
         const r = row as unknown as { user_id: string; user?: { full_name?: string | null } | null };
         return { user_id: r.user_id, name: r.user?.full_name?.trim() || 'someone already on the council' };
