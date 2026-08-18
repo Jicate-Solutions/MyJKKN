@@ -460,8 +460,12 @@ export class LCStructureService {
       // English rather than leaking "duplicate key value violates ...".
       if (error.code === '23505') {
         if (error.message.includes('lc_members_one_active_holder_per_seat')) {
+          // Deliberately does not promise what max_holders says: the index
+          // enforces exactly one active holder regardless of how the position
+          // is configured, so a seat set to 2 holders is refused here even
+          // though the check above allowed it. Say what actually happened.
           throw new Error(
-            `${seat.title} already has an active holder for this term. End their term first, then assign the new holder.`
+            `${seat.title} already has an active holder for this term — a seat can hold only one active person at a time. End their term first, then assign the new holder.`
           );
         }
         if (error.message.includes('lc_members_unique_position')) {
@@ -493,6 +497,37 @@ export class LCStructureService {
       updateData.ended_at = new Date().toISOString();
     }
 
+    // Bringing someone BACK to active is the other way a seat can end up with
+    // two holders: reinstating a retired officer, or returning an on_leave
+    // holder while a stand-in is sitting active. Same rule as assignMember --
+    // refuse with the sitting holder's name rather than letting the unique
+    // index answer with a raw constraint violation.
+    let seatForMessage: { title: string } | null = null;
+    if (status === 'active') {
+      const { data: current, error: currentError } = await this.supabase
+        .from('lc_members')
+        .select('term_id, position_id, status')
+        .eq('id', id)
+        .single();
+
+      if (currentError) {
+        console.error('[lc/structure] Error reading member before reactivation:', currentError);
+        throw new Error(`Failed to read this member: ${currentError.message}`);
+      }
+
+      const row = current as unknown as { term_id: string; position_id: string; status: string | null };
+      if (row.status !== 'active') {
+        const seat = await this.getSeatOccupancy(row.term_id, row.position_id);
+        seatForMessage = { title: seat.title };
+        if (seat.holders.length >= seat.maxHolders) {
+          const names = seat.holders.map((h) => h.name).join(', ');
+          throw new Error(
+            `${seat.title} is already held by ${names}. End their term first, then set this member back to Active.`
+          );
+        }
+      }
+    }
+
     const { data: member, error } = await this.supabase
       .from('lc_members')
       .update(updateData)
@@ -506,6 +541,12 @@ export class LCStructureService {
       .single();
 
     if (error) {
+      if (error.code === '23505' && error.message.includes('lc_members_one_active_holder_per_seat')) {
+        const title = seatForMessage?.title ?? 'That position';
+        throw new Error(
+          `${title} already has an active holder for this term — a seat can hold only one active person at a time. End their term first, then set this member back to Active.`
+        );
+      }
       console.error('[lc/structure] Error updating member status:', error);
       throw new Error(`Failed to update member status: ${error.message}`);
     }

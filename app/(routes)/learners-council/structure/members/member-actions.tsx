@@ -99,6 +99,18 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
   const isExecutiveSeat = selectedPosition?.category === 'executive';
   const pickerScope = isExecutiveSeat ? 'lc_members' : 'all';
 
+  // Occupancy is per term, so a seat picked while one term was selected may be
+  // filled in the next one. Clear the position (and the learner, whose pool is
+  // also term-scoped for executive seats) rather than carry a stale choice
+  // that only reveals itself as a refusal at submit.
+  const handleTermChange = (nextTermId: string) => {
+    if (nextTermId !== termId) {
+      setPositionId('');
+      setUserId('');
+    }
+    setTermId(nextTermId);
+  };
+
   // Switching between an executive seat and any other seat changes the pool, so
   // a person picked from the previous pool must not silently carry over.
   const handlePositionChange = (nextPositionId: string) => {
@@ -154,7 +166,7 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
         <div className="space-y-4 py-2">
           <div>
             <Label htmlFor="assign-term">Term</Label>
-            <Select value={termId} onValueChange={setTermId}>
+            <Select value={termId} onValueChange={handleTermChange}>
               <SelectTrigger id="assign-term">
                 <SelectValue placeholder="Select term" />
               </SelectTrigger>
