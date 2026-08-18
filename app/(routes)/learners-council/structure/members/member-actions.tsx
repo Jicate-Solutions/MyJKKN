@@ -73,10 +73,10 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
     { enabled: open && !!termId }
   );
 
-  // Holder names per position, so a filled seat can say who holds it. This
-  // reads through the same RLS as everything else: a holder in an institution
-  // the current user cannot see will not appear here, which is why the service
-  // layer re-checks before inserting.
+  // Holder names per position, so a filled seat can say who holds it. This is
+  // a convenience only — the service layer re-checks occupancy before
+  // inserting, and a unique index backstops that, so a stale list here cannot
+  // let a second holder through.
   const holdersByPosition = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const m of termMembers ?? []) {

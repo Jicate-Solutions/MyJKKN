@@ -452,8 +452,10 @@ export class LCStructureService {
 
     if (error) {
       console.error('[lc/structure] Error assigning member:', error);
-      // The check above reads through RLS, so a holder the current user cannot
-      // see is invisible to it and the database index catches the insert
+      // The occupancy check above reads through RLS. lc_members' SELECT policy
+      // is USING (true) for authenticated today, so it sees every holder and
+      // wins the race in practice — but if that policy is ever narrowed, or two
+      // assignments land at once, the database index refuses the insert
       // instead. Translate that raw constraint violation into the same plain
       // English rather than leaking "duplicate key value violates ...".
       if (error.code === '23505') {
