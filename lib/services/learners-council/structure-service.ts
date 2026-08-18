@@ -348,7 +348,65 @@ export class LCStructureService {
   }
 
   /**
-   * Assign a member to a position for a given term
+   * How many people are actively holding a seat, and who they are.
+   *
+   * A "seat" is one (term, position) pair. Used to refuse an assignment that
+   * would give a position more active holders than lc_positions.max_holders
+   * allows — see assignMember().
+   */
+  private static async getSeatOccupancy(termId: string, positionId: string): Promise<{
+    title: string;
+    maxHolders: number;
+    holders: { user_id: string; name: string }[];
+  }> {
+    const { data: position, error: positionError } = await this.supabase
+      .from('lc_positions')
+      .select('title, max_holders')
+      .eq('id', positionId)
+      .single();
+
+    if (positionError) {
+      console.error('[lc/structure] Error reading position for occupancy check:', positionError);
+      throw new Error(`Failed to check the position: ${positionError.message}`);
+    }
+
+    const { data: sitting, error: sittingError } = await this.supabase
+      .from('lc_members')
+      .select('user_id, user:profiles(full_name)')
+      .eq('term_id', termId)
+      .eq('position_id', positionId)
+      .eq('status', 'active');
+
+    if (sittingError) {
+      console.error('[lc/structure] Error reading current holders:', sittingError);
+      throw new Error(`Failed to check the current holders: ${sittingError.message}`);
+    }
+
+    return {
+      title: position?.title ?? 'This position',
+      // max_holders is nullable in the database (DEFAULT 1). Treat an unset
+      // value as a single-holder seat rather than as "unlimited".
+      maxHolders: position?.max_holders ?? 1,
+      holders: (sitting ?? []).map((row) => {
+        const r = row as unknown as { user_id: string; user?: { full_name?: string | null } | null };
+        return { user_id: r.user_id, name: r.user?.full_name?.trim() || 'someone already on the council' };
+      })
+    };
+  }
+
+  /**
+   * Assign a member to a position for a given term.
+   *
+   * Refuses to give a seat more active holders than the position allows. This
+   * has to be checked explicitly: the only relevant database constraint,
+   * lc_members_unique_position (term_id, position_id, user_id), has user_id in
+   * the key, so a DIFFERENT learner assigned to an already-filled seat has a
+   * distinct key and inserts cleanly. Without this check the council silently
+   * ends up with two active Presidents and the screens show only one.
+   *
+   * The intended order of work is unaffected: retire the outgoing officer
+   * (status -> inactive/graduated/removed) and the seat frees immediately,
+   * because only 'active' rows count as holders.
    */
   static async assignMember(data: {
     term_id: string;
@@ -357,6 +415,26 @@ export class LCStructureService {
     institution_id: string;
     appointment_notes?: string;
   }): Promise<LCMember> {
+    const seat = await this.getSeatOccupancy(data.term_id, data.position_id);
+
+    if (seat.holders.length >= seat.maxHolders) {
+      const alreadyThisPerson = seat.holders.some((h) => h.user_id === data.user_id);
+      const names = seat.holders.map((h) => h.name).join(', ');
+
+      if (alreadyThisPerson) {
+        throw new Error(`${names} already holds ${seat.title} for this term.`);
+      }
+      if (seat.maxHolders === 1) {
+        throw new Error(
+          `${seat.title} is already held by ${names}. End their term first, then assign the new holder.`
+        );
+      }
+      throw new Error(
+        `${seat.title} already has all ${seat.maxHolders} of its holders (${names}). ` +
+          `End one of their terms first, then assign the new holder.`
+      );
+    }
+
     const { data: member, error } = await this.supabase
       .from('lc_members')
       .insert({
@@ -374,6 +452,20 @@ export class LCStructureService {
 
     if (error) {
       console.error('[lc/structure] Error assigning member:', error);
+      // The check above reads through RLS, so a holder the current user cannot
+      // see is invisible to it and the database index catches the insert
+      // instead. Translate that raw constraint violation into the same plain
+      // English rather than leaking "duplicate key value violates ...".
+      if (error.code === '23505') {
+        if (error.message.includes('lc_members_one_active_holder_per_seat')) {
+          throw new Error(
+            `${seat.title} already has an active holder for this term. End their term first, then assign the new holder.`
+          );
+        }
+        if (error.message.includes('lc_members_unique_position')) {
+          throw new Error(`This learner has already been assigned to ${seat.title} for this term.`);
+        }
+      }
       throw new Error(`Failed to assign member: ${error.message}`);
     }
 

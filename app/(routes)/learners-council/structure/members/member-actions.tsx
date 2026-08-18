@@ -5,7 +5,7 @@
  * Includes assign member dialog, status update, and position history viewer
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
@@ -39,7 +39,8 @@ import { UserPlus, Filter, History, X } from 'lucide-react';
 import {
   useAssignMember,
   useUpdateMemberStatus,
-  usePositionHistory
+  usePositionHistory,
+  useLCMembers
 } from '@/hooks/learners-council/use-lc-structure';
 import type { LCPosition, LCTerm } from '@/types/learners-council';
 
@@ -63,6 +64,33 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
 
   const assignMember = useAssignMember();
 
+  // Which seats in this term are already taken. A position may not be given
+  // more active holders than its max_holders allows, so a filled seat is shown
+  // as filled instead of being offered and refused after the fact. Only
+  // fetched once a term is chosen and the dialog is open.
+  const { data: termMembers } = useLCMembers(
+    { term_id: termId, status: 'active' },
+    { enabled: open && !!termId }
+  );
+
+  // Holder names per position, so a filled seat can say who holds it. This
+  // reads through the same RLS as everything else: a holder in an institution
+  // the current user cannot see will not appear here, which is why the service
+  // layer re-checks before inserting.
+  const holdersByPosition = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const m of termMembers ?? []) {
+      const positionId = (m as { position_id?: string }).position_id;
+      if (!positionId) continue;
+      const name = ((m as { user?: { full_name?: string | null } | null }).user?.full_name || '').trim();
+      map.set(positionId, [...(map.get(positionId) ?? []), name || 'a sitting member']);
+    }
+    return map;
+  }, [termMembers]);
+
+  const seatIsFull = (position: LCPosition) =>
+    (holdersByPosition.get(position.id)?.length ?? 0) >= (position.max_holders ?? 1);
+
   // The 4 executive seats are elected FROM the sitting council — a learner
   // becomes an LC member first, then is elected President/VP/Secretary/
   // Treasurer (ElectionType 'executive_rotation'). So for an executive seat the
@@ -84,13 +112,20 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
   const handleSubmit = async () => {
     if (!termId || !positionId || !userId || !institutionId) return;
 
-    await assignMember.mutateAsync({
-      term_id: termId,
-      position_id: positionId,
-      user_id: userId,
-      institution_id: institutionId,
-      appointment_notes: notes || undefined
-    });
+    try {
+      await assignMember.mutateAsync({
+        term_id: termId,
+        position_id: positionId,
+        user_id: userId,
+        institution_id: institutionId,
+        appointment_notes: notes || undefined
+      });
+    } catch {
+      // useAssignMember already shows the reason as a toast. Keep the dialog
+      // open with the entries intact so the fix — retire the sitting holder,
+      // then assign — can be made without filling the form in again.
+      return;
+    }
 
     setTermId('');
     setPositionId('');
@@ -140,13 +175,24 @@ export function AssignMemberDialog({ positions, terms, institutions }: AssignMem
                 <SelectValue placeholder="Select position" />
               </SelectTrigger>
               <SelectContent>
-                {positions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.title} ({p.category})
-                  </SelectItem>
-                ))}
+                {positions.map((p) => {
+                  const holders = holdersByPosition.get(p.id) ?? [];
+                  const full = seatIsFull(p);
+                  return (
+                    <SelectItem key={p.id} value={p.id} disabled={full}>
+                      {p.title} ({p.category})
+                      {full && ` — held by ${holders.join(', ')}`}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
+            {termId && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Seats already filled are greyed out. To replace someone, set their status to
+                Inactive or Graduated in the members list first — the seat frees up immediately.
+              </p>
+            )}
           </div>
 
           <div>
