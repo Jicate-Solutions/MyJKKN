@@ -22,7 +22,10 @@ import {
   AlertCircle,
   IndianRupee,
   CreditCard,
-  Home
+  Home,
+  Award,
+  Users,
+  UserCircle
 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
@@ -549,6 +552,47 @@ export default function StudentBillingDetailPage() {
                       </p>
                       <p className='text-sm text-muted-foreground truncate'>
                         {student.section?.section_name || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  {/* Quota and Community are the dimensions a fee structure is
+                      matched on, so when a learner shows the wrong fee (or
+                      "no fee structure configured") these two are the first
+                      thing accounts checks. Both are FK-only on
+                      learners_profiles — the legacy text columns were dropped. */}
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <Award className='h-4 w-4 text-amber-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Quota
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.quota?.name || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <Users className='h-4 w-4 text-fuchsia-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Community
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate'>
+                        {student.community_category?.code || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+                  {/* gender is free text on learners_profiles with no CHECK and
+                      mixed casing (FEMALE / male / Male) plus empty-string rows,
+                      so lower-case it and let `capitalize` render one form. */}
+                  <div className='flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800'>
+                    <UserCircle className='h-4 w-4 text-sky-600 shrink-0' />
+                    <div className='min-w-0 flex-1'>
+                      <p className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                        Gender
+                      </p>
+                      <p className='text-sm text-muted-foreground truncate capitalize'>
+                        {student.gender?.trim().toLowerCase() || 'N/A'}
                       </p>
                     </div>
                   </div>
