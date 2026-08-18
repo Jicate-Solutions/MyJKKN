@@ -640,6 +640,13 @@ export interface StudentForBilling {
   program_id?: string;
   semester_id?: string;
   section_id?: string;
+  // Quota and community are the two demographic dimensions a fee structure
+  // resolves on, and gender drives the hostel/mess bands — accounts reads all
+  // three next to the academic hierarchy when a bill looks wrong. Selected by
+  // getStudentForBilling only; the list query does not carry them.
+  gender?: string;
+  quota_id?: string;
+  community_category_id?: string;
   // Accommodation type off learners_profiles. Surfaced on the
   // /billing/schedule/students/[id] detail page (Accommodation card) and used by
   // the accommodation-type filter on the list pages.
@@ -683,6 +690,17 @@ export interface StudentForBilling {
   section?: {
     id: string;
     section_name: string;
+  };
+  quota?: {
+    id: string;
+    name: string;
+  };
+  // community_categories.code ('OC' | 'BC' | 'MBC' | 'SC' | 'ST' | …) is the
+  // string every other learner surface displays (learner-detail, my-profile,
+  // the API boundary), so billing shows the same one.
+  community_category?: {
+    id: string;
+    code: string;
   };
   accommodation_type?: {
     id: string;
