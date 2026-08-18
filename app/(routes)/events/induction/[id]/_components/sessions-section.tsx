@@ -15,6 +15,7 @@ import { PersonAvailabilityService } from '@/lib/services/availability/person-av
 import { useAuth } from '@/hooks/use-auth';
 import { AttendanceDialog } from './attendance-dialog';
 import { AttendanceCoverageBanner } from './attendance-coverage-banner';
+import { AttendancePdfButton } from './attendance-pdf-button';
 import { DayAttendanceDialog } from './day-attendance-dialog';
 import { FeedbackKioskDialog } from './feedback-kiosk-dialog';
 import { SessionPollDialog } from './session-poll-dialog';
@@ -544,7 +545,10 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                     )}
                     <div className="h-px flex-1 bg-border" />
                     {d !== 0 && canManage && (
-                      <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                      <>
+                        <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                        <AttendancePdfButton eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                      </>
                     )}
                   </div>
 
@@ -628,6 +632,9 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                           {canOperate && (
                             <>
                               <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
+                              {/* Sits next to the attendance icon on purpose — mark
+                                  it, then download the sheet for that same session. */}
+                              <AttendancePdfButton eventId={eventId} session={s} />
                               <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
                               <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
                             </>

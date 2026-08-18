@@ -250,11 +250,41 @@ export function AttendanceDialog({
                 </div>
               )}
               {group.rows.map((row) => (
-                <div key={row.learner_id} className="flex items-center justify-between gap-2 py-2">
+                <div
+                  key={row.learner_id}
+                  className={`flex items-center justify-between gap-2 px-3 py-2 ${marks[row.learner_id] ? '' : 'bg-muted/30'}`}
+                >
+                  {/* Identity block. register_number is NULL for most freshers at
+                      induction time, so program + father's mobile are what
+                      actually separate two "AKASH"s on a 225-name roster — the
+                      same fields the search box matches on. */}
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{row.name || 'Unnamed'}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.register_number ?? '—'}{row.batch_label ? ` · Batch ${row.batch_label}` : ''}
+                    <div className="text-sm font-medium truncate">
+                      {row.name || 'Unnamed'}
+                      {row.register_number && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
+                          {row.register_number}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                      {row.program_name && (
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <GraduationCap className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{row.program_name}</span>
+                        </span>
+                      )}
+                      {row.father_mobile && (
+                        <a
+                          href={`tel:${row.father_mobile}`}
+                          className="inline-flex items-center gap-1 tabular-nums hover:text-foreground hover:underline"
+                          title="Father's mobile"
+                        >
+                          <Phone className="h-3 w-3 shrink-0" />
+                          {row.father_mobile}
+                        </a>
+                      )}
+                      {row.batch_label && <span>Batch {row.batch_label}</span>}
                     </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
