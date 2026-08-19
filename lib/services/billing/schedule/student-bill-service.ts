@@ -496,15 +496,85 @@ export class StudentBillService {
         ? await this.resolveAdmissionYearIds(filters.admission_year)
         : null;
 
+      // ── Search strategy ────────────────────────────────────────────────
+      // PostgREST cannot mix parent and embedded columns inside one top-level
+      // logical tree — `or=(bill_description.ilike.*,student.first_name.ilike.*)`
+      // is rejected with "failed to parse logic tree". So matching EITHER the
+      // bill description OR the learner's name means pre-resolving the learner
+      // ids and OR-ing them in as `student_id.in.(...)`.
+      //
+      // Those ids travel in the request URL. A broad term (e.g. a single "A")
+      // matches thousands of learners, and ~400 uuids (~15KB of query string)
+      // overruns the gateway's max request line: the call comes back as
+      // "Bad Request"/"fetch failed" and the table renders "Failed to load
+      // data". Inline the ids only while the list is small; once the term is
+      // broad enough to overflow, drop to an !inner join and filter the
+      // learner in-database instead — unbounded, one round trip, no URL growth.
+      const MAX_INLINE_STUDENT_IDS = 150;
+
+      const searchTerm = filters.search
+        ? filters.search.replace(/[,()]/g, ' ').trim()
+        : '';
+
+      // Multi-word terms are AND-ed token by token. Matching the WHOLE phrase
+      // against each column individually made "AKASH V" return nothing — no
+      // single column holds it (first_name is 'AKASH', last_name is 'V').
+      // Chained .or() calls are AND-ed by PostgREST, so each token must hit
+      // SOME searchable column while different tokens may land on different
+      // columns. Order is irrelevant ("V AKASH" works), and mixed terms like
+      // "AKASH PB25" (name + roll fragment) now work too. A single token
+      // produces exactly one .or(), i.e. the previous behaviour unchanged.
+      // Capped at 5 tokens so a pasted sentence can't build a huge URL.
+      const searchTokens = searchTerm
+        ? searchTerm.split(/\s+/).filter(Boolean).slice(0, 5)
+        : [];
+
+      // The learner columns a search token may land on. Shared by both modes so
+      // the inline lookup and the !inner fallback stay in step.
+      const learnerSearchOr = (like: string) =>
+        `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like},college_email.ilike.${like}`;
+
+      // Non-null → inline `student_id.in.(...)` mode; searchViaJoin → !inner mode.
+      let searchStudentIds: string[] | null = null;
+      let searchViaJoin = false;
+
+      if (searchTokens.length > 0) {
+        let learnerQuery = (this.supabase as any)
+          .from('learners_profiles')
+          .select('id');
+
+        for (const token of searchTokens) {
+          learnerQuery = learnerQuery.or(learnerSearchOr(`%${token}%`));
+        }
+
+        // One past the cap is all we need to know the list overflows.
+        const { data: matchedStudents, error: studentLookupErr } =
+          await learnerQuery.limit(MAX_INLINE_STUDENT_IDS + 1);
+
+        if (studentLookupErr) throw studentLookupErr;
+
+        const ids = (matchedStudents ?? [])
+          .map((s: { id: string }) => s.id)
+          .filter(Boolean);
+
+        if (ids.length > MAX_INLINE_STUDENT_IDS) {
+          searchViaJoin = true;
+        } else {
+          searchStudentIds = ids;
+        }
+      }
+
       // Any filter that targets a column on the embedded learner requires the
       // INNER-join variant of the select. lifecycle_status lives on
       // learners_profiles, so it joins the same club as the academic +
-      // accommodation filters.
+      // accommodation filters — as does a broad search that fell back to the
+      // in-database learner match above.
       const hasStudentFilters =
         hasAcademicFilters ||
         accommodationTypeIds !== null ||
         admissionYearIds !== null ||
-        !!filters.lifecycle_status;
+        !!filters.lifecycle_status ||
+        searchViaJoin;
 
       let query;
 
@@ -620,55 +690,29 @@ export class StudentBillService {
         );
       }
 
-      // Apply search filter. PostgREST .or() cannot reference embedded-resource
-      // columns (e.g. `student.first_name.ilike.X`) — the parser only allows
-      // <column>.<operator>.<value> on the parent table. To search both the
-      // bill description AND the joined student fields, pre-resolve the
-      // matching student IDs and OR them in as `student_id.in.(...)`.
-      if (filters.search) {
-        const term = filters.search.replace(/[,()]/g, ' ').trim();
-        const like = `%${term}%`;
-
-        const orParts: string[] = [`bill_description.ilike.${like}`];
-
-        // Multi-word terms are AND-ed token by token. Matching the WHOLE phrase
-        // against each column individually made "AKASH V" return nothing — no
-        // single column holds it (first_name is 'AKASH', last_name is 'V').
-        // Chained .or() calls are AND-ed by PostgREST, so each token must hit
-        // SOME searchable column while different tokens may land on different
-        // columns. Order is irrelevant ("V AKASH" works), and mixed terms like
-        // "AKASH PB25" (name + roll fragment) now work too. A single token
-        // produces exactly one .or(), i.e. the previous behaviour unchanged.
-        // Capped at 5 tokens so a pasted sentence can't build a huge URL.
-        const tokens = term.split(/\s+/).filter(Boolean).slice(0, 5);
-
-        if (tokens.length > 0) {
-          let learnerQuery = (this.supabase as any)
-            .from('learners_profiles')
-            .select('id');
-
-          for (const token of tokens) {
-            const tokenLike = `%${token}%`;
-            learnerQuery = learnerQuery.or(
-              `first_name.ilike.${tokenLike},last_name.ilike.${tokenLike},roll_number.ilike.${tokenLike},college_email.ilike.${tokenLike}`
-            );
+      // Apply the search resolved above (see the MAX_INLINE_STUDENT_IDS note).
+      if (searchTokens.length > 0) {
+        if (searchViaJoin) {
+          // Broad term: match the learner in-database via the !inner embed.
+          // Scoped to the referenced table, so it AND's with any other learner
+          // filter (department, lifecycle, …) rather than widening them. One
+          // .or() per token, matching the token AND-ing of the inline path.
+          // bill_description is not OR'd in here — PostgREST can't span the
+          // join — but at >150 matching learners the name match dominates.
+          for (const token of searchTokens) {
+            query = query.or(learnerSearchOr(`%${token}%`), {
+              referencedTable: 'student'
+            });
           }
-
-          const { data: matchedStudents, error: studentLookupErr } =
-            await learnerQuery.limit(1000);
-
-          if (studentLookupErr) throw studentLookupErr;
-
-          const studentIds = (matchedStudents ?? [])
-            .map((s: { id: string }) => s.id)
-            .filter(Boolean);
-
-          if (studentIds.length > 0) {
-            orParts.push(`student_id.in.(${studentIds.join(',')})`);
+        } else {
+          const orParts: string[] = [
+            `bill_description.ilike.%${searchTerm}%`
+          ];
+          if (searchStudentIds && searchStudentIds.length > 0) {
+            orParts.push(`student_id.in.(${searchStudentIds.join(',')})`);
           }
+          query = query.or(orParts.join(','));
         }
-
-        query = query.or(orParts.join(','));
       }
 
       if (filters.student_id) {
@@ -930,7 +974,11 @@ export class StudentBillService {
     } catch (error) {
       // Supabase errors are plain objects — console.error alone prints "{}".
       console.error('Error fetching student bills:', getErrorMessage(error), error);
-      throw error;
+      // …and a plain object fails `error instanceof Error` in the DataTable,
+      // which then shows the useless "Failed to load data: Unknown error".
+      // Re-wrap so the real cause reaches the screen; `cause` keeps the original.
+      if (error instanceof Error) throw error;
+      throw new Error(getErrorMessage(error), { cause: error });
     }
   }
 
