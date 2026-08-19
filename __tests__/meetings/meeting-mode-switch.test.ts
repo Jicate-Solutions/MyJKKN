@@ -26,6 +26,7 @@ import {
   effectiveLocationMode,
   isSwitchAllowedNow,
   switchRequestState,
+  switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
 import { MeetingModeSwitchService } from '@/lib/services/meetings/meeting-mode-switch-service';
 
@@ -36,6 +37,8 @@ import { MeetingModeSwitchService } from '@/lib/services/meetings/meeting-mode-s
 
 const getConnection = vi.fn();
 const patchEventToOnline = vi.fn();
+const getEvent = vi.fn();
+const revertEventFromOnline = vi.fn();
 const sendSwitchedEmails = vi.fn();
 const getMeetingType = vi.fn();
 const resolveMoveContext = vi.fn();
@@ -44,6 +47,8 @@ vi.mock('@/lib/services/integrations/google-calendar-service', () => ({
   GoogleCalendarService: {
     getConnection: (...a: unknown[]) => getConnection(...a),
     patchEventToOnline: (...a: unknown[]) => patchEventToOnline(...a),
+    getEvent: (...a: unknown[]) => getEvent(...a),
+    revertEventFromOnline: (...a: unknown[]) => revertEventFromOnline(...a),
   },
 }));
 
@@ -172,6 +177,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   getConnection.mockResolvedValue({ status: 'active' });
   patchEventToOnline.mockResolvedValue({ ok: true, meetUrl: 'https://meet.google.com/abc-defg-hij' });
+  // The re-read only runs when the PATCH came back without a link; default it
+  // to "still no link" so a test that wants the retry to succeed must say so.
+  getEvent.mockResolvedValue({ startIso: START, endIso: END, meetUrl: null });
+  revertEventFromOnline.mockResolvedValue(true);
   sendSwitchedEmails.mockResolvedValue({ attendee: { success: true }, host: { success: true } });
   getMeetingType.mockResolvedValue({ ...MEETING_TYPE });
   // Default: no move requested → timezone only. When a start IS requested the
@@ -200,6 +209,25 @@ describe('meeting-mode-switch (pure rules)', () => {
   it('an unrecognised override falls back to the type, never to an unknown mode', () => {
     expect(effectiveLocationMode('phone', 'hologram')).toBe('phone');
     expect(effectiveLocationMode('nonsense', null)).toBe('in_person');
+  });
+
+  // The GATE must not reuse effectiveLocationMode. That helper answers "what do
+  // we SHOW", and it deliberately falls back to 'in_person' for a mode it does
+  // not recognise — which as a gate would wave through exactly the modes nobody
+  // has decided about. switchSourceMode reads the type's RAW mode instead.
+  it('only a genuinely in_person type is a switchable source', () => {
+    expect(switchSourceMode('in_person', null)).toBe('in_person');
+    expect(switchSourceMode('online', null)).toBe('online');
+    expect(switchSourceMode('in_person', 'online')).toBe('online');
+  });
+
+  it('phone and any unrecognised mode are unsupported, not in_person', () => {
+    // 95 of the live meeting types are phone. Scope is in_person -> online only.
+    expect(switchSourceMode('phone', null)).toBe('unsupported');
+    // The exact shape effectiveLocationMode would have mislabelled 'in_person'.
+    expect(switchSourceMode('nonsense', null)).toBe('unsupported');
+    expect(switchSourceMode(null, null)).toBe('unsupported');
+    expect(switchSourceMode(undefined, null)).toBe('unsupported');
   });
 
   it('the cut-off is min_notice_min before the meeting starts', () => {
@@ -399,6 +427,32 @@ describe('MeetingModeSwitchService.switchToOnline (host)', () => {
     expect(updates).toHaveLength(0);
   });
 
+  it('refuses a PHONE booking, with its own code rather than ALREADY_ONLINE', async () => {
+    // A phone booking is not online, so ALREADY_ONLINE would be a lie to the
+    // host. Scope is in_person -> online; phone was never decided.
+    getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'phone' });
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    expect(res).toMatchObject({ ok: false, error: 'UNSUPPORTED_SOURCE_MODE' });
+    expect(updates).toHaveLength(0);
+    expect(patchEventToOnline).not.toHaveBeenCalled();
+    expect(sendSwitchedEmails).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unrecognised source mode instead of defaulting it to in_person', async () => {
+    getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'hologram' });
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    expect(res).toMatchObject({ ok: false, error: 'UNSUPPORTED_SOURCE_MODE' });
+    expect(updates).toHaveLength(0);
+  });
+
   it('refuses a booking with no Google event to upgrade', async () => {
     const { db, updates } = makeDb({ booking: makeBooking({ google_event_id: null }) });
     const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
@@ -424,6 +478,13 @@ describe('MeetingModeSwitchService — all-or-nothing', () => {
     );
 
     expect(res).toMatchObject({ ok: false, error: 'NO_MEET_LINK' });
+    // The PATCH landed, so Google carries the change too — it must be undone
+    // there as well, and put back at the ORIGINAL time since this one moved.
+    expect(revertEventFromOnline).toHaveBeenCalledOnce();
+    expect(revertEventFromOnline.mock.calls[0][3]).toMatchObject({
+      startIso: START,
+      endIso: END,
+    });
     // The claim happened, then was undone to the EXACT prior values.
     expect(revertPatch(updates)).toMatchObject({
       location_mode_override: null,
@@ -502,13 +563,128 @@ describe('MeetingModeSwitchService — all-or-nothing', () => {
 
     expect(res).toMatchObject({ ok: false, error: 'INTERNAL' });
     expect(revertPatch(updates)).toMatchObject({ location_mode_override: null });
+    // Google had already been patched here too, so the rollback reaches it.
+    expect(revertEventFromOnline).toHaveBeenCalledOnce();
     expect(sendSwitchedEmails).not.toHaveBeenCalled();
+  });
+
+  // ── the PATCH landed but carried no link ───────────────────────────────────
+  // These three cover the branch the first verifier flagged: patched.ok is TRUE
+  // here, so Google has already been changed AND has already emailed the
+  // visitor. Reverting only the database would leave the two systems disagreeing
+  // about a meeting the visitor has already been told about.
+
+  it('re-reads the event once, and CONTINUES when the link has appeared', async () => {
+    // Google routinely provisions conferenceData a moment after the PATCH
+    // answers. That is not a failure — asking again is the whole fix.
+    patchEventToOnline.mockResolvedValue({ ok: true, meetUrl: null });
+    getEvent.mockResolvedValue({
+      startIso: START,
+      endIso: END,
+      meetUrl: 'https://meet.google.com/late-link-xyz',
+    });
+
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    expect(getEvent).toHaveBeenCalledOnce();
+    expect(res).toMatchObject({ ok: true });
+    expect(res.data?.videoUrl).toBe('https://meet.google.com/late-link-xyz');
+    // Nothing was rolled back, on either side.
+    expect(revertEventFromOnline).not.toHaveBeenCalled();
+    expect(revertPatch(updates)).toBeUndefined();
+    // The late link is the one recorded and the one emailed.
+    expect(updates.some((u) => u.video_url === 'https://meet.google.com/late-link-xyz')).toBe(true);
+    expect(sendSwitchedEmails.mock.calls[0][0]).toMatchObject({
+      videoUrl: 'https://meet.google.com/late-link-xyz',
+    });
+  });
+
+  it('reverts GOOGLE FIRST, then the row, when the re-read still finds no link', async () => {
+    patchEventToOnline.mockResolvedValue({ ok: true, meetUrl: null });
+    getEvent.mockResolvedValue({ startIso: START, endIso: END, meetUrl: null });
+
+    const { db, updates } = makeDb();
+    // Order, not just outcome: at the moment Google is undone, the only write
+    // so far must still be the claim — i.e. the row has NOT been restored yet.
+    let updatesWhenGoogleReverted = -1;
+    revertEventFromOnline.mockImplementation(async () => {
+      updatesWhenGoogleReverted = updates.length;
+      return true;
+    });
+
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    expect(res).toMatchObject({ ok: false, error: 'NO_MEET_LINK' });
+    expect(getEvent).toHaveBeenCalledOnce();
+    expect(revertEventFromOnline).toHaveBeenCalledOnce();
+    expect(updatesWhenGoogleReverted).toBe(1); // the claim, and nothing else
+    // …and the row is restored afterwards.
+    expect(revertPatch(updates)).toMatchObject({ location_mode_override: null });
+    expect(sendSwitchedEmails).not.toHaveBeenCalled();
+  });
+
+  it('names the inconsistency when the GOOGLE revert itself fails', async () => {
+    patchEventToOnline.mockResolvedValue({ ok: true, meetUrl: null });
+    getEvent.mockResolvedValue({ startIso: START, endIso: END, meetUrl: null });
+    revertEventFromOnline.mockResolvedValue(false);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    // A distinct code — NOT NO_MEET_LINK, which would imply a clean rollback.
+    expect(res).toMatchObject({ ok: false, error: 'GOOGLE_OUT_OF_SYNC' });
+    // The row is still restored: "online with no link" is the one state
+    // decision 6 exists to prevent, so it is never what we keep.
+    expect(revertPatch(updates)).toMatchObject({ location_mode_override: null });
+    // Loud, and carrying both identifiers a human needs to go find the event.
+    const line = logged.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(line).toContain('GOOGLE ROLLBACK FAILED');
+    expect(line).toContain('bk-abc');
+    expect(line).toContain('gcal-evt-1');
+    logged.mockRestore();
+  });
+
+  it('does NOT touch Google when the PATCH itself never applied', async () => {
+    // Branch (a): Google was never changed, so the row alone is the whole
+    // rollback. Undoing conferencing that was never added would be noise —
+    // and with sendUpdates=all it would mail the visitor for nothing.
+    patchEventToOnline.mockResolvedValue({ ok: false, meetUrl: null });
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.switchToOnline(db, 'bk-abc', {
+      actorProfileId: HOST,
+    }, { now: NOW });
+
+    expect(res).toMatchObject({ ok: false, error: 'GOOGLE_FAILED' });
+    expect(getEvent).not.toHaveBeenCalled();
+    expect(revertEventFromOnline).not.toHaveBeenCalled();
+    expect(revertPatch(updates)).toMatchObject({ location_mode_override: null });
   });
 });
 
 // ── visitor asks, host decides ───────────────────────────────────────────────
 
 describe('MeetingModeSwitchService.requestSwitchToOnline (visitor)', () => {
+  it('refuses a PHONE booking from the visitor path too (both gates, not one)', async () => {
+    // The guard lives in applySwitch AND requestSwitchToOnline. A visitor must
+    // not be able to open a pending request the host could never approve.
+    getMeetingType.mockResolvedValue({ ...MEETING_TYPE, location_mode: 'phone' });
+    const { db, updates } = makeDb();
+    const res = await MeetingModeSwitchService.requestSwitchToOnline(db, 'bk-abc', TOKEN, {
+      now: NOW,
+    });
+
+    expect(res).toMatchObject({ ok: false, error: 'UNSUPPORTED_SOURCE_MODE' });
+    expect(updates).toHaveLength(0);
+  });
+
   it('records a PENDING request and mutates nothing else (decision 4)', async () => {
     const { db, updates } = makeDb();
     const res = await MeetingModeSwitchService.requestSwitchToOnline(db, 'bk-abc', TOKEN, {

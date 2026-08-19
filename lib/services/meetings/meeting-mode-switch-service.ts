@@ -32,20 +32,28 @@
 //      about a booking someone else just moved or cancelled.
 //   4. patch Google (conferencing + the new time in ONE call)
 //   5. on any failure — including Google returning no Meet link — restore the
-//      row to the exact values captured in step 3.
-// The window between 3 and 5 is the only inconsistency, it is server-side,
-// sub-second, and a reader in it sees "online, link pending" rather than
-// anything destructive.
+//      row to the exact values captured in step 3, AND undo Google whenever the
+//      PATCH already landed. Which of the two systems changed decides the
+//      rollback: a PATCH that never applied leaves Google untouched, so the row
+//      alone is restored; a PATCH that applied has also already emailed the
+//      visitor, so Google is reverted FIRST and the row second (revertBoth).
+// Two inconsistencies remain, both bounded and named:
+//   • the window between 3 and 5 — server-side, sub-second, and a reader in it
+//     sees "online, link pending" rather than anything destructive;
+//   • a rollback whose Google half ALSO fails — the booking reads in-person
+//     while the calendar event may still carry conferencing. That one is
+//     logged with the uid and google_event_id and reported to the host as
+//     GOOGLE_OUT_OF_SYNC, never as a clean "nothing was changed".
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
 import { NativeSchedulingService } from '@/lib/services/meetings/native-scheduling-service';
 import {
-  effectiveLocationMode,
   isSwitchAllowedNow,
   resolvedRequestPatch,
   switchRequestState,
+  switchSourceMode,
 } from './meeting-mode-switch';
 
 const LOG_PREFIX = '[meeting-mode-switch]';
@@ -61,6 +69,12 @@ export type ModeSwitchError =
   | 'FORBIDDEN'
   /** Already online — nothing to do. */
   | 'ALREADY_ONLINE'
+  /**
+   * The booking is neither in-person nor online — today that means a PHONE
+   * meeting type. Deliberately NOT reported as ALREADY_ONLINE, which would be
+   * a plain lie to someone holding a phone booking.
+   */
+  | 'UNSUPPORTED_SOURCE_MODE'
   /** Inside the meeting type's min_notice_min window (decision 8). */
   | 'TOO_LATE'
   /** Decision 7: no usable Google Calendar connection, named as the real reason. */
@@ -75,6 +89,13 @@ export type ModeSwitchError =
   | 'NO_MEET_LINK'
   /** The Google patch itself failed (outage, token refused after the check). */
   | 'GOOGLE_FAILED'
+  /**
+   * The switch failed AFTER Google had already been changed, and undoing it on
+   * Google failed too. The booking is back to in-person but the calendar event
+   * may still show a video call — a named inconsistency, logged, needing a
+   * human look. Never reported as a clean rollback.
+   */
+  | 'GOOGLE_OUT_OF_SYNC'
   /** Approve/decline with no live request to act on. */
   | 'NO_REQUEST'
   | 'INTERNAL';
@@ -242,9 +263,9 @@ export class MeetingModeSwitchService {
     const mt = await NativeSchedulingService.getMeetingType(supabase, booking.meeting_type_id);
     if (!mt) return { ok: false, error: 'NOT_FOUND' };
 
-    if (effectiveLocationMode(mt.location_mode, booking.location_mode_override) === 'online') {
-      return { ok: false, error: 'ALREADY_ONLINE' };
-    }
+    const source = switchSourceMode(mt.location_mode, booking.location_mode_override);
+    if (source === 'online') return { ok: false, error: 'ALREADY_ONLINE' };
+    if (source !== 'in_person') return { ok: false, error: 'UNSUPPORTED_SOURCE_MODE' };
 
     const now = opts.now ?? new Date();
     // Decision C, first of the two checks. The second runs at approval.
@@ -368,9 +389,12 @@ export class MeetingModeSwitchService {
     const mt = await NativeSchedulingService.getMeetingType(supabase, booking.meeting_type_id);
     if (!mt) return { ok: false, error: 'NOT_FOUND' };
 
-    if (effectiveLocationMode(mt.location_mode, booking.location_mode_override) === 'online') {
-      return { ok: false, error: 'ALREADY_ONLINE' };
-    }
+    // in_person -> online, one direction only. A phone booking is refused with
+    // its own code rather than ALREADY_ONLINE (which would be untrue) — the
+    // migration's column comment records this as the feature's whole scope.
+    const source = switchSourceMode(mt.location_mode, booking.location_mode_override);
+    if (source === 'online') return { ok: false, error: 'ALREADY_ONLINE' };
+    if (source !== 'in_person') return { ok: false, error: 'UNSUPPORTED_SOURCE_MODE' };
 
     const now = opts.now ?? new Date();
     if (!isSwitchAllowedNow(booking.start_time, mt.min_notice_min, now)) {
@@ -457,26 +481,52 @@ export class MeetingModeSwitchService {
       patched = { ok: false, meetUrl: null };
     }
 
-    // Decision D: no Meet link is a FAILURE here, and the whole switch rolls
-    // back. This is deliberately stricter than host-scheduling-service.ts,
-    // which only warns — there the invite had ALREADY gone out and the meeting
-    // existed, so a warning was the honest outcome. Here nothing has been
-    // committed to the visitor yet, so a booking that says "online" with no
-    // link is a worse result than a switch that plainly did not happen.
-    if (!patched.ok || !patched.meetUrl) {
+    // The two failure shapes are NOT the same and must not be handled together.
+    //
+    // (a) The PATCH failed. Google was never changed, so restoring the row puts
+    //     the two systems back in agreement and nobody has been told anything.
+    if (!patched.ok) {
       await this.revert(supabase, booking);
-      return { ok: false, error: patched.ok ? 'NO_MEET_LINK' : 'GOOGLE_FAILED' };
+      return { ok: false, error: 'GOOGLE_FAILED' };
+    }
+
+    // (b) The PATCH SUCCEEDED but carried no Meet link. Google IS changed —
+    //     the event now has conferencing and, when moving, the new time, and
+    //     sendUpdates=all has already emailed the visitor. Reverting only the
+    //     database here would leave Google online while the booking says
+    //     in-person, with the visitor told about a change that did not happen.
+    let meetUrl = patched.meetUrl;
+    if (!meetUrl) {
+      // Re-read once. Google routinely provisions conferenceData a moment after
+      // the PATCH returns, so the commonest cause of an empty link is that we
+      // asked too early — not that conferencing failed.
+      const fresh = await GoogleCalendarService.getEvent(
+        supabase,
+        booking.host_profile_id,
+        booking.google_event_id,
+      );
+      if (fresh && typeof fresh === 'object' && fresh.meetUrl) meetUrl = fresh.meetUrl;
+    }
+
+    if (!meetUrl) {
+      // Decision D: no link is a FAILURE, and now the rollback must reach BOTH
+      // systems, because Google is the one already carrying the change.
+      const undone = await this.revertBoth(supabase, booking, timeMoved, timezone);
+      return { ok: false, error: undone ? 'NO_MEET_LINK' : 'GOOGLE_OUT_OF_SYNC' };
     }
 
     // ── step 5: record the link ─────────────────────────────────────────────
     const { error: linkErr } = await supabase
       .from('meeting_bookings')
-      .update({ video_url: patched.meetUrl })
+      .update({ video_url: meetUrl })
       .eq('id', booking.id);
     if (linkErr) {
+      // Same shape as the no-link branch above: Google already has the
+      // conferencing and the visitor already has the mail, so rolling back only
+      // the row would leave the calendar online and the booking in-person.
       console.error(`${LOG_PREFIX} link write-back failed:`, linkErr.message);
-      await this.revert(supabase, booking);
-      return { ok: false, error: 'INTERNAL' };
+      const undone = await this.revertBoth(supabase, booking, timeMoved, timezone);
+      return { ok: false, error: undone ? 'INTERNAL' : 'GOOGLE_OUT_OF_SYNC' };
     }
 
     // ── notify ──────────────────────────────────────────────────────────────
@@ -503,7 +553,7 @@ export class MeetingModeSwitchService {
       attendeeEmail: booking.attendee_email ?? '',
       attendeePhone: null,
       locationMode: 'online',
-      videoUrl: patched.meetUrl,
+      videoUrl: meetUrl,
       switchedBy: opts.switchedBy,
     });
 
@@ -513,10 +563,50 @@ export class MeetingModeSwitchService {
         uid: booking.uid,
         start: startIso,
         end: endIso,
-        videoUrl: patched.meetUrl,
+        videoUrl: meetUrl,
         timeMoved,
       },
     };
+  }
+
+  /**
+   * Roll back BOTH systems after a Google PATCH that already landed.
+   *
+   * Order matters and is fixed here so no caller can get it wrong: Google is
+   * undone FIRST, because it is the system already carrying the change (and the
+   * one that has already emailed the visitor). The row is restored either way —
+   * a booking left flagged online with no usable link is the exact state
+   * decision 6 exists to prevent, so it is never the thing we keep.
+   *
+   * Returns whether Google could be reconciled. `false` means the two systems
+   * now disagree in a known, logged way: the booking reads in-person while the
+   * calendar event may still show a video call. The caller surfaces that as
+   * GOOGLE_OUT_OF_SYNC so the host is told to check the event, rather than
+   * being handed a "nothing was changed" message that is not true.
+   */
+  private static async revertBoth(
+    supabase: SupabaseClient,
+    booking: BookingRow,
+    timeMoved: boolean,
+    timezone: string,
+  ): Promise<boolean> {
+    const undone = booking.google_event_id
+      ? await GoogleCalendarService.revertEventFromOnline(
+          supabase,
+          booking.host_profile_id,
+          booking.google_event_id,
+          timeMoved ? { startIso: booking.start_time, endIso: booking.end_time, timezone } : {},
+        )
+      : true;
+    await this.revert(supabase, booking);
+    if (!undone) {
+      console.error(
+        `${LOG_PREFIX} GOOGLE ROLLBACK FAILED for ${booking.uid}` +
+          ` (google_event_id=${booking.google_event_id}) — the event may still carry` +
+          ` conferencing while the booking reads in-person; needs manual attention`,
+      );
+    }
+    return undone;
   }
 
   /**

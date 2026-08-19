@@ -645,6 +645,58 @@ export class GoogleCalendarService {
   }
 
   /**
+   * Undo patchEventToOnline: strip the conferencing back off an event and, when
+   * the same patch moved it, put it back at its original time.
+   *
+   * This exists for ONE caller — the mode switch's rollback. patchEventToOnline
+   * can succeed and still yield no Meet link, and at that point Google has
+   * already been changed and (via sendUpdates=all) has already emailed the
+   * visitor. Reverting only the database would leave the calendar saying "video
+   * call" while the booking says "in person", so the rollback has to reach both.
+   *
+   * `conferenceData: null` is how conferencing is REMOVED, and it needs
+   * conferenceDataVersion=1 exactly as adding it does — without that parameter
+   * Google ignores the field and the conferencing silently stays.
+   *
+   * sendUpdates=all again, deliberately: the visitor was already told the
+   * meeting moved online, so correcting their calendar entry in place is the
+   * honest close. It is a second mail only on this rare failure path — the
+   * successful switch is still the one email decision 9 promises.
+   */
+  static async revertEventFromOnline(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    opts: { startIso?: string | null; endIso?: string | null; timezone?: string | null } = {},
+  ): Promise<boolean> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return false;
+
+    const body: Record<string, unknown> = { conferenceData: null };
+    if (opts.startIso && opts.endIso) {
+      const tz = opts.timezone ?? undefined;
+      body.start = { dateTime: opts.startIso, timeZone: tz };
+      body.end = { dateTime: opts.endIso, timeZone: tz };
+    }
+
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}` +
+        `?conferenceDataVersion=1&sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`${LOG_PREFIX} event online-revert failed:`, res.status, text.slice(0, 200));
+      return false;
+    }
+    return true;
+  }
+
+  /**
    * Mark a cancelled booking's event as cancelled but KEEP it on the host's
    * calendar — renamed ("Cancelled: …") and freed (transparent so it no longer
    * blocks time), for record-keeping. Mirrors the old Calendly behaviour the
@@ -996,13 +1048,19 @@ export class GoogleCalendarService {
    * a confirmed booking directly. Returns:
    *   'gone'  — 404/410 or status=cancelled (the event no longer exists);
    *   null    — transient failure (caller must NOT change the booking);
-   *   object  — the live start/end.
+   *   object  — the live start/end, plus the Meet link if the event has one.
+   *
+   * meetUrl is additive: the reconcile cron ignores it, while the mode switch
+   * uses this call to re-read an event whose PATCH response carried no link
+   * yet (Google often provisions conferenceData a moment after it answers).
    */
   static async getEvent(
     supabase: SupabaseClient,
     hostProfileId: string,
     eventId: string,
-  ): Promise<{ startIso: string | null; endIso: string | null } | 'gone' | null> {
+  ): Promise<
+    { startIso: string | null; endIso: string | null; meetUrl: string | null } | 'gone' | null
+  > {
     const token = await this.accessTokenForHost(supabase, hostProfileId);
     if (!token) return null;
     const res = await fetch(
@@ -1015,9 +1073,15 @@ export class GoogleCalendarService {
       status?: string;
       start?: { dateTime?: string };
       end?: { dateTime?: string };
+      hangoutLink?: string;
+      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
     };
     if (ev.status === 'cancelled') return 'gone';
-    return { startIso: ev.start?.dateTime ?? null, endIso: ev.end?.dateTime ?? null };
+    return {
+      startIso: ev.start?.dateTime ?? null,
+      endIso: ev.end?.dateTime ?? null,
+      meetUrl: extractMeetUrl(ev),
+    };
   }
 }
 

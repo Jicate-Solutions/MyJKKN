@@ -279,6 +279,8 @@ function modeSwitchMessage(code: ModeSwitchError | undefined): string {
       return 'Only the meeting host can change this booking.';
     case 'ALREADY_ONLINE':
       return 'This meeting is already online.';
+    case 'UNSUPPORTED_SOURCE_MODE':
+      return 'Only an in-person meeting can be moved online. This one is a phone call, so there is nothing to add a Meet link to.';
     case 'TOO_LATE':
       return 'It is too close to the start time to move this meeting online.';
     case 'CALENDAR_NOT_CONNECTED':
@@ -293,6 +295,10 @@ function modeSwitchMessage(code: ModeSwitchError | undefined): string {
       return 'Google did not return a Meet link, so nothing was changed. Try again in a moment.';
     case 'GOOGLE_FAILED':
       return 'Google Calendar could not be updated, so nothing was changed. Try again in a moment.';
+    case 'GOOGLE_OUT_OF_SYNC':
+      // Deliberately NOT "nothing was changed" — that would be untrue. The
+      // booking is back to in-person but Google could not be put back.
+      return 'The switch did not complete, and this booking is back to in person — but the Google Calendar event may still show a video call. Please open it in Google Calendar and check.';
     case 'NO_REQUEST':
       return 'There is no pending request on this booking.';
     case 'NOT_FOUND':

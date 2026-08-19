@@ -90,6 +90,32 @@ export function switchRequestState(
   return isSwitchAllowedNow(booking.start_time, minNoticeMin, now) ? 'pending' : 'expired';
 }
 
+/**
+ * Can this booking's CURRENT mode be switched to online, and if not, why?
+ *
+ * The approved scope is in_person -> online, one direction only. Enforcing that
+ * needs a stricter reading than effectiveLocationMode gives: that function
+ * deliberately coerces anything it does not recognise to 'in_person' so a live
+ * booking never renders as an unknown mode. That is the right default for
+ * DISPLAY and the wrong one for a GATE — it would wave through a mode nobody
+ * has decided about.
+ *
+ * The type's raw mode must therefore be exactly 'in_person' here. A phone
+ * booking (95 of the 236 live meeting types) and any future or misspelled mode
+ * both land on 'unsupported' instead of being switched.
+ *
+ *   'online'      — already online, via the type or the booking override.
+ *   'in_person'   — the one switchable source.
+ *   'unsupported' — phone, or a mode this feature has never been scoped for.
+ */
+export function switchSourceMode(
+  typeMode: LocationMode | string | null | undefined,
+  override: string | null | undefined,
+): 'online' | 'in_person' | 'unsupported' {
+  if (effectiveLocationMode(typeMode, override) === 'online') return 'online';
+  return typeMode === 'in_person' ? 'in_person' : 'unsupported';
+}
+
 /** The columns that clear a request, whatever its outcome. */
 export function resolvedRequestPatch(status: Exclude<SwitchRequestStatus, 'pending'>): {
   mode_switch_request_status: SwitchRequestStatus;
