@@ -500,10 +500,20 @@ export default function NewReceiptPage() {
                                 placeholder='0'
                                 onChange={(e) => {
                                   const val = Math.max(0, Math.round(parseFloat(e.target.value) || 0));
-                                  const capped = Math.min(val, balance);
-                                  const newAmounts = { ...billPayAmounts, [bill.id]: capped };
+                                  const capped = Math.min(val, Number(balance));
+                                  // Annotated: `bill` is `any`, so an un-annotated
+                                  // computed key widens this object and Object.values()
+                                  // degrades to unknown[], which makes the reduce below
+                                  // an error the PR-scoped typecheck gate rejects.
+                                  const newAmounts: Record<string, number> = {
+                                    ...billPayAmounts,
+                                    [String(bill.id)]: capped
+                                  };
                                   setBillPayAmounts(newAmounts);
-                                  const newTotal = Object.values(newAmounts).reduce((s, a) => s + a, 0);
+                                  const newTotal = Object.values(newAmounts).reduce<number>(
+                                    (s, a) => s + a,
+                                    0
+                                  );
                                   setFormData((prev) => ({ ...prev, payment_amount: newTotal }));
                                 }}
                               />
