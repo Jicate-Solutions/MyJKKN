@@ -23,6 +23,7 @@ import {
 } from './_components/onboarding-stats-cards';
 import { OnboardingContent } from './_components/onboarding-content';
 import {
+  onboardingAdmissionYearSchema,
   onboardingSearchParamsSchema,
   onboardingStatusSchema,
   onboardingTierSchema
@@ -91,7 +92,9 @@ export default async function LearnerOnboardingPage({ searchParams }: Onboarding
     program_id: (params.program_id as string) || undefined,
     semester_id: (params.semester_id as string) || undefined,
     section_id: (params.section_id as string) || undefined,
-    academic_year_id: (params.academic_year_id as string) || undefined
+    academic_year_id: (params.academic_year_id as string) || undefined,
+    accommodation_type_id: (params.accommodation_type_id as string) || undefined,
+    admission_year: onboardingAdmissionYearSchema.parse(params.admission_year)
   };
 
   return (

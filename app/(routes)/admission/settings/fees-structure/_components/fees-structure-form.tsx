@@ -358,6 +358,10 @@ const newSchema = z
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
     status: z.enum(['draft', 'active']),
+    // '__any__' is the Select sentinel for "unclassified" — Radix Select
+    // cannot hold an empty-string value, so it is mapped to NULL on submit.
+    // Mirrors how gender/accommodation are handled in the dimension selector.
+    package_type: z.enum(['package', 'non_package', '__any__']),
     notes: z.string().max(500).optional(),
     // ISO date strings yyyy-MM-dd from <input type="date" /> — empty
     // string means "no bound" (persisted as NULL).
@@ -436,6 +440,7 @@ export function NewStructureForm({
       // Clone flow defaults to 'draft' so operators can review the prefilled
       // copy before activating; that's also the safe default for plain /new.
       status: initialValues?.status ?? 'draft',
+      package_type: initialValues?.package_type ?? '__any__',
       notes: initialValues?.notes ?? '',
       effective_from: initialValues?.effective_from ?? '',
       effective_to: initialValues?.effective_to ?? '',
@@ -517,6 +522,7 @@ export function NewStructureForm({
         community_category_ids: values.community_category_ids,
         name: values.name,
         status: values.status,
+        package_type: values.package_type === '__any__' ? null : values.package_type,
         notes: values.notes || null,
         effective_from: values.effective_from || null,
         effective_to: values.effective_to || null,
@@ -578,6 +584,33 @@ export function NewStructureForm({
                 <Input placeholder="e.g. BE CSE — General — Day Scholar — 2025" {...field} />
               </FormControl>
               <FormDescription>A short, human-readable label.</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="package_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Package Type</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select package type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="package">Package — consolidated single amount</SelectItem>
+                  <SelectItem value="non_package">Non-Package — itemised fee heads</SelectItem>
+                  <SelectItem value="__any__">Any / Not specified</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Classification for reporting and filtering only — it does not affect
+                which structure a learner resolves to.
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -707,6 +740,8 @@ const editSchema = z
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
     status: z.enum(['draft', 'active', 'archived']),
+    // See newSchema — '__any__' is the sentinel for NULL / unclassified.
+    package_type: z.enum(['package', 'non_package', '__any__']),
     notes: z.string().max(500).optional(),
     effective_from: z.string().optional(),
     effective_to: z.string().optional(),
@@ -807,13 +842,14 @@ function ExistingStructureEditor({
       accommodation_type_id: structure.accommodation_type_id ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.community_category_ids]);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.package_type, structure.community_category_ids]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
     defaultValues: {
       name: structure.name,
       status: structure.status,
+      package_type: structure.package_type ?? '__any__',
       notes: structure.notes ?? '',
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
@@ -824,6 +860,7 @@ function ExistingStructureEditor({
     form.reset({
       name: structure.name,
       status: structure.status,
+      package_type: structure.package_type ?? '__any__',
       notes: structure.notes ?? '',
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
@@ -950,6 +987,9 @@ function ExistingStructureEditor({
       // 1. Update parent fields when changed.
       const nameChanged = values.name !== structure.name;
       const statusChanged = values.status !== structure.status;
+      const nextPackageType =
+        values.package_type === '__any__' ? null : values.package_type;
+      const packageTypeChanged = nextPackageType !== (structure.package_type ?? null);
       const notesChanged = (values.notes ?? '') !== (structure.notes ?? '');
       const effectiveFromChanged =
         (values.effective_from ?? '') !== (structure.effective_from ?? '');
@@ -962,13 +1002,14 @@ function ExistingStructureEditor({
       }
 
       if (
-        nameChanged || statusChanged || notesChanged ||
+        nameChanged || statusChanged || packageTypeChanged || notesChanged ||
         effectiveFromChanged || effectiveToChanged ||
         dimsChanged || communitiesChanged
       ) {
         await FeeStructureService.update(structure.id, {
           name: values.name,
           status: values.status,
+          package_type: nextPackageType,
           notes: values.notes || null,
           effective_from: values.effective_from || null,
           effective_to: values.effective_to || null,
@@ -1169,6 +1210,33 @@ function ExistingStructureEditor({
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="package_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Package Type</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select package type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="package">Package — consolidated single amount</SelectItem>
+                  <SelectItem value="non_package">Non-Package — itemised fee heads</SelectItem>
+                  <SelectItem value="__any__">Any / Not specified</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Classification for reporting and filtering only — it does not affect
+                which structure a learner resolves to.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}

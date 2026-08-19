@@ -4993,6 +4993,7 @@ export type Database = {
           institution_id: string
           name: string
           notes: string | null
+          package_type: string | null
           programme_id: string
           quota_id: string
           status: string
@@ -5013,6 +5014,7 @@ export type Database = {
           institution_id: string
           name: string
           notes?: string | null
+          package_type?: string | null
           programme_id: string
           quota_id: string
           status?: string
@@ -5033,6 +5035,7 @@ export type Database = {
           institution_id?: string
           name?: string
           notes?: string | null
+          package_type?: string | null
           programme_id?: string
           quota_id?: string
           status?: string

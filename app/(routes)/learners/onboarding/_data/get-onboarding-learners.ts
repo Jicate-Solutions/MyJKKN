@@ -38,6 +38,7 @@ import {
   MISSING_FIELD_LABELS
 } from '@/types/learner-onboarding';
 import { getOnboardingPaymentProgress } from './get-onboarding-payment-progress';
+import { resolveAdmissionYearIds } from './resolve-admission-year-ids';
 
 interface GetOnboardingLearnersParams {
   page?: number;
@@ -57,7 +58,10 @@ interface GetOnboardingLearnersParams {
   semester_id?: string;
   section_id?: string;
   academic_year_id?: string;
+  /** Admission cohort as the integer year — expanded to ids, see the note below. */
+  admission_year?: number;
   gender?: string;
+  accommodation_type_id?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   /**
@@ -155,7 +159,9 @@ export async function getOnboardingLearners(
       semester_id,
       section_id,
       academic_year_id,
+      admission_year,
       gender,
+      accommodation_type_id,
       sortBy: rawSortBy = 'first_name',
       sortOrder = 'asc',
       scanLimit = 5000
@@ -219,6 +225,20 @@ export async function getOnboardingLearners(
     if (section_id) query = query.eq('section_id', section_id);
     if (academic_year_id) query = query.eq('academic_year_id', academic_year_id);
     if (gender) query = query.eq('gender', gender);
+    if (accommodation_type_id)
+      query = query.eq('accommodation_type_id', accommodation_type_id);
+
+    // Cohort filter. The year is one uuid PER INSTITUTION, so it is expanded to
+    // the full id set and matched with `.in()`. Resolving to nothing means the
+    // cohort is invisible to this role (or does not exist) — return empty
+    // rather than silently dropping the filter and showing every cohort.
+    if (admission_year) {
+      const admissionYearIds = await resolveAdmissionYearIds(supabase, admission_year);
+      if (admissionYearIds.length === 0) {
+        return { data: [], metadata: { total_items: 0, page, limit, total_pages: 0 } };
+      }
+      query = query.in('admission_year_id', admissionYearIds);
+    }
 
     if (missing_field === 'college_email') {
       query = query.or('college_email.is.null,college_email.eq.');
