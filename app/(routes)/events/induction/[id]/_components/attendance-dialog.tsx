@@ -256,6 +256,32 @@ export function AttendanceDialog({
                     <div className="text-xs text-muted-foreground">
                       {row.register_number ?? '—'}{row.batch_label ? ` · Batch ${row.batch_label}` : ''}
                     </div>
+                    {/* Identity line the search box above already matches on, but
+                        which the row itself had stopped printing. It is the
+                        disambiguator that matters at a registration desk: only
+                        429 of 1,119 enrolled freshers carry a register_number at
+                        induction time, so 6 rows in 10 are otherwise just a name.
+                        program_name — NOT department — is also what a fresher
+                        means by "my department": every engineering fresher's
+                        department_id resolves to the shared first-year "Science
+                        and Humanities" row (195 of 195), so the department field
+                        cannot tell EEE from CSE. The programme name can. */}
+                    {(row.program_name || row.father_mobile) && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                        {row.program_name && (
+                          <span className="flex min-w-0 items-center gap-1">
+                            <GraduationCap className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{row.program_name}</span>
+                          </span>
+                        )}
+                        {row.father_mobile && (
+                          <span className="flex items-center gap-1">
+                            <Phone className="h-3 w-3 shrink-0" />
+                            {row.father_mobile}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     {OPTIONS.map((o) => {
