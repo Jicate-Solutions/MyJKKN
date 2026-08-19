@@ -91,11 +91,25 @@ export default function SeniorPeerMentorConsolePage() {
       return next;
     });
 
+  // Sets ONLY the admin leg of the 3-legged is_trained generated column
+  // (guide_read_at AND self_ack_at AND admin_trained_at). The mentor's own two
+  // legs can't be written by an admin, so don't promise unlocked tools blindly.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
     setBusy(`trained:${learnerId}`);
+    const mentor = mentors.find((m) => m.learner_id === learnerId);
+    const mentorLegsDone = Boolean(mentor?.guide_read && mentor?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       await load();
     } catch (e: any) { toast.error(`Couldn't update: ${e.message ?? e}`); }
     finally { setBusy(null); }
