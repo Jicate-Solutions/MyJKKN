@@ -423,7 +423,10 @@ export interface CourseApprovalResult {
   package_name: string;
   total_payable: number;
   bill_count: number;
-  email: string;
+  /** The participant's CONTACT address, or null when they gave none. Never the
+   *  synthetic participants.jkkn.local address Supabase Auth was created with —
+   *  that is not a way of reaching anyone and must not be shown as one. */
+  email: string | null;
   tempPassword: string | null;
   /** The person already had a profile and a JKKN ID — a second course, not a
    *  second identity. No password is issued in this case. */

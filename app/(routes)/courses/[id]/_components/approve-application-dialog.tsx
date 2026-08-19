@@ -122,9 +122,11 @@ export function ApproveApplicationDialog({
     );
   };
 
-  const emailMissing = !application?.applicant_email;
-  const canSubmit =
-    Boolean(email.trim()) && Boolean(packageId) && chosenInstallments > 0 && !approve.isPending;
+  // Email is OPTIONAL. An external participant signs in with their JKKN ID and
+  // password, not by email, so an address is contact information rather than a
+  // credential — requiring one would block approving the many applicants who
+  // never gave one.
+  const canSubmit = Boolean(packageId) && chosenInstallments > 0 && !approve.isPending;
 
   return (
     <Dialog open={Boolean(application)} onOpenChange={(open) => !open && close()}>
@@ -139,13 +141,13 @@ export function ApproveApplicationDialog({
               <DialogDescription>
                 {result.reusedExistingIdentity
                   ? 'This person already had a JKKN ID from an earlier course, so it has been reused — one person keeps one number for life.'
-                  : 'Pass these on to the participant. The password is shown once and cannot be retrieved again.'}
+                  : 'Pass these on to the participant. They sign in with the JKKN ID and this password. The password is shown once and cannot be retrieved again.'}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               <CopyRow label="JKKN ID" value={result.jkkn_id} />
-              <CopyRow label="Login email" value={result.email} />
+              {result.email && <CopyRow label="Contact email" value={result.email} />}
               {result.tempPassword ? (
                 <CopyRow label="Temporary password" value={result.tempPassword} />
               ) : (
@@ -166,6 +168,9 @@ export function ApproveApplicationDialog({
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Enrollment {result.enrollment_no}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  They sign in at <span className="font-mono">/auth/participant-login</span>
                 </p>
               </div>
             </div>
@@ -188,21 +193,18 @@ export function ApproveApplicationDialog({
 
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="approve-email">Email address *</Label>
+                <Label htmlFor="approve-email">Email address (optional)</Label>
                 <Input
                   id="approve-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@example.com"
+                  placeholder="Leave blank if they have no email"
                 />
-                {emailMissing && (
-                  <p className="flex gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    This application did not collect an email. One is required to
-                    create the login.
-                  </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  For contact only. The participant signs in with their JKKN ID and
+                  password, so an email is not needed to create their login.
+                </p>
               </div>
 
               <div className="space-y-1.5">
