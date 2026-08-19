@@ -22,10 +22,10 @@
 // user we just made, because an auth user with no profile is a login that goes
 // nowhere and this request is the only thing that knows it exists.
 
-import { randomInt } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { withAuth } from '@/lib/auth/with-auth';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,44 +35,6 @@ function serviceClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
-}
-
-// ── temporary password ───────────────────────────────────────────────────────
-// randomInt, NOT Math.random(). This value is a credential: it is the whole of
-// what protects a participant's account until they change it. Math.random() is
-// V8's xorshift128+, a fast non-cryptographic PRNG whose internal state can be
-// recovered from a short run of outputs — so passwords minted from it are
-// predictable from one another, and approvals happen in visible batches.
-//
-// The sibling provisioning routes (learners/create-missing-profiles,
-// learners/complete-onboarding, staff/create-missing-profiles) still use
-// Math.random(); that is where this shape was copied from, and they have the
-// same weakness. Not changed here because they are outside this task, but they
-// should be fixed.
-
-const LOWER = 'abcdefghijklmnopqrstuvwxyz';
-const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const DIGITS = '0123456789';
-const SYMBOLS = '!@#$%^&*';
-const ALL = LOWER + UPPER + DIGITS + SYMBOLS;
-
-const pick = (set: string) => set.charAt(randomInt(0, set.length));
-
-function generateTemporaryPassword(length = 16): string {
-  // One character from each class up front guarantees the policy outright. The
-  // pattern this replaced appended a digit or capital when the result happened
-  // to lack one, which quietly made the password 13 or 14 characters instead of
-  // 12 and put the added character in a predictable final position.
-  const chars = [pick(LOWER), pick(UPPER), pick(DIGITS), pick(SYMBOLS)];
-  while (chars.length < length) chars.push(pick(ALL));
-
-  // Fisher-Yates with the same CSPRNG, so the four guaranteed characters do not
-  // always sit at positions 0-3.
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randomInt(0, i + 1);
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join('');
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
