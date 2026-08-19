@@ -1199,7 +1199,7 @@ export class NativeSchedulingService {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
       .select(
-        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, attendee_phone, start_time, end_time, meeting_type_id, google_event_id, reschedule_count, venue_reservation_id',
+        'id, host_profile_id, cancel_token, status, attendee_name, attendee_email, attendee_phone, start_time, end_time, meeting_type_id, google_event_id, reschedule_count, venue_reservation_id, venue_status',
       )
       .eq('uid', uid)
       .maybeSingle();
@@ -1328,6 +1328,16 @@ export class NativeSchedulingService {
       rescheduledBy: byToken ? 'attendee' : 'host',
     });
 
-    return { success: true, uid, start: startIso, end: endIso, hostName: hostName || null };
+    return {
+      success: true,
+      uid,
+      start: startIso,
+      end: endIso,
+      hostName: hostName || null,
+      // The room's status is PRESERVED across a move (see the reservation
+      // update above), so the value read before the move is still correct.
+      venueStatus:
+        ((booking as { venue_status?: 'pending' | 'confirmed' | null }).venue_status) ?? null,
+    };
   }
 }
