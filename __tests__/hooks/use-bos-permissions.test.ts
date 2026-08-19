@@ -1,16 +1,19 @@
+// @vitest-environment jsdom
+
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 import { useBosPermissions, useHasBosPermission } from '@/hooks/bos/use-bos-permissions';
 import { useAuth } from '@/hooks/use-auth-provider';
 import { SYSTEM_ROLES } from '@/types/auth';
 
 // Mock the auth hook
-jest.mock('@/hooks/use-auth-provider');
+vi.mock('@/hooks/use-auth-provider');
 
-const mockUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
+const mockUseAuth = vi.mocked(useAuth);
 
 describe('useBosPermissions', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   describe('when user is not authenticated', () => {
