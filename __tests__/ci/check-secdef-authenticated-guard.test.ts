@@ -435,3 +435,59 @@ describe('secdef authz-guard gate', () => {
     expect(out).toContain('fn_probe_no_anon_lock');
   });
 });
+
+/**
+ * The false-negative branch. Both the PR body and the script header assert that
+ * "a predicate merely assigned or logged does not clear the gate" — the whole
+ * reason assertion 2 exists. Branch (c) of hasAuthorizationGuard broke that
+ * promise: it is documented as covering a LANGUAGE sql one-expression body
+ * (`RETURN is_super_admin()`), but its regex matches ANY `select … <predicate>`,
+ * including plpgsql's `SELECT is_super_admin() INTO v_flag;` — which RECORDS the
+ * answer and gates nothing.
+ *
+ * This is the same shape that has bitten repeatedly: auth.uid() inside
+ * COALESCE(granted_by, auth.uid()) reads like a guard and is an audit column.
+ */
+describe('assertion 2 — a predicate that is ASSIGNED, not CHECKED', () => {
+  it('FLAGS a plpgsql function whose only predicate use is SELECT … INTO', () => {
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_records_but_does_not_check(p_id uuid)
+      RETURNS void
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$
+      DECLARE v_flag boolean;
+      BEGIN
+        -- Records who asked. Never branches on it. This must NOT clear the gate.
+        SELECT is_super_admin() INTO v_flag;
+        UPDATE platform_policies SET value = 'true'::jsonb WHERE id = p_id;
+      END;
+      $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_records_but_does_not_check(uuid) FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_records_but_does_not_check(uuid) TO authenticated;
+    `, 'records-not-checks.sql');
+
+    expect(guardChecked(out)).toBe(1);
+    expect(guardFlagged(out, 'fn_records_but_does_not_check')).toBe(true);
+    expect(code).toBe(1);
+  });
+
+  it('still PASSES a real LANGUAGE sql one-expression body', () => {
+    // Branch (c) exists for this shape and must keep working: the predicate IS
+    // the returned expression, so it genuinely gates.
+    const { code, out } = runGate(`
+      CREATE OR REPLACE FUNCTION public.fn_sql_expression_guard()
+      RETURNS boolean
+      LANGUAGE sql
+      SECURITY DEFINER
+      SET search_path = public
+      AS $$ SELECT is_super_admin() $$;
+      REVOKE EXECUTE ON FUNCTION public.fn_sql_expression_guard() FROM anon, PUBLIC;
+      GRANT  EXECUTE ON FUNCTION public.fn_sql_expression_guard() TO authenticated;
+    `, 'sql-expression-guard.sql');
+
+    expect(guardFlagged(out, 'fn_sql_expression_guard')).toBe(false);
+    expect(code).toBe(0);
+  });
+});

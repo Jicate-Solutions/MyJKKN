@@ -225,7 +225,10 @@ function secdefFunctions(sql) {
     const body = sql.slice(start, end);
     const isSecDef = /security\s+definer/i.test(body);
     const isTrigger = /returns\s+trigger/i.test(body);
-    if (isSecDef && !isTrigger) defs.push({ name, body: functionBody(body) });
+    // The declared LANGUAGE decides whether branch (c) below may apply: only a
+    // one-expression `LANGUAGE sql` body makes `SELECT <pred>` a genuine gate.
+    const lang = (/\blanguage\s+([a-z_]+)/i.exec(body)?.[1] || '').toLowerCase();
+    if (isSecDef && !isTrigger) defs.push({ name, body: functionBody(body), lang });
   }
   const byName = new Map();
   for (const d of defs) byName.set(d.name, d);
@@ -385,14 +388,29 @@ const DECISION_KEYWORD = String.raw`\b(?:if|elsif|elseif|when|while|and|or|not|w
  * a canonical predicate must also sit in a decision position, so a predicate
  * merely assigned or logged does not clear the gate.
  */
-function hasAuthorizationGuard(body) {
+function hasAuthorizationGuard(body, lang = '') {
   const pred = `(?:${AUTHZ_PREDICATE})`;
   // (a) reached from a decision keyword, without crossing a statement boundary
   if (new RegExp(`${DECISION_KEYWORD}[^;]{0,200}?${pred}`, 'i').test(body)) return true;
   // (b) feeding a THEN / RAISE in the same statement
   if (new RegExp(`${pred}[^;]{0,200}?\\b(?:then|raise)\\b`, 'i').test(body)) return true;
-  // (c) LANGUAGE sql one-expression body: RETURN / SELECT <expr with predicate>
-  if (new RegExp(`\\b(?:return|select)\\b[^;]{0,300}?${pred}`, 'i').test(body)) return true;
+  // (c) LANGUAGE sql one-expression body: RETURN / SELECT <expr with predicate>.
+  //
+  // ONLY for `LANGUAGE sql`. This branch used to run for every language, which
+  // made the gate fail OPEN on the one shape it exists to catch: plpgsql's
+  //     SELECT is_super_admin() INTO v_flag;   -- records
+  //     UPDATE ...;                            -- unguarded
+  // reads as a guard to a bare `select … <pred>` regex while gating nothing. A
+  // predicate that is ASSIGNED is not a predicate that is CHECKED — the same
+  // trap as `COALESCE(granted_by, auth.uid())`, which records the actor and
+  // authorises no one. In a true one-expression sql body the predicate IS the
+  // returned value, so there it genuinely decides.
+  //
+  // `SELECT … INTO` is refused outright as well: it is plpgsql-only syntax, so
+  // its presence means this is not a one-expression body whatever the header says.
+  if (lang === 'sql'
+      && !/\bselect\b[\s\S]{0,300}?\binto\b/i.test(body)
+      && new RegExp(`\\b(?:return|select)\\b[^;]{0,300}?${pred}`, 'i').test(body)) return true;
   return false;
 }
 
@@ -485,7 +503,7 @@ for (const file of files) {
     const grantees = broadExecuteGrantees(stmts, def.name);
     if (grantees.length === 0) continue;   // reachable only by service_role / postgres
     guardChecked++;
-    if (hasAuthorizationGuard(def.body)) {
+    if (hasAuthorizationGuard(def.body, def.lang)) {
       guardPassed++;
       if (VERBOSE) console.log(`${GREEN}✓${RESET} ${def.name} ${DIM}(authz check present — ${file})${RESET}`);
     } else {
