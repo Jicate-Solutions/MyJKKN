@@ -36,6 +36,12 @@ export interface IdentityGaps {
   name: boolean;
   /** No field carries a key from PHONE_KEYS. */
   phone: boolean;
+  /** No field carries a key from EMAIL_KEYS. Reported separately from the other
+   *  two because it is fatal at DIFFERENT points: an application can be
+   *  submitted without an email (the submit route only needs name + phone), but
+   *  it cannot be APPROVED without one, since auth.admin.createUser requires an
+   *  address to create the participant's login. */
+  email: boolean;
 }
 
 const has = (keys: Set<string>, accepted: readonly string[]) =>
@@ -51,6 +57,7 @@ export function findIdentityGaps(fieldKeys: Iterable<string>): IdentityGaps {
   return {
     name: !has(keys, NAME_KEYS),
     phone: !has(keys, PHONE_KEYS),
+    email: !has(keys, EMAIL_KEYS),
   };
 }
 
@@ -66,15 +73,34 @@ export function hasApplicantIdentity(fieldKeys: Iterable<string>): boolean {
  * because "add a name question" is not actionable when `student_name` is a name
  * question that still would not work.
  */
-export function identityGapMessage(gaps: IdentityGaps): string | null {
-  if (!gaps.name && !gaps.phone) return null;
+export function identityGapMessage(
+  gaps: IdentityGaps,
+  opts: { requireEmail?: boolean } = {},
+): string | null {
+  const missingEmail = Boolean(opts.requireEmail) && gaps.email;
+  if (!gaps.name && !gaps.phone && !missingEmail) return null;
 
   const wanted: string[] = [];
   if (gaps.name) wanted.push(`a name question with the field key ${quote(NAME_KEYS)}`);
   if (gaps.phone) wanted.push(`a phone question with the field key ${quote(PHONE_KEYS)}`);
+  if (missingEmail) wanted.push(`an email question with the field key ${quote(EMAIL_KEYS)}`);
 
-  return `This form cannot identify who is applying, so nobody can submit it. Add ${wanted.join(' and ')}.`;
+  // Two different consequences, so two different sentences. A form missing a
+  // name or phone cannot be SUBMITTED at all; one missing only an email can be
+  // submitted but every applicant will stall at approval, because a login
+  // cannot be created without an address.
+  const consequence =
+    gaps.name || gaps.phone
+      ? 'This form cannot identify who is applying, so nobody can submit it.'
+      : 'Applicants through this form cannot be approved: a JKKN login needs an email address.';
+
+  return `${consequence} Add ${joinList(wanted)}.`;
 }
+
+const joinList = (items: string[]) =>
+  items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 
 const quote = (keys: readonly string[]) =>
   keys.map((k) => `“${k}”`).join(' or ');

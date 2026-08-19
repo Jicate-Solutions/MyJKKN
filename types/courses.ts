@@ -406,3 +406,26 @@ export interface CourseApplicationFilters {
 export type CourseApplicationCounts = Record<CourseApplicationStatus, number> & {
   total: number;
 };
+
+/** What fn_course_approve_application returns, plus what the route adds.
+ *
+ *  `tempPassword` is present ONLY when a login was newly created. It is never
+ *  stored and cannot be fetched again, so the UI has to show it before this
+ *  object is discarded. It is absent when an existing identity was reused —
+ *  overwriting a person's password to display it to an admin would be an
+ *  account takeover, not a convenience. */
+export interface CourseApprovalResult {
+  ok: true;
+  profile_id: string;
+  jkkn_id: string;
+  enrollment_id: string;
+  enrollment_no: string;
+  package_name: string;
+  total_payable: number;
+  bill_count: number;
+  email: string;
+  tempPassword: string | null;
+  /** The person already had a profile and a JKKN ID — a second course, not a
+   *  second identity. No password is issued in this case. */
+  reusedExistingIdentity: boolean;
+}

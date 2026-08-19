@@ -1,15 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query/query-keys';
 import { CourseApplicationService } from '@/lib/services/courses/course-application-service';
-import type { CourseApplicationFilters } from '@/types/courses';
-
-/**
- * Read-only, so there are no mutation hooks here and nothing to invalidate.
- * Approving an application is a transaction that provisions an identity, and it
- * will arrive as one RPC — see the note at the top of course-application-service.
- */
+import { getErrorMessage } from '@/lib/utils';
+import type { CourseApplicationFilters, CourseApprovalResult } from '@/types/courses';
 
 export function useCourseApplications(
   courseEventId: string,
@@ -37,5 +33,63 @@ export function useCourseApplication(id: string) {
     queryKey: queryKeys.courseApplications.detail(id),
     queryFn: () => CourseApplicationService.getById(id),
     enabled: Boolean(id),
+  });
+}
+
+/**
+ * Both decisions invalidate the same three things: the list (the row's status
+ * moved), the counts (a status total changed), and — for an approval — the
+ * course's enrollments, which did not exist a moment ago.
+ *
+ * Deliberately NOT wrapped in a toast here for approve. The result carries a
+ * JKKN ID and a one-time password that the caller must render properly; a toast
+ * that vanishes after four seconds is the wrong surface for a credential.
+ */
+function useInvalidateApplications() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: queryKeys.courseApplications.all });
+    qc.invalidateQueries({ queryKey: queryKeys.courses.all });
+  };
+}
+
+export function useApproveCourseApplication() {
+  const invalidate = useInvalidateApplications();
+  return useMutation<
+    CourseApprovalResult,
+    unknown,
+    {
+      applicationId: string;
+      email: string;
+      packageId?: string | null;
+      decisionNote?: string | null;
+    }
+  >({
+    mutationFn: ({ applicationId, ...input }) =>
+      CourseApplicationService.approve(applicationId, input),
+    onSuccess: invalidate,
+    // The route forwards the RPC's own RAISE message, which names the real
+    // problem — a package with no instalments, an application already decided,
+    // a person already enrolled. Replacing it with something generic would
+    // throw away the only actionable part.
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+}
+
+export function useRejectCourseApplication() {
+  const invalidate = useInvalidateApplications();
+  return useMutation({
+    mutationFn: ({
+      applicationId,
+      decisionNote,
+    }: {
+      applicationId: string;
+      decisionNote?: string | null;
+    }) => CourseApplicationService.reject(applicationId, decisionNote),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Application rejected');
+    },
+    onError: (e) => toast.error(getErrorMessage(e)),
   });
 }

@@ -1,28 +1,31 @@
 'use client';
 
-// Course Events — the Applications tab body (Phase 4, read side).
+// Course Events — the Applications tab body (Phase 4).
 //
-// Everything a public application collects, visible to an admin for the first
-// time. Until this existed the only way to see who had applied was to query
-// course_applications directly — the public surface was live and writing rows
-// nobody in the console could read.
+// Everything a public application collects, plus the two decisions. Until this
+// existed the only way to see who had applied was to query course_applications
+// directly — the public surface was live and writing rows nobody in the console
+// could read.
 //
-// READ ONLY, deliberately. There is no Approve button because approving is not
-// a status change: it has to provision a profile, issue a JKKN ID through
-// fn_issue_jkkn_id('external_participant', …), grant the Course Participant
-// role, insert an enrollment snapshotting the package price, and generate bills
-// from the instalment schedule — one transaction, one SECURITY DEFINER RPC.
-// A button here that only moved `status` would satisfy
+// Approve does NOT live here as a status write. It goes through
+// fn_course_approve_application, which provisions a profile, a JKKN identity,
+// the Course Participant role, an enrollment and the whole instalment bill
+// schedule in one transaction. A button that only moved `status` would satisfy
 // course_applications_decision_chk, show the applicant as approved, and leave
-// them with no identity, no enrollment and no bill. That is worse than no
-// button, so the panel says plainly what is not built yet.
+// them with no identity, no enrollment and no bill — constraint-clean silent
+// corruption. Approve therefore opens a dialog that collects the email and the
+// package the RPC needs, and shows the credentials it returns.
+//
+// Reject is only offered on a pending or shortlisted row. An approved
+// application has a person and bills behind it, and the reject RPC refuses it
+// outright — unwinding that is a withdrawal, not a rejection.
 //
 // A plain list, not a DataTable — same reasoning as the Packages, Sessions and
 // Forms tabs.
 
 import { useState } from 'react';
 import {
-  AlertCircle, Inbox, Mail, Phone, Search, User,
+  AlertCircle, BadgeCheck, Inbox, Mail, Phone, Search, User, X,
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -38,7 +41,10 @@ import { getErrorMessage } from '@/lib/utils';
 import {
   useCourseApplicationCounts,
   useCourseApplications,
+  useRejectCourseApplication,
 } from '@/hooks/courses/use-course-applications';
+import { usePermissions } from '@/hooks/use-permissions';
+import { ApproveApplicationDialog } from './approve-application-dialog';
 import {
   COURSE_APPLICATION_STATUSES,
   type CourseApplication,
@@ -242,9 +248,14 @@ function ApplicationSheet({
 }
 
 export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) {
+  const { canAccess } = usePermissions();
+  const canDecide = canAccess('courses', 'applications.decide');
+
   const [status, setStatus] = useState<CourseApplicationStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<CourseApplication | null>(null);
+  const [approving, setApproving] = useState<CourseApplication | null>(null);
+  const reject = useRejectCourseApplication();
 
   const filters = {
     ...(status === 'all' ? {} : { status }),
@@ -299,14 +310,6 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
               </Button>
             ))}
           </div>
-        </div>
-
-        {/* Stated once, at the top, rather than as a disabled button on every
-            row — the gap is in the module, not in this admin's permissions. */}
-        <div className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
-          Applications can be viewed here but not yet decided. Approving one has to
-          issue a JKKN ID, create the enrollment and raise the instalment bills in a
-          single step, which is still being built.
         </div>
 
         {isLoading ? (
@@ -377,13 +380,41 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
                       </div>
                     </div>
 
-                    <div className="text-right text-xs text-muted-foreground">
-                      <p>{formatWhen(a.created_at)}</p>
-                      <p className="mt-0.5">
-                        {a.package
-                          ? `${a.package.name} · ${inr.format(Number(a.package.total_amount ?? 0))}`
-                          : 'No package chosen'}
-                      </p>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="text-right text-xs text-muted-foreground">
+                        <p>{formatWhen(a.created_at)}</p>
+                        <p className="mt-0.5">
+                          {a.package
+                            ? `${a.package.name} · ${inr.format(Number(a.package.total_amount ?? 0))}`
+                            : 'No package chosen'}
+                        </p>
+                      </div>
+
+                      {/* Only an undecided application can be decided. An
+                          approved one has a person, an enrollment and bills
+                          behind it — unwinding that is a withdrawal, which the
+                          reject RPC refuses outright. */}
+                      {canDecide && (s === 'pending' || s === 'shortlisted') && (
+                        <div
+                          className="flex gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <Button size="sm" onClick={() => setApproving(a)}>
+                            <BadgeCheck className="mr-1.5 h-3.5 w-3.5" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={reject.isPending}
+                            onClick={() => reject.mutate({ applicationId: a.id })}
+                          >
+                            <X className="mr-1.5 h-3.5 w-3.5" />
+                            Reject
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -393,6 +424,12 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
         )}
 
         <ApplicationSheet application={selected} onClose={() => setSelected(null)} />
+
+        <ApproveApplicationDialog
+          application={approving}
+          courseEventId={courseEventId}
+          onClose={() => setApproving(null)}
+        />
       </div>
     </PermissionGuard>
   );

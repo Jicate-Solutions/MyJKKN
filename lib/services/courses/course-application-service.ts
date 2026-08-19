@@ -4,24 +4,28 @@ import type {
   CourseApplicationCounts,
   CourseApplicationFilters,
   CourseApplicationStatus,
+  CourseApprovalResult,
 } from '@/types/courses';
 import { COURSE_APPLICATION_STATUSES } from '@/types/courses';
 
 /**
- * Course applications — READ ONLY.
+ * Course applications — reads, plus the two decisions.
  *
- * There is deliberately no approve/reject method here. Approving an application
- * is not a status update: it has to provision a profile, issue a JKKN ID through
- * fn_issue_jkkn_id('external_participant', …), grant the Course Participant role,
- * insert a course_enrollments row snapshotting the package price, and generate
- * bills from the instalment schedule — all in one transaction. That belongs in a
- * SECURITY DEFINER RPC, not in five client-side writes that can half-succeed and
- * leave a person holding a JKKN ID with no enrollment.
+ * Approving is NOT a status update, so there is no `update(status)` here.
+ * fn_course_approve_application provisions a profile, a JKKN identity, the
+ * portal role, an enrollment and the whole bill schedule in ONE transaction;
+ * five client-side writes could half-succeed and leave somebody holding a JKKN
+ * ID with no enrollment, or an enrollment with no bills that can never reach a
+ * zero balance.
  *
- * Until that RPC exists, this service lets an admin SEE who applied. A
- * half-built decide button that only moved `status` would be worse than none:
- * course_applications_decision_chk would accept it, the applicant would read as
- * approved, and no identity, enrollment or bill would exist anywhere.
+ * The two decisions reach the database by different routes, for one reason:
+ *   • REJECT goes straight to the RPC from here. The function is granted to
+ *     `authenticated` and reads auth.uid() itself, so the browser client is
+ *     exactly the right caller.
+ *   • APPROVE goes through /api/courses/applications/[id]/approve, because it
+ *     must create an auth user first (profiles.id must equal auth.uid()) and
+ *     auth.admin.createUser is a service-role admin call the browser must never
+ *     be able to make.
  *
  * Every embed names its FK constraint explicitly. course_applications has three
  * separate FKs into identity tables (profile_id, learner_id,
@@ -113,5 +117,47 @@ export class CourseApplicationService extends BaseService {
     }
 
     return { ...counts, total: (data ?? []).length };
+  }
+
+  // ── decisions ──────────────────────────────────────────────────────────────
+
+  /**
+   * Approve. Goes through the API route rather than the RPC directly — see the
+   * class note. Returns the JKKN ID and, only when a login was newly created,
+   * the temporary password. That password is never stored and cannot be fetched
+   * again, so the caller must show it before the response is discarded.
+   */
+  static async approve(
+    applicationId: string,
+    input: { email: string; packageId?: string | null; decisionNote?: string | null },
+  ): Promise<CourseApprovalResult> {
+    const res = await fetch(`/api/courses/applications/${applicationId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: input.email,
+        packageId: input.packageId ?? undefined,
+        decisionNote: input.decisionNote ?? undefined,
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.ok) {
+      // The RPC's own RAISE messages are written for an admin and name the
+      // actual problem ("Package X has no instalment schedule..."), so they are
+      // surfaced as-is rather than replaced with something generic.
+      throw new Error(json?.error ?? 'Could not approve this application.');
+    }
+    return json as CourseApprovalResult;
+  }
+
+  /** Reject. Straight to the RPC: no identity is provisioned, so there is
+   *  nothing the browser client cannot do. */
+  static async reject(applicationId: string, decisionNote?: string | null): Promise<void> {
+    const { error } = await this.supabase.rpc('fn_course_reject_application', {
+      p_application_id: applicationId,
+      p_decision_note: decisionNote || null,
+    } as any);
+    if (error) throw error;
   }
 }

@@ -109,7 +109,10 @@ const schema = z
     const gaps = findIdentityGaps(
       v.sections.flatMap((s) => s.fields.map((f) => f.field_key)),
     );
-    const message = identityGapMessage(gaps);
+    // requireEmail: a participant's login cannot be created without an address,
+    // so a form that never asks for one produces applications that can be
+    // collected and then never approved.
+    const message = identityGapMessage(gaps, { requireEmail: true });
     if (message) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sections'], message });
     }
@@ -178,7 +181,7 @@ const IDENTITY_STARTER = [
     field_key: 'email',
     label: 'Email address',
     field_type: 'email' as CourseFieldType,
-    is_required: false,
+    is_required: true,
     options_text: '',
     placeholder: '',
     help_text: '',
@@ -445,7 +448,7 @@ export function FormBuilder({
       (s?.fields ?? []).map((f: { field_key?: string }) => f?.field_key ?? ''),
     ),
   );
-  const identityMessage = identityGapMessage(identityGaps);
+  const identityMessage = identityGapMessage(identityGaps, { requireEmail: true });
 
   /** Put the missing identity questions back, at the top of the first section
    *  where an applicant expects them. Only the missing ones — an admin who
@@ -455,7 +458,8 @@ export function FormBuilder({
     const missing = identityStarter().filter((f) => {
       if (NAME_KEYS.includes(f.field_key)) return identityGaps.name;
       if (PHONE_KEYS.includes(f.field_key)) return identityGaps.phone;
-      return false; // email is optional — never re-added unasked
+      if (EMAIL_KEYS.includes(f.field_key)) return identityGaps.email;
+      return false;
     });
     if (missing.length === 0) return;
 
