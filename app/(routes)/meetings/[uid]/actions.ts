@@ -30,6 +30,10 @@ import {
   NativeSchedulingService,
   type NativeBookingResult,
 } from '@/lib/services/meetings/native-scheduling-service';
+import {
+  MeetingModeSwitchService,
+  type ModeSwitchError,
+} from '@/lib/services/meetings/meeting-mode-switch-service';
 
 export interface CancelResult {
   success: boolean;
@@ -257,4 +261,138 @@ export async function rescheduleMyBooking(uid: string, startIso: string): Promis
   revalidatePath(`/meetings/${uid}`);
   revalidatePath('/meetings/inbox');
   return { success: true };
+}
+
+
+// ---------------------------------------------------------------------------
+// Mode switch: turn a face-to-face booking into a Google Meet (2026-08-19)
+// ---------------------------------------------------------------------------
+
+/**
+ * One plain-English sentence per failure. Decision 7 in particular: when the
+ * host's Google Calendar is not connected the host is told THAT, not a generic
+ * "could not switch" — the whole point of blocking is naming the real reason.
+ */
+function modeSwitchMessage(code: ModeSwitchError | undefined): string {
+  switch (code) {
+    case 'FORBIDDEN':
+      return 'Only the meeting host can change this booking.';
+    case 'ALREADY_ONLINE':
+      return 'This meeting is already online.';
+    case 'UNSUPPORTED_SOURCE_MODE':
+      return 'Only an in-person meeting can be moved online. This one is a phone call, so there is nothing to add a Meet link to.';
+    case 'TOO_LATE':
+      return 'It is too close to the start time to move this meeting online.';
+    case 'CALENDAR_NOT_CONNECTED':
+      return 'Your Google Calendar is not connected, so no Meet link can be created. Connect it under Availability, then try again.';
+    case 'NO_CALENDAR_EVENT':
+      return 'This booking has no Google Calendar event, so there is no meeting to add a link to.';
+    case 'INVALID_SLOT':
+      return 'That time is no longer available. Pick another slot.';
+    case 'SLOT_TAKEN':
+      return 'That time was just taken. Pick another slot.';
+    case 'NO_MEET_LINK':
+      return 'Google did not return a Meet link, so nothing was changed. Try again in a moment.';
+    case 'GOOGLE_FAILED':
+      return 'Google Calendar could not be updated, so nothing was changed. Try again in a moment.';
+    case 'GOOGLE_OUT_OF_SYNC':
+      // Deliberately NOT "nothing was changed" — that would be untrue. The
+      // booking is back to in-person but Google could not be put back.
+      return 'The switch did not complete, and this booking is back to in person — but the Google Calendar event may still show a video call. Please open it in Google Calendar and check.';
+    case 'NO_REQUEST':
+      return 'There is no pending request on this booking.';
+    case 'NOT_FOUND':
+      return 'Booking not found, or it is no longer confirmed.';
+    default:
+      return 'Could not change the booking. Please try again.';
+  }
+}
+
+export interface ModeSwitchActionResult extends CancelResult {
+  /** The Google Meet link, on success. */
+  videoUrl?: string | null;
+  /** True when the switch also moved the meeting. */
+  timeMoved?: boolean;
+}
+
+/**
+ * Host turns their own face-to-face booking into a Google Meet, optionally
+ * moving it at the same time (decision 5).
+ *
+ * Service-role path for the same reason cancel/reschedule take it: the write
+ * touches columns `authenticated` has no UPDATE policy for. Authorization is
+ * NOT the service-role key — the service verifies the caller IS the booking's
+ * host (or a super admin) before anything is written.
+ */
+export async function switchMyBookingToOnline(
+  uid: string,
+  startIso?: string,
+): Promise<ModeSwitchActionResult> {
+  const session = await createClient();
+  const { data: { user }, error: authError } = await session.auth.getUser();
+  if (authError || !user) {
+    return { success: false, error: 'You are signed out. Please sign in and try again.' };
+  }
+  if (!uid || typeof uid !== 'string') {
+    return { success: false, error: 'Invalid booking reference.' };
+  }
+  if (startIso && Number.isNaN(new Date(startIso).getTime())) {
+    return { success: false, error: 'Pick a valid time slot.' };
+  }
+
+  const service = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  const result = await MeetingModeSwitchService.switchToOnline(
+    service,
+    uid,
+    { actorProfileId: user.id },
+    { newStart: startIso ?? null },
+  );
+  if (!result.ok) return { success: false, error: modeSwitchMessage(result.error) };
+
+  revalidatePath(`/meetings/${uid}`);
+  revalidatePath('/meetings/inbox');
+  return { success: true, videoUrl: result.data?.videoUrl, timeMoved: result.data?.timeMoved };
+}
+
+/**
+ * Host approves or declines a visitor's pending "can we make this online?"
+ * request. Approving re-checks the notice window against the CURRENT clock,
+ * so a request made days ago cannot move a meeting that is now imminent.
+ */
+export async function resolveBookingModeSwitchRequest(
+  uid: string,
+  decision: 'approve' | 'decline',
+): Promise<ModeSwitchActionResult> {
+  const session = await createClient();
+  const { data: { user }, error: authError } = await session.auth.getUser();
+  if (authError || !user) {
+    return { success: false, error: 'You are signed out. Please sign in and try again.' };
+  }
+  if (!uid || typeof uid !== 'string') {
+    return { success: false, error: 'Invalid booking reference.' };
+  }
+  if (decision !== 'approve' && decision !== 'decline') {
+    return { success: false, error: 'Pick either approve or decline.' };
+  }
+
+  const service = createServiceClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  );
+
+  const result = await MeetingModeSwitchService.resolveSwitchRequest(
+    service,
+    uid,
+    { actorProfileId: user.id },
+    decision,
+  );
+  if (!result.ok) return { success: false, error: modeSwitchMessage(result.error) };
+
+  revalidatePath(`/meetings/${uid}`);
+  revalidatePath('/meetings/inbox');
+  return { success: true, videoUrl: result.data?.videoUrl, timeMoved: result.data?.timeMoved };
 }
