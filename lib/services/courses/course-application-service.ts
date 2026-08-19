@@ -82,6 +82,75 @@ export class CourseApplicationService extends BaseService {
     return (data ?? []) as unknown as CourseApplication[];
   }
 
+  /**
+   * Paginated list for the advanced DataTable.
+   *
+   * A separate method from listByCourse rather than a flag on it: the table
+   * runs in fetchDataFn mode, which owns page/search/sort imperatively and
+   * needs an exact total back, while listByCourse is the plain "give me all of
+   * them" read the counts and any future export use. Folding both into one
+   * signature would mean every caller passing pagination it does not want.
+   */
+  static async listPaged(
+    courseEventId: string,
+    params: CourseApplicationFilters & {
+      page?: number;
+      limit?: number;
+      sortBy?: string;
+      sortDirection?: 'asc' | 'desc';
+    } = {},
+  ): Promise<{
+    data: CourseApplication[];
+    metadata: { page: number; limit: number; total: number; totalPages: number };
+  }> {
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params.limit ?? 10));
+    const from = (page - 1) * limit;
+
+    // Sorting is restricted to REAL columns. fetchDataFn forwards sort_by
+    // straight from the table, and PostgREST 400s on a column that does not
+    // exist — the same trap columns.tsx documents for the courses list, where
+    // `institution` and `dates` are synthetic and therefore not sortable.
+    const SORTABLE = new Set([
+      'created_at', 'applicant_name', 'applicant_phone', 'applicant_email', 'status',
+      'applicant_type', 'decided_at',
+    ]);
+    const sortBy = SORTABLE.has(String(params.sortBy)) ? String(params.sortBy) : 'created_at';
+    const ascending = params.sortDirection === 'asc';
+
+    let query = this.supabase
+      .from('course_applications')
+      // count:'exact' so the pager shows a true total rather than guessing from
+      // a page length.
+      .select(SELECT, { count: 'exact' })
+      .eq('course_event_id', courseEventId);
+
+    if (params.status) query = query.eq('status', params.status);
+    if (params.applicant_type) query = query.eq('applicant_type', params.applicant_type);
+
+    const search = params.search?.trim();
+    if (search) {
+      const safe = search.replace(/[,()]/g, ' ').trim();
+      if (safe) {
+        query = query.or(
+          `applicant_name.ilike.%${safe}%,applicant_phone.ilike.%${safe}%,applicant_email.ilike.%${safe}%`,
+        );
+      }
+    }
+
+    const { data, error, count } = await query
+      .order(sortBy, { ascending })
+      .range(from, from + limit - 1);
+
+    if (error) throw error;
+
+    const total = count ?? 0;
+    return {
+      data: (data ?? []) as unknown as CourseApplication[],
+      metadata: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
+  }
+
   static async getById(id: string): Promise<CourseApplication> {
     const { data, error } = await this.supabase
       .from('course_applications')

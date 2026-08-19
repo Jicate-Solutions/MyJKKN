@@ -2,55 +2,55 @@
 
 // Course Events — the Applications tab body (Phase 4).
 //
-// Everything a public application collects, plus the two decisions. Until this
-// existed the only way to see who had applied was to query course_applications
-// directly — the public surface was live and writing rows nobody in the console
-// could read.
+// Uses the shared advanced DataTable, like every other list surface in this app
+// (the /courses list, events, organizations). It runs in fetchDataFn mode: the
+// table owns page/search/sort imperatively and calls
+// CourseApplicationService.listPaged, rather than a React Query hook feeding a
+// static array.
 //
-// Approve does NOT live here as a status write. It goes through
-// fn_course_approve_application, which provisions a profile, a JKKN identity,
-// the Course Participant role, an enrollment and the whole instalment bill
-// schedule in one transaction. A button that only moved `status` would satisfy
-// course_applications_decision_chk, show the applicant as approved, and leave
-// them with no identity, no enrollment and no bill — constraint-clean silent
-// corruption. Approve therefore opens a dialog that collects the email and the
-// package the RPC needs, and shows the credentials it returns.
+// THE CONSEQUENCE OF fetchDataFn MODE, and it bites every table that uses it:
+// the table registers no React Query entry, so invalidateQueries after a
+// mutation does not refresh it. useDataTableRefreshOnInvalidate covers
+// invalidations raised elsewhere, and a page-local `tick` covers our own
+// mutations — both are folded into refetchKey. Approve and reject bump the
+// tick, or the decided row would sit there looking pending until a reload.
 //
-// Reject is only offered on a pending or shortlisted row. An approved
-// application has a person and bills behind it, and the reject RPC refuses it
-// outright — unwinding that is a withdrawal, not a rejection.
-//
-// A plain list, not a DataTable — same reasoning as the Packages, Sessions and
-// Forms tabs.
+// The counts feeding the status filter stay a SEPARATE, UNFILTERED query on
+// purpose: facet counts derived from already-filtered rows report the filter
+// back to itself — "Pending 3" while Pending is selected, "Pending 0" while
+// Approved is — which has bitten this codebase before.
 
-import { useState } from 'react';
-import {
-  AlertCircle, BadgeCheck, Inbox, KeyRound, Mail, Phone, Search, User, X,
-} from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import { AlertCircle, Mail, Phone, User } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
+import { DataTable } from '@/components/data-table/data-table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { getErrorMessage } from '@/lib/utils';
+import { useDataTableRefreshOnInvalidate } from '@/hooks/use-data-table-refresh';
+import { queryKeys } from '@/lib/query/query-keys';
+import { CourseApplicationService } from '@/lib/services/courses/course-application-service';
 import {
   useCourseApplicationCounts,
-  useCourseApplications,
   useRejectCourseApplication,
 } from '@/hooks/courses/use-course-applications';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ApproveApplicationDialog } from './approve-application-dialog';
 import { ResendCredentialsDialog } from './resend-credentials-dialog';
+import { getApplicationColumns } from './application-columns';
 import {
+  COURSE_APPLICANT_TYPES,
   COURSE_APPLICATION_STATUSES,
   type CourseApplication,
   type CourseApplicationStatus,
 } from '@/types/courses';
+
+const ALL = 'all';
 
 const STATUS_LABEL: Record<CourseApplicationStatus, string> = {
   pending: 'Pending',
@@ -58,14 +58,6 @@ const STATUS_LABEL: Record<CourseApplicationStatus, string> = {
   approved: 'Approved',
   rejected: 'Rejected',
   withdrawn: 'Withdrawn',
-};
-
-const STATUS_VARIANT: Record<CourseApplicationStatus, string> = {
-  pending: 'border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400',
-  shortlisted: 'border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-400',
-  approved: 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400',
-  rejected: 'border-red-300 text-red-700 dark:border-red-800 dark:text-red-400',
-  withdrawn: 'border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-400',
 };
 
 const APPLICANT_TYPE_LABEL: Record<string, string> = {
@@ -85,8 +77,7 @@ const formatWhen = (value: string | null | undefined) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleString('en-IN', {
-    day: 'numeric', month: 'short', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
+    day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
   });
 };
 
@@ -99,8 +90,8 @@ const renderAnswer = (v: unknown): string => {
   return String(v);
 };
 
-/** The identity keys are shown in their own labelled rows at the top of the
- *  sheet, so repeating them in the answers list is noise. */
+/** Shown in their own labelled rows at the top of the sheet, so repeating them
+ *  in the answers list is noise. */
 const IDENTITY_ANSWER_KEYS = new Set(['full_name', 'name', 'phone', 'mobile', 'email']);
 
 function Fact({
@@ -133,9 +124,7 @@ function ApplicationSheet({
   onClose: () => void;
 }) {
   const answers = (application?.custom_fields ?? {}) as Record<string, unknown>;
-  const extraAnswers = Object.entries(answers).filter(
-    ([k]) => !IDENTITY_ANSWER_KEYS.has(k),
-  );
+  const extraAnswers = Object.entries(answers).filter(([k]) => !IDENTITY_ANSWER_KEYS.has(k));
 
   return (
     <Sheet open={Boolean(application)} onOpenChange={(open) => !open && onClose()}>
@@ -145,20 +134,14 @@ function ApplicationSheet({
             <SheetHeader>
               <SheetTitle className="flex flex-wrap items-center gap-2">
                 {application.applicant_name}
-                <Badge
-                  variant="outline"
-                  className={`text-[10px] font-semibold ${
-                    STATUS_VARIANT[application.status as CourseApplicationStatus] ?? ''
-                  }`}
-                >
+                <Badge variant="outline" className="text-[10px] font-semibold">
                   {STATUS_LABEL[application.status as CourseApplicationStatus] ??
                     application.status}
                 </Badge>
               </SheetTitle>
               <SheetDescription>
                 Applied {formatWhen(application.created_at)} ·{' '}
-                {APPLICANT_TYPE_LABEL[application.applicant_type] ??
-                  application.applicant_type}
+                {APPLICANT_TYPE_LABEL[application.applicant_type] ?? application.applicant_type}
               </SheetDescription>
             </SheetHeader>
 
@@ -189,9 +172,9 @@ function ApplicationSheet({
               </div>
 
               {/* package_id is nullable but course_enrollments.package_id is NOT
-                  NULL, so an application with no package cannot become an
-                  enrollment without one being chosen at decision time. Say so
-                  here rather than letting it surface as a 23502 later. */}
+                  NULL, so this application cannot become an enrollment without
+                  one chosen at decision time. Say so rather than letting it
+                  surface as a 23502 later. */}
               {!application.package && (
                 <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
@@ -212,7 +195,10 @@ function ApplicationSheet({
                 ) : (
                   <dl className="divide-y rounded-md border text-sm">
                     {extraAnswers.map(([key, value]) => (
-                      <div key={key} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 px-3 py-2">
+                      <div
+                        key={key}
+                        className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3 px-3 py-2"
+                      >
                         <dt className="min-w-0 break-words font-mono text-xs text-muted-foreground">
                           {key}
                         </dt>
@@ -252,22 +238,99 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
   const { canAccess } = usePermissions();
   const canDecide = canAccess('courses', 'applications.decide');
 
-  const [status, setStatus] = useState<CourseApplicationStatus | 'all'>('all');
-  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>(ALL);
+  const [typeFilter, setTypeFilter] = useState<string>(ALL);
   const [selected, setSelected] = useState<CourseApplication | null>(null);
   const [approving, setApproving] = useState<CourseApplication | null>(null);
   const [resending, setResending] = useState<CourseApplication | null>(null);
+
+  // Bumped by our OWN mutations — see the file banner.
+  const [tick, setTick] = useState(0);
+  const bump = useCallback(() => setTick((t) => t + 1), []);
+
+  const refetchKey = useDataTableRefreshOnInvalidate(queryKeys.courseApplications.lists());
   const reject = useRejectCourseApplication();
-
-  const filters = {
-    ...(status === 'all' ? {} : { status }),
-    ...(search.trim() ? { search: search.trim() } : {}),
-  };
-
-  const { data, isLoading, isError, error } = useCourseApplications(courseEventId, filters);
   const { data: counts } = useCourseApplicationCounts(courseEventId);
 
-  const list = data ?? [];
+  const columns = useMemo(
+    () =>
+      getApplicationColumns({
+        canDecide,
+        onView: setSelected,
+        onApprove: setApproving,
+        onReject: (a) => reject.mutate({ applicationId: a.id }, { onSuccess: bump }),
+        onResend: setResending,
+        isRejecting: reject.isPending,
+      }),
+    [canDecide, reject, bump],
+  );
+
+  const fetchData = useCallback(
+    async (params: {
+      page: number;
+      limit: number;
+      search: string;
+      sort_by: string;
+      sort_order: string;
+    }) => {
+      const { data, metadata } = await CourseApplicationService.listPaged(courseEventId, {
+        status: statusFilter !== ALL ? (statusFilter as CourseApplicationStatus) : undefined,
+        applicant_type: typeFilter !== ALL ? (typeFilter as never) : undefined,
+        search: params.search,
+        page: params.page,
+        limit: params.limit,
+        sortBy: params.sort_by,
+        sortDirection: params.sort_order === 'asc' ? 'asc' : 'desc',
+      });
+
+      return {
+        success: true,
+        data,
+        pagination: {
+          page: metadata.page,
+          limit: metadata.limit,
+          total_pages: metadata.totalPages,
+          total_items: metadata.total,
+        },
+      };
+    },
+    [courseEventId, statusFilter, typeFilter],
+  );
+
+  const renderToolbar = () => (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <SelectTrigger className="h-8 w-[160px]">
+          <SelectValue placeholder="All statuses" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>
+            All statuses{counts ? ` (${counts.total})` : ''}
+          </SelectItem>
+          {COURSE_APPLICATION_STATUSES.map((s) => (
+            <SelectItem key={s} value={s}>
+              {STATUS_LABEL[s]}
+              {counts ? ` (${counts[s]})` : ''}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select value={typeFilter} onValueChange={setTypeFilter}>
+        <SelectTrigger className="h-8 w-[130px]">
+          <SelectValue placeholder="All types" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>All types</SelectItem>
+          {COURSE_APPLICANT_TYPES.map((t) => (
+            <SelectItem key={t} value={t}>
+              {APPLICANT_TYPE_LABEL[t]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 
   return (
     <PermissionGuard
@@ -279,183 +342,78 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
         </p>
       }
     >
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-0 flex-1 sm:max-w-xs">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, phone or email"
-              className="pl-8"
-            />
-          </div>
-
-          {/* Counts come from the UNFILTERED query, so selecting a status never
-              rewrites the numbers beside the other statuses. */}
-          <div className="flex flex-wrap items-center gap-1">
-            <Button
-              variant={status === 'all' ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={() => setStatus('all')}
-            >
-              All {counts ? `(${counts.total})` : ''}
-            </Button>
-            {COURSE_APPLICATION_STATUSES.map((s) => (
-              <Button
-                key={s}
-                variant={status === s ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setStatus(s)}
-              >
-                {STATUS_LABEL[s]} {counts ? `(${counts[s]})` : ''}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        ) : isError ? (
-          <Card>
-            <CardContent className="py-10 text-center text-sm text-destructive">
-              {getErrorMessage(error)}
-            </CardContent>
-          </Card>
-        ) : list.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 text-center">
-              <Inbox className="mx-auto h-8 w-8 text-muted-foreground" />
-              <p className="mt-3 text-sm text-muted-foreground">
-                {counts?.total
-                  ? 'No applications match this filter.'
-                  : 'Nobody has applied to this course yet.'}
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {list.map((a) => {
-              const s = a.status as CourseApplicationStatus;
-              return (
-                <Card
-                  key={a.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelected(a)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setSelected(a);
-                    }
-                  }}
-                  className="cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <CardContent className="flex flex-wrap items-start justify-between gap-3 p-4">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-semibold">{a.applicant_name}</h3>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] font-semibold ${STATUS_VARIANT[s] ?? ''}`}
-                        >
-                          {STATUS_LABEL[s] ?? a.status}
-                        </Badge>
-                        <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                          {APPLICANT_TYPE_LABEL[a.applicant_type] ?? a.applicant_type}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1.5">
-                          <Phone className="h-3.5 w-3.5" />
-                          {a.applicant_phone}
-                        </span>
-                        {a.applicant_email && (
-                          <span className="flex items-center gap-1.5">
-                            <Mail className="h-3.5 w-3.5" />
-                            {a.applicant_email}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-2">
-                      <div className="text-right text-xs text-muted-foreground">
-                        <p>{formatWhen(a.created_at)}</p>
-                        <p className="mt-0.5">
-                          {a.package
-                            ? `${a.package.name} · ${inr.format(Number(a.package.total_amount ?? 0))}`
-                            : 'No package chosen'}
-                        </p>
-                      </div>
-
-                      {/* Only an undecided application can be decided. An
-                          approved one has a person, an enrollment and bills
-                          behind it — unwinding that is a withdrawal, which the
-                          reject RPC refuses outright. */}
-                      {canDecide && (s === 'pending' || s === 'shortlisted') && (
-                        <div
-                          className="flex gap-1.5"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
-                          <Button size="sm" onClick={() => setApproving(a)}>
-                            <BadgeCheck className="mr-1.5 h-3.5 w-3.5" />
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={reject.isPending}
-                            onClick={() => reject.mutate({ applicationId: a.id })}
-                          >
-                            <X className="mr-1.5 h-3.5 w-3.5" />
-                            Reject
-                          </Button>
-                        </div>
-                      )}
-
-                      {/* Approving only issues a password for a genuinely NEW
-                          person; reusing an existing identity deliberately does
-                          not overwrite one. Without this, a participant who
-                          never received or has lost their password had no way
-                          back in — there is no self-service reset, because
-                          someone with no email cannot receive one. */}
-                      {canDecide && s === 'approved' && a.enrollment?.id && (
-                        <div
-                          className="flex gap-1.5"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
-                          <Button size="sm" variant="outline" onClick={() => setResending(a)}>
-                            <KeyRound className="mr-1.5 h-3.5 w-3.5" />
-                            Resend login details
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+      <div className="space-y-4">
+        {/* Why the casts: DataTable constrains TData to ExportableData, a FLAT
+            record of primitives. CourseApplication carries nested form/package/
+            enrollment objects, so it cannot satisfy that constraint — the same
+            wall the /courses list hits. Cast at this one boundary rather than
+            loosen the shared generic. */}
+        <DataTable
+          fetchDataFn={fetchData as never}
+          getColumns={() => columns as never}
+          idField="id"
+          exportConfig={{
+            entityName: 'course-applications',
+            columnMapping: {
+              applicant_name: 'Applicant',
+              applicant_phone: 'Phone',
+              applicant_email: 'Email',
+              status: 'Status',
+              applicant_type: 'Type',
+              form: 'Form',
+              package: 'Package',
+              created_at: 'Applied',
+            },
+            columnWidths: [
+              { wch: 26 }, { wch: 16 }, { wch: 28 }, { wch: 14 },
+              { wch: 12 }, { wch: 24 }, { wch: 24 }, { wch: 22 },
+            ],
+            headers: [
+              'applicant_name', 'applicant_phone', 'applicant_email', 'status',
+              'applicant_type', 'form', 'package', 'created_at',
+            ],
+            // form/package are nested {id,name} objects — a {...row} spread would
+            // drag them into the sheet instead of a flat value. Flatten explicitly.
+            transformFunction: ((row: CourseApplication) => ({
+              applicant_name: row.applicant_name,
+              applicant_phone: row.applicant_phone,
+              applicant_email: row.applicant_email ?? '',
+              status: row.status,
+              applicant_type: row.applicant_type,
+              form: row.form?.name ?? '',
+              package: row.package?.name ?? '',
+              created_at: row.created_at ?? '',
+            })) as never,
+          }}
+          config={{
+            enableUrlState: true,
+            enableDateFilter: false,
+            enableExport: true,
+            enableRowSelection: false,
+            enableSearch: true,
+            enableColumnFilters: false,
+            enableColumnVisibility: true,
+            enableColumnResizing: true,
+            columnResizingTableId: 'course-applications-table',
+          }}
+          renderToolbarContent={renderToolbar}
+          refetchKey={refetchKey + tick}
+        />
 
         <ApplicationSheet application={selected} onClose={() => setSelected(null)} />
 
         <ApproveApplicationDialog
           application={approving}
           courseEventId={courseEventId}
-          onClose={() => setApproving(null)}
+          onClose={() => {
+            setApproving(null);
+            // The approved row must stop offering Approve/Reject, and its
+            // enrollment now exists for the Resend action.
+            bump();
+          }}
         />
 
-        <ResendCredentialsDialog
-          application={resending}
-          onClose={() => setResending(null)}
-        />
+        <ResendCredentialsDialog application={resending} onClose={() => setResending(null)} />
       </div>
     </PermissionGuard>
   );
