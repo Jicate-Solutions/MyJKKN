@@ -27,6 +27,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { withAuth } from '@/lib/auth/with-auth';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import { CourseWelcomeEmailService } from '@/lib/services/email/course-welcome-email-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,7 +84,7 @@ export const POST = withAuth(
     // approve into an institution they have no access to.
     const { data: application, error: readError } = await supabase
       .from('course_applications')
-      .select('id, status, applicant_type, applicant_name, applicant_email, external_participant_id')
+      .select('id, status, applicant_type, applicant_name, applicant_email, external_participant_id, course_event_id')
       .eq('id', applicationId)
       .maybeSingle();
 
@@ -225,9 +226,64 @@ export const POST = withAuth(
       );
     }
 
+    const approved = result as Record<string, any>;
+
+    // ── the welcome email ──────────────────────────────────────────────────
+    // AFTER the transaction, and unable to affect it. The identity, enrollment
+    // and bills are already committed; a mail failure must not report the
+    // approval as failed, because a retry would then hit "already enrolled".
+    // Its outcome is RETURNED instead, so the dialog can tell the admin whether
+    // they still need to hand the credentials over themselves — which is the
+    // normal case, since most participants have no email.
+    let emailResult: { success: boolean; skipped?: boolean; skipReason?: string; error?: string } = {
+      success: false,
+      skipped: true,
+      skipReason: 'This participant has no email address',
+    };
+
+    if (contactEmail) {
+      // The instalments come from the bills the transaction just raised, not
+      // from the package template — the bills are what the participant will
+      // actually be asked to pay, and a template edited later must not make an
+      // already-sent email retrospectively wrong.
+      const [{ data: courseRow }, { data: billRows }] = await Promise.all([
+        supabase
+          .from('course_events')
+          .select('title, start_date, end_date, mode, venue_text')
+          .eq('id', app.course_event_id)
+          .maybeSingle(),
+        supabase
+          .from('course_bills')
+          .select('installment_no, label, total_amount, due_date')
+          .eq('enrollment_id', approved.enrollment_id)
+          .order('installment_no', { ascending: true }),
+      ]);
+
+      const course = (courseRow ?? {}) as any;
+
+      emailResult = await CourseWelcomeEmailService.sendApprovedEmail({
+        to: contactEmail,
+        participantName: app.applicant_name,
+        jkknId: approved.jkkn_id,
+        tempPassword,
+        courseTitle: course.title ?? approved.package_name ?? 'your course',
+        courseStartDate: course.start_date ?? null,
+        courseEndDate: course.end_date ?? null,
+        courseMode: course.mode ?? null,
+        venueText: course.venue_text ?? null,
+        packageName: approved.package_name,
+        totalPayable: Number(approved.total_payable ?? 0),
+        enrollmentNumber: approved.enrollment_no,
+        instalments: (billRows ?? []) as any[],
+      });
+    }
+
     return NextResponse.json({
-      ...(result as Record<string, unknown>),
+      ...approved,
       email: contactEmail || null,
+      emailSent: emailResult.success,
+      emailSkipReason: emailResult.skipped ? emailResult.skipReason : undefined,
+      emailError: emailResult.error,
       // Present only when a login was just created. The UI shows it once — it
       // is never stored and cannot be retrieved again.
       tempPassword,

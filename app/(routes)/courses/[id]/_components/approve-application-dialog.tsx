@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import {
-  AlertTriangle, BadgeCheck, Copy, IndianRupee, Loader2, ReceiptText,
+  AlertTriangle, BadgeCheck, Copy, IndianRupee, Loader2, Mail, ReceiptText,
 } from 'lucide-react';
 
 import {
@@ -155,6 +155,30 @@ export function ApproveApplicationDialog({
                   No new password was issued — this person already had a login, and
                   resetting it would lock them out of their existing account.
                 </p>
+              )}
+
+              {/* Whether the credentials still need carrying by hand is the
+                  single most important thing on this screen after the password
+                  itself, so it is stated explicitly either way. */}
+              {result.emailSent ? (
+                <div className="flex gap-2 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/40">
+                  <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                  <p className="text-emerald-900 dark:text-emerald-200">
+                    Emailed to {result.email} with the JKKN ID, password and payment
+                    schedule.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+                  <p className="text-amber-900 dark:text-amber-200">
+                    {result.emailError
+                      ? `No email was sent — ${result.emailError}. `
+                      : `${result.emailSkipReason ?? 'No email was sent'}. `}
+                    Pass the JKKN ID and password on yourself — the password cannot
+                    be shown again.
+                  </p>
+                </div>
               )}
 
               <div className="space-y-1 rounded-md border p-3 text-sm">

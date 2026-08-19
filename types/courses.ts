@@ -431,4 +431,13 @@ export interface CourseApprovalResult {
   /** The person already had a profile and a JKKN ID — a second course, not a
    *  second identity. No password is issued in this case. */
   reusedExistingIdentity: boolean;
+  /** Whether the welcome email actually went out. Sent AFTER the approval
+   *  transaction and unable to fail it, so this is reported rather than thrown:
+   *  when false the admin still has to hand the credentials over themselves. */
+  emailSent: boolean;
+  /** Present when sending was deliberately skipped — most often because the
+   *  participant has no email address at all, which is normal, not a fault. */
+  emailSkipReason?: string;
+  /** Present when Resend actually rejected the send. */
+  emailError?: string;
 }
