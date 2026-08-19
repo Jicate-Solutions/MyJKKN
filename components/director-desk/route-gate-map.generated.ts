@@ -5,7 +5,7 @@
 // Drift guard: __tests__/director-desk/route-gate-map.test.ts
 //
 // Every route whose real gate is NOT simply its MENU_PERMISSIONS key.
-// 119 routes cannot be handed over at all; 368 declare
+// 118 routes cannot be handed over at all; 381 declare
 // their own permission keys through PermissionGuard / PolicyPageShell.
 // ============================================================================
 
@@ -62,10 +62,12 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/admin/bug-reports/[id]": { blocked: 'adminRole' },
   "/admin/dashboard-drilldowns": { blocked: 'superAdmin' },
   "/admin/dashboard/widget-config": { blocked: 'superAdmin' },
+  "/admin/id-cards/address-check": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/batch-print": { keys: ['id_cards.jobs.manage'] },
+  "/admin/id-cards/morning": { keys: ['id_cards.jobs.view'] },
   "/admin/id-cards/policy": { blocked: 'superAdmin' },
   "/admin/id-cards/print-queue": { blocked: 'adminRole' },
-  "/admin/id-cards/template": { blocked: 'superAdmin' },
+  "/admin/id-cards/template": { keys: ['id_cards.templates.edit'] },
   "/admin/landing-pages": { blocked: 'superAdmin' },
   "/admin/learner-notes": { blocked: 'superAdmin' },
   "/admin/nav-config": { blocked: 'superAdmin' },
@@ -251,6 +253,12 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/billing/schedule": { keys: ['billing.schedule.view'], routeGuarded: true },
   "/billing/schedule/bulk-create/upload": { keys: ['billing.schedule.bulk_create', 'billing.schedule.create'], routeGuarded: true },
   "/billing/schedule/bulk-edit": { keys: ['billing.schedule.update'], routeGuarded: true },
+  "/billing/school-fees": { keys: ['school_fees.read'], routeGuarded: true },
+  "/billing/school-fees/[id]": { keys: ['school_fees.read'], routeGuarded: true },
+  "/billing/school-fees/concessions": { keys: ['school_fees.read'], routeGuarded: true },
+  "/billing/school-fees/generate": { keys: ['school_fees.generate'], routeGuarded: true },
+  "/billing/school-fees/new": { keys: ['school_fees.manage'], routeGuarded: true },
+  "/billing/school-fees/term-calendar": { keys: ['school_fees.read'], routeGuarded: true },
   "/billing/transport": { keys: ['billing.transport.view'], routeGuarded: true },
   "/bos/academic-council": { keys: ['academic.bos-academic-council.manage'] },
   "/bos/academic-council/[meetingId]/edit": { keys: ['academic.bos-academic-council.manage'] },
@@ -266,6 +274,7 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/bos/sop": { keys: ['academic.bos-sop.view'] },
   "/bos/taxonomy": { keys: ['academic.bos-taxonomy.view'] },
   "/bos/taxonomy/new": { keys: ['academic.bos-taxonomy.create'] },
+  "/campus-living/allocations/audit": { keys: ['campus_living.allocations.audit'] },
   "/campus-living/mess/caterer-management": { blocked: 'superAdmin' },
   "/campus-living/mess/insights": { blocked: 'superAdmin' },
   "/campus-living/mess/library": { blocked: 'superAdmin' },
@@ -327,6 +336,9 @@ export const ROUTE_GATE_MAP: Record<string, RouteGateEntry> = {
   "/cdc/training/[id]/edit": { keys: ['cdc.training.edit'] },
   "/cdc/training/new": { keys: ['cdc.training.create'] },
   "/cdc/udyog": { keys: ['cdc.udyog.view'] },
+  "/courses": { keys: ['courses.view'] },
+  "/courses/[id]": { keys: ['courses.edit'] },
+  "/courses/new": { keys: ['courses.create'] },
   "/faculty/innovation": { keys: ['faculty_innovation.initiative.submit'] },
   "/faculty/innovation/approval-queue": { keys: ['faculty_innovation.initiative.approve'] },
   "/faculty/innovation/collab-request": { keys: ['faculty_innovation.collab_request.create'] },

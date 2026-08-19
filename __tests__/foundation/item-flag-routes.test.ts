@@ -167,12 +167,28 @@ describe('PATCH /api/foundation/item-flags/[id] — closing a report', () => {
     expect(lastUpdate).toBeNull(); // nothing was written
   });
 
-  it('checks the permission by key, not by role name', async () => {
+  it('checks the permission by key, not by role name — and through the one-arg overload', async () => {
     permissionResult = true;
     await PATCH(patchRequest({ status: 'fixed' }), { params });
+    // The argument NAME is the security assertion here, not a spelling detail.
+    // user_has_permission has two overloads. The one-arg (permission_name text)
+    // form resolves auth.uid() itself, so a cookie-scoped client can only ever
+    // ask about its own caller. The two-arg (user_id uuid, permission_key text)
+    // form takes a caller-supplied uuid and never compares it to auth.uid(), so
+    // any signed-in user could ask "does <anyone> hold <any key>" and read the
+    // whole role map back — which is why EXECUTE on it was revoked from
+    // `authenticated` and it survives for service-role callers only.
+    //
+    // This test used to demand { user_id, permission_key }. Making the route
+    // agree with it would have reintroduced a call to the revoked overload:
+    // from a cookie-scoped client that returns 42501, the check reads falsy, and
+    // every legitimate holder of the key is told 403 — the exact production
+    // failure documented at app/api/admission/bridge/convert/route.ts.
+    //
+    // toHaveBeenCalledWith deep-equals the payload, so this also fails if a
+    // user_id argument is ever added back alongside the correct one.
     expect(rpcMock).toHaveBeenCalledWith('user_has_permission', {
-      user_id: 'user-learner',
-      permission_key: 'foundation.items.manage',
+      permission_name: 'foundation.items.manage',
     });
   });
 
