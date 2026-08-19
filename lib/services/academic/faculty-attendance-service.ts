@@ -39,6 +39,71 @@ export class FacultyAttendanceService {
   }
 
   /**
+   * Fixed: 2026-08-19 - `timetables.periods` is a denormalized SNAPSHOT of the period
+   * rows, written when the timetable was configured. Editing a timing in the Period
+   * master (academic/periods) does NOT rewrite that snapshot, so "My Classes" and the
+   * timetable grid kept rendering pre-edit times while "Search Period" — which joins
+   * the master by id in AttendanceService.getAvailablePeriodsForDate — rendered the
+   * corrected ones (JKKN AHS, Aug 2026). Load the master once per call so the snapshot
+   * can be overlaid with the authoritative name/timings.
+   *
+   * Returns an EMPTY map on failure, which makes mergePeriodMaster a no-op and leaves
+   * the previous snapshot-only behaviour intact — a period lookup must never turn a
+   * transient fetch error into "no classes today".
+   */
+  private static async fetchPeriodMasterMap(
+    institutionIds: (string | null | undefined)[]
+  ): Promise<Map<string, any>> {
+    const map = new Map<string, any>();
+    const ids = Array.from(new Set(institutionIds.filter(Boolean))) as string[];
+    if (ids.length === 0) return map;
+
+    const { data, error } = await this.supabase
+      .from('periods')
+      .select('id, period_name, start_time, end_time, is_break, session')
+      .in('institution_id', ids);
+
+    if (error) {
+      logger.warn(
+        'academic/faculty-attendance',
+        'Period master fetch failed; falling back to timetable snapshot timings',
+        error
+      );
+      return map;
+    }
+
+    for (const period of data || []) {
+      map.set((period as any).id, period);
+    }
+    return map;
+  }
+
+  /**
+   * Overlay the authoritative period master onto a snapshot entry.
+   * Keeps every field the master does not own (sort_order, practical config, etc.).
+   * A period deleted from the master has no live row — its snapshot values are then
+   * left untouched rather than blanked, so the slot still renders.
+   */
+  private static mergePeriodMaster(
+    periodDef: any,
+    master: Map<string, any>
+  ): any {
+    if (!periodDef) return periodDef;
+
+    const live = master.get(periodDef.id || periodDef.period_id);
+    if (!live) return periodDef;
+
+    return {
+      ...periodDef,
+      period_name: live.period_name,
+      start_time: live.start_time,
+      end_time: live.end_time,
+      is_break: live.is_break ?? periodDef.is_break,
+      session: live.session ?? periodDef.session
+    };
+  }
+
+  /**
    * Get staff ID from user institution email
    */
   static async getStaffIdByEmail(email: string): Promise<string | null> {
@@ -184,6 +249,12 @@ export class FacultyAttendanceService {
 
       logger.dev('academic/faculty-attendance', 'Timetables found', { count: timetables.length });
 
+      // Fixed: 2026-08-19 - Authoritative period timings for every institution this
+      // staff teaches in; overlaid onto each timetable's period snapshot below.
+      const periodMaster = await this.fetchPeriodMasterMap(
+        timetables.map((t: any) => t.institution_id).concat(teachingInstitutionIds)
+      );
+
       // Extract all unique course IDs first, then batch fetch
       const courseIds = new Set<string>();
       const facultyPeriods: AttendancePeriodOption[] = [];
@@ -217,15 +288,23 @@ export class FacultyAttendanceService {
         // Array entries carry the identifier as `id` OR `period_id` depending on
         // which timetable builder wrote them (AHS timetables use `period_id`
         // only) — match both, or every slot silently drops at the lookup.
+        // Updated: 2026-08-19 - Every resolved definition is overlaid with the period
+        // master so edited timings surface here without re-saving the timetable.
         const findPeriodDef = (periodId: string): any => {
           if (!periodsRaw) return null;
           if (Array.isArray(periodsRaw)) {
-            return periodsRaw.find(
-              (p: any) => p.id === periodId || p.period_id === periodId
+            return this.mergePeriodMaster(
+              periodsRaw.find(
+                (p: any) => p.id === periodId || p.period_id === periodId
+              ),
+              periodMaster
             );
           }
           if (typeof periodsRaw === 'object' && periodsRaw[periodId]) {
-            return { id: periodId, ...periodsRaw[periodId] };
+            return this.mergePeriodMaster(
+              { id: periodId, ...periodsRaw[periodId] },
+              periodMaster
+            );
           }
           return null;
         };
@@ -795,6 +874,11 @@ export class FacultyAttendanceService {
         { course_code: string; course_name: string }
       >();
 
+      // Fixed: 2026-08-19 - Authoritative period timings, overlaid onto the snapshot.
+      const periodMaster = await this.fetchPeriodMasterMap([
+        staffData.institution_id
+      ]);
+
       if (timetables) {
         for (const timetable of timetables) {
           const timetableData = timetable.timetable_data as TimetableDataStructure | null;
@@ -803,15 +887,22 @@ export class FacultyAttendanceService {
           // Helper: resolve period definition from either array or object format.
           // Array entries carry the identifier as `id` OR `period_id` (AHS
           // timetables use `period_id` only) — match both.
+          // Updated: 2026-08-19 - Result is overlaid with the period master.
           const findPeriodDef = (pId: string): any => {
             if (!periodsRaw) return null;
             if (Array.isArray(periodsRaw)) {
-              return periodsRaw.find(
-                (p: any) => p.id === pId || p.period_id === pId
+              return this.mergePeriodMaster(
+                periodsRaw.find(
+                  (p: any) => p.id === pId || p.period_id === pId
+                ),
+                periodMaster
               );
             }
             if (typeof periodsRaw === 'object' && periodsRaw[pId]) {
-              return { id: pId, ...periodsRaw[pId] };
+              return this.mergePeriodMaster(
+                { id: pId, ...periodsRaw[pId] },
+                periodMaster
+              );
             }
             return null;
           };
