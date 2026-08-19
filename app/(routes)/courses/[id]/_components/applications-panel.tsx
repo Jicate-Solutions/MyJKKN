@@ -21,7 +21,7 @@
 // Approved is — which has bitten this codebase before.
 
 import { useCallback, useMemo, useState } from 'react';
-import { AlertCircle, Mail, Phone, User } from 'lucide-react';
+import { AlertCircle, BadgeCheck, Mail, Phone, User, Wallet } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import {
@@ -151,6 +151,55 @@ function ApplicationSheet({
                 <Fact icon={Phone} label="Phone" value={application.applicant_phone} />
                 <Fact icon={Mail} label="Email" value={application.applicant_email} />
               </div>
+
+              {/* Provisioned identity and fee position. Only an approved
+                  application has either, so the whole block is conditional —
+                  showing "JKKN ID: —" on a pending row invites the reader to
+                  wonder whether one failed to issue. */}
+              {application.enrollment && (
+                <div className="space-y-3 rounded-md border bg-muted/40 p-3">
+                  <div className="flex items-start gap-2.5">
+                    <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">JKKN ID</p>
+                      <p className="break-words font-mono text-sm font-semibold">
+                        {application.profile?.jkkn_identities?.[0]?.jkkn_id ?? 'Not issued'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-2.5 border-t pt-3">
+                    <Wallet className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-muted-foreground">Fees</p>
+                      <div className="mt-1 grid grid-cols-3 gap-2 text-sm">
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-muted-foreground">Total</p>
+                          <p className="truncate font-medium">
+                            {inr.format(Number(application.enrollment.total_payable ?? 0))}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-muted-foreground">Paid</p>
+                          <p className="truncate font-medium text-emerald-700 dark:text-emerald-400">
+                            {inr.format(Number(application.enrollment.total_paid ?? 0))}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-muted-foreground">Balance</p>
+                          <p className="truncate font-bold">
+                            {inr.format(Number(application.enrollment.balance ?? 0))}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Enrolment {application.enrollment.enrollment_number ?? '—'}
+                        {application.enrollment.status ? ` · ${application.enrollment.status}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
                 <div className="min-w-0">
@@ -362,15 +411,21 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
               applicant_type: 'Type',
               form: 'Form',
               package: 'Package',
+              jkkn_id: 'JKKN ID',
+              total_payable: 'Fee total',
+              total_paid: 'Paid',
+              balance: 'Balance',
               created_at: 'Applied',
             },
             columnWidths: [
               { wch: 26 }, { wch: 16 }, { wch: 28 }, { wch: 14 },
-              { wch: 12 }, { wch: 24 }, { wch: 24 }, { wch: 22 },
+              { wch: 12 }, { wch: 24 }, { wch: 24 }, { wch: 14 },
+              { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 },
             ],
             headers: [
               'applicant_name', 'applicant_phone', 'applicant_email', 'status',
-              'applicant_type', 'form', 'package', 'created_at',
+              'applicant_type', 'form', 'package', 'jkkn_id',
+              'total_payable', 'total_paid', 'balance', 'created_at',
             ],
             // form/package are nested {id,name} objects — a {...row} spread would
             // drag them into the sheet instead of a flat value. Flatten explicitly.
@@ -382,6 +437,13 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
               applicant_type: row.applicant_type,
               form: row.form?.name ?? '',
               package: row.package?.name ?? '',
+              jkkn_id: row.profile?.jkkn_identities?.[0]?.jkkn_id ?? '',
+              // Blank, not 0, for an application with no enrolment: a zero in a
+              // fee column reads as "nothing owed" when the truth is "not yet
+              // approved".
+              total_payable: row.enrollment ? Number(row.enrollment.total_payable ?? 0) : '',
+              total_paid: row.enrollment ? Number(row.enrollment.total_paid ?? 0) : '',
+              balance: row.enrollment ? Number(row.enrollment.balance ?? 0) : '',
               created_at: row.created_at ?? '',
             })) as never,
           }}

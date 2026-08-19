@@ -393,8 +393,22 @@ export interface CourseApplication extends CourseApplicationRow {
   decided_by_profile?: { id: string; full_name: string | null } | null;
   /** Present once approved. Credentials are reissued against the ENROLLMENT
    *  rather than the profile, because the enrollment carries institution_id and
-   *  is therefore the thing RLS can gate. */
-  enrollment?: { id: string; enrollment_number: string | null } | null;
+   *  is therefore the thing RLS can gate. Carries the fee position so an admin
+   *  can see who has paid without opening a second screen. */
+  enrollment?: {
+    id: string;
+    enrollment_number: string | null;
+    status?: string | null;
+    total_payable?: number | null;
+    total_paid?: number | null;
+    balance?: number | null;
+  } | null;
+  /** The provisioned person. jkkn_identities is reached THROUGH profiles —
+   *  course_applications has no FK to it, but jkkn_identities.profile_id does,
+   *  so PostgREST embeds it in reverse. Readable by the same roles that can see
+   *  applications: all 7 holding courses.applications.view also hold
+   *  users.jkkn_id.view, so this never silently returns null for them. */
+  profile?: { id: string; jkkn_identities?: { jkkn_id: string }[] | null } | null;
 }
 
 export interface CourseApplicationFilters {

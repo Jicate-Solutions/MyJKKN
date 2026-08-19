@@ -42,7 +42,13 @@ const SELECT = `
   form:course_registration_forms!course_applications_form_id_fkey(id, name),
   package:course_packages!course_applications_package_id_fkey(id, name, total_amount),
   decided_by_profile:profiles!course_applications_decided_by_fkey(id, full_name),
-  enrollment:course_enrollments!course_enrollments_application_id_fkey(id, enrollment_number)
+  enrollment:course_enrollments!course_enrollments_application_id_fkey(
+    id, enrollment_number, status, total_payable, total_paid, balance
+  ),
+  profile:profiles!course_applications_profile_id_fkey(
+    id,
+    jkkn_identities(jkkn_id)
+  )
 `;
 
 export class CourseApplicationService extends BaseService {

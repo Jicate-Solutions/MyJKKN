@@ -49,6 +49,21 @@ const inr = new Intl.NumberFormat('en-IN', {
   maximumFractionDigits: 0,
 });
 
+/** Where an approved participant stands on their fees, derived from the
+ *  enrolment totals rather than stored — fn_course_recompute_balances keeps
+ *  those current, so anything cached here would drift the moment a payment
+ *  landed. */
+function feeState(en: CourseApplication['enrollment']) {
+  if (!en) return null;
+  const payable = Number(en.total_payable ?? 0);
+  const paid = Number(en.total_paid ?? 0);
+  const balance = Number(en.balance ?? 0);
+  if (payable <= 0) return { label: 'No fee', tone: 'text-muted-foreground', paid, payable, balance };
+  if (balance <= 0) return { label: 'Paid in full', tone: 'text-emerald-700 dark:text-emerald-400', paid, payable, balance };
+  if (paid > 0) return { label: 'Part paid', tone: 'text-blue-700 dark:text-blue-400', paid, payable, balance };
+  return { label: 'Unpaid', tone: 'text-amber-700 dark:text-amber-400', paid, payable, balance };
+}
+
 const renderWhen = (value: string | null) => {
   if (!value) return '—';
   const d = new Date(value);
@@ -154,6 +169,28 @@ export const getApplicationColumns = (
       ) : (
         <span className="text-sm text-muted-foreground">Not chosen</span>
       ),
+  },
+  {
+    id: 'payment',
+    header: 'Payment',
+    enableSorting: false,
+    size: 190,
+    cell: ({ row }) => {
+      const fee = feeState(row.original.enrollment);
+      // Only an APPROVED application has an enrolment, and only an enrolment
+      // has fees. Anything else has nothing to report — an em dash beats
+      // "Rs. 0 of Rs. 0", which reads as a settled account.
+      if (!fee) return <span className="text-sm text-muted-foreground">—</span>;
+      return (
+        <div className="min-w-0 text-sm">
+          <p className={`font-medium ${fee.tone}`}>{fee.label}</p>
+          <p className="text-xs text-muted-foreground">
+            {inr.format(fee.paid)} of {inr.format(fee.payable)}
+            {fee.balance > 0 ? ` · ${inr.format(fee.balance)} due` : ''}
+          </p>
+        </div>
+      );
+    },
   },
   {
     accessorKey: 'created_at',
