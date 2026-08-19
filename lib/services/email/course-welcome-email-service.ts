@@ -66,6 +66,11 @@ export interface CourseWelcomeEmailParams {
   totalPayable: number;
   enrollmentNumber: string;
   instalments: CourseWelcomeInstalment[];
+  /** True when an admin reissued the password for someone already enrolled.
+   *  Changes the subject and opening line only — telling an existing
+   *  participant "your application has been accepted" a second time is
+   *  confusing, and worse, hides the one thing that actually changed. */
+  isReissue?: boolean;
 }
 
 const inr = new Intl.NumberFormat('en-IN', {
@@ -283,14 +288,23 @@ export class CourseWelcomeEmailService {
     });
     courseRows.push({ label: 'Enrolment number', value: esc(params.enrollmentNumber) });
 
+    const opening = params.isReissue
+      ? `<p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+           New sign-in details have been issued for your place on
+           <strong>${esc(params.courseTitle)}</strong>.
+           <strong>Any password you were given before has now stopped working</strong> —
+           use the one below.
+         </p>`
+      : `<p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+           Your application for <strong>${esc(params.courseTitle)}</strong> has been accepted.
+           You now have a JKKN ID, which is your permanent identity across JKKN Institutions.
+         </p>`;
+
     const body = `
       <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
         Hi ${esc(params.participantName)},
       </p>
-      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
-        Your application for <strong>${esc(params.courseTitle)}</strong> has been accepted.
-        You now have a JKKN ID, which is your permanent identity across JKKN Institutions.
-      </p>
+      ${opening}
       ${credentialsCard(params.jkknId, params.tempPassword)}
       <p style="margin:0 0 24px;color:#374151;font-size:14px;line-height:1.65;">
         Sign in with your <strong>JKKN ID</strong> and password — not an email address —
@@ -310,10 +324,26 @@ export class CourseWelcomeEmailService {
         {
           from: FROM_EMAIL,
           to: params.to,
-          subject: `You are enrolled — ${params.courseTitle}`,
-          html: emailShell('&#10003;&nbsp; Your application was accepted', body),
+          subject: params.isReissue
+            ? `Your JKKN sign-in details — ${params.courseTitle}`
+            : `You are enrolled — ${params.courseTitle}`,
+          html: emailShell(
+            params.isReissue
+              ? '&#128273;&nbsp; New sign-in details'
+              : '&#10003;&nbsp; Your application was accepted',
+            body,
+          ),
         },
-        { headers: { 'Idempotency-Key': `course-welcome-${params.enrollmentNumber}` } },
+        // A reissue MUST NOT reuse the enrolment's key: Resend would treat it as
+        // a duplicate of the original welcome and silently drop it, so the
+        // participant would never receive the new password.
+        {
+          headers: {
+            'Idempotency-Key': params.isReissue
+              ? `course-reissue-${params.enrollmentNumber}-${params.jkknId}-${params.tempPassword ?? ''}`
+              : `course-welcome-${params.enrollmentNumber}`,
+          },
+        },
       );
 
       if (error) {

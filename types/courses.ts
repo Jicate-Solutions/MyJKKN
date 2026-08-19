@@ -391,6 +391,10 @@ export interface CourseApplication extends CourseApplicationRow {
   form?: { id: string; name: string } | null;
   package?: { id: string; name: string; total_amount: number } | null;
   decided_by_profile?: { id: string; full_name: string | null } | null;
+  /** Present once approved. Credentials are reissued against the ENROLLMENT
+   *  rather than the profile, because the enrollment carries institution_id and
+   *  is therefore the thing RLS can gate. */
+  enrollment?: { id: string; enrollment_number: string | null } | null;
 }
 
 export interface CourseApplicationFilters {
@@ -439,5 +443,18 @@ export interface CourseApprovalResult {
    *  participant has no email address at all, which is normal, not a fault. */
   emailSkipReason?: string;
   /** Present when Resend actually rejected the send. */
+  emailError?: string;
+}
+
+/** What the resend-credentials route returns. The password is ALWAYS here —
+ *  most external participants have no email, so showing it once in the dialog
+ *  is the primary delivery path, not a fallback. */
+export interface CourseCredentialsResult {
+  ok: true;
+  jkkn_id: string;
+  tempPassword: string;
+  email: string | null;
+  emailSent: boolean;
+  emailSkipReason?: string;
   emailError?: string;
 }

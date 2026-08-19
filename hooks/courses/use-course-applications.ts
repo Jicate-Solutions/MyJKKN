@@ -5,7 +5,11 @@ import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query/query-keys';
 import { CourseApplicationService } from '@/lib/services/courses/course-application-service';
 import { getErrorMessage } from '@/lib/utils';
-import type { CourseApplicationFilters, CourseApprovalResult } from '@/types/courses';
+import type {
+  CourseApplicationFilters,
+  CourseApprovalResult,
+  CourseCredentialsResult,
+} from '@/types/courses';
 
 export function useCourseApplications(
   courseEventId: string,
@@ -90,6 +94,24 @@ export function useRejectCourseApplication() {
       invalidate();
       toast.success('Application rejected');
     },
+    onError: (e) => toast.error(getErrorMessage(e)),
+  });
+}
+
+/**
+ * Reissue a participant's sign-in details.
+ *
+ * No invalidation: nothing in any cached list changes — the password lives in
+ * auth.users and the result is shown once, in the dialog, then discarded.
+ */
+export function useResendCourseCredentials() {
+  return useMutation<
+    CourseCredentialsResult,
+    unknown,
+    { enrollmentId: string; email?: string | null }
+  >({
+    mutationFn: ({ enrollmentId, email }) =>
+      CourseApplicationService.resendCredentials(enrollmentId, email),
     onError: (e) => toast.error(getErrorMessage(e)),
   });
 }

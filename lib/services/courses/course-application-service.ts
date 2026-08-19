@@ -5,6 +5,7 @@ import type {
   CourseApplicationFilters,
   CourseApplicationStatus,
   CourseApprovalResult,
+  CourseCredentialsResult,
 } from '@/types/courses';
 import { COURSE_APPLICATION_STATUSES } from '@/types/courses';
 
@@ -40,7 +41,8 @@ const SELECT = `
   *,
   form:course_registration_forms!course_applications_form_id_fkey(id, name),
   package:course_packages!course_applications_package_id_fkey(id, name, total_amount),
-  decided_by_profile:profiles!course_applications_decided_by_fkey(id, full_name)
+  decided_by_profile:profiles!course_applications_decided_by_fkey(id, full_name),
+  enrollment:course_enrollments!course_enrollments_application_id_fkey(id, enrollment_number)
 `;
 
 export class CourseApplicationService extends BaseService {
@@ -149,6 +151,30 @@ export class CourseApplicationService extends BaseService {
       throw new Error(json?.error ?? 'Could not approve this application.');
     }
     return json as CourseApprovalResult;
+  }
+
+  /**
+   * Issue a NEW temporary password for an enrolled participant and email it.
+   *
+   * Keyed on the ENROLLMENT, not the profile: the enrollment carries
+   * institution_id and is RLS-gated, so it is what proves the caller may act on
+   * this person. Goes through the route because setting a password is an
+   * auth-admin call the browser must never make.
+   */
+  static async resendCredentials(
+    enrollmentId: string,
+    email?: string | null,
+  ): Promise<CourseCredentialsResult> {
+    const res = await fetch(`/api/courses/enrollments/${enrollmentId}/resend-credentials`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email ?? undefined }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json?.ok) {
+      throw new Error(json?.error ?? 'Could not issue new sign-in details.');
+    }
+    return json as CourseCredentialsResult;
   }
 
   /** Reject. Straight to the RPC: no identity is provisioned, so there is

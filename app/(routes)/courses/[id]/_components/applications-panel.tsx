@@ -25,7 +25,7 @@
 
 import { useState } from 'react';
 import {
-  AlertCircle, BadgeCheck, Inbox, Mail, Phone, Search, User, X,
+  AlertCircle, BadgeCheck, Inbox, KeyRound, Mail, Phone, Search, User, X,
 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -45,6 +45,7 @@ import {
 } from '@/hooks/courses/use-course-applications';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ApproveApplicationDialog } from './approve-application-dialog';
+import { ResendCredentialsDialog } from './resend-credentials-dialog';
 import {
   COURSE_APPLICATION_STATUSES,
   type CourseApplication,
@@ -255,6 +256,7 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<CourseApplication | null>(null);
   const [approving, setApproving] = useState<CourseApplication | null>(null);
+  const [resending, setResending] = useState<CourseApplication | null>(null);
   const reject = useRejectCourseApplication();
 
   const filters = {
@@ -415,6 +417,25 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
                           </Button>
                         </div>
                       )}
+
+                      {/* Approving only issues a password for a genuinely NEW
+                          person; reusing an existing identity deliberately does
+                          not overwrite one. Without this, a participant who
+                          never received or has lost their password had no way
+                          back in — there is no self-service reset, because
+                          someone with no email cannot receive one. */}
+                      {canDecide && s === 'approved' && a.enrollment?.id && (
+                        <div
+                          className="flex gap-1.5"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <Button size="sm" variant="outline" onClick={() => setResending(a)}>
+                            <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+                            Resend login details
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -429,6 +450,11 @@ export function ApplicationsPanel({ courseEventId }: { courseEventId: string }) 
           application={approving}
           courseEventId={courseEventId}
           onClose={() => setApproving(null)}
+        />
+
+        <ResendCredentialsDialog
+          application={resending}
+          onClose={() => setResending(null)}
         />
       </div>
     </PermissionGuard>
