@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -33,7 +34,7 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
-import { cn } from '@/lib/utils';
+import { cn, getErrorMessage } from '@/lib/utils';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { CategoryService } from '@/lib/services/staff/category-service';
 
@@ -82,6 +83,8 @@ function buildDefaults(staff?: Staff) {
     institution_email: staff?.institution_email || '',
     phone: staff?.phone || '',
     staff_id: staff?.staff_id || '',
+    biometric_id: (staff as any)?.biometric_id ?? '',
+    biometric_institution_id: (staff as any)?.biometric_institution_id ?? '',
     profile_picture: staff?.profile_picture || '',
     address: staff?.address || '',
     state: staff?.state || '',
@@ -515,8 +518,17 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
       // For login staff keep the historical fallback (empty string → 'required'
       // error from the service, which validates non-empty for login staff).
       const isViewOnlyStaff = values.login_enabled === false;
+      // Biometric pairing: blank code clears BOTH columns, and a blank machine
+      // id must reach the database as null — '' on a uuid FK is a 22P02.
+      const biometricCode = (values.biometric_id ?? '').trim();
+      const biometricInstitutionId = biometricCode
+        ? (values.biometric_institution_id || null)
+        : null;
+
       const formattedValues = {
         ...values,
+        biometric_id: biometricCode || null,
+        biometric_institution_id: biometricInstitutionId,
         department_id: normalizedDepartmentId,
         date_of_birth: values.date_of_birth.toISOString(),
         date_of_joining: values.date_of_joining.toISOString(),
@@ -540,17 +552,110 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
     } catch (error) {
       console.error('Form submission error:', error);
 
-      // Extract the error message
-      const errorMessage =
-        error instanceof Error ? error.message : 'Failed to save staff';
+      // getErrorMessage, NOT `error instanceof Error`. Supabase errors are
+      // plain objects ({code, details, hint, message}), so the instanceof test
+      // is always false and every branch below used to compare against the
+      // literal fallback string — the whole ladder was dead code and a
+      // constraint violation surfaced as "Failed to save staff: Failed to save
+      // staff". (2026-08-09, reported against staff_biometric_uq.)
+      const errorMessage = getErrorMessage(error);
 
-      // Handle specific validation errors
-      if (
+      // Named-constraint branches first: the index name is the only reliable
+      // discriminator. A substring test on the prose ("duplicate key … staff_id")
+      // also matches staff_biometric_uq, whose definition contains no field
+      // list at all.
+      if (errorMessage.includes('staff_biometric_uq')) {
+        // Resolve who holds the code before reporting. The normaliser folds
+        // leading zeros, so the operator can collide with a code they never
+        // typed; naming the holder is the difference between an error and an
+        // instruction.
+        const code = (form.getValues('biometric_id') ?? '').trim();
+        const machineId = form.getValues('biometric_institution_id') ?? '';
+        const machine = institutions.find((i) => i.id === machineId);
+        const holder = await StaffService.findBiometricConflict(code, machineId).catch(
+          () => null
+        );
+
+        form.setError('biometric_id', {
+          type: 'manual',
+          message: holder
+            ? `Already used by ${holder.name}${holder.staff_id ? ` (${holder.staff_id})` : ''} on this machine.`
+            : 'Already used by another staff member on this machine.'
+        });
+
+        toast.error(
+          holder
+            ? `Biometric code "${code}" is already enrolled to ${holder.name}${
+                holder.staff_id ? ` (${holder.staff_id})` : ''
+              }${machine ? ` on ${machine.name}` : ''}. Leading zeros are ignored, so 00002 and 2 are the same code.`
+            : `Biometric code "${code}" is already enrolled on this machine. Leading zeros are ignored, so 00002 and 2 are the same code.`
+        );
+      } else if (
         errorMessage.includes('staff_staff_id_key') ||
         (errorMessage.includes('duplicate key') &&
           errorMessage.includes('staff_id'))
       ) {
-        toast.error('Staff ID already exists. Please use a different ID.');
+        // Name the holder, same as the biometric branch above. The ID is
+        // globally unique but the list is institution-scoped, so the
+        // colliding row is frequently one this operator cannot see — without
+        // the holder's name and college the error is a dead end.
+        const enteredId = (form.getValues('staff_id') ?? '').trim();
+        const holder = await StaffService.findStaffIdConflict(enteredId).catch(() => null);
+
+        form.setError('staff_id', {
+          type: 'manual',
+          message: holder
+            ? `Already used by ${holder.name} at ${holder.institution}.`
+            : 'This ID is already taken.'
+        });
+
+        toast.error(
+          holder
+            ? `The ID "${enteredId}" belongs to ${holder.name} at ${holder.institution}${
+                holder.is_active ? '' : ' (inactive)'
+              }. These IDs are unique across all colleges — please use a different one.`
+            : 'That ID already exists. Please use a different one.'
+        );
+      } else if (
+        errorMessage.includes('staff_institution_email_key') ||
+        errorMessage.includes('staff_email_key')
+      ) {
+        // Which constraint fired tells us which field the operator typed into;
+        // the lookup tells us which field the address is stored in on the
+        // OTHER row. Those differ often enough to be worth reporting, and the
+        // holder is frequently at a college this operator cannot see.
+        const isInstitutionField = errorMessage.includes('staff_institution_email_key');
+        const field = isInstitutionField ? 'institution_email' : 'email';
+        const entered = (form.getValues(field) ?? '').trim();
+        const holder = await StaffService.findStaffEmailConflict(entered).catch(() => null);
+
+        const heldAs =
+          holder && holder.matchedField !== field
+            ? holder.matchedField === 'email'
+              ? ' — stored there as their personal email'
+              : ' — stored there as their institution email'
+            : '';
+
+        form.setError(field, {
+          type: 'manual',
+          message: holder
+            ? `Already used by ${holder.name}${holder.staff_id ? ` (${holder.staff_id})` : ''} at ${holder.institution}.`
+            : isInstitutionField
+              ? 'This institution email is already registered.'
+              : 'This email is already registered.'
+        });
+
+        toast.error(
+          holder
+            ? `"${entered}" is already registered to ${holder.name}${
+                holder.staff_id ? ` (${holder.staff_id})` : ''
+              } at ${holder.institution}${heldAs}${
+                holder.is_active ? '' : ' (inactive)'
+              }. Each email can belong to only one team member record.`
+            : isInstitutionField
+              ? 'That institution email is already registered to another team member.'
+              : 'That email is already registered to another team member.'
+        );
       }
       // Check for other common validation patterns
       else if (
@@ -921,6 +1026,74 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
           )}
         />
 
+        {/* Biometric enrolment (2026-08-06). Two fields, not one: each machine
+            numbers its own enrolments from 1, so a code only identifies someone
+            when paired with the machine that issued it. The machine is NOT
+            necessarily where this person works — staff routinely punch on
+            another institution's machine. Bulk mapping lives in the attendance
+            import wizard; this is for one person or a correction. */}
+        <FormField
+          control={form.control}
+          name='biometric_id'
+          render={({ field }) => (
+            <FormItem data-field='biometric_id'>
+              <FormLabel>Biometric code</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder='Empcode from the machine, e.g. 00002'
+                  {...field}
+                  value={field.value ?? ''}
+                />
+              </FormControl>
+              <FormDescription>
+                Leading zeros do not matter — 00002, 002 and 2 are the same code.
+                Leave blank to remove this person from biometric attendance.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name='biometric_institution_id'
+          render={({ field }) => {
+            const selectedMachine = institutions.find((i) => i.id === field.value);
+            return (
+              <FormItem data-field='biometric_institution_id'>
+                <FormLabel>Biometric machine</FormLabel>
+                <Select
+                  onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                  value={field.value || '__none__'}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      {selectedMachine ? (
+                        <span className='line-clamp-1 text-left'>{selectedMachine.name}</span>
+                      ) : (
+                        <span className='line-clamp-1 text-left text-muted-foreground'>
+                          Not enrolled on a machine
+                        </span>
+                      )}
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent className='max-h-60 overflow-y-auto'>
+                    <SelectItem value='__none__'>Not enrolled on a machine</SelectItem>
+                    {institutions.map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  Which machine issued the code — often, but not always, the
+                  institution above.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
+        />
+
         <FormField
           control={form.control}
           name='institution_email'
@@ -1054,7 +1227,12 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
             );
             return (
               <FormItem data-field='institution_id'>
-                <FormLabel>Institution <span className='text-destructive'>*</span></FormLabel>
+                {/* This field is WHERE THE PERSON WORKS (2026-07-31). It drives
+                    every "own institution" scope in the app, so changing it
+                    changes what this person can see. Who pays their salary is a
+                    separate HR-only record — /hr/payroll/organisation — and is
+                    deliberately not editable here. */}
+                <FormLabel>Institution — works at <span className='text-destructive'>*</span></FormLabel>
                 <Select
                   onValueChange={field.onChange}
                   value={field.value}

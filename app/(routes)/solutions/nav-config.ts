@@ -21,7 +21,7 @@ const config: ModuleNavConfig = {
       label: 'Dashboard',
       icon: 'LayoutGrid',
       href: '/solutions',
-      matchPaths: ['/solutions', '/solutions/list'],
+      matchPaths: ['/solutions', '/solutions/list', '/solutions/digest'],
       children: [
         {
           label: 'Overview',
@@ -33,6 +33,11 @@ const config: ModuleNavConfig = {
           label: 'All Solutions',
           icon: 'List',
           href: '/solutions/list',
+        },
+        {
+          label: 'Director Digest',
+          icon: 'Newspaper',
+          href: '/solutions/digest',
         },
       ],
     },
@@ -221,12 +226,18 @@ const config: ModuleNavConfig = {
       matchPaths: [
         '/solutions/paradigm-shift',
         '/solutions/ai-solution-compliance',
+        '/solutions/departments',
       ],
       children: [
         {
           label: 'Paradigm Shift',
           icon: 'Lightbulb',
           href: '/solutions/paradigm-shift',
+        },
+        {
+          label: 'Department Capabilities',
+          icon: 'Tags',
+          href: '/solutions/departments',
         },
         {
           label: 'Paradigm Leaderboard',

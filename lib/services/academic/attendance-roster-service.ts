@@ -1,5 +1,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import {
+  ACTIVE_ONLY_LIFECYCLE_FILTER,
+  buildRosterLifecycleFilter,
+} from '@/lib/utils/academic/provisional-roster-filter';
 import type {
   AttendanceRosterStudent,
   AttendanceStudent,
@@ -20,9 +24,72 @@ export class AttendanceRosterService {
     return createClientSupabaseClient();
   }
 
+  /**
+   * Lifecycle filter for a roster read: `active` learners, plus provisional
+   * freshers of the current intake (spec: provisional-freshers-spec-2026-08-05).
+   *
+   * The current-intake identifiers come from fn_current_admission_year_ids(), a
+   * SECURITY DEFINER RPC, and deliberately NOT from a direct `admission_years`
+   * read. That table's RLS requires `admission.settings.years.view`, and of the
+   * eight active roles holding `academic.attendance.mark` only `hod` has it
+   * (verified on production 2026-08-08). A direct read would return zero rows
+   * with error = null for the other seven — so the feature would work for HODs
+   * and silently do nothing for everyone else, with no error to explain it.
+   *
+   * Never throws, and every failure path falls back to active-only, which is
+   * exactly the behaviour that shipped before provisional freshers: a roster
+   * missing its provisional rows is degraded and visible, a roster that throws
+   * is an outage on the marking screen.
+   */
+  private static async getRosterLifecycleFilter(): Promise<string> {
+    try {
+      const { data, error } = await (this.supabase as any).rpc(
+        'fn_current_admission_year_ids'
+      );
+
+      if (error) {
+        logger.warn(
+          'academic/attendance',
+          'Could not resolve the current intake; roster falls back to active-only',
+          error
+        );
+        return ACTIVE_ONLY_LIFECYCLE_FILTER;
+      }
+
+      return buildRosterLifecycleFilter(data as string[] | null);
+    } catch (error) {
+      logger.warn(
+        'academic/attendance',
+        'Could not resolve the current intake; roster falls back to active-only',
+        error
+      );
+      return ACTIVE_ONLY_LIFECYCLE_FILTER;
+    }
+  }
+
   // =====================
   // ROSTER CHECKING / AGGREGATION METHODS
   // =====================
+
+  /**
+   * A saved period slot carries students either directly (standard periods) or
+   * nested under subdivision groups (combined/subdivided periods save `students: []`
+   * at the top level and put the real rows in `groups[].students` — see mark/page.tsx).
+   * Checking only the top-level array made subdivided periods look permanently
+   * unmarked even though the record was saved.
+   */
+  private static periodHasAttendance(slotData: any): boolean {
+    if (!slotData) return false;
+    if (Array.isArray(slotData.students) && slotData.students.length > 0) {
+      return true;
+    }
+    if (Array.isArray(slotData.groups)) {
+      return slotData.groups.some(
+        (group: any) => Array.isArray(group?.students) && group.students.length > 0
+      );
+    }
+    return false;
+  }
 
   /**
    * Check existing attendance for multiple periods at once
@@ -146,7 +213,7 @@ export class AttendanceRosterService {
             // Even for multi-section records, we should only mark a period as complete
             // if THIS specific slot has attendance data
             const slotData = (data as any).attendance_data[period.timetable_slot_id];
-            if (slotData && slotData.students && slotData.students.length > 0) {
+            if (this.periodHasAttendance(slotData)) {
               isMarked = true;
             }
           }
@@ -240,11 +307,7 @@ export class AttendanceRosterService {
       if (period_id && (data as any).attendance_data) {
         // First check if period_id matches a slot key directly
         const periodData = (data as any).attendance_data[period_id];
-        if (
-          periodData &&
-          periodData.students &&
-          periodData.students.length > 0
-        ) {
+        if (this.periodHasAttendance(periodData)) {
           return {
             ...(data as any),
             marked_by: '', // Add missing required property
@@ -256,8 +319,7 @@ export class AttendanceRosterService {
         for (const [slotId, slotData] of Object.entries((data as any).attendance_data)) {
           if (
             (slotData as any).period_id === period_id &&
-            (slotData as any).students &&
-            (slotData as any).students.length > 0
+            this.periodHasAttendance(slotData)
           ) {
             return {
               ...(data as any),
@@ -398,6 +460,9 @@ export class AttendanceRosterService {
       if (sectionError) throw sectionError;
 
       // Get students for this section
+      const lifecycleFilter =
+        await AttendanceRosterService.getRosterLifecycleFilter();
+
       let studentsQuery = this.supabase
         .from('learners_profiles')
         .select(
@@ -416,7 +481,7 @@ export class AttendanceRosterService {
           lifecycle_status
         `
         )
-        .eq('lifecycle_status', 'active')
+        .or(lifecycleFilter)
         .eq('institution_id', studentFilters.institution_id)
         .eq('section_id', section_id);
 

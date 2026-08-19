@@ -29,10 +29,15 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
   // Wait for permissions and profile to be loaded before rendering the table
   const isReady = !permissionsLoading && !!userProfile;
 
-  // Permission checks
+  // Permission checks. "Create Bill" (single) needs only create; "Bulk Create
+  // Bills" additionally needs bulk_create — create stays in the expression
+  // because it is what the RLS INSERT policy on billing_student_bills checks.
   const canCreateBills =
     isSuperAdmin || canAccess('billing.schedule', 'create');
-  const canBulkCreate = isSuperAdmin || canAccess('billing.schedule', 'create');
+  const canBulkCreate =
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
 
   // Check if we have meaningful search criteria (now optional - allows viewing all students)
   const hasSearchCriteria = React.useMemo(() => {
@@ -240,15 +245,20 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
       getColumns={() => columns as any}
       exportConfig={{
         entityName: 'students-for-billing',
+        // `headers` are DATA KEYS; columnMapping supplies the heading. This
+        // config previously declared the LABELS as headers (and dotted paths
+        // like 'institution.name' as mapping keys, which the export does not
+        // resolve either), so nothing matched and the download opened blank.
+        // transformFunction flattens the relations into the keys below.
         columnMapping: {
           roll_number: 'Roll Number',
           first_name: 'First Name',
           last_name: 'Last Name',
           father_name: 'Father Name',
-          'institution.name': 'Institution',
-          'department.department_name': 'Department',
-          'program.program_name': 'Program',
-          'semester.semester_name': 'Semester',
+          institution_name: 'Institution',
+          department_name: 'Department',
+          program_name: 'Program',
+          semester_name: 'Semester',
           outstanding_amount: 'Outstanding Amount',
           mobile_number: 'Mobile Number',
           college_email: 'College Email'
@@ -258,23 +268,41 @@ export function StudentDataTable({ search }: StudentDataTableProps) {
           { wch: 15 }, // First Name
           { wch: 15 }, // Last Name
           { wch: 20 }, // Father Name
-          { wch: 30 }, // Institution & Department
-          { wch: 25 }, // Program & Semester
+          { wch: 30 }, // Institution
+          { wch: 25 }, // Department
+          { wch: 25 }, // Program
+          { wch: 15 }, // Semester
           { wch: 18 }, // Outstanding Amount
           { wch: 15 }, // Mobile Number
           { wch: 25 } // College Email
         ],
         headers: [
-          'Roll Number',
-          'First Name',
-          'Last Name',
-          'Father Name',
-          'Institution & Department',
-          'Program & Semester',
-          'Outstanding Amount',
-          'Mobile Number',
-          'College Email'
-        ]
+          'roll_number',
+          'first_name',
+          'last_name',
+          'father_name',
+          'institution_name',
+          'department_name',
+          'program_name',
+          'semester_name',
+          'outstanding_amount',
+          'mobile_number',
+          'college_email'
+        ],
+        transformFunction: ((row: StudentForBilling) => ({
+          roll_number: row.roll_number ?? '',
+          first_name: row.first_name ?? '',
+          last_name: row.last_name ?? '',
+          father_name: row.father_name ?? '',
+          institution_name: row.institution?.name ?? '',
+          department_name: row.department?.department_name ?? '',
+          program_name: row.program?.program_name ?? '',
+          semester_name: row.semester?.semester_name ?? '',
+          outstanding_amount: row.outstanding_amount ?? 0,
+          mobile_number: row.mobile_number ?? '',
+          college_email: row.college_email ?? ''
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        })) as any
       }}
       idField='id'
       config={{

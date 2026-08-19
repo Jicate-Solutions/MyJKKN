@@ -1115,3 +1115,315 @@ FROM public.cohort_memberships m
 JOIN public.cohorts c            ON c.id = m.cohort_id
 LEFT JOIN public.cohort_outcomes o ON o.membership_id = m.id
 WHERE m.status = 'graduated';
+
+-- =====================================================
+-- v_learner_scope_violations — Added 2026-08-08
+--   Migration: 20260808150000_extend_learner_scope_guard_programme.sql
+--
+-- Standing integrity report for the learners_profiles academic hierarchy
+-- (institution -> degree -> department -> programme -> semester -> section).
+-- EMPTY IS THE HEALTHY STATE.
+--
+-- Why a view and not just the trigger: trg_validate_learner_semester_year_scope
+-- guards NEW writes only, and is change-triggered by design so that already-bad
+-- rows stay editable. It therefore can never surface damage already sitting in
+-- the table. The 2026-07-30 bulk write went unnoticed for nine days precisely
+-- because nothing looked. A same-named FK from another college renders
+-- perfectly in every list and export — only a uuid comparison exposes it — so
+-- this view, not the UI, is how that class of corruption gets found.
+--
+-- security_invoker: answers within the caller's RLS, so it cannot be used to
+-- read learners outside the caller's institution scope.
+-- =====================================================
+CREATE OR REPLACE VIEW public.v_learner_scope_violations
+WITH (security_invoker = true) AS
+SELECT lp.id AS learner_id,
+       lp.roll_number,
+       trim(lp.first_name || ' ' || COALESCE(lp.last_name, '')) AS learner_name,
+       lp.lifecycle_status,
+       lp.institution_id,
+       i.name AS institution_name,
+       p.program_name,
+       CASE
+         WHEN d.id   IS NOT NULL AND d.institution_id   IS DISTINCT FROM lp.institution_id THEN 'degree_wrong_institution'
+         WHEN dep.id IS NOT NULL AND dep.institution_id IS DISTINCT FROM lp.institution_id THEN 'department_wrong_institution'
+         WHEN p.id   IS NOT NULL AND p.institution_id   IS DISTINCT FROM lp.institution_id THEN 'program_wrong_institution'
+         WHEN ay.id  IS NOT NULL AND ay.institution_id  IS DISTINCT FROM lp.institution_id THEN 'academic_year_wrong_institution'
+         WHEN sem.id IS NOT NULL AND sem.institution_id IS DISTINCT FROM lp.institution_id THEN 'semester_wrong_institution'
+         WHEN sec.id IS NOT NULL AND sec.institution_id IS DISTINCT FROM lp.institution_id THEN 'section_wrong_institution'
+         WHEN sem.id IS NOT NULL AND sem.program_id     IS DISTINCT FROM lp.program_id     THEN 'semester_wrong_programme'
+         WHEN sec.id IS NOT NULL AND sec.program_id     IS DISTINCT FROM lp.program_id     THEN 'section_wrong_programme'
+         ELSE 'section_wrong_semester'
+       END AS violation,
+       sem.semester_name AS stored_semester_name,
+       sem.semester_code AS stored_semester_code,
+       sec.section_name  AS stored_section_name,
+       lp.updated_at
+FROM public.learners_profiles lp
+LEFT JOIN public.institutions   i   ON i.id   = lp.institution_id
+LEFT JOIN public.degrees        d   ON d.id   = lp.degree_id
+LEFT JOIN public.departments    dep ON dep.id = lp.department_id
+LEFT JOIN public.programs       p   ON p.id   = lp.program_id
+LEFT JOIN public.semesters      sem ON sem.id = lp.semester_id
+LEFT JOIN public.sections       sec ON sec.id = lp.section_id
+LEFT JOIN public.academic_years ay  ON ay.id  = lp.academic_year_id
+WHERE (d.id   IS NOT NULL AND d.institution_id   IS DISTINCT FROM lp.institution_id)
+   OR (dep.id IS NOT NULL AND dep.institution_id IS DISTINCT FROM lp.institution_id)
+   OR (p.id   IS NOT NULL AND p.institution_id   IS DISTINCT FROM lp.institution_id)
+   OR (ay.id  IS NOT NULL AND ay.institution_id  IS DISTINCT FROM lp.institution_id)
+   OR (sem.id IS NOT NULL AND sem.institution_id IS DISTINCT FROM lp.institution_id)
+   OR (sec.id IS NOT NULL AND sec.institution_id IS DISTINCT FROM lp.institution_id)
+   OR (sem.id IS NOT NULL AND lp.program_id IS NOT NULL AND sem.program_id IS DISTINCT FROM lp.program_id)
+   OR (sec.id IS NOT NULL AND lp.program_id IS NOT NULL AND sec.program_id IS DISTINCT FROM lp.program_id)
+   OR (sec.id IS NOT NULL AND lp.semester_id IS NOT NULL AND sec.semester_id IS DISTINCT FROM lp.semester_id);
+
+-- =====================================================
+-- v_hr_leave_balance_src / v_hr_leave_balance — Added 2026-08-11
+--   Migration: 20260811180100_hr_leave_balance_view.sql
+--
+-- Derived leave entitlement — the read surface. Two views on purpose:
+--
+--   v_hr_leave_balance_src  the derivation, with NO access predicate.
+--                           Revoked from anon and authenticated. Exists so
+--                           fn_hr_freeze_leave_year can read the same
+--                           derivation the UI reads without inheriting a
+--                           predicate that would evaluate against the cron's
+--                           service-role identity.
+--   v_hr_leave_balance      src + the access predicate. This is what the app
+--                           reads.
+--
+-- The predicate is copied VERBATIM from the hlb_select policy on
+-- hr_leave_balances. security_invoker is deliberately NOT used even though
+-- PG 15.6 supports it: the driving table of the open arm is `staff`, so
+-- invoker mode would silently substitute staff's RLS for the leave-balance
+-- rule that governs this data today -- a different, unaudited access model.
+-- =====================================================
+CREATE OR REPLACE VIEW public.v_hr_leave_balance_src AS
+-- ---------------------------------------------------------------------
+-- OPEN YEARS: derive. Returns a row for every eligible staff x type pair
+-- whether or not a ledger row exists -- this arm is what lets a staff
+-- member created five minutes ago apply for leave with no admin action.
+-- ---------------------------------------------------------------------
+SELECT
+  s.id                              AS employee_id,
+  t.id                              AS leave_type_id,
+  y.id                              AS hr_academic_year_id,
+  t.hr_organization_id,
+  t.leave_type_name,
+  t.leave_type_code,
+  t.request_category,
+  t.color_code,
+  t.display_order,
+  t.duration_type,
+  t.allow_half_day,
+  t.allow_hourly,
+  t.max_continuous_days,
+  t.min_advance_notice_days,
+  t.requires_documents,
+  -- COALESCE, not truthiness: an override or frozen value of 0 is a real
+  -- decision ("eligible, but no days") and must beat the default.
+  COALESCE(o.entitled_days, b.entitled, t.default_entitled_days)          AS entitled,
+  COALESCE(b.used, 0)                                                     AS used,
+  COALESCE(b.carried_forward, 0)                                          AS carried_forward,
+  COALESCE(o.entitled_days, b.entitled, t.default_entitled_days)
+    + COALESCE(b.carried_forward, 0)
+    - COALESCE(b.used, 0)                                                 AS available,
+  CASE
+    WHEN o.entitled_days IS NOT NULL THEN 'override'
+    WHEN b.entitled      IS NOT NULL THEN 'frozen'
+    ELSE 'policy'
+  END                                                                     AS entitlement_source,
+  b.created_at,
+  b.updated_at
+FROM public.hr_academic_years y
+CROSS JOIN public.hr_leave_types t
+JOIN public.hr_organizations org ON org.id = t.hr_organization_id
+JOIN public.staff s
+  ON s.institution_id = org.institution_id
+ AND s.is_active
+LEFT JOIN public.hr_staff_details d ON d.staff_id = s.id
+LEFT JOIN public.hr_leave_balances b
+  ON b.employee_id         = s.id
+ AND b.leave_type_id       = t.id
+ AND b.hr_academic_year_id = y.id
+LEFT JOIN public.hr_leave_entitlement_overrides o
+  ON o.employee_id         = s.id
+ AND o.leave_type_id       = t.id
+ AND o.hr_academic_year_id = y.id
+WHERE y.frozen_at IS NULL
+  AND t.is_active
+  -- Eligibility rules preserved from generate_hr_leave_balances. All three
+  -- are inert today (0 gender-restricted types, 0 cadre-restricted types,
+  -- 1 assignment on test data), so this changes nothing now and stops a
+  -- future maternity/cadre-restricted type being granted to everyone.
+  AND (t.applicable_gender = 'all'
+       OR lower(COALESCE(s.gender, '')) = t.applicable_gender)
+  AND (t.applicable_cadre_ids IS NULL OR d.cadre_id = ANY(t.applicable_cadre_ids))
+  AND (
+    NOT EXISTS (
+      SELECT 1 FROM public.hr_leave_type_assignments a
+       WHERE a.leave_type_id = t.id AND a.is_active
+    )
+    OR EXISTS (
+      SELECT 1 FROM public.hr_leave_type_assignments a
+       WHERE a.leave_type_id = t.id
+         AND a.is_active
+         AND (
+              (a.scope_kind = 'staff'      AND a.staff_id      = s.id)
+           OR (a.scope_kind = 'department' AND a.department_id = s.department_id)
+           OR (a.scope_kind = 'organization')
+         )
+    )
+  )
+
+UNION ALL
+
+-- ---------------------------------------------------------------------
+-- FROZEN YEARS: stored rows only, no cross join. History is served
+-- exactly as recorded. An override still wins, so a past year can be
+-- corrected deliberately.
+-- ---------------------------------------------------------------------
+SELECT
+  b.employee_id,
+  b.leave_type_id,
+  b.hr_academic_year_id,
+  b.hr_organization_id,
+  t.leave_type_name,
+  t.leave_type_code,
+  t.request_category,
+  t.color_code,
+  t.display_order,
+  t.duration_type,
+  t.allow_half_day,
+  t.allow_hourly,
+  t.max_continuous_days,
+  t.min_advance_notice_days,
+  t.requires_documents,
+  COALESCE(o.entitled_days, b.entitled, t.default_entitled_days)          AS entitled,
+  b.used,
+  b.carried_forward,
+  COALESCE(o.entitled_days, b.entitled, t.default_entitled_days)
+    + b.carried_forward - b.used                                          AS available,
+  CASE
+    WHEN o.entitled_days IS NOT NULL THEN 'override'
+    WHEN b.entitled      IS NOT NULL THEN 'frozen'
+    ELSE 'policy'
+  END                                                                     AS entitlement_source,
+  b.created_at,
+  b.updated_at
+FROM public.hr_leave_balances b
+JOIN public.hr_academic_years y
+  ON y.id = b.hr_academic_year_id
+ AND y.frozen_at IS NOT NULL
+JOIN public.hr_leave_types t ON t.id = b.leave_type_id
+LEFT JOIN public.hr_leave_entitlement_overrides o
+  ON o.employee_id         = b.employee_id
+ AND o.leave_type_id       = b.leave_type_id
+ AND o.hr_academic_year_id = b.hr_academic_year_id;
+
+-- The derivation is internal. Only view owners (and therefore
+-- v_hr_leave_balance and SECURITY DEFINER functions) may read it.
+REVOKE ALL ON public.v_hr_leave_balance_src FROM anon, authenticated;
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance AS
+SELECT * FROM public.v_hr_leave_balance_src v
+WHERE (SELECT public.is_super_admin())
+   OR v.employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+   OR ((SELECT public.user_has_permission('hr.leave.approve'))
+       AND v.hr_organization_id IN (SELECT unnest(public.fn_my_hr_organization_ids())));
+
+REVOKE ALL ON public.v_hr_leave_balance FROM anon;
+GRANT SELECT ON public.v_hr_leave_balance TO authenticated;
+
+
+-- ================================================================================
+-- vw_learner_payment_progress (mirrored 2026-08-18)
+-- ================================================================================
+-- Per-learner fee position. Feeds the reserved -> admitted promotion gate
+-- (evaluate_learner_status_after_payment) and the Awaiting Payment tier of
+-- /learners/onboarding (fn_onboarding_payment_progress).
+--
+-- paid_pct is the DUE-AS-ON-DATE basis per the 2026-08-11 Director ruling: paid
+-- over billed across non-application bills whose due_date has arrived. The three
+-- bases are exposed explicitly, each with a matching amount pair, so
+-- admission_statuses.threshold_basis can select one without any caller
+-- re-deriving the predicate:
+--     billed_to_date           -> pct_billed_to_date   + countable_billed / countable_paid
+--     due_to_date              -> pct_due_to_date      + due_billed       / due_paid
+--     due_to_date_current_year -> pct_due_current_year + due_cy_billed    / due_cy_paid
+--
+-- Cancelled AND superseded bills are excluded (143 cancelled bills carrying
+-- Rs 22.31 lakh used to drag real learners' percentages down).
+-- security_invoker = true, so RLS on learners_profiles + billing_student_bills
+-- applies to the caller. That is also why fn_onboarding_payment_progress is
+-- SECURITY DEFINER: reading these totals must not require billing.bills.view.
+CREATE OR REPLACE VIEW public.vw_learner_payment_progress
+WITH (security_invoker = true) AS
+SELECT
+  lp.id AS learner_id,
+  lp.institution_id,
+  lp.lifecycle_status,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee'), 0) AS countable_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee'), 0) AS countable_paid,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 2)
+  END AS paid_pct,
+  BOOL_OR(bc.kind = 'application_fee' AND b.status = 'paid') AS application_fee_paid,
+  COUNT(b.id) AS total_bills,
+  COUNT(b.id) FILTER (WHERE b.status = 'paid') AS paid_bills,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount) FILTER (WHERE bc.kind <> 'application_fee')
+      / SUM(b.final_amount)                    FILTER (WHERE bc.kind <> 'application_fee'), 2)
+  END AS pct_billed_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 2)
+  END AS pct_due_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                          AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                  AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                  AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 2)
+  END AS pct_due_current_year,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) AS due_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) AS due_paid,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                   AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) AS due_cy_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                   AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) AS due_cy_paid
+FROM public.learners_profiles lp
+LEFT JOIN public.billing_student_bills b
+  ON b.student_id = lp.id AND b.status NOT IN ('superseded', 'cancelled')
+LEFT JOIN public.billing_categories bc
+  ON bc.id = b.item_category_id
+LEFT JOIN public.academic_years ayr
+  ON ayr.id = b.academic_year_id
+GROUP BY lp.id, lp.institution_id, lp.lifecycle_status;

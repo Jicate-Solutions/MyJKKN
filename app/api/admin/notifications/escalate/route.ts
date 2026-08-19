@@ -440,10 +440,13 @@ async function sendEscalationPush(
       return;
     }
 
+    // is_active=false is how an unsubscribe is recorded, so pushing to those rows
+    // would buzz learners who explicitly opted out.
     const { data: subscriptions } = await serviceClient
       .from('push_subscriptions')
       .select('id, subscription, user_id')
-      .in('user_id', targetUserIds);
+      .in('user_id', targetUserIds)
+      .eq('is_active', true);
 
     if (!subscriptions || subscriptions.length === 0) return;
 

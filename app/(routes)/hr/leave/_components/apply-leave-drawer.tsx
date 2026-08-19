@@ -28,9 +28,11 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
+import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
+import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import type { LeaveDurationType } from '@/types/hr';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
@@ -96,6 +98,22 @@ export function ApplyLeaveDrawer({
   const overContinuous =
     selected?.max_continuous_days != null && requestedDays > selected.max_continuous_days;
 
+  // The per-period throttle ("2 Casual Leave days a month") sits alongside the
+  // annual entitlement, so a request can be well inside the balance and still be
+  // refused. Keyed on startDate, not today: trg_hla_leave_period_cap resolves the
+  // window from the request's start_date, and a readout for a different month
+  // would show a figure that is not the one enforced.
+  const { data: periodUsage } = useLeavePeriodUsage(
+    ctx.employeeId || undefined,
+    leaveTypeId || undefined,
+    ctx.hrAcademicYearId || null,
+    startDate || undefined
+  );
+
+  const periodCapped = !!periodUsage?.limited && !periodUsage.window_unresolved;
+  const periodWindowBroken = !!periodUsage?.limited && !!periodUsage.window_unresolved;
+  const overPeriod = periodCapped && requestedDays > Number(periodUsage?.days_left ?? 0);
+
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
     setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
@@ -104,6 +122,7 @@ export function ApplyLeaveDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous &&
+    !overPeriod && !periodWindowBroken &&
     requestedDays > 0 && !mutation.isPending;
 
   const submit = async () => {
@@ -113,7 +132,7 @@ export function ApplyLeaveDrawer({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         leave_type_id: leaveTypeId,
-        academic_year_id: ctx.academicYearId || null,
+        hr_academic_year_id: ctx.hrAcademicYearId || null,
         start_date: startDate,
         end_date: endDate,
         duration_type: effectiveDuration,
@@ -152,8 +171,8 @@ export function ApplyLeaveDrawer({
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                No academic year covers today for your institution, so leave cannot be
-                submitted. Please contact HR.
+                No HR academic year covers today, so leave cannot be submitted.
+                Please contact HR.
               </AlertDescription>
             </Alert>
           )}
@@ -195,6 +214,14 @@ export function ApplyLeaveDrawer({
                     {selected.max_continuous_days != null && (
                       <> · max {selected.max_continuous_days} day(s) at a time</>
                     )}
+                  </p>
+                )}
+                {periodCapped && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <strong>{formatDays(periodUsage?.days_left)}</strong> of{' '}
+                    {formatDays(periodUsage?.max_days)} day(s) left{' '}
+                    {LIMIT_PERIOD_LABELS[periodUsage!.limit_period ?? 'month'].toLowerCase()}
+                    {' '}({periodUsage?.period_start} to {periodUsage?.period_end})
                   </p>
                 )}
               </div>
@@ -261,6 +288,27 @@ export function ApplyLeaveDrawer({
                   <AlertDescription>
                     {selected?.leave_type_name} allows at most{' '}
                     {selected?.max_continuous_days} consecutive day(s).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {overPeriod && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Only {formatDays(periodUsage?.days_left)} day(s) of{' '}
+                    {selected?.leave_type_name} left for{' '}
+                    {periodUsage?.period_start} to {periodUsage?.period_end}
+                    {' '}(limit {formatDays(periodUsage?.max_days)} day(s)).
+                  </AlertDescription>
+                </Alert>
+              )}
+              {periodWindowBroken && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    The {periodUsage?.limit_period ?? 'period'} limit for{' '}
+                    {selected?.leave_type_name} cannot be resolved for this date, so the
+                    request would be rejected. Please contact HR.
                   </AlertDescription>
                 </Alert>
               )}

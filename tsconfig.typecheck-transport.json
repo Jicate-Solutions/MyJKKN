@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "skipLibCheck": true },
+  "include": [
+    "next-env.d.ts",
+    "app/(routes)/billing/transport/**/*.tsx",
+    "app/api/billing/transport/**/*.ts",
+    "hooks/billing/use-transport-collectables.ts",
+    "lib/services/billing/transport/transport-collection-service.ts"
+  ]
+}

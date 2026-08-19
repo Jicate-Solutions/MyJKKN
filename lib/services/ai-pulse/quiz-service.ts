@@ -63,9 +63,25 @@ export interface CycleQuizContext {
 
 // ── Defaults ─────────────────────────────────────────────────
 
+/**
+ * The quiz block a cycle starts life with, before anyone authors one.
+ *
+ * `pass_threshold_live` rose 40 -> 50 on 2026-07-30 (Director decision #10).
+ * Measured on the 2026-07-30 cycle: 5 questions, correct answers in slots
+ * B, C, A, D, B. Picking a single letter throughout scores 2/5 = 40% -- exactly
+ * the old live threshold, and scoring is `score >= threshold`, so a blind
+ * respondent PASSED. At 50 that same respondent scores 40 and fails, while
+ * someone who got 3 of 5 right scores 60 and still passes.
+ *
+ * The async make-up threshold is unchanged at 60.
+ *
+ * This applies to cycles authored from now on. A cycle that already stored its
+ * own value keeps it -- `coerceQuiz` only falls back here when the key is
+ * absent from `startup_events.config.quiz`.
+ */
 export const DEFAULT_QUIZ: QuizPayload = {
   questions: [],
-  pass_threshold_live: 40,
+  pass_threshold_live: 50,
   pass_threshold_async: 60,
   schedule_publication: false,
 };

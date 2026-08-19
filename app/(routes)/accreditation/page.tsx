@@ -16,9 +16,29 @@ import { ArrowRight, BarChart3, Building2, Award } from 'lucide-react';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import { BodyScoreboardCard } from '@/components/accreditation/body-scoreboard-card';
 import { useAccreditationScoreboard } from '@/hooks/accreditation/use-accreditation-scoreboard';
+import { useAuth } from '@/hooks/use-auth';
+import { useInstitutionBodyScope } from '@/hooks/accreditation/use-institution-bodies';
+import { isBodyInScope, appliesToNobody } from './_lib/institution-body-scope';
 
 export default function AccreditationLandingPage() {
   const { data: scoreboard, isLoading } = useAccreditationScoreboard();
+  const { profile } = useAuth();
+
+  // The hub is cluster-wide, but the person reading it belongs to one college.
+  // Showing a dental card to an engineering HOD is the same wrong-denominator
+  // bug one level up, so the cards are narrowed to the bodies their own campus
+  // answers to. An unread mapping narrows nothing (see institution-body-scope).
+  const { scope } = useInstitutionBodyScope(
+    (profile?.institution_id as string | undefined) ?? null,
+  );
+
+  // Someone sitting in an office or a company answers to no body at all, and
+  // for them the hub is the cluster view — narrowing it to nothing would leave
+  // a page with no content and no explanation. They see everything, labelled.
+  const narrowing = scope.kind === 'known' && !appliesToNobody(scope);
+  const visibleBodies = narrowing
+    ? ACCREDITATION_BODIES.filter((meta) => isBodyInScope(scope, meta.code))
+    : ACCREDITATION_BODIES;
 
   // Pair each body meta with its scoreboard row.
   const scoreboardByBody = (scoreboard ?? []).reduce<
@@ -28,8 +48,14 @@ export default function AccreditationLandingPage() {
     return acc;
   }, {});
 
-  const totalMetrics = (scoreboard ?? []).reduce((sum, r) => sum + r.metrics_seeded, 0);
-  const totalEvidence = (scoreboard ?? []).reduce((sum, r) => sum + r.evidence_rows, 0);
+  // The totals move with the cards. Summing all ten bodies beneath a list of
+  // five would restate the wrong denominator in the header — the same half-fix
+  // that left "of 107" on the owners desk.
+  const countedRows = (scoreboard ?? []).filter(
+    (r) => !narrowing || isBodyInScope(scope, r.body_code),
+  );
+  const totalMetrics = countedRows.reduce((sum, r) => sum + r.metrics_seeded, 0);
+  const totalEvidence = countedRows.reduce((sum, r) => sum + r.evidence_rows, 0);
 
   return (
     <ContentLayout title="Accreditation & Compliance">
@@ -46,20 +72,27 @@ export default function AccreditationLandingPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
               <Award className="h-6 w-6 text-primary" />
-              Accreditation Hub — 10 Compliance Bodies
+              Accreditation Hub
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground leading-relaxed">
-              One data substrate feeds NAAC, NIRF, NBA, QS, DCI, PCI, INC,
-              AICTE, NCTE, and UGC. Every operational event emits evidence
+              One data substrate feeds every awarding, ranking and regulatory
+              body JKKN answers to. Every operational event emits evidence
               for every applicable body — one publication contributes to 4
               bodies simultaneously via the <code>quality_evidence_mappings</code> junction.
             </p>
+            <p className="text-xs text-muted-foreground">
+              {narrowing
+                ? 'Showing the bodies your campus answers to. Every college is measured only against its own — a dental council metric is not a gap in an engineering college.'
+                : 'Showing every body in the cluster. Which of them apply to each campus is recorded in Manage → Awarding Bodies.'}
+            </p>
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-lg border bg-card p-3">
-                <div className="text-xs text-muted-foreground">Bodies tracked</div>
-                <div className="text-2xl font-bold">{ACCREDITATION_BODIES.length}</div>
+                <div className="text-xs text-muted-foreground">
+                  {narrowing ? 'Bodies for your campus' : 'Bodies tracked'}
+                </div>
+                <div className="text-2xl font-bold">{visibleBodies.length}</div>
               </div>
               <div className="rounded-lg border bg-card p-3">
                 <div className="text-xs text-muted-foreground">Metrics seeded</div>
@@ -93,7 +126,7 @@ export default function AccreditationLandingPage() {
 
         {/* Body scoreboard grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {ACCREDITATION_BODIES.map((meta) => (
+          {visibleBodies.map((meta) => (
             <BodyScoreboardCard
               key={meta.code}
               meta={meta}

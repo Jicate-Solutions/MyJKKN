@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { hostelBedKeys } from '@/hooks/campus-living/use-hostel-beds';
+import { hostelAttendanceKeys } from '@/hooks/campus-living/use-hostel-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import type {
   HostelAllocation,
@@ -148,6 +149,10 @@ export function useTransferAllocation() {
       queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
       queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
       queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
+      // Attendance's markable-residents list also embeds each resident's
+      // room/bed — without this it kept showing the pre-transfer room until
+      // its 5-minute cache expired or a hard refresh forced a refetch.
+      queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
       toast.success('Allocation transferred');
     },
     onError: (error: Error) => {
@@ -196,6 +201,48 @@ export function useResetAllocation() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to reset: ${error.message}`);
+    },
+  });
+}
+
+// Bulk room-reset for the combined "All" allocations table.
+//
+// Sequential, and it COLLECTS per-row failures rather than aborting:
+// fn_cl_admin_reset_allocation refuses individual rows that hold a deposit or
+// a vacate request, or whose status isn't active/pending_approval, and one
+// refusal must not strand the rest of the selection. Invalidates ONCE at the
+// end so a 90-row run doesn't refetch the table 90 times mid-loop.
+//
+// Room-only by design: it deletes the allocation and frees the bed, leaving the
+// learner's room/mess category columns alone. Those are re-derived from the
+// eligibility rules on the next allocation, and the per-row Reset dialog is
+// still there for anyone who genuinely wants to clear them.
+export function useResetAllocationsBulk() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      items: { id: string; label: string }[]
+    ): Promise<{ id: string; label: string; message: string }[]> => {
+      const failed: { id: string; label: string; message: string }[] = [];
+      for (const item of items) {
+        try {
+          await HostelAllocationService.resetAllocation(item.id, {
+            resetRoom: true,
+            resetRoomCategory: false,
+            resetMessCategory: false,
+          });
+        } catch (e) {
+          failed.push({ ...item, message: getErrorMessage(e) });
+        }
+      }
+      return failed;
+    },
+    onSettled: () => {
+      // onSettled, not onSuccess: partial runs still moved real rows.
+      queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['hostel-rooms'] });
+      queryClient.invalidateQueries({ queryKey: ['hostel-beds'] });
+      queryClient.invalidateQueries({ queryKey: ['my-hostel'] });
     },
   });
 }

@@ -1,0 +1,104 @@
+{
+  "$comment": [
+    "Allow-list for scripts/ci/check-anon-exposure-live.mjs — the sweep that reads",
+    "PRODUCTION and asks which relations the public `anon` key can reach.",
+    "",
+    "Two statuses, and they behave differently:",
+    "",
+    "  approved      — a human ruled on it. Silent unless it disappears.",
+    "  grandfathered — exposed when the sweep was built, never explicitly ruled on.",
+    "                  WARNs every run, and ESCALATES to a hard failure if it gains",
+    "                  rows while carrying an identity column.",
+    "",
+    "2026-07-29: the 32 grandfathered entries are GONE, and not by being pardoned —",
+    "the Director reviewed them and every one was locked (anon grant revoked; see",
+    "migration 20260730000000_revoke_anon_on_grandfathered_relations.sql). The",
+    "exposure surface went 36 -> 4. Everything left here is a deliberate, explained",
+    "decision, which is the state this file is meant to be in: entries should be",
+    "rare and arguable, not a backlog.",
+    "",
+    "Four of those 32 deserve a note, because they read as the opposite of what they",
+    "were. pde_certificates, pde_badges, pde_learner_badges and pde_reputation each",
+    "carried a policy granting SELECT TO public USING (true) — apparently to serve",
+    "the public certificate-verification page at /verify/[number]. They did not.",
+    "That page calls /api/certificates/verify, which resolves through",
+    "lib/services/certificates/verify-resolver.ts using createServiceRoleClient(),",
+    "and service_role bypasses RLS entirely. So the public policy served nothing —",
+    "while granting any anonymous visitor the right to enumerate EVERY learner's",
+    "certificates, badges and reputation. They were empty, so nothing had leaked.",
+    "Locking them was verified not to break verification: /verify/<n> still returns",
+    "200 and the API still returns a clean 404 not_found.",
+    "",
+    "TO ADD AN ENTRY: state a reason a stranger can evaluate, and use `approved`",
+    "only when somebody actually decided. Guessing here disarms the sweep.",
+    "",
+    "2026-07-31 (second ruling): the sweep flagged 37 more relations. Probing every",
+    "one over HTTPS with the public anon key showed 27 actually reachable and 10",
+    "refused by an inner guard — a catalog grant is a candidate, not a verdict, and",
+    "PostgREST answers a ranged request with 206 on SUCCESS, so counting only 200s",
+    "would have under-reported by six. Migration",
+    "20260808190000_revoke_anon_on_thirtyone_reporting_views.sql revoked anon on 31",
+    "of them (all 27 non-spectator + the 10 that were merely guarded), verified",
+    "31/31 returning 401 42501 on the wire afterwards.",
+    "",
+    "The six marathon/tournament/appathon entries below are the exception and are",
+    "public ON PURPOSE: the Director confirmed a public event site is planned. The",
+    "organiser-internal event views are NOT among them and were revoked — budgets,",
+    "sponsor contact details, incident reports and volunteer phone numbers are not",
+    "spectator data. If the public event site is ever cancelled, these six should be",
+    "revoked too rather than left as inherited defaults."
+  ],
+  "generated": "2026-07-29",
+  "relations": [
+    {
+      "name": "appathon_leaderboard",
+      "status": "approved",
+      "reason": "Director ruling 2026-07-31: team names and scores, the public face of the appathon. Note it reads appathon_verifications, whose own RLS returns 0 rows to anon — so this view is deliberately the published projection of protected data, not an accidental bypass. Wire-verified 200 with 200 rows."
+    },
+    {
+      "name": "audience_vote_summary",
+      "status": "approved",
+      "reason": "Director ruling 2026-07-31: aggregated audience vote tallies per submission, intended for live display. Individual votes stay protected — audience_votes returns 0 rows to anon and only the summary is public. Wire-verified 200 with 551 rows."
+    },
+    {
+      "name": "castes",
+      "status": "approved",
+      "reason": "Read by app/student-form/[token]/ with the BROWSER anon client, by prospective applicants who have no account. Closing it breaks admission intake. Re-proven after the 2026-07-29 lock sweep: still HTTP 200 to an anonymous request, deliberately."
+    },
+    {
+      "name": "community_categories",
+      "status": "approved",
+      "reason": "Same unauthenticated admission-intake path as castes, re-proven 200 in the same check. Closing it breaks sign-ups."
+    },
+    {
+      "name": "feature_usage_summary",
+      "status": "approved",
+      "reason": "Director decision 2026-07-26, same aggregate-statistics ruling as institution_health_scores. Counts of feature use, not rows about identifiable people."
+    },
+    {
+      "name": "institution_health_scores",
+      "status": "approved",
+      "reason": "Director decision 2026-07-26: aggregate, non-personal institution statistics, consciously left open. The rule applied was 'close everything holding personal data; review and consciously rule on the rest'."
+    },
+    {
+      "name": "marathon_categories",
+      "status": "approved",
+      "reason": "Director ruling 2026-07-31: race categories ('10 KM Run') are exactly what a public race page lists. Kept anon-readable deliberately alongside marathon_events. Carries no identity column. Wire-verified 200 with 3 rows."
+    },
+    {
+      "name": "marathon_checkin_summary",
+      "status": "approved",
+      "reason": "Director ruling 2026-07-31: aggregate race-day counter (1,547 registered / 142 checked in), broken down by participating institution. No person is named and no identity column is exposed. Kept for the planned public event site; revisit if the institution breakdown is judged competitive rather than informational. Wire-verified 200 with 11 rows."
+    },
+    {
+      "name": "marathon_events",
+      "status": "approved",
+      "reason": "Director ruling 2026-07-31: a public event site IS planned, and this is the spectator-facing event record (name, date, institution). Kept anon-readable deliberately. Wire-verified 200 with 1 row after the 2026-07-31 revoke sweep, which locked the 8 organiser-internal marathon views (budgets, sponsor contact_email/contact_phone, incidents, committees, tasks, volunteer_phone) around it."
+    },
+    {
+      "name": "tournament_standings",
+      "status": "approved",
+      "reason": "Director ruling 2026-07-31: tournament standings are the point of a public tournament page. Already served publicly through fn_tournament_public_scoreboard on app/p/tournament/[id], which reads it as a SECURITY DEFINER; the direct grant is consistent with that intent rather than an accident. Wire-verified 200 with 4 rows."
+    }
+  ]
+}

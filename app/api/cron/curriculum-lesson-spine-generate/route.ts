@@ -66,8 +66,11 @@ const JOB_TYPE = FEATURE_KEY;
 const GENERATION_LANE_KEY = 'loops.curriculum_lesson_spine_generate.generation_lane';
 
 /** Read the generation-lane switch (config-table pattern) as a cron: fn_get_policy
- *  at global scope resolves with no auth.uid(). Fail-safe to 'direct' (the proven
- *  paid path) on any read error, so a policy hiccup never silently drops work. */
+ *  at global scope resolves with no auth.uid(). Fail-safe to 'jobs' (the free ₹0
+ *  Max lane) on any read error or unexpected value — the paid 'direct' path fires
+ *  ONLY when the policy row EXPLICITLY says 'direct'. This upholds the "no silent
+ *  paid spend" rule (Director 2026-07-28): a policy hiccup can never silently bill
+ *  Anthropic; the worst case is work runs free instead of paid. */
 async function readGenerationLane(
   admin: ReturnType<typeof createServiceRoleClient>,
 ): Promise<'jobs' | 'direct'> {
@@ -76,10 +79,10 @@ async function readGenerationLane(
       p_key: GENERATION_LANE_KEY,
       p_scope_id: null,
     });
-    if (error) return 'direct';
-    return data === 'jobs' ? 'jobs' : 'direct';
+    if (error) return 'jobs';
+    return data === 'direct' ? 'direct' : 'jobs';
   } catch {
-    return 'direct';
+    return 'jobs';
   }
 }
 const DEFAULT_BATCH_CAP = 25;

@@ -7,6 +7,9 @@
 // in 20260701094000_induction_volunteer_feedback_rpcs.sql (which depends on PR1's
 // capture_method / submitted_by columns).
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+// The registration desk reuses the coordinator console's roster row shape —
+// same RPC, same columns, so the same dialog can render either source.
+import type { RosterRow } from '@/lib/services/induction/induction-service';
 
 const getSupabase = (): any => createClientSupabaseClient();
 
@@ -15,9 +18,67 @@ export interface AssignablePeerMentor {
   learner_id: string;
   full_name: string;
   register_number: string | null;
+  /** Programme display name (falls back to program_name) — shown in the picker. */
+  program_name: string | null;
+  department_name: string | null;
+  section_name: string | null;
+  /** 2 or 3 — the eligibility band (2nd year up to the mentor year). */
+  year_of_study: number | null;
+  college_email: string | null;
+  student_email: string | null;
+  student_mobile: string | null;
+  /** Repeated on every row (count(*) OVER ()) — how many learners match BEFORE
+   *  the limit. The picker needs it to say what it is hiding; without it a
+   *  capped page reads as "there is nobody else". */
+  total_matches: number;
 }
 
-/** A peer mentor on an event + their live coverage + training state. */
+/** Cascading academic filters for the picker. null / undefined = "Any" and is
+ *  ignored server-side, so the five compose without a branch per combination.
+ *  Institution is deliberately absent: the RPC resolves it from the event, since
+ *  a mentor must share a college with their mentees. */
+export interface PeerMentorFilters {
+  degreeId?: string | null;
+  departmentId?: string | null;
+  programId?: string | null;
+  semesterId?: string | null;
+  sectionId?: string | null;
+}
+
+/** An option carrying its parent ids, so the client cascades in memory. */
+export interface PeerMentorFilterOption {
+  id: string;
+  name: string;
+  degree_id?: string | null;
+  department_id?: string | null;
+  program_id?: string | null;
+  semester_id?: string | null;
+  semester_order?: number | null;
+}
+
+/** Dropdown data for the picker, derived from the learners actually eligible for
+ *  THIS event — so a filter value can never match zero people. */
+export interface PeerMentorFilterOptions {
+  /** Locked context: the event's college. Displayed, never sent. */
+  institution: { id: string; name: string } | null;
+  eligible_total: number;
+  /** Active seniors in the year band with NO login in this college. They can
+   *  never be offered; surfaced so it reads as a fixable data gap (create their
+   *  account) rather than "not eligible". */
+  without_login: number;
+  degrees: PeerMentorFilterOption[];
+  departments: PeerMentorFilterOption[];
+  programs: PeerMentorFilterOption[];
+  semesters: PeerMentorFilterOption[];
+  sections: PeerMentorFilterOption[];
+}
+
+/** A peer mentor on an event + their live coverage + training state.
+ *
+ *  The identity/placement half mirrors what the appoint picker shows, so an
+ *  admin who narrowed to one section can read back from the roster that the
+ *  right person landed there. Every one of them is nullable: they come through
+ *  LEFT joins precisely so a mentor with an unset section still appears. */
 export interface FeedbackVolunteer {
   learner_id: string;
   full_name: string;
@@ -30,6 +91,17 @@ export interface FeedbackVolunteer {
   self_ack: boolean;
   admin_trained: boolean;
   is_trained: boolean;
+  roll_number: string | null;
+  college_email: string | null;
+  student_email: string | null;
+  student_mobile: string | null;
+  program_name: string | null;
+  department_name: string | null;
+  section_name: string | null;
+  semester_name: string | null;
+  semester_order: number | null;
+  /** Derived server-side as ceil(semester_order / 2). */
+  year_of_study: number | null;
 }
 
 /** A mentor's own per-event training progress (drives the mentor-page lock). */
@@ -61,6 +133,10 @@ export interface MyVolunteerSession {
   end_at: string | null;
   group_size: number;
   captured: number;
+  /** 'registration' = the fresher registration desk. A mentor works it for the
+   *  WHOLE cohort (group_size is 0 there — nobody is assigned yet), so the page
+   *  must not filter it out the way it filters ordinary sessions. */
+  kind: string | null;
 }
 
 /** One assigned fresher in a mentor's group for a session. */
@@ -152,14 +228,43 @@ export class InductionVolunteerService {
     return Boolean(data);
   }
 
-  /** Search senior students of the event's college appointable as peer mentors. */
-  static async assignablePeerMentors(eventId: string, query: string): Promise<AssignablePeerMentor[]> {
+  /** Search senior students of the event's college appointable as peer mentors.
+   *  Eligible band = 2nd year up to the mentor year (3rd, or the final year of a
+   *  2-year PG). `query` matches name / register / roll number / college email /
+   *  student email / mobile / programme as a case-insensitive %value%, and
+   *  `filters` narrows by degree / department / programme / semester / section.
+   *
+   *  `?? null` throughout, not `||`: an id is either a uuid or absent, and `||`
+   *  would also swallow a legitimately falsy value into the "Any" branch. */
+  static async assignablePeerMentors(
+    eventId: string,
+    query: string,
+    filters: PeerMentorFilters = {},
+    limit = 50,
+  ): Promise<AssignablePeerMentor[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_assignable_peer_mentors', {
       p_event_id: eventId,
-      p_query: query || null,
+      p_query: query?.trim() ? query : null,
+      p_degree_id: filters.degreeId ?? null,
+      p_department_id: filters.departmentId ?? null,
+      p_program_id: filters.programId ?? null,
+      p_semester_id: filters.semesterId ?? null,
+      p_section_id: filters.sectionId ?? null,
+      p_limit: limit,
     });
     if (error) throw error;
     return (data as AssignablePeerMentor[]) ?? [];
+  }
+
+  /** Dropdown data for the picker's cascading filters — one round trip, one
+   *  jsonb payload, every list restricted to values that match a real eligible
+   *  learner on this event. */
+  static async peerMentorFilterOptions(eventId: string): Promise<PeerMentorFilterOptions> {
+    const { data, error } = await getSupabase().rpc('fn_induction_peer_mentor_filter_options', {
+      p_event_id: eventId,
+    });
+    if (error) throw error;
+    return data as PeerMentorFilterOptions;
   }
 
   /** Appoint a peer mentor (idempotent; re-appoint reactivates + updates capacity). */
@@ -217,6 +322,18 @@ export class InductionVolunteerService {
     return (data as MyVolunteerSession[]) ?? [];
   }
 
+  /** Full enrolled roster of a REGISTRATION session, for the mentor working the
+   *  desk. Same DEFINER RPC the coordinator console uses; its gate admits an
+   *  active mentor of the event only when the session's kind is 'registration',
+   *  so calling it on any other session raises "not authorized". */
+  static async registrationRoster(sessionId: string): Promise<RosterRow[]> {
+    const { data, error } = await getSupabase().rpc('fn_induction_session_roster', {
+      p_session_id: sessionId,
+    });
+    if (error) throw error;
+    return (data as RosterRow[]) ?? [];
+  }
+
   /** My assigned freshers for one session (silent / no-account first). */
   static async myFeedbackGroup(sessionId: string): Promise<FeedbackGroupMember[]> {
     const { data, error } = await getSupabase().rpc('fn_induction_my_feedback_group', {
@@ -240,7 +357,12 @@ export class InductionVolunteerService {
   /** Attendance check-in: mark present/absent for freshers in MY group only, for one
    *  session. Returns rows written. Scoped + anti-clobber server-side — a mentor can
    *  never touch a fresher outside their group, nor overwrite a staff mark
-   *  (fn_induction_volunteer_mark_attendance). */
+   *  (fn_induction_volunteer_mark_attendance).
+   *
+   *  EXCEPTION — a 'registration' session: the same RPC accepts the whole enrolled
+   *  cohort there (a desk checks in whoever arrives) and waives the training gate.
+   *  Anti-clobber and the enrolled/batch test still apply. Pair it with
+   *  `registrationRoster()` for the full list instead of `myFeedbackGroup()`. */
   static async markAttendance(sessionId: string, marks: AttendanceMark[]): Promise<number> {
     const { data, error } = await getSupabase().rpc('fn_induction_volunteer_mark_attendance', {
       p_session_id: sessionId,

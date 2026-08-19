@@ -1,5 +1,10 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
+import {
+  describeOncePerLearnerError,
+  isOncePerLearnerViolation,
+  oncePerLearnerMessage
+} from '@/lib/utils/billing-duplicate-error';
 import { logActivityForCurrentUser, BillingActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   StudentBill,
@@ -67,6 +72,15 @@ export class StudentBillService {
         `
         )
         .single();
+
+      // The once-per-learner guard fires in Postgres, so it arrives here as a
+      // plain error object with a custom SQLSTATE. Rethrow as a real Error
+      // carrying the readable text — callers toast `error.message`, and the raw
+      // Supabase object would surface as "[object Object]".
+      const duplicateMessage = describeOncePerLearnerError(error, {
+        withBillId: false
+      });
+      if (duplicateMessage) throw new Error(duplicateMessage);
 
       if (error) throw error;
 
@@ -428,6 +442,30 @@ export class StudentBillService {
     }
   }
 
+  /**
+   * Resolve an admission-year NAME (e.g. '2025-2026') to every matching
+   * admission_years id. Unlike accommodation_types, this catalog is
+   * per-institution — one row per year per college — so a name maps to many
+   * ids and filtering on a single id would scope the result to one college.
+   * Returns [] on error (caller forces a no-match).
+   */
+  private static async resolveAdmissionYearIds(
+    yearName: string
+  ): Promise<string[]> {
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('admission_years')
+        .select('id')
+        .eq('admission_year_name', yearName);
+
+      if (error) throw error;
+      return (data || []).map((row: { id: string }) => row.id);
+    } catch (error) {
+      console.error('Error resolving admission year ids:', error);
+      return [];
+    }
+  }
+
   static async getStudentBills(
     filters: StudentBillFilters = {}
   ): Promise<StudentBillListResponse> {
@@ -450,6 +488,14 @@ export class StudentBillService {
         ? await this.resolveAccommodationTypeIds(filters.accommodation_type)
         : null;
 
+      // Admission-year filter. The UI sends a year NAME ('2025-2026') because
+      // admission_years is keyed per institution; resolve it to every matching
+      // id so the filter spans all colleges. Same contract as above:
+      // null = filter inactive; [] = name matched nothing.
+      const admissionYearIds: string[] | null = filters.admission_year
+        ? await this.resolveAdmissionYearIds(filters.admission_year)
+        : null;
+
       // ── Search strategy ────────────────────────────────────────────────
       // PostgREST cannot mix parent and embedded columns inside one top-level
       // logical tree — `or=(bill_description.ilike.*,student.first_name.ilike.*)`
@@ -469,22 +515,41 @@ export class StudentBillService {
       const searchTerm = filters.search
         ? filters.search.replace(/[,()]/g, ' ').trim()
         : '';
+
+      // Multi-word terms are AND-ed token by token. Matching the WHOLE phrase
+      // against each column individually made "AKASH V" return nothing — no
+      // single column holds it (first_name is 'AKASH', last_name is 'V').
+      // Chained .or() calls are AND-ed by PostgREST, so each token must hit
+      // SOME searchable column while different tokens may land on different
+      // columns. Order is irrelevant ("V AKASH" works), and mixed terms like
+      // "AKASH PB25" (name + roll fragment) now work too. A single token
+      // produces exactly one .or(), i.e. the previous behaviour unchanged.
+      // Capped at 5 tokens so a pasted sentence can't build a huge URL.
+      const searchTokens = searchTerm
+        ? searchTerm.split(/\s+/).filter(Boolean).slice(0, 5)
+        : [];
+
+      // The learner columns a search token may land on. Shared by both modes so
+      // the inline lookup and the !inner fallback stay in step.
+      const learnerSearchOr = (like: string) =>
+        `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like},college_email.ilike.${like}`;
+
       // Non-null → inline `student_id.in.(...)` mode; searchViaJoin → !inner mode.
       let searchStudentIds: string[] | null = null;
       let searchViaJoin = false;
 
-      if (searchTerm) {
-        const like = `%${searchTerm}%`;
-        const { data: matchedStudents, error: studentLookupErr } = await (
-          this.supabase as any
-        )
+      if (searchTokens.length > 0) {
+        let learnerQuery = (this.supabase as any)
           .from('learners_profiles')
-          .select('id')
-          .or(
-            `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`
-          )
-          // One past the cap is all we need to know the list overflows.
-          .limit(MAX_INLINE_STUDENT_IDS + 1);
+          .select('id');
+
+        for (const token of searchTokens) {
+          learnerQuery = learnerQuery.or(learnerSearchOr(`%${token}%`));
+        }
+
+        // One past the cap is all we need to know the list overflows.
+        const { data: matchedStudents, error: studentLookupErr } =
+          await learnerQuery.limit(MAX_INLINE_STUDENT_IDS + 1);
 
         if (studentLookupErr) throw studentLookupErr;
 
@@ -507,6 +572,7 @@ export class StudentBillService {
       const hasStudentFilters =
         hasAcademicFilters ||
         accommodationTypeIds !== null ||
+        admissionYearIds !== null ||
         !!filters.lifecycle_status ||
         searchViaJoin;
 
@@ -554,6 +620,7 @@ export class StudentBillService {
               semester_id,
               section_id,
               accommodation_type_id,
+              admission_year_id,
               department:departments(id, department_name),
               semester:semesters(id, semester_name)
             ),
@@ -624,21 +691,23 @@ export class StudentBillService {
       }
 
       // Apply the search resolved above (see the MAX_INLINE_STUDENT_IDS note).
-      if (searchTerm) {
-        const like = `%${searchTerm}%`;
-
+      if (searchTokens.length > 0) {
         if (searchViaJoin) {
           // Broad term: match the learner in-database via the !inner embed.
           // Scoped to the referenced table, so it AND's with any other learner
-          // filter (department, lifecycle, …) rather than widening them.
+          // filter (department, lifecycle, …) rather than widening them. One
+          // .or() per token, matching the token AND-ing of the inline path.
           // bill_description is not OR'd in here — PostgREST can't span the
           // join — but at >150 matching learners the name match dominates.
-          query = query.or(
-            `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`,
-            { referencedTable: 'student' }
-          );
+          for (const token of searchTokens) {
+            query = query.or(learnerSearchOr(`%${token}%`), {
+              referencedTable: 'student'
+            });
+          }
         } else {
-          const orParts: string[] = [`bill_description.ilike.${like}`];
+          const orParts: string[] = [
+            `bill_description.ilike.%${searchTerm}%`
+          ];
           if (searchStudentIds && searchStudentIds.length > 0) {
             orParts.push(`student_id.in.(${searchStudentIds.join(',')})`);
           }
@@ -769,6 +838,17 @@ export class StudentBillService {
             'student.accommodation_type_id',
             accommodationTypeIds.length > 0
               ? accommodationTypeIds
+              : ['00000000-0000-0000-0000-000000000000']
+          );
+        }
+
+        // Admission-year name resolved to ids above (one per institution).
+        // Empty array means the name matched no catalog row → force a no-match.
+        if (admissionYearIds !== null) {
+          query = query.in(
+            'student.admission_year_id',
+            admissionYearIds.length > 0
+              ? admissionYearIds
               : ['00000000-0000-0000-0000-000000000000']
           );
         }
@@ -1143,6 +1223,15 @@ export class StudentBillService {
     if (recurringBills.length > 0) {
       const insertQuery: any = this.supabase.from('billing_student_bills');
       const { error } = await insertQuery.insert(recurringBills);
+
+      // A once-per-learner category and a recurring bill are contradictory by
+      // definition — say so plainly rather than surfacing a raw SQLSTATE, since
+      // the fix is a configuration change, not a data fix.
+      if (isOncePerLearnerViolation(error)) {
+        throw new Error(
+          `${oncePerLearnerMessage(error, { withBillId: false })} Recurring bills cannot be used with a category restricted to one bill per learner.`
+        );
+      }
 
       if (error) throw error;
     }

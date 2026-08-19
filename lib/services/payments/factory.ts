@@ -7,6 +7,8 @@ function envVarForModule(module: PaymentModule): string {
   switch (module) {
     case 'billing': return 'BILLING_PAYMENT_PROVIDER';
     case 'events':  return 'EVENTS_PAYMENT_PROVIDER';
+    case 'ims':     return 'IMS_PAYMENT_PROVIDER';
+    case 'courses': return 'COURSES_PAYMENT_PROVIDER';
   }
 }
 

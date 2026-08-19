@@ -564,7 +564,6 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedProgramId(value === 'all' ? undefined : value)
             }
-            disabled={programs.length === 0}
           >
             <SelectTrigger>
               <SelectValue placeholder="All Programs" />
@@ -588,7 +587,6 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedSemesterId(value === 'all' ? undefined : value)
             }
-            disabled={semesters.length === 0}
           >
             <SelectTrigger>
               <SelectValue placeholder={
@@ -614,7 +612,6 @@ export function DashboardFilters({
             onValueChange={(value) =>
               setSelectedSectionId(value === 'all' ? undefined : value)
             }
-            disabled={sections.length === 0}
           >
             <SelectTrigger>
               <SelectValue placeholder={

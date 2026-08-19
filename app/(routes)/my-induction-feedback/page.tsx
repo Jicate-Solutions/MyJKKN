@@ -17,7 +17,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
-import { Users, Building2, CalendarClock, MessagesSquare, Lock } from 'lucide-react';
+import { Users, Building2, CalendarClock, MessagesSquare, Lock, ClipboardList } from 'lucide-react';
+// The coordinator console's roster dialog, driven here by the mentor-scoped RPCs.
+import { AttendanceDialog } from '@/app/(routes)/events/induction/[id]/_components/attendance-dialog';
 import {
   InductionVolunteerService,
   type MyVolunteerSession,
@@ -58,11 +60,13 @@ export default function MyInductionFeedbackPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Group sessions by event; only sessions where I actually own freshers (group_size > 0).
+  // Group sessions by event; only sessions where I actually own freshers
+  // (group_size > 0) — EXCEPT the registration desk, which a mentor works for the
+  // whole cohort before anyone is assigned, so it would never survive that filter.
   const events = useMemo(() => {
     const byEvent = new Map<string, { name: string; institution: string | null; sessions: MyVolunteerSession[] }>();
     for (const s of sessions) {
-      if (s.group_size <= 0) continue;
+      if (s.kind !== 'registration' && s.group_size <= 0) continue;
       if (!byEvent.has(s.event_id)) {
         byEvent.set(s.event_id, { name: s.event_name, institution: s.institution_name, sessions: [] });
       }
@@ -124,10 +128,18 @@ export default function MyInductionFeedbackPage() {
                 )}
                 {ev.sessions.map((s) => {
                   const done = s.group_size > 0 && s.captured >= s.group_size;
+                  const isRegistration = s.kind === 'registration';
                   return (
                     <div key={s.session_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
                       <div className="min-w-0">
-                        <div className="font-medium truncate">{s.session_title}</div>
+                        <div className="font-medium truncate flex items-center gap-2">
+                          {s.session_title}
+                          {isRegistration && (
+                            <Badge variant="outline" className="gap-1 border-emerald-500/40 text-emerald-700 dark:text-emerald-400">
+                              <ClipboardList className="h-3 w-3" /> Registration
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2">
                           {s.day_number ? <span>Day {s.day_number}</span> : null}
                           {(s.start_at || s.end_at) && (
@@ -139,10 +151,33 @@ export default function MyInductionFeedbackPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">
-                        <Badge variant={done ? 'default' : 'secondary'} className="tabular-nums">
-                          {s.captured}/{s.group_size} captured
-                        </Badge>
-                        {trained ? (
+                        {/* The registration desk is cohort-wide, so a per-group
+                            capture count would be meaningless (and always 0/0). */}
+                        {!isRegistration && (
+                          <Badge variant={done ? 'default' : 'secondary'} className="tabular-nums">
+                            {s.captured}/{s.group_size} captured
+                          </Badge>
+                        )}
+                        {isRegistration ? (
+                          /* Same roster screen the coordinator uses — search by
+                             name / register number / parent mobile, P/A/E/OD —
+                             but through the mentor-scoped RPC pair. Open to an
+                             untrained mentor by design: registration runs on day
+                             1, before training is recorded. */
+                          <AttendanceDialog
+                            sessionId={s.session_id}
+                            sessionTitle={s.session_title}
+                            api={{
+                              loadRoster: InductionVolunteerService.registrationRoster,
+                              save: InductionVolunteerService.markAttendance,
+                            }}
+                            trigger={
+                              <Button size="sm" variant="outline">
+                                <ClipboardList className="h-3.5 w-3.5 mr-1" /> Register freshers
+                              </Button>
+                            }
+                          />
+                        ) : trained ? (
                           <>
                             <AttendanceCheckinDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />
                             <GroupCaptureDialog sessionId={s.session_id} sessionTitle={s.session_title} onSaved={load} />

@@ -8,6 +8,8 @@ import { AccountTransitionService } from '@/lib/services/admission/account-trans
 import { AdmissionSettingsService } from '@/lib/services/admission/admission-settings-service';
 import { FeeChangeEventService } from '@/lib/services/admission/fee-change-event-service';
 import { getErrorMessage } from '@/lib/utils';
+import { describeOncePerLearnerError } from '@/lib/utils/billing-duplicate-error';
+import { expandBillsWithInstalmentPlans } from '@/lib/services/billing/instalments/instalment-plan-service';
 // FEE_STRUCTURE_CONFIG removed 2026-04-15 — dynamic fee_items flow replaces it.
 
 // ============================================
@@ -495,12 +497,38 @@ export class OnboardingService {
         );
       }
 
+      // Instalment expansion — DORMANT until an active instalment plan matches
+      // this learner's (institution, programme, category, academic year). With
+      // zero plans configured (or before migration 20260825013000 is applied),
+      // this returns billsToInsert untouched and the insert below is byte for
+      // byte today's behaviour. A matching plan turns ONE yearly row into N
+      // instalment rows whose amounts sum exactly to the yearly amount, each
+      // with its own due date. Split arithmetic lives in the SQL engine
+      // (billing_instalment_split_for_learner) shared with the account
+      // transition RPC, so the two generation paths cannot disagree.
+      const rowsToInsert = await expandBillsWithInstalmentPlans(
+        supabase,
+        learnerId,
+        billsToInsert
+      );
+
       const { error: insertError } = await supabase
         .from('billing_student_bills')
-        .insert(billsToInsert);
+        .insert(rowsToInsert);
+
+      // Onboarding inserts the learner's whole fee set as one batch, so a
+      // single once-per-learner collision rejects all of it. Name the category
+      // that blocked it — otherwise the operator sees only a generic failure
+      // for a learner whose bills were partly already created earlier.
+      const duplicateMessage = describeOncePerLearnerError(insertError);
+      if (duplicateMessage) {
+        throw new Error(
+          `${duplicateMessage} No bills were created for this learner — resolve the existing bill, then retry.`
+        );
+      }
 
       if (insertError) throw insertError;
-      return billsToInsert.length;
+      return rowsToInsert.length;
     } catch (error) {
       console.error('[billing/onboarding] createBillsFromProfile failed:', error);
       throw error;
@@ -627,6 +655,61 @@ export class OnboardingService {
       return { promoted: false, reason: result.reason ?? 'unknown' };
     }
     return { promoted: true };
+  }
+
+  // ── 5b. reevaluateStatus (operator re-run of the automatic promotion) ────
+
+  /**
+   * Re-runs the automatic lifecycle evaluation for one learner and reports what
+   * it decided. This is the manual counterpart to the payment triggers: the
+   * accounts team reaches for it when a learner's status looks behind their
+   * payments.
+   *
+   * PROMOTION ONLY, and never a bypass. The RPC applies exactly the thresholds
+   * configured in `admission_statuses` — it cannot move a learner who has not
+   * actually paid, it returns `no_op_for_status` outside account/reserved, and
+   * it re-asserts the from-status inside every UPDATE. So the worst a stray
+   * click can do is nothing.
+   *
+   * Unlike `markAsApproved`, this reports rather than throws: "nothing changed"
+   * is the expected answer most of the time, not an error. The returned
+   * `paid_pct`/`threshold` are what the caller should show — "paid 12%, needs
+   * 30%" is the answer the operator actually wants.
+   */
+  static async reevaluateStatus(learnerId: string): Promise<{
+    updated: boolean;
+    finalStatus?: string;
+    paidPct?: number;
+    threshold?: number;
+    reason?: string;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC, same as the
+    // sibling methods in this file.
+    const supabase = this.supabase as any;
+
+    const { data, error } = await supabase.rpc(
+      'evaluate_learner_status_after_payment',
+      { p_learner_id: learnerId }
+    );
+    // Supabase errors are plain objects, not Error instances — getErrorMessage
+    // surfaces the real code/message instead of "[object Object]".
+    if (error) throw new Error(getErrorMessage(error));
+
+    const result = (data ?? {}) as {
+      updated?: boolean;
+      final_status?: string;
+      paid_pct?: number;
+      threshold?: number;
+      reason?: string;
+    };
+
+    return {
+      updated: result.updated === true,
+      finalStatus: result.final_status,
+      paidPct: Number(result.paid_pct ?? 0),
+      threshold: result.threshold == null ? undefined : Number(result.threshold),
+      reason: result.reason
+    };
   }
 
   // ── 6. revertToApproved ──────────────────────────────────────────────────

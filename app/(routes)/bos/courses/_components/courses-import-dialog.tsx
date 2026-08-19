@@ -28,8 +28,9 @@ import {
   COURSE_TYPE_VALUES,
   COURSE_LEVEL_VALUES,
   institutionSkipsPartLevel,
-  importRowClientSchema,
+  makeImportRowClientSchema,
 } from '@/lib/services/bos/courses-schemas';
+import { resolveAcademicModel } from '@/lib/services/bos/academic-model';
 import type { BosBulkImportResponse } from '@/types/bos-courses';
 
 interface CoeBoard {
@@ -115,7 +116,18 @@ export function CoursesImportDialog({
   const { data: regulationsData, isLoading: regulationsLoading } = useBosRegulationOptions(lookupIds);
   const regulations = regulationsData?.data ?? [];
 
-  const boardCode = boards.find((b) => b.id === boardId)?.board_code ?? '';
+  const selectedBoard = boards.find((b) => b.id === boardId);
+  const boardCode = selectedBoard?.board_code ?? '';
+
+  // Academic model of the selected board (COP: B.Pharm vs Pharm.D). Drives the
+  // lenient year-based validation + the template's Academic Year column.
+  const academicModel = resolveAcademicModel({
+    institutionCode,
+    boardId,
+    boardName: selectedBoard?.board_name,
+    boardCode: selectedBoard?.board_code,
+  });
+  const isYearBased = academicModel === 'mgr_pharmd' || academicModel === 'mgr_ahs';
 
   // Institutions like CET don't use the Part I–V / Level tiers — drop those
   // columns from the template and ignore them on parse.
@@ -129,9 +141,12 @@ export function CoursesImportDialog({
     const wb = new ExcelJS.Workbook();
 
     const columns: TemplateColumn[] = [
-      { header: 'Course Code', sample: '24UCSC01' },
-      { header: 'Course Name', sample: 'PROGRAMMING IN C' },
-      { header: 'Category', sample: 'Theory', list: COURSE_CATEGORY_VALUES },
+      { header: 'Course Code', sample: isYearBased ? 'TMPPD101' : '24UCSC01' },
+      { header: 'Course Name', sample: isYearBased ? 'Human Anatomy and Physiology' : 'PROGRAMMING IN C' },
+      // Year-based models (Pharm.D/AHS) carry no category; add Academic Year instead.
+      ...(isYearBased
+        ? [{ header: 'Academic Year', sample: 1 } as TemplateColumn]
+        : [{ header: 'Category', sample: 'Theory', list: COURSE_CATEGORY_VALUES } as TemplateColumn]),
       ...(skipPartLevel
         ? []
         : [{ header: 'Part', sample: 'Part III', list: COURSE_PART_VALUES } as TemplateColumn]),
@@ -140,11 +155,11 @@ export function CoursesImportDialog({
         ? []
         : [{ header: 'Level', sample: 'I', list: COURSE_LEVEL_VALUES } as TemplateColumn]),
       { header: 'Exam Duration (Hrs)', sample: 3 },
-      { header: 'Credits', sample: 3 },
-      { header: 'Theory Hours', sample: 5 },
-      { header: 'Practical Hours', sample: 0 },
-      { header: 'Internal Max Mark', sample: 25 },
-      { header: 'External Max Mark', sample: 75 },
+      { header: 'Credits', sample: isYearBased ? '' : 3 },
+      { header: 'Theory Hours', sample: isYearBased ? 3 : 5 },
+      { header: 'Practical Hours', sample: isYearBased ? 3 : 0 },
+      { header: 'Internal Max Mark', sample: isYearBased ? '' : 25 },
+      { header: 'External Max Mark', sample: isYearBased ? '' : 75 },
     ];
     // Column letters are derived from index — fine while the sheet stays
     // under 26 columns.
@@ -190,11 +205,15 @@ export function CoursesImportDialog({
       '',
       '1. Fill one course per row on the "Courses" sheet. The yellow row is a sample — replace it.',
       '2. Board and Regulation are picked in the Import dialog, not in this file.',
-      skipPartLevel
-        ? '3. Category is required; Type may be left blank.'
-        : '3. Category is required; Part / Type / Level may be left blank (e.g., PG courses carry no Part).',
+      isYearBased
+        ? '3. Year model (Pharm.D/AHS): Academic Year is the placement; Category / Credits / Marks may be left blank.'
+        : skipPartLevel
+          ? '3. Category is required; Type may be left blank.'
+          : '3. Category is required; Part / Type / Level may be left blank (e.g., PG courses carry no Part).',
       '4. Total Max Mark is computed automatically as Internal + External.',
-      '5. Course codes must be letters and digits only, and must not already exist for this institution.',
+      isYearBased
+        ? '5. Codes are letters/digits only — Pharm.D subjects use temp codes like TMPPD101 (year+seq), replaced with official codes later.'
+        : '5. Course codes must be letters and digits only, and must not already exist for this institution.',
     ].forEach((line, i) => { info.getCell(`A${i + 1}`).value = line; });
     info.getCell('A1').font = { bold: true, size: 13 };
 
@@ -243,6 +262,8 @@ export function CoursesImportDialog({
             course_code: str(row['Course Code']).toUpperCase(),
             course_name: str(row['Course Name']),
             course_category: strOpt(row['Category']),
+            // Year-based models locate the course by academic year (no category).
+            academic_year: num(row['Academic Year']),
             // CET-style institutions carry no Part/Level — ignore the columns
             // even if an old template still has them filled.
             course_part_master: skipPartLevel ? undefined : strOpt(row['Part']),
@@ -252,8 +273,13 @@ export function CoursesImportDialog({
             credit: num(row['Credits']),
             theory_hours: num(row['Theory Hours']),
             practical_hours: num(row['Practical Hours']),
-            internal_max_mark: num(row['Internal Max Mark']),
-            external_max_mark: num(row['External Max Mark']),
+            // The template's "Max Mark" columns carry the CIA/ESE WEIGHTAGE, so
+            // they feed the converted pair — the pair the form edits, the one
+            // Zod now requires, and the one total_max_mark derives from.
+            // toCoeCreatePayload seeds the question-paper ceilings to the same
+            // values on create, so a bulk import stays internally consistent.
+            internal_converted_mark: num(row['Internal Max Mark']),
+            external_converted_mark: num(row['External Max Mark']),
             total_max_mark:
               Number(num(row['Internal Max Mark']) ?? 0) +
               Number(num(row['External Max Mark']) ?? 0),
@@ -266,9 +292,10 @@ export function CoursesImportDialog({
         const errors: BosBulkImportResponse['errors'] = [];
         const valid: typeof entries = [];
         const seenCodes = new Map<string, number>();
+        const clientSchema = makeImportRowClientSchema(academicModel);
         for (const entry of entries) {
           const { __row, ...fields } = entry;
-          const res = importRowClientSchema.safeParse(fields);
+          const res = clientSchema.safeParse(fields);
           if (!res.success) {
             errors.push({
               row: __row,
@@ -320,6 +347,7 @@ export function CoursesImportDialog({
           regulation_code: regulationCode,
           board_id: boardId,
           board_code: boardCode,
+          academic_model: academicModel,
         },
       });
       setResult(importResult);

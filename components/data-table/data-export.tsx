@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DownloadIcon, Loader2 } from "lucide-react";
 import { Table } from "@tanstack/react-table";
-import { exportData, exportToCSV, exportToExcel, ExportableData, DataTransformFunction } from "./utils/export-utils";
+import { exportData, exportToCSV, exportToExcel, exportToPDF, ExportableData, DataTransformFunction, PdfExportOptions } from "./utils/export-utils";
 import { TableConfig } from "./utils/table-config";
 import { JSX, useState } from "react";
 import { toast } from "sonner";
@@ -27,6 +27,12 @@ interface DataTableExportProps<TData extends ExportableData> {
   transformFunction?: DataTransformFunction<TData>;
   size?: 'sm' | 'default' | 'lg';
   config?: TableConfig;
+  /**
+   * PDF export settings from the page's `exportConfig.pdf`. Presence is the
+   * opt-in: when omitted the PDF menu entries are not rendered at all, so
+   * tables that haven't chosen a printable column subset are unchanged.
+   */
+  pdfOptions?: PdfExportOptions;
 }
 
 export function DataTableExport<TData extends ExportableData>({
@@ -41,11 +47,12 @@ export function DataTableExport<TData extends ExportableData>({
   headers,
   transformFunction,
   size = 'default',
-  config
+  config,
+  pdfOptions
 }: DataTableExportProps<TData>): JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleExport = async (type: "csv" | "excel") => {
+  const handleExport = async (type: "csv" | "excel" | "pdf") => {
     if (isLoading) return; // Prevent multiple export requests
     
     // Create a data fetching function based on the current state
@@ -156,12 +163,14 @@ export function DataTableExport<TData extends ExportableData>({
           ? headers.filter(header => visibleColumnIds.includes(header))
           : visibleColumnIds;
       } else {
-        // Allow new columns from transform function, but still filter existing columns by visibility
+        // Allow new columns from transform function, but still filter existing columns by visibility.
+        // Keep the page's declared header ORDER: `columnWidths` is applied
+        // positionally against this list, so partitioning table columns ahead
+        // of transform-only columns silently shifted every width by a column.
         if (headers && headers.length > 0) {
-          // Split headers into existing table columns (must be visible) and new transform columns (allowed)
-          const existingHeaders = headers.filter(header => allTableColumnIds.includes(header) && visibleColumnIds.includes(header));
-          const newHeaders = headers.filter(header => !allTableColumnIds.includes(header));
-          exportHeaders = [...existingHeaders, ...newHeaders];
+          exportHeaders = headers.filter(
+            header => !allTableColumnIds.includes(header) || visibleColumnIds.includes(header)
+          );
         } else {
           exportHeaders = visibleColumnIds;
         }
@@ -203,7 +212,8 @@ export function DataTableExport<TData extends ExportableData>({
           headers: exportHeaders,
           columnMapping: exportColumnMapping,
           columnWidths: exportColumnWidths,
-          transformFunction
+          transformFunction,
+          pdf: pdfOptions
         }
       );
     } catch (error) {
@@ -216,7 +226,7 @@ export function DataTableExport<TData extends ExportableData>({
     }
   };
 
-  const exportAllPages = async (type: "csv" | "excel") => {
+  const exportAllPages = async (type: "csv" | "excel" | "pdf") => {
     if (isLoading || !getAllItems) return;
     setIsLoading(true);
     
@@ -258,12 +268,13 @@ export function DataTableExport<TData extends ExportableData>({
           ? headers.filter(header => visibleColumnIds.includes(header))
           : visibleColumnIds;
       } else {
-        // Allow new columns from transform function, but still filter existing columns by visibility
+        // Allow new columns from transform function, but still filter existing
+        // columns by visibility — in the page's declared header order, which is
+        // what `columnWidths` is indexed against.
         if (headers && headers.length > 0) {
-          // Split headers into existing table columns (must be visible) and new transform columns (allowed)
-          const existingHeaders = headers.filter(header => allTableColumnIds.includes(header) && visibleColumnIds.includes(header));
-          const newHeaders = headers.filter(header => !allTableColumnIds.includes(header));
-          exportHeaders = [...existingHeaders, ...newHeaders];
+          exportHeaders = headers.filter(
+            header => !allTableColumnIds.includes(header) || visibleColumnIds.includes(header)
+          );
         } else {
           exportHeaders = visibleColumnIds;
         }
@@ -316,11 +327,20 @@ export function DataTableExport<TData extends ExportableData>({
       let success = false;
       if (type === "csv") {
         success = exportToCSV(allData, filename, exportHeaders, exportColumnMapping, transformFunction);
+      } else if (type === "pdf") {
+        success = await exportToPDF(
+          allData,
+          filename,
+          exportColumnMapping,
+          exportHeaders,
+          transformFunction,
+          { ...pdfOptions, entityName }
+        );
       } else {
         success = exportToExcel(
-          allData, 
-          filename, 
-          exportColumnMapping, 
+          allData,
+          filename,
+          exportColumnMapping,
           exportColumnWidths,
           exportHeaders,
           transformFunction
@@ -374,6 +394,11 @@ export function DataTableExport<TData extends ExportableData>({
             <DropdownMenuItem onClick={() => handleExport("excel")} disabled={isLoading}>
               Export Selected as XLS
             </DropdownMenuItem>
+            {pdfOptions && (
+              <DropdownMenuItem onClick={() => handleExport("pdf")} disabled={isLoading}>
+                Export Selected as PDF
+              </DropdownMenuItem>
+            )}
           </>
         ) : config?.exportAllPagesByDefault && getAllItems ? (
           // Export = the whole dataset by default; current page is secondary.
@@ -384,12 +409,22 @@ export function DataTableExport<TData extends ExportableData>({
             <DropdownMenuItem onClick={() => exportAllPages("excel")} disabled={isLoading}>
               Export All as XLS
             </DropdownMenuItem>
+            {pdfOptions && (
+              <DropdownMenuItem onClick={() => exportAllPages("pdf")} disabled={isLoading}>
+                Export All as PDF
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => handleExport("csv")} disabled={isLoading}>
               Export Current Page as CSV
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => handleExport("excel")} disabled={isLoading}>
               Export Current Page as XLS
             </DropdownMenuItem>
+            {pdfOptions && (
+              <DropdownMenuItem onClick={() => handleExport("pdf")} disabled={isLoading}>
+                Export Current Page as PDF
+              </DropdownMenuItem>
+            )}
           </>
         ) : (
           <>
@@ -399,6 +434,11 @@ export function DataTableExport<TData extends ExportableData>({
             <DropdownMenuItem onClick={() => handleExport("excel")} disabled={isLoading}>
               Export Current Page as XLS
             </DropdownMenuItem>
+            {pdfOptions && (
+              <DropdownMenuItem onClick={() => handleExport("pdf")} disabled={isLoading}>
+                Export Current Page as PDF
+              </DropdownMenuItem>
+            )}
             {getAllItems && (
               <>
                 <DropdownMenuItem
@@ -413,6 +453,14 @@ export function DataTableExport<TData extends ExportableData>({
                 >
                   Export All Pages as XLS
                 </DropdownMenuItem>
+                {pdfOptions && (
+                  <DropdownMenuItem
+                    onClick={() => exportAllPages("pdf")}
+                    disabled={isLoading}
+                  >
+                    Export All Pages as PDF
+                  </DropdownMenuItem>
+                )}
               </>
             )}
           </>

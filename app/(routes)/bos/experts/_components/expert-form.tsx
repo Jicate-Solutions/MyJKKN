@@ -66,6 +66,8 @@ const expertFormSchema = z.object({
     'alumni',
     'startup',
     'student',
+    'faculty_member',
+    'chairman',
   ]),
   specialization: z.string().optional(),
   qualifications: z.string().optional(),

@@ -15,7 +15,6 @@ import {
   RELIGION_VALUES,
   BLOOD_GROUP_VALUES,
   ENTRY_TYPE_VALUES,
-  ACCOMMODATION_VALUES,
   SCHOLARSHIP_TYPE_VALUES,
 } from '@/lib/constants/learner-dropdown-values';
 
@@ -40,7 +39,10 @@ export const createLearnerSchema = z
       errorMap: () => ({ message: 'Select a valid religion' }),
     }),
     community_category_id: z.string().uuid('Community is required'),
-    caste_id: z.string().uuid().optional().or(z.literal('')),
+    // formatFormDataForAPI sends blank optional FKs as null (via its
+    // formatUUID helper), not '' or undefined — .nullable() is required or
+    // Zod rejects a genuinely-blank pick with a generic "Invalid input".
+    caste_id: z.string().uuid().nullable().optional().or(z.literal('')),
 
     // ---- Required: Parent / Guardian (4 fields)
     father_name: z.string().trim().min(1, 'Father name is required'),
@@ -58,6 +60,8 @@ export const createLearnerSchema = z
     semester_id: z.string().uuid('Semester is required'),
     section_id: z.string().uuid('Section is required'),
     academic_year_id: z.string().uuid('Academic year is required'),
+    quota_id: z.string().uuid('Quota is required'),
+    regulation_id: z.string().uuid('Regulation is required'),
 
     // ---- Required: Contact (2 fields)
     student_mobile: z.string().regex(MOBILE_RE, 'Student mobile must be 10 digits'),
@@ -80,9 +84,24 @@ export const createLearnerSchema = z
     scholarship_type: z.enum(asTuple(SCHOLARSHIP_TYPE_VALUES), {
       errorMap: () => ({ message: 'Select a valid scholarship type' }),
     }),
-    accommodation_type: z.enum(asTuple(ACCOMMODATION_VALUES), {
-      errorMap: () => ({ message: 'Select a valid accommodation type' }),
-    }),
+    // accommodation_type TEXT is retired (see enquiry-form.tsx's
+    // formatFormDataForAPI) — it resolves the HOSTEL/DAY SCHOLAR radio pick
+    // to this FK instead and never sends the old TEXT field, so validating
+    // accommodation_type here always failed even on a valid pick.
+    accommodation_type_id: z.string().uuid('Select a valid accommodation type'),
+
+    // ---- Optional: Tamil-script name (nullable text columns).
+    // Declared here purely so the strict z.object() does not STRIP them before
+    // the insert — same failure mode documented for tenth_marks below. Never
+    // required: a learner without a Tamil name must still save.
+    first_name_tamil: z.string().nullable().optional(),
+    last_name_tamil: z.string().nullable().optional(),
+
+    // ---- Optional: external identifiers (ABC / EMIS / UMIS).
+    // Declared so the strict z.object() does not STRIP them before the insert.
+    abc_id: z.string().nullable().optional(),
+    emis: z.string().nullable().optional(),
+    umis: z.string().nullable().optional(),
 
     // ---- Optional: 35 bulk-upload optional fields (passthrough)
     aadhar_number: z.string().optional(),
@@ -91,9 +110,9 @@ export const createLearnerSchema = z
     father_occupation: z.string().optional(),
     mother_occupation: z.string().optional(),
     annual_income: z.union([z.string(), z.number()]).optional(),
-    regulation_id: z.string().uuid().optional().or(z.literal('')),
-    batch_id: z.string().uuid().optional().or(z.literal('')),
-    admission_year_id: z.string().uuid().optional().or(z.literal('')),
+    // Same null-vs-'' gap as caste_id above.
+    batch_id: z.string().uuid().nullable().optional().or(z.literal('')),
+    admission_year_id: z.string().uuid().nullable().optional().or(z.literal('')),
     student_email: z.string().email().optional().or(z.literal('')),
     // Gender-scoped campus-living category FKs (optional). Accept uuid, ''
     // (unset dropdown), or null (normalized payload). Without these here the
@@ -108,20 +127,21 @@ export const createLearnerSchema = z
     last_school_id: z.string().uuid().nullable().optional().or(z.literal('')),
     post_office_id: z.string().uuid().nullable().optional().or(z.literal('')),
     board_of_study: z.string().optional(),
-    tenth_max_marks: z.union([z.string(), z.number()]).optional(),
-    tenth_obtained_marks: z.union([z.string(), z.number()]).optional(),
-    tenth_percentage: z.union([z.string(), z.number()]).optional(),
-    twelfth_group: z.string().optional(),
-    twelfth_max_marks: z.union([z.string(), z.number()]).optional(),
-    twelfth_obtained_marks: z.union([z.string(), z.number()]).optional(),
-    twelfth_percentage: z.union([z.string(), z.number()]).optional(),
+    // learners_profiles.tenth_marks / twelfth_marks are NOT-NULL jsonb
+    // columns, and the Academic Information tab (shared with EnquiryForm)
+    // submits them as nested objects ({max_marks, obtained_marks,
+    // percentage, ...}), never as flat tenth_max_marks-style keys. A plain
+    // z.object() strips any key it doesn't declare, so validating flat
+    // fields here silently dropped the real nested value and left the
+    // NOT-NULL column with nothing to insert — a 23502 at the DB layer.
+    tenth_marks: z.any().optional(),
+    twelfth_marks: z.any().optional(),
     medical_cutoff_marks: z.string().optional(),
     engineering_cutoff_marks: z.string().optional(),
     neet_roll_number: z.string().optional(),
     neet_score: z.string().optional(),
     counseling_applied: z.union([z.boolean(), z.string()]).optional(),
     counseling_number: z.string().optional(),
-    quota_id: z.string().uuid().optional().or(z.literal('')),
     reference_type: z.string().optional(),
     reference_name: z.string().optional(),
     reference_contact: z.string().optional(),
@@ -133,8 +153,8 @@ export const createLearnerSchema = z
 export type CreateLearnerInput = z.infer<typeof createLearnerSchema>;
 
 /**
- * Backfills the two DB-NOT-NULL columns that bulk upload treats as OPTIONAL
- * by submitting empty strings (per feedback_learners_profiles_community_not_null.md).
+ * Backfills the DB-NOT-NULL columns that bulk upload treats as OPTIONAL
+ * by submitting empty defaults (per feedback_learners_profiles_community_not_null.md).
  * Call this AFTER createLearnerSchema.parse() and before handing to the service.
  */
 export function createLearnerWithDefaults(
@@ -151,5 +171,18 @@ export function createLearnerWithDefaults(
     mess_category_id: parsed.mess_category_id || null,
     transport_route_id: parsed.transport_route_id || null,
     transport_stop_id: parsed.transport_stop_id || null,
+    caste_id: parsed.caste_id || null,
+    batch_id: parsed.batch_id || null,
+    admission_year_id: parsed.admission_year_id || null,
+    // NOT-NULL jsonb columns — same empty-object default bulk upload uses
+    // when the applicant left 10th/12th marks blank.
+    tenth_marks: parsed.tenth_marks ?? { max_marks: '', obtained_marks: '', percentage: '' },
+    twelfth_marks: parsed.twelfth_marks ?? {
+      group: '',
+      max_marks: '',
+      obtained_marks: '',
+      percentage: '',
+      subjects: {},
+    },
   };
 }

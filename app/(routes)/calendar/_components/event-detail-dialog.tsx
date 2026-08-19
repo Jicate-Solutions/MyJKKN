@@ -20,8 +20,11 @@ const KIND_LABELS: Record<string, string> = {
 
 /** Build a human-readable "when" string from the item's range + all-day flag. */
 function formatWhen(item: CalendarItem): string {
-  const start = moment(item.start_at);
-  const end = moment(item.end_at);
+  // All-day ranges are stored UTC-anchored (00:00:00Z → 23:59:59.999Z), so read
+  // them back in UTC — browser-local parsing rolls the end into the next day
+  // east of UTC and reports a 1-day holiday as a 2-day range.
+  const start = item.all_day ? moment.utc(item.start_at) : moment(item.start_at);
+  const end = item.all_day ? moment.utc(item.end_at) : moment(item.end_at);
 
   if (item.all_day) {
     return start.isSame(end, 'day')
@@ -81,7 +84,12 @@ export function EventDetailDialog({ item, onClose }: EventDetailDialogProps) {
                       </Badge>
                     )}
                     {status && (
-                      <Badge variant="outline" className="capitalize">{status}</Badge>
+                      <Badge
+                        variant={status.toLowerCase() === 'cancelled' ? 'destructive' : 'outline'}
+                        className="capitalize"
+                      >
+                        {status}
+                      </Badge>
                     )}
                   </div>
                 </div>

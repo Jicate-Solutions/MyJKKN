@@ -105,7 +105,12 @@ const applicationSchema = z.object({
   uses_parent_auth: z.boolean().default(false),
   app_id: z.string().optional().default(''),
   api_key: z.string().optional().default(''), // Only for new generation, not stored
-  allowed_redirect_uris: z.array(z.string()).optional().default([]),
+  allowed_redirect_uris: z
+    .array(
+      z.string().url('Must be a valid URL, e.g. https://yourapp.com/callback or http://localhost:3000/callback')
+    )
+    .optional()
+    .default([]),
   allowed_scopes: z
     .array(z.string())
     .optional()

@@ -82,6 +82,16 @@ export function ParentAuthSettings({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  // Validate a redirect URI is well-formed (catches typos like "http:localhost" missing "//")
+  const isValidRedirectUri = (uri: string) => {
+    try {
+      new URL(uri);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // Watch app name for generating app ID
   const appName = form.watch('name');
   
@@ -291,33 +301,45 @@ export function ParentAuthSettings({
                       No redirect URIs added. Click &quot;Add URL&quot; to add one.
                     </p>
                   ) : (
-                    (field.value as string[]).map((uri, index) => (
-                      <div key={index} className="flex gap-2">
-                        <Input
-                          placeholder="https://yourapp.example.com/auth/callback"
-                          value={uri}
-                          onChange={(e) => {
-                            const updated = [...(field.value as string[])];
-                            updated[index] = e.target.value;
-                            field.onChange(updated);
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            const updated = (field.value as string[]).filter(
-                              (_, i) => i !== index
-                            );
-                            field.onChange(updated);
-                          }}
-                          className="text-muted-foreground hover:text-destructive shrink-0"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))
+                    (field.value as string[]).map((uri, index) => {
+                      const isInvalid = uri.length > 0 && !isValidRedirectUri(uri);
+                      return (
+                        <div key={index} className="space-y-1">
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="https://yourapp.example.com/auth/callback"
+                              value={uri}
+                              aria-invalid={isInvalid}
+                              className={isInvalid ? 'border-destructive' : undefined}
+                              onChange={(e) => {
+                                const updated = [...(field.value as string[])];
+                                updated[index] = e.target.value;
+                                field.onChange(updated);
+                              }}
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const updated = (field.value as string[]).filter(
+                                  (_, i) => i !== index
+                                );
+                                field.onChange(updated);
+                              }}
+                              className="text-muted-foreground hover:text-destructive shrink-0"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          {isInvalid && (
+                            <p className="text-xs text-destructive">
+                              Invalid URL &mdash; did you mean &quot;http://&quot; or &quot;https://&quot; (with //)?
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })
                   )}
                 </div>
                 <FormMessage />

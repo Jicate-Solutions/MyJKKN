@@ -17,20 +17,18 @@ import {
   type FeedbackVolunteer,
   type MentorMentee,
   type UnassignedFresher,
-  type AssignablePeerMentor,
   type MentorHelpfulnessCrosscheckRow,
 } from '@/lib/services/induction/induction-volunteer-service';
+import { AppointMentorDialog } from '../_components/appoint-mentor-dialog';
+import { MentorIdentity } from '../_components/mentor-identity';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-  GraduationCap, ChevronDown, ChevronRight, ShieldCheck, X, UserPlus, Search,
-  Scale, CalendarClock, Users, CheckCircle2, Loader2, AlertTriangle, ShieldAlert,
+  GraduationCap, ChevronDown, ChevronRight, ShieldCheck, X,
+  Scale, CalendarClock, Users, CheckCircle2, AlertTriangle, ShieldAlert,
 } from 'lucide-react';
 
 export default function SeniorPeerMentorConsolePage() {
@@ -93,11 +91,25 @@ export default function SeniorPeerMentorConsolePage() {
       return next;
     });
 
+  // Sets ONLY the admin leg of the 3-legged is_trained generated column
+  // (guide_read_at AND self_ack_at AND admin_trained_at). The mentor's own two
+  // legs can't be written by an admin, so don't promise unlocked tools blindly.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
     setBusy(`trained:${learnerId}`);
+    const mentor = mentors.find((m) => m.learner_id === learnerId);
+    const mentorLegsDone = Boolean(mentor?.guide_read && mentor?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       await load();
     } catch (e: any) { toast.error(`Couldn't update: ${e.message ?? e}`); }
     finally { setBusy(null); }
@@ -213,7 +225,7 @@ export default function SeniorPeerMentorConsolePage() {
           </div>
 
           <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
-            <AppointMentorDialog eventId={eventId} onAppointed={load} />
+            <AppointMentorDialog eventId={eventId} onAppointed={load} triggerLabel="Appoint mentor" />
             <div className="flex items-end gap-2">
               <div className="space-y-1">
                 <Label htmlFor="cap" className="text-xs text-muted-foreground">Per-mentor cap</Label>
@@ -271,14 +283,13 @@ export default function SeniorPeerMentorConsolePage() {
             return (
               <Card key={m.learner_id}>
                 <button type="button" onClick={() => toggle(m.learner_id)}
-                  className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-muted/40 rounded-t-xl">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                    <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{m.full_name || 'Unnamed'}</div>
-                      <div className="text-xs text-muted-foreground">{m.register_number ?? '—'} · cap {m.capacity}</div>
-                    </div>
+                  className="w-full flex items-start justify-between gap-3 p-3 text-left hover:bg-muted/40 rounded-t-xl">
+                  <div className="flex items-start gap-2 min-w-0">
+                    {isOpen
+                      ? <ChevronDown className="h-4 w-4 shrink-0 mt-0.5" />
+                      : <ChevronRight className="h-4 w-4 shrink-0 mt-0.5" />}
+                    <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <MentorIdentity mentor={m} />
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant={m.group_size > 0 && m.captured >= m.group_size ? 'default' : 'secondary'} className="tabular-nums">
@@ -435,79 +446,5 @@ function MentorPicker({
         <option key={m.learner_id} value={m.learner_id}>{m.full_name || m.register_number || 'Mentor'}</option>
       ))}
     </select>
-  );
-}
-
-function AppointMentorDialog({ eventId, onAppointed }: { eventId: string; onAppointed: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<AssignablePeerMentor[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [appointing, setAppointing] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setSearching(true);
-    const t = setTimeout(async () => {
-      try {
-        const r = await InductionVolunteerService.assignablePeerMentors(eventId, query);
-        if (active) setResults(r);
-      } catch { /* surfaced on appoint */ }
-      finally { if (active) setSearching(false); }
-    }, 300);
-    return () => { active = false; clearTimeout(t); };
-  }, [open, query, eventId]);
-
-  const appoint = async (m: AssignablePeerMentor) => {
-    setAppointing(m.learner_id);
-    try {
-      await InductionVolunteerService.appointVolunteer(eventId, m.learner_id);
-      toast.success(`${m.full_name} is now a Senior Peer Mentor.`);
-      setOpen(false);
-      onAppointed();
-    } catch (e: any) { toast.error(`Couldn't appoint: ${e.message ?? e}`); }
-    finally { setAppointing(null); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><UserPlus className="h-3.5 w-3.5 mr-1" /> Appoint mentor</Button>
-      </DialogTrigger>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Appoint a Senior Peer Mentor</DialogTitle>
-          <DialogDescription>
-            Only 3rd-year students (or final-year of a 2-year PG) can be mentors — the list is already filtered to them.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search by name or register number…"
-            value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
-        </div>
-        <div className="max-h-72 overflow-auto space-y-1">
-          {searching ? (
-            <p className="text-sm text-muted-foreground py-2">Searching…</p>
-          ) : results.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">No appointable mentors found.</p>
-          ) : (
-            results.map((m) => (
-              <button key={m.learner_id} type="button" onClick={() => appoint(m)} disabled={!!appointing}
-                className="w-full flex items-center justify-between gap-2 rounded-md border p-2 text-left hover:border-primary disabled:opacity-50">
-                <div className="min-w-0">
-                  <div className="font-medium truncate">{m.full_name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{m.register_number ?? '—'}</div>
-                </div>
-                {appointing === m.learner_id
-                  ? <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                  : <UserPlus className="h-4 w-4 text-primary shrink-0" />}
-              </button>
-            ))
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }

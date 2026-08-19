@@ -77,6 +77,7 @@ import type {
   AdmissionFeeStructureItem,
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
+  FeeStructurePackageType,
 } from '@/types/admission';
 
 interface RouteProps {
@@ -262,6 +263,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   <div className="flex items-center gap-3 flex-wrap">
                     <h1 className="text-2xl font-bold">{structure.name}</h1>
                     <StatusBadge status={structure.status} />
+                    <PackageTypeBadge packageType={structure.package_type} />
                     <EffectivePeriodBadge
                       from={structure.effective_from}
                       to={structure.effective_to}
@@ -618,6 +620,24 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
         </AlertDialog>
       </ContentLayout>
     </PermissionGuard>
+  );
+}
+
+/**
+ * Classification badge. Renders nothing when unset — an unclassified
+ * structure is the norm (every structure predating this field), so a
+ * permanent "Unclassified" chip would be noise in the header cluster.
+ */
+function PackageTypeBadge({
+  packageType,
+}: {
+  packageType: FeeStructurePackageType | null;
+}) {
+  if (!packageType) return null;
+  return (
+    <Badge variant={packageType === 'package' ? 'secondary' : 'outline'} className="font-normal">
+      {packageType === 'package' ? 'Package' : 'Non-Package'}
+    </Badge>
   );
 }
 

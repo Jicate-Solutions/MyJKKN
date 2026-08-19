@@ -31,6 +31,10 @@ import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { RichTextDisplay } from '@/components/ui/rich-text-editor';
+import {
+  YouTubePreviewCard,
+  type YouTubeLinkPreview
+} from '@/components/notifications/youtube-preview-card';
 
 interface NotificationDetails {
   id: string;
@@ -38,6 +42,10 @@ interface NotificationDetails {
   body: string;
   url?: string;
   icon?: string;
+  metadata?: {
+    link_preview?: YouTubeLinkPreview | null;
+    [key: string]: unknown;
+  } | null;
   priority: 'low' | 'normal' | 'high' | 'urgent';
   category: string;
   sent_at: string;
@@ -217,6 +225,14 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
               <div className='text-sm sm:text-base text-slate-600 mt-2 sm:mt-3 leading-relaxed'>
                 <RichTextDisplay content={notification.body} />
               </div>
+
+              {notification.metadata?.link_preview?.videoId && (
+                <div className='mt-3 sm:mt-5 max-w-sm'>
+                  <YouTubePreviewCard
+                    preview={notification.metadata.link_preview}
+                  />
+                </div>
+              )}
 
               {notification.url && (
                 <div className='mt-3 sm:mt-5'>

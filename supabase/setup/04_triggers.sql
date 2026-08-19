@@ -975,6 +975,22 @@ CREATE TRIGGER trg_validate_learner_admission_year_scope
   EXECUTE FUNCTION public.validate_learner_admission_year_scope();
 
 -- =====================================================
+-- learners_profiles academic-scope validator — Added 2026-07-30
+-- Fires BEFORE INSERT/UPDATE (all columns, so an institution_id move is caught
+-- alongside the FK columns). Calls validate_learner_semester_year_scope()
+-- (02_functions.sql), which rejects a degree_id / department_id / semester_id /
+-- academic_year_id belonging to another institution.
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_validate_learner_semester_year_scope
+  ON public.learners_profiles;
+
+CREATE TRIGGER trg_validate_learner_semester_year_scope
+  BEFORE INSERT OR UPDATE
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.validate_learner_semester_year_scope();
+
+-- =====================================================
 -- admission_years single-current enforcement — Added 2026-07-25
 -- Migration: supabase/migrations/20260725_admission_years_is_current_flag.sql
 -- Calls admission_years_enforce_single_current() (02_functions.sql), which
@@ -1574,15 +1590,350 @@ BEFORE INSERT ON public.billing_student_bills
 FOR EACH ROW
 EXECUTE FUNCTION public.fn_billing_bill_default_academic_year();
 
--- Default "Freshers" semester + section A (2026-07-27): every new program gets
--- one semester and one section so downstream modules always have a valid target.
--- Function body (and the reasoning behind semester_order = 0 /
--- initial_semester = false) lives in 02_functions.sql.
--- AFTER INSERT only -- a program whose hierarchy is completed by a later UPDATE
--- is not retro-seeded.
+-- REMOVED 2026-08-05 (mig 20260805112640_freshers_drop_seed_trigger): the
+-- default "Freshers" semester + section A holding pen was retired. New programs
+-- no longer get a semester_order = 0 placeholder; first-year admits go straight
+-- to the program's first real term, which is now identified by initial_semester
+-- on every active program (mig 20260805112546).
 DROP TRIGGER IF EXISTS programs_seed_freshers ON public.programs;
 
-CREATE TRIGGER programs_seed_freshers
-  AFTER INSERT ON public.programs
+-- ---------------------------------------------------------------------------
+-- Billing: "Once per learner" duplicate guard
+-- ---------------------------------------------------------------------------
+-- Rejects a second live bill for a learner when the bill's billing category
+-- has once_per_learner = true. Lives in the database because bills are written
+-- from ten independent paths — student-bill-service (single + recurring),
+-- onboarding-service, the bills/import route, and six SECURITY DEFINER RPCs
+-- (admission_account_transition_with_bills, admission_approve_fee_change_event,
+-- admission_fix_fee_mismatch_2026, campus_living_generate_hostel_year_bills,
+-- _cl_apply_category_bill_change, _cl_apply_upgrade_fee_bill) plus the feesync
+-- cron. A service-layer guard would be bypassed by most of them, which is
+-- exactly how the 336 duplicate tuition bills were created.
+--
+-- Cancelled/superseded bills never count, so correcting a mistake cannot
+-- permanently lock a learner out of a category. Raises SQLSTATE BL001 so
+-- callers can render a friendly message (lib/utils/billing-duplicate-error.ts).
+-- Function body: see supabase/migrations/20260727120000_billing_category_once_per_learner.sql
+DROP TRIGGER IF EXISTS trg_billing_bills_once_per_learner ON public.billing_student_bills;
+
+CREATE TRIGGER trg_billing_bills_once_per_learner
+  BEFORE INSERT OR UPDATE ON public.billing_student_bills
   FOR EACH ROW
-  EXECUTE FUNCTION public.seed_freshers_semester_for_program();
+  EXECUTE FUNCTION public.billing_enforce_once_per_learner();
+
+
+-- =====================================================================
+-- hr_shift_timings — updated_at trigger
+-- Added 2026-08-06. Source of truth:
+--   supabase/migrations/20260806090000_create_hr_shift_timings.sql
+--   supabase/migrations/20260806090100_hr_shift_timings_functions.sql
+--   supabase/migrations/20260806090400_hr_shift_timings_save_week.sql
+-- Plan: docs/superpowers/plans/2026-08-06-hr-shift-timings.md
+--
+-- Replaced the legacy hr_shift_templates / hr_shift_assignments /
+-- hr_shift_swap_requests module, dropped 2026-08-06 (all three were empty).
+-- Those tables were never mirrored into supabase/setup, so there is nothing
+-- to remove here.
+-- =====================================================================
+
+DROP TRIGGER IF EXISTS hr_shift_timings_updated_at ON public.hr_shift_timings;
+CREATE TRIGGER hr_shift_timings_updated_at
+  BEFORE UPDATE ON public.hr_shift_timings
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ---------------------------------------------------------------------
+-- RLS. Mirrors the hr_attendance_status_types idiom. The (SELECT fn())
+-- wrapping is load-bearing: it forces once-per-query evaluation and is the
+-- fix for the 57014 statement-timeout class of bug.
+--
+-- Contrast with hr_shift_templates, whose write policies gate on
+-- is_super_admin() OR is_admin() with NO permission key — which locks out
+-- custom roles such as HR Head that hold every other HR key.
+-- ---------------------------------------------------------------------
+
+-- Billing Late Charges updated_at
+-- Added: 2026-08-07 (migration 20260815010000_late_charge_mechanism.sql — FILE ONLY, apply is Director-gated)
+DROP TRIGGER IF EXISTS trg_billing_late_charges_updated_at ON public.billing_late_charges;
+CREATE TRIGGER trg_billing_late_charges_updated_at
+    BEFORE UPDATE ON public.billing_late_charges
+    FOR EACH ROW EXECUTE FUNCTION handle_updated_at();
+-- ============================================================================
+-- Events Hub — refuse a delete that would cascade registrations/payments away
+-- (2026-08-06). 46 FKs point at `events`, 43 of them ON DELETE CASCADE.
+-- Body lives in 02_functions.sql.
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_events_block_delete_with_dependents ON public.events;
+
+CREATE TRIGGER trg_events_block_delete_with_dependents
+  BEFORE DELETE ON public.events
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_events_block_delete_with_dependents();
+
+
+-- Reserved-bed allocation guard — a bed held for one learner's confirmed
+-- upgrade hold must never reach another learner (Director decision,
+-- edge-case interview, 2026-08-07: "That situation should not occur.
+-- Prevent it."). Fires on every INSERT and on any UPDATE that moves an
+-- allocation's bed/room (fn_cl_admin_transfer_allocation).
+-- Added: 2026-08-07 (migration 20260815040001_reserved_bed_guard.sql — FILE ONLY, apply is Director-gated)
+DROP TRIGGER IF EXISTS trg_allocation_guard_reserved_bed ON public.hostel_allocations;
+CREATE TRIGGER trg_allocation_guard_reserved_bed
+  BEFORE INSERT OR UPDATE OF bed_id, room_id ON public.hostel_allocations
+  FOR EACH ROW
+  EXECUTE FUNCTION public._on_allocation_guard_reserved_bed();
+
+
+-- Settle-then-bill arrival clock — a learner joining a room starts or restarts
+-- that room's settle window (Director 2026-08-10: "arrivals only"). A learner
+-- LEAVING never touches a clock; otherwise a departure would postpone the
+-- remaining residents' bills. A learner moving from room A to room B leaves
+-- A's clock alone and starts/restarts B's.
+--
+-- The arrival test lives in the WHEN clauses so a departure never even enters
+-- the function. Active occupancy is `status='active' AND check_out_date IS
+-- NULL` — the same pair v_hostel_room_occupancy and the whole settle engine
+-- count on; actual_vacate_date is deliberately not consulted.
+--
+-- AFTER, not BEFORE: trg_allocation_guard_reserved_bed (BEFORE) can reject the
+-- row, so these only ever run on allocations that survived it. Body lives in
+-- 02_functions.sql.
+-- Added: 2026-08-10 (migration 20260815070000_settle_window_trigger_and_scope.sql
+--        — FILE ONLY, apply is Director-gated)
+
+DROP TRIGGER IF EXISTS trg_allocation_settle_arrival_insert ON public.hostel_allocations;
+CREATE TRIGGER trg_allocation_settle_arrival_insert
+  AFTER INSERT ON public.hostel_allocations
+  FOR EACH ROW
+  WHEN (NEW.status = 'active'::allocation_status_enum
+        AND NEW.check_out_date IS NULL)
+  EXECUTE FUNCTION public._on_allocation_settle_arrival();
+
+DROP TRIGGER IF EXISTS trg_allocation_settle_arrival_update ON public.hostel_allocations;
+CREATE TRIGGER trg_allocation_settle_arrival_update
+  AFTER UPDATE ON public.hostel_allocations
+  FOR EACH ROW
+  WHEN (
+    -- It is an active occupancy NOW …
+    NEW.status = 'active'::allocation_status_enum
+    AND NEW.check_out_date IS NULL
+    AND (
+      -- … and it was not one before (came into active occupancy) …
+      OLD.status IS DISTINCT FROM 'active'::allocation_status_enum
+      OR OLD.check_out_date IS NOT NULL
+      -- … or it moved into a different room while active.
+      OR NEW.room_id IS DISTINCT FROM OLD.room_id
+    )
+  )
+  EXECUTE FUNCTION public._on_allocation_settle_arrival();
+
+-- =====================================================
+-- HR ACADEMIC YEARS (2026-08-10)
+-- =====================================================
+DROP TRIGGER IF EXISTS hr_academic_years_updated_at ON public.hr_academic_years;
+CREATE TRIGGER hr_academic_years_updated_at
+    BEFORE UPDATE ON public.hr_academic_years
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- Group-wide, non-overlapping years mean start_date alone identifies the year,
+-- so a leave application can no longer be yearless. Named trg_hla_aa_*
+-- deliberately: BEFORE triggers fire in name order and this must run before
+-- trg_hla_leave_period_cap and trg_hla_sto_limits, which read the column.
+DROP TRIGGER IF EXISTS trg_hla_aa_default_hr_ay ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_aa_default_hr_ay
+    BEFORE INSERT OR UPDATE ON public.hr_leave_applications
+    FOR EACH ROW EXECUTE FUNCTION public.hr_trig_default_hr_academic_year();
+
+
+-- =====================================================================
+-- Added: 2026-08-06 - admission_leads source/referral audit trail
+-- Mirror of migration 20260818020000_admission_lead_source_audit.sql
+-- (ALREADY APPLIED TO PROD 2026-08-06 via hand-run SQL).
+-- Fires only when one of the five watched source/referral columns changes,
+-- calling fn_audit_admission_lead_source (setup/02_functions.sql) to record
+-- who/when/old->new into admission_lead_source_audit (setup/01_tables.sql).
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_audit_admission_lead_source ON public.admission_leads;
+CREATE TRIGGER trg_audit_admission_lead_source
+AFTER UPDATE OF source, source_detail, referral_type, referred_by_id, referred_by_name
+ON public.admission_leads
+FOR EACH ROW EXECUTE FUNCTION public.fn_audit_admission_lead_source();
+
+-- ============================================================================
+-- 2026-08-11 — learner lifecycle auto-promotion pipeline
+-- ============================================================================
+-- Supersedes the earlier entry in this file, which still read
+-- `AFTER UPDATE OF bill_amount ON billing_student_bills` — a column name that
+-- no longer exists. This file is append-ordered, so the definitions below win.
+--
+-- Rationale: supabase/migrations/20260811140000_fix_learner_status_auto_promotion.sql
+--   * the evaluation must fire on ANY movement in a bill's paid position, not
+--     only on a full settlement — instalments are how learners cross 30%;
+--   * the receipt-side evaluation is GONE, not merely redundant. Postgres fires
+--     row triggers alphabetically, and `trg_evaluate_status_after_payment`
+--     sorted before `trigger_update_bill_status_on_payment` ('g' < 'i'), so it
+--     ran before the bill was written and could never see its own payment;
+--   * update_bill_balance_on_amount_change() mutates NEW and returns it, so it
+--     MUST be BEFORE. Registered AFTER, every mutation was silently discarded.
+-- ============================================================================
+
+DROP TRIGGER IF EXISTS trg_evaluate_status_after_bill_paid
+  ON public.billing_student_bills;
+CREATE TRIGGER trg_evaluate_status_after_bill_paid
+  AFTER UPDATE OF status, balance_amount ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.fn_evaluate_status_after_bill_paid();
+
+DROP TRIGGER IF EXISTS trg_evaluate_status_after_payment
+  ON public.billing_receipt_items;
+
+DROP TRIGGER IF EXISTS trigger_update_bill_balance_on_amount_change
+  ON public.billing_student_bills;
+CREATE TRIGGER trigger_update_bill_balance_on_amount_change
+  BEFORE UPDATE ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.update_bill_balance_on_amount_change();
+
+
+-- Referral attribution + quota audit on the LEARNER record. A referral credit
+-- can be attached in two places — on the lead (audited into
+-- admission_lead_source_audit) and directly on learners_profiles, which nothing
+-- watched. Also covers quota_id + counseling_applied, the Direct-versus-
+-- Counselling distinction that decides whether a referral is payable at all.
+--
+-- Note on the lead-side trail: it is live on production (hand-applied via the
+-- Management API on 2026-08-06, and it has already captured a real change) but
+-- is NOT yet in this repository — PR #2889 back-fills it. Grepping for
+-- admission_lead_source_audit here returns nothing, and that is expected. This
+-- trigger is its sibling; rebuilt from the repo alone today, neither would
+-- exist until #2889 merges and both are applied.
+--
+-- AFTER, so the row is already final and no failure here can undo it. UPDATE OF
+-- the five watched columns, so an unrelated edit never enters the function.
+--
+-- INSERT is deliberately not watched: a learner created with a referrer already
+-- attached has changed nothing, and auditing creation would file every
+-- conversion as an attribution edit and bury the real ones. DELETE is not
+-- watched either — there would be no learner left to read the row back against.
+--
+-- 🔴 Purely additive, so it cannot interfere with
+-- trg_sync_learner_referral_to_attribution on the same table, which DELETES the
+-- prior attribution row when referred_by_id changes. Body lives in
+-- 02_functions.sql.
+-- Added: 2026-08-10 (migration
+--        supabase/migrations/20260818030000_extend_referral_source_audit.sql
+--        — FILE ONLY, NOT APPLIED)
+
+DROP TRIGGER IF EXISTS trg_audit_learner_referral_attribution ON public.learners_profiles;
+CREATE TRIGGER trg_audit_learner_referral_attribution
+  AFTER UPDATE OF referral_type, referred_by_id, referred_by_name, quota_id, counseling_applied
+  ON public.learners_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_audit_learner_referral_attribution();
+
+-- =====================================================================
+-- Updated: 2026-08-10 - JKKN permanent identity register: updated_at
+-- Migration: supabase/migrations/20260817040000_jkkn_permanent_identity_schema.sql
+-- FILE ONLY / NOT APPLIED to production as of 2026-08-10.
+-- =====================================================================
+DROP TRIGGER IF EXISTS trg_jkkn_identities_updated_at ON public.jkkn_identities;
+CREATE TRIGGER trg_jkkn_identities_updated_at
+  BEFORE UPDATE ON public.jkkn_identities
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_jkkn_identity_aliases_updated_at ON public.jkkn_identity_aliases;
+CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
+  BEFORE UPDATE ON public.jkkn_identity_aliases
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Events core triggers (course_events,
+-- course_packages, course_package_installments)
+-- Mirror of migration 20260813100000_course_events_core.sql
+-- Function bodies -> setup/02_functions.sql.
+-- =====================================================================
+CREATE CONSTRAINT TRIGGER trg_course_package_installments_sum
+AFTER INSERT OR UPDATE OR DELETE ON public.course_package_installments
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_course_package_amounts_chk();
+
+CREATE CONSTRAINT TRIGGER trg_course_packages_total_sum
+AFTER UPDATE OF total_amount ON public.course_packages
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION public.fn_course_package_amounts_chk();
+
+CREATE TRIGGER trg_course_events_touch
+  BEFORE UPDATE ON public.course_events
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_packages_touch
+  BEFORE UPDATE ON public.course_packages
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_package_installments_touch
+  BEFORE UPDATE ON public.course_package_installments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Course Sessions trigger
+-- Mirror of migration 20260813100100_course_sessions_and_reservations.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_sessions_touch
+  BEFORE UPDATE ON public.course_sessions
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Registration form builder triggers
+-- Mirror of migration 20260813100200_course_registration_forms.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_reg_forms_touch
+  BEFORE UPDATE ON public.course_registration_forms
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_reg_sections_touch
+  BEFORE UPDATE ON public.course_registration_form_sections
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_reg_fields_touch
+  BEFORE UPDATE ON public.course_registration_form_fields
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Applications and enrollments triggers
+-- Mirror of migration 20260813100300_course_applications_enrollments.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_applications_touch
+  BEFORE UPDATE ON public.course_applications
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_enrollments_touch
+  BEFORE UPDATE ON public.course_enrollments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+-- =====================================================================
+-- Added: 2026-08-13 - Billing triggers
+-- Mirror of migration 20260813100400_course_billing.sql
+-- =====================================================================
+CREATE TRIGGER trg_course_bills_touch
+  BEFORE UPDATE ON public.course_bills
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+CREATE TRIGGER trg_course_bill_payments_touch
+  BEFORE UPDATE ON public.course_bill_payments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_courses_touch_updated_at();
+
+CREATE TRIGGER trg_course_bill_payments_recompute
+  AFTER INSERT OR UPDATE OR DELETE ON public.course_bill_payments
+  FOR EACH ROW EXECUTE FUNCTION public.fn_course_recompute_balances();
+
+
+-- ============================================================================
+-- Empty-bed settlement + room buyout (2026-08-13)
+-- Source: supabase/migrations/2026081903*.sql
+-- ============================================================================
+
+CREATE TRIGGER trg_hostel_room_buyouts_touch
+  BEFORE UPDATE ON public.hostel_room_buyouts
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+CREATE TRIGGER trg_enforce_room_buyout_lock_insert
+  BEFORE INSERT ON public.hostel_allocations
+  FOR EACH ROW EXECUTE FUNCTION public._enforce_room_buyout_lock();
+
+CREATE TRIGGER trg_enforce_room_buyout_lock_update
+  BEFORE UPDATE OF room_id, check_out_date ON public.hostel_allocations
+  FOR EACH ROW
+  WHEN (NEW.room_id IS DISTINCT FROM OLD.room_id OR OLD.check_out_date IS NOT NULL)
+  EXECUTE FUNCTION public._enforce_room_buyout_lock();

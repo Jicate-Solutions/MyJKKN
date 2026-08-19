@@ -94,8 +94,13 @@ export function BillingScheduleDataTable({
 
   const isReady = !permissionsLoading && !!userProfile;
 
+  // Bulk create needs BOTH keys: bulk_create opens the flow, create is what the
+  // RLS INSERT policy on billing_student_bills actually checks. Requiring only
+  // bulk_create would show the button and fail every insert with an RLS denial.
   const canCreateBills =
-    isSuperAdmin || canAccess('billing.schedule', 'create');
+    isSuperAdmin ||
+    (canAccess('billing.schedule', 'create') &&
+      canAccess('billing.schedule', 'bulk_create'));
   const canCancelBills =
     isSuperAdmin || canAccess('billing.schedule', 'update');
 
@@ -128,7 +133,8 @@ export function BillingScheduleDataTable({
       program_id: search.program_id || undefined,
       semester_id: search.semester_id || undefined,
       section_id: search.section_id || undefined,
-      accommodation_type: search.accommodation_type || undefined
+      accommodation_type: search.accommodation_type || undefined,
+      admission_year: search.admission_year || undefined
     }),
     [
       search.institution_id,
@@ -148,7 +154,8 @@ export function BillingScheduleDataTable({
       search.program_id,
       search.semester_id,
       search.section_id,
-      search.accommodation_type
+      search.accommodation_type,
+      search.admission_year
     ]
   );
 
@@ -516,6 +523,13 @@ export function BillingScheduleDataTable({
           enableExport: true,
           enableRowSelection: true,
           enableSearch: true,
+          // Spelled out because the search spans the bill AND the learner:
+          // bill_description on the bill itself, plus name / roll number /
+          // college email resolved against learners_profiles first (PostgREST
+          // .or() cannot reach embedded-resource columns — see
+          // StudentBillService.getStudentBills).
+          searchPlaceholder:
+            'Search by student name, roll number, college email or bill description...',
           enableColumnFilters: false,
           enableColumnVisibility: true,
           enableColumnResizing: true,

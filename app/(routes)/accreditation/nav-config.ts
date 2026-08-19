@@ -26,6 +26,26 @@ const config: ModuleNavConfig = {
       href: '/accreditation',
       matchPaths: ['/accreditation'],
     },
+    // My Gaps — the per-owner worklist. Sits second because it is the only tab
+    // scoped to the person reading it: every other tab answers "what does this
+    // body want", this one answers "what do I owe". It carries no grade.
+    {
+      label: 'My Gaps',
+      icon: 'ClipboardList',
+      href: '/accreditation/my-gaps',
+      matchPaths: ['/accreditation/my-gaps'],
+    },
+    // IQAC — the cell that owns the framework, placed before the report that
+    // reads it. The ten body chips below each show one body's slice of
+    // sh_accreditation_metrics; this tab shows all 107 rows as one governing
+    // list. Like CAC it is JKKN's own body rather than an outside regulator,
+    // and like CAC its page carries no grade.
+    {
+      label: 'IQAC',
+      icon: 'ShieldCheck',
+      href: '/accreditation/iqac',
+      matchPaths: ['/accreditation/iqac'],
+    },
     {
       label: 'Coverage',
       icon: 'BarChart3',
@@ -57,6 +77,19 @@ const config: ModuleNavConfig = {
           label: 'Utility Readings',
           icon: 'Leaf',
           href: '/accreditation/manage/utility-readings',
+        },
+        {
+          label: 'Assign Owners',
+          icon: 'UserCheck',
+          href: '/accreditation/manage/owners',
+        },
+        // Which bodies exist, and which apply to which campus. Placed after
+        // Assign Owners because it is what that page's denominator now depends
+        // on: a college is measured only against the bodies mapped here.
+        {
+          label: 'Awarding Bodies',
+          icon: 'Landmark',
+          href: '/accreditation/manage/bodies',
         },
       ],
     },

@@ -106,6 +106,26 @@ export interface Staff {
   department_id: string | null;
   role_key: string;
 
+  // Columns that exist on `staff` but were missing here until 2026-08-07. The
+  // detail page could not render them at all: reading staff.employment_type off
+  // a type that lacked it is a TS2339, so the fields were quietly left out of
+  // the UI even though getStaffById selects '*' and returns them.
+  // Left as `string` rather than a union — the DB CHECK is the real vocabulary
+  // and a copied union here would drift from it.
+  employment_type: string;
+
+  // Biometric attendance. The machine is the institution that OWNS the device,
+  // which is often NOT this person's own institution. There is no FK on
+  // biometric_institution_id (dropped 2026-08-06), so it cannot be embedded via
+  // PostgREST — resolve the name with a separate lookup when one is needed.
+  biometric_id: string | null;
+  biometric_institution_id: string | null;
+
+  // Transport / bus pass
+  bus_required: boolean;
+  transport_route_id: string | null;
+  transport_stop_id: string | null;
+
   // Extended faculty profile fields (all required at type level — DB has defaults)
   has_extended_profile: boolean;
   slug: string | null;
@@ -225,14 +245,14 @@ export interface CreateStaffDto {
 }
 
 // Reserved role keys that MUST NOT appear in the Staff onboarding dropdown.
-// (Learner/admin roles are managed elsewhere; exposing them here would bypass proper flows.)
+// (Learner roles are managed elsewhere; exposing them here would bypass proper flows.)
+// Kept in sync with RoleService.getStaffAssignableRoles(), which narrowed this
+// exclusion list to 'student'/'guest' on 2026-04-16 — privileged roles
+// (super_admin, administrator, admission, counselor) are now assignable for
+// staff. BUG-003019: this set still had the pre-narrowing list, so the
+// dropdown offered those roles but createStaff() rejected every one of them.
 export const RESERVED_STAFF_ROLE_KEYS = new Set([
   'student',
-  'super_admin',
-  'administrator',
-  'admission',
-  'admission_counselor',
-  'expo_counselor',
   'guest'
 ]);
 
@@ -432,19 +452,44 @@ export interface IncompleteStaffDetail {
   is_active: boolean;
   created_at: string;
   missingFields: string[];
+  /** missingFields.length, exposed so the table need not recompute the sort key. */
+  missing_count: number;
   institution_name: string | null;
   department_name: string | null;
   category_name: string | null;
+  biometric_id: string | null;
+  /**
+   * Resolved separately, not via an embed: staff.biometric_institution_id lost
+   * its FK on 2026-08-06, so PostgREST cannot join it.
+   */
+  biometric_machine_name: string | null;
 }
 
 /**
  * Incomplete Staff Profiles Response
- * Paginated response for incomplete staff profiles API
+ * Server-paged; `total` is the count AFTER the missing-field predicate, so it
+ * matches what the table can actually page through.
  */
 export interface IncompleteStaffResponse {
   profiles: IncompleteStaffDetail[];
   total: number;
+  page: number;
   limit: number;
+  totalPages: number;
+}
+
+export interface StaffFilterOption {
+  value: string;
+  label: string;
+}
+
+/** Dropdown lists for the incomplete-profiles filter bar. */
+export interface IncompleteStaffFilterOptions {
+  designations: StaffFilterOption[];
+  bloodGroups: StaffFilterOption[];
+  genders: StaffFilterOption[];
+  maritalStatuses: StaffFilterOption[];
+  biometricMachines: StaffFilterOption[];
 }
 
 // =============================================

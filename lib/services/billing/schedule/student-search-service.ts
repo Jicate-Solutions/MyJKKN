@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { isBillableBill } from '@/lib/billing/bill-status';
 import type {
   StudentForBilling,
   StudentForBillingListResponse,
@@ -44,12 +45,18 @@ type RawStudentData = {
   program_id: string;
   semester_id: string;
   section_id: string;
+  // Gender / quota / community. Selected by getStudentForBilling only.
+  gender?: string;
+  quota_id?: string;
+  community_category_id?: string;
   // 2026-05-21: surfaced so the billing detail page can show the learner's
   // current lifecycle (account / reserved / admitted / active) next to
   // the bill totals. Selected by getStudentForBilling only.
   lifecycle_status?: string;
   // Accommodation type. Selected by getStudentForBilling only.
   accommodation_type_id?: string;
+  // Admission year. Selected by getStudentForBilling only.
+  admission_year_id?: string;
   institution?: any;
   academic_year?: any;
   degree?: any;
@@ -57,7 +64,10 @@ type RawStudentData = {
   program?: any;
   semester?: any;
   section?: any;
+  quota?: any;
+  community_category?: any;
   accommodation_type?: any;
+  admission_year?: any;
 };
 
 export class StudentSearchService {
@@ -108,8 +118,21 @@ export class StudentSearchService {
         id: rawData.section_id,
         section_name: ''
       },
+      // Same rule as admission_year below: searchStudentsForBilling does not
+      // select these, so they stay undefined there rather than being defaulted
+      // to an empty shell.
+      gender: rawData.gender,
+      quota_id: rawData.quota_id,
+      quota: rawData.quota || undefined,
+      community_category_id: rawData.community_category_id,
+      community_category: rawData.community_category || undefined,
       accommodation_type_id: rawData.accommodation_type_id,
       accommodation_type: rawData.accommodation_type || undefined,
+      // searchStudentsForBilling does not select these, so they stay undefined
+      // there rather than being defaulted to an empty shell — the detail page
+      // is the only caller that renders them.
+      admission_year_id: rawData.admission_year_id,
+      admission_year: rawData.admission_year || undefined,
       lifecycle_status: rawData.lifecycle_status,
       outstanding_amount: outstandingAmount
     };
@@ -268,8 +291,12 @@ export class StudentSearchService {
           father_name,
           student_mobile,
           college_email,
+          gender,
           lifecycle_status,
+          quota_id,
+          community_category_id,
           accommodation_type_id,
+          admission_year_id,
           institution_id,
           academic_year_id,
           degree_id,
@@ -284,7 +311,10 @@ export class StudentSearchService {
           program:programs!program_id(id, program_name),
           semester:semesters!semester_id(id, semester_name),
           section:sections!section_id(id, section_name),
-          accommodation_type:accommodation_types!accommodation_type_id(id, code, name)
+          quota:quotas!quota_id(id, name),
+          community_category:community_categories!community_category_id(id, code),
+          accommodation_type:accommodation_types!accommodation_type_id(id, code, name),
+          admission_year:admission_years!admission_year_id(id, admission_year_name, year)
         `
         )
         .eq('id', studentId);
@@ -428,7 +458,10 @@ export class StudentSearchService {
       if (invoicesError) throw invoicesError;
 
       // Calculate summary
-      const totalBills = bills?.length || 0;
+      // Count only bills the learner actually owes. A raw `bills.length`
+      // counted cancelled and superseded rows too, so a learner with one live
+      // bill and one cancelled bill was reported as having 2 bills.
+      const totalBills = (bills as any[])?.filter(isBillableBill).length || 0;
 
       // Calculate total paid amount from receipts
       const totalReceiptAmount =

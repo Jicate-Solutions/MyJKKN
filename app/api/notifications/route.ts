@@ -15,6 +15,218 @@ import {
 } from '@/lib/services/notification/notification-service';
 import { createNotificationSchema } from '@/types/notification';
 
+// --- Authorisation guard for notification creation -------------------------
+// Until this guard existed, POST here ran NO permission check at all: it
+// authenticated the caller, parsed the body and inserted. The only real gate
+// was the RLS policy `notifications_insert_admins`
+// (WITH CHECK is_super_admin() OR is_admin()), and an RLS refusal in this
+// stack is SILENT — zero rows with a null error — so an unauthorised sender
+// got an opaque failure rather than a reason. CLAUDE.md rule 27 requires the
+// refusal to be explicit and structured, so the checks below run server-side
+// before createNotification() and return 403 with plain English.
+//
+// These constants are deliberately local to this file so the route stays
+// independently mergeable.
+const ADMIN_ROLE_KEYS = ['admin', 'super_admin', 'administrator'];
+
+// 'student' is the literal DB role value for a learner — the ONLY learner role
+// key in this system. It is a stored value, not prose.
+const LEARNER_ROLE_KEY = 'student';
+
+// The cluster contains school institutions holding minors. An elected Learners
+// Council office-bearer must never be able to reach them, so school-ness is
+// resolved by name match against the live institutions table rather than by
+// hardcoded UUIDs (which drift as institutions are added).
+const SCHOOL_NAME_PATTERNS = ['%school%', '%vidhyalya%', '%cbse%', '%matric%'];
+
+function toStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter(
+      (entry): entry is string =>
+        typeof entry === 'string' && entry.trim().length > 0
+    );
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return [value];
+  }
+  return [];
+}
+
+/**
+ * Collapse every shape the targeting payload takes in this codebase into one
+ * view. Callers post `targeting` as an OBJECT
+ * (`{ target_roles, institution_ids }`), as an ARRAY of such objects, or with
+ * the same fields flattened onto the body root — so the guard reads all three.
+ * Assuming a single shape would let a sender pick another one and slip past.
+ *
+ * It reads the RAW body, not the zod-validated data: createNotificationSchema
+ * is a non-strict object, so it silently STRIPS these unknown keys and the
+ * validated result never carries targeting at all.
+ */
+function collectTargeting(body: any): {
+  roles: string[];
+  institutionIds: string[];
+} {
+  const blocks: any[] = [];
+  const raw = body?.targeting;
+  if (Array.isArray(raw)) {
+    blocks.push(...raw.filter((entry) => entry && typeof entry === 'object'));
+  } else if (raw && typeof raw === 'object') {
+    blocks.push(raw);
+  }
+  if (body && typeof body === 'object') {
+    blocks.push(body);
+  }
+
+  const roles: string[] = [];
+  const institutionIds: string[] = [];
+  for (const block of blocks) {
+    roles.push(...toStringList(block.target_roles));
+    institutionIds.push(
+      ...toStringList(block.institution_ids),
+      ...toStringList(block.institution_id)
+    );
+  }
+  return {
+    roles: Array.from(new Set(roles)),
+    institutionIds: Array.from(new Set(institutionIds))
+  };
+}
+
+// One flat shape rather than a discriminated union: this project compiles with
+// `strict: false`, under which TypeScript cannot narrow on the `ok` literal.
+type GuardResult = { ok: boolean; error?: string };
+
+/**
+ * Decide whether this caller may create a notification with this payload.
+ * Admins are unaffected. Everyone else must be a sitting Learners Council
+ * office-bearer AND must be targeting learners only.
+ */
+async function authorizeNotificationCreate(
+  supabase: any,
+  userId: string,
+  body: any
+): Promise<GuardResult> {
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('role, is_super_admin')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (profileError) {
+    console.error(
+      'Error resolving sender profile for notification guard:',
+      profileError
+    );
+    return {
+      ok: false,
+      error: 'We could not confirm your permissions. Please try again.'
+    };
+  }
+
+  // Admins keep today's behaviour exactly — no new refusals for them.
+  if (
+    profile?.is_super_admin === true ||
+    ADMIN_ROLE_KEYS.includes(String(profile?.role ?? ''))
+  ) {
+    return { ok: true };
+  }
+
+  // The only non-admins with a legitimate reason to broadcast are the elected
+  // Learners Council office-bearers: an ACTIVE lc_members row sitting on an
+  // lc_positions seat in the 'executive' category. Category is compared in JS
+  // rather than as an embedded filter so a multi-seat member is handled and a
+  // relationship returned as either an object or a single-element array still
+  // resolves.
+  const { data: memberships, error: membershipError } = await supabase
+    .from('lc_members')
+    .select('id, position:lc_positions(category)')
+    .eq('user_id', userId)
+    .eq('status', 'active');
+
+  if (membershipError) {
+    console.error(
+      'Error resolving Learners Council membership for notification guard:',
+      membershipError
+    );
+    return {
+      ok: false,
+      error: 'We could not confirm your permissions. Please try again.'
+    };
+  }
+
+  const isOfficeBearer = (memberships ?? []).some((row: any) => {
+    const position = row?.position;
+    const seats = Array.isArray(position) ? position : [position];
+    return seats.some((seat: any) => seat?.category === 'executive');
+  });
+
+  if (!isOfficeBearer) {
+    return {
+      ok: false,
+      error: 'You do not have permission to send notifications.'
+    };
+  }
+
+  const { roles, institutionIds } = collectTargeting(body);
+
+  // Fail CLOSED on an absent or empty audience. Downstream, "no roles named"
+  // reads as "everyone", which is precisely what an office-bearer may not do.
+  if (roles.length === 0) {
+    return {
+      ok: false,
+      error:
+        'Learners Council announcements must name their audience. Select the learner role before sending.'
+    };
+  }
+
+  if (roles.some((role) => role !== LEARNER_ROLE_KEY)) {
+    return {
+      ok: false,
+      error:
+        'Learners Council announcements can only be sent to learners, not to team members or other roles.'
+    };
+  }
+
+  // Fail CLOSED again: an empty institution list is cluster-wide, which would
+  // sweep in the school institutions that hold minors.
+  if (institutionIds.length === 0) {
+    return {
+      ok: false,
+      error:
+        'Learners Council announcements must name the institutions they are sent to.'
+    };
+  }
+
+  const { data: schoolMatches, error: institutionError } = await supabase
+    .from('institutions')
+    .select('id')
+    .in('id', institutionIds)
+    .or(SCHOOL_NAME_PATTERNS.map((p) => `name.ilike.${p}`).join(','));
+
+  if (institutionError) {
+    console.error(
+      'Error screening target institutions for notification guard:',
+      institutionError
+    );
+    return {
+      ok: false,
+      error:
+        'We could not confirm the institutions you selected. Please try again.'
+    };
+  }
+
+  if ((schoolMatches ?? []).length > 0) {
+    return {
+      ok: false,
+      error:
+        'Learners Council announcements cannot be sent to school institutions.'
+    };
+  }
+
+  return { ok: true };
+}
+
 export async function GET(request: NextRequest) {
   await connection();
   try {
@@ -156,7 +368,26 @@ export async function POST(request: NextRequest) {
 
     // Create notification
     const validatedData = createNotificationSchema.parse(body);
-    const notification = await createNotification(validatedData as any);
+
+    // Explicit server-side authorisation, ahead of the write. Without it the
+    // only gate is RLS, whose refusal is silent (see the note above the guard).
+    // The route's session-bound client is passed on purpose: the guard must
+    // read profiles/lc_members/institutions as the CALLER, never as anon.
+    const guard = await authorizeNotificationCreate(supabase, user.id, body);
+    if (!guard.ok) {
+      return NextResponse.json(
+        { success: false, error: guard.error },
+        { status: 403 }
+      );
+    }
+
+    // Pass THIS route's session-bound server client: the service's module-level
+    // client is the browser singleton and would run as `anon` here (RLS reject).
+    const notification = await createNotification(
+      validatedData as any,
+      user.id,
+      supabase as any
+    );
 
     return NextResponse.json({
       data: notification,

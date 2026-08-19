@@ -105,7 +105,14 @@ const LANE_LABEL: Record<string, string> = {
   max: 'Max lane · ₹0',
   api: 'API lane · paid',
   either: 'Either lane',
+  // Dedicated Max sub-lane: still the ₹0 subscription worker, but isolated so
+  // its runner cannot race the user-facing chat drain for claims.
+  'max-pdf': 'Max lane · ₹0 · PDF reader',
 };
+
+/** Max lane or any dedicated Max sub-lane ('max-pdf', …) — all ₹0. */
+const isMaxLaneValue = (lane?: string | null): boolean =>
+  lane === 'max' || (typeof lane === 'string' && lane.startsWith('max-'));
 
 // ---------------------------------------------------------------------------
 // Max-lane schedule rows (`maxlane:<routine-id>` in ai_routine_schedules) —
@@ -488,7 +495,7 @@ export function AiModelsDataTable() {
           {grouped.map(([lane, rows]) => (
             <section key={lane}>
               <h3 className="mb-2 flex items-center gap-2 text-sm font-medium tracking-wide text-muted-foreground">
-                {lane === 'max' && <Zap className="h-3.5 w-3.5 text-[#0b6d41]" />}
+                {isMaxLaneValue(lane) && <Zap className="h-3.5 w-3.5 text-[#0b6d41]" />}
                 <span className="uppercase">{LANE_LABEL[lane] ?? lane}</span>
                 <span className="text-xs font-normal normal-case text-muted-foreground/70">
                   {rows.length} job{rows.length === 1 ? '' : 's'}

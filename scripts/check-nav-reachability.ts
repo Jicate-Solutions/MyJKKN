@@ -129,6 +129,18 @@ const NAV_EXCLUDE = new Set<string>([
   '/admission/social/admin',
 
   // ────────────────────────────────────────────────────────────
+  // 2026-07-31 — School of Influence (S2). Both of these are
+  // redirect-to-first-child landings whose ONLY reason to exist is
+  // that Next.js 404s a directory with no page.tsx (the "Hub Page
+  // Reachability" gate). Neither is a chip surface: the chip points
+  // straight at .../admin/settings, which IS chip-reachable from the
+  // Startup Studio nav-config group. Exactly the same class as
+  // '/admission/social/admin' directly above.
+  // ────────────────────────────────────────────────────────────
+  '/startup-studio/school-of-influence',
+  '/startup-studio/school-of-influence/admin',
+
+  // ────────────────────────────────────────────────────────────
   // 2026-06-11 admin-cluster relocation wave-2 — departments
   // (HoD assignment). Moved out of /admin/departments (auto-chip-
   // reachable via the filesystem-derived admin tree) into the
@@ -410,6 +422,34 @@ const NAV_EXCLUDE = new Set<string>([
   '/audit/care/new',
   '/audit/care/score',
   '/audit/care/coverage',
+
+  // ════════════════════════════════════════════════════════════
+  // 2026-08-09 attendance split. /hr/attendance became the employee-facing
+  // My Attendance page (Attendance Log + Calendar), so these two HR-ops
+  // surfaces moved to cards on the chip-reachable /hr/admin hub.
+  //
+  // Deliberately NOT re-wired as nav-config children. Two reasons, both the
+  // established convention here:
+  //  1. Config-driven children are NOT permission-filtered (resolveTiers maps
+  //     them straight to chips), so chips under the Attendance group would
+  //     advertise a biometric importer and an approval queue to all 76 roles
+  //     holding hr.attendance.view_self — the sidebar-shows/page-denies
+  //     anti-pattern. Same reasoning as the /admission/counselors/admin block.
+  //  2. They cannot move under the HR Admin group's children either: that
+  //     group deliberately has none, so deeperTiersFromManifest walks from
+  //     depth 3 and auto-surfaces all ~22 /hr/admin/* pages. Adding explicit
+  //     children there would push the walk to depth 4 and orphan every one
+  //     of them.
+  //
+  // Net unreachable count is unchanged by the split (these two were chip-
+  // reachable before, and are excluded now), so --max-unreachable stays at 58.
+  //  - /hr/attendance/import              : card on /hr/admin ("Import Biometric
+  //    Punches"); /api/hr/attendance/import enforces hr.attendance.override.
+  //  - /hr/attendance/regularize/approvals: card on /hr/admin ("Regularize
+  //    Approvals"); the page self-gates on regularize_approve/approve_team.
+  // ════════════════════════════════════════════════════════════
+  '/hr/attendance/import',
+  '/hr/attendance/regularize/approvals',
   //  - /audit/care/voice          : sealed participant scoring door (learner-
   //    gated by fn_carre_participant_context/score server-side). Unlisted by
   //    design — the Director opens a cycle's lane deliberately and shares the
@@ -424,6 +464,15 @@ const NAV_EXCLUDE = new Set<string>([
   // Tracking Board is reached by a shared direct link, deliberately NOT on any nav
   // or chip surface. Open to all logged-in users; staff/faculty can write.
   '/tracker',
+
+  // Button-invoked (2026-07-30): the multi-step Excel bulk-bill upload, reached
+  // from the "Upload Excel" button on the chip-reachable
+  // /billing/schedule/bulk-create. It is a review wizard (preview the sheet →
+  // read the validation → confirm), not a destination anyone should land on
+  // cold — arriving without a file in hand shows an empty dropzone. Same
+  // relationship /audit/care/new has to /audit/dashboard. Gated
+  // billing.schedule.create via MENU_PERMISSIONS + PermissionGuard.
+  '/billing/schedule/bulk-create/upload',
 
   // NOTE (2026-06-23): /admission/social/governance is NO LONGER excluded.
   // It is now a properly-gated chip (MENU_PERMISSIONS['/admission/social/governance']

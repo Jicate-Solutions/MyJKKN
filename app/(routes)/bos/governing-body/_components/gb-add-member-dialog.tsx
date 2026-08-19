@@ -167,7 +167,8 @@ export function GbAddMemberDialog({
         email: email.trim() || undefined,
         contact_no: contactNo.trim() || undefined,
         is_active: true,
-        sort_order: 0,
+        // sort_order omitted → the API appends (count + 1). See the same note
+        // in ac-add-member-dialog.tsx.
       },
       {
         onSuccess: () => toast.success('Member added'),

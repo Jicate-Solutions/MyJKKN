@@ -1,0 +1,57 @@
+-- 20260729220000_lock_anon_on_hostel_dayscholar_backup.sql
+-- ============================================================================
+-- APPLY STATUS: ALREADY APPLIED to production (kvizhngldtiuufknvehv) on
+-- 2026-07-29 ~21:55 IST via the Management API, to close a live exposure. This
+-- file is the repository record of that apply. Both statements are idempotent.
+--
+-- WHAT WAS EXPOSED
+--   public._bak_hostel_to_dayscholar_20260729 — 21 rows carrying learner_name,
+--   roll_number and college_email — was readable AND deletable by the public
+--   `anon` key that ships in every page of https://www.jkkn.ai. Measured over
+--   HTTPS with the real key, not inferred from grants:
+--
+--     GET /rest/v1/_bak_hostel_to_dayscholar_20260729  ->  206, content-range 0-0/21
+--
+--   anon held SELECT, INSERT, UPDATE and DELETE. RLS was off. Created by
+--   20260729_hostel_to_dayscholar_vacated_learners.sql, which reverts 21
+--   semester-end leavers to Day Scholar and snapshots their prior state first.
+--   The snapshot is a plain CREATE TABLE AS, which inherits Supabase's default
+--   anon grant and never enables RLS.
+--
+-- WHY THE PR GATE DID NOT CATCH IT — and why that is not the gate's fault
+--   scripts/ci/check-table-anon-revoke.mjs is PR-scoped: it inspects migrations
+--   in a pull request diff. The commit that added the migration (900eb7148c)
+--   belongs to ZERO pull requests — the GitHub API returns an empty list — and
+--   reached main through a local `Merge branch 'main' of …` pushed straight up.
+--   With no PR there is no diff, so the gate never ran. Where it DID run, on
+--   #2566, it passed correctly: that PR's diff genuinely contains no such table.
+--
+--   This is the third such leak in four days (2,702 rows on 07-26 via #2478,
+--   384 rows on 07-28 via #2561, 21 learner identities here). It is why this
+--   same change adds .github/workflows/anon-exposure-live.yml — a scheduled sweep
+--   that reads the live catalog and therefore sees exposures however they arrive.
+--
+-- SAFETY
+--   No row is read, written or deleted. One grant change and one RLS flag.
+--   Verified before applying that no application code references the table.
+-- ============================================================================
+
+REVOKE ALL ON TABLE public._bak_hostel_to_dayscholar_20260729 FROM anon, PUBLIC;
+ALTER TABLE public._bak_hostel_to_dayscholar_20260729 ENABLE ROW LEVEL SECURITY;
+
+-- RLS enabled with no policy, deliberately: this is a one-off restore snapshot
+-- with no reader. RLS-on-with-no-policy denies every role, while service_role
+-- (which bypasses RLS) can still restore from it if the revert must be undone.
+
+-- ============================================================================
+-- VERIFICATION (run in a SEPARATE call — the Management API wraps a submitted
+-- batch in one transaction, so an in-batch check proves nothing):
+--
+--   SELECT c.relrowsecurity, has_table_privilege('anon', c.oid, 'SELECT')
+--   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+--   WHERE n.nspname='public' AND c.relname='_bak_hostel_to_dayscholar_20260729';
+--
+-- Observed after apply: relrowsecurity = true, anon SELECT = false, anon DELETE
+-- = false, all 21 rows intact. Re-probed over HTTPS with the real anon key:
+-- read 401, delete 401.
+-- ============================================================================

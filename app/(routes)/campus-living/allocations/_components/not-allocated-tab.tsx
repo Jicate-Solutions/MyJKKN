@@ -14,6 +14,7 @@ import { useTabParam } from '@/hooks/use-tab-param';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useUnallocatedCandidates } from '@/hooks/campus-living/use-unallocated-candidates';
+import { useAllAllocations } from '@/hooks/campus-living/use-hostel-allocations';
 import { LearnerDetailDrawer } from '../../residents/_components/learner-detail-drawer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,11 @@ import {
   ChevronRight,
   Eye,
 } from 'lucide-react';
+import {
+  AllocationCascadeFilters,
+  EMPTY_ALLOCATION_CASCADE,
+  candidateMatchesCascade,
+} from './allocation-filters';
 import type { UnallocatedCandidate } from '@/types/campus-living';
 import type { LearnerHostelite } from '@/types/campus-living';
 
@@ -114,12 +120,30 @@ export function NotAllocatedTab() {
 
   const { data: rows = [], isLoading, error } = useUnallocatedCandidates(institutionId);
 
+  // Allocated rows are fetched here ONLY to feed AllocationCascadeFilters'
+  // option lists (Institution/Program/Semester/Room+Mess category, Type/Block/
+  // Floor) — the exact same shared panel the Allocated and All tabs use, so
+  // the fields and their order are identical everywhere. Matching itself uses
+  // candidateMatchesCascade (same predicate the All tab applies to this same
+  // population): unplaced candidates have no room yet, so only Institution and
+  // the boys/girls Type (via gender) actually narrow them — Block/Floor/Room
+  // and Program/Semester/Room-Mess category describe a placement they don't
+  // have, so setting any of those correctly excludes them, same as the All tab.
+  const allocInstitutionId = profile?.institution_id ?? '';
+  const { data: allocations = [] } = useAllAllocations(allocInstitutionId);
+  const activeAllocations = useMemo(
+    () => (allocations as any[]).filter((a) => a.status === 'active'),
+    [allocations]
+  );
+
   const [search, setSearch] = useState('');
   const [readinessFilter, setReadinessFilter] = useTabParam<ReadinessFilter>(
     'all',
     READINESS_FILTERS,
     'readiness',
   );
+  const [cascade, setCascade] = useState(EMPTY_ALLOCATION_CASCADE);
+  const [showAdvFilters, setShowAdvFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [detailLearnerId, setDetailLearnerId] = useState<string | null>(null);
 
@@ -135,6 +159,7 @@ export function NotAllocatedTab() {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (readinessFilter !== 'all' && r.readiness !== readinessFilter) return false;
+      if (!candidateMatchesCascade(r, cascade)) return false;
       if (q) {
         const hay = [r.full_name, r.email, r.program_name, r.semester_name, r.institution_name]
           .join(' ')
@@ -143,7 +168,7 @@ export function NotAllocatedTab() {
       }
       return true;
     });
-  }, [rows, readinessFilter, search]);
+  }, [rows, readinessFilter, cascade, search]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -246,6 +271,28 @@ export function NotAllocatedTab() {
             />
           </div>
         </div>
+
+        {/* Advanced Filters — the same shared panel + field order as the
+            Allocated and All tabs (AllocationCascadeFilters). Options are
+            derived from activeAllocations (fetched above for this purpose
+            only); matching this tab's own rows uses candidateMatchesCascade,
+            same predicate the All tab already applies to unplaced candidates. */}
+        <AllocationCascadeFilters
+          rows={activeAllocations}
+          value={cascade}
+          onChange={(next) => {
+            setCascade(next);
+            setPage(1);
+          }}
+          open={showAdvFilters}
+          onOpenChange={setShowAdvFilters}
+        />
+        <p className="text-xs text-muted-foreground">
+          These learners aren&apos;t in a room yet, so Block, floor and
+          program/semester filters hide them — they&apos;re matched only by
+          institution, search, and a boys/girls Type filter (via the
+          learner&apos;s gender).
+        </p>
 
         {/* Table */}
         <div className="rounded-md border overflow-x-auto">

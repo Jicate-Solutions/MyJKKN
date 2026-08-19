@@ -104,35 +104,58 @@ export class FacultyAttendanceService {
   }
 
   /**
-   * Get staff ID from user institution email
+   * Get staff ID from user institution email.
+   *
+   * Returns null ONLY when no staff row carries this institution_email.
+   * THROWS on every other failure — a timeout, a dropped connection, an RLS
+   * refusal, or the impossible "two rows for one unique email".
+   *
+   * ── WHY IT THROWS (hardened 2026-08-17, from BUG-005820) ─────────────────
+   * This used to swallow every error and return null, which the callers cannot
+   * tell apart from "you have no staff record". The attendance screen renders
+   * that null as:
+   *
+   *   "Your faculty account is not linked to a staff record. Please contact the
+   *    administrator to link your email (…) to your staff profile."
+   *
+   * On a statement timeout that sentence is simply false, and it is worse than
+   * a blank screen: it is an instruction, addressed to an administrator, to go
+   * and change data that was never wrong. In BUG-005820 an admin acted on that
+   * message and created a SECOND staff record — which resolved the lookup and
+   * still showed no classes, because the teaching load stayed on the original
+   * row. A wrong diagnosis is more expensive than a visible error.
+   *
+   * This is the same rule getFacultyTodayPeriods below already follows: a DB
+   * error must not masquerade as an empty result. Callers catch this and offer
+   * a Retry instead of blaming the user's account.
+   *
+   * maybeSingle(), not single(): with maybeSingle "no rows" is data (null), not
+   * a PGRST116 error, so the genuine-absence path no longer has to be told
+   * apart from a failure by inspecting an error code. staff.institution_email
+   * carries a UNIQUE index, so >1 row is a real corruption and maybeSingle's
+   * error on it is exactly right — it now surfaces instead of reading as
+   * "no staff record".
    */
   static async getStaffIdByEmail(email: string): Promise<string | null> {
-    try {
-      const { data, error } = (await this.supabase
-        .from('staff')
-        .select('id')
-        .eq('institution_email', email)
-        .single()) as { data: { id: string } | null; error: any };
+    const { data, error } = (await this.supabase
+      .from('staff')
+      .select('id')
+      .eq('institution_email', email)
+      .maybeSingle()) as { data: { id: string } | null; error: any };
 
-      if (error) {
-        // Only log actual errors, not "no rows" cases
-        if (error.code !== 'PGRST116') {
-          logger.error('academic/faculty-attendance', 'Error fetching staff by email', error);
-        }
-        return null;
-      }
-
-      if (!data) {
-        // Staff member not found - this is a valid case (e.g., for admins)
-        // Note: We only match against institution_email, not personal email
-        return null;
-      }
-
-      return data.id;
-    } catch (error) {
-      logger.error('academic/faculty-attendance', 'Error fetching staff by email', error);
-      return null;
+    if (error) {
+      logger.error(
+        'academic/faculty-attendance',
+        'Staff lookup by institution_email failed',
+        { email, code: error.code, message: error.message }
+      );
+      throw error;
     }
+
+    // A genuine absence. Note this matches institution_email ONLY, never the
+    // personal `email` column — a staff row whose institution_email is
+    // misspelled is invisible here even though the person plainly exists.
+    return data?.id ?? null;
   }
 
   /**
@@ -420,7 +443,12 @@ export class FacultyAttendanceService {
             'get_cycle_for_date',
             { p_timetable_id: timetable.id, p_date: targetDate }
           );
-          if (cycleErr || !cycleNum) continue; // null = Sunday/holiday → no classes
+          // 2026-07-31: a real RPC failure (e.g. statement timeout 57014) must
+          // surface as an error — same contract as timetableError above — NOT
+          // be swallowed as "no classes". Swallowing it rendered a false
+          // "No classes scheduled for today" whenever the DB was overloaded.
+          if (cycleErr) throw cycleErr;
+          if (!cycleNum) continue; // null = Sunday/holiday → no classes
           const cycleKey = `cycle-${cycleNum}`;
           if (!timetableData[cycleKey]) continue;
           dayData = timetableData[cycleKey];

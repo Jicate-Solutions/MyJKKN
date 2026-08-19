@@ -20,6 +20,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { TAP_TARGET_BREADCRUMB } from '@/app/(routes)/projects/_lib/tap-targets';
 import { TimelineView } from '@/components/projects/timeline/timeline-view';
 
 export default async function ProjectTimelinePage({
@@ -31,7 +32,7 @@ export default async function ProjectTimelinePage({
 
   return (
     <ContentLayout title="Project timeline">
-      <Breadcrumb>
+      <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
         <BreadcrumbList>
           <BreadcrumbItem>
             <BreadcrumbLink asChild>

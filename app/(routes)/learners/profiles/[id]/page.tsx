@@ -17,6 +17,7 @@ import { getLearnerProfile } from '../_data/get-learner-profile';
 import { LearnerDetail } from '../_components/learner-detail';
 import { LearnerDetailActions } from '../_components/learner-detail-actions';
 import { PlacementCard } from './_components/placement-card';
+import { Learner360Section } from './_components/learner-360-section';
 
 interface LearnerDetailPageProps {
   params: Promise<{ id: string }>;
@@ -131,6 +132,11 @@ export default async function LearnerDetailPage({ params }: LearnerDetailPagePro
             <LearnerDetailActions learner={learner} />
           </div>
         </div>
+
+        {/* 360° standing — risk band, attendance/exam eligibility, contribution
+            (admin-only via RLS) and the AI agency funnel. Renders nothing when
+            the viewer may read none of it. */}
+        <Learner360Section learnerId={id} />
 
         {/* Placement card — renders nothing if learner has no CDC placements */}
         <PlacementCard learnerId={id} />

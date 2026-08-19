@@ -12,7 +12,8 @@
 // (API returns UTC-date keys; regroup client-side BY IST DATE so an 18:30+
 // UTC slot shows under the right day).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   CalendarDays,
   CheckCircle2,
@@ -26,6 +27,14 @@ import {
   Video,
 } from 'lucide-react';
 import { getBookingPixelConfig } from '@/lib/services/analytics/booking-pixel-service';
+import {
+  groupPurposes,
+  purposeDurationLabel,
+  LOCATION_MODE_LABEL,
+  type PurposeChoice,
+  type PurposeLocationMode,
+} from '@/lib/services/meetings/group-purposes';
+import { routingFormLinkLabel } from '@/lib/services/meetings/public-host-service';
 
 interface MeetingTypeOption {
   id: string;
@@ -37,7 +46,16 @@ interface MeetingTypeOption {
   locationText: string | null;
   /** PR1: full directions from the linked room (name + building/floor/room). */
   locationDetails: string | null;
+  /** Types sharing a value are ONE purpose card; the value is its label. */
+  purposeGroup: string | null;
 }
+
+/**
+ * One choice on step 1. `options` holds every format that purpose is offered
+ * in — usually one, but two when a purpose is bookable both in person and
+ * online (which is what the original Calendly "invitee chooses" events meant).
+ */
+type PurposeOption = PurposeChoice<MeetingTypeOption>;
 
 interface MeetBookingWidgetProps {
   handle: string;
@@ -51,6 +69,22 @@ interface MeetBookingWidgetProps {
   /** Signed-in MyJKKN viewer (Director identity flow 2026-06-20). When present
    *  the email step is skipped and the booking is bound to their account. */
   viewer: { name: string; email: string } | null;
+  /**
+   * The host's active routing form (/r/<slug>), rendered as one quiet link
+   * above the purpose cards for a visitor who cannot tell which purpose is
+   * theirs. Absent/null on every page that should not offer it, so nothing is
+   * rendered — no empty state, no dead link.
+   *
+   * DELIBERATELY NOT WIRED INTO THE EMBED SIBLING
+   * (app/(public)/embed/[handle]/_components/embed-booking-widget.tsx): an
+   * embed runs inside someone else's page, and this link navigates the visitor
+   * away from it. Leaving it out of the embed is the correct behaviour, not an
+   * oversight — please do not "fix" it there.
+   *
+   * Also absent on the single-type deep link /meet/<handle>/<type>: that
+   * visitor arrived on a link that already made the choice for them.
+   */
+  routingForm?: { slug: string; questionCount: number } | null;
 }
 
 interface SlotsResponse {
@@ -149,7 +183,28 @@ function fireBookingConversion(): void {
   }
 }
 
-type Step = 'type' | 'time' | 'details' | 'done';
+type Step = 'purpose' | 'format' | 'time' | 'details' | 'done';
+
+/**
+ * Earliest bookable slot per meeting type, loaded in the background so each
+ * card can say when it is next free.
+ *
+ * Neither 'none' nor 'error' ever claims the host has no availability.
+ *
+ * NativeSchedulingService.loadBusy fails CLOSED: if the Google free/busy call
+ * fails it returns one busy block covering the whole window, so the slots API
+ * answers 200 with days:{}. That is indistinguishable at this layer from a
+ * host who genuinely has nothing free — 'none' means "no slots came back",
+ * NOT "no slots exist". Only 'ready' is ever stated as fact.
+ *
+ * (Observed for real: a dev server without Google credentials returns 0 slots
+ * for every type while production returns 175.)
+ */
+type Earliest =
+  | { state: 'loading' }
+  | { state: 'ready'; start: string }
+  | { state: 'none' }
+  | { state: 'error' };
 
 const IST = 'Asia/Kolkata';
 
@@ -174,6 +229,45 @@ const istFull = (iso: string) =>
     hour: 'numeric', minute: '2-digit',
   }).format(new Date(iso));
 
+/**
+ * "Earliest: Tue, 4 Aug 9:20 am" so the booker can compare options without
+ * entering each one.
+ *
+ * Only 'ready' renders. Both 'none' and 'error' render nothing at all — see
+ * the note at the return below for why absence can never be stated from here.
+ */
+function EarliestLine({ earliest }: { earliest: Earliest }) {
+  if (earliest.state === 'loading') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[#1C2B24]/45">
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> checking times…
+      </span>
+    );
+  }
+  if (earliest.state === 'ready') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[#0E4D34]/80">
+        <CalendarDays className="h-3 w-3" aria-hidden /> Earliest{' '}
+        {istDayLabel(earliest.start)} {istTime(earliest.start)}
+      </span>
+    );
+  }
+  // 'none' deliberately renders NOTHING rather than "no times available".
+  //
+  // An empty slot response is ambiguous and cannot be disambiguated here: when
+  // GoogleCalendarService.busyForHost fails, NativeSchedulingService.loadBusy
+  // returns a single busy block spanning the whole window (fail closed, D19),
+  // so the API answers 200 with days:{} — byte-identical to a host who really
+  // has nothing free. Asserting "no times" would therefore be a coin-flip
+  // between a fact and a lie about someone's availability.
+  //
+  // Saying nothing is true under both readings; the booker learns the real
+  // answer on the time step, which owns that message already. Making this card
+  // able to state absence honestly needs the engine to distinguish the two —
+  // a slot-engine change, deliberately not made here.
+  return null;
+}
+
 function LocationLine({ mt }: { mt: MeetingTypeOption }) {
   if (mt.locationMode === 'online') {
     return (
@@ -197,10 +291,44 @@ function LocationLine({ mt }: { mt: MeetingTypeOption }) {
   );
 }
 
+const MODE_ICON: Record<PurposeLocationMode, typeof Video> = {
+  in_person: MapPin,
+  online: Video,
+  phone: Phone,
+};
+
+/**
+ * The formats a grouped purpose is offered in, shown on the FIRST screen.
+ *
+ * Before this, a grouped card said only "N ways to meet", so a booker could
+ * not tell whether one of those ways was online without clicking in — the
+ * exact thing that made the module look like it had no online option at all.
+ * The count is kept alongside the formats because it still tells the booker
+ * there is a choice of length behind the card.
+ */
+function PurposeFormats({ choice }: { choice: PurposeChoice<MeetingTypeOption> }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {choice.locationModes.map((mode, i) => {
+        const Icon = MODE_ICON[mode];
+        return (
+          <span key={mode} className="inline-flex items-center gap-1">
+            {i > 0 && <span aria-hidden className="text-[#1C2B24]/30">·</span>}
+            <Icon className="h-3.5 w-3.5" aria-hidden /> {LOCATION_MODE_LABEL[mode]}
+          </span>
+        );
+      })}
+      <span className="text-[#1C2B24]/45">({choice.options.length} to choose from)</span>
+    </span>
+  );
+}
+
 export function MeetBookingWidget(props: MeetBookingWidgetProps) {
   const loggedIn = !!props.viewer;
-  const [step, setStep] = useState<Step>('type');
+  const [step, setStep] = useState<Step>('purpose');
+  const [selectedPurpose, setSelectedPurpose] = useState<PurposeOption | null>(null);
   const [selectedType, setSelectedType] = useState<MeetingTypeOption | null>(null);
+  const [earliest, setEarliest] = useState<Record<string, Earliest>>({});
   const [slots, setSlots] = useState<SlotsResponse | null>(null);
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -244,6 +372,91 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, starts]) => ({ key, starts: starts.sort() }));
   }, [slots]);
+
+  /** Shared with the embed widget so the two surfaces cannot drift. */
+  const purposes = useMemo(
+    () => groupPurposes(props.meetingTypes),
+    [props.meetingTypes],
+  );
+
+  /**
+   * Ask each type when it is next free, so a card can say so before the booker
+   * commits to it. Deliberately fire-and-forget per type: cards render at once
+   * and fill in as answers land. A failure records 'error', never 'none' —
+   * see the Earliest type for why that distinction is load-bearing.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    setEarliest(
+      Object.fromEntries(props.meetingTypes.map((mt) => [mt.id, { state: 'loading' } as Earliest])),
+    );
+    for (const mt of props.meetingTypes) {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/public/meet/${props.handle}/${mt.slug}/slots`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          const json = (await res.json()) as SlotsResponse;
+          if (cancelled) return;
+          if (!res.ok) {
+            setEarliest((prev) => ({ ...prev, [mt.id]: { state: 'error' } }));
+            return;
+          }
+          const starts = Object.values(json.days ?? {})
+            .flat()
+            .map((s) => s.start)
+            .sort();
+          setEarliest((prev) => ({
+            ...prev,
+            [mt.id]: starts.length ? { state: 'ready', start: starts[0] } : { state: 'none' },
+          }));
+        } catch {
+          if (!cancelled) setEarliest((prev) => ({ ...prev, [mt.id]: { state: 'error' } }));
+        }
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [props.meetingTypes, props.handle]);
+
+  /** Soonest across every format a purpose is offered in. */
+  function earliestForPurpose(p: PurposeOption): Earliest {
+    const all = p.options.map((o) => earliest[o.id] ?? { state: 'loading' as const });
+    const ready = all.filter((e): e is { state: 'ready'; start: string } => e.state === 'ready');
+    if (ready.length) return ready.reduce((a, b) => (a.start <= b.start ? a : b));
+    if (all.some((e) => e.state === 'loading')) return { state: 'loading' };
+    if (all.some((e) => e.state === 'error')) return { state: 'error' };
+    return { state: 'none' };
+  }
+
+  /**
+   * Step 1 → step 2. A purpose offered in a single format has no choice to
+   * make, so we skip straight to the times rather than showing a one-button
+   * page. `goBack` mirrors this so the skipped step is skipped in reverse too.
+   */
+  function pickPurpose(p: PurposeOption) {
+    setSelectedPurpose(p);
+    setError(null);
+    if (p.options.length === 1) {
+      void pickType(p.options[0]);
+      return;
+    }
+    setStep('format');
+  }
+
+  function goBack() {
+    setSelectedStart(null);
+    if (step === 'time' && selectedPurpose && selectedPurpose.options.length > 1) {
+      setStep('format');
+      return;
+    }
+    setSelectedPurpose(null);
+    setSelectedType(null);
+    setStep('purpose');
+  }
 
   async function pickType(mt: MeetingTypeOption) {
     setSelectedType(mt);
@@ -430,7 +643,18 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
     }
   }
 
-  const STEPS: Step[] = ['type', 'time', 'details', 'done'];
+  /**
+   * Which progress dot a step lights. Purpose and format share dot 0: format
+   * is only sometimes shown, and a bar that grows a segment mid-flow reads as
+   * a glitch. Three dots throughout — choose, time, details.
+   */
+  const DOT_OF: Record<Step, number> = {
+    purpose: 0,
+    format: 0,
+    time: 1,
+    details: 2,
+    done: 3,
+  };
 
   return (
     <div
@@ -478,11 +702,11 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
 
         {/* Step dots */}
         <div className="mb-7 flex gap-1.5" aria-hidden>
-          {STEPS.slice(0, 3).map((s, i) => (
+          {[0, 1, 2].map((i) => (
             <div
-              key={s}
+              key={i}
               className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                STEPS.indexOf(step) >= i ? 'bg-[#0E4D34]' : 'bg-[#0E4D34]/15'
+                DOT_OF[step] >= i ? 'bg-[#0E4D34]' : 'bg-[#0E4D34]/15'
               }`}
             />
           ))}
@@ -495,10 +719,68 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
         )}
 
         {/* ── Step 1: meeting type ─────────────────────────────────────── */}
-        {step === 'type' && (
+        {step === 'purpose' && (
           <div className="flex flex-col gap-3">
-            <p className="text-sm font-medium">What would you like to book?</p>
-            {props.meetingTypes.map((mt) => (
+            <p className="text-sm font-medium">What do you need?</p>
+            {props.routingForm && (
+              <Link
+                href={`/r/${props.routingForm.slug}`}
+                className="-mt-1.5 w-fit text-xs text-[#1C2B24]/65 underline decoration-[#0E4D34]/30 underline-offset-4 transition-colors hover:text-[#0E4D34] hover:decoration-[#0E4D34]"
+              >
+                {routingFormLinkLabel(props.routingForm.questionCount)}
+              </Link>
+            )}
+            {purposes.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                disabled={busy}
+                onClick={() => pickPurpose(p)}
+                className="rounded-lg border border-[#0E4D34]/20 bg-white px-4 py-3.5 text-left transition-colors hover:border-[#0E4D34]/60 disabled:opacity-60"
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">{p.label}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
+                    <Clock className="h-3.5 w-3.5" aria-hidden /> {purposeDurationLabel(p)}
+                  </span>
+                </span>
+                {p.description && (
+                  <span className="mt-1 block text-xs text-[#1C2B24]/65">{p.description}</span>
+                )}
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[#1C2B24]/60">
+                  {p.options.length === 1 ? (
+                    <LocationLine mt={p.options[0]} />
+                  ) : (
+                    <PurposeFormats choice={p} />
+                  )}
+                  <EarliestLine earliest={earliestForPurpose(p)} />
+                </span>
+              </button>
+            ))}
+            {busy && (
+              <p className="flex items-center gap-2 text-xs text-[#1C2B24]/60">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading available times…
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── Step 2: format (only when the purpose offers more than one) ── */}
+        {step === 'format' && selectedPurpose && (
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={goBack}
+              className="inline-flex w-fit items-center gap-1 text-xs text-[#0E4D34]/80 hover:text-[#0E4D34]"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> {selectedPurpose.label}
+            </button>
+            <p className="text-sm font-medium">
+              {selectedPurpose.hasMixedDurations
+                ? 'How long, and how would you like to meet?'
+                : 'How would you like to meet?'}
+            </p>
+            {selectedPurpose.options.map((mt) => (
               <button
                 key={mt.id}
                 type="button"
@@ -506,17 +788,15 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
                 onClick={() => pickType(mt)}
                 className="rounded-lg border border-[#0E4D34]/20 bg-white px-4 py-3.5 text-left transition-colors hover:border-[#0E4D34]/60 disabled:opacity-60"
               >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold">{mt.title}</span>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[#1C2B24]/60">
-                    <Clock className="h-3.5 w-3.5" aria-hidden /> {mt.durationMin} min
-                  </span>
-                </span>
-                {mt.description && (
-                  <span className="mt-1 block text-xs text-[#1C2B24]/65">{mt.description}</span>
-                )}
-                <span className="mt-1.5 block text-xs text-[#1C2B24]/60">
+                <span className="block text-sm font-semibold">
+                  {/* The purpose card lists every length this purpose offers,
+                      so each option has to say which one IT is — otherwise the
+                      booker picks a length without being told. */}
+                  {selectedPurpose.hasMixedDurations && <>{mt.durationMin} min · </>}
                   <LocationLine mt={mt} />
+                </span>
+                <span className="mt-1.5 block text-xs text-[#1C2B24]/60">
+                  <EarliestLine earliest={earliest[mt.id] ?? { state: 'loading' }} />
                 </span>
               </button>
             ))}
@@ -533,11 +813,17 @@ export function MeetBookingWidget(props: MeetBookingWidgetProps) {
           <div className="flex flex-col gap-4">
             <button
               type="button"
-              onClick={() => { setStep('type'); setSelectedStart(null); }}
+              onClick={goBack}
               className="inline-flex w-fit items-center gap-1 text-xs text-[#0E4D34]/80 hover:text-[#0E4D34]"
             >
-              <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> {selectedType.title}
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />{' '}
+              {selectedPurpose?.label ?? selectedType.title}
             </button>
+            {/* Carry the chosen format into the time step — with two formats a
+                page of bare times gives no clue which one is being booked. */}
+            <p className="-mt-2 text-xs text-[#1C2B24]/60">
+              <LocationLine mt={selectedType} />
+            </p>
             {istDays.length === 0 ? (
               <div className="rounded-lg border border-[#0E4D34]/20 bg-white px-4 py-5 text-sm text-[#1C2B24]/65">
                 No times are open in the next two weeks. Please check back later.

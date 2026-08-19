@@ -30,7 +30,7 @@ const config: ModuleNavConfig = {
         { label: 'My Meals', icon: 'UtensilsCrossed', href: '/campus-living/my-hostel/my-meals', matchPaths: ['/campus-living/my-hostel/my-meals'] },
         { label: 'Guide', icon: 'BookText', href: '/campus-living/my-hostel/guide', matchPaths: ['/campus-living/my-hostel/guide'] },
         { label: 'Room Cleaning', icon: 'Brush', href: '/campus-living/my-hostel/housekeeping', matchPaths: ['/campus-living/my-hostel/housekeeping'] },
-        { label: 'Premium Stay', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
+        { label: 'Premium Room', icon: 'Sparkles', href: '/campus-living/my-hostel/premium', matchPaths: ['/campus-living/my-hostel/premium'] },
         { label: 'Pick Room', icon: 'BedDouble', href: '/campus-living/my-hostel/premium/pick-room', matchPaths: ['/campus-living/my-hostel/premium/pick-room'] },
         { label: 'Invite Roommate', icon: 'UserPlus', href: '/campus-living/my-hostel/premium/invite-roommate', matchPaths: ['/campus-living/my-hostel/premium/invite-roommate'] },
       ],
@@ -82,6 +82,12 @@ const config: ModuleNavConfig = {
           icon: 'ClipboardCheck',
           href: '/campus-living/allocations/batches',
           matchPaths: ['/campus-living/allocations/batches'],
+        },
+        {
+          label: 'Allocation Audit',
+          icon: 'ShieldQuestion',
+          href: '/campus-living/allocations/audit',
+          matchPaths: ['/campus-living/allocations/audit'],
         },
         {
           label: 'Pending Approvals',
@@ -166,6 +172,12 @@ const config: ModuleNavConfig = {
           icon: 'LogIn',
           href: '/campus-living/gate-passes',
           matchPaths: ['/campus-living/gate-passes'],
+        },
+        {
+          label: 'Gate Scan',
+          icon: 'ScanLine',
+          href: '/campus-living/gate-passes/scan',
+          matchPaths: ['/campus-living/gate-passes/scan'],
         },
         {
           label: 'Visitors',
@@ -461,7 +473,11 @@ const config: ModuleNavConfig = {
       label: 'Insights',
       icon: 'BarChart3',
       href: '/campus-living/analytics',
-      matchPaths: ['/campus-living/analytics', '/campus-living/reports'],
+      matchPaths: [
+        '/campus-living/analytics',
+        '/campus-living/reports',
+        '/campus-living/settle-preview',
+      ],
       children: [
         {
           label: 'Analytics Home',
@@ -504,6 +520,12 @@ const config: ModuleNavConfig = {
           icon: 'IndianRupee',
           href: '/campus-living/analytics/fees',
           matchPaths: ['/campus-living/analytics/fees'],
+        },
+        {
+          label: 'Bill Practice Run',
+          icon: 'BedDouble',
+          href: '/campus-living/settle-preview',
+          matchPaths: ['/campus-living/settle-preview'],
         },
         {
           label: 'Cross-Domain',
@@ -699,7 +721,7 @@ const config: ModuleNavConfig = {
           href: '/campus-living/settings/curfew',
           matchPaths: ['/campus-living/settings/curfew'],
         },
-        // ── Premium Stay (admin surfaces, now in-module) ────────────
+        // ── Premium Room (admin surfaces, now in-module) ────────────
         // Relocated 2026-06-01 from /admin/campus-living/* into the Campus
         // Living module so there's no separate admin module. Access is gated
         // at the page level via SuperAdminOnly + campus_living.premium.*

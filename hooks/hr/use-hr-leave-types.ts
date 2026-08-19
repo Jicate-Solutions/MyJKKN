@@ -30,15 +30,15 @@ export function useCanApproveLeave() {
 /**
  * Institution-wise leave provisioning analytics.
  *
- * `academicYearName` null = "the year containing today", resolved per
- * institution inside the RPC.
+ * `hrAcademicYearId` null = "the year containing today". One id covers every
+ * institution now that HR years are group-wide.
  */
-export function useLeaveBalanceAnalytics(academicYearName: string | null) {
+export function useLeaveBalanceAnalytics(hrAcademicYearId: string | null) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: [ANALYTICS_KEY, academicYearName],
+    queryKey: [ANALYTICS_KEY, hrAcademicYearId],
     queryFn: () =>
-      HRLeaveTypeService.getBalanceAnalytics(supabase, academicYearName),
+      HRLeaveTypeService.getBalanceAnalytics(supabase, hrAcademicYearId),
   });
 }
 
@@ -85,19 +85,50 @@ export function useGenerateBalances() {
   return useMutation({
     mutationFn: ({
       hrOrgId,
-      academicYearId,
+      hrAcademicYearId,
       dryRun,
     }: {
       hrOrgId: string;
-      academicYearId: string;
+      hrAcademicYearId: string;
       dryRun: boolean;
     }) =>
-      HRLeaveTypeService.generateBalances(supabase, hrOrgId, academicYearId, dryRun),
+      HRLeaveTypeService.generateBalances(supabase, hrOrgId, hrAcademicYearId, dryRun),
     onSuccess: (_data, vars) => {
       if (!vars.dryRun) {
         qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
         // A real run changes coverage — refresh the analytics tab too,
         // otherwise it keeps showing pre-generation numbers.
+        qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      }
+    },
+  });
+}
+
+/**
+ * Provision several institutions at once.
+ *
+ * `hrOrgIds` null = every organization the caller can access. Invalidates the
+ * analytics query on a real run for the same reason the single-org mutation
+ * does: coverage has changed, and the tab would otherwise keep showing
+ * pre-generation numbers.
+ */
+export function useGenerateBalancesBulk() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({
+      hrAcademicYearId,
+      hrOrgIds,
+      dryRun,
+    }: {
+      hrAcademicYearId: string;
+      hrOrgIds: string[] | null;
+      dryRun: boolean;
+    }) =>
+      HRLeaveTypeService.generateBalancesBulk(supabase, hrAcademicYearId, hrOrgIds, dryRun),
+    onSuccess: (_data, vars) => {
+      if (!vars.dryRun) {
+        qc.invalidateQueries({ queryKey: ['hr-leave-balance'] });
         qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
       }
     },
@@ -111,16 +142,39 @@ export function useGenerateBalances() {
 export function useStoUsage(
   employeeId: string | undefined,
   leaveTypeId: string | undefined,
-  academicYearId: string | null,
+  hrAcademicYearId: string | null,
   /** The request date. The period window is computed from it, not from today. */
   onDate?: string
 ) {
   const supabase = createClientSupabaseClient();
   return useQuery({
-    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, academicYearId, onDate ?? null],
+    queryKey: ['hr-sto-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
     queryFn: () =>
       HRLeaveTypeService.getStoUsage(
-        supabase, employeeId!, leaveTypeId!, academicYearId, onDate
+        supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
+      ),
+    enabled: !!employeeId && !!leaveTypeId,
+  });
+}
+
+/**
+ * Day-based leave usage for one person and type in the current period — the
+ * "2 a month" throttle. Disabled until both ids are known, so the drawer does
+ * not fire on open.
+ */
+export function useLeavePeriodUsage(
+  employeeId: string | undefined,
+  leaveTypeId: string | undefined,
+  hrAcademicYearId: string | null,
+  /** The request date. The period window is computed from it, not from today. */
+  onDate?: string
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: ['hr-leave-period-usage', employeeId, leaveTypeId, hrAcademicYearId, onDate ?? null],
+    queryFn: () =>
+      HRLeaveTypeService.getLeavePeriodUsage(
+        supabase, employeeId!, leaveTypeId!, hrAcademicYearId, onDate
       ),
     enabled: !!employeeId && !!leaveTypeId,
   });

@@ -52,6 +52,7 @@ const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
   { key: 'degree', label: 'Degree', width: 18 },
   { key: 'semester', label: 'Semester', width: 14 },
   { key: 'academic_year', label: 'Academic Year', width: 16 },
+  { key: 'admission_year', label: 'Admission Year', width: 14 },
   { key: 'year_of_study', label: 'Year of Study', width: 12 },
   { key: 'block', label: 'Block', width: 20 },
   { key: 'block_code', label: 'Block Code', width: 12 },
@@ -68,6 +69,26 @@ const RESIDENT_EXPORT_COLUMNS: ReadonlyArray<{
   { key: 'total_outstanding', label: 'Outstanding', width: 14 },
   { key: 'payment_status', label: 'Payment Status', width: 14 },
   { key: 'bill_academic_year', label: 'Billing Academic Year', width: 18 },
+];
+
+// PDF gets a printable SUBSET of the 28 spreadsheet columns — an A4 page can't
+// carry the full detail set legibly (emails, parent names and the billing
+// rollup collapse to unreadable slivers). These are the roster fields a warden
+// actually needs on paper: who they are, where they live, and whether they've
+// paid. CSV/XLSX still export everything.
+const RESIDENT_PDF_KEYS = [
+  'roll_no',
+  'full_name',
+  'gender',
+  'institution_name',
+  'program',
+  'year_of_study',
+  'block',
+  'room',
+  'bed',
+  'room_category_name',
+  'mess_category_name',
+  'payment_status',
 ];
 
 const RESIDENT_EXPORT_HEADERS = RESIDENT_EXPORT_COLUMNS.map((c) => c.key);
@@ -139,6 +160,11 @@ export function LearnersTab() {
     if (g('room_id')) f.room_id = g('room_id');
     const y = g('year_of_study');
     if (y) f.year_of_study = Number(y);
+    // Cohort year. Guarded on Number.isInteger rather than truthiness so a
+    // hand-edited ?admission_year=abc becomes "no filter" instead of a NaN that
+    // PostgREST would reject.
+    const ay = Number(g('admission_year'));
+    if (Number.isInteger(ay)) f.admission_year = ay;
     return f;
   }, [searchParams, isSuperAdmin]);
 
@@ -205,6 +231,12 @@ export function LearnersTab() {
       headers: RESIDENT_EXPORT_HEADERS,
       columnMapping: RESIDENT_EXPORT_MAPPING,
       columnWidths: RESIDENT_EXPORT_WIDTHS,
+      // Opting in here is what adds the PDF entries to the Export menu.
+      pdf: {
+        headers: RESIDENT_PDF_KEYS,
+        title: 'Hostel Residents — Learners',
+        orientation: 'landscape' as const,
+      },
       transformFunction: (row: LearnerHostelite) => {
         const b = row.bill_status;
         const name =
@@ -226,6 +258,7 @@ export function LearnersTab() {
           degree: row.degree_name ?? null,
           semester: row.semester_name ?? null,
           academic_year: row.academic_year_name ?? null,
+          admission_year: row.program_start_year ?? null,
           year_of_study: row.year_of_study ?? null,
           block: row.current_block_name ?? null,
           block_code: row.current_block_code ?? null,

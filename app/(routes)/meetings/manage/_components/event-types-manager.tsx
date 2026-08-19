@@ -24,9 +24,11 @@ import {
   CreditCard,
   EyeOff,
   Loader2,
+  MapPin,
   Pencil,
   Plus,
   Trash2,
+  X,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -56,11 +58,15 @@ import {
 } from '@/components/ui/alert-dialog';
 
 import {
+  addMyEventTypeLocation,
   createMyEventType,
   deleteMyEventType,
+  removeMyEventTypeLocation,
   updateMyEventType,
   type EventTypeFormInput,
   type ManageEventType,
+  type ManageEventTypeLocation,
+  type MeetingLocationMode,
 } from '../actions';
 import { VenueRoomPicker } from './venue-room-picker';
 
@@ -82,6 +88,7 @@ const formSchema = z.object({
     .positive('Must be greater than 0')
     .max(1440, 'Max 24 hours (1440 min)'),
   description: z.string().trim().max(5000).optional().or(z.literal('')),
+  purposeGroup: z.string().trim().max(80, 'Keep the group label short').optional().or(z.literal('')),
   hidden: z.boolean(),
   locationMode: z.enum(['in_person', 'phone', 'online']),
   locationText: z.string().trim().max(200, 'Keep the location short').optional().or(z.literal('')),
@@ -187,6 +194,13 @@ function locationLabel(et: ManageEventType): string {
   return et.locationResourceName || et.locationText || 'In person';
 }
 
+/** Same label, for one row of the places list. */
+function placeLabel(place: ManageEventTypeLocation): string {
+  if (place.locationMode === 'phone') return 'Phone call';
+  if (place.locationMode === 'online') return 'Google Meet';
+  return place.locationResourceName || place.locationText || 'In person';
+}
+
 /** Lowercase-hyphenated slug derived from a title. */
 function slugify(raw: string): string {
   return raw
@@ -242,6 +256,17 @@ export function EventTypesManager({
     });
     setDialogOpen(false);
     setEditing(null);
+  }
+
+  /**
+   * Places are saved immediately (not on form submit), so keep the list in sync
+   * without touching `editing` — replacing that object would re-sync the open
+   * form and discard any field the host is part-way through typing.
+   */
+  function handleLocationsChanged(typeId: string, locations: ManageEventTypeLocation[]) {
+    setEventTypes((prev) =>
+      prev.map((e) => (e.id === typeId ? { ...e, locations } : e)),
+    );
   }
 
   function confirmDelete() {
@@ -324,7 +349,9 @@ export function EventTypesManager({
                       /{et.slug}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {locationLabel(et)}
+                      {et.locations && et.locations.length > 1
+                        ? `${et.locations.length} places`
+                        : locationLabel(et)}
                     </p>
                   </div>
                   <Badge variant="outline" className="shrink-0 gap-1">
@@ -378,6 +405,7 @@ export function EventTypesManager({
         }}
         editing={editing}
         onSaved={handleSaved}
+        onLocationsChanged={handleLocationsChanged}
       />
 
       <AlertDialog
@@ -423,11 +451,13 @@ function EventTypeDialog({
   onOpenChange,
   editing,
   onSaved,
+  onLocationsChanged,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editing: ManageEventType | null;
   onSaved: (saved: ManageEventType) => void;
+  onLocationsChanged: (typeId: string, locations: ManageEventTypeLocation[]) => void;
 }) {
   const [isSaving, startSave] = useTransition();
   const [slugTouched, setSlugTouched] = useState(false);
@@ -446,12 +476,19 @@ function EventTypeDialog({
       slug: editing?.slug ?? '',
       lengthInMinutes: editing?.lengthInMinutes ?? 30,
       description: editing?.description ?? '',
+      purposeGroup: editing?.purposeGroup ?? '',
       hidden: editing?.hidden ?? false,
       locationMode: editing?.locationMode ?? 'in_person',
       locationText: editing?.locationText ?? '',
       locationResourceId: editing?.locationResourceId ?? '',
-      bufferBeforeMin: editing?.bufferBeforeMin ?? 0,
-      bufferAfterMin: editing?.bufferAfterMin ?? 0,
+      // A NEW type starts with a 5-minute gap on each side, so a stranger
+      // cannot chain-book straight onto the end of an existing meeting. `??`
+      // falls through only when `editing` is absent, so an existing type keeps
+      // its own value — including a deliberate 0. The host can still change
+      // either number here before saving. Matched by the column default
+      // (20260820000000) and by scripts/meetings/provision-*-native.ts.
+      bufferBeforeMin: editing?.bufferBeforeMin ?? 5,
+      bufferAfterMin: editing?.bufferAfterMin ?? 5,
       minNoticeMin: editing?.minNoticeMin ?? 0,
       // null in the DB ↔ 0 in the form ("back-to-back").
       slotIntervalMin: editing?.slotIntervalMin ?? 0,
@@ -499,6 +536,7 @@ function EventTypeDialog({
       slug: (values.slug && values.slug.trim()) || slugify(values.title),
       lengthInMinutes: values.lengthInMinutes,
       description: values.description?.trim() || undefined,
+      purposeGroup: values.purposeGroup?.trim() || null,
       hidden: values.hidden,
       locationMode: values.locationMode,
       locationText: values.locationText?.trim() || undefined,
@@ -779,6 +817,19 @@ function EventTypeDialog({
               )}
             </div>
 
+            {/* Other places this meeting can happen in. Edit-only — a place
+                needs a saved meeting type to attach to — and hidden entirely
+                when `locations` is null, which means the places table is not
+                on this database yet (migration 20260830030000 is Director-gated). */}
+            {editing && editing.locations !== null && (
+              <PlacesSection
+                key={editing.id}
+                meetingTypeId={editing.id}
+                initialPlaces={editing.locations}
+                onChanged={(places) => onLocationsChanged(editing.id, places)}
+              />
+            )}
+
             {/* Description */}
             <div className="space-y-1.5">
               <Label htmlFor="et-description">
@@ -792,6 +843,27 @@ function EventTypeDialog({
               />
               {errors.description && (
                 <p className="text-xs text-destructive">{errors.description.message}</p>
+              )}
+            </div>
+
+            {/* Purpose group — collapses formats of the same meeting into one
+                choice on the public page (added 2026-08-03). */}
+            <div className="space-y-1.5">
+              <Label htmlFor="et-purpose-group">
+                Group with <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="et-purpose-group"
+                placeholder='e.g. "Full review"'
+                {...register('purposeGroup')}
+              />
+              <p className="text-xs text-muted-foreground">
+                Give two meetings the same label to show them as ONE choice on your
+                booking page — the visitor picks the purpose first, then whether to
+                meet in person or online. Leave blank to list this on its own.
+              </p>
+              {errors.purposeGroup && (
+                <p className="text-xs text-destructive">{errors.purposeGroup.message}</p>
               )}
             </div>
 
@@ -1048,5 +1120,175 @@ function EventTypeDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Places — one meeting type, many locations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Add / remove the places a meeting type can happen in.
+ *
+ * A meeting type used to hold exactly one location, which is why the booking
+ * page carries near-duplicate records that differ only by where the meeting is
+ * — "One to One Meeting … 15 Minutes" and "Online One to One 15Mins Meeting"
+ * are the same purpose in two places. Listing several places here is what lets
+ * those collapse into one record.
+ *
+ * Saves immediately rather than on form submit: a place belongs to a saved
+ * meeting type, so there is nothing to defer, and the host sees the result of
+ * each click. The single location above is untouched — it still drives the
+ * booking page until a later change moves the read path across.
+ */
+function PlacesSection({
+  meetingTypeId,
+  initialPlaces,
+  onChanged,
+}: {
+  meetingTypeId: string;
+  initialPlaces: ManageEventTypeLocation[];
+  onChanged: (places: ManageEventTypeLocation[]) => void;
+}) {
+  const [places, setPlaces] = useState<ManageEventTypeLocation[]>(initialPlaces);
+  const [mode, setMode] = useState<MeetingLocationMode>('in_person');
+  const [resourceId, setResourceId] = useState('');
+  const [customText, setCustomText] = useState('');
+  const [isBusy, startBusy] = useTransition();
+
+  function commit(next: ManageEventTypeLocation[]) {
+    setPlaces(next);
+    onChanged(next);
+  }
+
+  function addPlace() {
+    startBusy(async () => {
+      const res = await addMyEventTypeLocation(meetingTypeId, {
+        locationMode: mode,
+        locationResourceId: mode === 'in_person' ? resourceId || null : null,
+        locationText: mode === 'in_person' && !resourceId ? customText.trim() || null : null,
+      });
+      if (res.success) {
+        commit([...places, res.data]);
+        setResourceId('');
+        setCustomText('');
+        toast.success(`Added ${placeLabel(res.data)}`);
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
+  function removePlace(place: ManageEventTypeLocation) {
+    startBusy(async () => {
+      const res = await removeMyEventTypeLocation(meetingTypeId, place.id);
+      if (res.success) {
+        commit(places.filter((p) => p.id !== place.id));
+        toast.success(`Removed ${placeLabel(place)}`);
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
+  // In person needs a room or a typed place; phone and online carry neither.
+  const canAdd = mode !== 'in_person' || Boolean(resourceId || customText.trim());
+
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <div className="space-y-0.5">
+        <Label className="text-sm">Places this meeting can happen in</Label>
+        <p className="text-xs text-muted-foreground">
+          List every place you are happy to hold this meeting, so you don&rsquo;t
+          need a separate meeting type for each one. Saved as you go.
+        </p>
+      </div>
+
+      {places.length === 0 ? (
+        <p className="text-xs italic text-muted-foreground/70">
+          No places listed — your booking page uses the single location above.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {places.map((place) => (
+            <li
+              key={place.id}
+              className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-2.5 py-1.5"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <MapPin className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+                <span className="truncate text-xs">{placeLabel(place)}</span>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 px-2 text-destructive hover:text-destructive"
+                disabled={isBusy}
+                onClick={() => removePlace(place)}
+                aria-label={`Remove ${placeLabel(place)}`}
+              >
+                <X className="h-3.5 w-3.5" aria-hidden />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Add one more place */}
+      <div className="space-y-2 border-t pt-3">
+        <div className="flex flex-wrap gap-1">
+          {LOCATION_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              type="button"
+              variant={mode === opt.value ? 'default' : 'outline'}
+              size="sm"
+              disabled={isBusy}
+              onClick={() => setMode(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
+
+        {mode === 'in_person' && (
+          <div className="space-y-2">
+            <VenueRoomPicker
+              value={resourceId}
+              onChange={(id) => {
+                setResourceId(id);
+                if (id) setCustomText('');
+              }}
+              disabled={isBusy}
+            />
+            {!resourceId && (
+              <Input
+                placeholder="…or type a custom place (e.g. Pharmacy block, Room 204)"
+                value={customText}
+                onChange={(e) => setCustomText(e.target.value)}
+                disabled={isBusy}
+                aria-label="Custom place to add"
+              />
+            )}
+          </div>
+        )}
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={isBusy || !canAdd}
+          onClick={addPlace}
+        >
+          {isBusy ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+          )}
+          Add place
+        </Button>
+      </div>
+    </div>
   );
 }

@@ -482,6 +482,7 @@ export class LearnerProfileService {
       gender,
       entry_type,
       is_profile_complete,
+      accommodation_type_id,
       page = 1,
       limit = 50,
       sortBy = 'created_at',
@@ -537,8 +538,22 @@ export class LearnerProfileService {
     if (semester_id) query = query.eq('semester_id', semester_id);
     if (section_id) query = query.eq('section_id', section_id);
     if (academic_year_id) query = query.eq('academic_year_id', academic_year_id);
-    if (gender) query = query.eq('gender', gender);
+    // Case-insensitive: gender is stored upper-case ('MALE' / 'FEMALE') while
+    // older forms wrote mixed case. An eq() here silently returned zero rows.
+    if (gender) query = query.ilike('gender', gender);
     if (entry_type) query = query.eq('entry_type', entry_type);
+
+    // Matches the Learners Profiles filter bar predicate exactly. The export
+    // dialog reuses THIS function while the list page uses its own
+    // _data/get-learner-profiles.ts, so a filter added to one and not the other
+    // makes "Export" quietly return more rows than the table on screen.
+    //
+    // On the FK, never on the sibling `accommodation_type` field in this same
+    // filter type: that one names the RETIRED TEXT column, is not destructured
+    // anywhere in this method, and has therefore never filtered anything.
+    if (accommodation_type_id) {
+      query = query.eq('accommodation_type_id', accommodation_type_id);
+    }
 
     if (typeof is_profile_complete === 'boolean') {
       if (is_profile_complete === false) {
@@ -676,7 +691,14 @@ export class LearnerProfileService {
       .single() as { data: LearnerProfile | null; error: any };
 
     if (error) {
-      console.error('[learner-profile-service] Error creating learner profile:', error);
+      // Bake the Postgrest error's own fields into the LOG STRING itself
+      // (not just a second console.error arg) — the Next.js dev overlay was
+      // rendering the raw error object as an empty "{}", hiding the real
+      // message/code/details/hint from view.
+      console.error(
+        `[learner-profile-service] Error creating learner profile: ${error.message ?? 'unknown'} ` +
+          `(code: ${error.code ?? 'n/a'}, details: ${error.details ?? 'n/a'}, hint: ${error.hint ?? 'n/a'})`,
+      );
       throw error;
     }
 
@@ -1196,6 +1218,99 @@ export class LearnerProfileService {
     return this.updateLearnerProfile(id, {
       lifecycle_status: transition.new_status,
     });
+  }
+
+  /**
+   * Activate an ONBOARDED learner: admitted → active, then provision their login.
+   *
+   * Exists because the last lifecycle hop is split across two runtimes and
+   * neither can complete it alone:
+   *
+   *   - Postgres owns everything up to 'admitted'. Triggers on
+   *     billing_receipt_items / billing_student_bills call
+   *     evaluate_learner_status_after_payment. No TypeScript is involved.
+   *   - Only the app can create the login (POST /api/learners/complete-onboarding).
+   *     The sync_learner_status_to_profile trigger merely flips is_active on an
+   *     EXISTING profiles row — it cannot create an auth user.
+   *
+   * So a payment that promoted an already-complete profile to 'admitted' left
+   * the learner stranded: eligible for activation, but nothing ran to activate
+   * them, and the onboarding page hid them because it listed only INCOMPLETE
+   * profiles. This method is the bridge, surfaced as the "Ready to Activate"
+   * tier.
+   *
+   * Every guard (permission, admitted-only, four fields, email domain) lives in
+   * the SECURITY DEFINER RPC rather than here, so no other call site can bypass
+   * them — and the RPC is the only thing that can write the audit row, since
+   * learners_profile_status_history has RLS with no INSERT policy.
+   *
+   * `activated: true` with `loginCreated: false` is a real, reportable outcome:
+   * the status change committed in Postgres but account provisioning failed.
+   * Callers MUST surface that rather than treating it as success.
+   */
+  static async activateIfReady(id: string): Promise<{
+    activated: boolean;
+    loginCreated: boolean;
+    reason?: string;
+    message: string;
+    paidPct?: number;
+    metConfiguredThreshold?: boolean;
+  }> {
+    // Cast to `any` — generated Supabase types lag this RPC (2026-08-10).
+    const supabase = createClientSupabaseClient() as any;
+
+    const { data, error } = await supabase.rpc('fn_activate_learner_from_onboarding', {
+      p_learner_id: id,
+    });
+
+    // RLS denials and constraint violations arrive in `error`, never as a throw.
+    if (error) {
+      console.error('[learner-profile-service] activateIfReady RPC failed:', error);
+      return {
+        activated: false,
+        loginCreated: false,
+        reason: 'rpc_error',
+        message: getErrorMessage(error),
+      };
+    }
+
+    const result = (data ?? {}) as {
+      activated?: boolean;
+      reason?: string;
+      message?: string;
+      paid_pct?: number;
+      met_configured_threshold?: boolean;
+    };
+
+    if (!result.activated) {
+      return {
+        activated: false,
+        loginCreated: false,
+        reason: result.reason,
+        message: result.message || 'Learner could not be activated.',
+      };
+    }
+
+    // Status is committed at this point. A login failure below must NOT be
+    // reported as an overall failure — that would tell the operator to retry
+    // something that already happened.
+    const profile = await this.getLearnerProfile(id);
+    let loginCreated = false;
+    let loginMessage = 'Activated, but the login could not be created.';
+
+    if (profile) {
+      const userCreation = await this.triggerUserCreation(id, profile);
+      loginCreated = userCreation.success;
+      loginMessage = userCreation.message;
+    }
+
+    return {
+      activated: true,
+      loginCreated,
+      message: loginCreated ? loginMessage : `Activated — ${loginMessage}`,
+      paidPct: result.paid_pct,
+      metConfiguredThreshold: result.met_configured_threshold,
+    };
   }
 
   /**

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   Tooltip,
   TooltipContent,
@@ -139,7 +140,7 @@ export function InstitutionList({ projectId }: InstitutionListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7"
+                          className={`h-7 w-7 ${TAP_TARGET_ICON}`}
                           disabled={isBusy}
                           onClick={() => handleToggleRole(row)}
                           aria-label={
@@ -168,7 +169,7 @@ export function InstitutionList({ projectId }: InstitutionListProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-7 w-7"
+                          className={`h-7 w-7 ${TAP_TARGET_ICON}`}
                           disabled={isBusy || isLead}
                           onClick={() => handleRemove(row)}
                           aria-label="Remove institution"

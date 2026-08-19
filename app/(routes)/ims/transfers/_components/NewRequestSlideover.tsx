@@ -82,20 +82,44 @@ export function NewRequestSlideover({
     retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 8000),
   });
 
-  const otherInstitutions = useMemo(
-    () => (institutionsData ?? []).filter((i) => i.id !== institutionId),
-    [institutionsData, institutionId]
-  );
+  // Own institution FIRST — that is where the warehouse lives and it is the
+  // normal case. It used to be filtered out entirely, which made a
+  // warehouse -> operating store request impossible to express.
+  const selectableInstitutions = useMemo(() => {
+    const all = institutionsData ?? [];
+    const own = all.filter((i) => i.id === institutionId);
+    const others = all.filter((i) => i.id !== institutionId);
+    return [...own, ...others];
+  }, [institutionsData, institutionId]);
 
   // ── Step 2: Stores at the chosen institution ─────────────────────────────────
   const { data: destStoresData } = useImsStoresByInstitution(destinationInstitutionId || null);
-  const destStores = destStoresData ?? [];
+  // You cannot request stock from yourself. Within your own institution the list
+  // would otherwise include the very store raising the request; the warehouse is
+  // listed first because it is the usual supplier.
+  const destStores = useMemo(() => {
+    const list = (destStoresData ?? []).filter((s) => s.id !== storeId);
+    return [...list].sort(
+      (a, b) => Number(b.is_central_supply_store) - Number(a.is_central_supply_store)
+    );
+  }, [destStoresData, storeId]);
 
-  // ── Step 3: Items catalog at chosen destination store ────────────────────────
+  // ── Step 3: What the SUPPLYING store can actually send ───────────────────────
+  //
+  // destinationStoreId is the supplier, not the recipient — ims_indent_requests
+  // names its columns the physical opposite way round (see 20260801002400).
+  //
+  // This used to filter ims_items.store_id, i.e. which store created the row, so
+  // it showed an empty list for any supplier that had never created an item —
+  // including every Dental store except the one that happened to run the import.
+  // What a supplier can send is what it holds.
   const { data: itemsData } = useImsItems({
     store_id: destinationStoreId || undefined,
+    scope: 'store',
+    has_stock: true,
     is_distributable: true,
     is_bundle: false,
+    limit: 200,
   });
 
   const items = useMemo(() => {
@@ -188,7 +212,11 @@ export function NewRequestSlideover({
           urgency,
           institution_id: institutionId,
           store_id: storeId,
-          request_scope: 'inter_institution',
+          // Same institution on both sides is the warehouse -> operating store
+          // case. It matters: RLS filters ims_indent_requests on institution_id,
+          // so an inter_institution request is invisible to the supplying side.
+          request_scope:
+            destinationInstitutionId === institutionId ? 'intra_institution' : 'inter_institution',
           source_store_id: storeId,
           destination_institution_id: destinationInstitutionId,
           destination_store_id: destinationStoreId,
@@ -214,7 +242,7 @@ export function NewRequestSlideover({
   };
 
   const selectedInstitutionName =
-    otherInstitutions.find((i) => i.id === destinationInstitutionId)?.name ?? '';
+    selectableInstitutions.find((i) => i.id === destinationInstitutionId)?.name ?? '';
   const selectedStoreName =
     destStores.find((s) => s.id === destinationStoreId)?.name ?? '';
 
@@ -257,12 +285,12 @@ export function NewRequestSlideover({
                       Retry
                     </button>
                   </div>
-                ) : otherInstitutions.length === 0 ? (
+                ) : selectableInstitutions.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-muted-foreground">
-                    No other institutions found
+                    No institutions found
                   </div>
                 ) : (
-                  otherInstitutions.map((inst) => (
+                  selectableInstitutions.map((inst) => (
                     <SelectItem key={inst.id} value={inst.id}>
                       {inst.name}
                     </SelectItem>
@@ -293,7 +321,7 @@ export function NewRequestSlideover({
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
                         {s.is_central_supply_store && (
-                          <span className="ml-2 text-xs text-muted-foreground">(Central)</span>
+                          <span className="ml-2 text-xs text-muted-foreground">(Warehouse)</span>
                         )}
                       </SelectItem>
                     ))

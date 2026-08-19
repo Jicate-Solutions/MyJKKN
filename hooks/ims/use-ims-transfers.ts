@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ImsIndentService } from '@/lib/services/ims/indent-service';
 import { ImsSupplyTransferService } from '@/lib/services/ims/supply-transfer-service';
+import { IMS_SUPPLY_SCOPES } from '@/types/ims';
 import type { ImsIndentFilters, CreateImsIndentDto } from '@/types/ims';
 import type {
   ImsShipmentFilters,
@@ -12,14 +13,24 @@ import type {
 } from '@/types/ims';
 
 /**
- * Fetch inter-institution transfer requests (indents with request_scope='inter_institution').
- * Thin wrapper around useImsIndents — locks in the scope filter.
+ * Fetch store-to-store transfer requests.
+ *
+ * Covers BOTH supply scopes: `intra_institution` (warehouse -> operating store,
+ * the normal case) and `inter_institution` (across institutions). It previously
+ * hardcoded 'inter_institution', which hid every warehouse transfer.
  */
-export function useImsTransfers(filters: Omit<ImsIndentFilters, 'request_scope'>) {
+export function useImsTransfers(
+  filters: Omit<ImsIndentFilters, 'request_scope' | 'request_scopes'> & {
+    request_scopes?: ImsIndentFilters['request_scopes'];
+  }
+) {
   return useQuery({
     queryKey: ['ims-transfers', filters],
     queryFn: () =>
-      ImsIndentService.getIndents({ ...filters, request_scope: 'inter_institution' }),
+      ImsIndentService.getIndents({
+        ...filters,
+        request_scopes: filters.request_scopes ?? IMS_SUPPLY_SCOPES,
+      }),
     enabled: !!(filters.store_id || filters.source_store_id || filters.destination_store_id || filters.institution_id),
     staleTime: 2 * 60 * 1000,
   });
@@ -75,6 +86,28 @@ export function useCreateImsShipment() {
       queryClient.invalidateQueries({ queryKey: ['ims-shipments'] });
       queryClient.invalidateQueries({ queryKey: ['ims-shipments-for-request'] });
       queryClient.invalidateQueries({ queryKey: ['ims-transfers'] });
+    },
+  });
+}
+
+/**
+ * Warehouse: push stock to an operating store (no request needed).
+ *
+ * With dispatch_now (the default) this immediately deducts warehouse stock, so
+ * it invalidates the stock/item/batch keys as well as the transfer keys.
+ */
+export function useCreateImsPushTransfer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: Parameters<typeof ImsSupplyTransferService.createPushTransfer>[0]) =>
+      ImsSupplyTransferService.createPushTransfer(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-transfers'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-shipments'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-shipments-for-request'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-items'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-stock-batches'] });
     },
   });
 }

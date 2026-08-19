@@ -12,10 +12,12 @@ import {
 } from '@/hooks/procurement/use-rfqs';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { InstitutionFilter } from '@/components/procurement/institution-filter';
+import { StatusBadge } from '@/components/procurement/status-badge';
+import { EmptyState } from '@/components/empty-state';
+import { AlertBox } from '@/components/ui/alert-box';
 import { formatDateDMY } from '@/lib/utils/date-format';
 import { RFQ_STATUS_CONFIG, type RfqStatus, type RfqFilters } from '@/types/procurement';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -44,6 +46,7 @@ import {
 import { Plus, Eye, Search } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 export default function RfqsPage() {
   const router = useRouter();
@@ -65,7 +68,7 @@ export default function RfqsPage() {
     institution_id: effectiveInstitution,
   };
 
-  const { data: response, isLoading } = useRfqs(filters);
+  const { data: response, isLoading, isError } = useRfqs(filters);
   const rfqs = response?.data ?? [];
   const { data: approvedPRs = [] } = useApprovedRequestsForSelect(effectiveInstitution);
   const createRfq = useCreateRfqFromPR();
@@ -79,7 +82,7 @@ export default function RfqsPage() {
       setSelectedPR('');
       router.push(`/procurement/rfqs/${rfq.id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to create RFQ');
+      toast.error(errorMessage(e, 'Failed to create RFQ'));
     }
   };
 
@@ -142,10 +145,15 @@ export default function RfqsPage() {
               <div className="flex items-center justify-center py-12">
                 <BeatLoader color="hsl(var(--primary))" size={10} />
               </div>
-            ) : rfqs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <p>No RFQs found</p>
+            ) : isError ? (
+              <div className="p-6">
+                <AlertBox type="error" message="Failed to load RFQs. Please try again." />
               </div>
+            ) : rfqs.length === 0 ? (
+              <EmptyState
+                title="No RFQs found"
+                description="Create an RFQ from an approved request to get started."
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -168,12 +176,13 @@ export default function RfqsPage() {
                       <TableCell>{rfq.item_count ?? '-'}</TableCell>
                       <TableCell>{rfq.vendor_count ?? '-'}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{RFQ_STATUS_CONFIG[rfq.status].label}</Badge>
+                        <StatusBadge status={rfq.status} config={RFQ_STATUS_CONFIG} />
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
                           size="sm"
+                          aria-label={`View RFQ ${rfq.rfq_number}`}
                           onClick={() => router.push(`/procurement/rfqs/${rfq.id}`)}
                         >
                           <Eye className="h-4 w-4" />

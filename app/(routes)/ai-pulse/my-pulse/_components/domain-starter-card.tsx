@@ -35,6 +35,8 @@ import {
   Rocket,
   GraduationCap,
   Briefcase,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import {
   Card,
@@ -71,7 +73,11 @@ interface PromptPack {
 
 interface DomainStarterRow {
   starter_id: string;
-  topic_type: string; // 'course' | 'programme'
+  // 'course' | 'programme' | 'general'. 'general' is the all-subject fallback
+  // returned when this cycle has no prompt for the reader's own programme
+  // (Director decision #6, 2026-07-30) — it must be labelled as general, never
+  // dressed up as one written for their subject.
+  topic_type: string;
   topic_label: string;
   final_prompt: string;
   prompt_pack: PromptPack | null;
@@ -156,13 +162,26 @@ function useMyDomainStarters(cycleId?: string) {
   });
 }
 
-/** Best-effort usage ping — never throws into the UI. */
-async function recordUsage(starterId: string, action: 'view' | 'copy') {
+type UsageAction = 'view' | 'copy' | 'worked' | 'didnt_work';
+
+/** Best-effort usage ping — never throws into the UI.
+ *
+ *  'worked' / 'didnt_work' are the QUALITY signal. views and copies only say a
+ *  prompt was seen: on the 2026-08-06 cycle views went 50 -> 438 within an hour
+ *  of the announcement being fixed while no prompt changed, so exposure cannot
+ *  tell a good prompt from a well-announced one. A verdict can, and unlike the
+ *  outcome-lift measurement it does not depend on the attendance -> topic join
+ *  that leaves the general fallback and the non-rotation programmes unreachable.
+ *
+ *  Re-clicking is safe: the writer counts DISTINCT learners, and switching your
+ *  answer replaces the previous verdict rather than recording both. */
+async function recordUsage(starterId: string, action: UsageAction, note?: string) {
   try {
     const supabase = createClientSupabaseClient() as any;
     await supabase.rpc('fn_ai_pulse_domain_starter_used', {
       p_starter_id: starterId,
       p_action: action,
+      ...(note ? { p_note: note } : {}),
     });
   } catch (e) {
     logger.dev(MODULE, `usage ping (${action}) failed`, e);
@@ -177,6 +196,10 @@ function StarterItem({ row }: { row: DomainStarterRow }) {
   const [lang, setLang] = useState<'en' | 'ta'>('en');
   const [copiedMode, setCopiedMode] = useState<ModeKey | null>(null);
   const [reported, setReported] = useState(false);
+  // Session-local only: the reader fn does not yet return the learner's own
+  // verdict, so a reload shows the buttons again. Re-answering is harmless —
+  // the writer counts DISTINCT learners and replaces rather than duplicates.
+  const [verdict, setVerdict] = useState<'worked' | 'didnt_work' | null>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -204,6 +227,22 @@ function StarterItem({ row }: { row: DomainStarterRow }) {
     if (copyTimer.current) clearTimeout(copyTimer.current);
     copyTimer.current = setTimeout(() => setCopiedMode(null), 1600);
     void recordUsage(row.starter_id, 'copy');
+  }
+
+  // The quality signal. Optimistic: the verdict is shown immediately and the
+  // write is best-effort, because a learner should never be blocked by a
+  // telemetry round-trip. On "it didn't", we ask why — that free text is the
+  // part a future generator can actually learn from, and it is optional.
+  async function handleVerdict(v: 'worked' | 'didnt_work') {
+    setVerdict(v);
+    let note: string | undefined;
+    if (v === 'didnt_work' && typeof window !== 'undefined') {
+      const said = window.prompt(
+        'What did not work about it? (optional — you can leave this blank)'
+      );
+      if (said && said.trim()) note = said.trim();
+    }
+    await recordUsage(row.starter_id, v, note);
   }
 
   async function handleReport() {
@@ -239,7 +278,9 @@ function StarterItem({ row }: { row: DomainStarterRow }) {
           <p className="text-xs text-muted-foreground">
             {row.topic_type === 'course'
               ? 'For your subject'
-              : 'For your programme'}
+              : row.topic_type === 'general'
+                ? 'A general prompt — not written for your subject'
+                : 'For your programme'}
           </p>
         </div>
         {tamilReady && (
@@ -322,7 +363,35 @@ function StarterItem({ row }: { row: DomainStarterRow }) {
         })}
       </div>
 
-      <div className="flex items-center justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+        {verdict ? (
+          <span className="text-xs text-muted-foreground">
+            {verdict === 'worked'
+              ? 'Thanks — noted. Next week’s prompt for your programme is written from this.'
+              : 'Thanks — noted. We’ll use this to write a better one next week.'}
+          </span>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Did this work for you?</span>
+            <button
+              type="button"
+              onClick={() => handleVerdict('worked')}
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
+            >
+              <ThumbsUp className="h-3 w-3" aria-hidden />
+              It worked
+            </button>
+            <button
+              type="button"
+              onClick={() => handleVerdict('didnt_work')}
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
+            >
+              <ThumbsDown className="h-3 w-3" aria-hidden />
+              It didn&rsquo;t
+            </button>
+          </div>
+        )}
+
         {reported ? (
           <span className="text-xs text-muted-foreground">
             Thanks, we&rsquo;ll review it.

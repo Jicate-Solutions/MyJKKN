@@ -11,6 +11,11 @@ import { fetchCoeBoardMap } from '@/lib/utils/bos/coe-boards';
 
 export const dynamic = 'force-dynamic';
 
+// Shown in place of a stored password on read; "type to replace" — the same
+// convention the SMTP-config route uses so editing other fields never wipes
+// the secret.
+const PASSWORD_MASK = '••••••••';
+
 async function canEdit(userId: string): Promise<boolean> {
   const scope = await resolveBosBoardScope(userId);
   return scope.isSuperAdmin || scope.isPrincipal || scope.isChairmanIn.size > 0;
@@ -32,15 +37,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'institutionsId is required' }, { status: 400 });
     }
 
-    const [{ data: senders, error }, boardMap] = await Promise.all([
+    const [{ data: rawSenders, error }, boardMap] = await Promise.all([
       supabase
         .from('bos_board_senders')
-        .select('id, institutions_id, board_id, sender_email, sender_name, is_active')
+        .select(
+          'id, institutions_id, board_id, sender_email, sender_name, smtp_host, smtp_port, smtp_secure, smtp_user, smtp_password_encrypted, is_active',
+        )
         .eq('institutions_id', institutionsId)
         .eq('is_active', true),
       fetchCoeBoardMap(institutionsId),
     ]);
     if (error) throw error;
+
+    // Never leak the stored secret — expose only whether one exists, and a
+    // mask the UI shows in the password field.
+    const senders = (rawSenders ?? []).map((s) => {
+      const row = s as Record<string, unknown> & { smtp_password_encrypted?: string | null };
+      const hasPassword = !!row.smtp_password_encrypted;
+      const { smtp_password_encrypted: _drop, ...rest } = row;
+      return { ...rest, has_smtp_password: hasPassword, smtp_password: hasPassword ? PASSWORD_MASK : '' };
+    });
 
     // Bare board list (id + display name) for the picker, sorted by name.
     const boards = [...boardMap.values()]
@@ -70,6 +86,13 @@ const upsertSchema = z.object({
   board_id: z.string().min(1),
   sender_email: z.string().email().max(255).nullable().or(z.literal('')),
   sender_name: z.string().max(255).optional().nullable(),
+  // ── Model 3: optional per-board SMTP account (20260725) ────────────────────
+  smtp_host: z.string().max(255).optional().nullable(),
+  smtp_port: z.coerce.number().int().min(1).max(65535).optional().nullable(),
+  smtp_secure: z.boolean().optional().nullable(),
+  smtp_user: z.string().max(255).optional().nullable(),
+  // May be the mask ('••••••••') meaning "keep existing"; empty means "clear".
+  smtp_password: z.string().max(1024).optional().nullable(),
 });
 
 export async function POST(request: NextRequest) {
@@ -119,10 +142,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ data: null, cleared: true });
     }
 
+    // Per-board SMTP fields (Model 3). host/port/secure/user are set-or-clear.
+    const emptyToNull = (v: string | null | undefined): string | null =>
+      v == null || v.trim() === '' ? null : v.trim();
+    const smtpFields: Record<string, unknown> = {
+      smtp_host: emptyToNull(p.smtp_host),
+      smtp_port: p.smtp_port ?? null,
+      smtp_secure: typeof p.smtp_secure === 'boolean' ? p.smtp_secure : null,
+      smtp_user: emptyToNull(p.smtp_user),
+    };
+    // Password: mask ('••••••••') → keep existing (omit the column); empty →
+    // clear (null); anything else → store as-is.
+    const pw = (p.smtp_password ?? '').trim();
+    if (pw !== PASSWORD_MASK) {
+      smtpFields.smtp_password_encrypted = pw ? pw : null;
+    }
+
     if (existing?.id) {
       const { data, error } = await supabase
         .from('bos_board_senders')
-        .update({ sender_email: email, sender_name: p.sender_name ?? null })
+        .update({ sender_email: email, sender_name: p.sender_name ?? null, ...smtpFields })
         .eq('id', existing.id)
         .select('*')
         .single();
@@ -137,6 +176,7 @@ export async function POST(request: NextRequest) {
         board_id: p.board_id,
         sender_email: email,
         sender_name: p.sender_name ?? null,
+        ...smtpFields,
         created_by: user.id,
       })
       .select('*')

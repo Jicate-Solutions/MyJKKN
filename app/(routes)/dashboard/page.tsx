@@ -29,7 +29,10 @@ import { getStudentMetrics } from '@/lib/services/dashboard/student-metrics-serv
 import { AccountsHeroStrip } from '@/components/dashboard/accounts-hero-strip';
 import { getAccountsMetrics } from '@/lib/services/dashboard/accounts-metrics-service';
 import { getDashboardPersona, resolvePersona } from '@/lib/services/dashboard/dashboard-role-service';
-import { getWidgetsForRole } from '@/lib/services/dashboard/widget-config-service';
+import {
+  getRoleWidgetMap,
+  pickWidgetsForRole
+} from '@/lib/services/dashboard/widget-config-service';
 import { LimitedHero } from '@/components/dashboard/limited-hero';
 import { LiveAgencyCard } from '@/components/dashboard/live-agency-card';
 import { StudentHeroStrip } from '@/components/dashboard/student-hero-strip';
@@ -45,6 +48,7 @@ import { ThemeToggle } from '@/components/dashboard/theme-toggle';
 import { PushSubscribeButton } from '@/components/dashboard/push-subscribe-button';
 import { MorningBriefCard } from '@/components/dashboard/morning-brief';
 import { getMorningBrief } from '@/lib/services/dashboard/morning-brief-service';
+import { DailyIntelCard } from '@/components/dashboard/daily-intel-card';
 import type { QueueFilter } from '@/lib/services/dashboard/decision-queue-service';
 import {
   getSlaDailyLeaderboard,
@@ -286,7 +290,18 @@ export default async function DashboardV2Page({
   // Role-aware persona resolution (spec §5). Limited = safe default for roles without a
   // specific dashboard yet — prevents director's cross-institution aggregates from leaking to
   // faculty/hod/warden/accounts/student/parent.
-  const personaResolution = await resolvePersona();
+  //
+  // Perf (2026-08-01, dashboard TTFB): the role→widgets map is GLOBAL config —
+  // it does not depend on who the viewer is; only the final key lookup does.
+  // Fetching it in parallel with persona resolution removes one sequential
+  // Supabase round-trip from the shell critical path (these two awaits are the
+  // only data work that blocks first byte — everything below is Suspense'd).
+  // Same rows fetched, same selection logic (pickWidgetsForRole is the exact
+  // body getWidgetsForRole used), identical output.
+  const [personaResolution, roleWidgetMap] = await Promise.all([
+    resolvePersona(),
+    getRoleWidgetMap()
+  ]);
   const persona = personaResolution.persona;
 
   // T8.6 — per-role widget config. The map is curated by Director via
@@ -295,7 +310,10 @@ export default async function DashboardV2Page({
   // gate (cosmetic — Director-controlled trim). Widget-config alone never
   // *adds* access; it can only hide something the persona would otherwise see.
   const allowedWidgets = new Set(
-    await getWidgetsForRole((personaResolution.role ?? '').toLowerCase() || null)
+    pickWidgetsForRole(
+      roleWidgetMap,
+      (personaResolution.role ?? '').toLowerCase() || null
+    )
   );
   const showsWidget = (id: string) => allowedWidgets.has(id);
 
@@ -369,6 +387,22 @@ export default async function DashboardV2Page({
               </Suspense>
             </DashboardErrorBoundary>
           </div>
+        )}
+
+        {/* Daily Intel brief — DORMANT BY DEFAULT. 'daily_intel' is registered in
+            WIDGET_IDS but is in no role's default widget list, so showsWidget()
+            is false for everyone until the Director ticks it in
+            /admin/dashboard/widget-config. Self-scoped: the card reads only the
+            viewer's own user_notifications rows under RLS, so there is no
+            cross-scope leak and no persona gate is needed. It also returns null
+            whenever no live brief exists. Silent boundary: an optional card must
+            never break the dashboard. */}
+        {showsWidget('daily_intel') && (
+          <DashboardErrorBoundary label='Daily intel' mode='silent'>
+            <Suspense fallback={null}>
+              <DailyIntelCard />
+            </Suspense>
+          </DashboardErrorBoundary>
         )}
 
         {/* Counselor Staffing Alert — Director + Counselor/Admission.
