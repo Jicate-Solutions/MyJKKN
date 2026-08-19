@@ -310,9 +310,20 @@ export interface PublicCourseSummary {
   cover_image_url: string | null;
   application_opens_at: string | null;
   application_closes_at: string | null;
-  /** Computed server-side from the window — there is no 'closed' status. */
+  /** Computed server-side from the window — there is no 'closed' status. Also
+   *  false when the course cannot actually be applied to: no enabled form, or
+   *  packages defined but none currently on sale. */
   applicationsOpen: boolean;
+  /** The packages currently ON SALE. May be empty while packagesExist is true. */
   packages: PublicCoursePackage[];
+  /** Whether the course defines any active package at all.
+   *
+   *  Distinguishes "this course is free / unpriced" from "this course has fees
+   *  but none are on sale right now" — both of which leave `packages` empty, and
+   *  which call for completely different things to be said to a visitor. Without
+   *  this the apply page silently dropped its package chooser and collected an
+   *  application that could never become an enrollment. */
+  packagesExist: boolean;
   forms: PublicCourseFormSummary[];
 }
 
@@ -342,7 +353,12 @@ export interface PublicCourseApplyForm {
   formDescription: string | null;
   applicationsOpen: boolean;
   sections: PublicFormSection[];
+  /** The packages currently ON SALE. */
   packages: PublicCoursePackage[];
+  /** The course defines active packages. With `packages` empty this means the
+   *  fees exist but no tier is on sale, so nothing can be priced — see
+   *  PublicCourseSummary.packagesExist. */
+  packagesExist: boolean;
 }
 
 /** What the submit route returns. Deliberately minimal — never the row. */

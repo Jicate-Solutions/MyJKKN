@@ -40,6 +40,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useCourseForms } from '@/hooks/courses/use-course-forms';
+import { useCoursePackages } from '@/hooks/courses/use-course-packages';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
 import type { CourseEvent } from '@/types/courses';
 
@@ -77,10 +78,24 @@ export function CourseShareDialog({
     open && course ? course.id : '',
   );
 
+  // Same lazy gating as the forms above — closed dialogs fetch nothing.
+  const { data: packages, isLoading: packagesLoading } = useCoursePackages(
+    open && course ? course.id : '',
+  );
+
   const enabledForms = useMemo(
     () => (forms ?? []).filter((f) => f.is_enabled),
     [forms],
   );
+
+  /** A course that defines fees but has no tier on sale cannot price an
+   *  application, so its link collects rows that can never become enrollments.
+   *  Same check the public loader folds into applicationsOpen. */
+  const noPackageOnSale = useMemo(() => {
+    const active = (packages ?? []).filter((p) => p.is_active);
+    if (active.length === 0) return false;
+    return !active.some((p) => isWindowOpen(p.sale_opens_at, p.sale_closes_at));
+  }, [packages]);
 
   const selectedForm = enabledForms.find((f) => f.id === target) ?? null;
 
@@ -174,8 +189,10 @@ export function CourseShareDialog({
     !notPublished &&
     Boolean(course) &&
     !formsLoading &&
+    !packagesLoading &&
     (!isWindowOpen(course!.application_opens_at, course!.application_closes_at) ||
-      enabledForms.length === 0);
+      enabledForms.length === 0 ||
+      noPackageOnSale);
 
   const windowNotYetOpen =
     Boolean(course?.application_opens_at) &&
@@ -223,7 +240,9 @@ export function CourseShareDialog({
             <p className="text-amber-900 dark:text-amber-200">
               {enabledForms.length === 0
                 ? 'This course has no enabled application form, so the link works but nobody can apply through it yet.'
-                : windowNotYetOpen
+                : noPackageOnSale
+                  ? 'None of this course’s packages is on sale right now, so the link works but no application can be priced. Check the sale dates on the Packages tab.'
+                  : windowNotYetOpen
                   ? 'The application window has not opened yet, so the link works but will not accept applications until it does.'
                   : 'The application window has closed, so the link works but will not accept applications.'}
             </p>
