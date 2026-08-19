@@ -22,6 +22,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
+import {
+  EMAIL_KEYS,
+  NAME_KEYS,
+  PHONE_KEYS,
+  pickAnswer,
+} from '@/lib/services/courses/applicant-identity';
 
 export const dynamic = 'force-dynamic';
 
@@ -193,9 +199,12 @@ export async function POST(
     }
 
     // ── identity: name + phone are what make a person ───────────────────────
-    const applicantName = String((given.full_name ?? given.name ?? '') || '').trim();
-    const applicantPhone = normalisePhone(String(given.phone ?? given.mobile ?? ''));
-    const applicantEmail = String((given.email ?? '') || '').trim() || null;
+    // The accepted keys live in lib/services/courses/applicant-identity.ts, which
+    // the form builder also imports so a form that cannot satisfy this check can
+    // no longer be saved or enabled in the first place.
+    const applicantName = pickAnswer(given, NAME_KEYS);
+    const applicantPhone = normalisePhone(pickAnswer(given, PHONE_KEYS));
+    const applicantEmail = pickAnswer(given, EMAIL_KEYS) || null;
 
     if (!applicantName || !applicantPhone) {
       return NextResponse.json(

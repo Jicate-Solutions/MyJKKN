@@ -28,6 +28,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import type { PublicCourseApplyForm, PublicFormField } from '@/types/courses';
+import { NAME_KEYS, PHONE_KEYS } from '@/lib/services/courses/applicant-identity';
 
 const inr = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -37,9 +38,11 @@ const inr = new Intl.NumberFormat('en-IN', {
 
 /** The submit route derives the applicant's identity from these keys, so the
  *  form is refused client-side if the admin never asked for them — better than
- *  letting someone fill in twelve questions and be rejected at the end. */
-const NAME_KEYS = ['full_name', 'name'];
-const PHONE_KEYS = ['phone', 'mobile'];
+ *  letting someone fill in twelve questions and be rejected at the end.
+ *
+ *  Imported rather than redeclared: this used to be a third private copy of a
+ *  contract the submit route stated inline and the builder did not state at all,
+ *  which is how a form with no name or phone question reached the public. */
 
 function FieldInput({
   field,
