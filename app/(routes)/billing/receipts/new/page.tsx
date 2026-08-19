@@ -171,6 +171,31 @@ export default function NewReceiptPage() {
     }
   };
 
+  // Fallback identity lookup for roles that cannot read learners_profiles.
+  // Display-only: it fills the locked Roll Number field so the operator can see
+  // whose bills they are collecting against. Never blocks the save — a failure
+  // here leaves the field blank, exactly as before.
+  const loadPayerSummary = async (billsToLoad: string[]) => {
+    try {
+      const res = await fetch(
+        `/api/billing/receipts/payer-summary?bill_ids=${billsToLoad.join(',')}`
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      const summary = json?.data;
+      if (!summary) return;
+
+      if (summary.roll_number) setStudentRollNumber(summary.roll_number);
+      setFormData((prev) => ({
+        ...prev,
+        student_id: prev.student_id || summary.student_id,
+        institution_id: prev.institution_id || summary.institution_id
+      }));
+    } catch (error) {
+      console.error('Error loading payer summary:', error);
+    }
+  };
+
   const loadBillDetails = async () => {
     try {
       setIsLoadingBills(true);
@@ -217,6 +242,15 @@ export default function NewReceiptPage() {
 
       // Set student roll number for display
       setStudentRollNumber(firstBill?.student?.roll_number || '');
+
+      // roll_number lives only on learners_profiles, so unlike the ids above it
+      // has no bill-level fallback. When the RLS-filtered embed came back empty
+      // (a collection-only role with no learners.*.view), resolve it through the
+      // server route, which does the same privileged-read-behind-a-permission-
+      // gate dance the transport list already uses.
+      if (!firstBill?.student?.roll_number) {
+        void loadPayerSummary(billsToLoad);
+      }
     } catch (error) {
       console.error('Error loading bill details:', error);
       toast.error('Failed to load bill details');
