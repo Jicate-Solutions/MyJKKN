@@ -59,7 +59,14 @@ name: Meetings unit suite
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    # ready_for_review is here because of the `if: !draft` guard on the job
+    # below. A pull request opened as a draft fires `opened`, the guard skips
+    # the job, and marking it ready afterwards fires `ready_for_review` — which
+    # is NOT `synchronize`. Without this type the check would never run at all
+    # on any PR that started life as a draft, and would sit there un-run rather
+    # than red. That is the same silent non-execution this workflow exists to
+    # end, so the guard and the trigger list have to agree.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
       # The tests themselves.
