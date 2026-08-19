@@ -151,6 +151,15 @@ const PUBLIC_PATHS_SET = new Set([
   '/auth/lti-login', // Feature-flagged email+password login for MathWorks LTI integration testing
   '/auth/audit-login', // Feature-flagged email+password login for the Razorpay payment-gateway audit
   '/auth/dev-login', // Dev-only magic-link exchange (gated by NEXT_PUBLIC_ENABLE_DEV_LOGIN)
+  '/auth/participant-login', // JKKN ID + password sign-in for EXTERNAL COURSE
+  //        PARTICIPANTS. Not dev-only and not feature-flagged, unlike the three
+  //        above: /auth/login is Google OAuth only, and someone who applied to a
+  //        paid course from the public site has no Google account and usually no
+  //        email, so this is their ONLY way in.
+  '/api/auth/participant-login', // The POST that page submits to. Listed as an
+  //        EXACT path rather than an '/api/auth/' prefix, which would
+  //        unauthenticate every future route added under that folder. It must be
+  //        public because the caller has no session yet — that is what it is for.
   '/unauthorized',
   '/students/onboarding', // Add onboarding path for pending students
   '/billing/payment/success', // HDFC payment success callback
@@ -669,8 +678,26 @@ export async function proxy(request: NextRequest) {
     }
 
     // Role-based routing
-    // Handle guest users first
-    if (profile.role === 'guest') {
+    // ── external course participants ─────────────────────────────────────
+    // Same shape as the guest and driver confinements below, and for the same
+    // reason: this person holds exactly ONE permission key,
+    // courses.participant.self. Every admin route would render an empty shell
+    // or bounce them to /unauthorized, so send them to the one page that is
+    // theirs. The migration that created this role says as much — "confined to
+    // the /my-courses portal".
+    //
+    // Checked on is_external_participant rather than the role string, because
+    // the role is editable in Role Management and the flag is the hard
+    // discriminator the schema added for exactly this decision.
+    if ((profile as { is_external_participant?: boolean }).is_external_participant === true) {
+      if (
+        !currentPath.startsWith('/my-courses') &&
+        !currentPath.startsWith('/auth') &&
+        !currentPath.startsWith('/api/auth')
+      ) {
+        return NextResponse.redirect(new URL('/my-courses', request.url));
+      }
+    } else if (profile.role === 'guest') {
       // Guest users can only access the guest page
       if (
         !currentPath.startsWith('/guest') &&
@@ -801,6 +828,6 @@ export const config = {
     '/parent/:path*',
     '/schools-portal/:path*',
     // Match all paths except public ones
-    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|icons|pwa-test.html).*)'
+    '/((?!_next/static|_next/image|favicon.ico|auth/login|auth/callback|auth/complete-profile|auth/test-login|auth/lti-login|auth/audit-login|auth/dev-login|auth/participant-login|icons|pwa-test.html).*)'
   ]
 };

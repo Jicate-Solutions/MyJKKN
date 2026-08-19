@@ -22,10 +22,12 @@
 // user we just made, because an auth user with no profile is a login that goes
 // nowhere and this request is the only thing that knows it exists.
 
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { withAuth } from '@/lib/auth/with-auth';
 import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
+import { CourseWelcomeEmailService } from '@/lib/services/email/course-welcome-email-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,6 +40,27 @@ function serviceClient() {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Supabase Auth requires an address to create a user. An external participant
+ * usually has none — /auth/login is Google OAuth only, so they were never going
+ * to sign in by email anyway; they use their JKKN ID and password at
+ * /auth/participant-login, which resolves the ID to whichever auth identity
+ * backs it.
+ *
+ * So when no real address exists we mint an opaque one. It is deliberately NOT
+ * derived from the JKKN ID: that id does not exist yet at this point in the
+ * flow (fn_issue_jkkn_id needs a profile, which needs this auth user), and
+ * encoding it would mean creating the user twice or mutating its email after
+ * the transaction had already committed.
+ *
+ * .local is reserved and never routable, so nothing can accidentally be sent
+ * to it and nobody can register the domain to receive it. This value is stored
+ * ONLY on auth.users — profiles.email stays NULL, because a fake address there
+ * would surface on every screen that shows a person's contact details.
+ */
+const syntheticEmail = () =>
+  `participant-${randomUUID()}@participants.jkkn.local`;
 
 export const POST = withAuth(
   async (request, auth, context) => {
@@ -61,7 +84,7 @@ export const POST = withAuth(
     // approve into an institution they have no access to.
     const { data: application, error: readError } = await supabase
       .from('course_applications')
-      .select('id, status, applicant_type, applicant_name, applicant_email, external_participant_id')
+      .select('id, status, applicant_type, applicant_name, applicant_email, external_participant_id, course_event_id')
       .eq('id', applicationId)
       .maybeSingle();
 
@@ -75,14 +98,13 @@ export const POST = withAuth(
 
     const app = application as any;
 
-    const resolvedEmail = String(email ?? app.applicant_email ?? '').trim().toLowerCase();
-    if (!resolvedEmail || !EMAIL_RE.test(resolvedEmail)) {
+    // A REAL address if one exists, otherwise none. Kept separate from the
+    // address handed to Supabase Auth below, because only this one is a way of
+    // contacting a human and only this one belongs in profiles.email.
+    const contactEmail = String(email ?? app.applicant_email ?? '').trim().toLowerCase();
+    if (contactEmail && !EMAIL_RE.test(contactEmail)) {
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'A valid email address is needed to create this participant’s login. This application did not collect one.',
-        },
+        { ok: false, error: 'That email address is not valid.' },
         { status: 400 },
       );
     }
@@ -107,8 +129,9 @@ export const POST = withAuth(
 
     if (!existingProfileId) {
       const password = generateTemporaryPassword();
+      const authEmail = contactEmail || syntheticEmail();
       const { data: created, error: createError } = await admin.auth.admin.createUser({
-        email: resolvedEmail,
+        email: authEmail,
         password,
         email_confirm: true,
         user_metadata: { full_name: app.applicant_name, role: 'course_participant' },
@@ -144,7 +167,7 @@ export const POST = withAuth(
           const listResult = await admin.auth.admin.listUsers({ page, perPage: 200 });
           const users = listResult.data?.users ?? [];
           if (users.length === 0) break;
-          const hit = users.find((u) => (u.email ?? '').toLowerCase() === resolvedEmail);
+          const hit = users.find((u) => (u.email ?? '').toLowerCase() === authEmail);
           if (hit) found = hit.id;
         }
 
@@ -174,7 +197,9 @@ export const POST = withAuth(
       {
         p_application_id: applicationId,
         p_auth_user_id: authUserId,
-        p_email: resolvedEmail,
+        // The CONTACT address, not the synthetic one. Empty means NULL in
+        // profiles.email, which is the honest record for someone who gave none.
+        p_email: contactEmail || null,
         p_package_id: packageId || null,
         p_decision_note: decisionNote || null,
       },
@@ -201,9 +226,64 @@ export const POST = withAuth(
       );
     }
 
+    const approved = result as Record<string, any>;
+
+    // ── the welcome email ──────────────────────────────────────────────────
+    // AFTER the transaction, and unable to affect it. The identity, enrollment
+    // and bills are already committed; a mail failure must not report the
+    // approval as failed, because a retry would then hit "already enrolled".
+    // Its outcome is RETURNED instead, so the dialog can tell the admin whether
+    // they still need to hand the credentials over themselves — which is the
+    // normal case, since most participants have no email.
+    let emailResult: { success: boolean; skipped?: boolean; skipReason?: string; error?: string } = {
+      success: false,
+      skipped: true,
+      skipReason: 'This participant has no email address',
+    };
+
+    if (contactEmail) {
+      // The instalments come from the bills the transaction just raised, not
+      // from the package template — the bills are what the participant will
+      // actually be asked to pay, and a template edited later must not make an
+      // already-sent email retrospectively wrong.
+      const [{ data: courseRow }, { data: billRows }] = await Promise.all([
+        supabase
+          .from('course_events')
+          .select('title, start_date, end_date, mode, venue_text')
+          .eq('id', app.course_event_id)
+          .maybeSingle(),
+        supabase
+          .from('course_bills')
+          .select('installment_no, label, total_amount, due_date')
+          .eq('enrollment_id', approved.enrollment_id)
+          .order('installment_no', { ascending: true }),
+      ]);
+
+      const course = (courseRow ?? {}) as any;
+
+      emailResult = await CourseWelcomeEmailService.sendApprovedEmail({
+        to: contactEmail,
+        participantName: app.applicant_name,
+        jkknId: approved.jkkn_id,
+        tempPassword,
+        courseTitle: course.title ?? approved.package_name ?? 'your course',
+        courseStartDate: course.start_date ?? null,
+        courseEndDate: course.end_date ?? null,
+        courseMode: course.mode ?? null,
+        venueText: course.venue_text ?? null,
+        packageName: approved.package_name,
+        totalPayable: Number(approved.total_payable ?? 0),
+        enrollmentNumber: approved.enrollment_no,
+        instalments: (billRows ?? []) as any[],
+      });
+    }
+
     return NextResponse.json({
-      ...(result as Record<string, unknown>),
-      email: resolvedEmail,
+      ...approved,
+      email: contactEmail || null,
+      emailSent: emailResult.success,
+      emailSkipReason: emailResult.skipped ? emailResult.skipReason : undefined,
+      emailError: emailResult.error,
       // Present only when a login was just created. The UI shows it once — it
       // is never stored and cannot be retrieved again.
       tempPassword,
