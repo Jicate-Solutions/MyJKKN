@@ -32,6 +32,7 @@ import {
 import { createClient } from '@/lib/supabase/server';
 import { PayInstalmentButton } from './_components/pay-instalment-button';
 import { DownloadReceiptButton } from './_components/download-receipt-button';
+import { ChangePasswordDialog } from './_components/change-password-dialog';
 import type { CourseReceiptData } from '@/lib/utils/courses/course-receipt-pdf';
 
 export const dynamic = 'force-dynamic';
@@ -143,11 +144,16 @@ export default async function MyCoursesPage({
                 My courses
               </h1>
             </div>
-            <div className="min-w-0 text-right">
-              <p className="truncate text-sm font-medium">{participantName}</p>
-              {jkknId && (
-                <p className="font-mono text-xs text-muted-foreground">{jkknId}</p>
-              )}
+            {/* Identity and the one account action. On a phone this wraps to
+                its own line rather than crushing the heading. */}
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="min-w-0 text-right">
+                <p className="truncate text-sm font-medium">{participantName}</p>
+                {jkknId && (
+                  <p className="font-mono text-xs text-muted-foreground">{jkknId}</p>
+                )}
+              </div>
+              <ChangePasswordDialog />
             </div>
           </div>
         </div>
