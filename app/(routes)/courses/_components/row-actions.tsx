@@ -16,7 +16,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { MoreHorizontal, Eye, Edit, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Eye, Edit, Share2, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { usePermissions } from '@/hooks/use-permissions';
 import type { CourseEvent } from '@/types/courses';
+import { CourseShareDialog } from './course-share-dialog';
 
 interface CourseEventsRowActionsProps {
   courseEvent: CourseEvent;
@@ -57,6 +58,7 @@ export function CourseEventsRowActions({
   const canDelete = canAccess('courses', 'delete');
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   if (!canView && !canEdit && !canDelete) return null;
 
@@ -76,6 +78,18 @@ export function CourseEventsRowActions({
                 <Eye className="mr-2 h-4 w-4" />
                 View
               </Link>
+            </DropdownMenuItem>
+          )}
+
+          {/* Gated on view, not on a share key of its own: the URL handed out
+              here is world-readable by design (anon is REVOKEd on the course
+              tables and the public pages read through a service-role loader),
+              so the only real question is whether this person may see the
+              course at all. */}
+          {canView && (
+            <DropdownMenuItem onClick={() => setShareOpen(true)}>
+              <Share2 className="mr-2 h-4 w-4" />
+              Share
             </DropdownMenuItem>
           )}
 
@@ -105,6 +119,10 @@ export function CourseEventsRowActions({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Mounted always, opened on demand. The forms fetch inside is keyed off
+          `open`, so a closed dialog on every row of the table costs no request. */}
+      <CourseShareDialog open={shareOpen} onOpenChange={setShareOpen} course={courseEvent} />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
