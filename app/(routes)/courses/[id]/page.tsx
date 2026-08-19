@@ -38,10 +38,13 @@ import { CourseShareDialog } from '@/app/(routes)/courses/_components/course-sha
 import { PackagesPanel } from './_components/packages-panel';
 import { SessionsPanel } from './_components/sessions-panel';
 import { FormsPanel } from './_components/forms-panel';
+import { ApplicationsPanel } from './_components/applications-panel';
 
 // This array is the allow-list useTabParam validates ?tab= against — a trigger
 // added below but not added here silently falls back to 'overview'.
-const COURSE_TABS = ['overview', 'settings', 'packages', 'sessions', 'forms'] as const;
+const COURSE_TABS = [
+  'overview', 'settings', 'packages', 'sessions', 'forms', 'applications',
+] as const;
 
 /** Status is a CHECK constraint, not a Postgres enum — mirrors
  *  _components/columns.tsx's own STATUS_LABEL/STATUS_VARIANT, which aren't
@@ -252,6 +255,7 @@ function CourseDetailPageInner() {
             <TabsTrigger value="packages">Packages</TabsTrigger>
             <TabsTrigger value="sessions">Sessions</TabsTrigger>
             <TabsTrigger value="forms">Forms</TabsTrigger>
+            <TabsTrigger value="applications">Applications</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -331,6 +335,10 @@ function CourseDetailPageInner() {
               courseSlug={course.slug}
               coursePublished={status === 'published'}
             />
+          </TabsContent>
+
+          <TabsContent value="applications">
+            <ApplicationsPanel courseEventId={course.id} />
           </TabsContent>
         </Tabs>
       </div>

@@ -352,3 +352,41 @@ export interface PublicApplyResult {
   reference?: string;
   error?: string;
 }
+
+// ── applications ────────────────────────────────────────────────────────────
+// Phase 4, read side. The decide side (approve → provision a profile → issue a
+// JKKN ID → enroll → bill) is not built yet, so nothing here writes.
+
+export type CourseApplicationRow =
+  Database['public']['Tables']['course_applications']['Row'];
+
+/** CHECK constraint, not an enum — keep in step with
+ *  course_applications_status_check. `withdrawn` is the applicant pulling out;
+ *  `rejected` is the institution declining. */
+export const COURSE_APPLICATION_STATUSES = [
+  'pending', 'shortlisted', 'approved', 'rejected', 'withdrawn',
+] as const;
+export type CourseApplicationStatus = (typeof COURSE_APPLICATION_STATUSES)[number];
+
+export const COURSE_APPLICANT_TYPES = ['learner', 'staff', 'external'] as const;
+export type CourseApplicantType = (typeof COURSE_APPLICANT_TYPES)[number];
+
+export interface CourseApplication extends CourseApplicationRow {
+  form?: { id: string; name: string } | null;
+  package?: { id: string; name: string; total_amount: number } | null;
+  decided_by_profile?: { id: string; full_name: string | null } | null;
+}
+
+export interface CourseApplicationFilters {
+  status?: CourseApplicationStatus;
+  applicant_type?: CourseApplicantType;
+  /** Matches name, phone or email. */
+  search?: string;
+}
+
+/** Per-status counts for the panel's summary row. Every status is present with
+ *  0 rather than absent, so the UI never has to distinguish "none" from
+ *  "not loaded". */
+export type CourseApplicationCounts = Record<CourseApplicationStatus, number> & {
+  total: number;
+};
