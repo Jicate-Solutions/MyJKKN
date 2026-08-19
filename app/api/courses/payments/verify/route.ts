@@ -55,7 +55,7 @@ export const POST = withAuth(
 
     const { data: payment } = await admin
       .from('course_bill_payments')
-      .select('id, bill_id, enrollment_id, institution_id, status, amount_paid, razorpay_account_id')
+      .select('id, bill_id, enrollment_id, institution_id, status, amount_paid, razorpay_account_id, transaction_ref')
       .eq('razorpay_order_id', orderId)
       .maybeSingle();
 
@@ -151,10 +151,17 @@ export const POST = withAuth(
     // The UPDATE fires trg_course_bill_payments_recompute, which rewrites the
     // bill's paid_amount/balance/status and the enrollment's totals. Nothing
     // here touches those columns directly.
+    // Derived from transaction_ref, which is already UNIQUE, so the receipt
+    // number inherits that uniqueness without a counter or a sequence to race
+    // on. course_bill_payments_receipt_number_key would otherwise be an
+    // occasional 23505 under concurrent payments.
+    const receiptNumber = `CR-${String(pay.transaction_ref ?? '').replace(/^CP-/, '')}`;
+
     const { error: updateError } = await admin
       .from('course_bill_payments')
       .update({
         status: 'success',
+        receipt_number: receiptNumber,
         amount_paid: capturedRupees,
         razorpay_payment_id: paymentId,
         razorpay_signature: signature,

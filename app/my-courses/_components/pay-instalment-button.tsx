@@ -113,6 +113,12 @@ export function PayInstalmentButton({
               toast.success(
                 result.alreadyRecorded ? 'This instalment is already paid.' : 'Payment received.',
               );
+              // Land back on the portal with the paid instalment named, so the
+              // page can confirm what just happened rather than silently
+              // re-rendering a row that now says "Paid". replace(), not push():
+              // the Razorpay modal is not a history entry a Back press should
+              // return to.
+              router.replace(`/my-courses?paid=${encodeURIComponent(order.billNumber)}`);
             }
           } catch {
             toast.error(
