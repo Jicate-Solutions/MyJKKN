@@ -151,19 +151,39 @@ export const POST = withAuth(
       let provider: Awaited<ReturnType<typeof getPaymentProvider>> | null = null;
       let accountId: string | null = null;
 
+      // Each rung is tried INDEPENDENTLY, because a rung can THROW rather than
+      // return. resolveRazorpayCredentials fails closed at order creation when
+      // resolution lands on a test-mode key in production
+      // (assertUsableForNewOrder) — and asking for a head the institution does
+      // not have is exactly what makes it land on the common env key.
+      //
+      // That is what broke production while dev passed: locally
+      // sandboxPaymentsAllowed() is true, so rung 1 RETURNED the env test key,
+      // the loop saw no accountId and moved on to 'tuition'. In production the
+      // same rung THREW, the exception escaped the whole loop, and the live
+      // tuition account that would have worked was never tried.
+      let lastError: unknown = null;
+
       for (const head of ACCOUNT_LADDER) {
-        const candidate = await getPaymentProvider('courses', {
-          institutionId: b.institution_id,
-          feeHead: head,
-          purpose: 'create-order',
-        });
-        const candidateAccount = (candidate as { accountId?: string }).accountId ?? null;
-        // accountId is set ONLY for an institution account; its absence means
-        // the resolver fell through to the common env credentials.
-        if (candidateAccount) {
-          provider = candidate;
-          accountId = candidateAccount;
-          break;
+        try {
+          const candidate = await getPaymentProvider('courses', {
+            institutionId: b.institution_id,
+            feeHead: head,
+            purpose: 'create-order',
+          });
+          const candidateAccount = (candidate as { accountId?: string }).accountId ?? null;
+          // accountId is set ONLY for an institution account; its absence means
+          // the resolver fell through to the common env credentials, which this
+          // route must not use.
+          if (candidateAccount) {
+            provider = candidate;
+            accountId = candidateAccount;
+            break;
+          }
+        } catch (e) {
+          // Remembered, not rethrown: a later rung may still resolve a live
+          // institution account, and only the last failure is worth reporting.
+          lastError = e;
         }
       }
 
@@ -174,6 +194,7 @@ export const POST = withAuth(
         console.error('[courses/pay/initiate] no institution Razorpay account', {
           institutionId: b.institution_id,
           tried: ACCOUNT_LADDER,
+          lastError: (lastError as any)?.message ?? null,
         });
         return NextResponse.json(
           {
