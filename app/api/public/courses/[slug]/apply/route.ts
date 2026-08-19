@@ -22,6 +22,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isWindowOpen } from '@/lib/services/courses/application-window';
+import {
+  EMAIL_KEYS,
+  NAME_KEYS,
+  PHONE_KEYS,
+  pickAnswer,
+} from '@/lib/services/courses/applicant-identity';
 
 export const dynamic = 'force-dynamic';
 
@@ -135,6 +141,40 @@ export async function POST(
     }
     const f = form as any;
 
+    // ── a priced course must produce a priced application ───────────────────
+    // course_enrollments.package_id is NOT NULL, so an application with no
+    // package can never become an enrollment. This used to be accepted in
+    // silence whenever every package's sale window had lapsed: the public
+    // chooser vanished, the client-side check read `0 > 0` and passed, and the
+    // row landed with package_id NULL. Checked here rather than only in the
+    // widget because the widget is not a security control.
+    const { data: sellablePackages } = await supabase
+      .from('course_packages')
+      .select('id, sale_opens_at, sale_closes_at')
+      .eq('course_event_id', c.id)
+      .eq('is_active', true);
+
+    const onSale = ((sellablePackages ?? []) as any[]).filter((p) =>
+      isWindowOpen(p.sale_opens_at, p.sale_closes_at),
+    );
+
+    if ((sellablePackages ?? []).length > 0 && onSale.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Fees for this course are not on sale at the moment, so applications cannot be accepted yet.',
+        },
+        { status: 409 },
+      );
+    }
+
+    if (onSale.length > 0 && !packageId) {
+      return NextResponse.json(
+        { ok: false, error: 'Please choose a package.' },
+        { status: 400 },
+      );
+    }
+
     // ── the package must belong to THIS course and be active ───────────────
     // Re-read rather than trusted: packageId arrives from the browser and
     // decides what the applicant will eventually be billed.
@@ -193,9 +233,12 @@ export async function POST(
     }
 
     // ── identity: name + phone are what make a person ───────────────────────
-    const applicantName = String((given.full_name ?? given.name ?? '') || '').trim();
-    const applicantPhone = normalisePhone(String(given.phone ?? given.mobile ?? ''));
-    const applicantEmail = String((given.email ?? '') || '').trim() || null;
+    // The accepted keys live in lib/services/courses/applicant-identity.ts, which
+    // the form builder also imports so a form that cannot satisfy this check can
+    // no longer be saved or enabled in the first place.
+    const applicantName = pickAnswer(given, NAME_KEYS);
+    const applicantPhone = normalisePhone(pickAnswer(given, PHONE_KEYS));
+    const applicantEmail = pickAnswer(given, EMAIL_KEYS) || null;
 
     if (!applicantName || !applicantPhone) {
       return NextResponse.json(

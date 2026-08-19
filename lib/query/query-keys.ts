@@ -104,4 +104,17 @@ export const queryKeys = {
     details: () => [...queryKeys.courseForms.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courseForms.details(), id] as const,
   },
+  /** Own root, same reasoning as the three above. The filters are part of the
+   *  list key because the service filters SERVER-side — a shared key across
+   *  filter sets would serve one filter's rows to another. */
+  courseApplications: {
+    all: ['course-applications'] as const,
+    lists: () => [...queryKeys.courseApplications.all, 'list'] as const,
+    list: (courseEventId: string, filters?: unknown) =>
+      [...queryKeys.courseApplications.lists(), courseEventId, filters ?? {}] as const,
+    counts: (courseEventId: string) =>
+      [...queryKeys.courseApplications.all, 'counts', courseEventId] as const,
+    details: () => [...queryKeys.courseApplications.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courseApplications.details(), id] as const,
+  },
 } as const;

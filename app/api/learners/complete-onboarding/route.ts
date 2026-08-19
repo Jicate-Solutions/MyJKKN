@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 
 // ============================================
 // LEARNER ONBOARDING API
@@ -30,20 +31,6 @@ const supabaseAdmin = createClient(
  * Generate a random temporary password
  * Requirements: 12 chars, at least 1 digit, at least 1 uppercase
  */
-function generateTemporaryPassword(length = 12): string {
-  const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+';
-  let password = '';
-  for (let i = 0; i < length; i++) {
-    password += charset.charAt(Math.floor(Math.random() * charset.length));
-  }
-  // Ensure at least one digit and one uppercase
-  if (!/\d/.test(password)) password += Math.floor(Math.random() * 10);
-  if (!/[A-Z]/.test(password))
-    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  return password.slice(0, length);
-}
-
 export async function POST(request: NextRequest) {
   await connection();
   const { learner_id } = await request.json();

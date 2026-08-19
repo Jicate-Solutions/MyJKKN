@@ -81,10 +81,26 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
     }
   };
 
+  // is_trained is a STORED GENERATED column: guide_read_at AND self_ack_at AND
+  // admin_trained_at. This button sets ONLY the admin leg — the other two are
+  // writable exclusively by the mentor (fn_induction_mentor_complete_self_training
+  // resolves the row from auth.uid()), so an admin cannot unlock anyone alone.
+  // Never claim "tools are unlocked" without checking the mentor's own two legs.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
+    const vol = vols.find((v) => v.learner_id === learnerId);
+    const mentorLegsDone = Boolean(vol?.guide_read && vol?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked as trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       load();
     } catch (e: any) {
       toast.error(`Couldn't update training: ${e.message ?? e}`);
