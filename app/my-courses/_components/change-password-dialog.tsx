@@ -14,11 +14,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Eye, EyeOff, KeyRound, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader,
-  DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,9 +66,17 @@ function SecretField({
   );
 }
 
-export function ChangePasswordDialog() {
+/** CONTROLLED. Its trigger lives in the participant menu, so the dialog cannot
+ *  own its own open state — a Radix dropdown closes on item select, which would
+ *  unmount an uncontrolled trigger before the dialog ever opened. */
+export function ChangePasswordDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -104,7 +111,7 @@ export function ChangePasswordDialog() {
       }
 
       reset();
-      setOpen(false);
+      onOpenChange(false);
 
       if (json.signedOut) {
         // The change worked but the session could not be re-established, so the
@@ -132,16 +139,9 @@ export function ChangePasswordDialog() {
       onOpenChange={(o) => {
         // Never leave typed passwords sitting in state behind a closed dialog.
         if (!o) reset();
-        setOpen(o);
+        onOpenChange(o);
       }}
     >
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
-          <KeyRound className="h-3.5 w-3.5" />
-          Change password
-        </Button>
-      </DialogTrigger>
-
       <DialogContent className="max-h-[90vh] max-w-sm overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Change your password</DialogTitle>
@@ -189,7 +189,7 @@ export function ChangePasswordDialog() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setOpen(false)}
+              onClick={() => onOpenChange(false)}
               disabled={busy}
               className="w-full sm:w-auto"
             >

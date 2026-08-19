@@ -32,7 +32,7 @@ import {
 import { createClient } from '@/lib/supabase/server';
 import { PayInstalmentButton } from './_components/pay-instalment-button';
 import { DownloadReceiptButton } from './_components/download-receipt-button';
-import { ChangePasswordDialog } from './_components/change-password-dialog';
+import { ParticipantMenu } from './_components/participant-menu';
 import type { CourseReceiptData } from '@/lib/utils/courses/course-receipt-pdf';
 
 export const dynamic = 'force-dynamic';
@@ -144,16 +144,17 @@ export default async function MyCoursesPage({
                 My courses
               </h1>
             </div>
-            {/* Identity and the one account action. On a phone this wraps to
-                its own line rather than crushing the heading. */}
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="min-w-0 text-right">
+            {/* The name and ID live INSIDE the menu on a phone, where the
+                header has no room for them beside the heading; from sm they
+                also show alongside the avatar. */}
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="hidden min-w-0 text-right sm:block">
                 <p className="truncate text-sm font-medium">{participantName}</p>
                 {jkknId && (
                   <p className="font-mono text-xs text-muted-foreground">{jkknId}</p>
                 )}
               </div>
-              <ChangePasswordDialog />
+              <ParticipantMenu participantName={participantName} jkknId={jkknId} />
             </div>
           </div>
         </div>

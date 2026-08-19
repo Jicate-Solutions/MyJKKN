@@ -141,6 +141,27 @@ async function handleExternalPortal(request: NextRequest, currentPath: string) {
   return res;
 }
 
+/**
+ * Where an UNAUTHENTICATED visitor should be sent to sign in.
+ *
+ * /auth/login is Google OAuth only. A course participant has no Google account
+ * — they sign in with a JKKN ID and a password — so sending them there is a
+ * dead end: no field they can fill, and no hint that another page exists.
+ *
+ * Keyed on the PATH rather than the person, because by definition there is no
+ * session to read a role from at this point. /my-courses is the participant
+ * portal, so anyone arriving there without a session is one.
+ *
+ * Mirrors the per-portal login redirects above (parent, schools-portal,
+ * external), which each route to their own sign-in page for the same reason.
+ */
+function loginUrlFor(currentPath: string, request: NextRequest): URL {
+  return new URL(
+    currentPath.startsWith('/my-courses') ? '/auth/participant-login' : '/auth/login',
+    request.url,
+  );
+}
+
 // Define public paths - optimized with Set for O(1) lookup
 const PUBLIC_PATHS_SET = new Set([
   '/', // Allow root path to avoid ERR_FAILED issues
@@ -457,13 +478,13 @@ export async function proxy(request: NextRequest) {
       // errors with "Auth session missing"), so it must preserve the destination
       // too — otherwise every deep link from a fresh browser lands on the bare
       // login page and the user is dumped on /dashboard after signing in.
-      const errRedirectUrl = new URL('/auth/login', request.url);
+      const errRedirectUrl = loginUrlFor(currentPath, request);
       errRedirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
       return NextResponse.redirect(errRedirectUrl);
     }
 
     if (!user) {
-      const redirectUrl = new URL('/auth/login', request.url);
+      const redirectUrl = loginUrlFor(currentPath, request);
       // Preserve the query string so deep links survive the login roundtrip
       redirectUrl.searchParams.set('redirectedFrom', currentPath + request.nextUrl.search);
       return NextResponse.redirect(redirectUrl);
