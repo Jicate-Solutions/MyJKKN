@@ -61,6 +61,12 @@ export default function NewReceiptPage() {
   const billId = searchParams.get('bill_id');
   const billIds = searchParams.get('bill_ids'); // For bulk receipt generation
   const studentId = searchParams.get('student_id');
+  // Where to go after the receipt is saved. Callers that are not the global
+  // receipts list (e.g. /billing/transport) pass this so the operator lands
+  // back where they started — the default target, the learner's billing
+  // schedule page, needs learner + schedule read permissions that a
+  // collection-only role (transport_head) does not have.
+  const returnTo = searchParams.get('returnTo');
 
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [isLoadingInstitutions, setIsLoadingInstitutions] = useState(true);
@@ -188,12 +194,25 @@ export default function NewReceiptPage() {
       const totalPayAmount = 0;
       const firstBill = bills[0];
 
+      // Prefer the bill's OWN student_id / institution_id over the embedded
+      // learner. `student:learners_profiles(...)` is filtered by RLS, and a
+      // to-one embed the caller cannot read comes back as null rather than as
+      // an error — so for roles without a learners.*.view permission (e.g.
+      // transport_head, which collects bus fees but has no learner access) the
+      // embed is silently null and both ids stayed empty. The Institution
+      // select is locked once bills are loaded, so a blank institution_id was
+      // unfillable and the receipt could never be saved. Both columns exist on
+      // billing_student_bills itself, which every receipt-creating role can
+      // already read.
       setFormData((prev) => ({
         ...prev,
         payment_amount: totalPayAmount,
-        student_id: firstBill?.student?.id || prev.student_id,
+        student_id:
+          firstBill?.student?.id || firstBill?.student_id || prev.student_id,
         institution_id:
-          firstBill?.student?.institution_id || prev.institution_id
+          firstBill?.student?.institution_id ||
+          firstBill?.institution_id ||
+          prev.institution_id
       }));
 
       // Set student roll number for display
@@ -386,7 +405,12 @@ export default function NewReceiptPage() {
       // always created in the context of a single learner — the schedule
       // page lets the operator see the new receipt next to the bill it
       // settled, plus any remaining outstanding bills, in one view.
-      router.push(`/billing/schedule/students/${formData.student_id}?tab=receipts`);
+      // A caller-supplied returnTo wins: the schedule page needs learner and
+      // schedule read permissions, so collection-only roles arriving from
+      // /billing/transport must go back there instead.
+      router.push(
+        returnTo || `/billing/schedule/students/${formData.student_id}?tab=receipts`
+      );
     } catch (error) {
       console.error('Error creating receipt:', error);
       toast.error('Failed to generate receipt');
