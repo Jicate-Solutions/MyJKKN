@@ -127,29 +127,59 @@ export const POST = withAuth(
       // production. Razorpay's sandbox auto-"pays" a UPI QR in ~15s with no
       // money moving, so a real bill routed at a test account would be marked
       // paid and receipted against nothing.
-      const provider = await getPaymentProvider('courses', {
-        institutionId: b.institution_id,
-        feeHead: COURSE_FEE_HEAD,
-        purpose: 'create-order',
-      });
-      const accountId = (provider as { accountId?: string }).accountId ?? null;
+      // ── which merchant account gets the money ───────────────────────────
+      // The invariant is that it must be the HOSTING INSTITUTION's account,
+      // never the shared env one. WHICH head within that institution is a
+      // routing preference, so it is tried as a ladder rather than demanded:
+      //
+      //   1. 'course'  — a dedicated course-fee account, or the institution's
+      //                  default (fee_head IS NULL), since the resolver matches
+      //                  `fee_head = asked OR fee_head IS NULL`.
+      //   2. 'tuition' — the institution's fee-income account. Course fees are
+      //                  fee income; this is where a college that has not set
+      //                  up a separate course account already banks them.
+      //
+      // 'ims_pos' is deliberately NOT in the ladder: those are counter/store
+      // takings, reconciled separately, and sweeping course fees into them
+      // would corrupt both sets of books.
+      //
+      // Demanding 'course' alone was the first cut and it was wrong — it turned
+      // a preference into a requirement and 503'd a college that was correctly
+      // configured with a live tuition account.
+      const ACCOUNT_LADDER = [COURSE_FEE_HEAD, 'tuition'];
 
-      // REFUSE the common env account. resolveRazorpayCredentials falls back to
-      // it when the institution has no account matching this head and no
-      // default — and that fallback would quietly collect one college's course
-      // fees into a shared merchant account, which is exactly what the fee-head
-      // routing exists to prevent. accountId is set only for an institution
-      // account, so its absence is the tell.
-      if (!accountId) {
+      let provider: Awaited<ReturnType<typeof getPaymentProvider>> | null = null;
+      let accountId: string | null = null;
+
+      for (const head of ACCOUNT_LADDER) {
+        const candidate = await getPaymentProvider('courses', {
+          institutionId: b.institution_id,
+          feeHead: head,
+          purpose: 'create-order',
+        });
+        const candidateAccount = (candidate as { accountId?: string }).accountId ?? null;
+        // accountId is set ONLY for an institution account; its absence means
+        // the resolver fell through to the common env credentials.
+        if (candidateAccount) {
+          provider = candidate;
+          accountId = candidateAccount;
+          break;
+        }
+      }
+
+      // Still nothing institution-scoped: refuse rather than collect one
+      // college's course fees into the shared merchant account. This is the
+      // hazard lib/services/payments/fee-heads.ts documents.
+      if (!provider || !accountId) {
         console.error('[courses/pay/initiate] no institution Razorpay account', {
           institutionId: b.institution_id,
-          feeHead: COURSE_FEE_HEAD,
+          tried: ACCOUNT_LADDER,
         });
         return NextResponse.json(
           {
             ok: false,
             error:
-              'Online payment is not set up for this course yet. The institution needs to connect a Razorpay account for course fees.',
+              'Online payment is not set up for this course yet. The institution needs to connect a Razorpay account.',
           },
           { status: 503 },
         );
