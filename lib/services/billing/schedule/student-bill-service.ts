@@ -450,14 +450,65 @@ export class StudentBillService {
         ? await this.resolveAccommodationTypeIds(filters.accommodation_type)
         : null;
 
+      // ── Search strategy ────────────────────────────────────────────────
+      // PostgREST cannot mix parent and embedded columns inside one top-level
+      // logical tree — `or=(bill_description.ilike.*,student.first_name.ilike.*)`
+      // is rejected with "failed to parse logic tree". So matching EITHER the
+      // bill description OR the learner's name means pre-resolving the learner
+      // ids and OR-ing them in as `student_id.in.(...)`.
+      //
+      // Those ids travel in the request URL. A broad term (e.g. a single "A")
+      // matches thousands of learners, and ~400 uuids (~15KB of query string)
+      // overruns the gateway's max request line: the call comes back as
+      // "Bad Request"/"fetch failed" and the table renders "Failed to load
+      // data". Inline the ids only while the list is small; once the term is
+      // broad enough to overflow, drop to an !inner join and filter the
+      // learner in-database instead — unbounded, one round trip, no URL growth.
+      const MAX_INLINE_STUDENT_IDS = 150;
+
+      const searchTerm = filters.search
+        ? filters.search.replace(/[,()]/g, ' ').trim()
+        : '';
+      // Non-null → inline `student_id.in.(...)` mode; searchViaJoin → !inner mode.
+      let searchStudentIds: string[] | null = null;
+      let searchViaJoin = false;
+
+      if (searchTerm) {
+        const like = `%${searchTerm}%`;
+        const { data: matchedStudents, error: studentLookupErr } = await (
+          this.supabase as any
+        )
+          .from('learners_profiles')
+          .select('id')
+          .or(
+            `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`
+          )
+          // One past the cap is all we need to know the list overflows.
+          .limit(MAX_INLINE_STUDENT_IDS + 1);
+
+        if (studentLookupErr) throw studentLookupErr;
+
+        const ids = (matchedStudents ?? [])
+          .map((s: { id: string }) => s.id)
+          .filter(Boolean);
+
+        if (ids.length > MAX_INLINE_STUDENT_IDS) {
+          searchViaJoin = true;
+        } else {
+          searchStudentIds = ids;
+        }
+      }
+
       // Any filter that targets a column on the embedded learner requires the
       // INNER-join variant of the select. lifecycle_status lives on
       // learners_profiles, so it joins the same club as the academic +
-      // accommodation filters.
+      // accommodation filters — as does a broad search that fell back to the
+      // in-database learner match above.
       const hasStudentFilters =
         hasAcademicFilters ||
         accommodationTypeIds !== null ||
-        !!filters.lifecycle_status;
+        !!filters.lifecycle_status ||
+        searchViaJoin;
 
       let query;
 
@@ -572,40 +623,27 @@ export class StudentBillService {
         );
       }
 
-      // Apply search filter. PostgREST .or() cannot reference embedded-resource
-      // columns (e.g. `student.first_name.ilike.X`) — the parser only allows
-      // <column>.<operator>.<value> on the parent table. To search both the
-      // bill description AND the joined student fields, pre-resolve the
-      // matching student IDs and OR them in as `student_id.in.(...)`.
-      if (filters.search) {
-        const term = filters.search.replace(/[,()]/g, ' ').trim();
-        const like = `%${term}%`;
+      // Apply the search resolved above (see the MAX_INLINE_STUDENT_IDS note).
+      if (searchTerm) {
+        const like = `%${searchTerm}%`;
 
-        const orParts: string[] = [`bill_description.ilike.${like}`];
-
-        if (term.length > 0) {
-          const { data: matchedStudents, error: studentLookupErr } = await (
-            this.supabase as any
-          )
-            .from('learners_profiles')
-            .select('id')
-            .or(
-              `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`
-            )
-            .limit(1000);
-
-          if (studentLookupErr) throw studentLookupErr;
-
-          const studentIds = (matchedStudents ?? [])
-            .map((s: { id: string }) => s.id)
-            .filter(Boolean);
-
-          if (studentIds.length > 0) {
-            orParts.push(`student_id.in.(${studentIds.join(',')})`);
+        if (searchViaJoin) {
+          // Broad term: match the learner in-database via the !inner embed.
+          // Scoped to the referenced table, so it AND's with any other learner
+          // filter (department, lifecycle, …) rather than widening them.
+          // bill_description is not OR'd in here — PostgREST can't span the
+          // join — but at >150 matching learners the name match dominates.
+          query = query.or(
+            `first_name.ilike.${like},last_name.ilike.${like},roll_number.ilike.${like}`,
+            { referencedTable: 'student' }
+          );
+        } else {
+          const orParts: string[] = [`bill_description.ilike.${like}`];
+          if (searchStudentIds && searchStudentIds.length > 0) {
+            orParts.push(`student_id.in.(${searchStudentIds.join(',')})`);
           }
+          query = query.or(orParts.join(','));
         }
-
-        query = query.or(orParts.join(','));
       }
 
       if (filters.student_id) {
@@ -856,7 +894,11 @@ export class StudentBillService {
     } catch (error) {
       // Supabase errors are plain objects — console.error alone prints "{}".
       console.error('Error fetching student bills:', getErrorMessage(error), error);
-      throw error;
+      // …and a plain object fails `error instanceof Error` in the DataTable,
+      // which then shows the useless "Failed to load data: Unknown error".
+      // Re-wrap so the real cause reaches the screen; `cause` keeps the original.
+      if (error instanceof Error) throw error;
+      throw new Error(getErrorMessage(error), { cause: error });
     }
   }
 
