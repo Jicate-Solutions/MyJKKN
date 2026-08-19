@@ -167,7 +167,27 @@ BEGIN
 END;
 $function$;
 
-GRANT EXECUTE ON FUNCTION public.fn_create_billing_receipt(jsonb, jsonb)
+-- Lock both functions from anon. Postgres grants EXECUTE to PUBLIC by default
+-- and Supabase grants anon directly, so a function is callable by any
+-- unauthenticated client until explicitly revoked.
+--
+-- This matters most for generate_receipt_number(): marking it SECURITY DEFINER
+-- above is exactly what makes the default grant dangerous. As INVOKER it was
+-- harmless to anon (no sequence USAGE, RLS blocks everything downstream); as
+-- DEFINER it runs with the owner's rights, so an unauthenticated caller could
+-- burn receipt numbers off the sequence at will and punch permanent gaps in the
+-- receipt series. Hardening the function's security context and locking its ACL
+-- are one change, not two.
+--
+-- fn_create_billing_receipt is SECURITY INVOKER, so RLS already stops an anon
+-- caller from writing anything — locked anyway, per convention.
+REVOKE EXECUTE ON FUNCTION public.generate_receipt_number() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.generate_receipt_number()
+  TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION public.fn_create_billing_receipt(jsonb, jsonb)
+  FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_create_billing_receipt(jsonb, jsonb)
   TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.fn_create_billing_receipt(jsonb, jsonb) IS
