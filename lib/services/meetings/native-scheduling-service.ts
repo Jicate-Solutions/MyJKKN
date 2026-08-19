@@ -1103,6 +1103,92 @@ export class NativeSchedulingService {
    *      against mb_no_double_booking → 23P01 → SLOT_TAKEN, original
    *      booking untouched.
    */
+  /**
+   * Resolve the schedule timezone for a meeting type and — when `newStartIso`
+   * is supplied — re-validate that instant against the LIVE slot engine.
+   *
+   * Extracted for the mode-switch path (meeting-mode-switch-service.ts), which
+   * needs the timezone even when it is NOT moving the meeting, and needs the
+   * exact same engine re-validation when it is. `exclude` drops the booking's
+   * own current slot from the busy set so a meeting cannot block its own move.
+   *
+   * rescheduleBooking below still carries its own copy of this validation on
+   * purpose: it is a live, shipped path with no direct test coverage, and an
+   * "exact extraction" that turns out not to be exact is how a silent
+   * scheduling regression ships. Folding the two together is a follow-up that
+   * wants tests around rescheduleBooking first.
+   *
+   * Flat result, not a discriminated union — `strictNullChecks` is off
+   * repo-wide (tsconfig.json), which defeats narrowing on a boolean tag.
+   */
+  static async resolveMoveContext(
+    supabase: SupabaseClient,
+    mt: NativeMeetingType,
+    opts: {
+      newStartIso?: string | null;
+      exclude?: { start: string; end: string } | null;
+      now?: Date;
+    } = {},
+  ): Promise<{
+    ok: boolean;
+    timezone?: string;
+    startIso?: string;
+    endIso?: string;
+    error?: 'NO_SCHEDULE' | 'INVALID_SLOT';
+  }> {
+    const sched = await this.loadSchedule(supabase, mt);
+    if (!sched) return { ok: false, error: 'NO_SCHEDULE' };
+    if (!opts.newStartIso) return { ok: true, timezone: sched.timezone };
+
+    const now = opts.now ?? new Date();
+    const startDate = new Date(opts.newStartIso);
+    if (Number.isNaN(startDate.getTime())) {
+      return { ok: false, timezone: sched.timezone, error: 'INVALID_SLOT' };
+    }
+
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: sched.timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const candidateDate = fmt.format(startDate);
+    const exclude = opts.exclude ?? null;
+    const busy = (
+      await this.loadBusy(
+        supabase,
+        mt.host_profile_id,
+        new Date(startDate.getTime() - 86_400_000).toISOString(),
+        new Date(startDate.getTime() + 86_400_000).toISOString(),
+      )
+    ).filter((b) => !(exclude && b.start === exclude.start && b.end === exclude.end));
+
+    const offered = computeSlots({
+      timezone: sched.timezone,
+      durationMin: mt.duration_min,
+      windows: sched.windows,
+      overrides: sched.overrides,
+      bookings: busy,
+      bufferBeforeMin: mt.buffer_before_min,
+      bufferAfterMin: mt.buffer_after_min,
+      minNoticeMin: mt.min_notice_min,
+      slotIntervalMin: mt.slot_interval_min ?? undefined,
+      fromDate: candidateDate,
+      toDate: candidateDate,
+      now,
+    });
+    const startIso = startDate.toISOString();
+    if (!offered.some((s) => s.start === startIso)) {
+      return { ok: false, timezone: sched.timezone, error: 'INVALID_SLOT' };
+    }
+    return {
+      ok: true,
+      timezone: sched.timezone,
+      startIso,
+      endIso: new Date(startDate.getTime() + mt.duration_min * 60_000).toISOString(),
+    };
+  }
+
   static async rescheduleBooking(
     supabase: SupabaseClient,
     uid: string,

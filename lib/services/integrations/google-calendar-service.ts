@@ -577,6 +577,74 @@ export class GoogleCalendarService {
   }
 
   /**
+   * Add Google Meet conferencing to an EXISTING event, optionally moving it in
+   * the same call. This is what turns a face-to-face booking into an online one
+   * without cancelling and re-inviting.
+   *
+   * Why a sibling of patchEventTime rather than a flag on it: patchEventTime
+   * PATCHes with `?sendUpdates=all` but no `conferenceDataVersion=1`, and
+   * without that parameter Google IGNORES conferenceData entirely — the method
+   * structurally cannot add conferencing. The version parameter changes how the
+   * whole request body is interpreted, so it is a different call, not an option.
+   *
+   * Start/end are patched in the SAME request when supplied. That is deliberate:
+   * a switch that also moves the meeting must be all-or-nothing, and one PATCH
+   * either lands or does not — two calls can half-fail and leave an online
+   * meeting at the old time (or a moved meeting with no link).
+   *
+   * `sendUpdates=all` makes Google update the attendee's EXISTING calendar entry
+   * in place and notify them, which is exactly the "one email, no cancellation"
+   * behaviour this feature promises. Do not follow this with a cancel.
+   *
+   * Returns { ok, meetUrl }. A patch that succeeds but yields no Meet link is
+   * reported as ok:true with meetUrl:null — the caller decides what that means
+   * (for the mode switch it is a failure; see meeting-mode-switch-service.ts).
+   */
+  static async patchEventToOnline(
+    supabase: SupabaseClient,
+    hostProfileId: string,
+    eventId: string,
+    opts: { startIso?: string | null; endIso?: string | null; timezone?: string | null } = {},
+  ): Promise<{ ok: boolean; meetUrl: string | null }> {
+    const token = await this.accessTokenForHost(supabase, hostProfileId);
+    if (!token) return { ok: false, meetUrl: null };
+
+    const body: Record<string, unknown> = {
+      conferenceData: {
+        createRequest: {
+          requestId: crypto.randomBytes(8).toString('hex'),
+          conferenceSolutionKey: { type: 'hangoutsMeet' },
+        },
+      },
+    };
+    if (opts.startIso && opts.endIso) {
+      const tz = opts.timezone ?? undefined;
+      body.start = { dateTime: opts.startIso, timeZone: tz };
+      body.end = { dateTime: opts.endIso, timeZone: tz };
+    }
+
+    const res = await fetch(
+      `${CAL_BASE}/calendars/primary/events/${encodeURIComponent(eventId)}` +
+        `?conferenceDataVersion=1&sendUpdates=all`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`${LOG_PREFIX} event online-patch failed:`, res.status, text.slice(0, 200));
+      return { ok: false, meetUrl: null };
+    }
+    const json = (await res.json()) as {
+      hangoutLink?: string;
+      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+    };
+    return { ok: true, meetUrl: extractMeetUrl(json) };
+  }
+
+  /**
    * Mark a cancelled booking's event as cancelled but KEEP it on the host's
    * calendar — renamed ("Cancelled: …") and freed (transparent so it no longer
    * blocks time), for record-keeping. Mirrors the old Calendly behaviour the
