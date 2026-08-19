@@ -21,6 +21,7 @@ import { redirect } from 'next/navigation';
 import { CalendarDays, MapPin, ReceiptText } from 'lucide-react';
 
 import { createClient } from '@/lib/supabase/server';
+import { PayInstalmentButton } from './_components/pay-instalment-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -171,18 +172,25 @@ export default async function MyCoursesPage() {
                               <span className="font-medium">
                                 {inr.format(Number(b.total_amount ?? 0))}
                               </span>
+                              {/* Only what is still owed is payable. A voided or
+                                  settled instalment gets no button rather than a
+                                  disabled one — there is nothing to explain. */}
+                              {Number(b.balance_amount ?? 0) > 0 &&
+                                b.status !== 'voided' && (
+                                  <PayInstalmentButton
+                                    billId={b.id}
+                                    amountLabel={inr.format(Number(b.balance_amount ?? 0))}
+                                  />
+                                )}
                             </span>
                           </li>
                         ))}
                       </ul>
                     )}
 
-                    {/* Online payment is not wired yet. Saying so beats a Pay
-                        button that does nothing, and beats silence — somebody
-                        looking at a balance needs to know how to clear it. */}
                     <p className="mt-3 text-xs text-muted-foreground">
-                      To pay an instalment, contact the institution running the
-                      course. Online payment is not available here yet.
+                      Payments are made to the institution running this course. If
+                      online payment is unavailable, contact them directly.
                     </p>
                   </div>
 

@@ -693,7 +693,13 @@ export async function proxy(request: NextRequest) {
       if (
         !currentPath.startsWith('/my-courses') &&
         !currentPath.startsWith('/auth') &&
-        !currentPath.startsWith('/api/auth')
+        !currentPath.startsWith('/api/auth') &&
+        // The portal's own payment endpoints. Without these the confinement
+        // 307s the participant's fetch to /my-courses, and Razorpay checkout
+        // fails with an HTML redirect where it expected JSON — a silent break
+        // that looks like a gateway fault. Narrow on purpose: only /payments,
+        // not the whole /api/courses tree, which is the admin console's.
+        !currentPath.startsWith('/api/courses/payments')
       ) {
         return NextResponse.redirect(new URL('/my-courses', request.url));
       }
