@@ -182,7 +182,16 @@ function SolutionFunnelPanel() {
   const stages = useMemo(() => solutionStages(totals), [totals]);
   const endings = useMemo(() => finishLines(totals), [totals]);
 
+  // TWO DIFFERENT QUIETS, AND THEY MUST NOT BE RECONCILED (Director decision
+  // #11). `silent` counts departments that PRODUCED NOTHING — an outcome, 43 of
+  // 44 today. `allDormant` reports that every activated department is currently
+  // marked dormant — a status, 44 of 44 today. They are near-identical numbers
+  // describing different facts, and averaging or merging them would destroy
+  // information the council needs. The copy below names them apart on purpose.
   const silent = totals.departmentsActivated - totals.departmentsProducing;
+  const allDormant =
+    totals.departmentsActivated > 0 &&
+    totals.departmentsDormant === totals.departmentsActivated;
 
   return (
     <PanelShell
@@ -201,6 +210,27 @@ function SolutionFunnelPanel() {
         </p>
       ) : (
         <>
+          {/* Director decision #11: when every activated department has gone
+              quiet, the panel says so in one line before any figure is read.
+              A council member should not have to add up a table to learn it. */}
+          {allDormant && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+              <p className="font-medium">
+                Every one of the{' '}
+                {totals.departmentsActivated.toLocaleString()} departments the
+                colleges activated is marked dormant today. Not one is still
+                marked active.
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The activations below are real and are still counted — this line
+                is about the status those departments hold now, which is a
+                separate question from what they produced. Worth asking the
+                colleges whether the work stopped or whether the record simply
+                stopped being kept.
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {stages.map((s, idx) => (
               <div key={s.key} className="relative rounded-md border bg-card p-3">
@@ -254,7 +284,10 @@ function SolutionFunnelPanel() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Activation is a decision; a solution is an outcome. The gap
                 between the two is what the council can act on, and it is not
-                visible from the department count alone.
+                visible from the department count alone. This counts what was
+                PRODUCED, and is a different question from how many departments
+                are currently marked dormant — the two figures are close
+                together and are not the same measurement.
               </p>
             </div>
           )}
@@ -269,6 +302,8 @@ function SolutionFunnelPanel() {
                   <th className="px-3 py-2 text-right font-medium">Solutions</th>
                   <th className="px-3 py-2 text-right font-medium">Phases</th>
                   <th className="px-3 py-2 text-right font-medium">Publications</th>
+                  <th className="px-3 py-2 text-right font-medium">Currently dormant</th>
+                  <th className="px-3 py-2 text-right font-medium">At risk</th>
                 </tr>
               </thead>
               <tbody>
@@ -317,6 +352,26 @@ function SolutionFunnelPanel() {
                         <span className="text-xs text-muted-foreground">nothing recorded yet</span>
                       )}
                     </td>
+                    {/* The last two cells report CURRENT STATUS, not a record
+                        that was never entered — so their empty branch says
+                        "none", not "nothing recorded yet". A bare 0 is still
+                        forbidden here: it would read as a measured bad result.
+                        `> 0` also absorbs the undefined a pre-2026-09-08 bundle
+                        receives, which would otherwise print nothing at all. */}
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.departments_dormant > 0 ? (
+                        r.departments_dormant
+                      ) : (
+                        <span className="text-xs text-muted-foreground">none dormant</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.departments_at_risk > 0 ? (
+                        r.departments_at_risk
+                      ) : (
+                        <span className="text-xs text-muted-foreground">none at risk</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -326,7 +381,9 @@ function SolutionFunnelPanel() {
           <ScopeNote>
             &quot;Nothing recorded yet&quot; means the platform can hold that stage
             and no row has been entered — not that the work did not happen off the
-            platform.
+            platform. The last two columns are different again: they report the
+            status a department holds today, which can change without anything
+            the college did being undone.
           </ScopeNote>
         </>
       )}
