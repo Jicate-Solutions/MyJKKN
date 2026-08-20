@@ -153,7 +153,9 @@ describe('contract 3 — repeat / follow_up never mutate the original', () => {
       expect(created).toHaveBeenCalledTimes(1);
 
       // The successor inherits the original's guest, not a blank one.
-      const input = created.mock.calls[0][1] as Record<string, unknown>;
+      // NativeBookingInput is already typed — no cast needed, and casting it to
+      // Record<string, unknown> is a TS2352 error (the types do not overlap).
+      const input = created.mock.calls[0][1];
       expect(input.attendeeEmail).toBe('priya@example.com');
       expect(input.attendeeName).toBe('Priya R');
       expect(input.meetingTypeId).toBe('mt-1');
