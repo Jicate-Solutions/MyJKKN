@@ -29,6 +29,7 @@ import { createClient } from '@/lib/supabase/server';
 import {
   NativeSchedulingService,
   type NativeBookingResult,
+  type PastRescheduleReason,
 } from '@/lib/services/meetings/native-scheduling-service';
 import {
   MeetingModeSwitchService,
@@ -215,7 +216,16 @@ export async function getMyBookingSlots(uid: string): Promise<HostSlotsResult> {
  * BOTH parties with rescheduledBy: 'host' — so the guest's mail names the host
  * as the person who changed the time rather than implying they did it.
  */
-export async function rescheduleMyBooking(uid: string, startIso: string): Promise<CancelResult> {
+export async function rescheduleMyBooking(
+  uid: string,
+  startIso: string,
+  /**
+   * Only sent when the meeting being moved has ALREADY ENDED. The host picks it
+   * in the UI: 'missed' moves this meeting, 'repeat' / 'follow_up' leave it
+   * closed and create a successor linked back to it.
+   */
+  reason?: PastRescheduleReason,
+): Promise<CancelResult> {
   const session = await createClient();
   const { data: { user }, error: authError } = await session.auth.getUser();
   if (authError || !user) {
@@ -233,11 +243,16 @@ export async function rescheduleMyBooking(uid: string, startIso: string): Promis
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   );
 
+  if (reason && !['missed', 'repeat', 'follow_up'].includes(reason)) {
+    return { success: false, error: 'Pick a valid reason.' };
+  }
+
   const result = await NativeSchedulingService.rescheduleBooking(
     service,
     uid,
     { actorProfileId: user.id },
     startIso,
+    reason ? { reason } : {},
   );
 
   if (!result.success) {
