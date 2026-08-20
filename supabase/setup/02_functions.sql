@@ -12954,6 +12954,9 @@ COMMENT ON FUNCTION public.fn_learner_year_of_study(uuid) IS
   'Clamps to [1, program_duration] so result is always ≥ 1 and never exceeds the programme length.';
 
 -- admission_bulk_upsert_fee_structure: atomic per-row upsert for bulk fee-structure import
+-- Carries hostel_category_id / mess_category_id (migration 20260910110001) so a
+-- bulk-imported ACTIVE hostel structure can satisfy
+-- trg_fee_structure_hostel_categories_guard.
 CREATE OR REPLACE FUNCTION public.admission_bulk_upsert_fee_structure(p_payload jsonb)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -12977,6 +12980,7 @@ BEGIN
     INSERT INTO admission_fee_structures (
       institution_id, degree_id, department_id, programme_id,
       quota_id, admission_year_id, gender, accommodation_type_id,
+      hostel_category_id, mess_category_id,
       name, status, notes, effective_from, effective_to
     ) VALUES (
       v_institution_id,
@@ -12987,6 +12991,8 @@ BEGIN
       (p_payload->>'admission_year_id')::uuid,
       NULLIF(p_payload->>'gender','')::text,
       NULLIF(p_payload->>'accommodation_type_id','')::uuid,
+      NULLIF(p_payload->>'hostel_category_id','')::uuid,
+      NULLIF(p_payload->>'mess_category_id','')::uuid,
       p_payload->>'name',
       COALESCE(NULLIF(p_payload->>'status',''),'draft'),
       NULLIF(p_payload->>'notes',''),
@@ -13014,6 +13020,13 @@ BEGIN
       accommodation_type_id = CASE WHEN p_payload ? 'accommodation_type_id'
                                    THEN NULLIF(p_payload->>'accommodation_type_id','')::uuid
                                    ELSE v_existing.accommodation_type_id END,
+      -- Same absent-vs-null contract for the hostel tier.
+      hostel_category_id    = CASE WHEN p_payload ? 'hostel_category_id'
+                                   THEN NULLIF(p_payload->>'hostel_category_id','')::uuid
+                                   ELSE v_existing.hostel_category_id END,
+      mess_category_id      = CASE WHEN p_payload ? 'mess_category_id'
+                                   THEN NULLIF(p_payload->>'mess_category_id','')::uuid
+                                   ELSE v_existing.mess_category_id END,
       name                  = p_payload->>'name',
       status                = COALESCE(NULLIF(p_payload->>'status',''),'draft'),
       notes                 = NULLIF(p_payload->>'notes',''),
@@ -13051,6 +13064,50 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.admission_bulk_upsert_fee_structure(jsonb) TO authenticated;
+
+-- _fee_structure_hostel_categories_guard (migration 20260910110000)
+-- Integrity guard for admission_fee_structures.hostel_category_id /
+-- mess_category_id: rejected on a non-hostel structure, both REQUIRED to
+-- activate a hostel one. Draft/archived hostel structures may omit them.
+--
+-- SECURITY DEFINER is REQUIRED, not incidental: accommodation_types has RLS
+-- SELECT gated on auth.uid() IS NOT NULL, so a service-role / cron write would
+-- otherwise read zero rows, conclude "not hostel", and reject a valid row.
+CREATE OR REPLACE FUNCTION public._fee_structure_hostel_categories_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  v_is_hostel boolean;
+BEGIN
+  v_is_hostel := EXISTS (
+    SELECT 1 FROM public.accommodation_types a
+     WHERE a.id = NEW.accommodation_type_id AND a.code = 'hostel'
+  );
+
+  IF NOT v_is_hostel THEN
+    IF NEW.hostel_category_id IS NOT NULL OR NEW.mess_category_id IS NOT NULL THEN
+      RAISE EXCEPTION
+        'Room/mess categories may only be set on a HOSTEL fee structure (accommodation_type_id must reference accommodation_types.code = ''hostel'')'
+        USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.status = 'active'
+     AND (NEW.hostel_category_id IS NULL OR NEW.mess_category_id IS NULL) THEN
+    RAISE EXCEPTION
+      'An ACTIVE hostel fee structure must declare both a room category and a mess category'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public._fee_structure_hostel_categories_guard() FROM anon;
 
 GRANT EXECUTE ON FUNCTION public.user_is_hosteler() TO authenticated;
 

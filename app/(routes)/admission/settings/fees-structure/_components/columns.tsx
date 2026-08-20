@@ -27,6 +27,9 @@ export type FeeStructureRow = AdmissionFeeStructure & {
   programme_name: string | null;
   quota_name: string | null;
   accommodation_name: string | null;
+  /** Declared hostel tier. Null on day-scholar structures by design. */
+  hostel_category_name: string | null;
+  mess_category_name: string | null;
   community_name: string | null;
   admission_year_name: string | null;
   item_count: number;
@@ -127,6 +130,34 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
       return <Badge variant={name ? 'outline' : 'secondary'}>{name ?? 'Any'}</Badge>;
     },
     size: 130,
+  },
+  {
+    // Declared hostel tier (migration 20260910110000). Only hostel structures
+    // carry one — a day-scholar row showing "—" is correct, not a gap. A hostel
+    // row with no tier can't be active (the DB guard blocks it), so it is
+    // flagged rather than dashed.
+    id: 'hostel_tier',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Hostel Tier" />,
+    cell: ({ row }) => {
+      const { accommodation_name, hostel_category_name, mess_category_name } = row.original;
+      const isHostel = accommodation_name?.toLowerCase().includes('hostel') ?? false;
+      if (!isHostel) return <span className="text-muted-foreground">—</span>;
+      if (!hostel_category_name || !mess_category_name) {
+        return (
+          <Badge variant="outline" className="border-amber-500 text-amber-600">
+            Not configured
+          </Badge>
+        );
+      }
+      return (
+        <span className="text-xs">
+          {hostel_category_name}
+          <span className="text-muted-foreground"> · </span>
+          {mess_category_name}
+        </span>
+      );
+    },
+    size: 180,
   },
   {
     // Classification, not a matching dimension — an unset value is a genuine

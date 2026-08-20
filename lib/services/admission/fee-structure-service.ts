@@ -87,6 +87,9 @@ export class FeeStructureService {
         programme_name: string | null;
         quota_name: string | null;
         accommodation_name: string | null;
+        /** Declared hostel tier. Null on day-scholar structures by design. */
+        hostel_category_name: string | null;
+        mess_category_name: string | null;
         /** Comma-joined community names, for legacy single-cell rendering. */
         community_name: string | null;
         /** All community names attached to this structure (via junction). */
@@ -142,6 +145,8 @@ export class FeeStructureService {
         programme:programs(id, program_name),
         quota:quotas(id, name),
         accommodation:accommodation_types(id, name),
+        hostel_category:hostel_categories(id, name),
+        mess_category:mess_categories(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(id)
@@ -182,6 +187,8 @@ export class FeeStructureService {
       programme: { program_name: string } | null;
       quota: { name: string } | null;
       accommodation: { name: string } | null;
+      hostel_category: { name: string } | null;
+      mess_category: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
@@ -205,6 +212,9 @@ export class FeeStructureService {
         programme_name: joined.programme?.program_name ?? null,
         quota_name: joined.quota?.name ?? null,
         accommodation_name: joined.accommodation?.name ?? null,
+        // Declared hostel tier. Null on day-scholar structures by design.
+        hostel_category_name: joined.hostel_category?.name ?? null,
+        mess_category_name: joined.mess_category?.name ?? null,
         // Backwards-compat single-name field — joins all linked communities
         // for legacy table cells. Most consumers should switch to
         // `community_names` (plural) when rendering chips.
@@ -259,6 +269,9 @@ export class FeeStructureService {
         programme_name: string | null;
         quota_name: string | null;
         accommodation_name: string | null;
+        /** Declared hostel tier. Null on day-scholar structures by design. */
+        hostel_category_name: string | null;
+        mess_category_name: string | null;
         community_name: string | null;
         community_names: string[];
         admission_year_name: string | null;
@@ -282,6 +295,8 @@ export class FeeStructureService {
         programme:programs(id, program_name),
         quota:quotas(id, name),
         accommodation:accommodation_types(id, name),
+        hostel_category:hostel_categories(id, name),
+        mess_category:mess_categories(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency))
@@ -298,6 +313,8 @@ export class FeeStructureService {
       programme: { program_name: string } | null;
       quota: { name: string } | null;
       accommodation: { name: string } | null;
+      hostel_category: { name: string } | null;
+      mess_category: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
@@ -322,6 +339,8 @@ export class FeeStructureService {
       programme_name: joined.programme?.program_name ?? null,
       quota_name: joined.quota?.name ?? null,
       accommodation_name: joined.accommodation?.name ?? null,
+      hostel_category_name: joined.hostel_category?.name ?? null,
+      mess_category_name: joined.mess_category?.name ?? null,
       community_name: communityNames.join(', ') || null,
       community_names: communityNames,
       admission_year_name: joined.admission_year?.admission_year_name ?? null,
@@ -673,8 +692,19 @@ export class FeeStructureService {
       gender:                overrides?.gender                ?? source.gender ?? undefined,
       accommodation_type_id: overrides?.accommodation_type_id ?? source.accommodation_type_id ?? undefined,
     };
+    // Hostel tier rides along ONLY when the clone keeps the source's
+    // accommodation. If the admin retargets the clone to a different
+    // accommodation, carrying the categories over would trip
+    // trg_fee_structure_hostel_categories_guard (categories are rejected on a
+    // non-hostel structure) — so drop them and let the form re-collect before
+    // the clone can be activated.
+    const keepsAccommodation =
+      (dims.accommodation_type_id ?? null) === (source.accommodation_type_id ?? null);
+
     return this.create({
       ...dims,
+      hostel_category_id: keepsAccommodation ? source.hostel_category_id : null,
+      mess_category_id:   keepsAccommodation ? source.mess_category_id   : null,
       package_type: overrides?.package_type ?? source.package_type ?? null,
       community_category_ids:
         overrides?.community_category_ids ?? source.community_category_ids,

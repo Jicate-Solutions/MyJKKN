@@ -1959,3 +1959,15 @@ CREATE TRIGGER trg_normalize_gender_learners_profiles
 CREATE TRIGGER trg_normalize_gender_profiles
   BEFORE INSERT OR UPDATE OF gender ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.tg_normalize_profile_gender();
+
+-- ---------------------------------------------------------------------------
+-- admission_fee_structures: hostel room/mess tier integrity guard
+-- (migration 20260910110000)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_fee_structure_hostel_categories_guard
+  ON public.admission_fee_structures;
+
+CREATE TRIGGER trg_fee_structure_hostel_categories_guard
+  BEFORE INSERT OR UPDATE ON public.admission_fee_structures
+  FOR EACH ROW
+  EXECUTE FUNCTION public._fee_structure_hostel_categories_guard();

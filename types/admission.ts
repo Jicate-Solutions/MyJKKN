@@ -1635,6 +1635,23 @@ export interface AdmissionFeeStructure {
   // today's date when multiple structures overlap.
   effective_from: string | null;
   effective_to: string | null;
+  /**
+   * Declared hostel ROOM / MESS category for this package (migration
+   * 20260910110000). Only meaningful when `accommodation_type_id` resolves to
+   * accommodation_types.code === 'hostel' — a DB trigger rejects them on any
+   * other structure, and requires BOTH to activate a hostel structure.
+   *
+   * The referenced row's gender `type` (boys/girls) is NOT meaningful: it is a
+   * canonical handle. hostel_categories / mess_categories are gender-
+   * partitioned ("Classic Room" exists twice), while fee structures normally
+   * leave `gender` NULL because they cover both — so readers remap by `name`
+   * to the learner's own gender variant, the same way
+   * fn_apply_hostel_fee_categories already does.
+   *
+   * Declaration layer only for now: no DB function reads these yet.
+   */
+  hostel_category_id: string | null;
+  mess_category_id: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1683,7 +1700,7 @@ export type CreateAdmissionFeeStructureInput =
     | 'admission_year_id'
     | 'name'
   > &
-  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id' | 'package_type'>> & {
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id' | 'package_type' | 'hostel_category_id' | 'mess_category_id'>> & {
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
@@ -1702,6 +1719,10 @@ export type UpdateAdmissionFeeStructureInput =
     | 'institution_id' | 'degree_id' | 'department_id' | 'programme_id'
     | 'quota_id' | 'admission_year_id'
     | 'gender' | 'accommodation_type_id'
+    // Hostel tier declaration. Gated by trg_fee_structure_hostel_categories_
+    // guard: rejected on a non-hostel structure, required to activate a hostel
+    // one. Move accommodation_type_id and these together.
+    | 'hostel_category_id' | 'mess_category_id'
   >> & {
     /** When provided, replaces the community set for this structure. */
     community_category_ids?: string[];

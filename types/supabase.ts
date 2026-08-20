@@ -4989,8 +4989,10 @@ export type Database = {
           effective_from: string | null
           effective_to: string | null
           gender: string | null
+          hostel_category_id: string | null
           id: string
           institution_id: string
+          mess_category_id: string | null
           name: string
           notes: string | null
           package_type: string | null
@@ -5010,8 +5012,10 @@ export type Database = {
           effective_from?: string | null
           effective_to?: string | null
           gender?: string | null
+          hostel_category_id?: string | null
           id?: string
           institution_id: string
+          mess_category_id?: string | null
           name: string
           notes?: string | null
           package_type?: string | null
@@ -5031,8 +5035,10 @@ export type Database = {
           effective_from?: string | null
           effective_to?: string | null
           gender?: string | null
+          hostel_category_id?: string | null
           id?: string
           institution_id?: string
+          mess_category_id?: string | null
           name?: string
           notes?: string | null
           package_type?: string | null
