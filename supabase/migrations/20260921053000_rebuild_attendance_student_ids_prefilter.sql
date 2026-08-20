@@ -55,6 +55,21 @@ CREATE INDEX IF NOT EXISTS idx_student_attendance_student_ids
 COMMENT ON INDEX public.idx_student_attendance_student_ids IS
   'Backs the learner-scoped prefilter in fn_scf_my_confirmed_attendance. Drop this only together with the prefilter that uses it — dropping one without the other is what caused the 31 Jul - 10 Aug outage.';
 
+-- ci:allow-secdef-authenticated  fn_scf_my_confirmed_attendance is self-scoped: it
+--   takes only two date arguments, derives the learner solely from auth.uid() via
+--   learners_profiles.profile_id, and RETURNs empty when that lookup finds nothing.
+--   There is no argument by which one caller can name another person, so "callable by
+--   every authenticated user" means "every learner may read their OWN attendance %" --
+--   which is the point of the function (transparency, Director decision #7).
+--   Verified behaviourally on production 2026-08-21, not merely asserted: an
+--   authenticated NON-learner profile calling it returned 0 rows, and
+--   pg_get_function_identity_arguments reports exactly "p_from date, p_to date".
+--   Narrowing the grant would break the live learner-facing page; an is_super_admin()
+--   style check would be wrong, since learners are the intended callers.
+--   NOTE: this shape is pre-existing -- the function has been SECURITY DEFINER and
+--   granted to authenticated since 20260705120200. This migration changes only its
+--   body (adding the prefilter); it introduces no new exposure.
+
 -- 3. Re-add the prefilter to the calculation that uses it. LAST, per the
 --    ordering warning above — the helper and index must exist first.
 CREATE OR REPLACE FUNCTION public.fn_scf_my_confirmed_attendance(p_from date DEFAULT NULL::date, p_to date DEFAULT NULL::date)
