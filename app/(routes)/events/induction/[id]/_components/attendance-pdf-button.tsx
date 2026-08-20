@@ -53,6 +53,11 @@ export async function fetchAttendanceReportRows(
     mobile: r.mobile ?? null,
     status: r.status ?? null,
     is_mixed: !!r.is_mixed,
+    // The Feedback Report's ONLY input. Dropping it here printed "No" for every
+    // fresher no matter what the API returned, and because the field is OPTIONAL
+    // on InductionAttendanceReportRow, TypeScript never flagged the omission.
+    // This mapper must stay in step with InductionAttendanceApiRow.
+    feedback_submitted: !!r.feedback_submitted,
   }));
 }
 

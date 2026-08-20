@@ -442,6 +442,42 @@ export class StudentBillService {
     }
   }
 
+  // Cache for resolveInstitutionIdsByEntityType below. The institutions table
+  // is a small, effectively static catalog and this runs on every list page,
+  // pagination step and export.
+  private static institutionIdsByEntityType = new Map<string, string[]>();
+
+  /**
+   * Resolve every institution id of a given entity_type ('institution' =
+   * college, 'school', 'admin_office', 'company').
+   *
+   * Mirrors StudentSearchService.resolveInstitutionIdsByEntityType — the
+   * students list and the bills list must agree on what "a college" is.
+   * Returns [] on error, which the caller turns into a deliberate no-match
+   * rather than silently widening the result set.
+   */
+  private static async resolveInstitutionIdsByEntityType(
+    entityType: string
+  ): Promise<string[]> {
+    const cached = this.institutionIdsByEntityType.get(entityType);
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('institutions')
+        .select('id')
+        .eq('entity_type', entityType);
+
+      if (error) throw error;
+      const ids = (data || []).map((row: { id: string }) => row.id);
+      if (ids.length > 0) this.institutionIdsByEntityType.set(entityType, ids);
+      return ids;
+    } catch (error) {
+      console.error('Error resolving institution ids by entity type:', error);
+      return [];
+    }
+  }
+
   /**
    * Resolve an admission-year NAME (e.g. '2025-2026') to every matching
    * admission_years id. Unlike accommodation_types, this catalog is
@@ -717,6 +753,27 @@ export class StudentBillService {
 
       if (filters.student_id) {
         query = query.eq('student_id', filters.student_id);
+      }
+
+      // Entity-type gate. Same shape as StudentSearchService: resolve the
+      // matching institution ids and filter the FK column with .in(), rather
+      // than filtering the embedded institutions resource (which PostgREST
+      // only allows behind an !inner join, and an inner join here would drop
+      // bills whose institution row is not visible).
+      //
+      // This is the query half of the college-only dropdown. Without it the
+      // default "All Institutions" view still returns school-fee bills, i.e.
+      // exactly the rows the dropdown was restricted to hide.
+      if (filters.institution_entity_type) {
+        const entityInstitutionIds = await this.resolveInstitutionIdsByEntityType(
+          filters.institution_entity_type
+        );
+        query = query.in(
+          'institution_id',
+          entityInstitutionIds.length > 0
+            ? entityInstitutionIds
+            : ['00000000-0000-0000-0000-000000000000']
+        );
       }
 
       if (filters.institution_id) {
@@ -1379,7 +1436,27 @@ export class StudentBillService {
    * Shared by getBillsForBulkEdit + countBillsForBulkEdit so the count never
    * drifts from the exported set.
    */
-  private static applyBulkEditFilters(query: any, filters: BulkEditDownloadFilters) {
+  private static async applyBulkEditFilters(
+    query: any,
+    filters: BulkEditDownloadFilters,
+    client: any
+  ) {
+    // College-only, unconditionally — bulk edit is a college surface and its
+    // institution dropdown lists entity_type='institution'. With "All
+    // institutions" chosen no institution_id is sent, so without this gate the
+    // download (and therefore the APPLY step) would reach school-fee bills.
+    // Resolved through the INJECTED client: this path runs server-side, where
+    // the class-level browser client is not the caller.
+    const { data: collegeRows } = await client
+      .from('institutions')
+      .select('id')
+      .eq('entity_type', 'institution');
+    const collegeIds = (collegeRows || []).map((r: { id: string }) => r.id);
+    query = query.in(
+      'institution_id',
+      collegeIds.length > 0 ? collegeIds : ['00000000-0000-0000-0000-000000000000']
+    );
+
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1431,7 +1508,7 @@ export class StudentBillService {
       .order('created_at', { ascending: false })
       .limit(StudentBillService.BULK_EDIT_DOWNLOAD_CAP);
 
-    query = StudentBillService.applyBulkEditFilters(query, filters);
+    query = await StudentBillService.applyBulkEditFilters(query, filters, client);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -1474,7 +1551,7 @@ export class StudentBillService {
     let query = client
       .from('billing_student_bills')
       .select('id', { count: 'exact', head: true });
-    query = StudentBillService.applyBulkEditFilters(query, filters);
+    query = await StudentBillService.applyBulkEditFilters(query, filters, client);
     const { count, error } = await query;
     if (error) throw error;
     return count || 0;
