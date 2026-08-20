@@ -111,6 +111,17 @@ export function useTimetablePeriods(
             const master = availablePeriods.find((p) => p.id === base!.id);
             if (!master) return base;
 
+            // REPURPOSE GUARD: a differing name means the master row was edited into a
+            // DIFFERENT period, not merely re-timed (AHS turned its "AHS P6" row into
+            // "AHS BREAK" and created a new P6 elsewhere). Slots already scheduled
+            // against it must keep their own definition; repointing them is a data
+            // repair, not something this read path may infer.
+            const snapshotName = String(base.period_name ?? '').trim();
+            const masterName = String(master.period_name ?? '').trim();
+            if (snapshotName && masterName && snapshotName !== masterName) {
+              return base;
+            }
+
             return {
               ...base,
               period_name: master.period_name,
