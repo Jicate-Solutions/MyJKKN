@@ -1971,3 +1971,21 @@ CREATE TRIGGER trg_fee_structure_hostel_categories_guard
   BEFORE INSERT OR UPDATE ON public.admission_fee_structures
   FOR EACH ROW
   EXECUTE FUNCTION public._fee_structure_hostel_categories_guard();
+
+-- ---------------------------------------------------------------------------
+-- staff: canonical UPPERCASE names (migration 20260910120000)
+-- ---------------------------------------------------------------------------
+-- TRIGGER ORDER IS LOAD-BEARING — DO NOT RENAME.
+-- Postgres fires row triggers in ALPHABETICAL NAME ORDER. staff already has a
+-- BEFORE INSERT OR UPDATE trigger trg_sync_staff_to_profiles which sets
+-- profiles.full_name = CONCAT(NEW.first_name,' ',NEW.last_name).
+-- trg_normalize_staff_names sorts BEFORE it ('n' < 's'), so profiles receive
+-- the already-normalised value and the two tables cannot drift. Renaming this
+-- to e.g. trg_upper_staff_names would sort it AFTER ('u' > 's') and silently
+-- leave every profiles.full_name in mixed case.
+DROP TRIGGER IF EXISTS trg_normalize_staff_names ON public.staff;
+
+CREATE TRIGGER trg_normalize_staff_names
+  BEFORE INSERT OR UPDATE OF first_name, last_name ON public.staff
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_normalize_staff_names();

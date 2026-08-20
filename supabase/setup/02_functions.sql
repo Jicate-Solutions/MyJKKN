@@ -45196,3 +45196,36 @@ COMMENT ON FUNCTION public.fn_biometric_import_purge_preview(uuid, date) IS
   'Super-admin only. Counts everything purging one (machine, month) import would remove or detach. Read before confirming.';
 COMMENT ON FUNCTION public.fn_biometric_import_purge(uuid, date) IS
   'Super-admin only. Deletes one imported biometric month for one machine, detaching regularizations and audit rows first. Returns a receipt.';
+
+-- ---------------------------------------------------------------------------
+-- Staff name canonicalisation (migration 20260910120000)
+-- ---------------------------------------------------------------------------
+-- Canonical form: trim ends, collapse internal whitespace runs to one space,
+-- uppercase. IMMUTABLE so the staff_*_name_canonical CHECK constraints can
+-- call it.
+CREATE OR REPLACE FUNCTION public.fn_canonical_staff_name(p_name text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path TO 'public'
+AS $$
+  SELECT CASE
+           WHEN p_name IS NULL THEN NULL
+           ELSE upper(regexp_replace(btrim(p_name), '\s+', ' ', 'g'))
+         END;
+$$;
+
+COMMENT ON FUNCTION public.fn_canonical_staff_name(text) IS
+  'Canonical staff-name form: trim ends, collapse internal whitespace runs to a single space, uppercase. IMMUTABLE so CHECK constraints may call it.';
+
+CREATE OR REPLACE FUNCTION public.fn_normalize_staff_names()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $$
+BEGIN
+  NEW.first_name := public.fn_canonical_staff_name(NEW.first_name);
+  NEW.last_name  := public.fn_canonical_staff_name(NEW.last_name);
+  RETURN NEW;
+END
+$$;

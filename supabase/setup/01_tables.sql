@@ -7918,3 +7918,17 @@ ALTER TABLE public.profiles
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_gender_check
   CHECK (gender IS NULL OR gender IN ('Male', 'Female', 'Other'));
+
+-- Staff name canonicalisation constraints (migration 20260910120000).
+-- Belt-and-braces: trg_normalize_staff_names normalises on write, so these are
+-- unreachable in normal operation, but they make the invariant impossible to
+-- bypass and self-document the rule.
+ALTER TABLE public.staff
+  DROP CONSTRAINT IF EXISTS staff_first_name_canonical,
+  DROP CONSTRAINT IF EXISTS staff_last_name_canonical;
+
+ALTER TABLE public.staff
+  ADD CONSTRAINT staff_first_name_canonical
+    CHECK (first_name IS NULL OR first_name = public.fn_canonical_staff_name(first_name)),
+  ADD CONSTRAINT staff_last_name_canonical
+    CHECK (last_name IS NULL OR last_name = public.fn_canonical_staff_name(last_name));
