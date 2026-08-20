@@ -66,13 +66,19 @@ import {
   useCacCurriculumOverlap,
   useCacCurriculumOverlapSummary,
   useCacCollaborationIsolation,
+  useCacCollegeSizes,
   summariseFunnel,
+  solutionStages,
+  finishLines,
   splitExchange,
   concentration,
+  sizeStanding,
+  perCollegeExchange,
   isolatedInstitutions,
   neverLentToAnyone,
   type CacExchangeEdge,
   type CacFunnelRow,
+  type CacCollegeExchangeRow,
 } from '@/hooks/accreditation/use-cac-cluster';
 
 // ----------------------------------------------------------------------------
@@ -154,6 +160,17 @@ const instLabel = (name: string | null, code: string | null) =>
 // The drop-off is the finding, so the stages are laid out in order and the
 // falls between them are shown rather than left to be inferred. A department
 // count on its own describes an intention; the funnel describes what came of it.
+//
+// THREE STAGES AND TWO FINISH LINES (Director decisions #2, #3, #13).
+//   Started, built and used are counted SEPARATELY rather than read off one
+//   status column. Then the run ENDS IN TWO PLACES, not one: 'used by someone'
+//   and 'published' sit side by side, same size, same weight, in a fixed order
+//   that does not follow their values — and with no arrow between them, because
+//   neither leads to the other and neither outranks the other. A publication is
+//   recorded because NAAC and NIRF ask for it; it never beats a real user.
+//
+//   The stage row keeps its arrows. Started → built → used IS a sequence and
+//   drawing it as one is honest. The finish-line row must never grow one.
 // ----------------------------------------------------------------------------
 
 function SolutionFunnelPanel() {
@@ -161,40 +178,26 @@ function SolutionFunnelPanel() {
   const rows = useMemo<CacFunnelRow[]>(() => data ?? [], [data]);
   const totals = useMemo(() => summariseFunnel(rows), [rows]);
 
-  const stages = [
-    {
-      key: 'departments',
-      label: 'Departments activated',
-      value: totals.departmentsActivated,
-      empty: 'none activated yet',
-    },
-    {
-      key: 'solutions',
-      label: 'Solutions produced',
-      value: totals.solutions,
-      empty: 'nothing recorded yet',
-    },
-    {
-      key: 'phases',
-      label: 'Phases opened',
-      value: totals.phases,
-      empty: 'nothing recorded yet',
-    },
-    {
-      key: 'publications',
-      label: 'Publications',
-      value: totals.publications,
-      empty: 'nothing recorded yet',
-    },
-  ];
+  // Both derived in the hook, where they can be tested without a database.
+  const stages = useMemo(() => solutionStages(totals), [totals]);
+  const endings = useMemo(() => finishLines(totals), [totals]);
 
+  // TWO DIFFERENT QUIETS, AND THEY MUST NOT BE RECONCILED (Director decision
+  // #11). `silent` counts departments that PRODUCED NOTHING — an outcome, 43 of
+  // 44 today. `allDormant` reports that every activated department is currently
+  // marked dormant — a status, 44 of 44 today. They are near-identical numbers
+  // describing different facts, and averaging or merging them would destroy
+  // information the council needs. The copy below names them apart on purpose.
   const silent = totals.departmentsActivated - totals.departmentsProducing;
+  const allDormant =
+    totals.departmentsActivated > 0 &&
+    totals.departmentsDormant === totals.departmentsActivated;
 
   return (
     <PanelShell
       icon={<TrendingDown className="h-4 w-4 text-amber-600" />}
-      title="From activated department to published work"
-      lead="Each college nominates departments to produce solutions. This follows what happened next, stage by stage."
+      title="From a started solution to a real user"
+      lead="Each college nominates departments to produce solutions. This follows what happened next — started, built, used — and where the work landed."
     >
       {error ? (
         <ReadFailed what="The solution funnel" error={error} />
@@ -207,18 +210,68 @@ function SolutionFunnelPanel() {
         </p>
       ) : (
         <>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Director decision #11: when every activated department has gone
+              quiet, the panel says so in one line before any figure is read.
+              A council member should not have to add up a table to learn it. */}
+          {allDormant && (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+              <p className="font-medium">
+                Every one of the{' '}
+                {totals.departmentsActivated.toLocaleString()} departments the
+                colleges activated is marked dormant today. Not one is still
+                marked active.
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The activations below are real and are still counted — this line
+                is about the status those departments hold now, which is a
+                separate question from what they produced. Worth asking the
+                colleges whether the work stopped or whether the record simply
+                stopped being kept.
+              </p>
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {stages.map((s, idx) => (
               <div key={s.key} className="relative rounded-md border bg-card p-3">
                 <div className="text-xs text-muted-foreground">{s.label}</div>
                 <div className="mt-1">
                   <Figure value={s.value} reason={s.empty} />
                 </div>
+                {s.derivedFrom ? (
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                    {s.derivedFrom}
+                  </p>
+                ) : null}
                 {idx > 0 && (
                   <ArrowRight className="absolute -left-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-muted-foreground lg:block" />
                 )}
               </div>
             ))}
+          </div>
+
+          {/* THE TWO FINISH LINES. Same grid cell, same type scale, no arrow
+              between them and no order that depends on their values — the run
+              ends in two places and neither is the better one. */}
+          <div>
+            <p className="text-xs font-medium">Where the work landed</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Two ways for the same work to land. Neither is ranked above the
+              other, and one does not lead to the other.
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {endings.map((f) => (
+                <div key={f.key} className="rounded-md border bg-card p-3">
+                  <div className="text-xs text-muted-foreground">{f.label}</div>
+                  <div className="mt-1">
+                    <Figure value={f.value} reason={f.empty} />
+                  </div>
+                  <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                    {f.meaning}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
 
           {silent > 0 && (
@@ -231,7 +284,10 @@ function SolutionFunnelPanel() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Activation is a decision; a solution is an outcome. The gap
                 between the two is what the council can act on, and it is not
-                visible from the department count alone.
+                visible from the department count alone. This counts what was
+                PRODUCED, and is a different question from how many departments
+                are currently marked dormant — the two figures are close
+                together and are not the same measurement.
               </p>
             </div>
           )}
@@ -246,6 +302,8 @@ function SolutionFunnelPanel() {
                   <th className="px-3 py-2 text-right font-medium">Solutions</th>
                   <th className="px-3 py-2 text-right font-medium">Phases</th>
                   <th className="px-3 py-2 text-right font-medium">Publications</th>
+                  <th className="px-3 py-2 text-right font-medium">Currently dormant</th>
+                  <th className="px-3 py-2 text-right font-medium">At risk</th>
                 </tr>
               </thead>
               <tbody>
@@ -255,7 +313,16 @@ function SolutionFunnelPanel() {
                       {instLabel(r.institution_name, r.iqac_code)}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {r.departments_activated || '—'}
+                      {/* An em-dash was adequate while every row in this table
+                          had activated something. The view now returns all eight
+                          assessed colleges rather than only those with activity,
+                          so this branch is reached by real colleges and has to
+                          say what it means, like every sibling cell. */}
+                      {r.departments_activated > 0 ? (
+                        r.departments_activated
+                      ) : (
+                        <span className="text-xs text-muted-foreground">none activated yet</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {r.departments_producing > 0 ? (
@@ -285,6 +352,26 @@ function SolutionFunnelPanel() {
                         <span className="text-xs text-muted-foreground">nothing recorded yet</span>
                       )}
                     </td>
+                    {/* The last two cells report CURRENT STATUS, not a record
+                        that was never entered — so their empty branch says
+                        "none", not "nothing recorded yet". A bare 0 is still
+                        forbidden here: it would read as a measured bad result.
+                        `> 0` also absorbs the undefined a pre-2026-09-08 bundle
+                        receives, which would otherwise print nothing at all. */}
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.departments_dormant > 0 ? (
+                        r.departments_dormant
+                      ) : (
+                        <span className="text-xs text-muted-foreground">none dormant</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.departments_at_risk > 0 ? (
+                        r.departments_at_risk
+                      ) : (
+                        <span className="text-xs text-muted-foreground">none at risk</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -294,7 +381,9 @@ function SolutionFunnelPanel() {
           <ScopeNote>
             &quot;Nothing recorded yet&quot; means the platform can hold that stage
             and no row has been entered — not that the work did not happen off the
-            platform.
+            platform. The last two columns are different again: they report the
+            status a department holds today, which can change without anything
+            the college did being undone.
           </ScopeNote>
         </>
       )}
@@ -342,12 +431,89 @@ function EdgeList({ edges, unitWord }: { edges: CacExchangeEdge[]; unitWord: str
   );
 }
 
+/**
+ * Give and receive per college, with size beside them.
+ *
+ * The two lists above are pairs; this is the same edges read per college, which
+ * is the only way to see what any one college gives and receives overall. Size
+ * sits in the same row rather than in a footnote because the two numbers are
+ * only interpretable together — 53 assignments received means one thing to a
+ * college of 1,200 and another to a college of 240.
+ *
+ * Ordered by size, largest first, and NOT by exchange volume. Ordering by
+ * exchange would publish a league table of collaboration, which this page
+ * refuses everywhere else.
+ */
+function PerCollegeExchangeTable({ rows }: { rows: CacCollegeExchangeRow[] }) {
+  if (rows.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        No college sizes are on record, so give and receive cannot be set beside
+        them.
+      </p>
+    );
+  }
+  const cell = (n: number) =>
+    n > 0 ? (
+      <span className="tabular-nums">{n.toLocaleString()}</span>
+    ) : (
+      <span className="text-[11px] text-muted-foreground">none</span>
+    );
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <table className="w-full min-w-max border-collapse text-sm">
+        <thead>
+          <tr className="border-b bg-muted/50 text-xs">
+            <th className="px-3 py-2 text-left font-medium">College</th>
+            <th className="px-3 py-2 text-right font-medium">Active learners</th>
+            <th className="px-3 py-2 text-right font-medium">Teaching given</th>
+            <th className="px-3 py-2 text-right font-medium">Teaching received</th>
+            <th className="px-3 py-2 text-right font-medium">Bookings made</th>
+            <th className="px-3 py-2 text-right font-medium">Bookings hosted</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.institution_id} className="border-b last:border-0">
+              <td className="px-3 py-2">{instLabel(r.institution_name, r.iqac_code)}</td>
+              <td className="px-3 py-2 text-right">
+                {/* A college can genuinely have no active cohort — Education is
+                    one today — and a bare 0 in a size column would read as a
+                    measured failing rather than as a college between intakes. */}
+                {r.active_learners > 0 ? (
+                  <span className="tabular-nums">
+                    {r.active_learners.toLocaleString()}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">
+                    no active cohort
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right">{cell(r.teaching_given)}</td>
+              <td className="px-3 py-2 text-right">{cell(r.teaching_received)}</td>
+              <td className="px-3 py-2 text-right">{cell(r.bookings_given)}</td>
+              <td className="px-3 py-2 text-right">{cell(r.bookings_received)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ExchangeMapPanel() {
   const { data, isLoading, error } = useCacExchangeEdges();
+  const { data: sizeData } = useCacCollegeSizes();
   const edges = useMemo<CacExchangeEdge[]>(() => data ?? [], [data]);
 
   const teaching = useMemo(() => splitExchange(edges, 'teaching'), [edges]);
   const bookings = useMemo(() => splitExchange(edges, 'booking'), [edges]);
+  const perCollege = useMemo(
+    () => perCollegeExchange(edges, sizeData ?? []),
+    [edges, sizeData],
+  );
 
   return (
     <PanelShell
@@ -425,6 +591,22 @@ function ExchangeMapPanel() {
               <EdgeList edges={bookings.hub} unitWord="bookings" />
             </div>
           </div>
+        </div>
+      )}
+
+      {!error && !isLoading && (
+        <div className="space-y-2 pt-2">
+          <div className="text-sm font-medium">
+            What each college gives and receives
+          </div>
+          <p className="text-xs text-muted-foreground">
+            College-to-college only; traffic with the central office is counted
+            in its own segment above. Every assessed college is listed, including
+            those that have exchanged nothing — a college missing from this table
+            would read as one outside the cluster rather than one that has not
+            started.
+          </p>
+          <PerCollegeExchangeTable rows={perCollege} />
         </div>
       )}
 
@@ -573,6 +755,7 @@ function CurriculumOverlapPanel() {
 function IsolationPanel() {
   const { data, isLoading, error } = useCacCollaborationIsolation();
   const { data: edgeData } = useCacExchangeEdges();
+  const { data: sizeData } = useCacCollegeSizes();
 
   const rows = useMemo(() => data ?? [], [data]);
   const isolated = useMemo(() => isolatedInstitutions(rows), [rows]);
@@ -580,6 +763,16 @@ function IsolationPanel() {
   const teachingTop = useMemo(
     () => concentration(edgeData ?? [], 'teaching'),
     [edgeData],
+  );
+  // The size of the college on the receiving end. Null while sizes are still
+  // loading, and null if it cannot be matched — in both cases the panel simply
+  // omits the sentence rather than guessing at a proportion.
+  const topStanding = useMemo(
+    () =>
+      teachingTop
+        ? sizeStanding(sizeData ?? [], teachingTop.institutionId, teachingTop.name)
+        : null,
+    [sizeData, teachingTop],
   );
 
   return (
@@ -663,6 +856,26 @@ function IsolationPanel() {
                   from {teachingTop.sources}{' '}
                   {teachingTop.sources === 1 ? 'college' : 'colleges'}.
                 </p>
+                {topStanding && (
+                  // Size belongs in the same breath as the share. Without it the
+                  // sentence above reads as a college that cannot staff itself;
+                  // with it, the same figures describe a small college being
+                  // covered by larger siblings, which is the behaviour a cluster
+                  // exists to produce. Stated as a share of cluster learners
+                  // rather than as a rank — a rank would have to call this the
+                  // smallest college, and that is not true while another college
+                  // has no active cohort at all.
+                  <p className="text-sm">
+                    It holds{' '}
+                    <span className="font-semibold">
+                      {topStanding.activeLearners.toLocaleString()}
+                    </span>{' '}
+                    of the cluster&apos;s{' '}
+                    {topStanding.clusterLearners.toLocaleString()} active
+                    learners — {topStanding.sharePct}% of the learners, receiving{' '}
+                    {teachingTop.sharePct}% of the teaching.
+                  </p>
+                )}
                 <div className="rounded-md border bg-muted/30 p-2 text-xs text-muted-foreground">
                   <p>
                     <span className="font-medium text-foreground">

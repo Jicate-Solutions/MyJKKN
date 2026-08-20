@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import { SwitchToOnlineRequest } from './switch-to-online-request';
 
 export type ReschedulePageState = 'invalid' | 'not-confirmed' | 'pick';
 
@@ -19,6 +20,10 @@ interface RescheduleWidgetProps {
   meetingTitle: string;
   hostName: string;
   currentStart: string; // ISO; empty when state is 'invalid'
+  /** Server-decided: may this visitor ask for a video call instead? */
+  canAskForVideo: boolean;
+  /** Server-decided: is one of their requests already awaiting the host? */
+  switchRequestPending: boolean;
 }
 
 interface SlotsResponse {
@@ -57,6 +62,8 @@ export function RescheduleWidget({
   meetingTitle,
   hostName,
   currentStart,
+  canAskForVideo,
+  switchRequestPending,
 }: RescheduleWidgetProps) {
   const [state, setState] = useState<ReschedulePageState | 'done'>(initialState);
   const [slots, setSlots] = useState<SlotsResponse | null>(null);
@@ -259,6 +266,18 @@ export function RescheduleWidget({
             <p className="text-center text-xs text-[#1C2B24]/50">
               Changed your mind? Just close this page — your current time stays booked.
             </p>
+
+            {/* Separate from the picker above on purpose: moving the meeting and
+                asking to meet by video are two different requests, and only one
+                of them takes effect without the host. */}
+            {(canAskForVideo || switchRequestPending) && (
+              <SwitchToOnlineRequest
+                uid={uid}
+                token={token}
+                hostName={hostName}
+                alreadyRequested={switchRequestPending}
+              />
+            )}
           </div>
         )}
       </div>

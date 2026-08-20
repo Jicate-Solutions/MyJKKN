@@ -258,11 +258,22 @@ interface FilterBadge {
   value: string;
 }
 
-function buildFilterBadges(filters: ProfilesSearchParams, statusFilter?: string): FilterBadge[] {
+function buildFilterBadges(
+  filters: ProfilesSearchParams,
+  statusFilter?: LifecycleStatus | LifecycleStatus[]
+): FilterBadge[] {
   const badges: FilterBadge[] = [];
 
   const effectiveStatus = statusFilter || filters.lifecycle_status;
-  if (effectiveStatus) badges.push({ label: 'Status', value: effectiveStatus });
+  if (effectiveStatus)
+    badges.push({
+      label: 'Status',
+      // The "All Statuses" tab passes its whole set. Naming the members keeps
+      // the badge honest about what the download will contain.
+      value: Array.isArray(effectiveStatus)
+        ? effectiveStatus.join(', ')
+        : effectiveStatus,
+    });
   if (filters.institution_id) badges.push({ label: 'Institution', value: 'Filtered' });
   if (filters.degree_id) badges.push({ label: 'Degree', value: 'Filtered' });
   if (filters.department_id) badges.push({ label: 'Department', value: 'Filtered' });
@@ -271,6 +282,11 @@ function buildFilterBadges(filters: ProfilesSearchParams, statusFilter?: string)
   if (filters.section_id) badges.push({ label: 'Section', value: 'Filtered' });
   if (filters.academic_year_id) badges.push({ label: 'Academic Year', value: 'Filtered' });
   if (filters.gender) badges.push({ label: 'Gender', value: filters.gender });
+  // 'Filtered' rather than the name: this builder is pure and synchronous, and
+  // the id→name lookup is an async query. Matches how every other id-valued
+  // filter above reports itself.
+  if (filters.accommodation_type_id)
+    badges.push({ label: 'Accommodation', value: 'Filtered' });
   if (filters.is_profile_complete !== undefined && filters.is_profile_complete !== '')
     badges.push({
       label: 'Profile Complete',
@@ -289,8 +305,17 @@ interface LearnerExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   filters: ProfilesSearchParams;
-  /** Passed from parent to lock lifecycle_status (e.g. 'active' | 'inactive' | 'exited') */
-  statusFilter?: 'active' | 'inactive' | 'exited';
+  /**
+   * Passed from the parent to lock lifecycle_status to the selected tab.
+   * Typed as the full LifecycleStatus union rather than a hand-listed subset —
+   * the old three-value copy silently excluded 'reserved' and 'admitted' once
+   * those became tabs, and it feeds straight into `.eq('lifecycle_status', …)`.
+   *
+   * An ARRAY on the "All Statuses" tab: the parent maps that tab to the five
+   * statuses the page lists (LearnerProfileService applies it with `.in()`),
+   * so the download matches the rows on screen instead of every enum label.
+   */
+  statusFilter?: LifecycleStatus | LifecycleStatus[];
 }
 
 // ============================================
@@ -383,7 +408,7 @@ export function LearnerExportDialog({
         limit: 10000,
         lifecycle_status: (statusFilter ||
           filters.lifecycle_status ||
-          undefined) as LifecycleStatus | undefined,
+          undefined) as LifecycleStatus | LifecycleStatus[] | undefined,
         institution_id: filters.institution_id,
         degree_id: filters.degree_id,
         department_id: filters.department_id,
@@ -392,6 +417,7 @@ export function LearnerExportDialog({
         section_id: filters.section_id,
         academic_year_id: filters.academic_year_id,
         gender: filters.gender,
+        accommodation_type_id: filters.accommodation_type_id,
         is_profile_complete:
           filters.is_profile_complete !== undefined && filters.is_profile_complete !== ''
             ? filters.is_profile_complete === 'true'

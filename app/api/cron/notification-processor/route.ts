@@ -252,11 +252,14 @@ async function sendPushToUsers(
 
   if (userIds.length === 0) return 0;
 
-  // Fetch push subscriptions for target users
+  // Fetch push subscriptions for target users. is_active=false is how an
+  // unsubscribe is recorded, so pushing to those rows would buzz learners
+  // who explicitly opted out.
   const { data: subscriptions, error: subError } = await serviceClient
     .from('push_subscriptions')
     .select('id, subscription, user_id')
-    .in('user_id', userIds);
+    .in('user_id', userIds)
+    .eq('is_active', true);
 
   if (subError) {
     console.error('[cron/notification-processor] Error fetching push subscriptions:', subError);

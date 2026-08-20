@@ -15,7 +15,16 @@
 --                                  carried-in note that misdescribed the
 --                                  ai_pulse_policies columns in both directions.
 --
--- FILE ONLY / NOT APPLIED BY THIS PR. Applying is Director-gated.
+-- ✅ APPLIED TO PRODUCTION 2026-08-10 by hand (Management API, single batch,
+--    myjkkn.apply_notification_expiry_ddl='yes'), NOT via the blanket-push
+--    workflow. Recorded in supabase_migrations.schema_migrations as
+--    ('20260816040000','notification_expiry_director_categories').
+--    Verified afterwards by catalog read, not by an empty API response:
+--    fn_create_dashboard_work_item pronargs 8 -> 9 with p_expires_hours, and
+--    the three generators now pass a 36h TTL. Everything below is history; do
+--    not re-run it, and do not edit the executable SQL in this file — prod
+--    already carries these bodies and an edit here would silently diverge from
+--    it. Comments may be corrected.
 --
 -- ############################################################################
 -- ##  APPLY-TIME CONSTRAINT -- READ BEFORE RUNNING ANYTHING                 ##
@@ -27,17 +36,23 @@
 -- earlier unapplied 'DO NOT AUTO-APPLY' backfill whose data UPDATE has no guard
 -- of any kind) and whatever else is pending.
 --
--- THIS FILE IS NOT GUARDED. Its statements are one DROP FUNCTION and five
--- CREATE OR REPLACE FUNCTIONs, so a blanket push WOULD apply them. The companion
--- data backfill 20260816040100 IS guarded (its UPDATE no-ops unless
--- myjkkn.apply_backfill='yes'), so a blanket push cannot silently stamp those
--- 44,855 rows -- but it CAN apply the function bodies here, and one of those
--- bodies revives fn_generate_super_admin_daily_digest, dead since 2026-05-08.
--- That restarts a daily emitter with no sign-off: measured inside BEGIN..ROLLBACK
--- on 2026-08-09 the revived function creates 129 rows for one day (each with a
--- 36h TTL); over its last eight days alive (2026-05-01..2026-05-08) it emitted
--- 46-49 rows/day. Treat this file as Director-gated on that basis, not on the
--- banner.
+-- THIS FILE IS GUARDED. The DO $gate$ block below raises unless
+-- myjkkn.apply_notification_expiry_ddl='yes', and it sits BEFORE the first DDL
+-- statement, so a blanket `supabase db push` aborts here and applies nothing
+-- from this file. (An earlier revision of this header said the opposite; that
+-- text predated the gate and was stale. Corrected 2026-08-10.)
+--
+-- The gate exists because this file is more than a TTL tweak: it replaces five
+-- function bodies AND revives fn_generate_super_admin_daily_digest, dead on prod
+-- since 2026-05-08. Reviving it restarts a daily emitter -- measured inside
+-- BEGIN..ROLLBACK on 2026-08-09 the revived function creates 129 rows for one
+-- day (each with a 36h TTL); over its last eight days alive
+-- (2026-05-01..2026-05-08) it emitted 46-49 rows/day. That is a deliberate
+-- change in traffic, not a side effect, which is why it is Director-gated.
+--
+-- Note the gate does NOT protect the rest of the ledger: 20260803080000 sorts
+-- BEFORE this file and carries no guard of its own, so a blanket push still runs
+-- that one first, before this file can abort the push.
 --
 -- To apply THIS file alone, hand-run its contents once via Supabase Studio's SQL
 -- editor (or the Management API) against project kvizhngldtiuufknvehv, then record

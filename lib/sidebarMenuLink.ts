@@ -106,6 +106,7 @@ import {
   UserCog,
   SearchCheck,
   BadgeCheck,
+  Presentation,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -275,6 +276,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/users/roles': 'roles.assign',
   '/users/role-management': 'roles.create',
   '/users/permissions-audit': 'users.permissions_audit.view',
+  '/users/jkkn-id': 'users.jkkn_id.view',
   // Added 2026-06-19: dynamic user-detail routes were unguarded (no page guard,
   // no MENU_PERMISSIONS entry) so they rendered to any authenticated user. Now
   // declared canonically + enforced by RoutePermissionGuard (/users/layout.tsx).
@@ -493,6 +495,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/hr/admin/training': 'hr.dashboard.view',
   '/hr/admin/leave-types': 'hr.leave.types.manage',
   '/hr/admin/leave-balances': 'hr.leave.balance.manage',
+  '/hr/admin/academic-years': 'hr.academic_years.manage',
   '/hr/admin/sanctioned-posts': 'hr.sanctioned_posts.view',
 
   // Staff Counseling (Phase 1 — placeholder gate; module pages land in Phase 2)
@@ -513,6 +516,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
   // Role Management to reveal the Projects sidebar entry.
   '/events': 'events.view',
+  '/courses': 'courses.view',
+  '/courses/new': 'courses.create',
   '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
@@ -556,6 +561,13 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/academic/attendance': 'academic.attendance.view',
   '/academic/attendance/dashboard': 'academic.attendance.dashboard.view',
   '/academic/attendance/pending': 'academic.attendance.view',
+  // Retrospective view of sessions that went unmarked. Gated on the DASHBOARD
+  // key, not the plain view key, and deliberately: it reads across a whole
+  // department or institution for months at a time, which is the dashboard's
+  // audience (10 roles hold it), not the per-session Senior Learner audience. The RPC
+  // behind it enforces the identical key server-side, so the page gate and the
+  // data gate cannot drift apart.
+  '/academic/attendance/history': 'academic.attendance.dashboard.view',
   '/academic/attendance/reports': 'academic.attendance.reports.view',
   '/academic/attendance/consolidation': 'academic.attendance.consolidation.view',
 
@@ -596,6 +608,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Exam IA Audit has its OWN narrower key (registrar/leadership audit sheet)
   '/academic/internal-marks/exam-audit': 'academic.internal_marks.exam_audit.view',
   '/academic/internal-marks/report': 'academic.internal-marks.view',
+
+  // CIA Mark Entry (question-wise / direct). Its OWN key, separate from
+  // internal-marks: entry is for teaching staff and HODs, while the
+  // internal-marks reports are read by a wider leadership audience. The
+  // matching '.enter' grant is what unlocks the inputs — see
+  // lib/utils/mark-entry/mark-entry-access.ts, which additionally makes the
+  // 'all' role tier (principal/registrar/CoE) view-only server-side.
+  '/academic/mark-entry': 'academic.mark-entry.view',
 
   // Regulations Management
   '/academic/regulations': 'academic.regulations.view',
@@ -650,6 +670,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // has no segment the terminology delta gate matches, so no value split is
   // needed here.
   '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
+  // Cross-cycle session trend. Deliberately NOT 'aiPulse:cycles.manage', even
+  // though it sits beside the Champion Console: the SELECT policy on
+  // ai_pulse_live_attendance (20260611) admits `aiPulse:attendance.mark` and
+  // `aiPulse:anomaly.review` but not `cycles.manage`, so gating on cycles.manage
+  // would open a page whose every rate then read "not captured" for want of
+  // rows. The ai_pulse_champion role holds both keys, so the Champion and
+  // Co-Champion are admitted either way — this key also guarantees the data.
+  '/ai-pulse/admin/trends': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -694,8 +722,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards': 'id_cards.jobs.view',
   '/admin/id-cards/template': 'id_cards.templates.view',
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Morning page (2026-08-14) — the daily exception/coverage read. Same key as
+  // the print queue: anyone who can see the ID Cards menu can read it.
+  '/admin/id-cards/morning': 'id_cards.jobs.view',
   // Batch print enqueues jobs, so it needs the manage key (not just view).
   '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Address Check (2026-08-14) is read-only — it lists the addresses that will
+  // print wrong and links out to the learner's edit screen, so it shares the
+  // view key rather than requiring manage.
+  '/admin/id-cards/address-check': 'id_cards.jobs.view',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -800,6 +835,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  // School fees (2026-08-13; moved under /billing 2026-08-13). Gated on
+  // school_fees.read, granted to accounts / accountant_assistant /
+  // administrator / super_admin only.
+  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
+  // institution entity_type, and the accounts staff who run school billing sit
+  // at an admin office, not at the school — hiding it there would lock out the
+  // very people who need it. The institution dropdown inside the page is what
+  // restricts the data to entity_type='school'.
+  '/billing/school-fees': 'school_fees.read',
+  '/billing/school-fees/term-calendar': 'school_fees.read',
+  '/billing/school-fees/new': 'school_fees.manage',
+  '/billing/school-fees/[id]': 'school_fees.read',
+  '/billing/school-fees/concessions': 'school_fees.read',
+  '/billing/school-fees/generate': 'school_fees.generate',
+  // The payment counter. Gated on .collect, not .read — everything on that
+  // screen leads to writing a receipt, so a read-only user has no reason there.
+  '/billing/school-fees/collect': 'school_fees.collect',
   '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
@@ -885,9 +937,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/referral-rates': 'admission.consultants.commissions.view',
+  '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
+  '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
+  // Added 2026-08-10 — read-only review worklist for agency credits that need a
+  // human look. Gated on the enquiry-desk read permission, matching its RPC.
+  '/admission/consultants/review-worklist': 'admission.leads.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
 
   // Schools Network (2026-06-30) — track external K-12 schools the org engages
@@ -1027,6 +1084,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // already-registered key the page's SECURITY DEFINER RPCs check, so the screen
   // and the database cannot disagree about who belongs here.
   '/startup-studio/school-of-influence/admin/attendance': 'cohort.manage',
+  // Same reasoning for the batch roster — it is the only screen somebody can be
+  // taken off a batch from, so it must not be reachable by typing the URL.
+  '/startup-studio/school-of-influence/admin/members': 'cohort.manage',
+  // 2026-08-13 (BUG-005799 / BUG-005800): the other three admin screens were
+  // never declared, so each one inherited '/startup-studio' ->
+  // startup_studio.analytics.view from the ancestor match — a key about
+  // innovation-cycle analytics deciding who may read applications. Declaring
+  // them on cohort.manage puts the chip, the route guard and the RPCs on ONE
+  // word, and is what lets the appointment seam in
+  // hooks/school-of-influence/use-soi-coordinator-nav-access.ts reveal exactly
+  // these four screens and nothing else on the platform.
+  '/startup-studio/school-of-influence/admin/applications': 'cohort.manage',
+  '/startup-studio/school-of-influence/admin/coordinators': 'cohort.manage',
+  '/startup-studio/school-of-influence/admin/lifecycle': 'cohort.manage',
 
   '/staff': 'staff.view',
   '/hr': 'hr.view',
@@ -1038,6 +1109,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
   '/solutions/list': 'solutions.dashboard.view',
+  // Deliberately REUSES the dashboard key (2026-08-14): a freshly minted
+  // solutions.digest.view would be true on almost no role — the trap hit
+  // three times the week of 08-13. Anyone who can see the dashboard can
+  // see its weekly digest.
+  '/solutions/digest': 'solutions.dashboard.view',
   '/solutions/pipeline': 'solutions.pipeline.view',
   '/solutions/pipeline/list': 'solutions.pipeline.view',
   '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
@@ -1098,6 +1174,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/blocks': 'campus_living.blocks.view',
   '/campus-living/allocations': 'campus_living.allocations.view',
   '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  // Read-only audit. Its own key (held by no role) so the nav chip and the
+  // route guard agree it is super-admin-only — a link the sidebar hides but
+  // the guard opens is still a reachable page.
+  '/campus-living/allocations/audit': 'campus_living.allocations.audit',
   '/campus-living/residents': 'campus_living.residents.view',
   '/campus-living/my-hostel': 'campus_living.my_hostel.view',
   '/campus-living/my-hostel/vacate-request': 'campus_living.vacate_requests.submit',
@@ -1108,6 +1188,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  // Gated on the WRITE key, not .view: the scan screen exists only to record
+  // exits and returns, so a read-only holder has nothing to do there.
+  '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
@@ -1443,6 +1526,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // Host-initiated scheduling. Same gate as the rest of the module: the page
+  // can only ever book the SIGNED-IN user's own calendar, so a separate key
+  // would add a role-config burden without adding any protection.
+  '/meetings/schedule': 'meetings.view',
   '/meetings/routing-forms': 'meetings.routing.view',
   '/meetings/workflows': 'meetings.workflows.view',
   '/meetings/polls': 'meetings.polls.view',
@@ -1863,6 +1950,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/users/role-management', label: 'Role Management', active: pathname === '/users/role-management' },
             { href: '/users/activity', label: 'Activity Audit Logs', active: pathname === '/users/activity' },
             { href: '/users/permissions-audit', label: 'Permissions Audit', active: pathname === '/users/permissions-audit' },
+            { href: '/users/jkkn-id', label: 'JKKN ID', active: pathname === '/users/jkkn-id' },
           ]
         }
       ]
@@ -2234,6 +2322,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/referral-rates'
             },
             {
+              href: '/admission/consultants/unlinked-referrals',
+              label: 'Unlinked Referrals',
+              active: pathname === '/admission/consultants/unlinked-referrals'
+            },
+            {
               href: '/admission/consultants/import',
               label: 'Import Referrals',
               active: pathname === '/admission/consultants/import'
@@ -2244,9 +2337,21 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/payouts'
             },
             {
+              href: '/admission/consultants/reconciliation',
+              label: 'Reconciliation',
+              active: pathname === '/admission/consultants/reconciliation'
+            },
+            {
               href: '/admission/consultants/referrals',
               label: 'Referrals',
               active: pathname === '/admission/consultants/referrals'
+            },
+            {
+              // Added 2026-08-10 — read-only queue of agency credits to review
+              // before any referral rate is switched on.
+              href: '/admission/consultants/review-worklist',
+              label: 'Review Worklist',
+              active: pathname === '/admission/consultants/review-worklist'
             },
             {
               href: '/admission/consultants/rewards',
@@ -2631,6 +2736,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/admin/training', label: 'Training', active: pathname.startsWith('/hr/admin/training') },
             { href: '/hr/admin/leave-types', label: 'Leave Types', active: pathname.startsWith('/hr/admin/leave-types') },
             { href: '/hr/admin/leave-balances', label: 'Leave Balances', active: pathname.startsWith('/hr/admin/leave-balances') },
+            { href: '/hr/admin/academic-years', label: 'HR Academic Years', active: pathname.startsWith('/hr/admin/academic-years') },
             { href: '/hr/admin/sanctioned-posts', label: 'Sanctioned Posts', active: pathname.startsWith('/hr/admin/sanctioned-posts') },
           ]
         }
@@ -2813,6 +2919,23 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
             { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
             { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+            // School fees (moved here from Admission > Settings 2026-08-13).
+            // 'School Fee Plans' owns /billing/school-fees and its plan
+            // sub-routes (/new, /[id]) but NOT the siblings below, which have
+            // their own rows — otherwise two highlight at once.
+            { href: '/billing/school-fees', label: 'School Fee Plans',
+              active: pathname === '/billing/school-fees' ||
+                (pathname.startsWith('/billing/school-fees/') &&
+                  !pathname.startsWith('/billing/school-fees/term-calendar') &&
+                  !pathname.startsWith('/billing/school-fees/concessions') &&
+                  !pathname.startsWith('/billing/school-fees/generate') &&
+                  !pathname.startsWith('/billing/school-fees/collect')) },
+            { href: '/billing/school-fees/term-calendar', label: 'School Term Calendar', active: pathname.startsWith('/billing/school-fees/term-calendar') },
+            { href: '/billing/school-fees/concessions', label: 'School Fee Concessions', active: pathname.startsWith('/billing/school-fees/concessions') },
+            { href: '/billing/school-fees/generate', label: 'Generate School Fees', active: pathname.startsWith('/billing/school-fees/generate') },
+            // Sits after Generate because that is the order of the work: raise
+            // the year's bills, then take money against them.
+            { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
           ]
         }
       ]
@@ -2959,8 +3082,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/admin/id-cards'),
           icon: IdCard,
           submenus: [
+            { href: '/admin/id-cards/morning', label: 'Morning Page', active: pathname.startsWith('/admin/id-cards/morning') },
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/address-check', label: 'Address Check', active: pathname.startsWith('/admin/id-cards/address-check') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
@@ -3033,6 +3158,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
+            { href: '/ai-pulse/admin/trends', label: 'Champion · Session Trend', active: pathname.startsWith('/ai-pulse/admin/trends') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
@@ -3055,6 +3181,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarClock,
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
@@ -3204,6 +3331,25 @@ export function GetPages(pathname: string): MenuGroup[] {
       ]
     },
     {
+      groupLabel: 'Courses',
+      menus: [
+        {
+          href: '/courses',
+          label: 'Courses',
+          // Same parent-href-as-leaf trap as '/events' above: the parent row is
+          // a pure accordion toggle at runtime, so its own href is never
+          // clickable. The 'All Courses' submenu leaf below is what actually
+          // makes /courses reachable by check:reachability's chip-click walk.
+          active: pathname === '/courses' || pathname.startsWith('/courses/'),
+          icon: Presentation,
+          submenus: [
+            { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
+            { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
+          ]
+        }
+      ]
+    },
+    {
       groupLabel: 'Startup Studio',
       menus: [
         // Single sidebar entry — all Startup Studio navigation lives in the
@@ -3224,6 +3370,30 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Startup Studio',
           active: pathname === '/startup-studio' || pathname.startsWith('/startup-studio/'),
           icon: Rocket,
+          submenus: []
+        },
+        {
+          // 2026-08-13 (BUG-005799 / BUG-005800) — the one exception to the flat
+          // single-row rule above, and it is not decoration.
+          //
+          // A School of Influence coordinator is authorised for the review queue
+          // and for nothing else in Startup Studio: /startup-studio itself is
+          // gated on startup_studio.analytics.view, which they do not hold. So
+          // the module row is a locked door for them, and routing them through
+          // it would land them on a page they cannot open — and even if they
+          // could, the in-page chip strip suppresses a lone surviving chip, so
+          // the module root is a dead end by construction.
+          //
+          // This row is therefore a DIRECT link to the work: gated on
+          // cohort.manage, the same key the queue and its RPCs use, so the
+          // people who already run the programme finally get a link instead of
+          // a URL they have to remember. menu.tsx grants that key to an active
+          // appointment for nav purposes only (see
+          // hooks/school-of-influence/use-soi-coordinator-nav-access.ts).
+          href: '/startup-studio/school-of-influence/admin/applications',
+          label: 'School of Influence',
+          active: pathname.startsWith('/startup-studio/school-of-influence'),
+          icon: GraduationCap,
           submenus: []
         }
       ]

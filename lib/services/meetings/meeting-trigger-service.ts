@@ -252,6 +252,22 @@ export async function createBellNotification(
      * database, not a read-then-write check, is the arbiter.
      */
     idempotencyKey?: string;
+    /**
+     * ISO timestamp written to `notifications.expires_at`. OPT-IN: when omitted
+     * (the default, and what every other caller in this file does) the column
+     * stays NULL and the row never expires — today's behaviour, unchanged.
+     *
+     * Set it only for a row that RESTATES a fact on a fixed cycle under a
+     * per-cycle idempotency key, per the rule in
+     * supabase/migrations/20260816040000_notification_expiry_director_categories.sql:
+     * expiring such a row hides nothing, because the next cycle restates it and
+     * the real work lives on a page. A row that is the ONLY record of a specific
+     * un-actioned item must NOT get one.
+     *
+     * Honoured by liveNotificationOrFilter() in the bell / inbox / rollup read
+     * path; admin/manage/stats reads deliberately still show lapsed rows.
+     */
+    expiresAt?: string;
   }
 ): Promise<string | null> {
   const row: Record<string, unknown> = {
@@ -272,6 +288,7 @@ export async function createBellNotification(
     row.action_config = opts.action.config;
   }
   if (opts.idempotencyKey) row.idempotency_key = opts.idempotencyKey;
+  if (opts.expiresAt) row.expires_at = opts.expiresAt;
 
   const { data: notif, error } = await db
     .from('notifications')
@@ -2120,6 +2137,8 @@ const BOOKING_MIN_NOTICE_MIN = 120;
 const CAMPUS_TZ = 'Asia/Kolkata';
 /** Where an un-connected participant goes to connect Google Calendar. */
 const CONNECT_CALENDAR_URL = '/meetings/availability';
+/** 1.5x the daily re-nudge cycle — see the expiresAt note at the fanout. */
+const CONNECT_NUDGE_TTL_MS = Math.round(24 * 3600_000 * 1.5);
 /** Free slots to try before giving up on a concurrent-booking race (23P01). */
 const SLOT_ATTEMPTS = 5;
 /** Bound the work of one cron pass. */
@@ -2592,6 +2611,17 @@ async function nudgeToConnectCalendar(
     url: CONNECT_CALENDAR_URL,
     category: 'meetings:calendar-connect-needed',
     idempotencyKey: nudgeKey,
+    // 2026-08-10 expiry: this row is re-emitted for every NEW day the breach
+    // stays unbooked (see the cap above), so it is a daily restatement, not the
+    // only record of the breach — the breach itself lives on
+    // meeting_trigger_events and surfaces in Meetings. Without a TTL, 47 of
+    // these accumulated unexpired in 14 days and never left anyone's bell.
+    // TTL = 1.5x the daily cadence, the same margin and the same reasoning as
+    // 20260816040000: 24h would kill the row at the moment its replacement is
+    // due, so any slip empties the bell. A literal is safe here (unlike the
+    // dispatcher-run routines) because this producer's cadence is pinned in
+    // vercel.json ('23 * * * *'), so a cadence change ships in the same deploy.
+    expiresAt: new Date(now.getTime() + CONNECT_NUDGE_TTL_MS).toISOString(),
     metadata: {
       event_ids: group.events.map((e) => e.id),
       institution_id: group.institutionId,
@@ -2878,27 +2908,35 @@ export async function bookPendingMeetings(
       const staleBefore = new Date(
         now.getTime() - BOOKING_CLAIM_TTL_MIN * 60_000
       ).toISOString();
-      const { data: claimedRows, error: claimErr } = await db
-        .from('meeting_trigger_events')
-        .update({
-          booking_claimed_at: now.toISOString(),
-          booking_claim_token: claimToken
-        })
-        .in(
-          'id',
-          group.events.map((e) => e.id)
-        )
-        .eq('status', 'meeting_pending')
-        .is('booking_id', null)
-        .or(`booking_claimed_at.is.null,booking_claimed_at.lt.${staleBefore}`)
-        .select('id');
+      // Claimed through an RPC, not a PostgREST UPDATE. PostgREST re-applies the
+      // request's filters to an UPDATE's RETURNING projection — and this claim
+      // WRITES the very column it FILTERS on (booking_claimed_at). The new value
+      // fails the staleness predicate, so the row is filtered out of its own
+      // response body: the UPDATE commits, the caller gets [], concludes another
+      // worker owns the row (skipped_claimed++), and the claim it just wrote
+      // blocks every later run for BOOKING_CLAIM_TTL_MIN. A livelock in which
+      // nothing books and nothing is reported. Reproduced on prod 2026-08-18:
+      //   before 02:18:44Z (stale) -> PATCH … or=(is.null,lt.02:33:07Z) -> body []
+      //   after  02:48:44Z         -> the write LANDED anyway
+      // In SQL, UPDATE … RETURNING returns exactly the rows touched, so the
+      // function returns the truth. Atomicity is unchanged: Postgres serialises
+      // concurrent writers on the row and re-evaluates the predicate against the
+      // winner's version, so the loser matches 0 rows and walks away.
+      const { data: claimedRows, error: claimErr } = await db.rpc(
+        'fn_meeting_claim_pending_events',
+        {
+          p_event_ids: group.events.map((e) => e.id),
+          p_claim_token: claimToken,
+          p_stale_before: staleBefore
+        }
+      );
 
       if (claimErr) {
         result.errors.push(`claim ${group.key}: ${claimErr.message}`);
         continue;
       }
       const claimedIds = new Set(
-        ((claimedRows ?? []) as any[]).map((r) => r.id)
+        ((claimedRows ?? []) as any[]).map((r) => r.claimed_id)
       );
       if (claimedIds.size === 0) {
         // Someone else owns every event in this group right now.
@@ -3270,6 +3308,8 @@ export async function bookPendingMeetings(
 // unindexed containment scan over 220,289 notification rows every hour.)
 
 const WEEKLY_SUMMARY_CATEGORY = 'meetings:calendar-connect-weekly';
+/** 1.5x the weekly restatement cycle — see the expiresAt note at the fanout. */
+const WEEKLY_SUMMARY_TTL_MS = Math.round(7 * 24 * 3600_000 * 1.5);
 
 export interface WeeklyConnectSummaryResult {
   ran: boolean;
@@ -3436,6 +3476,16 @@ export async function sendWeeklyCalendarConnectSummary(
               : ''),
           url: CONNECT_CALENDAR_URL,
           category: WEEKLY_SUMMARY_CATEGORY,
+          // 2026-08-10 expiry: a weekly restatement of who is still
+          // unconnected, keyed per ISO week — next Monday's edition recomputes
+          // the same list, and the list itself is on the Meetings surface. 37 of
+          // these had accumulated unexpired. TTL = 1.5x the WEEKLY cycle (not
+          // the hourly producer's tick): the row must outlive the gap to the
+          // next edition, so the cadence that matters is the one the
+          // idempotency key encodes.
+          expiresAt: new Date(
+            now.getTime() + WEEKLY_SUMMARY_TTL_MS
+          ).toISOString(),
           metadata: {
             iso_week: isoWeek,
             institution_id: institutionId,
@@ -3459,5 +3509,58 @@ export async function sendWeeklyCalendarConnectSummary(
     logger.error(MODULE, 'sendWeeklyCalendarConnectSummary failed', e);
   }
 
+  return result;
+}
+
+// ============================================================================
+// CALENDAR-CONNECT LOCK SWEEP (Director decision 2026-08-18)
+// ============================================================================
+// 16 review meetings could not be scheduled because the people in them had never
+// connected Google Calendar. The daily bell nudge above had already fired on all
+// 16 without effect, and the weekly Principal summary had gone out too — so the
+// Director escalated: anyone holding a booking page connects, or MyJKKN stops
+// for them after a 3-day warning.
+//
+// The state machine itself is `fn_calendar_lock_sweep` in SQL, deliberately NOT
+// here: the rule decides who loses access to a multi-tenant platform, so it is
+// one auditable object that a migration has to change, rather than logic spread
+// across a service. This wrapper exists only so the hourly cron can call it the
+// same way it calls every other pass, and so a failure is reported rather than
+// swallowed.
+//
+// While the master switch is off — which is how it ships — this returns zeroes.
+
+export interface CalendarLockSweepResult {
+  /** People who entered the 3-day grace window on this pass. */
+  warned: number;
+  /** People whose grace expired on this pass and who are now held. */
+  locked: number;
+  /** People released because they connected (or the switch went off). */
+  cleared: number;
+}
+
+export async function sweepCalendarConnectLock(
+  opts: { client?: SupabaseClient } = {}
+): Promise<CalendarLockSweepResult> {
+  const db = opts.client ?? createServiceRoleClient();
+  const { data, error } = await (db as any).rpc('fn_calendar_lock_sweep');
+  if (error) throw new Error(error.message);
+
+  const row = Array.isArray(data) ? data[0] : data;
+  const result: CalendarLockSweepResult = {
+    warned: Number(row?.warned ?? 0),
+    locked: Number(row?.locked ?? 0),
+    cleared: Number(row?.cleared ?? 0),
+  };
+
+  // Locking someone out of the whole platform is not routine traffic — it should
+  // be findable in the logs on the day someone asks "why can't I get in?".
+  if (result.locked > 0) {
+    logger.warn(
+      MODULE,
+      `calendar-connect lock: ${result.locked} person(s) now held at /auth/connect-calendar`,
+      result
+    );
+  }
   return result;
 }

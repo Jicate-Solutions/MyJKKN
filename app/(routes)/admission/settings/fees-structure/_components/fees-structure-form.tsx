@@ -99,6 +99,7 @@ import {
 } from '@/components/ui/command';
 
 import { FeeStructureService } from '@/lib/services/admission/fee-structure-service';
+import { LookupService, type HostelTierOption } from '@/lib/services/admission/lookup-service';
 import { BillingCategoryService } from '@/lib/services/billing/categories/billing-category-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { getErrorMessage } from '@/lib/utils';
@@ -358,6 +359,10 @@ const newSchema = z
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
     status: z.enum(['draft', 'active']),
+    // '__any__' is the Select sentinel for "unclassified" — Radix Select
+    // cannot hold an empty-string value, so it is mapped to NULL on submit.
+    // Mirrors how gender/accommodation are handled in the dimension selector.
+    package_type: z.enum(['package', 'non_package', '__any__']),
     notes: z.string().max(500).optional(),
     // ISO date strings yyyy-MM-dd from <input type="date" /> — empty
     // string means "no bound" (persisted as NULL).
@@ -366,6 +371,12 @@ const newSchema = z
     community_category_ids: z
       .array(z.string().min(1))
       .min(1, 'Select at least one community'),
+    // Hostel tier. Only collected when the chosen accommodation is hostel;
+    // the cross-field requirement lives in the component (it needs `dims`,
+    // which the schema can't see). trg_fee_structure_hostel_categories_guard
+    // is the server-side backstop.
+    hostel_category_id: z.string().nullable().optional(),
+    mess_category_id: z.string().nullable().optional(),
     items: z.array(itemSchema).min(1, 'Add at least one fee item'),
   })
   .refine(
@@ -436,6 +447,7 @@ export function NewStructureForm({
       // Clone flow defaults to 'draft' so operators can review the prefilled
       // copy before activating; that's also the safe default for plain /new.
       status: initialValues?.status ?? 'draft',
+      package_type: initialValues?.package_type ?? '__any__',
       notes: initialValues?.notes ?? '',
       effective_from: initialValues?.effective_from ?? '',
       effective_to: initialValues?.effective_to ?? '',
@@ -447,12 +459,29 @@ export function NewStructureForm({
       community_category_ids:
         initialValues?.community_category_ids ??
         (leafCommunityId ? [leafCommunityId] : []),
+      hostel_category_id: initialValues?.hostel_category_id ?? null,
+      mess_category_id: initialValues?.mess_category_id ?? null,
       items: initialValues?.items ?? [],
     },
   });
 
   const items = form.watch('items');
   const communityIds = form.watch('community_category_ids');
+  const hostelCategoryId = form.watch('hostel_category_id');
+  const messCategoryId = form.watch('mess_category_id');
+  const { isHostel, ready: tierReady, roomOptions, messOptions } = useHostelTier(
+    dims.accommodation_type_id,
+  );
+
+  // Categories are rejected server-side on a non-hostel structure, so clear
+  // them the moment the selected accommodation stops being hostel. Gated on
+  // `tierReady` — before the lookup resolves, isHostel is false for "unknown"
+  // as well as "no", which would wipe a clone's prefilled tier.
+  useEffect(() => {
+    if (!tierReady || isHostel) return;
+    if (form.getValues('hostel_category_id')) form.setValue('hostel_category_id', null);
+    if (form.getValues('mess_category_id')) form.setValue('mess_category_id', null);
+  }, [tierReady, isHostel, form]);
 
   const remainingCategories = useMemo(
     () =>
@@ -508,6 +537,19 @@ export function NewStructureForm({
 
   const onSubmit = async (values: NewFormValues) => {
     if (submittingRef.current) return;
+
+    // Mirror trg_fee_structure_hostel_categories_guard client-side so the
+    // operator gets an inline message instead of a raw Postgres error. Draft
+    // hostel structures may leave the tier unset — only activation requires it.
+    if (isHostel && values.status === 'active') {
+      if (!values.hostel_category_id || !values.mess_category_id) {
+        toast.error(
+          'Pick a room category and a mess category before activating a hostel fee structure.',
+        );
+        return;
+      }
+    }
+
     submittingRef.current = true;
     setSubmitting(true);
     let succeeded = false;
@@ -517,6 +559,12 @@ export function NewStructureForm({
         community_category_ids: values.community_category_ids,
         name: values.name,
         status: values.status,
+        package_type: values.package_type === '__any__' ? null : values.package_type,
+        // Null out ONLY on a resolved negative. `!isHostel` alone is also true
+        // while the accommodation lookup is still in flight, which would drop
+        // a clone's prefilled tier.
+        hostel_category_id: tierReady && !isHostel ? null : values.hostel_category_id || null,
+        mess_category_id: tierReady && !isHostel ? null : values.mess_category_id || null,
         notes: values.notes || null,
         effective_from: values.effective_from || null,
         effective_to: values.effective_to || null,
@@ -582,6 +630,44 @@ export function NewStructureForm({
             </FormItem>
           )}
         />
+
+        <FormField
+          control={form.control}
+          name="package_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Package Type</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select package type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="package">Package — consolidated single amount</SelectItem>
+                  <SelectItem value="non_package">Non-Package — itemised fee heads</SelectItem>
+                  <SelectItem value="__any__">Any / Not specified</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Classification for reporting and filtering only — it does not affect
+                which structure a learner resolves to.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {isHostel && (
+          <HostelTierFields
+            roomOptions={roomOptions}
+            messOptions={messOptions}
+            roomValue={hostelCategoryId}
+            messValue={messCategoryId}
+            onRoomChange={(id) => form.setValue('hostel_category_id', id, { shouldValidate: true })}
+            onMessChange={(id) => form.setValue('mess_category_id', id, { shouldValidate: true })}
+          />
+        )}
 
         <CommunityMultiSelectField
           control={form.control}
@@ -707,6 +793,8 @@ const editSchema = z
       .min(2, 'Name must be at least 2 characters')
       .max(150, 'Name must be at most 150 characters'),
     status: z.enum(['draft', 'active', 'archived']),
+    // See newSchema — '__any__' is the sentinel for NULL / unclassified.
+    package_type: z.enum(['package', 'non_package', '__any__']),
     notes: z.string().max(500).optional(),
     effective_from: z.string().optional(),
     effective_to: z.string().optional(),
@@ -781,6 +869,28 @@ function ExistingStructureEditor({
     structure.community_category_ids ?? [],
   );
 
+  // Editable hostel tier. Lives beside editableDims rather than in the form
+  // because its visibility depends on editableDims.accommodation_type_id.
+  const [editableHostelCategoryId, setEditableHostelCategoryId] = useState<string | null>(
+    structure.hostel_category_id ?? null,
+  );
+  const [editableMessCategoryId, setEditableMessCategoryId] = useState<string | null>(
+    structure.mess_category_id ?? null,
+  );
+  const { isHostel, ready: tierReady, roomOptions, messOptions } = useHostelTier(
+    editableDims.accommodation_type_id,
+  );
+
+  // Retargeting the structure away from hostel must drop the tier, or the
+  // server-side guard rejects the save. Gated on `tierReady`: until the
+  // accommodation lookup lands, isHostel is false for "unknown" too, and
+  // clearing here would wipe the loaded structure's own tier on mount.
+  useEffect(() => {
+    if (!tierReady || isHostel) return;
+    setEditableHostelCategoryId(null);
+    setEditableMessCategoryId(null);
+  }, [tierReady, isHostel]);
+
   // Reset local state if the structure prop changes (different leaf clicked).
   useEffect(() => {
     setItems(
@@ -807,13 +917,16 @@ function ExistingStructureEditor({
       accommodation_type_id: structure.accommodation_type_id ?? undefined,
     });
     setEditableCommunityIds(structure.community_category_ids ?? []);
-  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.community_category_ids]);
+    setEditableHostelCategoryId(structure.hostel_category_id ?? null);
+    setEditableMessCategoryId(structure.mess_category_id ?? null);
+  }, [structure.id, structure.items, structure.institution_id, structure.degree_id, structure.department_id, structure.programme_id, structure.quota_id, structure.admission_year_id, structure.gender, structure.accommodation_type_id, structure.package_type, structure.community_category_ids, structure.hostel_category_id, structure.mess_category_id]);
 
   const form = useForm<EditFormValues>({
     resolver: zodResolver(editSchema),
     defaultValues: {
       name: structure.name,
       status: structure.status,
+      package_type: structure.package_type ?? '__any__',
       notes: structure.notes ?? '',
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
@@ -824,6 +937,7 @@ function ExistingStructureEditor({
     form.reset({
       name: structure.name,
       status: structure.status,
+      package_type: structure.package_type ?? '__any__',
       notes: structure.notes ?? '',
       effective_from: structure.effective_from ?? '',
       effective_to: structure.effective_to ?? '',
@@ -945,16 +1059,40 @@ function ExistingStructureEditor({
       return;
     }
 
+    // Mirror trg_fee_structure_hostel_categories_guard so the operator gets an
+    // inline message rather than a raw Postgres error. Draft/archived hostel
+    // structures may leave the tier unset — only 'active' requires it.
+    if (isHostel && values.status === 'active') {
+      if (!editableHostelCategoryId || !editableMessCategoryId) {
+        toast.error(
+          'Pick a room category and a mess category before activating a hostel fee structure.',
+        );
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       // 1. Update parent fields when changed.
       const nameChanged = values.name !== structure.name;
       const statusChanged = values.status !== structure.status;
+      const nextPackageType =
+        values.package_type === '__any__' ? null : values.package_type;
+      const packageTypeChanged = nextPackageType !== (structure.package_type ?? null);
       const notesChanged = (values.notes ?? '') !== (structure.notes ?? '');
       const effectiveFromChanged =
         (values.effective_from ?? '') !== (structure.effective_from ?? '');
       const effectiveToChanged =
         (values.effective_to ?? '') !== (structure.effective_to ?? '');
+      // Cleared only on a RESOLVED negative, so a retarget away from hostel
+      // satisfies the DB guard without an unresolved lookup silently wiping the
+      // tier of a structure that is still hostel.
+      const clearTier = tierReady && !isHostel;
+      const nextHostelCategoryId = clearTier ? null : editableHostelCategoryId;
+      const nextMessCategoryId = clearTier ? null : editableMessCategoryId;
+      const tierChanged =
+        nextHostelCategoryId !== (structure.hostel_category_id ?? null) ||
+        nextMessCategoryId !== (structure.mess_category_id ?? null);
       if (editableCommunityIds.length === 0) {
         toast.error('At least one community must remain on this fee structure.');
         setSubmitting(false);
@@ -962,13 +1100,14 @@ function ExistingStructureEditor({
       }
 
       if (
-        nameChanged || statusChanged || notesChanged ||
+        nameChanged || statusChanged || packageTypeChanged || notesChanged ||
         effectiveFromChanged || effectiveToChanged ||
-        dimsChanged || communitiesChanged
+        dimsChanged || communitiesChanged || tierChanged
       ) {
         await FeeStructureService.update(structure.id, {
           name: values.name,
           status: values.status,
+          package_type: nextPackageType,
           notes: values.notes || null,
           effective_from: values.effective_from || null,
           effective_to: values.effective_to || null,
@@ -983,6 +1122,14 @@ function ExistingStructureEditor({
             admission_year_id: editableDims.admission_year_id!,
             gender: editableDims.gender ?? null,
             accommodation_type_id: editableDims.accommodation_type_id ?? null,
+          } : {}),
+          // Tier must ride along whenever accommodation moves, not only when
+          // the tier itself changed: retargeting TO hostel with the columns
+          // still NULL would be rejected by the guard, and retargeting AWAY
+          // from hostel must clear them in the same statement.
+          ...(tierChanged || dimsChanged ? {
+            hostel_category_id: nextHostelCategoryId,
+            mess_category_id: nextMessCategoryId,
           } : {}),
           // Only send community list when it actually changed — a no-op diff
           // skips the read-back-and-replace round-trip on the junction.
@@ -1169,6 +1316,44 @@ function ExistingStructureEditor({
             )}
           />
         </div>
+
+        <FormField
+          control={form.control}
+          name="package_type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Package Type</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select package type" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="package">Package — consolidated single amount</SelectItem>
+                  <SelectItem value="non_package">Non-Package — itemised fee heads</SelectItem>
+                  <SelectItem value="__any__">Any / Not specified</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                Classification for reporting and filtering only — it does not affect
+                which structure a learner resolves to.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {isHostel && (
+          <HostelTierFields
+            roomOptions={roomOptions}
+            messOptions={messOptions}
+            roomValue={editableHostelCategoryId}
+            messValue={editableMessCategoryId}
+            onRoomChange={setEditableHostelCategoryId}
+            onMessChange={setEditableMessCategoryId}
+          />
+        )}
 
         <FormField
           control={form.control}
@@ -1534,6 +1719,138 @@ function CategoryTraitBadges({ category }: { category?: BillingCategory }) {
         </Badge>
       )}
     </>
+  );
+}
+
+// ===========================================================================
+// Hostel tier (room + mess category) — shared by both forms
+// ---------------------------------------------------------------------------
+// The fee structure is the package definition, so the hostel ROOM and MESS
+// tier are declared here rather than reverse-engineered from the total amount
+// via hostel_program_eligibility fee bands (migration 20260910110000).
+//
+// Visible ONLY when the selected accommodation resolves to code 'hostel'.
+// trg_fee_structure_hostel_categories_guard enforces the same rule server-side:
+// categories are rejected on a non-hostel structure and required to activate a
+// hostel one.
+// ===========================================================================
+
+/**
+ * Resolves whether `accommodationTypeId` is the hostel accommodation, plus the
+ * selectable room/mess tiers. Options are de-duplicated by name across the
+ * boys/girls partitions — see LookupService.listHostelRoomCategoryOptions.
+ */
+function useHostelTier(accommodationTypeId: string | null | undefined) {
+  const [hostelTypeId, setHostelTypeId] = useState<string | null>(null);
+  const [roomOptions, setRoomOptions] = useState<HostelTierOption[]>([]);
+  const [messOptions, setMessOptions] = useState<HostelTierOption[]>([]);
+  // Distinguishes "not hostel" from "haven't resolved yet". Without this the
+  // callers' clear-on-not-hostel effects fire on the first render — before the
+  // lookup lands — and wipe the tier of an existing hostel structure.
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      LookupService.listAllActiveAccommodationTypes(),
+      LookupService.listHostelRoomCategoryOptions(),
+      LookupService.listMessCategoryOptions(),
+    ])
+      .then(([accommodations, rooms, messes]) => {
+        if (cancelled) return;
+        setHostelTypeId(
+          accommodations.find((a) => a.code?.toLowerCase() === 'hostel')?.id ?? null,
+        );
+        setRoomOptions(rooms);
+        setMessOptions(messes);
+        setReady(true);
+      })
+      .catch((err) => {
+        // Soft-fail: the pickers stay hidden rather than blocking the form, and
+        // `ready` stays false so nothing clears an already-set tier. The DB
+        // guard still refuses to activate a hostel structure without
+        // categories, so this degrades to a clear error instead of bad data.
+        console.error('[fees-structure-form] hostel tier lookups:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isHostel = !!hostelTypeId && accommodationTypeId === hostelTypeId;
+  return { isHostel, ready, roomOptions, messOptions };
+}
+
+function HostelTierFields({
+  roomOptions,
+  messOptions,
+  roomValue,
+  messValue,
+  onRoomChange,
+  onMessChange,
+  roomError,
+  messError,
+}: {
+  roomOptions: HostelTierOption[];
+  messOptions: HostelTierOption[];
+  roomValue: string | null | undefined;
+  messValue: string | null | undefined;
+  onRoomChange: (id: string) => void;
+  onMessChange: (id: string) => void;
+  roomError?: string;
+  messError?: string;
+}) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-4 space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold">Hostel Categories</h3>
+        <p className="text-xs text-muted-foreground">
+          The room and mess tier this package buys. Both are required before a
+          hostel structure can be activated. Categories apply to both genders —
+          each learner resolves to their own gender&apos;s variant of the tier.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <FormLabel>
+            Room Category <span className="text-red-500">*</span>
+          </FormLabel>
+          <Select value={roomValue ?? ''} onValueChange={onRoomChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select room category" />
+            </SelectTrigger>
+            <SelectContent>
+              {roomOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {roomError && <p className="text-xs text-destructive">{roomError}</p>}
+        </div>
+
+        <div className="space-y-1.5">
+          <FormLabel>
+            Mess Category <span className="text-red-500">*</span>
+          </FormLabel>
+          <Select value={messValue ?? ''} onValueChange={onMessChange}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select mess category" />
+            </SelectTrigger>
+            <SelectContent>
+              {messOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {messError && <p className="text-xs text-destructive">{messError}</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -31,11 +31,20 @@ interface InboxPageProps {
   searchParams: Promise<{ status?: string }>;
 }
 
+// Upcoming/Past are TIME questions, not status questions. Nothing ever
+// transitions a booking to 'completed', so a meeting held in June is still
+// 'confirmed' — filtering these two tabs on status alone listed every past
+// booking under "Upcoming" and left "Past" permanently empty (production:
+// 31 confirmed, of which 24 were already in the past; zero rows have ever
+// held 'completed' or 'no_show'). Both tabs now carry a start_time predicate.
+// 'pending'/'rescheduled' are dropped from the match list because
+// meeting_bookings_status_check permits only confirmed/cancelled/completed/
+// no_show — they could never match anything.
 const STATUS_FILTERS = [
-  { key: 'upcoming', label: 'Upcoming', match: ['confirmed', 'pending', 'rescheduled'] },
-  { key: 'past', label: 'Past', match: ['completed', 'no_show'] },
-  { key: 'cancelled', label: 'Cancelled', match: ['cancelled'] },
-  { key: 'all', label: 'All', match: null },
+  { key: 'upcoming', label: 'Upcoming', match: ['confirmed'], when: 'future' },
+  { key: 'past', label: 'Past', match: ['confirmed', 'completed', 'no_show'], when: 'past' },
+  { key: 'cancelled', label: 'Cancelled', match: ['cancelled'], when: null },
+  { key: 'all', label: 'All', match: null, when: null },
 ] as const;
 
 const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -81,6 +90,14 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
 
   if (filter.match) {
     query = query.in('status', filter.match as unknown as string[]);
+  }
+
+  if (filter.when) {
+    const nowIso = new Date().toISOString();
+    query =
+      filter.when === 'future'
+        ? query.gte('start_time', nowIso)
+        : query.lt('start_time', nowIso);
   }
 
   const { data: rows, error } = await query.limit(50);
@@ -147,6 +164,16 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
                       <Badge variant={STATUS_BADGE_VARIANT[row.status] ?? 'outline'}>
                         {row.status}
                       </Badge>
+                      {/* A finished booking still sitting at 'confirmed' is one
+                          nobody has said happened. Flagging it here is what
+                          sends the host into the detail page to answer — the
+                          buttons themselves live there, next to the RPC. */}
+                      {row.status === 'confirmed' &&
+                      new Date(row.start_time).getTime() < Date.now() ? (
+                        <Badge variant="outline" className="border-amber-400 text-amber-700">
+                          Not marked
+                        </Badge>
+                      ) : null}
                       <span className="truncate text-sm font-medium">
                         {row.attendee_name || row.attendee_email}
                       </span>

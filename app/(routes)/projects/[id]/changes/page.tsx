@@ -21,6 +21,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import { TAP_TARGET_BREADCRUMB } from '@/app/(routes)/projects/_lib/tap-targets';
 import { Loader2 } from 'lucide-react';
 import { useProject } from '@/hooks/projects/use-projects';
 import { ChangeRequestList } from '@/components/projects/changes/change-request-list';
@@ -35,7 +36,7 @@ export default function ProjectChangesPage() {
   return (
     <ContentLayout title="Change Management">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Breadcrumb>
+        <Breadcrumb className={TAP_TARGET_BREADCRUMB}>
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>

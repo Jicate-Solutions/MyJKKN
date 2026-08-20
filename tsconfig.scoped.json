@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": [
+    "next-env.d.ts",
+    "app/(routes)/billing/schedule/students/**/*.ts",
+    "app/(routes)/billing/schedule/students/**/*.tsx",
+    "app/(routes)/billing/schedule/_components/student-bill-form.tsx",
+    "components/scanner/barcode-scan-dialog.tsx",
+    "lib/services/billing/schedule/student-search-service.ts",
+    "hooks/billing/use-student-search.ts",
+    "types/billing-schedule.ts"
+  ],
+  "exclude": ["node_modules", "scripts", "__tests__"]
+}

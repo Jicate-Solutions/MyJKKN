@@ -19,6 +19,11 @@ export const FIXED_HEADERS = [
   'Quota',
   'Gender',
   'Accommodation',
+  // Hostel tier (migration 20260910110000). Only meaningful when Accommodation
+  // is Hostel, and REQUIRED there once Status is active — the DB guard
+  // trg_fee_structure_hostel_categories_guard enforces the same rule.
+  'Room Category',
+  'Mess Category',
   'Communities',
   'Name',
   'Status',
@@ -35,6 +40,10 @@ export interface BulkResolveLookups {
   admissionYears: Map<string, string>;      // `${programmeId}::${yearName(lower)}` -> id
   quotas: Map<string, string>;              // name(lower) -> id
   accommodations: Map<string, string>;      // name(lower) AND code(lower) -> id (global lookup)
+  /** accommodation_type_id of the 'hostel' code — drives the tier requirement. */
+  hostelAccommodationId: string | null;
+  roomCategories: Map<string, string>;      // hostel_categories.name(lower) -> canonical id
+  messCategories: Map<string, string>;      // mess_categories.name(lower) -> canonical id
   communities: Map<string, string>;         // name(lower) -> id
   categoriesByName: Map<string, string>;    // category_name(lower) -> billing_category_id
   amountHeaders: string[];                   // category names, in column order
@@ -50,6 +59,8 @@ export interface BulkUpsertPayload {
   quota_id: string;
   gender: string | null;
   accommodation_type_id: string | null;
+  hostel_category_id: string | null;
+  mess_category_id: string | null;
   community_category_ids: string[];
   name: string;
   status: 'draft' | 'active' | 'archived';
@@ -207,6 +218,35 @@ export function resolveRow(
   const status = normalizeStatus(raw['Status']);
   if (status === 'INVALID') errors.push('Status must be draft, active, or archived');
 
+  // Hostel tier. Mirrors trg_fee_structure_hostel_categories_guard so a bad
+  // sheet fails as a readable row error in the preview instead of a raw
+  // Postgres exception halfway through the import.
+  const isHostelRow =
+    !!lookups.hostelAccommodationId &&
+    accommodationTypeId === lookups.hostelAccommodationId;
+  const roomRaw = norm(raw['Room Category']);
+  const messRaw = norm(raw['Mess Category']);
+  let roomCategoryId: string | null = null;
+  let messCategoryId: string | null = null;
+
+  if (isHostelRow) {
+    if (roomRaw !== '') {
+      const rid = lookups.roomCategories.get(roomRaw.toLowerCase());
+      if (rid) roomCategoryId = rid;
+      else errors.push(`Room Category "${roomRaw}" not found (use the catalog name, e.g. Classic Room)`);
+    }
+    if (messRaw !== '') {
+      const mid = lookups.messCategories.get(messRaw.toLowerCase());
+      if (mid) messCategoryId = mid;
+      else errors.push(`Mess Category "${messRaw}" not found (use the catalog name, e.g. Classic)`);
+    }
+    if (status === 'active' && (!roomCategoryId || !messCategoryId)) {
+      errors.push('Room Category and Mess Category are both required for an active Hostel fee structure');
+    }
+  } else if (roomRaw !== '' || messRaw !== '') {
+    errors.push('Room / Mess Category may only be set when Accommodation is Hostel');
+  }
+
   const communityNames = splitCommunities(raw['Communities']);
   const communityIds: string[] = [];
   for (const cn of communityNames) {
@@ -247,6 +287,8 @@ export function resolveRow(
       programme_id: progId!, admission_year_id: yearId!, quota_id: quotaId!,
       gender: gender as string | null,
       accommodation_type_id: accommodationTypeId,
+      hostel_category_id: roomCategoryId,
+      mess_category_id: messCategoryId,
       community_category_ids: communityIds,
       name,
       status: status as 'draft' | 'active' | 'archived',
