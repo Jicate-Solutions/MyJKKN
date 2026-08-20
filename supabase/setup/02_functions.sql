@@ -44350,3 +44350,116 @@ REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM PUBLIC
 REVOKE ALL ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO service_role;
+
+
+-- ---------------------------------------------------------------------------
+-- fn_induction_session_feedback_detail — flat (learner x session) induction
+-- feedback with full learner identity. Powers the "Session feedback" browser and
+-- its XLSX export. Coordinator scope ONLY: deliberately narrower than
+-- fn_induction_session_feedback_summary (which admits session speakers to the
+-- averages), because these rows carry college email and mobile.
+-- Added by 20260820103000_induction_session_feedback_detail.sql
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_session_feedback_detail(
+  p_event_id   UUID,
+  p_session_id UUID DEFAULT NULL   -- NULL = every session in the induction
+)
+RETURNS TABLE (
+  feedback_id       UUID,
+  session_id        UUID,
+  session_title     TEXT,
+  day_number        INTEGER,
+  session_start     TIMESTAMPTZ,
+  learner_id        UUID,
+  register_number   TEXT,
+  roll_number       TEXT,
+  learner_name      TEXT,
+  gender            TEXT,
+  student_email     TEXT,
+  college_email     TEXT,
+  student_mobile    TEXT,
+  institution_name  TEXT,
+  degree_name       TEXT,
+  program_name      TEXT,
+  department_name   TEXT,
+  rating            INTEGER,
+  comment           TEXT,
+  capture_method    TEXT,
+  is_self           BOOLEAN,
+  submitted_by_name TEXT,
+  submitted_at      TIMESTAMPTZ,
+  updated_at        TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE v_inst UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_session_feedback_detail: not authenticated';
+  END IF;
+
+  SELECT ip.institution_id INTO v_inst
+  FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
+  IF v_inst IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_session_feedback_detail: not an induction event';
+  END IF;
+
+  IF NOT (is_super_admin() OR is_admin()
+          OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))
+          OR public.fn_induction_is_event_coordinator(p_event_id)) THEN
+    RAISE EXCEPTION 'fn_induction_session_feedback_detail: not authorized';
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    f.id::uuid,
+    f.session_id::uuid,
+    s.title::text,
+    s.day_number::integer,
+    s.start_at::timestamptz,
+    f.learner_id::uuid,
+    lp.register_number::text,
+    lp.roll_number::text,
+    NULLIF(btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,'')), '')::text,
+    lp.gender::text,
+    lp.student_email::text,
+    lp.college_email::text,
+    lp.student_mobile::text,
+    i.name::text,
+    d.degree_name::text,
+    pr.program_name::text,
+    dep.department_name::text,
+    f.rating::integer,
+    f.comment::text,
+    f.capture_method::text,
+    (f.submitted_by IS NULL)::boolean,
+    sb.full_name::text,
+    f.created_at::timestamptz,
+    f.updated_at::timestamptz
+  FROM public.event_session_feedback f
+  LEFT JOIN public.event_sessions    s   ON s.id   = f.session_id
+  LEFT JOIN public.learners_profiles lp  ON lp.id  = f.learner_id
+  LEFT JOIN public.institutions      i   ON i.id   = lp.institution_id
+  LEFT JOIN public.degrees           d   ON d.id   = lp.degree_id
+  LEFT JOIN public.programs          pr  ON pr.id  = lp.program_id
+  LEFT JOIN public.departments       dep ON dep.id = lp.department_id
+  LEFT JOIN public.profiles          sb  ON sb.id  = f.submitted_by
+  WHERE f.event_id = p_event_id
+    AND (p_session_id IS NULL OR f.session_id = p_session_id)
+  -- Freshers frequently have no register/roll number yet (they are assigned after
+  -- admission closes), so name is a real tiebreaker here, not decoration.
+  ORDER BY s.day_number NULLS LAST, s.session_order NULLS LAST, s.start_at NULLS LAST,
+           lp.register_number NULLS LAST, lp.roll_number NULLS LAST,
+           lp.first_name NULLS LAST, lp.last_name NULLS LAST;
+END $$;
+
+REVOKE EXECUTE ON FUNCTION public.fn_induction_session_feedback_detail(UUID, UUID) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_induction_session_feedback_detail(UUID, UUID) TO authenticated;
+
+COMMENT ON FUNCTION public.fn_induction_session_feedback_detail(UUID, UUID) IS
+  'Flat (learner x session) induction feedback rows with full learner identity — powers the '
+  '"Session feedback" browser and its XLSX export. Coordinator scope only (narrower than '
+  'fn_induction_session_feedback_summary, which admits session speakers to the averages).';

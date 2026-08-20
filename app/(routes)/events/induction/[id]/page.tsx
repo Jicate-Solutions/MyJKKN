@@ -15,6 +15,7 @@ import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
+import { SessionFeedbackSection } from './_components/session-feedback-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
 import {
@@ -316,6 +317,9 @@ export default function InductionDetailPage() {
 
         {/* Each college's own read on a session — split by the fresher's college (D5) */}
         <FeedbackByCollegeSection eventId={id} />
+
+        {/* Individual responses behind those averages — who said what, + XLSX export */}
+        <SessionFeedbackSection eventId={id} eventName={event?.name ?? null} />
 
         {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
         <ScorecardSection eventId={id} />

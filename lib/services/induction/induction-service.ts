@@ -411,6 +411,28 @@ export class InductionService {
     return (data as SessionFeedbackByCollege[]) ?? [];
   }
 
+  /** Every individual feedback response for an induction — one row per
+   *  (learner × session), carrying the learner's identity, the session it belongs
+   *  to, the rating, the free-text comment and how it was captured. Pass a
+   *  sessionId to narrow to one session; omit it for the whole induction.
+   *
+   *  Coordinator scope. This is DELIBERATELY narrower than getSessionFeedbackSummary
+   *  (which session speakers may also call): these rows carry college email and
+   *  mobile, so an assigned resource person is not admitted. Rows are responses
+   *  ONLY — a fresher who never rated anything does not appear. */
+  static async getSessionFeedbackDetail(
+    eventId: string,
+    sessionId?: string | null,
+  ): Promise<SessionFeedbackDetailRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_feedback_detail', {
+      p_event_id: eventId,
+      p_session_id: sessionId ?? null,
+    });
+    if (error) throw error;
+    return (data as SessionFeedbackDetailRow[]) ?? [];
+  }
+
   // ── No-smartphone kiosk capture (volunteer/coordinator proxy on a shared device) ──
 
   /** Existing per-learner feedback for ONE session — powers the kiosk dialog's
@@ -721,6 +743,38 @@ export interface SessionFeedbackRow {
   comment: string | null;
   capture_method: 'phone' | 'volunteer_kiosk';
   is_self: boolean;
+}
+
+/** One individual feedback response — (learner × session) with full learner
+ *  identity, from fn_induction_session_feedback_detail. Powers the "Session
+ *  feedback" browser and its XLSX export. Session/learner fields are nullable
+ *  because the RPC LEFT-joins the dimensions: a response whose session or learner
+ *  row was deleted still surfaces, unlabelled, rather than silently vanishing. */
+export interface SessionFeedbackDetailRow {
+  feedback_id: string;
+  session_id: string;
+  session_title: string | null;
+  day_number: number | null;
+  session_start: string | null;
+  learner_id: string;
+  register_number: string | null;
+  roll_number: string | null;
+  learner_name: string | null;
+  gender: string | null;
+  student_email: string | null;
+  college_email: string | null;
+  student_mobile: string | null;
+  institution_name: string | null;
+  degree_name: string | null;
+  program_name: string | null;
+  department_name: string | null;
+  rating: number;
+  comment: string | null;
+  capture_method: 'phone' | 'volunteer_kiosk';
+  is_self: boolean;
+  submitted_by_name: string | null;
+  submitted_at: string;
+  updated_at: string;
 }
 
 /** Coverage + method-mix for an induction's feedback (bias awareness for the loop). */
