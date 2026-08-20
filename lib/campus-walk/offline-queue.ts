@@ -1,0 +1,480 @@
+/**
+ * Campus Walk — offline capture queue.
+ *
+ * Spec: specs/campus-walk-2026-08-17.md — D11 ("capture offline, sync on
+ * reconnect — the unreachable blocks are the neglected ones").
+ *
+ * ACCEPTANCE TEST THIS FILE EXISTS TO PASS:
+ *   Airplane mode -> capture 3 photos -> force-close the browser -> reopen ->
+ *   restore signal -> all 3 upload.
+ *
+ * A force-close is a process kill, not a navigation. Nothing held only in
+ * React state (or even sessionStorage, which some engines also clear on a
+ * kill) survives that. So EVERY queued observation — its photo bytes
+ * included — is written to IndexedDB the moment it is queued, and nothing
+ * about resuming after reopen depends on any in-memory history: the pump
+ * below rebuilds its worklist by reading the database fresh on every start.
+ *
+ * Schema (`myjkkn-campus-walk`, store `observations`, keyPath `id`):
+ *   Each record is a full QueueItem — form fields, geo, and up to 3 photos
+ *   held as { name, type, data: ArrayBuffer }. Photo bytes are stored as
+ *   ArrayBuffer rather than as a raw Blob: older WebKit had (has had) bugs
+ *   persisting Blobs in IndexedDB, while ArrayBuffer via structured clone is
+ *   universally supported. They are converted back to Blob only at the
+ *   moment of upload (`new Blob([data], { type })` inside a FormData).
+ *
+ * Retry doctrine — lifted from card-scan-client.tsx (~163-330), the working
+ * precedent: a single-flight pump processes the oldest due item, classifies
+ * failures as terminal (auth, bad payload, unsupported file — stop retrying,
+ * but NEVER delete the record so nothing is silently lost) or transient
+ * (network blip, 5xx, 429 — exponential backoff, capped, retried forever).
+ * A genuine offline attempt (airplane mode) always throws inside fetch()
+ * and is always transient — that is the exact path the acceptance test
+ * exercises.
+ */
+
+// ── Types ────────────────────────────────────────────────────────────────
+
+export type WalkKind = 'symptom' | 'system_gap';
+
+export interface QueuedGeo {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+}
+
+interface QueuedPhoto {
+  name: string;
+  type: string;
+  data: ArrayBuffer;
+}
+
+export type QueueItemStatus = 'pending' | 'uploading' | 'done' | 'error';
+
+export interface QueueItem {
+  id: string;
+  createdAt: number;
+  updatedAt: number;
+  title: string;
+  description: string;
+  kind: WalkKind;
+  isUnsafe: boolean;
+  category: string;
+  blocker: string;
+  geo: QueuedGeo | null;
+  photoCount: number;
+  photos: QueuedPhoto[];
+  status: QueueItemStatus;
+  attempts: number;
+  lastError: string | null;
+  /** Set once a failure is classified non-retryable. The record stays in the
+   *  queue either way — only an explicit user "Discard" removes it. */
+  terminal: boolean;
+  nextAttemptAt: number;
+}
+
+export interface NewObservationInput {
+  title: string;
+  description: string;
+  kind: WalkKind;
+  isUnsafe: boolean;
+  category: string;
+  blocker: string;
+  geo: QueuedGeo | null;
+  photos: File[];
+}
+
+// ── IndexedDB plumbing ──────────────────────────────────────────────────
+
+const DB_NAME = 'myjkkn-campus-walk';
+const DB_VERSION = 1;
+const STORE = 'observations';
+const ENDPOINT = '/api/campus-walk/observations';
+const MAX_BACKOFF_MS = 30_000;
+const DONE_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function openDb(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB is not available in this browser.'));
+      return;
+    }
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: 'id' });
+        store.createIndex('status', 'status', { unique: false });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () =>
+      reject(req.error ?? new Error('Could not open the offline queue database.'));
+  });
+  return dbPromise;
+}
+
+function reqToPromise<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error('IndexedDB request failed.'));
+  });
+}
+
+async function withStore<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const db = await openDb();
+  const store = db.transaction(STORE, mode).objectStore(STORE);
+  return reqToPromise(fn(store));
+}
+
+async function putItem(item: QueueItem): Promise<void> {
+  await withStore('readwrite', (store) => store.put(item));
+}
+
+async function deleteItem(id: string): Promise<void> {
+  await withStore('readwrite', (store) => store.delete(id));
+}
+
+async function getItem(id: string): Promise<QueueItem | undefined> {
+  return withStore('readonly', (store) => store.get(id));
+}
+
+async function getAllItems(): Promise<QueueItem[]> {
+  const items = await withStore<QueueItem[]>('readonly', (store) => store.getAll());
+  return items.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function newId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// ── Public read/write API ──────────────────────────────────────────────
+
+/**
+ * Persists a new observation to IndexedDB immediately, photo bytes included.
+ * By the time this resolves the observation can survive a force-close —
+ * uploading is entirely the background pump's job from here.
+ */
+export async function enqueueObservation(input: NewObservationInput): Promise<QueueItem> {
+  const photos: QueuedPhoto[] = [];
+  for (const file of input.photos.slice(0, 3)) {
+    const data = await file.arrayBuffer();
+    photos.push({ name: file.name || 'observation.jpg', type: file.type || 'image/jpeg', data });
+  }
+  const now = Date.now();
+  const item: QueueItem = {
+    id: newId(),
+    createdAt: now,
+    updatedAt: now,
+    title: input.title,
+    description: input.description,
+    kind: input.kind,
+    isUnsafe: input.isUnsafe,
+    category: input.category,
+    blocker: input.blocker,
+    geo: input.geo,
+    photoCount: photos.length,
+    photos,
+    status: 'pending',
+    attempts: 0,
+    lastError: null,
+    terminal: false,
+    nextAttemptAt: now
+  };
+  await putItem(item);
+  notify();
+  kick();
+  return item;
+}
+
+export async function listQueue(): Promise<QueueItem[]> {
+  return getAllItems();
+}
+
+/** Manually re-arms a failed (including terminal) item for another attempt. */
+export async function retryItem(id: string): Promise<void> {
+  const item = await getItem(id);
+  if (!item) return;
+  item.status = 'pending';
+  item.terminal = false;
+  item.lastError = null;
+  item.nextAttemptAt = Date.now();
+  item.updatedAt = Date.now();
+  await putItem(item);
+  notify();
+  kick();
+}
+
+/** The only way a queued observation is ever removed before a successful upload. */
+export async function discardItem(id: string): Promise<void> {
+  await deleteItem(id);
+  notify();
+}
+
+/** Drops queue entries that finished successfully more than a day ago, so the
+ *  database does not grow forever with sent-history. Run opportunistically. */
+async function pruneOldDone(): Promise<void> {
+  const items = await getAllItems();
+  const cutoff = Date.now() - DONE_RETENTION_MS;
+  for (const item of items) {
+    if (item.status === 'done' && item.updatedAt < cutoff) {
+      await deleteItem(item.id);
+    }
+  }
+}
+
+/**
+ * A force-close can land mid-upload — the record was already flipped to
+ * 'uploading' and persisted before the kill, but the fetch never resolved
+ * either way. Left alone that record would sit forever, excluded from the
+ * pump's "next" pick. On every pump start, any item still marked
+ * 'uploading' from a previous run is put back to 'pending' so it is tried
+ * again. Trade-off, stated plainly: if the server actually received that
+ * earlier attempt, retrying can create a duplicate task. That is judged
+ * better than the alternative (silently losing the observation), and is
+ * the same trade-off the acceptance test's "force-close mid-flight" case
+ * forces on any offline queue with no server-side idempotency key.
+ */
+async function reviveInterruptedUploads(): Promise<void> {
+  const items = await getAllItems();
+  const now = Date.now();
+  for (const item of items) {
+    if (item.status === 'uploading') {
+      item.status = 'pending';
+      item.nextAttemptAt = now;
+      item.updatedAt = now;
+      await putItem(item);
+    }
+  }
+}
+
+// ── Subscriptions (so the UI re-renders without polling IndexedDB) ────────
+
+type Listener = () => void;
+const listeners = new Set<Listener>();
+function notify() {
+  for (const l of listeners) l();
+}
+
+/** Subscribe to any queue mutation (enqueue, status change, retry, discard). */
+export function subscribe(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+// ── Upload + terminal-vs-transient classification ─────────────────────────
+
+interface UploadOutcome {
+  ok: boolean;
+  terminal: boolean;
+  message: string | null;
+}
+
+async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
+  const form = new FormData();
+  form.append('title', item.title);
+  form.append('description', item.description);
+  form.append('kind', item.kind);
+  form.append('isUnsafe', String(item.isUnsafe));
+  form.append('category', item.category);
+  form.append('blocker', item.blocker);
+  if (item.geo) form.append('geo', JSON.stringify(item.geo));
+  item.photos.forEach((p, i) => {
+    form.append('photos', new Blob([p.data], { type: p.type }), p.name || `photo-${i + 1}.jpg`);
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(ENDPOINT, { method: 'POST', body: form });
+  } catch {
+    // The exact path airplane mode produces. Always transient — this is the
+    // failure the whole module exists to survive.
+    return { ok: false, terminal: false, message: 'No connection — will retry automatically.' };
+  }
+
+  let json: any = null;
+  try {
+    json = await res.json();
+  } catch {
+    json = null;
+  }
+
+  // Contract: { success: true, ... } | { success: false, error }. Tolerant of
+  // extra/renamed fields either side adds later — only `success`/`error` are load-bearing.
+  if (res.ok && json && json.success !== false) {
+    return { ok: true, terminal: false, message: null };
+  }
+
+  const serverMessage: string | undefined = json?.error;
+
+  // Same doctrine as card-scan-client.tsx: a closed door must not retry
+  // forever; a blip on the network or the server always must.
+  if (res.status === 401 || res.status === 403) {
+    return {
+      ok: false,
+      terminal: true,
+      message: serverMessage ?? 'Not signed in — sign in again, then retry this one.'
+    };
+  }
+  if (res.status === 413) {
+    return { ok: false, terminal: true, message: serverMessage ?? 'Too large for the server to accept.' };
+  }
+  if (res.status === 415) {
+    return { ok: false, terminal: true, message: serverMessage ?? 'Photo format not accepted.' };
+  }
+  if (res.status === 400 || res.status === 422) {
+    return { ok: false, terminal: true, message: serverMessage ?? 'The server rejected this observation.' };
+  }
+  if (res.status === 429) {
+    return { ok: false, terminal: false, message: serverMessage ?? 'Busy — will retry shortly.' };
+  }
+  // 502 from THIS route specifically means every photo in the batch failed
+  // its own validation (not a JPEG, too small/large) — confirmed by reading
+  // app/api/campus-walk/observations/route.ts. Retrying the same bytes
+  // produces the same rejection every time, so this is terminal, not a
+  // server blip, even though 502 is a 5xx.
+  if (res.status === 502) {
+    return {
+      ok: false,
+      terminal: true,
+      message: serverMessage ?? 'None of the photos could be saved — retake and try again.'
+    };
+  }
+  // Every other 5xx and anything unrecognised: assume transient. Losing a photo silently
+  // because of an unfamiliar status code is worse than retrying one that
+  // turns out to be permanent — a permanent one will keep coming back and be
+  // visible to him in the queue either way.
+  return {
+    ok: false,
+    terminal: false,
+    message: serverMessage ?? `Upload failed (HTTP ${res.status}) — will retry.`
+  };
+}
+
+// ── The pump ────────────────────────────────────────────────────────────
+
+let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+let pumpRunning = false;
+// True single-flight guard. `kick()` (fired from enqueue/retry/'online') can
+// otherwise schedule a second loop() while the first is still awaiting a
+// fetch — without this, two overlapping pumpOnce() calls could both read the
+// same 'pending' item before either has written 'uploading' back, and send
+// it twice. This makes "processes the oldest due item, one at a time" true
+// regardless of how many times the pump gets kicked while busy.
+let pumpBusy = false;
+
+function backoffMs(attempts: number): number {
+  return Math.min(1000 * 2 ** Math.min(attempts, 5), MAX_BACKOFF_MS);
+}
+
+/** Returns true if an item was actually processed, so the caller can drain a
+ *  multi-item queue back-to-back instead of waiting out the full idle poll
+ *  interval between every single item. */
+async function pumpOnce(): Promise<boolean> {
+  if (pumpBusy) return false;
+  pumpBusy = true;
+  try {
+    const items = await getAllItems();
+    const now = Date.now();
+    const next = items.find(
+      (i) => i.status !== 'done' && !i.terminal && i.status !== 'uploading' && i.nextAttemptAt <= now
+    );
+    if (!next) return false;
+
+    next.status = 'uploading';
+    next.updatedAt = Date.now();
+    await putItem(next);
+    notify();
+
+    const outcome = await uploadItem(next);
+
+    if (outcome.ok) {
+      next.status = 'done';
+      next.lastError = null;
+      next.updatedAt = Date.now();
+      // The server has the bytes now — free them. The record stays (briefly,
+      // pruned after a day) purely so the UI can keep showing "Sent".
+      next.photos = [];
+      await putItem(next);
+    } else {
+      next.attempts += 1;
+      next.lastError = outcome.message;
+      next.terminal = outcome.terminal;
+      next.status = outcome.terminal ? 'error' : 'pending';
+      next.nextAttemptAt = Date.now() + backoffMs(next.attempts);
+      next.updatedAt = Date.now();
+      await putItem(next);
+    }
+    notify();
+    return true;
+  } finally {
+    pumpBusy = false;
+  }
+}
+
+function scheduleNext(delay: number) {
+  if (pumpTimer) clearTimeout(pumpTimer);
+  pumpTimer = setTimeout(() => void loop(), delay);
+}
+
+async function loop(): Promise<void> {
+  if (!pumpRunning) return;
+  let processed = false;
+  try {
+    processed = await pumpOnce();
+  } catch {
+    // A pump-internal failure (e.g. IndexedDB transiently unavailable) must
+    // never kill the loop — the entire point of this module is that it keeps
+    // trying rather than giving up silently.
+  }
+  if (!pumpRunning) return;
+  // Just sent (or failed) one item and there may be more waiting — e.g. all
+  // 3 photos from the acceptance test queued while offline, now that signal
+  // is back. Drain them back-to-back rather than idling out the full poll
+  // interval between every single one.
+  scheduleNext(processed ? 150 : 1500);
+}
+
+/** Wakes the pump immediately rather than waiting out the poll tick or a
+ *  backoff window — used right after enqueue/retry and when 'online' fires. */
+function kick() {
+  if (!pumpRunning) return;
+  scheduleNext(50);
+}
+
+/**
+ * Starts the background upload pump. Safe to call on every mount of the
+ * Campus Walk screen (and it is idempotent to call more than once): it reads
+ * whatever is in IndexedDB rather than any in-memory history, so a queue
+ * built before a force-close — including an item caught mid-upload — resumes
+ * exactly where it left off. Returns a stop function for unmount.
+ */
+export function startPump(): () => void {
+  pumpRunning = true;
+  void reviveInterruptedUploads().then(() => {
+    void pruneOldDone();
+    notify();
+  });
+  scheduleNext(0);
+
+  const onOnline = () => kick();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', onOnline);
+  }
+
+  return () => {
+    pumpRunning = false;
+    if (pumpTimer) {
+      clearTimeout(pumpTimer);
+      pumpTimer = null;
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', onOnline);
+    }
+  };
+}

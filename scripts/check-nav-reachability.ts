@@ -57,6 +57,11 @@ const NAV_EXCLUDE = new Set<string>([
   // Reached via the "Session catalog" button on the chip-reachable /events/induction
   // landing page (not a tier-strip destination). Gated induction.view in MENU_PERMISSIONS.
   '/events/induction/catalog',
+  // Campus Walk fixer screen. Reached from the bell notification the walk task
+  // raises, as `/campus-walk/fix?task=<id>` — it renders one specific ticket
+  // (see its `searchParams: { task?: string }`) and shows a "no ticket" state
+  // with no task id, so it has no standalone chip surface to be reached from.
+  '/campus-walk/fix',
   // Top-bar avatar / bell targets
   '/profile',
   '/notifications',
