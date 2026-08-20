@@ -17,6 +17,7 @@ import {
 } from '@/lib/services/induction/induction-volunteer-service';
 import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
 import { AppointMentorDialog } from './appoint-mentor-dialog';
+import { MentorIdentity } from './mentor-identity';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,10 +81,26 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
     }
   };
 
+  // is_trained is a STORED GENERATED column: guide_read_at AND self_ack_at AND
+  // admin_trained_at. This button sets ONLY the admin leg — the other two are
+  // writable exclusively by the mentor (fn_induction_mentor_complete_self_training
+  // resolves the row from auth.uid()), so an admin cannot unlock anyone alone.
+  // Never claim "tools are unlocked" without checking the mentor's own two legs.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
+    const vol = vols.find((v) => v.learner_id === learnerId);
+    const mentorLegsDone = Boolean(vol?.guide_read && vol?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked as trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       load();
     } catch (e: any) {
       toast.error(`Couldn't update training: ${e.message ?? e}`);
@@ -189,15 +206,10 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
         ) : (
           <div className="space-y-2">
             {vols.map((v) => (
-              <div key={v.learner_id} className="flex items-center justify-between gap-3 rounded-lg border p-2.5">
-                <div className="flex items-center gap-2 min-w-0">
-                  <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{v.full_name || 'Unnamed'}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {v.register_number ?? '—'} · cap {v.capacity}
-                    </div>
-                  </div>
+              <div key={v.learner_id} className="flex items-start justify-between gap-3 rounded-lg border p-2.5">
+                <div className="flex items-start gap-2 min-w-0">
+                  <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <MentorIdentity mentor={v} />
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Badge variant={v.group_size > 0 && v.captured >= v.group_size ? 'default' : 'secondary'} className="tabular-nums">

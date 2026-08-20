@@ -20,6 +20,7 @@ import {
   type MentorHelpfulnessCrosscheckRow,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { AppointMentorDialog } from '../_components/appoint-mentor-dialog';
+import { MentorIdentity } from '../_components/mentor-identity';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -90,11 +91,25 @@ export default function SeniorPeerMentorConsolePage() {
       return next;
     });
 
+  // Sets ONLY the admin leg of the 3-legged is_trained generated column
+  // (guide_read_at AND self_ack_at AND admin_trained_at). The mentor's own two
+  // legs can't be written by an admin, so don't promise unlocked tools blindly.
   const setTrained = async (learnerId: string, name: string, trained: boolean) => {
     setBusy(`trained:${learnerId}`);
+    const mentor = mentors.find((m) => m.learner_id === learnerId);
+    const mentorLegsDone = Boolean(mentor?.guide_read && mentor?.self_ack);
     try {
       await InductionVolunteerService.adminSetTrained(eventId, learnerId, trained);
-      toast.success(trained ? `${name} marked trained — their tools are unlocked.` : `${name} marked untrained.`);
+      if (!trained) {
+        toast.success(`${name} marked untrained.`);
+      } else if (mentorLegsDone) {
+        toast.success(`${name} is fully trained — their tools are unlocked.`);
+      } else {
+        toast.warning(
+          `${name}: your training sign-off is recorded, but their tools stay LOCKED. ` +
+          `${name} must open My Induction Feedback and complete the guide + acknowledgement themselves.`,
+        );
+      }
       await load();
     } catch (e: any) { toast.error(`Couldn't update: ${e.message ?? e}`); }
     finally { setBusy(null); }
@@ -268,14 +283,13 @@ export default function SeniorPeerMentorConsolePage() {
             return (
               <Card key={m.learner_id}>
                 <button type="button" onClick={() => toggle(m.learner_id)}
-                  className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-muted/40 rounded-t-xl">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                    <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{m.full_name || 'Unnamed'}</div>
-                      <div className="text-xs text-muted-foreground">{m.register_number ?? '—'} · cap {m.capacity}</div>
-                    </div>
+                  className="w-full flex items-start justify-between gap-3 p-3 text-left hover:bg-muted/40 rounded-t-xl">
+                  <div className="flex items-start gap-2 min-w-0">
+                    {isOpen
+                      ? <ChevronDown className="h-4 w-4 shrink-0 mt-0.5" />
+                      : <ChevronRight className="h-4 w-4 shrink-0 mt-0.5" />}
+                    <GraduationCap className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <MentorIdentity mentor={m} />
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Badge variant={m.group_size > 0 && m.captured >= m.group_size ? 'default' : 'secondary'} className="tabular-nums">
