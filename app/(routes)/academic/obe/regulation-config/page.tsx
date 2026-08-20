@@ -92,7 +92,7 @@ export default function RegulationConfigPage() {
                     <div>
                       <p className='font-medium'>JKKN Advanced Bloom's Taxonomy</p>
                       <p className='text-sm text-muted-foreground mt-1'>
-                        Bloom's six cognitive levels retained unchanged, extended by five flat dimensions (A1 Human Dimension, A2 Caring, A3 Learning How to Learn, A4 Performed Skill, A5 Accountable AI Use). In force for the 2026-27 intake.
+                        Bloom's six cognitive levels retained unchanged, extended by Krathwohl's affective ladder (AF1–AF5, absorbing Fink's Caring), three psychomotor bands after Simpson (PS-a/b/c), and a flat rail — Human Dimension (HD), Learning How to Learn (L2L), Accountable AI Use (AIU). Active elements vary by college family. In force for the 2026-27 intake.
                       </p>
                     </div>
                   </Label>

@@ -343,7 +343,12 @@ export default function CurriculumReviewPage() {
                           </span>
                           {isBloomPrimary(e?.primaryTaxonomy) ? (
                             <Select
-                              value={e?.primaryBloom || undefined}
+                              // JABT added-half codes (HD/AF3/L2L, …) have no SelectItem — the
+                              // picker offers K1-K6 only, the added half enters via the Fink
+                              // picker by design. A Radix Select whose value matches no item
+                              // renders EMPTY, so treat non-K values as "no selection" and let
+                              // the placeholder (bloomLabel knows the added-half labels) show.
+                              value={BLOOM_OPTIONS.some((b) => b.value === e?.primaryBloom) ? e?.primaryBloom : undefined}
                               onValueChange={(v) =>
                                 setEdits((prev) => ({
                                   ...prev,

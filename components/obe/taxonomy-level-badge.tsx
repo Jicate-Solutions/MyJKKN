@@ -22,21 +22,31 @@ const FINKS_COLORS: Record<FinksDimension, string> = {
   LL: 'bg-teal-200 text-teal-800 border-teal-300',
 };
 
-/** JKKN Advanced keeps Bloom's palette for L1-L6 and gets its own amber family for
- *  the five added dimensions, so the two halves stay distinguishable at a glance. */
+/** JKKN Advanced keeps Bloom's palette for the cognitive levels; each added family
+ *  gets its own colour so the structure reads at a glance: the affective ladder
+ *  (AF1-AF5) climbs through amber, the psychomotor bands (PS-a/b/c) through rose,
+ *  and the flat rail borrows the Fink greens for HD/L2L (they ARE Fink's
+ *  dimensions, renamed) with orange for AIU. */
 const ADVANCED_COLORS: Record<AdvancedDimension, string> = {
-  A1: 'bg-amber-100 text-amber-800 border-amber-200',
-  A2: 'bg-orange-100 text-orange-800 border-orange-200',
-  A3: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  A4: 'bg-amber-200 text-amber-900 border-amber-300',
-  A5: 'bg-orange-200 text-orange-900 border-orange-300',
+  AF1: 'bg-amber-50 text-amber-800 border-amber-200',
+  AF2: 'bg-amber-100 text-amber-800 border-amber-200',
+  AF3: 'bg-amber-200 text-amber-900 border-amber-300',
+  AF4: 'bg-amber-400 text-white border-amber-500',
+  AF5: 'bg-amber-600 text-white border-amber-700',
+  'PS-a': 'bg-rose-100 text-rose-800 border-rose-200',
+  'PS-b': 'bg-rose-200 text-rose-900 border-rose-300',
+  'PS-c': 'bg-rose-400 text-white border-rose-500',
+  HD: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  L2L: 'bg-teal-200 text-teal-800 border-teal-300',
+  AIU: 'bg-orange-200 text-orange-900 border-orange-300',
 };
 
 interface TaxonomyLevelBadgeProps {
   taxonomyType: TaxonomyType;
   level?: BloomsLevel;
   dimension?: FinksDimension;
-  /** JKKN Advanced only — one of A1-A5. L1-L6 continue to arrive via `level`. */
+  /** JKKN Advanced only — an added element (AF1-AF5, PS-a/b/c, HD, L2L, AIU).
+   *  The cognitive levels continue to arrive via `level`. */
   advanced?: AdvancedDimension;
   showLabel?: boolean;
 }
@@ -48,8 +58,9 @@ export function TaxonomyLevelBadge({
   advanced,
   showLabel = true,
 }: TaxonomyLevelBadgeProps) {
-  // JKKN Advanced carries BOTH halves: L1-L6 render exactly as Bloom's (they are
-  // Bloom's, unchanged), A1-A5 render in the added-half palette.
+  // JKKN Advanced carries BOTH halves: the cognitive levels render exactly as
+  // Bloom's (they are Bloom's, unchanged), the added elements render in their
+  // family palettes (AF ladder, PS bands, flat rail).
   if (taxonomyType === 'jkkn_advanced' && advanced) {
     return (
       <Badge

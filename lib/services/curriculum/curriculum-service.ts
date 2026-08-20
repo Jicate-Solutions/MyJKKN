@@ -102,8 +102,31 @@ export function finkLabel(dim?: string | null): string {
   return FINK_OPTIONS.find((f) => f.value === dim)?.label ?? 'Understand (foundational)';
 }
 
+/** JABT's added elements ("C + three bands", 2026-08-21). These appear in
+ *  `primary_bloom_level` on converted rows (re-derived from the preserved
+ *  `primary_fink_dimension` originals: human→HD, caring→AF3, learning_to_learn→L2L).
+ *  They are display vocabulary only — the edit picker stays K1-K6 because the
+ *  added half enters via the Fink picker, by design. */
+export const JABT_ADDED_LABELS: Record<string, string> = {
+  AF1: 'AF1 · Receiving',
+  AF2: 'AF2 · Responding',
+  AF3: 'AF3 · Valuing',
+  AF4: 'AF4 · Organising',
+  AF5: 'AF5 · Characterising',
+  'PS-a': 'PS-a · Guided Performance',
+  'PS-b': 'PS-b · Independent Performance',
+  'PS-c': 'PS-c · Adaptive Performance',
+  HD: 'HD · Human Dimension',
+  L2L: 'L2L · Learning How to Learn',
+  AIU: 'AIU · Accountable AI Use',
+};
+
 export function bloomLabel(level?: string | null): string {
-  return BLOOM_OPTIONS.find((b) => b.value === level)?.label ?? 'Pick a Bloom level';
+  return (
+    BLOOM_OPTIONS.find((b) => b.value === level)?.label ??
+    (level ? JABT_ADDED_LABELS[level] : undefined) ??
+    'Pick a Bloom level'
+  );
 }
 
 /** A lesson is Bloom-primary when its BoS-fixed taxonomy is 'blooms' OR 'jkkn_advanced';
