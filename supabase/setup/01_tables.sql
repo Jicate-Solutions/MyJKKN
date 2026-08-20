@@ -9176,7 +9176,7 @@ CREATE TABLE IF NOT EXISTS public.aiu_prompt_trails (
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT aiu_prompt_trails_surface_chk CHECK (length(trim(surface)) > 0)
-)
+);
 
 CREATE INDEX IF NOT EXISTS idx_aiu_trails_learner_created
   ON public.aiu_prompt_trails (learner_id, created_at DESC);
