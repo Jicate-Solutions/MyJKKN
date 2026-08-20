@@ -142,6 +142,11 @@ zero new plumbing:
 
 > **Hostel Categories** — Room: Classic Room / Mess: Classic
 
+The same tier is shown on the fee-structure **detail page** as its own
+"Hostel Categories" section (hostel structures only). It is deliberately NOT a
+column on the list table: only 111 of 236 structures can ever carry a tier, so
+the column was structurally blank for more than half the rows.
+
 Category names are dereferenced client-side from `hostel_categories` /
 `mess_categories` (both have `SELECT` RLS `qual = true`, so no permission work is
 needed), mirroring how the panel already dereferences `billing_category_id`.
@@ -185,7 +190,7 @@ records** and cannot change any billed amount.
 | File | Change |
 |---|---|
 | `.../fees-structure/_components/fees-structure-form.tsx` | 2 conditional pickers on both the new and edit schemas/forms; `.refine()` requiring them when hostel + active; clear on accommodation switch |
-| `.../fees-structure/_components/columns.tsx` | "Hostel Tier" column + amber "Not configured" badge |
+| `.../fees-structure/[id]/page.tsx` | "Hostel Categories" section (Room + Mess DimCards), hostel structures only, amber hint when unset |
 | `.../fees-structure/_components/bulk-fee-structure-dialog.tsx` | 2 new import columns |
 | `lib/utils/mappings/fee-structure-excel-mappings.ts` | name -> id resolution for the 2 columns |
 | `lib/services/admission/fee-structure-service.ts` | select/insert/update the 2 columns; carry through `cloneToAcademicYear` |
@@ -207,9 +212,10 @@ There is no test runner in this repo. "Done" means:
    guard trigger rejects a non-hostel structure with a category set.
 3. A before/after count over `learners_profiles` proving **zero** learner rows changed.
 4. Browser: create a Day Scholar structure (no pickers appear), create a Hostel
-   structure (pickers appear, activation blocked until both are set), open an
-   enquiry with a matched hostel structure and confirm the Finance tab shows the
-   categories.
+   structure (pickers appear, activation blocked until both are set), open a
+   hostel structure's detail page (Hostel Categories section shows) and a
+   day-scholar one (section absent), and confirm the enquiry Finance tab shows
+   the categories for a matched hostel structure.
 5. `npm run check:menus` is not required — no routes or permission keys change.
 
 ## 7. Explicitly out of scope
