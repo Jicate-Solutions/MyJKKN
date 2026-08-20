@@ -22,6 +22,7 @@ import type {
   SchoolPaymentHistoryRow,
   SchoolSettledBill,
   SchoolBillReceiptLink,
+  CreateSchoolReceiptDto,
 } from '@/types/school-fees';
 import type { SchoolReceiptLine } from '@/lib/utils/billing/school-receipt-pdf';
 
@@ -358,6 +359,14 @@ export class SchoolBillPaymentService {
   }
 
   /** Receipts already raised for this learner in this year, newest first. */
+  /**
+   * School-fee receipts for this learner IN THE SELECTED ACADEMIC YEAR,
+   * newest first.
+   *
+   * Scoped to the year on the picker, matching the Outstanding bills table
+   * directly above it — the two panels describe the same year, so a receipt
+   * listed here always corresponds to bills the clerk can see.
+   */
   static async getPaymentHistory(
     learnerId: string,
     academicYearId: string,
@@ -375,7 +384,8 @@ export class SchoolBillPaymentService {
       .not('school_fee_plan_id', 'is', null);
 
     if (billErr) throw new Error(billErr.message || 'Could not load payment history');
-    const billIds = (bills ?? []).map((b: { id: string }) => b.id);
+
+    const billIds = ((bills ?? []) as { id: string }[]).map((b) => b.id);
     if (billIds.length === 0) return [];
 
     // 'as any': date_of_credit was added by 20260909000000 and is not yet in
@@ -384,6 +394,7 @@ export class SchoolBillPaymentService {
       .from('billing_receipt_items')
       .select(
         `
+        bill_id,
         amount_paid,
         receipt:billing_receipts!inner(
           id,
@@ -401,21 +412,24 @@ export class SchoolBillPaymentService {
     if (error) throw new Error(error.message || 'Could not load payment history');
 
     // One receipt can settle several of this learner's bills, so the join
-    // returns it once per line. Collapse to one row per receipt and sum only
+    // returns it once per line. Collapse to one row per receipt, summing only
     // the lines that belong to THIS year's school bills — a receipt that also
     // settled a prior-year bill must not report its full header amount here.
     const byReceipt = new Map<string, SchoolPaymentHistoryRow>();
+
     for (const row of (data ?? []) as Record<string, unknown>[]) {
       const receipt = (Array.isArray(row.receipt) ? row.receipt[0] : row.receipt) as
         | Record<string, unknown>
         | undefined;
       if (!receipt) continue;
+
       const id = String(receipt.id);
       const existing = byReceipt.get(id);
       if (existing) {
         existing.amount_allocated += num(row.amount_paid);
         continue;
       }
+
       byReceipt.set(id, {
         receipt_id: id,
         receipt_number: String(receipt.receipt_number ?? ''),
@@ -434,14 +448,98 @@ export class SchoolBillPaymentService {
   }
 
   /**
-   * Rehydrate an already-issued receipt so it can be re-printed.
+   * Record a school fee payment.
    *
-   * Reads the receipt lines back out of billing_receipt_items rather than
-   * reconstructing them from the learner's CURRENT bills — by reprint time
-   * those balances have moved on, and a receipt must always show what was
-   * actually collected on the day.
+   * Goes through fn_create_school_fee_receipt, NOT the college
+   * BillingReceiptService.createBillingReceipt. Two reasons:
+   *   1. the college RPC does not carry date_of_credit / dd_* / remitter_name,
+   *      so DD and NEFT detail would be silently dropped;
+   *   2. keeping the school write path separate means no school change can
+   *      reach live college receipting.
+   * Both still write the same billing_receipts / billing_receipt_items tables,
+   * so receipts, refunds and the parent portal are unaffected.
    *
-   * Creates nothing: reprinting must never produce a second payment.
+   * Header and items share one transaction — a rejected item cannot leave an
+   * orphan header settling nothing.
+   */
+  static async createReceipt(dto: CreateSchoolReceiptDto): Promise<BillingReceipt> {
+    const supabase = createClientSupabaseClient();
+
+    const { data: userData } = await supabase.auth.getUser();
+    const createdBy = userData?.user?.id ?? null;
+
+    const { data, error } = await (supabase as any).rpc('fn_create_school_fee_receipt', {
+      p_receipt: {
+        student_id: dto.student_id,
+        institution_id: dto.institution_id,
+        payment_mode: dto.payment_mode,
+        payment_reference_number: dto.payment_reference_number ?? null,
+        payment_amount: dto.payment_amount,
+        payment_paid_date: dto.payment_paid_date,
+        date_of_credit: dto.date_of_credit ?? null,
+        dd_bank_name: dto.dd_bank_name ?? null,
+        dd_branch: dto.dd_branch ?? null,
+        remitter_name: dto.remitter_name ?? null,
+        payer_name: dto.payer_name,
+        payer_contact: dto.payer_contact ?? null,
+        payment_remarks: dto.payment_remarks ?? null,
+        created_by: createdBy,
+      },
+      p_items: dto.receipt_items.map((item) => ({
+        bill_id: item.bill_id,
+        amount_paid: item.amount_paid,
+      })),
+    });
+
+    if (error) {
+      if (error.code === '42501' || /not_authorized/.test(error.message ?? '')) {
+        throw new Error('You do not have permission to record school fee payments.');
+      }
+      throw new Error(error.message || 'Payment could not be recorded');
+    }
+    if (!data?.id) throw new Error('Payment could not be recorded');
+
+    // Echoed from the input rather than read back: billing_receipts SELECT is
+    // gated on billing.receipts.view, so a read-back would fail for exactly
+    // the collection-only roles this counter is meant to support. Same
+    // reasoning as the college path.
+    return {
+      id: data.id,
+      receipt_number: data.receipt_number,
+      receipt_date: data.receipt_date,
+      student_id: dto.student_id,
+      institution_id: dto.institution_id,
+      payment_mode: dto.payment_mode,
+      payment_reference_number: dto.payment_reference_number ?? undefined,
+      payment_amount: dto.payment_amount,
+      payment_paid_date: dto.payment_paid_date,
+      date_of_credit: dto.date_of_credit ?? null,
+      dd_bank_name: dto.dd_bank_name ?? null,
+      dd_branch: dto.dd_branch ?? null,
+      remitter_name: dto.remitter_name ?? null,
+      payer_name: dto.payer_name,
+      payer_contact: dto.payer_contact ?? undefined,
+      payment_remarks: dto.payment_remarks ?? undefined,
+      created_by: createdBy ?? undefined,
+      student: data.student_first_name
+        ? {
+            id: dto.student_id,
+            first_name: data.student_first_name,
+            last_name: data.student_last_name,
+          }
+        : undefined,
+    } as unknown as BillingReceipt;
+  }
+
+  /**
+   * Rebuild an already-issued receipt for reprint.
+   *
+   * Lines come from billing_receipt_items — what was ACTUALLY charged at the
+   * time — never from the bills' current balances, which have moved on since.
+   * getBillingReceipt already embeds receipt_items -> bill -> category, so this
+   * is one round trip and no second implementation of the join.
+   *
+   * Creates nothing. The caller stamps the PDF DUPLICATE.
    */
   static async getReceiptForReprint(
     receiptId: string,
@@ -449,9 +547,6 @@ export class SchoolBillPaymentService {
     const receipt = await BillingReceiptService.getBillingReceipt(receiptId);
 
     const lines: SchoolReceiptLine[] = (receipt.receipt_items ?? []).map((item) => {
-      // Via `unknown`: the embed is typed StudentBill, which does not declare
-      // term_number (missing from the generated types, see getOutstandingBills)
-      // nor the `category` alias this particular select uses.
       const bill = item.bill as unknown as
         | {
             bill_description?: string | null;
@@ -460,8 +555,7 @@ export class SchoolBillPaymentService {
             term_number?: number | null;
           }
         | undefined;
-      const category =
-        bill?.category?.category_name || bill?.bill_description || 'Fee';
+      const category = bill?.category?.category_name || bill?.bill_description || 'Fee';
       return {
         category,
         termLabel: bill?.term_number ? `Term ${bill.term_number}` : null,
@@ -473,7 +567,14 @@ export class SchoolBillPaymentService {
 
     return { receipt, lines };
   }
+
 }
+
+/** '' and null both mean "not set" in learners_profiles. Collapse to null. */
+const blank = (v: unknown): string | null => {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s === '' ? null : s;
+};
 
 function normaliseLearner(row: Record<string, unknown>): SchoolLearnerForPayment {
   const program = Array.isArray(row.program) ? row.program[0] : row.program;
@@ -482,11 +583,15 @@ function normaliseLearner(row: Record<string, unknown>): SchoolLearnerForPayment
     id: String(row.id),
     first_name: (row.first_name as string) ?? '',
     last_name: (row.last_name as string) ?? '',
-    roll_number: (row.roll_number as string) ?? null,
-    register_number: (row.register_number as string) ?? null,
-    student_mobile: (row.student_mobile as string) ?? null,
-    father_name: (row.father_name as string) ?? null,
-    student_photo_url: (row.student_photo_url as string) ?? null,
+    roll_number: blank(row.roll_number),
+    register_number: blank(row.register_number),
+    student_mobile: blank(row.student_mobile),
+    father_name: blank(row.father_name),
+    // learners_profiles stores '' rather than NULL for un-set fields (805
+    // school learners, 210 with a photo). Normalising here means the UI can
+    // test one thing — null — instead of every consumer remembering to treat
+    // '' as absent, and stops <Image src=""> ever being attempted.
+    student_photo_url: blank(row.student_photo_url),
     institution_id: String(row.institution_id),
     academic_year_id: String(row.academic_year_id ?? ''),
     // `programs` renders as "Class" for schools — see the school-label adapter.

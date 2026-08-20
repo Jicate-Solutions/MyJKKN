@@ -24,12 +24,21 @@ export function LearnerCard({
   onClear: () => void;
 }) {
   const fullName = `${learner.first_name} ${learner.last_name}`.trim();
+  const initials = [learner.first_name, learner.last_name]
+    .map((part) => (part || '').trim()[0] ?? '')
+    .join('')
+    .toUpperCase();
   const classLine = [learner.class_name, learner.section_name].filter(Boolean).join(' • ');
 
   return (
     <Card>
       <CardContent className="p-4">
         <div className="flex items-start gap-4">
+          {/* Photo comes from learners_profiles.student_photo_url (Supabase
+              Storage). Only ~210 of 805 school learners have one, so the
+              fallback is the common case, not the exception — initials rather
+              than a generic silhouette, because at a counter the avatar is
+              part of confirming you have the right child. */}
           <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border bg-muted">
             {learner.student_photo_url ? (
               <Image
@@ -40,8 +49,8 @@ export function LearnerCard({
                 className="object-cover"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center">
-                <User className="h-7 w-7 text-muted-foreground" />
+              <div className="flex h-full w-full items-center justify-center bg-primary/10 text-lg font-semibold text-primary">
+                {initials || <User className="h-7 w-7 text-muted-foreground" />}
               </div>
             )}
           </div>

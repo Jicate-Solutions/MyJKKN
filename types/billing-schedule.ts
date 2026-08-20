@@ -290,11 +290,11 @@ export interface CreateReceiptDto {
   payment_reference_number?: string;
   payment_amount: number;
   payment_paid_date: string;
-  /** Non-cash modes only. See BillingReceipt.date_of_credit. */
-  date_of_credit?: string | null;
-  dd_bank_name?: string | null;
-  dd_branch?: string | null;
-  remitter_name?: string | null;
+  // NOTE: date_of_credit / dd_bank_name / dd_branch / remitter_name are NOT
+  // here. They live on the billing_receipts ROW (see BillingReceipt) and are
+  // read back by the school reprint, but only the school counter WRITES them,
+  // through CreateSchoolReceiptDto + fn_create_school_fee_receipt. The college
+  // RPC does not carry them, so accepting them here would silently drop them.
   payer_name: string;
   payer_contact?: string;
   accountant_id?: string;
