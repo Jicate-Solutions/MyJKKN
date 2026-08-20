@@ -28,6 +28,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import type { PublicCourseApplyForm, PublicFormField } from '@/types/courses';
+import { NAME_KEYS, PHONE_KEYS } from '@/lib/services/courses/applicant-identity';
 
 const inr = new Intl.NumberFormat('en-IN', {
   style: 'currency',
@@ -37,9 +38,11 @@ const inr = new Intl.NumberFormat('en-IN', {
 
 /** The submit route derives the applicant's identity from these keys, so the
  *  form is refused client-side if the admin never asked for them — better than
- *  letting someone fill in twelve questions and be rejected at the end. */
-const NAME_KEYS = ['full_name', 'name'];
-const PHONE_KEYS = ['phone', 'mobile'];
+ *  letting someone fill in twelve questions and be rejected at the end.
+ *
+ *  Imported rather than redeclared: this used to be a third private copy of a
+ *  contract the submit route stated inline and the builder did not state at all,
+ *  which is how a form with no name or phone question reached the public. */
 
 function FieldInput({
   field,
@@ -152,6 +155,13 @@ export function ApplyWidget({
   const [submitting, setSubmitting] = useState(false);
   const [reference, setReference] = useState<string | null>(null);
 
+  // The course charges fees, but no tier is on sale right now. `packages` is
+  // empty in this case exactly as it is for a free course, which is why the
+  // loader reports the two separately — without that the chooser silently
+  // vanished and the application was accepted with package_id NULL, which
+  // course_enrollments (package_id NOT NULL) can never turn into an enrollment.
+  const noPackageOnSale = form.packagesExist && form.packages.length === 0;
+
   const allFields = form.sections.flatMap((s) => s.fields);
   const hasName = allFields.some((f) => NAME_KEYS.includes(f.field_key));
   const hasPhone = allFields.some((f) => PHONE_KEYS.includes(f.field_key));
@@ -172,6 +182,10 @@ export function ApplyWidget({
 
     if (missing.length > 0) {
       toast.error(`Please answer: ${missing.join(', ')}`);
+      return;
+    }
+    if (noPackageOnSale) {
+      toast.error('Fees for this course are not on sale right now.');
       return;
     }
     if (form.packages.length > 0 && !packageId) {
@@ -293,6 +307,20 @@ export function ApplyWidget({
             </section>
           ))}
 
+          {/* Rendered INSTEAD of the chooser, never in place of nothing. A
+              section that simply disappears reads as "this course is free", and
+              the applicant submits something that can never be priced. */}
+          {noPackageOnSale && (
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold">Choose a package</h2>
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                Fees for this course are not on sale at the moment, so
+                applications cannot be accepted yet. Please check back later — or
+                contact the institution if you were sent this link.
+              </div>
+            </section>
+          )}
+
           {form.packages.length > 0 && (
             <section className="space-y-3">
               <h2 className="text-lg font-semibold">Choose a package</h2>
@@ -351,7 +379,10 @@ export function ApplyWidget({
           </div>
 
           <div className="flex items-center gap-3 border-t pt-5">
-            <Button type="submit" disabled={submitting || !hasName || !hasPhone}>
+            <Button
+              type="submit"
+              disabled={submitting || !hasName || !hasPhone || noPackageOnSale}
+            >
               {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Submit application
             </Button>
