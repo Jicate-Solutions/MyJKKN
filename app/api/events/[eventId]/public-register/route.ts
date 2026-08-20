@@ -38,8 +38,39 @@ import {
  */
 const EVENT_FEE_HEAD = 'tuition';
 
-/** Types with their own registration route; this generic one must refuse them. */
-const HAS_OWN_REGISTER_ROUTE = new Set(['sports_tournament', 'marathon']);
+/**
+ * Types with their own registration route; this generic one must refuse them.
+ *
+ * 'school_of_influence' added 2026-08-17. It registers through
+ * POST /api/school-of-influence/apply, which reads the applicant's identity from
+ * the session and stamps `source = 'soi_apply'`. This route stamps
+ * `source = 'event_self'` — and every School of Influence surface (the review
+ * queue, acceptance, rejection, the waiting list) filters on 'soi_apply' inside
+ * its SECURITY DEFINER RPC. A programme application written here is therefore
+ * INVISIBLE to the programme, which is exactly what happened to all 17 people
+ * who signed up for "JKKN School of Influencer" before this guard existed
+ * (repaired by migration 20260817060000).
+ *
+ * The refusal is here as well as on the public page because the page is a UI and
+ * this is the door: /p/event/[id]/register no longer offers the form, but this
+ * endpoint is reachable without it.
+ */
+const HAS_OWN_REGISTER_ROUTE = new Set([
+  'sports_tournament',
+  'marathon',
+  'school_of_influence',
+]);
+
+/**
+ * Where a refused type actually registers. A bare "this event registers
+ * elsewhere" leaves the caller with nowhere to go; the tournament types keep
+ * that answer because their link is the organizer's to give out, but School of
+ * Influence has one fixed door and no reason to withhold it.
+ */
+const OWN_REGISTER_ROUTE_HINT: Record<string, string> = {
+  school_of_influence:
+    'This programme takes applications at /events/{eventId}/apply, where each person applies for themselves while signed in.',
+};
 
 interface PublicEventRegisterBody {
   form_id?: string | null;
@@ -82,8 +113,13 @@ export async function POST(
       return NextResponse.json({ error: 'Event not open for registration' }, { status: 404 });
     }
     if (HAS_OWN_REGISTER_ROUTE.has(ev.event_type as string)) {
+      const hint = OWN_REGISTER_ROUTE_HINT[ev.event_type as string];
       return NextResponse.json(
-        { error: 'This event registers through its own page.' },
+        {
+          error: hint
+            ? hint.replace('{eventId}', eventId)
+            : 'This event registers through its own page.',
+        },
         { status: 422 }
       );
     }

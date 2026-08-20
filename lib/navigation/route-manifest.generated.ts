@@ -655,6 +655,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/admin/id-cards/address-check",
+            "label": "Address Check",
+            "iconName": "MapPin",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/batch-print",
             "label": "Batch ID-Card Print",
             "iconName": "Printer",
@@ -1486,37 +1492,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admission/settings/school-fees",
-            "label": "School Fees",
-            "iconName": "GraduationCap",
-            "children": [
-              {
-                "path": "/admission/settings/school-fees/concessions",
-                "label": "Concessions",
-                "iconName": "GraduationCap",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/generate",
-                "label": "Generate",
-                "iconName": "GraduationCap",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/term-calendar",
-                "label": "Term Calendar",
-                "iconName": "GraduationCap",
-                "children": []
-              }
-            ]
-          },
-          {
             "path": "/admission/settings/seat-config",
             "label": "Seat Config",
             "iconName": "GraduationCap",
@@ -1737,6 +1712,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/ai-pulse/admin/reports",
             "label": "Reports",
             "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/trends",
+            "label": "Trends",
+            "iconName": "FileText",
             "children": []
           }
         ]
@@ -2163,6 +2144,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         ]
       },
       {
+        "path": "/billing/school-fees",
+        "label": "School Fees",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/school-fees/collect",
+            "label": "Collect",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/concessions",
+            "label": "Concessions",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/generate",
+            "label": "Generate",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/term-calendar",
+            "label": "Term Calendar",
+            "iconName": "Wallet",
+            "children": []
+          }
+        ]
+      },
+      {
         "path": "/billing/transport",
         "label": "Transport",
         "iconName": "Wallet",
@@ -2377,6 +2395,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "label": "Allocations",
         "iconName": "PackageCheck",
         "children": [
+          {
+            "path": "/campus-living/allocations/audit",
+            "label": "Audit",
+            "iconName": "PackageCheck",
+            "children": []
+          },
           {
             "path": "/campus-living/allocations/auto",
             "label": "Auto",
@@ -5455,6 +5479,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/routing-forms",
         "label": "Routing Forms",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/schedule",
+        "label": "Schedule",
+        "iconName": "CalendarClock",
         "children": []
       },
       {
