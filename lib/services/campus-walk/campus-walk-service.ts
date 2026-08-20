@@ -131,11 +131,14 @@ async function mapProfilesToStaff(
  * staff.id -> profiles.id, ACTIVE staff only. Same active-only rule as
  * mapStaffToProfiles in meeting-trigger-service.ts:1364 (duplicated here for the
  * same reason mapProfilesToStaff is: that file is module-private and a known
- * parallel-PR hotspot). Used only to find who to notify (RACI assignees) — a
+ * parallel-PR hotspot). Used to find who to notify (RACI assignees) — a
  * departed staff member simply drops out of the notify list rather than
- * erroring, matching the fail-soft rule.
+ * erroring, matching the fail-soft rule. Exported so lib/campus-walk/repeats.ts
+ * (D7 "same as before") can resolve a task's current owner_staff_id back to an
+ * active profile id before re-running routeAccountable below, rather than
+ * keeping a second copy of this same join.
  */
-async function mapStaffToProfilesLocal(
+export async function mapStaffToProfilesLocal(
   db: SupabaseClient,
   staffIds: Array<string | null | undefined>
 ): Promise<Map<string, string>> {
@@ -263,6 +266,128 @@ async function resolveDepartmentHeadProfileId(
   return (dept as any)?.head_of_department_id ?? null;
 }
 
+export interface RouteAccountableParams {
+  kind: WalkKind;
+  /** D6 urgent lane — same-day due date regardless of kind. */
+  isUnsafe: boolean;
+  /** Supplied/candidate owner, profiles.id. Null is legal — routes straight to the EAO. */
+  candidateProfileId: string | null;
+}
+
+export interface RouteAccountableResult {
+  accountableProfileId: string | null;
+  accountableStaffId: string | null;
+  /** True when nobody was supplied (or the supplied owner has no active staff row) and this fell through to the EAO. */
+  routedToEaoNoOwner: boolean;
+  /** True when whoever ended up accountable (candidate or EAO fallback) is on approved leave right now. */
+  onApprovedLeave: boolean;
+  leaveOriginalProfileId: string | null;
+  leaveOriginalStaffId: string | null;
+  /** YYYY-MM-DD, computed from `kind`/`isUnsafe` at the moment this runs. */
+  dueDate: string;
+}
+
+/**
+ * The routing rules a fresh report gets: due date by kind/unsafe, the EAO
+ * fallback when there is no valid owner, and leave reassignment when whoever
+ * is accountable is on approved leave right now. Extracted out of
+ * createWalkTask (behavior unchanged — see the call site below) specifically
+ * so D7's reopen flow (lib/campus-walk/repeats.ts, "same as before") can call
+ * into this rather than keeping a second, driftable copy of it. The whole
+ * point of D7's "reopen the original task" ruling is that a recurrence gets
+ * the SAME routing a brand-new report would get.
+ */
+export async function routeAccountable(
+  db: SupabaseClient,
+  params: RouteAccountableParams
+): Promise<RouteAccountableResult> {
+  const staffByCandidate = params.candidateProfileId
+    ? await mapProfilesToStaff(db, [params.candidateProfileId])
+    : new Map<string, string>();
+
+  let accountableProfileId: string | null = params.candidateProfileId ?? null;
+  let accountableStaffId: string | null = accountableProfileId
+    ? staffByCandidate.get(accountableProfileId) ?? null
+    : null;
+
+  // No owner supplied, or the supplied owner has no active staff record — a
+  // task with nobody accountable never closes. Route to the EAO instead of
+  // leaving it unassigned.
+  let routedToEaoNoOwner = false;
+  if (!accountableStaffId) {
+    const eao = await resolveEao(db);
+    if (eao) {
+      accountableProfileId = eao.profileId;
+      accountableStaffId = eao.staffId;
+      routedToEaoNoOwner = true;
+    } else {
+      console.error(
+        '[campus-walk] no owner supplied and no EAO could be resolved (role or fallback email) — routing left unassigned'
+      );
+    }
+  }
+
+  const dueInDays = params.isUnsafe ? DUE_IN_DAYS.unsafe : DUE_IN_DAYS[params.kind];
+  const dueDate = new Date(Date.now() + dueInDays * 86_400_000).toISOString().slice(0, 10);
+
+  // Whoever ends up Accountable — candidate or the EAO fallback above — must
+  // not be penalised for being on sanctioned leave. Pause the clock and hand
+  // it to the department head; if that link is missing, fall back to the EAO
+  // and log it. Never throw: an unresolvable leave chain just leaves the
+  // clock paused on the original assignee.
+  const todayISO = new Date().toISOString().slice(0, 10);
+  let onApprovedLeave = false;
+  let leaveOriginalProfileId: string | null = null;
+  let leaveOriginalStaffId: string | null = null;
+
+  if (accountableStaffId && (await isStaffOnApprovedLeave(db, accountableStaffId, todayISO))) {
+    onApprovedLeave = true;
+    leaveOriginalProfileId = accountableProfileId;
+    leaveOriginalStaffId = accountableStaffId;
+
+    const headProfileId = await resolveDepartmentHeadProfileId(db, accountableStaffId);
+    let headStaffId: string | null = null;
+    if (headProfileId) {
+      const headMap = await mapProfilesToStaff(db, [headProfileId]);
+      headStaffId = headMap.get(headProfileId) ?? null;
+    }
+
+    if (headProfileId && headStaffId && headStaffId !== leaveOriginalStaffId) {
+      accountableProfileId = headProfileId;
+      accountableStaffId = headStaffId;
+    } else {
+      if (!headProfileId) {
+        console.error(
+          `[campus-walk] accountable staff ${leaveOriginalStaffId} is on approved leave; no department head on record (staff.department_id or departments.head_of_department_id missing) — routing to EAO`
+        );
+      } else {
+        console.error(
+          `[campus-walk] accountable staff ${leaveOriginalStaffId} is on approved leave; department head profile ${headProfileId} has no active staff record — routing to EAO`
+        );
+      }
+      const eao = await resolveEao(db);
+      if (eao && eao.staffId !== leaveOriginalStaffId) {
+        accountableProfileId = eao.profileId;
+        accountableStaffId = eao.staffId;
+      } else if (!eao) {
+        console.error(
+          '[campus-walk] on-leave assignee has no department head and no EAO could be resolved either — clock paused, task stays with the on-leave assignee'
+        );
+      }
+    }
+  }
+
+  return {
+    accountableProfileId,
+    accountableStaffId,
+    routedToEaoNoOwner,
+    onApprovedLeave,
+    leaveOriginalProfileId,
+    leaveOriginalStaffId,
+    dueDate
+  };
+}
+
 export interface CreateWalkTaskResult {
   taskId: string;
   /** The primary (first) attachment id, or null if every attachment insert failed. */
@@ -293,85 +418,28 @@ export async function createWalkTask(
     }
 
     const consulted = input.consultedProfileIds ?? [];
-    const staffByProfile = await mapProfilesToStaff(db, [
-      input.accountableProfileId,
-      ...consulted
-    ]);
+    // Only the consulted ids need batching here now — the accountable
+    // candidate is resolved independently by routeAccountable() below, which
+    // does its own lookup. (Previously batched together purely as a query
+    // optimisation; splitting it costs one extra small query and removes the
+    // only thing coupling this map to the routing logic below.)
+    const staffByProfile = await mapProfilesToStaff(db, consulted);
 
-    let accountableProfileId: string | null = input.accountableProfileId ?? null;
-    let accountableStaffId: string | null = accountableProfileId
-      ? staffByProfile.get(accountableProfileId) ?? null
-      : null;
-
-    // No owner supplied, or the supplied owner has no active staff record — a
-    // task with nobody accountable never closes. Route to the EAO instead of
-    // creating it unowned.
-    let routedToEaoNoOwner = false;
-    if (!accountableStaffId) {
-      const eao = await resolveEao(db);
-      if (eao) {
-        accountableProfileId = eao.profileId;
-        accountableStaffId = eao.staffId;
-        staffByProfile.set(eao.profileId, eao.staffId);
-        routedToEaoNoOwner = true;
-      } else {
-        console.error(
-          '[campus-walk] no owner supplied and no EAO could be resolved (role or fallback email) — task created unassigned'
-        );
-      }
-    }
-
-    const dueInDays = input.isUnsafe ? DUE_IN_DAYS.unsafe : DUE_IN_DAYS[input.kind];
-    const dueDate = new Date(Date.now() + dueInDays * 86_400_000).toISOString().slice(0, 10);
-
-    // Whoever ends up Accountable — supplied owner or the EAO fallback above —
-    // must not be penalised for being on sanctioned leave. Pause the clock and
-    // hand it to the department head; if that link is missing, fall back to
-    // the EAO and log it. Never throw: an unresolvable leave chain just leaves
-    // the clock paused on the original assignee.
-    const todayISO = new Date().toISOString().slice(0, 10);
-    let onApprovedLeave = false;
-    let leaveOriginalProfileId: string | null = null;
-    let leaveOriginalStaffId: string | null = null;
-
-    if (accountableStaffId && (await isStaffOnApprovedLeave(db, accountableStaffId, todayISO))) {
-      onApprovedLeave = true;
-      leaveOriginalProfileId = accountableProfileId;
-      leaveOriginalStaffId = accountableStaffId;
-
-      const headProfileId = await resolveDepartmentHeadProfileId(db, accountableStaffId);
-      let headStaffId: string | null = null;
-      if (headProfileId) {
-        const headMap = await mapProfilesToStaff(db, [headProfileId]);
-        headStaffId = headMap.get(headProfileId) ?? null;
-      }
-
-      if (headProfileId && headStaffId && headStaffId !== leaveOriginalStaffId) {
-        accountableProfileId = headProfileId;
-        accountableStaffId = headStaffId;
-        staffByProfile.set(headProfileId, headStaffId);
-      } else {
-        if (!headProfileId) {
-          console.error(
-            `[campus-walk] accountable staff ${leaveOriginalStaffId} is on approved leave; no department head on record (staff.department_id or departments.head_of_department_id missing) — routing to EAO`
-          );
-        } else {
-          console.error(
-            `[campus-walk] accountable staff ${leaveOriginalStaffId} is on approved leave; department head profile ${headProfileId} has no active staff record — routing to EAO`
-          );
-        }
-        const eao = await resolveEao(db);
-        if (eao && eao.staffId !== leaveOriginalStaffId) {
-          accountableProfileId = eao.profileId;
-          accountableStaffId = eao.staffId;
-          staffByProfile.set(eao.profileId, eao.staffId);
-        } else if (!eao) {
-          console.error(
-            '[campus-walk] on-leave assignee has no department head and no EAO could be resolved either — clock paused, task stays with the on-leave assignee'
-          );
-        }
-      }
-    }
+    // Due date + EAO fallback + leave reassignment — the exact rules D7's
+    // reopen flow (lib/campus-walk/repeats.ts) re-runs for a recurrence, via
+    // this same exported function rather than a duplicated copy.
+    const routing = await routeAccountable(db, {
+      kind: input.kind,
+      isUnsafe: Boolean(input.isUnsafe),
+      candidateProfileId: input.accountableProfileId ?? null
+    });
+    const accountableProfileId = routing.accountableProfileId;
+    const accountableStaffId = routing.accountableStaffId;
+    const routedToEaoNoOwner = routing.routedToEaoNoOwner;
+    const dueDate = routing.dueDate;
+    const onApprovedLeave = routing.onApprovedLeave;
+    const leaveOriginalProfileId = routing.leaveOriginalProfileId;
+    const leaveOriginalStaffId = routing.leaveOriginalStaffId;
 
     const photoList: WalkPhoto[] =
       input.photos && input.photos.length > 0

@@ -526,6 +526,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // project_* RLS is auth.uid() IS NOT NULL for read AND write, so the database
   // will not enforce it and a menu key must not be mistaken for a security gate.
   '/campus-walk': 'projects.view',
+  // The Director's approval queue. D4 makes his sign-off the closing step, so
+  // without a way to reach this the fixer's proof photo sits in `review`
+  // forever and the loop never closes.
+  '/campus-walk/review': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
   '/academic/leave-calendar': 'academic.leaves.view',
@@ -3122,7 +3126,21 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Campus Walk',
           active: pathname.startsWith('/campus-walk'),
           icon: ClipboardCheck,
-          submenus: []
+          submenus: [
+            {
+              href: '/campus-walk',
+              label: 'Capture',
+              active: pathname === '/campus-walk'
+            },
+            {
+              // Literal href, so check-nav-reachability.ts can reach it. The
+              // fixer screen deliberately is NOT here — it is ?task=-invoked
+              // from its bell notification and has no standalone surface.
+              href: '/campus-walk/review',
+              label: 'Awaiting approval',
+              active: pathname.startsWith('/campus-walk/review')
+            }
+          ]
         }
       ]
     },

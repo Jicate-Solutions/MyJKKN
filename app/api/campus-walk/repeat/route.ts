@@ -1,0 +1,103 @@
+// app/api/campus-walk/repeat/route.ts
+// ============================================================================
+// Campus Walk — "same as before" (D7). The Director taps this on a CLOSED
+// ticket to record a recurrence. There is no auto-matching anywhere in this
+// path — the caller already picked the exact task_id; see
+// lib/campus-walk/repeats.ts's header for why that is locked, not a gap.
+//
+// This does not create a new task row. It reopens the SAME task and appends
+// a dated occurrence, so "Block C — 9th time" reads directly off
+// metadata.occurrence_count. Routing (due date, EAO fallback, leave
+// reassignment) is re-run by calling into campus-walk-service's
+// routeAccountable via lib/campus-walk/repeats.ts, rather than duplicating
+// that logic here.
+//
+// ── D2 gate: Director-only, same source of truth as intake ─────────────────
+// (app/api/campus-walk/observations/route.ts) and the fixer route
+// (app/api/campus-walk/fix/route.ts): project_* RLS is
+// `auth.uid() IS NOT NULL` for read AND write (migration 20260528000000,
+// lines 842/847-848), so ANY authenticated user could otherwise reopen ANY
+// project task. This email comparison is the only real gate, and it runs
+// before the request body is even parsed.
+//
+// ── Never a redirect (house rule #27) ───────────────────────────────────────
+// Every failure path returns `{ success: false, error, code }` naming the
+// reason. A permission or state failure the Director cannot see is a
+// bounce-loop he cannot diagnose.
+// ============================================================================
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { DIRECTOR_EMAIL } from '@/lib/auth/preview-session';
+import { reopenAsRepeat } from '@/lib/campus-walk/repeats';
+
+function fail(error: string, status: number, extra?: Record<string, unknown>) {
+  return NextResponse.json({ success: false, error, ...extra }, { status });
+}
+
+export async function POST(request: NextRequest) {
+  const supabase = await createClient();
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return fail('Not signed in.', 401);
+  }
+
+  // D2 — Director-only for v1. Same rule, same source of truth
+  // (DIRECTOR_EMAIL), as observations/route.ts. The database does not, and
+  // will not, enforce D2 — this comparison is the only gate.
+  const callerEmail = (user.email ?? '').toLowerCase();
+  if (callerEmail !== DIRECTOR_EMAIL.toLowerCase()) {
+    return fail('Only the Director can mark a ticket as "same as before" in this release.', 403);
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return fail('Expected a JSON body with task_id.', 400);
+  }
+
+  const taskId = String((body as Record<string, unknown> | null)?.task_id ?? '').trim();
+  if (!taskId) {
+    return fail('task_id is required.', 400);
+  }
+
+  const result = await reopenAsRepeat(supabase, { taskId, reopenedByProfileId: user.id });
+
+  // `=== false`, not `!result.ok`: this repo compiles with strictNullChecks
+  // off (tsconfig.json), under which TypeScript does not narrow a
+  // discriminated union through a truthiness check on a boolean literal
+  // discriminant — see app/api/campus-walk/fix/route.ts's identical note.
+  // The explicit comparison does narrow.
+  if (result.ok === false) {
+    // wrong_lane / not_closed are refusals about what the task IS, not a
+    // system error — 400/409, not 5xx. not_found -> 404. Anything else
+    // (lookup/update failure) is a real hiccup -> 502, retryable.
+    const status =
+      result.code === 'not_found'
+        ? 404
+        : result.code === 'wrong_lane'
+          ? 400
+          : result.code === 'not_closed'
+            ? 409
+            : 502;
+    return fail(result.error, status, { code: result.code });
+  }
+
+  return NextResponse.json({
+    success: true,
+    taskId: result.taskId,
+    occurrenceCount: result.occurrenceCount,
+    dueDate: result.dueDate,
+    accountableProfileId: result.accountableProfileId,
+    routedToEaoNoOwner: result.routedToEaoNoOwner,
+    onApprovedLeave: result.onApprovedLeave,
+    message: `Reopened — occurrence #${result.occurrenceCount}.`
+  });
+}
