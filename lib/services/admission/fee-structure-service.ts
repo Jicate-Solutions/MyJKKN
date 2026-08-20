@@ -87,9 +87,6 @@ export class FeeStructureService {
         programme_name: string | null;
         quota_name: string | null;
         accommodation_name: string | null;
-        /** Declared hostel tier. Null on day-scholar structures by design. */
-        hostel_category_name: string | null;
-        mess_category_name: string | null;
         /** Comma-joined community names, for legacy single-cell rendering. */
         community_name: string | null;
         /** All community names attached to this structure (via junction). */
@@ -145,8 +142,6 @@ export class FeeStructureService {
         programme:programs(id, program_name),
         quota:quotas(id, name),
         accommodation:accommodation_types(id, name),
-        hostel_category:hostel_categories(id, name),
-        mess_category:mess_categories(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
         items:admission_fee_structure_items(id)
@@ -187,8 +182,6 @@ export class FeeStructureService {
       programme: { program_name: string } | null;
       quota: { name: string } | null;
       accommodation: { name: string } | null;
-      hostel_category: { name: string } | null;
-      mess_category: { name: string } | null;
       communities: Array<{
         community_category_id: string;
         community_category: { id: string; name: string } | null;
@@ -212,9 +205,6 @@ export class FeeStructureService {
         programme_name: joined.programme?.program_name ?? null,
         quota_name: joined.quota?.name ?? null,
         accommodation_name: joined.accommodation?.name ?? null,
-        // Declared hostel tier. Null on day-scholar structures by design.
-        hostel_category_name: joined.hostel_category?.name ?? null,
-        mess_category_name: joined.mess_category?.name ?? null,
         // Backwards-compat single-name field — joins all linked communities
         // for legacy table cells. Most consumers should switch to
         // `community_names` (plural) when rendering chips.

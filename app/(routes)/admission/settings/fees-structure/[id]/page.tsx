@@ -64,6 +64,8 @@ import {
   Trash2,
   UserCircle,
   Home,
+  BedDouble,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -96,6 +98,13 @@ type DetailRow = AdmissionFeeStructure & {
   programme_name: string | null;
   quota_name: string | null;
   accommodation_name: string | null;
+  /**
+   * Declared hostel tier. Only hostel structures carry one — a DB trigger
+   * rejects it on any other accommodation — so these are null by design on
+   * day-scholar rows and the Hostel Categories section stays hidden there.
+   */
+  hostel_category_name: string | null;
+  mess_category_name: string | null;
   community_name: string | null;
   admission_year_name: string | null;
   items: DetailRowItem[];
@@ -206,6 +215,16 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
     : null;
 
   const grandTotal = structure?.items.reduce((s, it) => s + Number(it.amount || 0), 0) ?? 0;
+
+  // Is this a HOSTEL structure (i.e. should the Hostel Categories section show)?
+  // A set category is proof on its own — trg_fee_structure_hostel_categories_guard
+  // rejects one on any non-hostel structure. The accommodation-name check covers
+  // the only case where both are null yet it IS hostel: a draft awaiting its tier.
+  const isHostelStructure =
+    !!structure &&
+    (!!structure.hostel_category_id ||
+      !!structure.mess_category_id ||
+      (structure.accommodation_name ?? '').toLowerCase().includes('hostel'));
 
   return (
     <PermissionGuard module="admission.settings" action="view">
@@ -416,6 +435,46 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                   Click <em>Edit</em> to change any dimension. The 7 dimensions plus the
                   community list form the structure&apos;s identity — saving in a way that
                   conflicts with another active structure&apos;s coverage will be rejected.
+                </p>
+              </section>
+              )}
+
+              {/* Hostel Categories — HOSTEL structures only.
+               *  Deliberately its own section rather than two more DimCards:
+               *  the tier is an attribute of the package, not a matching
+               *  dimension, so it plays no part in resolving a learner to this
+               *  structure (same reasoning that keeps package_type out of the
+               *  grid above). It is also absent on the 125 day-scholar
+               *  structures, which is why it is not a list-table column. */}
+              {!isEditMode && isHostelStructure && (
+              <section>
+                <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+                  Hostel Categories
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <DimCard
+                    icon={<BedDouble className="h-4 w-4" />}
+                    label="Room Category"
+                    name={structure.hostel_category_name}
+                    id={structure.hostel_category_id ?? ''}
+                  />
+                  <DimCard
+                    icon={<UtensilsCrossed className="h-4 w-4" />}
+                    label="Mess Category"
+                    name={structure.mess_category_name}
+                    id={structure.mess_category_id ?? ''}
+                  />
+                </div>
+                {(!structure.hostel_category_name || !structure.mess_category_name) && (
+                  <p className="text-xs text-amber-600 mt-3">
+                    Both categories are required before this structure can be
+                    activated. Click <em>Edit</em> to set them.
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground mt-3">
+                  The room and mess tier this package buys. Categories apply to both
+                  genders — each learner resolves to their own gender&apos;s variant of
+                  the tier.
                 </p>
               </section>
               )}
