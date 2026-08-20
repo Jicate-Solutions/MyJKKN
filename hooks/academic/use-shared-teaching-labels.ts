@@ -15,10 +15,14 @@
 // panel, where an own-scope member read 0 cross-campus bookings against a real 78.
 //
 // WRITE goes straight at `shared_teaching_labels` under RLS. There is nothing to
-// widen: a college labels teaching it receives, and the write policy scopes that
-// to `role_has_institution_access(receiver_institution_id)`. Putting the write
-// behind a definer function would mean re-implementing that scope inside a
-// function body, which is one more place for it to be wrong.
+// widen: a college writes the row carrying its OWN id in
+// `labelled_by_institution_id`, and the write policy scopes exactly that. Putting
+// the write behind a definer function would mean re-implementing that scope
+// inside a function body, which is one more place for it to be wrong.
+//
+// BOTH COLLEGES ANSWER (Director decision 5, 2026-08-18). Each side holds its
+// own row, so a write here can never overwrite the other college's answer, and
+// the two are read back side by side.
 // ============================================================================
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -32,12 +36,15 @@ import type {
 // ---------------------------------------------------------------------------
 // WHY THE CLIENT IS NARROWED BY HAND HERE.
 //
-// `types/supabase.ts` is generated from the LIVE catalog. `shared_teaching_labels`
-// and `fn_shared_teaching_relationships` are not in it, because the migration
-// that creates them is Director-gated and deliberately unapplied — so the typed
-// client rejects both names. Regenerating types against a database that does not
-// have the objects yet is not possible, and inventing entries by hand in a
-// 110,000-line generated file is drift nobody would find later.
+// `types/supabase.ts` is generated from the LIVE catalog, and it carries zero
+// references to `shared_teaching_labels` or `fn_shared_teaching_relationships`
+// (verified 2026-08-20) — so the typed client rejects both names. The objects
+// themselves DO exist on production: 20260908010000 was applied, confirmed the
+// same day by calling the function and getting its own 22023 message back while
+// a deliberately fake function name on the same endpoint answered PGRST202. The
+// gap is that types were never regenerated afterwards, and regenerating them is
+// out of scope here — hand-editing a 110,000-line generated file is drift nobody
+// would find later.
 //
 // So the two calls that touch the new objects go through this narrow handle,
 // which is the same route `sh_proposals` takes today (`BaseService.supabase` is
@@ -133,16 +140,29 @@ export interface SetSharedTeachingLabelInput {
   giverInstitutionId: string;
   receiverInstitutionId: string;
   academicYearId: string;
+  /** Which of the two colleges is speaking — see `labellingInstitutionIdFor`. */
+  labelledByInstitutionId: string;
   label: SharedTeachingLabel;
 }
 
 /**
- * Set — or change — one relationship's label.
+ * Set — or change — THIS college's answer on one relationship.
  *
- * An upsert on the relationship's unique key, so pressing the other value
- * replaces the answer instead of filing a second opinion beside the first.
- * `set_by` and `set_at` are re-stamped on every write: the question is who says
- * this NOW, not who said it first.
+ * An upsert on the per-side unique key, so pressing the other value replaces
+ * this college's answer instead of filing a second opinion beside it — while
+ * leaving the other college's answer untouched, which is the whole point of
+ * decision 5.
+ *
+ * NO AUTHORSHIP IS SENT FROM HERE, deliberately (decision 1). `set_by`,
+ * `set_at`, `edited_at` and `updated_at` are all stamped by
+ * `fn_shared_teaching_label_stamp_author`, a BEFORE INSERT OR UPDATE trigger
+ * running SECURITY INVOKER so `auth.uid()` is the real caller. This write goes
+ * straight at the table through PostgREST under the `authenticated` role's
+ * table-level grant, so anything this client puts in `set_by` would be accepted
+ * as written — including another person's id, on a row somebody else authored.
+ * The trigger overwrites it rather than rejecting it, so there is nothing for a
+ * caller here to get right or wrong. Sending it anyway would be dead weight that
+ * reads like it still matters.
  */
 export function useSetSharedTeachingLabel(
   institutionId: string | null | undefined
@@ -151,12 +171,8 @@ export function useSetSharedTeachingLabel(
 
   return useMutation({
     mutationFn: async (input: SetSharedTeachingLabelInput) => {
-      const typed = createClientSupabaseClient();
-      const {
-        data: { user }
-      } = await typed.auth.getUser();
-
-      const supabase = typed as unknown as UntypedSupabaseHandle;
+      const supabase =
+        createClientSupabaseClient() as unknown as UntypedSupabaseHandle;
       const { error } = await supabase
         .from('shared_teaching_labels')
         .upsert(
@@ -164,14 +180,16 @@ export function useSetSharedTeachingLabel(
             giver_institution_id: input.giverInstitutionId,
             receiver_institution_id: input.receiverInstitutionId,
             academic_year_id: input.academicYearId,
-            label: input.label,
-            set_by: user?.id ?? null,
-            set_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            labelled_by_institution_id: input.labelledByInstitutionId,
+            label: input.label
           },
           {
+            // All FOUR columns of shared_teaching_labels_unique_side. Omitting
+            // the fourth would target the old per-relationship key, which no
+            // longer exists — the upsert would 42P10 rather than quietly
+            // overwrite the other college's answer, but it would still fail.
             onConflict:
-              'giver_institution_id,receiver_institution_id,academic_year_id'
+              'giver_institution_id,receiver_institution_id,academic_year_id,labelled_by_institution_id'
           }
         );
 
