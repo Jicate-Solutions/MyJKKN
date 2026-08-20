@@ -86,10 +86,11 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
-import {
-  useAllInstitutions,
-  type SpanInstitution,
-} from '@/hooks/accreditation/use-cluster-councils';
+import { useAllInstitutions } from '@/hooks/accreditation/use-cluster-councils';
+// SpanInstitution is DEFINED in cluster-scope. use-cluster-councils imports it
+// for its own signatures but never re-exports it, so importing it from there is
+// TS2305 — a module cannot re-export a name just by importing it.
+import type { SpanInstitution } from '@/app/(routes)/accreditation/cac/_lib/cluster-scope';
 import { MeasuredMetricsSection } from './_components/measured-metrics-section';
 import {
   Select,
