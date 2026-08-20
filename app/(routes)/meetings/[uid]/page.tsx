@@ -253,7 +253,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
               <p className="text-xs text-muted-foreground">
                 {booking.outcome_marked_by === 'host'
                   ? 'Recorded by the host.'
-                  : 'Closed automatically 7 days after it ended — nobody confirmed it took place.'}
+                  : 'Closed automatically before 21 August 2026 — nobody confirmed it took place.'}
               </p>
             ) : null}
           </CardContent>
@@ -425,8 +425,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Nothing is recorded until you say so. If you leave it, the booking closes
-                itself as completed 7 days after it ended.
+                Nothing is recorded until you say so. Until you do, this meeting stays
+                under Awaiting you on your meetings list. It is no longer closed
+                automatically after seven days.
               </p>
               <MarkOutcomeButtons uid={booking.uid} />
             </CardContent>
