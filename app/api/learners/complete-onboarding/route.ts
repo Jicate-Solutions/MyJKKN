@@ -149,13 +149,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Create profile
-    // Convert gender from learner format (MALE/FEMALE/OTHER) to profile format (male/female/other)
-    const genderMapping: Record<string, string> = {
-      'MALE': 'male',
-      'FEMALE': 'female',
-      'OTHER': 'other'
-    };
-    const profileGender = learner.gender ? genderMapping[learner.gender.toUpperCase()] || 'other' : null;
+    // learners_profiles.gender and profiles.gender share ONE domain now
+    // (Male | Female | Other, 20260820160000), so no mapping is needed - and the old one
+    // defaulted anything unrecognised to 'other', quietly mislabelling people.
+    // trg_normalize_gender_profiles re-canonicalises on the way in.
+    const profileGender = learner.gender?.trim() || null;
 
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
       id: authUser.id,

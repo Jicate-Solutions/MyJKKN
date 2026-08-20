@@ -15086,7 +15086,9 @@ DECLARE
   v_learner uuid;
   v_elig    uuid[];
 BEGIN
-  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE profiles.id = auth.uid();
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM profiles pr LEFT JOIN learners_profiles lp ON lp.id = pr.learner_id
+   WHERE pr.id = auth.uid();
   v_learner := get_my_learner_id();
 
   -- Fee-aware allow-set for this learner. NULL (no rule / no bill data) => fail-open.
@@ -27841,7 +27843,9 @@ BEGIN
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   IF v_year IS NULL THEN RETURN; END IF;
   SELECT hostel_category_id INTO v_cur_cat FROM learners_profiles WHERE id = v_lp;
-  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE id = auth.uid();
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM profiles pr LEFT JOIN learners_profiles lp ON lp.id = pr.learner_id
+   WHERE pr.id = auth.uid();
   SELECT COALESCE(amount,0) INTO v_cur_fee FROM hostel_fees
     WHERE hostel_category_id = v_cur_cat AND hostel_year_id = v_year AND mess_category_id IS NULL AND is_active LIMIT 1;
   SELECT pp.paid_pct INTO v_paid_pct FROM fn_learner_academic_payment_progress(v_lp) pp;
@@ -27905,7 +27909,9 @@ BEGIN
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   IF v_year IS NULL THEN RETURN; END IF;
   SELECT lp.mess_category_id INTO v_cur_mess FROM learners_profiles lp WHERE lp.id = v_lp;
-  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE id = auth.uid();
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM profiles pr LEFT JOIN learners_profiles lp ON lp.id = pr.learner_id
+   WHERE pr.id = auth.uid();
   SELECT COALESCE(hf.amount,0) INTO v_cur_fee FROM hostel_fees hf
     WHERE hf.mess_category_id = v_cur_mess AND hf.hostel_year_id = v_year AND hf.is_active LIMIT 1;
 
@@ -29327,7 +29333,9 @@ BEGIN
     FROM hostel_categories WHERE id = p_category_id;
   IF v_src IS NULL THEN RETURN; END IF;
   SELECT institution_id, hostel_category_id INTO v_inst, v_cur_cat FROM learners_profiles WHERE id=v_lp;
-  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE profiles.id = auth.uid();
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM profiles pr LEFT JOIN learners_profiles lp ON lp.id = pr.learner_id
+   WHERE pr.id = auth.uid();
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   SELECT COALESCE(bool_or(uf.skip_room_eligibility), false) INTO v_skip
     FROM hostel_category_upgrade_fees uf
@@ -29362,7 +29370,9 @@ BEGIN
     FROM hostel_categories WHERE id = p_category_id;
   IF v_src IS NULL THEN RETURN; END IF;
   SELECT institution_id, hostel_category_id INTO v_inst, v_cur_cat FROM learners_profiles WHERE id = v_lp;
-  SELECT lower(trim(gender)) INTO v_gender FROM profiles WHERE profiles.id = auth.uid();
+  SELECT lower(trim(COALESCE(pr.gender, lp.gender))) INTO v_gender
+    FROM profiles pr LEFT JOIN learners_profiles lp ON lp.id = pr.learner_id
+   WHERE pr.id = auth.uid();
   SELECT id INTO v_year FROM hostel_years WHERE is_current LIMIT 1;
   SELECT COALESCE(bool_or(uf.skip_room_eligibility), false) INTO v_skip
     FROM hostel_category_upgrade_fees uf
@@ -44352,6 +44362,185 @@ GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO authe
 GRANT EXECUTE ON FUNCTION public.fn_onboarding_payment_progress(uuid[]) TO service_role;
 
 
+-- ===========================================================================
+-- Course Events — super-admin-only cascade delete
+-- Source: supabase/migrations/20260820020000_course_delete_cascade_super_admin.sql
+--
+-- The money half of the course FK graph (enrollments, bills, payments, and
+-- enrollments.package_id) is ON DELETE RESTRICT on purpose. These two functions
+-- are the only sanctioned way past it: the first reports what a delete would
+-- destroy, the second clears the children in dependency order so RESTRICT is
+-- SATISFIED rather than bypassed. Do not "simplify" this by flipping those FKs
+-- to ON DELETE CASCADE — that would make every future delete path silently
+-- destroy payment receipts.
+-- ===========================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_course_delete_blockers(p_course_event_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_title text;
+  v_out   jsonb;
+BEGIN
+  IF NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Only a super admin may delete a course'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT title INTO v_title FROM public.course_events WHERE id = p_course_event_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Course not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  SELECT jsonb_build_object(
+    'course_title', v_title,
+    'applications', (SELECT count(*) FROM public.course_applications
+                      WHERE course_event_id = p_course_event_id),
+    'enrollments',  (SELECT count(*) FROM public.course_enrollments
+                      WHERE course_event_id = p_course_event_id),
+    'packages',     (SELECT count(*) FROM public.course_packages
+                      WHERE course_event_id = p_course_event_id),
+    'forms',        (SELECT count(*) FROM public.course_registration_forms
+                      WHERE course_event_id = p_course_event_id),
+    'sessions',     (SELECT count(*) FROM public.course_sessions
+                      WHERE course_event_id = p_course_event_id),
+    'venue_holds',  (SELECT count(*) FROM public.resource_reservations r
+                      WHERE r.course_session_id IN (
+                        SELECT id FROM public.course_sessions
+                         WHERE course_event_id = p_course_event_id)),
+    'bills',        (SELECT count(*) FROM public.course_bills
+                      WHERE course_event_id = p_course_event_id),
+    'payments',     (SELECT count(*) FROM public.course_bill_payments p
+                      WHERE p.bill_id IN (SELECT id FROM public.course_bills
+                                           WHERE course_event_id = p_course_event_id)),
+    -- Only 'success' rows represent money actually received; 'initiated' rows are
+    -- abandoned Razorpay attempts and carry no financial weight.
+    'successful_payments', (SELECT count(*) FROM public.course_bill_payments p
+                             WHERE p.status = 'success'
+                               AND p.bill_id IN (SELECT id FROM public.course_bills
+                                                  WHERE course_event_id = p_course_event_id)),
+    'amount_received', (SELECT COALESCE(sum(p.amount_paid), 0)
+                          FROM public.course_bill_payments p
+                         WHERE p.status = 'success'
+                           AND p.bill_id IN (SELECT id FROM public.course_bills
+                                              WHERE course_event_id = p_course_event_id))
+  ) INTO v_out;
+
+  RETURN v_out;
+END;
+$fn$;
+
+-- ---------------------------------------------------------------------------
+-- 2. The cascade itself.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_course_delete_cascade(p_course_event_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_title       text;
+  v_payments    bigint := 0;
+  v_bills       bigint := 0;
+  v_enrollments bigint := 0;
+  v_apps        bigint := 0;
+  v_packages    bigint := 0;
+  v_forms       bigint := 0;
+  v_sessions    bigint := 0;
+BEGIN
+  IF NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Only a super admin may delete a course'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT title INTO v_title FROM public.course_events WHERE id = p_course_event_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Course not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  -- Counted before the deletes so the caller gets a truthful receipt of what went.
+  SELECT count(*) INTO v_apps     FROM public.course_applications
+   WHERE course_event_id = p_course_event_id;
+  SELECT count(*) INTO v_packages FROM public.course_packages
+   WHERE course_event_id = p_course_event_id;
+  SELECT count(*) INTO v_forms    FROM public.course_registration_forms
+   WHERE course_event_id = p_course_event_id;
+  SELECT count(*) INTO v_sessions FROM public.course_sessions
+   WHERE course_event_id = p_course_event_id;
+
+  -- Order matters; each step clears a RESTRICT that would block the next.
+  --
+  -- (a) Payments first. Matched on bill_id OR enrollment_id because both columns
+  --     carry a RESTRICT of their own — a payment reachable by only one of the two
+  --     would survive (a) and then block (b) or (c).
+  --     trg_course_bill_payments_recompute fires per row here and rewrites the
+  --     parent bill/enrollment totals. That is wasted work on rows about to be
+  --     deleted, but it is harmless: fn_course_recompute_balances already returns
+  --     early on "bill removed in this transaction".
+  WITH del AS (
+    DELETE FROM public.course_bill_payments p
+     WHERE p.bill_id IN (SELECT id FROM public.course_bills
+                          WHERE course_event_id = p_course_event_id)
+        OR p.enrollment_id IN (SELECT id FROM public.course_enrollments
+                                WHERE course_event_id = p_course_event_id)
+    RETURNING 1
+  ) SELECT count(*) INTO v_payments FROM del;
+
+  -- (b) Bills. Same two-predicate reasoning as (a).
+  WITH del AS (
+    DELETE FROM public.course_bills b
+     WHERE b.course_event_id = p_course_event_id
+        OR b.enrollment_id IN (SELECT id FROM public.course_enrollments
+                                WHERE course_event_id = p_course_event_id)
+    RETURNING 1
+  ) SELECT count(*) INTO v_bills FROM del;
+
+  -- (c) Enrollments. Clears BOTH the course_event_id RESTRICT and the
+  --     package_id RESTRICT that would otherwise block course_packages' CASCADE.
+  WITH del AS (
+    DELETE FROM public.course_enrollments
+     WHERE course_event_id = p_course_event_id
+    RETURNING 1
+  ) SELECT count(*) INTO v_enrollments FROM del;
+
+  -- (d) The course. Everything still hanging off it is CASCADE or SET NULL now:
+  --     applications, packages (+installments), forms (+sections/fields), sessions
+  --     go; resource_reservations.course_session_id and any successor course's
+  --     previous_course_event_id are nulled.
+  DELETE FROM public.course_events WHERE id = p_course_event_id;
+
+  RETURN jsonb_build_object(
+    'course_title', v_title,
+    'deleted', jsonb_build_object(
+      'payments',     v_payments,
+      'bills',        v_bills,
+      'enrollments',  v_enrollments,
+      'applications', v_apps,
+      'packages',     v_packages,
+      'forms',        v_forms,
+      'sessions',     v_sessions
+    )
+  );
+END;
+$fn$;
+
+-- CREATE OR REPLACE resets EXECUTE to PUBLIC, so re-state the grants explicitly
+-- every time rather than assuming the previous ones carried over.
+REVOKE ALL ON FUNCTION public.fn_course_delete_blockers(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_course_delete_cascade(uuid)  FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_course_delete_blockers(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_course_delete_cascade(uuid)  TO authenticated;
+
+COMMENT ON FUNCTION public.fn_course_delete_blockers(uuid) IS
+  'Super-admin only. Counts everything a course delete would destroy, including money received. Read before confirming.';
+COMMENT ON FUNCTION public.fn_course_delete_cascade(uuid) IS
+  'Super-admin only. Deletes a course and its entire subtree in dependency order (payments -> bills -> enrollments -> course). Returns a receipt of what was removed.';
+
+
 -- ---------------------------------------------------------------------------
 -- fn_induction_session_feedback_detail — flat (learner x session) induction
 -- feedback with full learner identity. Powers the "Session feedback" browser and
@@ -44463,3 +44652,107 @@ COMMENT ON FUNCTION public.fn_induction_session_feedback_detail(UUID, UUID) IS
   'Flat (learner x session) induction feedback rows with full learner identity — powers the '
   '"Session feedback" browser and its XLSX export. Coordinator scope only (narrower than '
   'fn_induction_session_feedback_summary, which admits session speakers to the averages).';
+
+
+-- ---------------------------------------------------------------------------
+-- Learner gender -> profiles.gender (20260820140000)
+-- Gender is captured on learners_profiles but was dropped at all three
+-- learner->profile hand-offs (handle_new_user, auto_link_profile_to_approved_learner,
+-- sync_learner_email_to_profile), leaving profiles.gender NULL for 940 learners.
+-- Staff never had the hole: sync_staff_to_profiles writes gender = NEW.gender.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.sync_profile_gender_from_learner()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_gender text;
+BEGIN
+  SELECT NULLIF(btrim(lp.gender), '') INTO v_gender
+    FROM learners_profiles lp
+   WHERE lp.id = NEW.learner_id;
+
+  IF v_gender IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Sets gender only; the trigger is AFTER UPDATE **OF learner_id**, so this write
+  -- cannot re-enter it. The WHEN clause (NEW.gender IS NULL) is a second guard.
+  UPDATE profiles
+     SET gender = v_gender
+   WHERE id = NEW.id
+     AND gender IS NULL;
+
+  RETURN NULL;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.sync_learner_gender_to_profile()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_gender text := NULLIF(btrim(NEW.gender), '');
+BEGIN
+  IF v_gender IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  -- Case-insensitive compare: a pure case difference is not a change, and would
+  -- otherwise fire trigger_sync_user_update_webhook for nothing.
+  UPDATE profiles p
+     SET gender = v_gender
+   WHERE p.learner_id = NEW.id
+     AND lower(btrim(COALESCE(p.gender, ''))) IS DISTINCT FROM lower(v_gender);
+
+  RETURN NULL;
+END $function$;
+
+
+-- ---------------------------------------------------------------------------
+-- Gender canonicalisation for learners_profiles + profiles (20260820160000)
+-- Canonical domain: Male | Female | Other. Every other gender column in the
+-- schema keeps its own domain (staff male/female/bigender, admission_leads
+-- male/female/other, admission_packages MALE/FEMALE, hostel/mess boys/girls).
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.normalize_gender(p_value text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ PARALLEL SAFE
+AS $function$
+  SELECT CASE lower(btrim(COALESCE(p_value, '')))
+           WHEN 'male'    THEN 'Male'
+           WHEN 'm'       THEN 'Male'
+           WHEN 'female'  THEN 'Female'
+           WHEN 'f'       THEN 'Female'
+           WHEN 'other'   THEN 'Other'
+           WHEN 'others'  THEN 'Other'
+           WHEN 'o'       THEN 'Other'
+           ELSE NULL
+         END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.tg_normalize_learner_gender()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  -- '' stays '' (the NOT NULL "not captured" sentinel); recognised values become canonical.
+  -- Unrecognised input passes through so learners_profiles_gender_check rejects it loudly.
+  NEW.gender := COALESCE(public.normalize_gender(NEW.gender), NEW.gender);
+  RETURN NEW;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.tg_normalize_profile_gender()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+BEGIN
+  -- profiles.gender is nullable, so blank collapses to NULL rather than ''.
+  NEW.gender := COALESCE(public.normalize_gender(NEW.gender), NULLIF(btrim(NEW.gender), ''));
+  RETURN NEW;
+END $function$;

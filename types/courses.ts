@@ -472,3 +472,48 @@ export interface CourseCredentialsResult {
   emailSkipReason?: string;
   emailError?: string;
 }
+
+/** What deleting a course would destroy — returned by fn_course_delete_blockers.
+ *
+ *  Counted in the database, not the client: the child tables are RLS-gated, so a
+ *  client-side count reports 0 for anyone who cannot see the bills and would show
+ *  "nothing will be lost" over the exact rows the preview exists to protect.
+ *
+ *  Despite the name nothing here BLOCKS the delete — a super admin can always go
+ *  through. These are the numbers the confirm dialog shows so the choice is
+ *  informed rather than blind. (Contrast EventDeleteBlockers in types/events.ts,
+ *  which really does refuse.) */
+export interface CourseDeleteBlockers {
+  course_title: string;
+  applications: number;
+  enrollments: number;
+  packages: number;
+  forms: number;
+  sessions: number;
+  /** Venue reservations that will be RELEASED, not deleted — the reservation row
+   *  survives with course_session_id nulled. */
+  venue_holds: number;
+  bills: number;
+  /** Every payment row, including abandoned 'initiated' Razorpay attempts. */
+  payments: number;
+  /** Only status='success' — money actually received. This is the number that
+   *  decides whether the dialog demands type-to-confirm. */
+  successful_payments: number;
+  /** Sum of amount_paid across successful payments only. Comes back from
+   *  Postgres numeric, so it can arrive as a string — coerce before formatting. */
+  amount_received: number | string;
+}
+
+/** Receipt returned by fn_course_delete_cascade: what was actually removed. */
+export interface CourseDeleteResult {
+  course_title: string;
+  deleted: {
+    payments: number;
+    bills: number;
+    enrollments: number;
+    applications: number;
+    packages: number;
+    forms: number;
+    sessions: number;
+  };
+}
