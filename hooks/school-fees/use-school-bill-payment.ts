@@ -9,15 +9,18 @@
 
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
 
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { BillingReceiptService } from '@/lib/services/billing/receipts/billing-receipt-service';
 import { SchoolBillPaymentService } from '@/lib/services/school-fees/school-bill-payment-service';
-import type { CreateReceiptDto, PaymentMode } from '@/types/billing-schedule';
-import type { SchoolLearnerForPayment, SchoolOutstandingBill } from '@/types/school-fees';
+import type { PaymentMode } from '@/types/billing-schedule';
+import type {
+  CreateSchoolReceiptDto,
+  SchoolLearnerForPayment,
+  SchoolOutstandingBill,
+} from '@/types/school-fees';
 
 export const SCHOOL_PAYMENT_KEYS = {
   bills: (learnerId?: string, yearId?: string) =>
@@ -131,56 +134,40 @@ export function useSchoolBillPayment(
   );
 
   /**
-   * Re-anchor the amount map to the balances every time the bills change.
+   * The selection as it applies to the CURRENT balances.
    *
-   * The map is keyed by bill id and outlives a refetch, but the balances under
-   * it do not: pay 7,000 of a 7,200 bill and the list comes back with a 200
-   * balance while Pay Now still holds the 7,000 that was just collected. The
-   * summary then reports a negative "balance after payment" and the operator
-   * is one click from re-collecting money the learner already paid.
+   * `selected` / `amounts` hold what the operator asked for; this clamps that
+   * intent against the bills as they stand right now. Derived, never stored —
+   * the same reasoning as use-school-year-selection: doing it by writing state
+   * back inside an effect is what react-hooks/set-state-in-effect rejects, and
+   * it also leaves one render where the stale number is live.
    *
-   * So: no amount may exceed its bill's current balance, and a bill that is
-   * now settled leaves the selection entirely. Deliberate part-payments below
-   * the balance are left alone — clamping is downward only.
+   * Why it is needed at all: the map is keyed by bill id and outlives a
+   * refetch, but the balances under it do not. Pay 7,000 of a 7,200 bill and
+   * the list comes back with a 200 balance while Pay Now still holds the 7,000
+   * just collected — the summary then reports a negative "balance after
+   * payment" and the operator is one click from re-collecting money the
+   * learner already paid.
+   *
+   * A bill that is now settled drops out of the selection entirely. Deliberate
+   * part-payments below the balance are left alone: clamping is downward only.
    */
-  useEffect(() => {
-    if (bills.length === 0) return;
+  const { selected: effectiveSelected, amounts: effectiveAmounts } = useMemo(() => {
     const balanceOf = new Map(bills.map((b) => [b.id, money(b.balance_amount)]));
+    const sel: Record<string, boolean> = {};
+    const amt: Record<string, number> = {};
 
-    setSelected((prev) => {
-      let changed = false;
-      const next: Record<string, boolean> = {};
-      for (const [id, on] of Object.entries(prev)) {
-        const balance = balanceOf.get(id);
-        // Settled, or gone from the list — either way there is nothing to pay.
-        if (on && (balance === undefined || balance <= 0)) {
-          changed = true;
-          continue;
-        }
-        next[id] = on;
-      }
-      return changed ? next : prev;
-    });
+    for (const [id, on] of Object.entries(selected)) {
+      if (!on) continue;
+      const balance = balanceOf.get(id);
+      // Settled, or gone from the list — either way there is nothing to pay.
+      if (balance === undefined || balance <= 0) continue;
+      sel[id] = true;
+      amt[id] = Math.min(amounts[id] ?? 0, balance);
+    }
 
-    setAmounts((prev) => {
-      let changed = false;
-      const next: Record<string, number> = {};
-      for (const [id, amount] of Object.entries(prev)) {
-        const balance = balanceOf.get(id);
-        if (balance === undefined || balance <= 0) {
-          changed = true;
-          continue;
-        }
-        const clamped = Math.min(amount, balance);
-        if (clamped !== amount) changed = true;
-        next[id] = clamped;
-      }
-      // Returning `prev` unchanged is what stops this from looping: a new
-      // object identity every run would re-trigger nothing here, but it would
-      // churn every consumer of `amounts` on each refetch.
-      return changed ? next : prev;
-    });
-  }, [bills]);
+    return { selected: sel, amounts: amt };
+  }, [bills, selected, amounts]);
 
   /**
    * Clamp on the way IN, not at submit time. If the field could hold an
@@ -196,15 +183,15 @@ export function useSchoolBillPayment(
   );
 
   const selectedBills = useMemo(
-    () => bills.filter((b) => selected[b.id] && b.balance_amount > 0),
-    [bills, selected],
+    () => bills.filter((b) => effectiveSelected[b.id] && b.balance_amount > 0),
+    [bills, effectiveSelected],
   );
 
   const summary = useMemo(() => {
     const totalBilled = selectedBills.reduce((s, b) => s + b.final_amount, 0);
     const previouslyPaid = selectedBills.reduce((s, b) => s + b.paid_amount, 0);
     const outstanding = selectedBills.reduce((s, b) => s + b.balance_amount, 0);
-    const payingNow = selectedBills.reduce((s, b) => s + (amounts[b.id] ?? 0), 0);
+    const payingNow = selectedBills.reduce((s, b) => s + (effectiveAmounts[b.id] ?? 0), 0);
     return {
       count: selectedBills.length,
       totalBilled: money(totalBilled),
@@ -215,7 +202,7 @@ export function useSchoolBillPayment(
       // Whole-year context, so the clerk can see what is left beyond this payment.
       yearOutstanding: money(bills.reduce((s, b) => s + b.balance_amount, 0)),
     };
-  }, [selectedBills, amounts, bills]);
+  }, [selectedBills, effectiveAmounts, bills]);
 
   /**
    * Every reason the Confirm button must stay disabled, as user-facing text.
@@ -228,7 +215,7 @@ export function useSchoolBillPayment(
     if (summary.payingNow <= 0) errors.push('Enter an amount greater than zero.');
 
     for (const bill of selectedBills) {
-      const amount = amounts[bill.id] ?? 0;
+      const amount = effectiveAmounts[bill.id] ?? 0;
       if (amount <= 0) {
         errors.push(`Enter an amount for ${bill.category_name || 'the selected bill'}.`);
       } else if (amount > bill.balance_amount + 0.001) {
@@ -254,23 +241,23 @@ export function useSchoolBillPayment(
     }
 
     return { errors, ok: errors.length === 0 };
-  }, [learner, selectedBills, amounts, summary.payingNow, form]);
+  }, [learner, selectedBills, effectiveAmounts, summary.payingNow, form]);
 
   const payMutation = useMutation({
     mutationFn: async () => {
       if (!learner) throw new Error('No learner selected');
 
       const receiptItems = selectedBills
-        .map((bill) => ({ bill_id: bill.id, amount_paid: money(amounts[bill.id] ?? 0) }))
+        .map((bill) => ({ bill_id: bill.id, amount_paid: money(effectiveAmounts[bill.id] ?? 0) }))
         .filter((item) => item.amount_paid > 0);
 
       if (receiptItems.length === 0) throw new Error('Nothing to pay');
 
-      const dto: CreateReceiptDto = {
+      const dto: CreateSchoolReceiptDto = {
         student_id: learner.id,
         institution_id: learner.institution_id,
         payment_mode: form.mode,
-        payment_reference_number: form.referenceNumber.trim() || undefined,
+        payment_reference_number: form.referenceNumber.trim() || null,
         payment_amount: money(receiptItems.reduce((s, i) => s + i.amount_paid, 0)),
         payment_paid_date: form.transactionDate || today(),
         // Cash credits the moment it is handed over, so the counter does not
@@ -280,14 +267,16 @@ export function useSchoolBillPayment(
         dd_branch: form.mode === 'dd' ? form.branch.trim() || null : null,
         remitter_name: form.mode === 'bank_transfer' ? form.remitterName.trim() || null : null,
         payer_name: form.payerName.trim(),
-        payer_contact: form.payerContact.trim() || undefined,
-        payment_remarks: form.remarks.trim() || undefined,
+        payer_contact: form.payerContact.trim() || null,
+        payment_remarks: form.remarks.trim() || null,
         receipt_items: receiptItems,
       };
 
-      // The shared writer: generates the receipt number, inserts
-      // billing_receipt_items and transitions each bill's status/balance.
-      return BillingReceiptService.createBillingReceipt(dto);
+      // The SCHOOL writer, not the college one. fn_create_school_fee_receipt
+      // is the only path that carries date_of_credit / dd_* / remitter_name,
+      // and keeping it separate means no school change can reach live college
+      // receipting. Same tables, same atomicity.
+      return SchoolBillPaymentService.createReceipt(dto);
     },
     onSuccess: (receipt) => {
       queryClient.invalidateQueries({ queryKey: SCHOOL_PAYMENT_KEYS.bills(learner?.id, academicYearId) });
@@ -303,9 +292,15 @@ export function useSchoolBillPayment(
     billsError: billsQuery.error ? (billsQuery.error as Error).message : null,
     history: historyQuery.data ?? [],
     loadingHistory: historyQuery.isLoading,
+    // Surfaced, not swallowed. A failed history query used to fall through to
+    // `?? []`, which the UI rendered as "No payments yet" — indistinguishable
+    // from a learner who genuinely has not paid. That hid a real outage: the
+    // query referenced a column whose migration was not yet applied, so every
+    // learner looked like a first-time payer.
+    historyError: historyQuery.error ? (historyQuery.error as Error).message : null,
 
-    selected,
-    amounts,
+    selected: effectiveSelected,
+    amounts: effectiveAmounts,
     toggleBill,
     selectAll,
     setBillAmount,

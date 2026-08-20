@@ -505,7 +505,16 @@ CREATE FUNCTION public.fn_induction_admin_mentor_mentees(p_event_id uuid)
 RETURNS TABLE(mentor_learner_id uuid, fresher_learner_id uuid, fresher_name text,
               fresher_register text, has_feedback boolean,
               is_cover boolean, cover_until date,
-              original_mentor_learner_id uuid, original_mentor_name text)
+              original_mentor_learner_id uuid, original_mentor_name text,
+              -- Identity aids, for the same reason the attendance roster carries
+              -- them: register_number is still NULL for most freshers at
+              -- induction time, so a mentee row is otherwise just a name. The
+              -- programme is what a fresher means by "my department" (every
+              -- engineering fresher's department_id resolves to the shared
+              -- first-year Science & Humanities row, so department cannot tell
+              -- EEE from CSE), and the mobile is how a mentor actually reaches
+              -- them.
+              program_name text, student_mobile text, father_mobile text)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path TO 'public'
@@ -530,10 +539,14 @@ BEGIN
          (g.covering_for_volunteer_id IS NOT NULL),
          g.cover_until,
          ov.learner_id,
-         btrim(coalesce(olp.first_name,'') || ' ' || coalesce(olp.last_name,''))::text
+         btrim(coalesce(olp.first_name,'') || ' ' || coalesce(olp.last_name,''))::text,
+         pr.program_name::text,
+         lp.student_mobile::text,
+         lp.father_mobile::text
   FROM public.induction_feedback_volunteers v
   JOIN public.induction_feedback_volunteer_group g ON g.volunteer_id = v.id
   JOIN public.learners_profiles lp ON lp.id = g.learner_id
+  LEFT JOIN public.programs pr ON pr.id = lp.program_id
   LEFT JOIN public.induction_feedback_volunteers ov ON ov.id = g.covering_for_volunteer_id
   LEFT JOIN public.learners_profiles olp ON olp.id = ov.learner_id
   WHERE v.event_id = p_event_id AND v.is_active
@@ -613,3 +626,74 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_induction_session_roster(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fn_induction_session_roster(uuid) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_induction_session_roster(uuid) TO authenticated;
+
+-- ── 8. A mentor's own group carries programme + mobile ──────────────────────
+--
+-- The mentor's phone view (My Induction Feedback → Attendance) listed each
+-- fresher as a bare name: register_number is NULL for the whole cohort at
+-- induction time, so the identity line rendered an em-dash on every row. The
+-- programme was already returned here; the MOBILE was not, and a mentor whose
+-- job is to walk 11 freshers needs to be able to reach them.
+--
+-- Return type gains two columns, so DROP first. Deliberate exposure note: this
+-- hands a fresher's contact number to a senior STUDENT. It is scoped hard — the
+-- function returns only the caller's OWN assigned group (g.volunteer_id = v_vol),
+-- so a mentor can never enumerate the cohort, and an ended/inactive mentor gets
+-- nothing at all.
+DROP FUNCTION IF EXISTS public.fn_induction_my_feedback_group(uuid);
+
+CREATE FUNCTION public.fn_induction_my_feedback_group(p_session_id uuid)
+RETURNS TABLE(learner_id uuid, name text, register_number text, batch_label text,
+              has_account boolean, captured boolean, capture_method text,
+              program_name text, student_mobile text, father_mobile text)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE v_event UUID; v_sbatch UUID; v_my_learner UUID; v_vol UUID; v_inst UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not authenticated'; END IF;
+  SELECT s.event_id, s.batch_id INTO v_event, v_sbatch
+  FROM public.event_sessions s WHERE s.id = p_session_id;
+  IF v_event IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: session not found'; END IF;
+  SELECT institution_id INTO v_inst FROM public.induction_programs WHERE event_id = v_event;
+  -- Guard NULL like the sibling RPCs. Without it, has_account's
+  -- institution-scoped EXISTS is false for everyone, mislabeling every fresher
+  -- as 'no account'. Fail closed on a missing-program session.
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not an induction session'; END IF;
+
+  v_my_learner := get_my_learner_id();
+  IF v_my_learner IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not a learner'; END IF;
+  SELECT v.id INTO v_vol
+  FROM public.induction_feedback_volunteers v
+  WHERE v.event_id = v_event AND v.learner_id = v_my_learner AND v.is_active;
+  IF v_vol IS NULL THEN RAISE EXCEPTION 'fn_induction_my_feedback_group: not an assigned feedback volunteer'; END IF;
+
+  RETURN QUERY
+  SELECT lp.id,
+         btrim(coalesce(lp.first_name,'') || ' ' || coalesce(lp.last_name,''))::text,
+         lp.register_number::text,
+         b.label::text,
+         -- has_account institution-scoped via EXISTS (no profiles JOIN -> no
+         -- duplicate rows, and a profile in ANOTHER college doesn't count).
+         EXISTS (SELECT 1 FROM public.profiles p
+                 WHERE p.learner_id = lp.id AND p.institution_id = v_inst) AS has_account,
+         (f.id IS NOT NULL) AS captured,
+         f.capture_method::text,
+         pr.program_name::text,
+         lp.student_mobile::text,
+         lp.father_mobile::text
+  FROM public.induction_feedback_volunteer_group g
+  JOIN public.learners_profiles lp ON lp.id = g.learner_id
+  JOIN public.induction_enrollment ie ON ie.event_id = v_event AND ie.learner_id = g.learner_id
+  LEFT JOIN public.programs pr ON pr.id = lp.program_id
+  LEFT JOIN public.induction_batches b ON b.id = ie.batch_id
+  LEFT JOIN public.event_session_feedback f ON f.session_id = p_session_id AND f.learner_id = g.learner_id
+  WHERE g.volunteer_id = v_vol
+    AND (v_sbatch IS NULL OR ie.batch_id = v_sbatch)   -- batch-specific session -> only its batch
+  ORDER BY 5, 6, 2;  -- no-account first, then uncaptured, then name
+END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_induction_my_feedback_group(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_induction_my_feedback_group(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_induction_my_feedback_group(uuid) TO authenticated;

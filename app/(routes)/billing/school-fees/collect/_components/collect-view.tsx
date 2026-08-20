@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'react-hot-toast';
-import { History, Info, Printer, Download, Loader2 } from 'lucide-react';
+import { History, Info, Printer, Download, Loader2, Receipt } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -476,7 +476,15 @@ export function CollectView() {
 
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Outstanding bills</CardTitle>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                        <Receipt className="h-3.5 w-3.5" />
+                      </span>
+                      Outstanding bills
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        {yearName}
+                      </span>
+                    </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <OutstandingBills
@@ -496,13 +504,26 @@ export function CollectView() {
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <History className="h-4 w-4" />
+                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                        <History className="h-3.5 w-3.5" />
+                      </span>
                       Payment history
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">
+                        {yearName}
+                      </span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {payment.loadingHistory ? (
                       <p className="text-sm text-muted-foreground">Loading…</p>
+                    ) : payment.historyError ? (
+                      <Alert variant="destructive">
+                        <AlertTitle>Could not load payment history</AlertTitle>
+                        <AlertDescription>
+                          {payment.historyError} — past receipts may exist but cannot be listed
+                          right now.
+                        </AlertDescription>
+                      </Alert>
                     ) : historyRows.length === 0 ? (
                       <Alert>
                         <Info className="h-4 w-4" />
@@ -516,8 +537,10 @@ export function CollectView() {
                     ) : (
                       <div className="rounded-md border overflow-x-auto">
                         <Table>
-                          <TableHeader>
-                            <TableRow>
+                          {/* Emerald = money RECEIVED, against the amber
+                              "owed" table above. See the note there. */}
+                          <TableHeader className="bg-emerald-50 dark:bg-emerald-950/30 [&_th]:text-emerald-900 dark:[&_th]:text-emerald-200 [&_th]:font-semibold">
+                            <TableRow className="hover:bg-emerald-50 dark:hover:bg-emerald-950/30">
                               <TableHead className="min-w-[150px]">Receipt No</TableHead>
                               <TableHead className="w-[120px]">Date</TableHead>
                               <TableHead className="w-[110px]">Mode</TableHead>

@@ -604,7 +604,11 @@ export interface SchoolPaymentHistoryRow {
   date_of_credit: string | null;
   /** Header total of the receipt, which may span other years' bills too. */
   receipt_total: number;
-  /** Sum of this receipt's lines against THIS year's school bills. */
+  /**
+   * Sum of this receipt's lines against THIS year's school bills. Not the
+   * header total: a receipt that also settled a prior-year bill must not
+   * report its full amount against the selected year.
+   */
   amount_allocated: number;
 }
 
@@ -621,3 +625,28 @@ export const SCHOOL_PAYMENT_MODES = [
 ] as const;
 
 export type SchoolPaymentModeValue = (typeof SCHOOL_PAYMENT_MODES)[number]['value'];
+
+/**
+ * What the counter sends to fn_create_school_fee_receipt.
+ *
+ * Separate from the college CreateReceiptDto on purpose: the four non-cash
+ * fields below exist only on the school path, and the college RPC does not
+ * carry them (see migration 20260909002000).
+ */
+export interface CreateSchoolReceiptDto {
+  student_id: string;
+  institution_id: string;
+  payment_mode: string;
+  payment_reference_number?: string | null;
+  payment_amount: number;
+  payment_paid_date: string;
+  /** Non-cash only. When the money actually credited. */
+  date_of_credit?: string | null;
+  dd_bank_name?: string | null;
+  dd_branch?: string | null;
+  remitter_name?: string | null;
+  payer_name: string;
+  payer_contact?: string | null;
+  payment_remarks?: string | null;
+  receipt_items: { bill_id: string; amount_paid: number }[];
+}

@@ -906,6 +906,12 @@ export interface RosterRow {
    *  what the roster groups by, so a visiting learner is never filed under the
    *  host. NULL when the learner has no institution recorded. */
   institution_name: string | null;
+  /** The Senior Peer Mentor currently walking this fresher — the stand-in while
+   *  a temporary cover is in force, since that is who is actually on the floor.
+   *  NULL when no mentor is assigned, or their appointment is no longer active.
+   *  Drives the mentor filter on AttendanceDialog. */
+  mentor_learner_id: string | null;
+  mentor_name: string | null;
 }
 
 export interface DayRosterRow {

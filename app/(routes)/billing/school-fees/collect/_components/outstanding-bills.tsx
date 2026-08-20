@@ -105,8 +105,12 @@ export function OutstandingBills({
   return (
     <div className="rounded-md border overflow-x-auto">
       <Table>
-        <TableHeader>
-          <TableRow>
+        {/* Amber header = money still OWED. The payment-history table below
+            uses emerald for money RECEIVED. Two dense tables sit on this page
+            one above the other; colour is what stops a clerk reading a row
+            from the wrong one. */}
+        <TableHeader className="bg-amber-50 dark:bg-amber-950/30 [&_th]:text-amber-900 dark:[&_th]:text-amber-200 [&_th]:font-semibold">
+          <TableRow className="hover:bg-amber-50 dark:hover:bg-amber-950/30">
             <TableHead className="w-[44px]">
               <Checkbox
                 checked={allSelected}
