@@ -32,17 +32,30 @@
 //   3. It does not soften the reading. Most rows are red. That is the point of
 //      putting them on a screen.
 //
-// EVERY FIGURE IS DERIVED AT READ TIME, from reads the page already makes:
-// `fn_cac_cluster_totals()` for the exchange edges and the funnel, and the
-// cluster-council list. All three keys are already in React Query's cache by
-// the time this mounts, so the whole section costs zero extra requests and no
-// number here can go stale against the data it describes.
+// EVERY FIGURE IS DERIVED AT READ TIME. Three of the four reads are ones the
+// page already makes — `fn_cac_cluster_totals()` for the exchange edges and the
+// funnel, and the cluster-council list — so they are already in React Query's
+// cache by the time this mounts and cost nothing. The fourth,
+// `fn_cac_internal_agreements_count()`, is this section's own and is the one
+// request it adds: no other panel reads the agreements register, and counting
+// it in the browser would return the viewer's RLS slice rather than the
+// cluster's. No number here can go stale against the data it describes.
+//
+// ⚠ THAT FOURTH READ IS DELIBERATELY NOT FOLDED INTO `readError`. Its migration
+// is Director-gated and unapplied, so on a database that has not received it the
+// function does not exist and the call fails. Treating that as a section-wide
+// read fault would blank six rows over one absent figure; instead the count
+// reads as absent, which is exactly what it is, and the row says "nothing
+// recorded yet" — the same thing it says on a database where the column exists
+// and nobody has filed an agreement.
 // ============================================================================
 
 'use client';
 
 import Link from 'next/link';
 import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,6 +84,26 @@ import {
   type ReadinessRow,
   type ReadinessState,
 } from '../_lib/ugc-readiness';
+
+// ----------------------------------------------------------------------------
+// The agreements count.
+//
+// Read through a SECURITY DEFINER function rather than by counting
+// `institution_collaborations` from the browser: that table is RLS-scoped, so a
+// council member scoped to one college would be shown their own college's
+// agreements as the cluster's, and two members would read two different figures
+// from the same screen. Same reasoning, and the same fix, as the 2026-08-01
+// rewrite of the cluster reads.
+// ----------------------------------------------------------------------------
+
+const internalAgreementsKey = ['accreditation', 'cac-internal-agreements'] as const;
+
+async function fetchInternalAgreementsCount(): Promise<number> {
+  const sb = createClientSupabaseClient() as any;
+  const { data, error } = await sb.rpc('fn_cac_internal_agreements_count');
+  if (error) throw error;
+  return typeof data === 'number' ? data : 0;
+}
 
 // ----------------------------------------------------------------------------
 // A figure, or the reason there is no figure. Never a bare 0.
@@ -200,6 +233,15 @@ export function UgcReadinessSection() {
   const { data: funnelData, isLoading: funnelLoading, error: funnelError } =
     useCacSolutionFunnel();
   const { data: councils, isLoading: councilsLoading } = useClusterCouncils();
+  const { data: internalAgreements, isLoading: agreementsLoading } = useQuery({
+    queryKey: internalAgreementsKey,
+    queryFn: fetchInternalAgreementsCount,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    // No retry, and the error is deliberately not read: see the note in the
+    // header. An unapplied migration must cost this one figure, not the section.
+    retry: false,
+  });
 
   const rows = useMemo(() => {
     const edges = edgeData ?? [];
@@ -217,6 +259,9 @@ export function UgcReadinessSection() {
     );
 
     return buildUgcReadiness({
+      // Absent read and empty register are the same reading here — neither is
+      // an agreement on record — and `figure()` renders both as the reason.
+      internalAgreements: internalAgreements ?? 0,
       councilsConstituted: (councils ?? []).length,
       peerBookings: bookings.peerUnits,
       hubBookings: bookings.hubUnits,
@@ -224,9 +269,10 @@ export function UgcReadinessSection() {
       teachingPeople,
       publications: funnel.publications,
     });
-  }, [edgeData, funnelData, councils]);
+  }, [edgeData, funnelData, councils, internalAgreements]);
 
-  const isLoading = edgesLoading || funnelLoading || councilsLoading;
+  const isLoading =
+    edgesLoading || funnelLoading || councilsLoading || agreementsLoading;
   const readError = edgesError ?? funnelError;
 
   if (permsLoading) {
@@ -308,13 +354,16 @@ export function UgcReadinessSection() {
         )}
 
         <p className="text-[11px] italic text-muted-foreground">
-          Two kinds of empty appear above and they are not the same.{' '}
+          Two kinds of empty are possible above and they are not the same.{' '}
           <em>Nothing recorded yet</em> means the platform holds a place for it
           and nobody has used it — somebody typing fixes that.{' '}
           <em>Nothing records this</em> means no record anywhere can hold it, and
           typing does not help; the shape of the record would have to change
-          first. The count of Senior Learners is an upper bound, since one person
-          teaching into two colleges is counted on each pair.
+          first. Nothing on this list is of the second kind any more — the
+          agreement between two colleges was the last one, and the register can
+          now hold it — so every gap above is one somebody typing can close. The
+          count of Senior Learners is an upper bound, since one person teaching
+          into two colleges is counted on each pair.
         </p>
       </CardContent>
     </Card>
