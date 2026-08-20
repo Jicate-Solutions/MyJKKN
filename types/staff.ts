@@ -452,19 +452,44 @@ export interface IncompleteStaffDetail {
   is_active: boolean;
   created_at: string;
   missingFields: string[];
+  /** missingFields.length, exposed so the table need not recompute the sort key. */
+  missing_count: number;
   institution_name: string | null;
   department_name: string | null;
   category_name: string | null;
+  biometric_id: string | null;
+  /**
+   * Resolved separately, not via an embed: staff.biometric_institution_id lost
+   * its FK on 2026-08-06, so PostgREST cannot join it.
+   */
+  biometric_machine_name: string | null;
 }
 
 /**
  * Incomplete Staff Profiles Response
- * Paginated response for incomplete staff profiles API
+ * Server-paged; `total` is the count AFTER the missing-field predicate, so it
+ * matches what the table can actually page through.
  */
 export interface IncompleteStaffResponse {
   profiles: IncompleteStaffDetail[];
   total: number;
+  page: number;
   limit: number;
+  totalPages: number;
+}
+
+export interface StaffFilterOption {
+  value: string;
+  label: string;
+}
+
+/** Dropdown lists for the incomplete-profiles filter bar. */
+export interface IncompleteStaffFilterOptions {
+  designations: StaffFilterOption[];
+  bloodGroups: StaffFilterOption[];
+  genders: StaffFilterOption[];
+  maritalStatuses: StaffFilterOption[];
+  biometricMachines: StaffFilterOption[];
 }
 
 // =============================================

@@ -127,6 +127,84 @@ export class StaffService {
     };
   }
 
+  /**
+   * Resolve who already holds an ID, for the 23505 on `staff_staff_id_key`.
+   *
+   * `staff_id` is GLOBALLY unique, but the table's SELECT policy is
+   * institution-scoped. So an HR user on 'own_institution' scope can collide
+   * with a row they are not allowed to see — a plain table lookup
+   * returns nothing and the operator is left retyping against an invisible
+   * wall. `fn_staff_id_conflict` is SECURITY DEFINER and permission-gated, so
+   * it can name the holder across that boundary.
+   *
+   * Best-effort by design, exactly like findBiometricConflict: called only
+   * from an error path, so any failure degrades to the generic message.
+   */
+  static async findStaffIdConflict(
+    staffId: string
+  ): Promise<{ staff_id: string; name: string; institution: string; is_active: boolean } | null> {
+    if (!staffId?.trim()) return null;
+
+    const { data, error } = await (this.supabase as any).rpc('fn_staff_id_conflict', {
+      p_staff_id: staffId.trim()
+    });
+
+    if (error) {
+      console.warn('[StaffService] staff_id conflict lookup failed:', error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+
+    return {
+      staff_id: row.staff_id,
+      name: row.full_name ?? 'another team member',
+      institution: row.institution_name ?? 'another institution',
+      is_active: !!row.is_active
+    };
+  }
+
+  /**
+   * Resolve who already holds an email, for the 23505 on staff_email_key or
+   * staff_institution_email_key. Same RLS-blindness problem as
+   * findStaffIdConflict — see that method's note.
+   *
+   * `matched_field` tells the caller WHICH column the address was found in,
+   * which is not always the field the operator typed it into.
+   */
+  static async findStaffEmailConflict(
+    email: string
+  ): Promise<{
+    matchedField: 'email' | 'institution_email';
+    staff_id: string | null;
+    name: string;
+    institution: string;
+    is_active: boolean;
+  } | null> {
+    if (!email?.trim()) return null;
+
+    const { data, error } = await (this.supabase as any).rpc('fn_staff_email_conflict', {
+      p_email: email.trim()
+    });
+
+    if (error) {
+      console.warn('[StaffService] email conflict lookup failed:', error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+
+    return {
+      matchedField: row.matched_field === 'email' ? 'email' : 'institution_email',
+      staff_id: row.staff_id ?? null,
+      name: row.full_name ?? 'another team member',
+      institution: row.institution_name ?? 'another institution',
+      is_active: !!row.is_active
+    };
+  }
+
   static async createStaff(
     data: CreateStaffDto,
     suppressToast: boolean = false
@@ -1207,7 +1285,9 @@ export class StaffService {
     'email',
     'phone',
     'designation',
-    // profile-completion optional fields
+    // profile-completion optional fields — includes blood_group: removing
+    // it here silently reintroduces a completion-calculation bug (Task 11),
+    // since getOverviewStats/getProfileAnalytics read it as a completion field.
     'staff_id',
     'profile_picture',
     'address',
@@ -1219,10 +1299,10 @@ export class StaffService {
     // resolved by the biometric import, so the Profiles tab tracks them as fields.
     'biometric_id',
     'biometric_institution_id',
+    'blood_group',
     // demographics
     'gender',
     'marital_status',
-    'blood_group',
     // embedded display names
     'institution:institutions!staff_institution_id_fkey(id, name)',
     'department:departments(id, department_name)',
@@ -1387,7 +1467,10 @@ export class StaffService {
       'state',
       'district',
       'pincode',
-      'institution_email'
+      'institution_email',
+      'blood_group',
+      'biometric_id',
+      'biometric_institution_id'
     ];
 
     let totalFieldsExpected = 0;

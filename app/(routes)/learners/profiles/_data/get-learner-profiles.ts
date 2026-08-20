@@ -17,7 +17,9 @@ interface GetLearnerProfilesParams {
   search_case_sensitive?: boolean;
   search_exact_match?: boolean;
   search_fields?: string[];
-  lifecycle_status?: LifecycleStatus;
+  // An ARRAY on the "All Statuses" tab — that tab is the union of the other
+  // tabs, not the absence of a status predicate. See lifecycleFilterForTab.
+  lifecycle_status?: LifecycleStatus | LifecycleStatus[];
   institution_id?: string;
   degree_id?: string;
   department_id?: string;
@@ -27,6 +29,8 @@ interface GetLearnerProfilesParams {
   academic_year_id?: string;
   gender?: string;
   is_profile_complete?: boolean;
+  /** accommodation_types.id — the FK the row is actually stored against. */
+  accommodation_type_id?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   learner_id?: string; // Added: Filter by specific learner ID (for students viewing own profile)
@@ -98,6 +102,7 @@ function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
     academic_year_id,
     gender,
     is_profile_complete,
+    accommodation_type_id,
     learner_id,
   } = params;
 
@@ -114,7 +119,11 @@ function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
     }
   }
 
-  if (lifecycle_status) q = q.eq('lifecycle_status', lifecycle_status);
+  if (lifecycle_status) {
+    q = Array.isArray(lifecycle_status)
+      ? q.in('lifecycle_status', lifecycle_status)
+      : q.eq('lifecycle_status', lifecycle_status);
+  }
   if (institution_id) q = q.eq('institution_id', institution_id);
 
   // Student self-view filter (highest priority - students can only see own profile)
@@ -132,6 +141,17 @@ function applyLearnerFilters<T>(query: T, params: GetLearnerProfilesParams): T {
   // again silently return zero rows because the dropdown said 'Male'.
   // There is no index on gender and the table is ~4k rows, so ilike costs nothing.
   if (gender) q = q.ilike('gender', gender);
+
+  // Matched on the FK, never on learners_profiles.accommodation_type. That TEXT
+  // column is RETIRED: LearnerProfileService derives it back onto the row for
+  // legacy readers via accommodationLegacyFromCode(), so it is a computed
+  // display value here and not a stored one. Filtering on it would compare
+  // against a column the database does not maintain — the silent-zero-rows
+  // failure this page keeps producing (cf. the gender case-sensitivity note
+  // directly above).
+  if (accommodation_type_id) {
+    q = q.eq('accommodation_type_id', accommodation_type_id);
+  }
 
   if (is_profile_complete !== undefined) {
     if (is_profile_complete === false) {

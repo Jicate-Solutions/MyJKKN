@@ -9,11 +9,33 @@
 //   4. OI   Outreach & Inclusivity                 10%
 //   5. PR   Perception (peer survey)               10%
 //
-// Scope: cluster (all 8 JKKN colleges) with college switcher, since each
-// college submits its own NIRF data. Evidence sourced from PR-A2 substrate.
+// Scope: a college switcher, since each college submits its own NIRF data.
+// Its rows and its heading come from _lib/visible-institutions.ts and describe
+// the colleges the SIGNED-IN READER can see — not a fixed count of eight.
+// Evidence sourced from PR-A2 substrate.
 //
 // NOTE: sidebar entry + permission key `accreditation.nirf.view` ship with
 // PR-A8 c2 (#255) — this PR only adds the page + hook.
+//
+// ----------------------------------------------------------------------------
+// 2026-08-09: NO PER-METRIC CELL ON THIS PAGE MAY RENDER A BARE 0
+// ----------------------------------------------------------------------------
+// Every sub-metric used to read `evidenceCounts?.[code] ?? 0`. To an assessor a
+// 0 is a MEASUREMENT — we looked, and there is none — which is a finding against
+// the college. "Nothing feeds this metric yet" is a finding against the
+// platform. One display was carrying both claims, and `?? 0` was the character
+// that fused them. After migration 20260809100200 seeds NIRF, 13 of the 17
+// metrics would have read "0", including PR_PEER, which NIRF sources from its
+// own peer survey and JKKN cannot hold at all.
+//
+// The decision now lives in _lib/metric-gap-state.ts, which is pure and tested.
+// Do not reintroduce a coalesce anywhere between the hook and the badge.
+//
+// SCOPE OF THAT RULE, stated precisely because the first draft of this comment
+// overstated it: it binds every PER-METRIC cell. The headline "Evidence rows"
+// tile is a row COUNT across the page, not a claim about any one metric, so a
+// 0 there means "no evidence rows are loaded" and is honest. If that tile ever
+// starts making a per-metric claim, it comes under this rule too.
 // ============================================================================
 
 'use client';
@@ -41,14 +63,29 @@ import {
   Users as UsersIcon,
   Sparkles,
   BarChart3,
+  ArrowUpRight,
 } from 'lucide-react';
 import { ACCREDITATION_BODIES } from '@/lib/types/accreditation';
 import {
   useNIRFMetrics,
   useNIRFEvidenceCounts,
-  useJKKNInstitutionsNIRF,
   type NIRFMetric,
 } from '@/hooks/accreditation/use-nirf-dashboard';
+import { useVisibleInstitutions } from '@/hooks/accreditation/use-visible-institutions';
+import { AGGREGATE_SCOPE } from '../_lib/visible-institutions';
+import { NoVisibleColleges } from '../_components/no-visible-colleges';
+import {
+  useEvidenceSourceRoutes,
+  useMetricOwnerNames,
+} from '@/hooks/accreditation/use-evidence-fix-routes';
+import {
+  resolveMetricGap,
+  nirfSourceFor,
+  countGaps,
+  measuredTotal,
+  type EvidenceSourceRoute,
+  type MetricGapDisplay,
+} from '@/app/(routes)/accreditation/_lib/metric-gap-state';
 
 interface ParameterMeta {
   code: 'TLR' | 'RPC' | 'GO' | 'OI' | 'PR';
@@ -133,14 +170,116 @@ function groupMetricsByParameter(metrics: NIRFMetric[]): Record<string, NIRFMetr
   }, {});
 }
 
-export default function NIRFDashboardPage() {
-  const [selectedInstitution, setSelectedInstitution] = useState<string>('cluster');
+/**
+ * One sub-metric's cell, as words rather than a number.
+ *
+ * A "Fix this" link appears ONLY when the registry gave a destination. A source
+ * with no verified route renders the gap and stops — a dead link is worse than
+ * no link, because it looks like an instruction and gives none.
+ */
+function MetricGapRow({ metric, display }: { metric: NIRFMetric; display: MetricGapDisplay }) {
+  const isMeasured = display.state === 'measured';
 
-  const { data: institutions, isLoading: instLoading } = useJKKNInstitutionsNIRF();
+  return (
+    <li className="space-y-1 border-b border-dashed py-1.5 last:border-b-0">
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-mono text-[11px] text-muted-foreground">
+          {metric.metric_code}
+        </span>
+        <span className="flex-1 text-[11px]">{metric.metric_name}</span>
+        <Badge
+          variant={isMeasured ? 'secondary' : 'outline'}
+          className={
+            isMeasured
+              ? 'text-[9px]'
+              : 'shrink-0 border-amber-400 text-[9px] font-normal text-amber-700 dark:text-amber-400'
+          }
+        >
+          {display.label}
+        </Badge>
+      </div>
+
+      {!isMeasured && (
+        <div className="space-y-1 pl-1 text-[10px] leading-snug text-muted-foreground">
+          {display.detail && <p>{display.detail}</p>}
+          {display.ownerLine && <p className="font-medium">{display.ownerLine}</p>}
+          {display.fixRoute && (
+            <Link href={display.fixRoute}>
+              <Button variant="link" size="sm" className="h-auto p-0 text-[10px]">
+                Fix this
+                <ArrowUpRight className="ml-1 h-3 w-3" />
+              </Button>
+            </Link>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
+export default function NIRFDashboardPage() {
+  // The switcher's rows and its heading come from the scope module, so this
+  // page decides nothing about what it may claim. `defaultSelection` is a
+  // college id (not 'cluster') for a reader entitled to one college — that
+  // reader is never offered an aggregate row.
+  const {
+    options: scopeOptions,
+    defaultSelection,
+    state: scopeState,
+    isLoading: instLoading,
+  } = useVisibleInstitutions();
+  const [picked, setPicked] = useState<string | null>(null);
+  const selectedInstitution =
+    picked && scopeOptions.some((o) => o.value === picked) ? picked : defaultSelection;
+  const setSelectedInstitution = setPicked;
+
+  // In the `none-visible` state `selectedInstitution` is NO_VISIBLE_SCOPE, which
+  // is not a uuid — passing it through would become `.eq('institution_id', …)`
+  // and fail with a 22P02. The page discards the result below either way, so it
+  // asks the same cluster question these readers already send today.
+  const evidenceScope =
+    scopeState === 'none-visible' ? AGGREGATE_SCOPE : selectedInstitution;
+
   const { data: metrics, isLoading: metricsLoading } = useNIRFMetrics();
   const { data: evidenceCounts, isLoading: evidenceLoading } = useNIRFEvidenceCounts(
-    selectedInstitution as any,
+    evidenceScope as any,
   );
+  const { data: sourceRoutes, isSuccess: routesRead } = useEvidenceSourceRoutes();
+  const { data: ownerNames, isSuccess: ownersRead } = useMetricOwnerNames(
+    'NIRF',
+    evidenceScope,
+  );
+
+  // `sourceRoutes ?? {}` would have made a FAILED read look like an empty
+  // registry, and every metric would then claim "nothing feeds this" on the
+  // strength of a request that never answered. Same treatment as the owner
+  // read below: only assert once the register has actually been read.
+  const registry: Record<string, EvidenceSourceRoute> = sourceRoutes ?? {};
+
+  /**
+   * Resolve one metric's cell.
+   *
+   * `evidenceCounts?.[code]` is passed through UNCOALESCED — undefined means no
+   * evidence row exists and must stay distinguishable from a measured 0.
+   *
+   * Owner: `null` only once the register has actually been read (`ownersRead`),
+   * otherwise `undefined`, so the page never claims "nobody is assigned" on the
+   * strength of a request that has not answered.
+   *
+   * Source: the same rule, for the same reason (`routesRead`). A failed registry
+   * read must read as "could not load", never as "nothing feeds this metric".
+   *
+   * TODO(#2784): once `_lib/body-applicability.ts` merges, pass its verdict as
+   * `applicability` so a body that does not inspect this college reads "Does not
+   * apply" instead of a gap. Not derived here — one answer, one owner.
+   */
+  const displayFor = (m: NIRFMetric): MetricGapDisplay =>
+    resolveMetricGap({
+      metricCode: m.metric_code,
+      count: evidenceCounts?.[m.metric_code],
+      source: routesRead ? nirfSourceFor(m.metric_code, registry) : undefined,
+      owner: ownersRead ? (ownerNames?.[m.metric_code] ?? null) : undefined,
+    });
 
   const nirfMeta = ACCREDITATION_BODIES.find((b) => b.code === 'NIRF')!;
 
@@ -148,6 +287,20 @@ export default function NIRFDashboardPage() {
   const totalMetrics = (metrics ?? []).length;
   const totalMaxScore = (metrics ?? []).reduce((s, m) => s + (m.max_score ?? 0), 0);
   const totalEvidence = Object.values(evidenceCounts ?? {}).reduce((s, n) => s + n, 0);
+
+  // No accredited college in this reader's access. Every figure below folds
+  // through the visible-college list, so rendering the dashboard would print a
+  // measured nought — see _components/no-visible-colleges.tsx for why that is
+  // refused rather than dashed out.
+  if (scopeState === 'none-visible') {
+    return (
+      <NoVisibleColleges
+        title="NIRF — Ranking Dashboard"
+        bodyLabel="NIRF"
+        bodyHref="/accreditation/nirf"
+      />
+    );
+  }
 
   return (
     <ContentLayout title="NIRF — Ranking Dashboard">
@@ -171,8 +324,8 @@ export default function NIRFDashboardPage() {
                 </CardTitle>
                 <p className="mt-2 text-sm text-muted-foreground">
                   MoE annual ranking. 5 parameters, weighted 30 + 30 + 20 + 10 + 10 = 100%.
-                  Each JKKN college submits its own data — cluster view shows aggregated
-                  evidence across all 8 colleges.
+                  Each JKKN college submits its own data — the aggregate view adds up
+                  evidence across the colleges you can see.
                 </p>
               </div>
 
@@ -186,11 +339,9 @@ export default function NIRFDashboardPage() {
                     <SelectValue placeholder="Select college" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cluster">Cluster (all 8 colleges)</SelectItem>
-                    {(institutions ?? []).map((inst) => (
-                      <SelectItem key={inst.id} value={inst.id}>
-                        {inst.iqac_code ? `[${inst.iqac_code}] ` : ''}
-                        {inst.name}
+                    {scopeOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -244,10 +395,12 @@ export default function NIRFDashboardPage() {
           {NIRF_PARAMETERS.map((param) => {
             const metricList = metricsByParameter[param.code] ?? [];
             const paramMax = metricList.reduce((s, m) => s + (m.max_score ?? 0), 0);
-            const paramEvidence = metricList.reduce(
-              (s, m) => s + (evidenceCounts?.[m.metric_code] ?? 0),
-              0,
-            );
+            // Same rule one level up: a parameter where nothing is captured
+            // must not total to 0, which would read as a measured result for
+            // the whole parameter.
+            const displays = metricList.map(displayFor);
+            const paramEvidence = measuredTotal(displays);
+            const paramGaps = countGaps(displays);
             const Icon = param.icon;
             return (
               <Card key={param.code} className="h-full">
@@ -272,28 +425,32 @@ export default function NIRFDashboardPage() {
                     </div>
                     <div>
                       <div className="text-muted-foreground">Evidence</div>
-                      <div className="text-lg font-semibold">{paramEvidence}</div>
+                      <div className="text-lg font-semibold">
+                        {paramEvidence === null ? 'Not captured yet' : paramEvidence}
+                      </div>
+                      {paramGaps > 0 && paramEvidence !== null && (
+                        <div className="text-[10px] text-amber-700 dark:text-amber-400">
+                          {paramGaps} not captured yet
+                        </div>
+                      )}
                     </div>
                   </div>
                   {metricList.length > 0 && (
-                    <details className="text-xs">
+                    // Open when there is a gap inside: a collapsed summary that
+                    // says "3 not captured yet" and hides the instruction is
+                    // the same dead end as the 0 badge, one click further away.
+                    <details className="text-xs" open={paramGaps > 0}>
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                         {metricList.length} sub-metric{metricList.length === 1 ? '' : 's'}
+                        {paramGaps > 0 && ` · ${paramGaps} not captured yet`}
                       </summary>
-                      <ul className="mt-2 space-y-1 pl-2">
-                        {metricList.map((m) => (
-                          <li
+                      <ul className="mt-2 pl-2">
+                        {metricList.map((m, i) => (
+                          <MetricGapRow
                             key={m.metric_code}
-                            className="flex items-start justify-between gap-2"
-                          >
-                            <span className="font-mono text-[11px] text-muted-foreground">
-                              {m.metric_code}
-                            </span>
-                            <span className="flex-1 text-[11px]">{m.metric_name}</span>
-                            <Badge variant="secondary" className="text-[9px]">
-                              {evidenceCounts?.[m.metric_code] ?? 0}
-                            </Badge>
-                          </li>
+                            metric={m}
+                            display={displays[i]!}
+                          />
                         ))}
                       </ul>
                     </details>

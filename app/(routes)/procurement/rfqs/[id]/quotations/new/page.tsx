@@ -29,6 +29,7 @@ import {
 import { ArrowLeft, Download, Upload, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
+import { errorMessage } from '@/lib/utils/supabase-error';
 
 interface QuotedSpec {
   manufacturer: string;
@@ -227,7 +228,7 @@ export default function NewQuotationPage() {
       toast.success('Quotation added');
       router.push(backHref);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to add quotation');
+      toast.error(errorMessage(e, 'Failed to add quotation'));
     } finally {
       setSaving(false);
     }
@@ -252,7 +253,7 @@ export default function NewQuotationPage() {
           (unmatched.length ? ` · ${unmatched.length} row(s) unmatched` : '')
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not read the file');
+      toast.error(errorMessage(e, 'Could not read the file'));
     }
   };
 
@@ -349,10 +350,11 @@ export default function NewQuotationPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
 
-      // Lane unavailable (switched off, no permission, cap reached, box offline)
-      // — the quotation is still completable by hand.
+      // Lane unavailable — the server says WHICH state (not set up here, switched
+      // off, no permission, cap reached), so show its message rather than a
+      // generic one. The quotation is still completable by hand either way.
       if (json.unavailable) {
-        toast.error(json.error || 'AI reading is unavailable — please enter the prices manually.');
+        toast.error(json.error || 'AI PDF reading is unavailable — please enter the prices manually.');
         return;
       }
       // This exact PDF was already read for this RFQ — reuse rather than re-read.
@@ -366,7 +368,7 @@ export default function NewQuotationPage() {
       setExtractJobId(json.job_id);
       toast.success("Reading the PDF in the background — you'll be notified when the prices are ready.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not read the PDF');
+      toast.error(errorMessage(e, 'Could not read the PDF'));
     } finally {
       setExtracting(false);
     }
@@ -399,10 +401,11 @@ export default function NewQuotationPage() {
           setExtractJobId(null);
           return;
         }
-        // Never picked up: the runner box is presumed offline. Stop waiting and
-        // tell the truth rather than spinning indefinitely.
+        // Never picked up: the job was accepted but no reader claimed it, so the
+        // runner box is presumed offline. Say that, rather than "unavailable right
+        // now" — the queue took the work; nothing is running to do it.
         if (json.status === 'pending' && Date.now() - startedAt > EXTRACT_UNCLAIMED_GIVE_UP_MS) {
-          toast.error('AI reading is unavailable right now — please enter the prices manually.');
+          toast.error('No AI reader picked up the PDF — it is not running. Please enter the prices manually.');
           setExtractJobId(null);
           return;
         }

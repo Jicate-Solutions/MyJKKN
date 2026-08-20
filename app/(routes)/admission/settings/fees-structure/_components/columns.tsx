@@ -129,6 +129,24 @@ export const columns: ColumnDef<FeeStructureRow>[] = [
     size: 130,
   },
   {
+    // Classification, not a matching dimension — an unset value is a genuine
+    // "not yet classified" (all pre-existing structures), so it renders as a
+    // muted dash rather than the "Any" wording used by the real dimensions.
+    accessorKey: 'package_type',
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Package Type" />,
+    cell: ({ row }) => {
+      const value = row.original.package_type;
+      if (value === 'package') {
+        return <Badge variant="secondary">Package</Badge>;
+      }
+      if (value === 'non_package') {
+        return <Badge variant="outline">Non-Package</Badge>;
+      }
+      return <span className="text-muted-foreground">—</span>;
+    },
+    size: 130,
+  },
+  {
     accessorKey: 'status',
     header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
     cell: ({ row }) => {

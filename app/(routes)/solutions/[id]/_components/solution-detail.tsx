@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { SolutionReposCard } from './solution-repos-card';
 import { SolutionBuildActivityCard } from './solution-build-activity-card';
+import { SolutionFirstUseCard } from './solution-first-use-card';
 import {
   Select,
   SelectContent,
@@ -591,6 +592,9 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
               </CardContent>
             </Card>
           </div>
+
+          {/* First real use — the producing department's one checkpoint. */}
+          <SolutionFirstUseCard solutionId={solutionId} />
 
           {/* Quick Stats */}
           <div className="grid gap-4 md:grid-cols-4">

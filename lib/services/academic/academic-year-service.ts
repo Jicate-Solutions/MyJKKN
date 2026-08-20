@@ -64,11 +64,67 @@ export class AcademicYearService {
     }
   }
 
+  /**
+   * What still points at an academic year, across the six tables that carry
+   * volume or lose data:
+   *   timetables, intake_history ........ ON DELETE CASCADE — deleting the year
+   *                                       DELETES these rows outright
+   *   learners_profiles, billing_student_bills
+   *                              ........ ON DELETE SET NULL — silently untags
+   *                                       the learner / the bill
+   *   student_attendance, staff_plans ... plain FK — the delete just fails
+   *
+   * Goes through fn_academic_year_dependents (SECURITY DEFINER) rather than
+   * counting from here: this service runs on the browser client, so RLS would
+   * shrink every count for an operator who administers Academic Years without
+   * read access to attendance or timetables — and a guard that under-counts
+   * reads as a clean bill of health.
+   *
+   * Checked before deactivate as well as delete. Deactivating is not the
+   * harmless half: every picker filters `is_active`, so a switched-off year
+   * stays in the column but can no longer be rendered or corrected from the
+   * form. On 2026-07-28 four duplicate Dental years were switched off in a
+   * single update and 15 learners were stranded on them — which is how
+   * DB22095 VISHALI T came to show "2025-2026 Additional 3", a year absent
+   * from the Academic Years screen.
+   */
+  static async getAcademicYearDependents(
+    id: string
+  ): Promise<{ total: number; summary: string }> {
+    const { data, error } = await (this.supabase as any).rpc(
+      'fn_academic_year_dependents',
+      { p_academic_year_id: id }
+    );
+    if (error) throw error;
+
+    const used = ((data ?? []) as { entity: string; row_count: number }[])
+      .map(r => ({ entity: r.entity, count: Number(r.row_count) || 0 }))
+      .filter(r => r.count > 0);
+
+    return {
+      total: used.reduce((sum, r) => sum + r.count, 0),
+      summary: used
+        .map(r => `${r.count} ${r.entity}${r.count === 1 ? '' : 's'}`)
+        .join(', '),
+    };
+  }
+
   static async updateAcademicYear(
     id: string,
     data: UpdateAcademicYearDto
   ): Promise<AcademicYear> {
     try {
+      if (data.is_active === false) {
+        const { total, summary } = await this.getAcademicYearDependents(id);
+        if (total > 0) {
+          throw new Error(
+            `Cannot deactivate this academic year — ${summary} still reference it. ` +
+              `Move them to another academic year first, or they will be left pointing ` +
+              `at a year no dropdown can display.`
+          );
+        }
+      }
+
       const { data: academicYear, error } = await (this.supabase as any)
         .from('academic_years')
         .update({
@@ -121,6 +177,20 @@ export class AcademicYearService {
     } catch { /* ignore */ }
 
     try {
+      // Deleting is the destructive half: timetables and intake_history are
+      // ON DELETE CASCADE, so Postgres removes them without a word, while
+      // learners and bills are ON DELETE SET NULL and quietly lose their year.
+      // Verified 2026-08-10 — the four "empty-looking" duplicate Dental years
+      // still held 3 timetables, 30 attendance records, 1 bill and 1 intake row.
+      const { total, summary } = await this.getAcademicYearDependents(id);
+      if (total > 0) {
+        throw new Error(
+          `Cannot delete this academic year — ${summary} reference it. ` +
+            `Deleting would erase the timetables and intake history outright and ` +
+            `strip the academic year from the learners and bills.`
+        );
+      }
+
       const { error } = await this.supabase
         .from('academic_years')
         .delete()

@@ -7,7 +7,6 @@
 
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,7 +15,6 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useIsHosteler } from '@/hooks/campus-living/use-is-hosteler';
 import { useMyVacateRequests } from '@/hooks/campus-living/use-hostel-vacate';
-import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
 import { OverviewTab } from './_components/overview-tab';
 import { CategoryFeesTab } from './_components/category-fees-tab';
 import { ProfileTab } from './_components/profile-tab';
@@ -39,13 +37,6 @@ export default function MyHostelPage() {
 
   const { data: isHosteler, isLoading: hostelerLoading } = useIsHosteler();
   const { data: myRequests, isLoading: reqLoading } = useMyVacateRequests(profileId);
-
-  // Same query key as OverviewTab — React Query dedupes the request.
-  const { data: allocations } = useQuery({
-    queryKey: ['hostel-allocations', 'by-learner', profileId],
-    queryFn: () => HostelAllocationService.getAllocationByLearner(profileId, true),
-    enabled: !!profileId,
-  });
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -88,9 +79,6 @@ export default function MyHostelPage() {
     (r) => r.status !== 'completed' && r.status !== 'rejected' && r.status !== 'cancelled'
   );
   const pastRequests = (myRequests ?? []).filter((r) => r.id !== activeRequest?.id);
-  const activeAllocation = (allocations ?? [])[0] as any;
-  const canRequestVacate =
-    !activeRequest && activeAllocation && activeAllocation.status !== 'pending_vacate';
 
   return (
     <ContentLayout title='My Hostel'>
@@ -164,7 +152,6 @@ export default function MyHostelPage() {
                 reqLoading={reqLoading}
                 activeRequest={activeRequest}
                 pastRequests={pastRequests}
-                canRequestVacate={canRequestVacate}
               />
             </div>
           )}

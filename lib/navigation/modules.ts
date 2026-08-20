@@ -144,6 +144,9 @@ export const MODULES: Module[] = [
   // ── Events ────────────────────────────────────────────────────────────
   { slug: 'events', label: 'Events', icon: 'Calendar', section: 'Events', hasNavConfig: false },
 
+  // ── Courses ───────────────────────────────────────────────────────────
+  { slug: 'courses', label: 'Courses', icon: 'Presentation', section: 'Courses', hasNavConfig: false },
+
   // ── Meetings ──────────────────────────────────────────────────────────
   // Scheduling / coordination tool — paired with Events.
   { slug: 'meetings', label: 'Meetings', icon: 'CalendarDays', section: 'Meetings', hasNavConfig: false },

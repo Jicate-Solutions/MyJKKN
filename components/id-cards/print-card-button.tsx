@@ -42,9 +42,20 @@ import {
   setLastTemplateId,
   type IdCardTemplateOption
 } from '@/lib/services/id-cards/print-jobs-client';
+import {
+  activeTemplatesOnly,
+  hasOnlyInactiveTemplates,
+  pickPreferredPrintTemplate
+} from '@/lib/services/id-cards/template-picker';
 
+// TWO empty states, two remedies. "No template exists" and "templates exist but
+// none is switched on" used to share one message, and the shared one pointed at
+// a page with no create button — a dead end either way.
 export const NO_TEMPLATES_MESSAGE =
-  'Create a template first in Admin → ID Cards';
+  'No ID-card template exists yet. Set one up in Admin → ID Cards → ID Card Template.';
+
+export const NO_ACTIVE_TEMPLATE_MESSAGE =
+  'No active template for this college — activate one on Admin → ID Cards → ID Card Template. A template stays off until its verification print passes.';
 
 const DEFAULT_NO_ACCOUNT_MESSAGE =
   'No account yet — ID card becomes available once the learner account is activated.';
@@ -53,10 +64,21 @@ const DEFAULT_NO_ACCOUNT_MESSAGE =
 // Shared template-picker state (also used by BulkPrintDialog)
 // ──────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Shared template-picker state for every PRINT surface (this button, the bulk
+ * dialog, and the cohort batch-print dialog that delegates to it).
+ *
+ * `templates` holds ACTIVE rows only. The query still returns everything —
+ * filtering here rather than in PostgREST keeps one round trip AND keeps the
+ * fact needed to tell the two empty states apart, which a `.eq('active', true)`
+ * would have thrown away.
+ */
 export function useIdCardTemplates(enabled: boolean) {
-  // null = still loading, [] = loaded and none exist
+  // null = still loading, [] = loaded and nothing is printable
   const [templates, setTemplates] = useState<IdCardTemplateOption[] | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  // Templates exist, but every one of them is still dark.
+  const [inactiveOnly, setInactiveOnly] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -65,18 +87,19 @@ export function useIdCardTemplates(enabled: boolean) {
     fetchIdCardTemplates()
       .then((rows) => {
         if (cancelled) return;
-        setTemplates(rows);
-        // Prefer the remembered choice, then the first active, then anything.
-        const last = getLastTemplateId();
-        const preferred =
-          rows.find((t) => t.id === last) ??
-          rows.find((t) => t.active) ??
-          rows[0];
-        if (preferred) setSelectedTemplateId(preferred.id);
+        setTemplates(activeTemplatesOnly(rows));
+        setInactiveOnly(hasOnlyInactiveTemplates(rows));
+        // Remembered choice, then the first active one, then nothing at all —
+        // an inactive template can no longer win either path.
+        const preferred = pickPreferredPrintTemplate(rows, getLastTemplateId());
+        setSelectedTemplateId(preferred ? preferred.id : '');
       })
       .catch((err) => {
         console.error('[id-cards] Failed to load templates:', err);
-        if (!cancelled) setTemplates([]);
+        if (!cancelled) {
+          setTemplates([]);
+          setInactiveOnly(false);
+        }
       });
 
     return () => {
@@ -89,7 +112,16 @@ export function useIdCardTemplates(enabled: boolean) {
     setLastTemplateId(id);
   }, []);
 
-  return { templates, selectedTemplateId, selectTemplate };
+  return { templates, selectedTemplateId, selectTemplate, inactiveOnly };
+}
+
+/** Which empty-state message a print surface should show, or null when fine. */
+export function emptyTemplateMessage(
+  templates: IdCardTemplateOption[] | null,
+  inactiveOnly: boolean
+): string | null {
+  if (templates === null || templates.length > 0) return null;
+  return inactiveOnly ? NO_ACTIVE_TEMPLATE_MESSAGE : NO_TEMPLATES_MESSAGE;
 }
 
 export function TemplateSelect({
@@ -160,7 +192,7 @@ export function PrintCardButton({
   const canManageJobs =
     !permissionsLoading && (isSuperAdmin || canAccess('id_cards.jobs', 'manage'));
 
-  const { templates, selectedTemplateId, selectTemplate } =
+  const { templates, selectedTemplateId, selectTemplate, inactiveOnly } =
     useIdCardTemplates(canManageJobs);
 
   const [resolvedProfileId, setResolvedProfileId] = useState<string | null>(null);
@@ -232,7 +264,7 @@ export function PrintCardButton({
     loading || noTemplates || noAccount || !selectedTemplateId || submitting;
 
   const tooltipMessage = noTemplates
-    ? NO_TEMPLATES_MESSAGE
+    ? emptyTemplateMessage(templates, inactiveOnly)
     : noAccount
       ? (noAccountMessage ?? DEFAULT_NO_ACCOUNT_MESSAGE)
       : null;

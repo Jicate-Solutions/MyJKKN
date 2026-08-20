@@ -96,8 +96,14 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       theory_hours: 0,
       tutorial_hours: 0,
       practical_hours: 0,
-      internal_max_mark: isYearBased ? undefined : 25,
-      external_max_mark: isYearBased ? undefined : 75,
+      // The Max Marks block edits the CONVERTED marks — the CIA/ESE weightage
+      // that sums to the total. Deliberately NO internal_max_mark /
+      // external_max_mark seed: those are the COE-owned question-paper ceilings,
+      // and seeding them here would make a create overwrite the ceiling with a
+      // stale 25/75 instead of letting toCoeCreatePayload default it to the
+      // value the user actually typed. The edit page supplies them explicitly.
+      internal_converted_mark: isYearBased ? undefined : 25,
+      external_converted_mark: isYearBased ? undefined : 75,
       total_max_mark: isYearBased ? undefined : 100,
       ...defaultValues,
       // lockedBoardId wins over any defaultValues.board_id — the scope-strip
@@ -116,9 +122,12 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
     }
   }, [lockedBoardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-compute total_max_mark from internal + external.
-  const internal = form.watch('internal_max_mark');
-  const external = form.watch('external_max_mark');
+  // Auto-compute total_max_mark from the CONVERTED internal + external, so the
+  // displayed total reconciles with COE's stored total_max_mark. Summing the
+  // paper ceilings instead would show 50 + 100 = 150 for a Theory + Practical
+  // course whose real total is 100.
+  const internal = form.watch('internal_converted_mark');
+  const external = form.watch('external_converted_mark');
   useEffect(() => {
     form.setValue(
       'total_max_mark',
@@ -300,13 +309,16 @@ export function CourseForm({ defaultValues, boards, boardsLoading, onSubmit, sub
       <fieldset className='space-y-3 rounded-lg border p-4'>
         <legend className='px-2 text-sm font-semibold'>Max Marks</legend>
         <div className='grid grid-cols-3 gap-3'>
-          {/* No max cap — the total (internal + external) varies by subject, so
-              allow any non-negative value rather than fixing it at 100. */}
-          <Field label='Internal (CIA)' required={!isYearBased} error={form.formState.errors.internal_max_mark?.message}>
-            <Input type='number' min={0} {...form.register('internal_max_mark', { valueAsNumber: true })} />
+          {/* These two bind to the CONVERTED marks, not the question-paper
+              ceilings: what a BoS sets is the weightage each component carries
+              in the total (CIA 50 + ESE-converted 50 = 100), while the ceiling
+              an ESE paper is written for (100) stays COE-owned and untouched.
+              No max cap — the total varies by subject, so only >= 0 is enforced. */}
+          <Field label='Internal (CIA)' required={!isYearBased} error={form.formState.errors.internal_converted_mark?.message}>
+            <Input type='number' min={0} {...form.register('internal_converted_mark', { valueAsNumber: true })} />
           </Field>
-          <Field label='External (ESE)' required={!isYearBased} error={form.formState.errors.external_max_mark?.message}>
-            <Input type='number' min={0} {...form.register('external_max_mark', { valueAsNumber: true })} />
+          <Field label='External (ESE)' required={!isYearBased} error={form.formState.errors.external_converted_mark?.message}>
+            <Input type='number' min={0} {...form.register('external_converted_mark', { valueAsNumber: true })} />
           </Field>
           <Field label='Total (auto)'>
             <Input disabled type='number' {...form.register('total_max_mark', { valueAsNumber: true })} />

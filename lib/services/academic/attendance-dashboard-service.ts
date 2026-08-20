@@ -17,6 +17,7 @@ import type {
 } from '@/types/attendance-dashboard';
 import { getPolicyString, getPolicyInt } from '@/lib/policies/get-policy-client';
 import { POLICY_KEYS } from '@/lib/policies/keys';
+import { selectInChunks } from '@/lib/utils/postgrest-in-chunks';
 
 /**
  * Post-class-feedback attendance-confirmation split for the admin dashboard.
@@ -235,6 +236,13 @@ export class AttendanceDashboardService {
    * sum of its children and can never disagree with the rows beneath it. The
    * section numbers themselves are already period-averaged and learner-attributed
    * by the RPC.
+   *
+   * marked/unmarked roll up the same way. Every percentage on this screen is
+   * present ÷ marked, NOT present ÷ total (Director decision 2026-08-11):
+   * unmarked learners are a backlog to chase, not absentees. `unmarked` is
+   * carried at every level precisely so no caller can render a percentage
+   * without it — 1 present of 1 marked is "100%" only if you also say 92 were
+   * never marked.
    */
   private static buildStatsHierarchy(rows: any[]): AttendanceStats[] {
     const institutions = new Map<string, any>();
@@ -248,10 +256,22 @@ export class AttendanceDashboardService {
           total_students: 0,
           total_present: 0,
           total_absent: 0,
+          total_marked: 0,
+          total_unmarked: 0,
           attendance_percentage: 0,
+          is_empty_view: false,
           departments: new Map()
         };
         institutions.set(row.institution_id, institution);
+      }
+
+      // A college that holds learners in this scope but none once the view's
+      // narrowing is applied. The RPC emits it as an explicit zero row with no
+      // department/semester/section, so that it is listed with a reason rather
+      // than silently dropped (CLAUDE.md rule #27).
+      if (row.is_empty_view) {
+        institution.is_empty_view = true;
+        return;
       }
 
       let department = institution.departments.get(row.department_id);
@@ -262,6 +282,8 @@ export class AttendanceDashboardService {
           total_students: 0,
           total_present: 0,
           total_absent: 0,
+          total_marked: 0,
+          total_unmarked: 0,
           attendance_percentage: 0,
           semesters: new Map()
         };
@@ -276,6 +298,8 @@ export class AttendanceDashboardService {
           total_students: 0,
           total_present: 0,
           total_absent: 0,
+          total_marked: 0,
+          total_unmarked: 0,
           attendance_percentage: 0,
           sections: []
         };
@@ -287,57 +311,138 @@ export class AttendanceDashboardService {
       const present = Number(row.present) || 0;
       const absent = Number(row.absent) || 0;
 
+      // `marked` arrives from the RPC, but the migration that adds it is
+      // Director-gated and may not be applied when this ships. Falling back to
+      // present + absent keeps the screen correct against BOTH shapes: those
+      // two columns already count only learners who have a status recorded, so
+      // their sum IS the marked headcount the old function could express.
+      // Without this, an unapplied migration would silently report every
+      // college as "nobody marked yet".
+      const rawMarked = row.marked;
+      const markedReported =
+        rawMarked === null || rawMarked === undefined
+          ? present + absent
+          : Number(rawMarked) || 0;
+      // The RPC caps marked at the section headcount, so unmarked is never
+      // negative — but clamp anyway rather than render a "-3 not yet marked".
+      const marked = Math.min(markedReported, totalStudents);
+      const unmarked = Math.max(totalStudents - marked, 0);
+
       semester.sections.push({
         section_id: row.section_id,
         section_name: row.section_name,
         total_students: totalStudents,
         present,
         absent,
-        percentage:
-          totalStudents > 0 ? Math.round((present / totalStudents) * 100) : 0
+        marked,
+        unmarked,
+        percentage: marked > 0 ? Math.round((present / marked) * 100) : 0,
+        // `section_id == null` is the same condition the RPC flags, and it is
+        // readable from the old shape too — so learners with no section are
+        // labelled "Not yet placed" whether or not the migration has landed.
+        is_unplaced: row.is_unplaced === true || row.section_id == null
       });
 
       semester.total_students += totalStudents;
       semester.total_present += present;
       semester.total_absent += absent;
+      semester.total_marked += marked;
+      semester.total_unmarked += unmarked;
 
       department.total_students += totalStudents;
       department.total_present += present;
       department.total_absent += absent;
+      department.total_marked += marked;
+      department.total_unmarked += unmarked;
 
       institution.total_students += totalStudents;
       institution.total_present += present;
       institution.total_absent += absent;
+      institution.total_marked += marked;
+      institution.total_unmarked += unmarked;
     });
 
-    const pct = (present: number, total: number) =>
-      total > 0 ? Math.round((present / total) * 100) : 0;
+    // Denominator is learners ACTUALLY MARKED, not the headcount. A learner
+    // nobody marked is unknown, not absent, so counting them against the rate
+    // reports a marking backlog as poor attendance.
+    const pct = (present: number, marked: number) =>
+      marked > 0 ? Math.round((present / marked) * 100) : 0;
 
     return Array.from(institutions.values()).map((institution) => ({
       ...institution,
       attendance_percentage: pct(
         institution.total_present,
-        institution.total_students
+        institution.total_marked
       ),
       departments: Array.from(institution.departments.values()).map(
         (department: any) => ({
           ...department,
           attendance_percentage: pct(
             department.total_present,
-            department.total_students
+            department.total_marked
           ),
           semesters: Array.from(department.semesters.values()).map(
             (semester: any) => ({
               ...semester,
               attendance_percentage: pct(
                 semester.total_present,
-                semester.total_students
+                semester.total_marked
               )
             })
           )
         })
       )
     }));
+  }
+
+  /**
+   * Does this timetable teach on this weekday?
+   *
+   * Added: 2026-08-11 - The pending list used to answer this with
+   * `getDay() !== 0 && getDay() !== 6`, applied to the whole date range before
+   * any timetable was read. Saturday is a normal teaching day here: measured on
+   * production, 121 of 178 active non-template timetables list SATURDAY in
+   * `selected_days` and NONE list SUNDAY. The badge behind the same screen
+   * applies no weekend rule, so the two surfaces disagreed by every Saturday.
+   *
+   * The answer now comes from what the timetable itself schedules. Sunday is
+   * excluded because nothing selects it, not because a day number is hardcoded.
+   *
+   * `selected_days` OR the timetable's own weekday keys — the union, never one
+   * alone. `selected_days` is populated on all 198 active timetables but 3
+   * weekday slots exist in `timetable_data` without a matching `selected_days`
+   * entry, and `timetable_data` is what the period loop below actually reads, so
+   * gating on `selected_days` alone would drop rows that are listed today.
+   * Cycle-format timetables are exempt: their date→cycle map already returns
+   * null for a non-teaching day, and it, not a weekday, is their authority.
+   */
+  private static timetableSchedulesWeekday(
+    timetable: any,
+    dayOfWeek: string
+  ): boolean {
+    if (timetable?.timetable_format === 'cycle') return true;
+
+    const selectedDays = Array.isArray(timetable?.selected_days)
+      ? timetable.selected_days
+      : null;
+    const inSelectedDays =
+      selectedDays?.some(
+        (d: unknown) =>
+          typeof d === 'string' && d.trim().toUpperCase() === dayOfWeek
+      ) ?? false;
+    if (inSelectedDays) return true;
+
+    const timetableData = timetable?.timetable_data;
+    const hasDayKey =
+      timetableData !== null &&
+      typeof timetableData === 'object' &&
+      Object.prototype.hasOwnProperty.call(timetableData, dayOfWeek);
+    if (hasDayKey) return true;
+
+    // Neither source says anything about weekdays at all. Do not silently drop
+    // the timetable over a missing column (CLAUDE.md rule #27) -- let the day
+    // through and let the period lookup below decide. Zero rows on production.
+    return selectedDays !== null && selectedDays.length > 0 ? false : true;
   }
 
   /**
@@ -381,11 +486,18 @@ export class AttendanceDashboardService {
         dates.push(d.toISOString().split('T')[0]);
       }
 
-      // Exclude weekends from the date range
-      const workingDates = dates.filter(date => {
-        const day = new Date(date + 'T00:00:00').getDay()
-        return day !== 0 && day !== 6
-      })
+      // Updated: 2026-08-11 - This used to drop `getDay() === 0 || === 6`, so
+      // every Saturday was silently removed from the range while the RPC behind
+      // the badge applied no such rule. Measured on production: 121 of 178 active
+      // non-template timetables list SATURDAY in `selected_days` and 0 list
+      // SUNDAY -- so a hardcoded weekend rule hid a normal teaching day for two
+      // colleges out of three, and the list and the badge could not agree.
+      //
+      // The teaching-day set is now derived from what the in-scope timetables
+      // actually schedule (see `teachingDayKeys` below, applied once the
+      // timetables are known). Sunday drops out because no timetable selects it,
+      // not because a day number is hardcoded here.
+      const workingDates = dates;
 
       const offset = (page - 1) * limit;
 
@@ -405,6 +517,7 @@ export class AttendanceDashboardService {
           section_id,
           timetable_data,
           timetable_format,
+          selected_days,
           periods,
           attendance_mode,
           class_incharge_id,
@@ -501,25 +614,23 @@ export class AttendanceDashboardService {
         }
       });
 
-      // Fetch course and staff lookup data
-      const [coursesData, staffData] = await Promise.all([
-        courseIds.size > 0
-          ? this.supabase
-              .from('courses')
-              .select('id, course_name, course_code')
-              .in('id', Array.from(courseIds))
-          : { data: [] },
-        staffIds.size > 0
-          ? this.supabase
-              .from('staff')
-              .select('id, first_name, last_name, email, institution_email')
-              .in('id', Array.from(staffIds))
-          : { data: [] }
+      // Fetch course and staff lookup data — chunked: the all-institutions view
+      // resolves ~750 course ids, past the ~680-id URL cliff the gateway rejects.
+      // A failed chunk THROWS instead of silently rendering "Unknown Course".
+      const [coursesResult, staffResult] = await Promise.all([
+        selectInChunks(Array.from(courseIds), (chunk) =>
+          this.supabase
+            .from('courses')
+            .select('id, course_name, course_code')
+            .in('id', chunk)
+        ),
+        selectInChunks(Array.from(staffIds), (chunk) =>
+          this.supabase
+            .from('staff')
+            .select('id, first_name, last_name, email, institution_email')
+            .in('id', chunk)
+        ),
       ]);
-
-      // Type cast to fix TypeScript inference after React 19 upgrade
-      const coursesResult = (coursesData as any).data || [];
-      const staffResult = (staffData as any).data || [];
 
       // Create lookup maps
       const courseLookup = (coursesResult as any[]).reduce((acc, course) => {
@@ -577,6 +688,12 @@ export class AttendanceDashboardService {
 
           if (!isValidForDate) {
             return; // Skip this timetable for this date
+          }
+
+          // Updated: 2026-08-11 - Replaces the hardcoded `getDay() !== 0 && !== 6`
+          // that used to drop every Saturday from the range before this loop ran.
+          if (!this.timetableSchedulesWeekday(timetable, dayOfWeek)) {
+            return; // this timetable does not teach on this weekday
           }
 
           const timetableData = timetable.timetable_data as TimetableData | null;

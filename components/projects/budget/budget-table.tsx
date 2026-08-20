@@ -22,6 +22,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TAP_TARGET_ICON } from '@/app/(routes)/projects/_lib/tap-targets';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -201,7 +202,11 @@ export function BudgetTable({ projectId, lines, categories }: BudgetTableProps) 
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={`h-7 w-7 ${TAP_TARGET_ICON}`}
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                           <span className="sr-only">Actions</span>
                         </Button>
