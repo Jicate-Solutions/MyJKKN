@@ -14,7 +14,24 @@ export interface BiometricStaffOption {
   current_code: string | null;
   /** Code assigned on a DIFFERENT machine — mapping here would move them. */
   other_machine: boolean;
+  /** staff.is_active — false means relieved. Still selectable; just labelled. */
+  is_active: boolean | null;
 }
+
+/**
+ * Does the person behind this enrolment exist in the MyJKKN staff table at all?
+ *
+ * Deliberately SEPARATE from link state. "Unresolved" used to mean both "our
+ * employee, code not linked yet" and "not our employee at all", which are
+ * opposite problems: the first is one click away from importing, the second can
+ * never import no matter what HR does. Biometric machines keep every enrolment
+ * ever made, so a monthly export routinely carries people who left years ago.
+ *
+ * 'not_in_myjkkn' is a NAME verdict, not proof of absence — normPersonName
+ * reaches 36 of 48 on the real July export. Treat it as "nothing in MyJKKN
+ * answers to this name", which is why the picker stays enabled on those rows.
+ */
+export type BiometricIdentityKind = 'linked' | 'name_match' | 'ambiguous' | 'not_in_myjkkn';
 
 /** One device enrolment awaiting confirmation. */
 export interface BiometricMappingRow {
@@ -27,6 +44,12 @@ export interface BiometricMappingRow {
   /** Single confident name match, or null when 0 or >1 matched. */
   suggested_staff_id: string | null;
   suggestion_reason: 'exact_name' | null;
+  /** Whether this person exists in the MyJKKN staff table — see the type doc. */
+  identity: BiometricIdentityKind;
+  /** Staff sharing this device name: 1 for name_match, >1 for ambiguous, else 0. */
+  name_candidates: number;
+  /** is_active of the linked / single-name-matched staff row; null when none. */
+  staff_is_active: boolean | null;
 }
 
 export interface BiometricSuggestResponse {
@@ -35,7 +58,17 @@ export interface BiometricSuggestResponse {
   rows: BiometricMappingRow[];
   staff: BiometricStaffOption[];
   warnings: string[];
-  counts: { total: number; already_mapped: number; suggested: number; unresolved: number };
+  /** Size of the MyJKKN staff table this file was measured against. */
+  roster: { total: number; active: number };
+  counts: {
+    total: number; already_mapped: number; suggested: number; unresolved: number;
+    /** identity !== 'not_in_myjkkn' — the ceiling on what this file can ever import. */
+    in_myjkkn: number;
+    not_in_myjkkn: number;
+    ambiguous: number;
+    /** in_myjkkn rows whose staff record is relieved (is_active = false). */
+    inactive_staff: number;
+  };
 }
 
 /** Payload for saving confirmed mappings. */
@@ -172,6 +205,13 @@ export const BLOCK_LABEL: Record<BiometricBlockKind, string> = {
   unreconciled_totals: 'Totals do not reconcile',
 };
 
+export const IDENTITY_LABEL: Record<BiometricIdentityKind, string> = {
+  linked: 'In MyJKKN',
+  name_match: 'In MyJKKN',
+  ambiguous: 'In MyJKKN',
+  not_in_myjkkn: 'Not in MyJKKN',
+};
+
 export const MATCH_LABEL: Record<BiometricStaffMatchKind, string> = {
   linked: 'Linked',
   unlinked_match: 'Needs linking',
@@ -232,3 +272,65 @@ export const VERDICT_CLASS: Record<ImportVerdict, string> = {
   WEEKLY_OFF: 'bg-slate-100 text-slate-700 hover:bg-slate-100',
   EXCEPTION: 'bg-orange-100 text-orange-900 hover:bg-orange-100',
 };
+
+// ---------------------------------------------------------------------------
+// Import purge — super admin only. See
+// supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+// ---------------------------------------------------------------------------
+
+/**
+ * One imported (machine, month). The MACHINE, not the staff member's college:
+ * the Main Office machine's July 2026 import covers staff of six institutions,
+ * so the file is the unit of import and therefore the unit of undo.
+ */
+export interface BiometricImportBatch {
+  machine_institution_id: string;
+  machine_name: string | null;
+  machine_code: string | null;
+  /** First day of the month, 'YYYY-MM-DD'. */
+  month_start: string;
+  record_count: number;
+  staff_count: number;
+  /** How many DIFFERENT colleges' staff this one machine's import touched. */
+  staff_institution_count: number;
+  reconciled_count: number;
+  regularization_count: number;
+  exception_count: number;
+  open_exception_count: number;
+  first_work_date: string;
+  last_work_date: string;
+  last_imported_at: string | null;
+}
+
+export interface BiometricPurgePreview {
+  machine_name: string;
+  month_start: string;
+  month_label: string;
+  records: number;
+  staff: number;
+  staff_institutions: number;
+  /** Status code -> day count, e.g. { PRESENT: 757, ABSENT: 313 }. */
+  by_status: Record<string, number>;
+  /** Human work about to be discarded. Warn, do not block. */
+  reconciled_records: number;
+  /** Detached, not deleted — the staff member's request survives. */
+  regularizations_unlinked: number;
+  audit_rows_unlinked: number;
+  exceptions: number;
+  resolved_exceptions: number;
+}
+
+export interface BiometricPurgeReceipt {
+  machine_name: string;
+  month_start: string;
+  month_label: string;
+  deleted: { records: number; exceptions: number };
+  unlinked: { regularizations: number; audit_rows: number };
+}
+
+/** 'YYYY-MM-DD' -> 'July 2026', without letting a Date constructor shift the month. */
+export function biometricMonthLabel(monthStart: string): string {
+  const [y, m] = monthStart.split('-').map(Number);
+  if (!y || !m) return monthStart;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+}
