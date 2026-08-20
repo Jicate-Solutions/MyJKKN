@@ -49,6 +49,10 @@ import {
   type PdeQuestion,
   type OsceScore,
 } from '@/lib/services/pde-osce-scoring';
+import {
+  finalizeAiuTrailsForSubmission,
+  AIU_SURFACE_PDE_CLINICAL_COACH,
+} from '@/lib/services/aiu/prompt-trail-service';
 
 interface RequestBody {
   submissionId: string;
@@ -321,6 +325,25 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
+
+  // ---- AIU evidence trail: close open trails with the final answers -------
+  // The learner's final answers are now stored; close every still-open AIU
+  // trail from this attempt's coach exchanges (learner_final + the
+  // changed-or-accepted flag). Service-role matches the trust boundary the
+  // score write above already uses — ownership was proven by the
+  // session-scoped submission read — and lets a faculty re-run still close
+  // the LEARNER's trails. Best-effort: the service swallows its own errors,
+  // so scoring never fails because the trail table is missing or busy.
+  await finalizeAiuTrailsForSubmission(svc, {
+    learnerId: submission.learner_id as string,
+    surface: AIU_SURFACE_PDE_CLINICAL_COACH,
+    assessmentId: submission.assessment_id as string,
+    // `answersRaw` was a local alias for this same value; main's rescore
+    // refactor replaced it with readStoredAnswers(submission.answers), so the
+    // raw column is read directly here. Same payload, same shapes.
+    answersRaw: submission.answers ?? [],
+    submissionId: submission.id as string,
+  });
 
   // ---- Side effect 2: upsert pde_learner_capabilities (keep max) ----------
   // Look up the clinical_reasoning capability_id once (could also seed via env)
