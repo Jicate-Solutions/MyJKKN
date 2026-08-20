@@ -849,6 +849,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/school-fees/[id]': 'school_fees.read',
   '/billing/school-fees/concessions': 'school_fees.read',
   '/billing/school-fees/generate': 'school_fees.generate',
+  // The payment counter. Gated on .collect, not .read — everything on that
+  // screen leads to writing a receipt, so a read-only user has no reason there.
+  '/billing/school-fees/collect': 'school_fees.collect',
   '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
@@ -2925,10 +2928,14 @@ export function GetPages(pathname: string): MenuGroup[] {
                 (pathname.startsWith('/billing/school-fees/') &&
                   !pathname.startsWith('/billing/school-fees/term-calendar') &&
                   !pathname.startsWith('/billing/school-fees/concessions') &&
-                  !pathname.startsWith('/billing/school-fees/generate')) },
+                  !pathname.startsWith('/billing/school-fees/generate') &&
+                  !pathname.startsWith('/billing/school-fees/collect')) },
             { href: '/billing/school-fees/term-calendar', label: 'School Term Calendar', active: pathname.startsWith('/billing/school-fees/term-calendar') },
             { href: '/billing/school-fees/concessions', label: 'School Fee Concessions', active: pathname.startsWith('/billing/school-fees/concessions') },
             { href: '/billing/school-fees/generate', label: 'Generate School Fees', active: pathname.startsWith('/billing/school-fees/generate') },
+            // Sits after Generate because that is the order of the work: raise
+            // the year's bills, then take money against them.
+            { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
           ]
         }
       ]

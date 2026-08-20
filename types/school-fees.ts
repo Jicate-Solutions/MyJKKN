@@ -517,3 +517,107 @@ export function gridToItems(grid: FeeGrid): CreateSchoolFeePlanItemDto[] {
   });
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// School Bill Payment counter (/billing/school-fees/collect)
+//
+// These describe the READ side only. A recorded payment is a billing_receipts
+// row created through BillingReceiptService — there is no school-specific
+// payment table, so nothing here mirrors one.
+// ---------------------------------------------------------------------------
+
+/** A school learner as shown on the payment counter's profile card. */
+export interface SchoolLearnerForPayment {
+  id: string;
+  first_name: string;
+  last_name: string;
+  roll_number: string | null;
+  register_number: string | null;
+  student_mobile: string | null;
+  father_name: string | null;
+  student_photo_url: string | null;
+  institution_id: string;
+  academic_year_id: string;
+  /** programs.program_name — renders as "Class" for schools. */
+  class_name: string | null;
+  section_name: string | null;
+}
+
+/** One outstanding school fee bill row (one term × one fee head). */
+export interface SchoolOutstandingBill {
+  id: string;
+  student_id: string;
+  institution_id: string;
+  item_category_id: string | null;
+  category_name: string | null;
+  bill_description: string | null;
+  due_date: string | null;
+  term_number: number | null;
+  fine_effective_date: string | null;
+  final_amount: number;
+  /** Derived (final_amount − balance_amount), not a stored column. */
+  paid_amount: number;
+  balance_amount: number;
+  status: string;
+}
+
+/** One receipt line that settled part or all of a school bill. */
+export interface SchoolBillReceiptLink {
+  receipt_id: string;
+  receipt_number: string;
+  receipt_date: string | null;
+  amount_paid: number;
+}
+
+/**
+ * A school bill that is fully settled — the "Paid" tab of the counter.
+ *
+ * Deliberately NOT a SchoolOutstandingBill with a zero balance: billBalance()
+ * treats a zero balance as the legacy "never paid anything" case and falls back
+ * to final_amount, which would render every settled bill as fully owed. A paid
+ * bill carries no balance at all, so the shape does not have one.
+ */
+export interface SchoolSettledBill {
+  id: string;
+  item_category_id: string | null;
+  category_name: string | null;
+  bill_description: string | null;
+  due_date: string | null;
+  term_number: number | null;
+  final_amount: number;
+  paid_amount: number;
+  status: string;
+  /** Receipts that settled this bill, newest first. Empty on a bill written off
+   *  or settled by an adjustment rather than a receipt. */
+  receipts: SchoolBillReceiptLink[];
+  /** Newest receipt_date across `receipts`; null when there is no receipt. */
+  last_paid_date: string | null;
+}
+
+/** One past receipt that settled at least one of this year's school bills. */
+export interface SchoolPaymentHistoryRow {
+  receipt_id: string;
+  receipt_number: string;
+  receipt_date: string | null;
+  payment_mode: string;
+  payment_reference_number: string | null;
+  date_of_credit: string | null;
+  /** Header total of the receipt, which may span other years' bills too. */
+  receipt_total: number;
+  /** Sum of this receipt's lines against THIS year's school bills. */
+  amount_allocated: number;
+}
+
+/**
+ * Counter payment modes. NEFT deliberately maps onto the existing
+ * PaymentMode value 'bank_transfer' rather than widening the DB CHECK —
+ * see migration 20260909000000.
+ */
+export const SCHOOL_PAYMENT_MODES = [
+  { value: 'cash', label: 'Cash', icon: 'cash' },
+  { value: 'dd', label: 'DD', icon: 'dd' },
+  { value: 'bank_transfer', label: 'NEFT', icon: 'neft' },
+  { value: 'online', label: 'Online', icon: 'online' },
+] as const;
+
+export type SchoolPaymentModeValue = (typeof SCHOOL_PAYMENT_MODES)[number]['value'];

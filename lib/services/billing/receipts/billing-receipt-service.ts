@@ -104,6 +104,21 @@ export class BillingReceiptService {
           payment_reference_number: receiptData.payment_reference_number,
           payment_amount: receiptData.payment_amount,
           payment_paid_date: receiptData.payment_paid_date,
+          // Non-cash payment detail, added by migration 20260909000000 for the
+          // school payment counter.
+          //
+          // SPREAD, not four plain keys: the college counter and the gateway
+          // callback never set any of these, so they must send the EXACT
+          // payload they sent before. Writing `date_of_credit: null`
+          // unconditionally would name a column that does not exist until the
+          // migration is applied, and PostgREST rejects the whole insert with
+          // PGRST204 — which would take college receipting down on deploy.
+          // This way the new columns are named only by a caller that actually
+          // has a value for them.
+          ...(receiptData.date_of_credit ? { date_of_credit: receiptData.date_of_credit } : {}),
+          ...(receiptData.dd_bank_name ? { dd_bank_name: receiptData.dd_bank_name } : {}),
+          ...(receiptData.dd_branch ? { dd_branch: receiptData.dd_branch } : {}),
+          ...(receiptData.remitter_name ? { remitter_name: receiptData.remitter_name } : {}),
           payer_name: receiptData.payer_name,
           payer_contact: receiptData.payer_contact,
           accountant_id: receiptData.accountant_id,

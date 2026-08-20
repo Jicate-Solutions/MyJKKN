@@ -1500,7 +1500,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'school_fees.manage', label: 'Create / Edit School Fee Plans & Term Calendar' },
       { key: 'school_fees.activate', label: 'Activate Plans & Create New Versions' },
       { key: 'school_fees.generate', label: 'Generate Yearly Fee Bills' },
-      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' }
+      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' },
+      { key: 'school_fees.collect', label: 'Collect Fee Payments & Issue Receipts (Counter)' }
     ]
   },
   {

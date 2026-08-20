@@ -2149,6 +2149,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Wallet",
         "children": [
           {
+            "path": "/billing/school-fees/collect",
+            "label": "Collect",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
             "path": "/billing/school-fees/concessions",
             "label": "Concessions",
             "iconName": "Wallet",

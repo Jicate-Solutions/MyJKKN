@@ -61,7 +61,9 @@ const SEARCH_WORTHY_FILTER_KEYS: ReadonlyArray<
   'first_name',
   'last_name',
   'roll_number',
+  'register_number',
   'mobile_number',
+  'query',
   'is_profile_complete'
 ];
 
