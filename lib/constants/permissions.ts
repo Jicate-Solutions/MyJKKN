@@ -20,11 +20,14 @@ export const INSTITUTIONS = [
   { value: 'jkkn_NV', label: 'JKKN Nattraja Vidhyalya' }
 ] as const;
 
+// profiles.gender domain. Title Case per profiles_gender_check (20260820160000);
+// trg_normalize_gender_profiles canonicalises anything else on write.
+// 'prefer_not_to_say' is gone - it was never stored on either learner table and the
+// constraint now rejects it.
 export const GENDERS = [
-  { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-  { value: 'other', label: 'Other' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' }
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' }
 ] as const;
 
 export const DEPARTMENTS = {
@@ -2566,7 +2569,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'courses.view', label: 'View Courses' },
       { key: 'courses.create', label: 'Create Courses' },
       { key: 'courses.edit', label: 'Edit Courses' },
-      { key: 'courses.delete', label: 'Delete Courses (cascades packages, sessions, forms)' },
+      // Retained for the audit gate and for re-delegating deletion later, but it
+      // no longer grants deletion on its own: course delete cascades through
+      // enrollments, bills and payments, so both the course_events_delete RLS
+      // policy and fn_course_delete_cascade check is_super_admin() instead.
+      { key: 'courses.delete', label: 'Delete Courses (superseded — super admin only)' },
       { key: 'courses.packages.manage', label: 'Manage Course Packages & Installment Plans' },
       { key: 'courses.forms.manage', label: 'Manage Course Registration Forms' },
       { key: 'courses.sessions.manage', label: 'Manage Course Sessions & Venue Holds' },

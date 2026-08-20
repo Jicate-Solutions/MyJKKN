@@ -61,6 +61,17 @@ export interface RescheduleEmailParams
   rescheduledBy: 'attendee' | 'host';
 }
 
+/**
+ * A face-to-face meeting became a Google Meet (mode switch, 2026-08-19).
+ * `previousStartTime` is present ONLY when the switch also moved the meeting —
+ * a mode-only switch keeps the time and says so.
+ */
+export interface SwitchedToOnlineEmailParams
+  extends Omit<BookingEmailParams, 'cancelUrl' | 'rescheduleUrl'> {
+  previousStartTime?: string | null;
+  switchedBy: 'attendee' | 'host';
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -455,6 +466,85 @@ export class MeetingBookingEmailService {
         `Booking Rescheduled – ${params.attendeeName} (${params.meetingTitle})`,
         emailShell('#d97706', '&#128260;&nbsp; A booking with you was rescheduled', hostBody),
         `meeting-rescheduled-host-${params.uid}-${moveKey}`
+      )
+    );
+  }
+
+  /**
+   * The meeting is now online: join link to the attendee + confirmation to the
+   * host. Mirrors sendBookingRescheduledEmails exactly.
+   *
+   * This is the ONE email the switch sends (decision 9). The attendee's
+   * existing calendar entry is ALREADY updated in place — the Google patch runs
+   * with sendUpdates=all, which edits their event and notifies them — so there
+   * is deliberately no cancellation email and no re-invite.
+   */
+  static async sendBookingSwitchedToOnlineEmails(
+    params: SwitchedToOnlineEmailParams
+  ): Promise<MeetingEmailPair> {
+    const when = fmtWhen(params.startTime, params.timezone);
+    const hostName = esc(params.hostName || 'the host');
+    const attendeeName = esc(params.attendeeName || 'the attendee');
+    const title = esc(params.meetingTitle);
+    const byLabel = params.switchedBy === 'attendee' ? attendeeName : hostName;
+    const moved = !!params.previousStartTime;
+
+    const card = detailsCard([
+      { label: 'Meeting', value: title },
+      { label: 'When', value: `<strong>${when}</strong>` },
+      // Empty values are filtered out by detailsCard, so a mode-only switch
+      // simply has no "Was" row.
+      {
+        label: 'Was',
+        value: moved ? fmtWhen(params.previousStartTime as string, params.timezone) : '',
+      },
+      { label: 'Duration', value: `${params.durationMin} minutes` },
+      locationRow({ locationMode: 'online', videoUrl: params.videoUrl }),
+      { label: 'Changed by', value: byLabel },
+      { label: 'Reference', value: params.uid },
+    ]);
+
+    const attendeeBody = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${attendeeName},
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        Your meeting with <strong>${hostName}</strong> is now a
+        <strong>Google Meet</strong>${moved ? ' at a new time' : ''}. There is no
+        need to travel — join from the link below.
+      </p>
+      ${card}
+      <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
+        Your calendar entry has been updated in place, so the event you already
+        have now carries the join link. The cancel and reschedule links from your
+        confirmation email keep working.
+      </p>`;
+
+    const hostBody = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${hostName},
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        The meeting with <strong>${attendeeName}</strong> is now a
+        <strong>Google Meet</strong>${moved ? ' at a new time' : ''}.
+      </p>
+      ${card}`;
+
+    // Idempotency key includes the start, so a switch that also moves the
+    // meeting sends once per distinct outcome.
+    const switchKey = params.startTime.replace(/[^0-9]/g, '').slice(0, 12);
+    return sendPair(
+      send(
+        params.attendeeEmail,
+        `Now online – ${params.meetingTitle}`,
+        emailShell('#2563eb', '&#128187;&nbsp; Your meeting moved online', attendeeBody),
+        `meeting-online-attendee-${params.uid}-${switchKey}`
+      ),
+      send(
+        params.hostEmail,
+        `Now online – ${params.attendeeName} (${params.meetingTitle})`,
+        emailShell('#2563eb', '&#128187;&nbsp; A booking with you moved online', hostBody),
+        `meeting-online-host-${params.uid}-${switchKey}`
       )
     );
   }

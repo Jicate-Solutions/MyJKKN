@@ -1595,6 +1595,14 @@ export type UpsertAdmissionFeeAdmissionSettingsInput = Partial<
 
 export type AdmissionFeeStructureStatus = 'draft' | 'active' | 'archived';
 
+/**
+ * How a fee structure quotes its cost.
+ *   'package'     — one consolidated, all-inclusive amount
+ *   'non_package' — each fee head itemised separately
+ * null (on the row) means unclassified / "Any".
+ */
+export type FeeStructurePackageType = 'package' | 'non_package';
+
 export interface AdmissionFeeStructure {
   id: string;
   institution_id: string;
@@ -1614,6 +1622,12 @@ export interface AdmissionFeeStructure {
   gender: string | null;
   name: string;
   status: AdmissionFeeStructureStatus;
+  /**
+   * Classification only — NOT a matching dimension. Deliberately absent from
+   * FeeStructureMatrixDimensions: fee resolution and the junction overlap
+   * guard both ignore it. null = unclassified / "Any".
+   */
+  package_type: FeeStructurePackageType | null;
   notes: string | null;
   // Date-bounded applicability within an admission year. NULL on either
   // side means "no specific bound" (always applicable from start / until
@@ -1669,7 +1683,7 @@ export type CreateAdmissionFeeStructureInput =
     | 'admission_year_id'
     | 'name'
   > &
-  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id'>> & {
+  Partial<Pick<AdmissionFeeStructure, 'status' | 'notes' | 'effective_from' | 'effective_to' | 'gender' | 'accommodation_type_id' | 'package_type'>> & {
     /** N communities this structure applies to. Must contain at least one. */
     community_category_ids: string[];
     items: Array<Pick<AdmissionFeeStructureItem, 'billing_category_id' | 'amount'> &
@@ -1680,6 +1694,8 @@ export type UpdateAdmissionFeeStructureInput =
   Partial<Pick<
     AdmissionFeeStructure,
     | 'name' | 'status' | 'notes' | 'effective_from' | 'effective_to'
+    // Classification, not a dimension — safe to edit freely, no overlap risk.
+    | 'package_type'
     // 7 matrix dimensions — editing them is supported but risky. The
     // overlap-prevention trigger on the junction will reject conflicting
     // moves; the UI layer warns the admin before submit.

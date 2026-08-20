@@ -111,6 +111,8 @@ export async function loadPublicCourse(slug: string): Promise<PublicCourseSummar
 
   const now = new Date();
   const enabledForms = forms ?? [];
+  const activePackages = packages ?? [];
+  const onSalePackages = toPublicPackages(activePackages, now);
 
   return {
     title: c.title,
@@ -126,10 +128,18 @@ export async function loadPublicCourse(slug: string): Promise<PublicCourseSummar
     // Open means the window allows it AND there is something to fill in. A
     // course with an open window and no enabled form cannot be applied to, and
     // saying "open" there sends people to a dead end.
+    //
+    // The same reasoning extends to PACKAGES, which it originally did not. A
+    // course that defines fees but has no tier on sale cannot price an
+    // application, and course_enrollments.package_id is NOT NULL — so such an
+    // application can never become an enrollment. It used to be accepted
+    // silently: the chooser simply vanished and package_id landed NULL.
     applicationsOpen:
       isWindowOpen(c.application_opens_at, c.application_closes_at, now) &&
-      enabledForms.length > 0,
-    packages: toPublicPackages(packages ?? [], now),
+      enabledForms.length > 0 &&
+      (activePackages.length === 0 || onSalePackages.length > 0),
+    packages: onSalePackages,
+    packagesExist: activePackages.length > 0,
     forms: enabledForms.map((f: any) => ({
       name: f.name,
       slug: f.slug,
@@ -236,14 +246,22 @@ export async function loadPublicApplyForm(
     });
   }
 
+  const activePackages = (packages ?? []) as any[];
+  const onSalePackages = toPublicPackages(activePackages, new Date());
+
   return {
     courseTitle: c.title,
     courseSlug: c.slug,
     formName: form.name,
     formSlug: form.slug,
     formDescription: form.description ?? null,
+    // Deliberately NOT ANDed with the package check here. The widget needs to
+    // tell "the window is shut" apart from "the fees are not on sale" to say
+    // anything useful, so it gets both facts and decides. Collapsing them would
+    // put an applicant back in front of a message that does not explain itself.
     applicationsOpen: isWindowOpen(c.application_opens_at, c.application_closes_at),
     sections: publicSections,
-    packages: toPublicPackages(packages ?? [], new Date()),
+    packages: onSalePackages,
+    packagesExist: activePackages.length > 0,
   };
 }

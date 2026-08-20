@@ -9,6 +9,7 @@ import type {
   UpdateAdmissionFeeStructureInput,
   FeeStructureMatrixDimensions,
   FeeStructureCoverageReportRow,
+  FeeStructurePackageType,
 } from '@/types/admission';
 
 export type FeeItemApplicability = {
@@ -71,6 +72,12 @@ export class FeeStructureService {
     quota_id?: string;
     community_category_id?: string;
     status?: 'draft' | 'active' | 'archived';
+    /**
+     * Classification filter. 'unclassified' selects rows where package_type
+     * IS NULL — `.eq(col, null)` would send the literal string "null" and
+     * match nothing, so that branch uses `.is()` instead.
+     */
+    package_type?: 'package' | 'non_package' | 'unclassified';
   }): Promise<{
     data: Array<
       AdmissionFeeStructure & {
@@ -158,6 +165,11 @@ export class FeeStructureService {
     if (params.quota_id) query = query.eq('quota_id', params.quota_id);
     if (communityScopedIds) query = query.in('id', communityScopedIds);
     if (params.status) query = query.eq('status', params.status);
+    if (params.package_type === 'unclassified') {
+      query = query.is('package_type', null);
+    } else if (params.package_type) {
+      query = query.eq('package_type', params.package_type);
+    }
     if (params.search && params.search.trim()) query = query.ilike('name', `%${params.search.trim()}%`);
 
     const { data, error, count } = await query;
@@ -644,6 +656,9 @@ export class FeeStructureService {
     overrides?: Partial<FeeStructureMatrixDimensions> & {
       name?: string;
       community_category_ids?: string[];
+      // Classification rides alongside `dims`, not inside it — package_type is
+      // not a matching dimension and must stay out of FeeStructureMatrixDimensions.
+      package_type?: FeeStructurePackageType | null;
     },
   ): Promise<AdmissionFeeStructureWithItems> {
     const source = await this.getWithItems(sourceId);
@@ -660,6 +675,7 @@ export class FeeStructureService {
     };
     return this.create({
       ...dims,
+      package_type: overrides?.package_type ?? source.package_type ?? null,
       community_category_ids:
         overrides?.community_category_ids ?? source.community_category_ids,
       name: overrides?.name ?? `${source.name} (cloned)`,
