@@ -164,6 +164,16 @@ export default async function MeetingsInboxPage({ searchParams }: InboxPageProps
                       <Badge variant={STATUS_BADGE_VARIANT[row.status] ?? 'outline'}>
                         {row.status}
                       </Badge>
+                      {/* A finished booking still sitting at 'confirmed' is one
+                          nobody has said happened. Flagging it here is what
+                          sends the host into the detail page to answer — the
+                          buttons themselves live there, next to the RPC. */}
+                      {row.status === 'confirmed' &&
+                      new Date(row.start_time).getTime() < Date.now() ? (
+                        <Badge variant="outline" className="border-amber-400 text-amber-700">
+                          Not marked
+                        </Badge>
+                      ) : null}
                       <span className="truncate text-sm font-medium">
                         {row.attendee_name || row.attendee_email}
                       </span>

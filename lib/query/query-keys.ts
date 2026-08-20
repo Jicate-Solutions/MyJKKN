@@ -70,6 +70,11 @@ export const queryKeys = {
     list: (filters: unknown) => [...queryKeys.courses.lists(), filters] as const,
     details: () => [...queryKeys.courses.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courses.details(), id] as const,
+    /** Under `all` on purpose: useDeleteCourseEvent invalidates `all`, and the
+     *  blockers query is the one query the list page is guaranteed to have
+     *  cached when a delete fires — which is what makes the DataTable refresh
+     *  bridge actually see an invalidate event. */
+    deleteBlockers: (id: string) => [...queryKeys.courses.all, 'delete-blockers', id] as const,
   },
   /** Separate root from `courses` so invalidating a course list never refetches
    *  every package list, and vice versa. `list()` spreads `lists()` so one
@@ -103,5 +108,18 @@ export const queryKeys = {
       [...queryKeys.courseForms.lists(), courseEventId] as const,
     details: () => [...queryKeys.courseForms.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courseForms.details(), id] as const,
+  },
+  /** Own root, same reasoning as the three above. The filters are part of the
+   *  list key because the service filters SERVER-side — a shared key across
+   *  filter sets would serve one filter's rows to another. */
+  courseApplications: {
+    all: ['course-applications'] as const,
+    lists: () => [...queryKeys.courseApplications.all, 'list'] as const,
+    list: (courseEventId: string, filters?: unknown) =>
+      [...queryKeys.courseApplications.lists(), courseEventId, filters ?? {}] as const,
+    counts: (courseEventId: string) =>
+      [...queryKeys.courseApplications.all, 'counts', courseEventId] as const,
+    details: () => [...queryKeys.courseApplications.all, 'detail'] as const,
+    detail: (id: string) => [...queryKeys.courseApplications.details(), id] as const,
   },
 } as const;

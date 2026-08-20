@@ -22,6 +22,7 @@ import {
   ListChecks,
   ListTodo,
   History,
+  Video,
 } from 'lucide-react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -33,8 +34,16 @@ import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/server';
 import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-service';
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
+import {
+  effectiveLocationMode,
+  switchRequestState,
+  switchSourceMode,
+} from '@/lib/services/meetings/meeting-mode-switch';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
+import { SwitchToOnlineButton } from './_components/switch-to-online-button';
+import { ModeSwitchRequestButtons } from './_components/mode-switch-request-buttons';
+import { MarkOutcomeButtons } from './_components/mark-outcome-buttons';
 import { AgendaSection } from './_components/agenda-section';
 import { ActionItemsSection } from './_components/action-items-section';
 import { CarriedOverSection } from './_components/carried-over-section';
@@ -112,11 +121,14 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     .eq('id', booking.host_profile_id)
     .maybeSingle();
 
-  // meeting type title (nullable — type may have been soft-deleted)
+  // meeting type title (nullable — type may have been soft-deleted).
+  // location_mode + min_notice_min are read here rather than in a second query:
+  // they are what decide whether this booking can be switched to a Google Meet
+  // and whether a visitor's pending request is still live.
   const { data: meetingType } = booking.meeting_type_id
     ? await supabase
         .from('meeting_types')
-        .select('title, duration_min')
+        .select('title, duration_min, location_mode, min_notice_min')
         .eq('id', booking.meeting_type_id)
         .maybeSingle()
     : { data: null };
@@ -138,6 +150,38 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     booking.status === 'completed' ||
     booking.status === 'no_show' ||
     new Date(booking.end_time).getTime() < Date.now();
+
+  // Whether the meeting HAPPENED is a separate question from whether it is
+  // over: a no-show is knowable the moment the slot begins, so this gate uses
+  // start_time while isPast (which hides reschedule/cancel) uses end_time.
+  // canMark stays host-only — fn_meeting_mark_outcome re-checks it server-side.
+  const canMark =
+    booking.status === 'confirmed' &&
+    !!user &&
+    user.id === booking.host_profile_id &&
+    new Date(booking.start_time).getTime() < Date.now();
+
+  // Mode switch (2026-08-19). Two independent questions:
+  //   • canSwitchToOnline — may the host turn this face-to-face booking into a
+  //     Google Meet? Only 'in_person' qualifies; switchSourceMode deliberately
+  //     rejects phone and anything unrecognised rather than waving it through.
+  //   • hasPendingSwitchRequest — is a visitor's request still live? A request
+  //     whose notice window has closed reads as 'expired' and is treated as
+  //     declined (decision B), so it must not offer the host an Approve button
+  //     the service would then refuse.
+  // Both are re-checked server-side inside the actions; these only decide what
+  // is worth rendering.
+  const isOnline =
+    effectiveLocationMode(meetingType?.location_mode, booking.location_mode_override) ===
+    'online';
+  const canSwitchToOnline =
+    !isCancelled &&
+    !isPast &&
+    switchSourceMode(meetingType?.location_mode, booking.location_mode_override) === 'in_person';
+  const hasPendingSwitchRequest =
+    !isCancelled &&
+    !isPast &&
+    switchRequestState(booking, meetingType?.min_notice_min) === 'pending';
 
   const answers: Record<string, string> =
     booking.answers && typeof booking.answers === 'object' && !Array.isArray(booking.answers)
@@ -180,10 +224,37 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
                 {duration} {duration === 1 ? 'minute' : 'minutes'} · IST
               </span>
             </div>
+            {/* Once a booking is online the Meet link is the only way to join
+                it, so it belongs on the page that offers the switch. */}
+            {isOnline ? (
+              <div className="flex items-center gap-2">
+                <Video className="h-4 w-4 text-muted-foreground" aria-hidden />
+                {booking.video_url ? (
+                  <a
+                    href={booking.video_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    Join the Google Meet
+                  </a>
+                ) : (
+                  <span>Online meeting</span>
+                )}
+              </div>
+            ) : null}
             {booking.cancellation_reason ? (
               <div className="rounded-md bg-destructive/10 p-2 text-xs">
                 <strong>Cancellation reason:</strong> {booking.cancellation_reason}
               </div>
+            ) : null}
+            {/* An assumed outcome is not an observed one — say which this is. */}
+            {booking.outcome_marked_by ? (
+              <p className="text-xs text-muted-foreground">
+                {booking.outcome_marked_by === 'host'
+                  ? 'Recorded by the host.'
+                  : 'Closed automatically 7 days after it ended — nobody confirmed it took place.'}
+              </p>
             ) : null}
           </CardContent>
         </Card>
@@ -308,6 +379,60 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           </CardContent>
         </Card>
 
+        {hasPendingSwitchRequest ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <Video className="h-4 w-4 text-muted-foreground" aria-hidden />
+                <CardTitle className="text-base">
+                  {booking.mode_switch_requested_by === 'host'
+                    ? 'A switch to Google Meet is waiting'
+                    : `${booking.attendee_name || booking.attendee_email} asked to make this a video call`}
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Nothing has changed yet — the meeting is still in person until you
+                approve. Approving adds a Google Meet link to the calendar event and
+                emails both of you.
+              </p>
+              {booking.mode_switch_requested_at ? (
+                <p className="text-xs text-muted-foreground">
+                  Asked on {formatBookingTime(booking.mode_switch_requested_at)}.
+                </p>
+              ) : null}
+              {booking.mode_switch_requested_start ? (
+                <p className="text-xs text-muted-foreground">
+                  They also asked to move it to{' '}
+                  {formatBookingTime(booking.mode_switch_requested_start)}. Approving
+                  moves the meeting as well as switching it.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  They did not ask to change the time.
+                </p>
+              )}
+              <ModeSwitchRequestButtons uid={booking.uid} />
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {canMark ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Did this meeting happen?</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Nothing is recorded until you say so. If you leave it, the booking closes
+                itself as completed 7 days after it ended.
+              </p>
+              <MarkOutcomeButtons uid={booking.uid} />
+            </CardContent>
+          </Card>
+        ) : null}
+
         {!isCancelled && !isPast ? (
           <Card>
             <CardHeader className="pb-3">
@@ -315,6 +440,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               <RescheduleBookingButton uid={booking.uid} />
+              {/* Hidden entirely for a phone booking, an already-online booking,
+                  a cancelled one and a past one — there is nothing to switch. */}
+              {canSwitchToOnline ? <SwitchToOnlineButton uid={booking.uid} /> : null}
               <CancelBookingButton uid={booking.uid} />
             </CardContent>
           </Card>

@@ -5,6 +5,7 @@
 // call the SECURITY DEFINER RPCs via InductionService.
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -14,6 +15,7 @@ import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
 import { FeedbackByCollegeSection } from './_components/feedback-by-college-section';
+import { SessionFeedbackSection } from './_components/session-feedback-section';
 import { ScorecardSection } from './_components/scorecard-section';
 import { LoopPlaybookSection } from './_components/loop-playbook-section';
 import {
@@ -27,7 +29,7 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
   AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket, AlertTriangle } from 'lucide-react';
+import { Users, Layers, Building2, CalendarDays, UserPlus, Split, GraduationCap, MapPin, Rocket, AlertTriangle, ClipboardList } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 interface EventRow {
@@ -207,9 +209,17 @@ export default function InductionDetailPage() {
               </div>
               <h1 className="text-2xl font-bold leading-tight">{event.name}</h1>
             </div>
-            <Badge variant={event.status === 'live' ? 'default' : 'secondary'} className="capitalize shrink-0">
-              {event.status ?? 'draft'}
-            </Badge>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Report console — attendance + feedback, day-wise / session-wise */}
+              <Button asChild size="sm" variant="outline" className="gap-1">
+                <Link href={`/events/induction/${id}/report`}>
+                  <ClipboardList className="h-4 w-4" aria-hidden /> Report
+                </Link>
+              </Button>
+              <Badge variant={event.status === 'live' ? 'default' : 'secondary'} className="capitalize">
+                {event.status ?? 'draft'}
+              </Badge>
+            </div>
           </div>
 
           <div className="mt-5 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -307,6 +317,9 @@ export default function InductionDetailPage() {
 
         {/* Each college's own read on a session — split by the fresher's college (D5) */}
         <FeedbackByCollegeSection eventId={id} />
+
+        {/* Individual responses behind those averages — who said what, + XLSX export */}
+        <SessionFeedbackSection eventId={id} eventName={event?.name ?? null} />
 
         {/* Value → advocacy → referral → JOIN funnel + NAAC evidence */}
         <ScorecardSection eventId={id} />

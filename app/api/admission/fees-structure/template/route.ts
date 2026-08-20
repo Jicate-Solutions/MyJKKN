@@ -28,12 +28,16 @@ export async function GET(_req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const [cats, insts, quotas, accs, comms] = await Promise.all([
+    const [cats, insts, quotas, accs, comms, rooms, messes] = await Promise.all([
       loadActiveFeeCategories(supabase),
       supabase.from('institutions').select('name').order('name'),
       supabase.from('quotas').select('name').order('name'),
       supabase.from('accommodation_types').select('name').eq('is_active', true).order('sort_order'),
       supabase.from('community_categories').select('name').order('name'),
+      // Gender-partitioned: de-duplicate by name, since a fee structure names
+      // the tier and each learner resolves to their own gender's variant.
+      supabase.from('hostel_categories').select('name, sort_order').eq('is_active', true).order('sort_order'),
+      supabase.from('mess_categories').select('name, sort_order').eq('is_active', true).order('sort_order'),
     ]);
     const amountHeaders = cats.map((c) => c.category_name);
     const headers = [...FIXED_HEADERS, ...amountHeaders];
@@ -55,6 +59,7 @@ export async function GET(_req: NextRequest) {
       Degree: 'Undergraduate', Department: 'Sample Department', Programme: 'Sample Programme',
       'Admission Year': '2026 - 2027', Quota: quotas.data?.[0]?.name ?? 'Management Quota',
       Gender: '', Accommodation: '',
+      'Room Category': '', 'Mess Category': '',
       Communities: comms.data?.slice(0, 2).map((c) => c.name).join(', ') ?? 'BC, MBC',
       Name: 'BE CSE — General — 2026', Status: 'draft', 'Effective From': '', 'Effective To': '', Notes: '',
     };
@@ -70,6 +75,10 @@ export async function GET(_req: NextRequest) {
     const quotaNames = (quotas.data ?? []).map((r) => r.name);
     const accNames = (accs.data ?? []).map((r) => r.name);
     const commNames = (comms.data ?? []).map((r) => r.name);
+    const uniqueNames = (rowsIn: Array<{ name: string }> | null) =>
+      [...new Set((rowsIn ?? []).map((r) => r.name))];
+    const roomNames = uniqueNames(rooms.data);
+    const messNames = uniqueNames(messes.data);
     lists.columns = [
       { header: 'Institution', key: 'inst', width: 30 },
       { header: 'Quota', key: 'quota', width: 24 },
@@ -77,25 +86,61 @@ export async function GET(_req: NextRequest) {
       { header: 'Status', key: 'status', width: 12 },
       { header: 'Community', key: 'comm', width: 30 },
       { header: 'Accommodation', key: 'acc', width: 18 },
+      { header: 'Room Category', key: 'room', width: 24 },
+      { header: 'Mess Category', key: 'mess', width: 20 },
     ];
-    const maxLen = Math.max(instNames.length, quotaNames.length, commNames.length, accNames.length, 3);
+    const maxLen = Math.max(
+      instNames.length, quotaNames.length, commNames.length, accNames.length,
+      roomNames.length, messNames.length, 3,
+    );
     for (let i = 0; i < maxLen; i++) {
       lists.addRow({
         inst: instNames[i] ?? null, quota: quotaNames[i] ?? null,
         gender: ['Male', 'Female'][i] ?? null, status: ['draft', 'active', 'archived'][i] ?? null,
         comm: commNames[i] ?? null, acc: accNames[i] ?? null,
+        room: roomNames[i] ?? null, mess: messNames[i] ?? null,
       });
     }
-    // Dropdowns on first 200 data rows.
-    // Columns: B=Institution, G=Quota, H=Gender, I=Accommodation, L=Status.
+
+    // Dropdowns on the first 200 data rows.
+    //
+    // Target columns are DERIVED from FIXED_HEADERS rather than hardcoded:
+    // inserting "Room Category"/"Mess Category" after "Accommodation" shifted
+    // Status from L to N, and the previous hardcoded letters would have
+    // silently attached the Status dropdown to the Communities column.
+    const sheetCol = (header: string): string | null => {
+      const idx = (FIXED_HEADERS as readonly string[]).indexOf(header);
+      if (idx < 0) return null;
+      let n = idx + 1;
+      let letter = '';
+      while (n > 0) {
+        const rem = (n - 1) % 26;
+        letter = String.fromCharCode(65 + rem) + letter;
+        n = Math.floor((n - 1) / 26);
+      }
+      return letter;
+    };
     const colRange = (letter: string, n: number) => `Lists!$${letter}$2:$${letter}$${n + 1}`;
-    for (let r = 2; r <= 201; r++) {
-      if (instNames.length) sheet.getCell(`B${r}`).dataValidation = { type: 'list', allowBlank: false, formulae: [colRange('A', instNames.length)] };
-      if (quotaNames.length) sheet.getCell(`G${r}`).dataValidation = { type: 'list', allowBlank: false, formulae: [colRange('B', quotaNames.length)] };
-      sheet.getCell(`H${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['Lists!$C$2:$C$3'] };
-      if (accNames.length) sheet.getCell(`I${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: [colRange('F', accNames.length)] };
-      sheet.getCell(`L${r}`).dataValidation = { type: 'list', allowBlank: true, formulae: ['Lists!$D$2:$D$4'] };
-    }
+    const validate = (
+      header: string,
+      formulae: string[],
+      allowBlank: boolean,
+      enabled = true,
+    ) => {
+      const col = sheetCol(header);
+      if (!col || !enabled) return;
+      for (let r = 2; r <= 201; r++) {
+        sheet.getCell(`${col}${r}`).dataValidation = { type: 'list', allowBlank, formulae };
+      }
+    };
+
+    validate('Institution', [colRange('A', instNames.length)], false, instNames.length > 0);
+    validate('Quota', [colRange('B', quotaNames.length)], false, quotaNames.length > 0);
+    validate('Gender', ['Lists!$C$2:$C$3'], true);
+    validate('Accommodation', [colRange('F', accNames.length)], true, accNames.length > 0);
+    validate('Room Category', [colRange('G', roomNames.length)], true, roomNames.length > 0);
+    validate('Mess Category', [colRange('H', messNames.length)], true, messNames.length > 0);
+    validate('Status', ['Lists!$D$2:$D$4'], true);
 
     // ---- Sheet 3: Instructions ----
     const instr = wb.addWorksheet('Instructions');
@@ -110,6 +155,9 @@ export async function GET(_req: NextRequest) {
       '4. Communities: comma-separated names, e.g. "BC, MBC, OBC".',
       '5. Gender: Male, Female, or blank (= applies to any gender).',
       '   Accommodation: Hostel, Day Scholar, etc., or blank (= applies to any accommodation).',
+      '5a. Room Category / Mess Category: ONLY for Accommodation = Hostel, and BOTH are',
+      '    REQUIRED when Status is active. Leave blank on every other row. Name the tier',
+      '    (e.g. "Classic Room" / "Classic") — each learner resolves to their own gender’s variant.',
       '6. Fee amount columns: enter a number for each fee that applies; leave blank where it does not.',
       '   Transport and Hostel fees are intentionally NOT here (managed in their own modules).',
       '7. Status: draft (default), active, or archived. Dates: yyyy-mm-dd.',

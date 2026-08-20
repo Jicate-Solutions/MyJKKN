@@ -9065,13 +9065,14 @@ CREATE POLICY course_events_update ON public.course_events
         AND public.role_has_institution_access(institution_id))
   );
 
+-- Super admin ONLY, deliberately narrower than courses.delete. Deleting a course
+-- cascades through enrollments, bills and payments (see fn_course_delete_cascade
+-- in 02_functions.sql), so it is not delegated by permission key. courses.delete
+-- is kept in the catalog for the audit gate and to make re-delegation a one-line
+-- change here, but it no longer grants deletion.
 CREATE POLICY course_events_delete ON public.course_events
   FOR DELETE TO authenticated
-  USING (
-    (SELECT public.is_super_admin())
-    OR ((SELECT public.user_has_permission('courses.delete'))
-        AND public.role_has_institution_access(institution_id))
-  );
+  USING ((SELECT public.is_super_admin()));
 
 -- Packages and installments: read follows courses.view, write follows
 -- courses.packages.manage. Installments have no institution_id of their

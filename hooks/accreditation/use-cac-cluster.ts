@@ -49,6 +49,15 @@ export interface CacFunnelRow {
   solutions: number;
   phases: number;
   publications: number;
+  /**
+   * Solutions carrying a `completion_date`, which is the ONLY signal the estate
+   * holds for "built". It is null on every solution row on production as of
+   * 2026-08-14, so this reads 0 everywhere today — which is why the panel
+   * renders it as an unfilled register and never as a measured zero.
+   */
+  solutions_built: number;
+  /** Solutions with a row in `sh_solution_first_use`. */
+  solutions_used: number;
 }
 
 /**
@@ -191,6 +200,11 @@ export function summariseFunnel(rows: CacFunnelRow[]) {
       solutions: acc.solutions + r.solutions,
       phases: acc.phases + r.phases,
       publications: acc.publications + r.publications,
+      // `?? 0` because a client running against a database where the view has
+      // not yet gained these columns gets `undefined`, and `undefined + n` is
+      // NaN — which renders as a broken figure rather than an empty one.
+      solutionsBuilt: acc.solutionsBuilt + (r.solutions_built ?? 0),
+      solutionsUsed: acc.solutionsUsed + (r.solutions_used ?? 0),
     }),
     {
       institutions: 0,
@@ -199,8 +213,118 @@ export function summariseFunnel(rows: CacFunnelRow[]) {
       solutions: 0,
       phases: 0,
       publications: 0,
+      solutionsBuilt: 0,
+      solutionsUsed: 0,
     },
   );
+}
+
+/**
+ * THE THREE STAGES, COUNTED SEPARATELY (Director decision #2).
+ *
+ * Started, built, used by a real user — three counts, not one status walked
+ * forward. A status column loses its own history the moment it moves; three
+ * counts can each be read on their own and none of them can quietly overwrite
+ * another.
+ *
+ * ⚠️ ON 'BUILT', SAID PLAINLY RATHER THAN PAPERED OVER. Nothing in the existing
+ * data distinguishes a started solution from a finished one except
+ * `completion_date`, and on production 2026-08-14 that column was null on both
+ * of the two solution rows. So this stage is honestly unmeasurable today, and
+ * `derivedFrom` carries that sentence to the screen instead of leaving a reader
+ * to assume a 0 means nothing was ever finished. Guessing the distinction from
+ * phases, from `status`, or from dates would produce a number that looks like
+ * knowledge and is not — both rows read `status = 'active'`, which is a
+ * workflow state somebody set, never a statement that the thing works.
+ *
+ * Every `empty` string says UNRECORDED, never a measured zero. Nine
+ * accreditation registers on this platform sit at 0 rows because nobody fills
+ * them; reporting an unfilled register as a measured zero is the exact failure
+ * this page exists to avoid.
+ */
+export interface SolutionStage {
+  key: 'started' | 'built' | 'used';
+  label: string;
+  value: number;
+  /** Shown INSTEAD of the figure when nothing is recorded. Never "0". */
+  empty: string;
+  /** Where the count comes from, when that is not self-evident. */
+  derivedFrom?: string;
+}
+
+export function solutionStages(
+  totals: ReturnType<typeof summariseFunnel>,
+): SolutionStage[] {
+  return [
+    {
+      key: 'started',
+      label: 'Started',
+      value: totals.solutions,
+      empty: 'nothing recorded yet',
+    },
+    {
+      key: 'built',
+      label: 'Built',
+      value: totals.solutionsBuilt,
+      empty: 'none recorded yet',
+      derivedFrom:
+        'Read from the completion date on a solution, which is the only signal the platform holds for this. No solution carries one yet, so this stage is unrecorded rather than measured.',
+    },
+    {
+      key: 'used',
+      label: 'Used by a real user',
+      value: totals.solutionsUsed,
+      empty: 'none recorded yet',
+      derivedFrom:
+        'Recorded once by the producing department, on the solution itself, the first time somebody outside the team used it.',
+    },
+  ];
+}
+
+/**
+ * THE TWO PARALLEL FINISH LINES (Director decision #3).
+ *
+ * 'Used by someone' and 'published' — NEITHER ranked above the other, and
+ * publications never outrank real-world use (decision #13). This function is
+ * therefore deliberately hostile to ranking:
+ *
+ *   · the order is FIXED and declarative — it does not depend on the values, so
+ *     a bigger figure never floats to the front;
+ *   · no entry carries a rank, a position, a share, a percentage or a
+ *     "leading" flag, so a caller has nothing to sort or compare by;
+ *   · there is no third derived figure (a conversion, a ratio) that would imply
+ *     one line leads to the other. They are two different ways for the same
+ *     work to land, not two points on one road.
+ *
+ * A test asserts all of that and fails if any of it is reintroduced.
+ */
+export interface FinishLine {
+  key: 'used' | 'published';
+  label: string;
+  value: number;
+  empty: string;
+  meaning: string;
+}
+
+export function finishLines(
+  totals: ReturnType<typeof summariseFunnel>,
+): FinishLine[] {
+  return [
+    {
+      key: 'used',
+      label: 'Used by someone',
+      value: totals.solutionsUsed,
+      empty: 'none recorded yet',
+      meaning: 'Somebody outside the producing team used the solution.',
+    },
+    {
+      key: 'published',
+      label: 'Published',
+      value: totals.publications,
+      empty: 'nothing recorded yet',
+      meaning: 'The work was written up and published.',
+    },
+  ];
 }
 
 /**

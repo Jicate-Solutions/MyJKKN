@@ -6,7 +6,7 @@
 // the own-phone path structurally cannot. Writes via the gated DEFINER proxy RPC
 // (fn_induction_submit_feedback_proxy), which NEVER overwrites a fresher's own-login
 // submission (the server silently skips a locked row). Sibling of attendance-dialog.
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   InductionService,
@@ -20,9 +20,18 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
-import { Star, Lock, CheckCircle2 } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Star, Lock, CheckCircle2, Search, X, Phone, GraduationCap } from 'lucide-react';
 
 interface ExistingFeedback { rating: number; comment: string; isSelf: boolean; }
+
+/** Bucket for freshers whose learners_profiles.program_id is still NULL. */
+const NO_PROGRAM = '__none__';
+
+/** Digits only — so "9843 123456" and "+91-9843123456" both find the same parent. */
+const digits = (s: string) => s.replace(/\D/g, '');
 
 export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: string; sessionTitle: string }) {
   const [open, setOpen] = useState(false);
@@ -30,6 +39,8 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
   const [existing, setExisting] = useState<Record<string, ExistingFeedback>>({});
   const [ratings, setRatings] = useState<Record<string, number>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
+  const [query, setQuery] = useState('');
+  const [program, setProgram] = useState('all');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [feedbackError, setFeedbackError] = useState(false);
@@ -71,9 +82,39 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
     } finally { setLoading(false); }
   }, [sessionId]);
 
-  const onOpenChange = (o: boolean) => { setOpen(o); if (o) load(); };
+  const onOpenChange = (o: boolean) => { setOpen(o); if (o) { setQuery(''); setProgram('all'); load(); } };
   const setRating = (id: string, v: number) => setRatings((m) => ({ ...m, [id]: v }));
   const setComment = (id: string, v: string) => setComments((m) => ({ ...m, [id]: v }));
+
+  // Programs present on THIS roster, with head counts — an optional narrowing
+  // control, so it only renders when the roster actually spans more than one.
+  const programs = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of roster) {
+      const key = r.program_name?.trim() || NO_PROGRAM;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort(([a], [b]) =>
+      a === NO_PROGRAM ? 1 : b === NO_PROGRAM ? -1 : a.localeCompare(b));
+  }, [roster]);
+
+  // Program filter AND text search — a VIEW concern only. Ratings and dirtyIds
+  // below stay computed over the FULL roster, so narrowing the list can never
+  // drop a fresher's tapped rating from the save payload.
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const qd = digits(q);
+    return roster.filter((r) => {
+      if (program !== 'all' && (r.program_name?.trim() || NO_PROGRAM) !== program) return false;
+      if (!q) return true;
+      return (r.name ?? '').toLowerCase().includes(q)
+        || (r.register_number ?? '').toLowerCase().includes(q)
+        || (r.program_name ?? '').toLowerCase().includes(q)
+        || (qd.length >= 3 && digits(r.father_mobile ?? '').includes(qd));
+    });
+  }, [roster, query, program]);
+
+  const narrowed = query.trim().length > 0 || program !== 'all';
 
   // A row is worth sending when it isn't self-locked, has a rating, and is new or
   // changed from what's stored — so an unchanged kiosk row isn't needlessly rewritten.
@@ -112,13 +153,14 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
 
   const ratedCount = roster.filter((row) => existing[row.learner_id]).length;
   const lockedCount = roster.filter((row) => existing[row.learner_id]?.isSelf).length;
+  const pendingCount = roster.length - ratedCount;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         <Button size="icon" variant="ghost" title="Feedback (kiosk)"><Star className="h-4 w-4" /></Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] flex flex-col">
+      <DialogContent className="max-h-[88vh] sm:max-w-2xl flex flex-col gap-3">
         <DialogHeader>
           <DialogTitle>Feedback (kiosk) — {sessionTitle}</DialogTitle>
           <DialogDescription>
@@ -128,9 +170,55 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center justify-between gap-2 border-b pb-2 text-sm text-muted-foreground">
-          <span>{roster.length} enrolled · {ratedCount} rated · {lockedCount} self</span>
-          {dirtyIds.length > 0 && <span>{dirtyIds.length} to save</span>}
+        {/* Search + program filter + counters — the roster can run to 200+ names */}
+        <div className="space-y-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name, register number, program or parent mobile…"
+                className="pl-8 pr-8"
+                autoComplete="off"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+            {/* Optional narrowing — pointless (and hidden) on a single-program roster */}
+            {programs.length > 1 && (
+              <Select value={program} onValueChange={setProgram}>
+                <SelectTrigger className="w-full sm:w-[260px]">
+                  <SelectValue placeholder="All programs" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All programs ({roster.length})</SelectItem>
+                  {programs.map(([p, n]) => (
+                    <SelectItem key={p} value={p}>
+                      {p === NO_PROGRAM ? 'No program' : p} ({n})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <span className="text-muted-foreground">{roster.length} enrolled</span>
+            <span className="font-medium text-green-700 dark:text-green-500">{ratedCount} rated</span>
+            <span className="text-muted-foreground">{lockedCount} self</span>
+            {pendingCount > 0 && <span className="text-amber-600 dark:text-amber-500">{pendingCount} pending</span>}
+            {dirtyIds.length > 0 && <span className="text-primary font-medium">{dirtyIds.length} to save</span>}
+            {narrowed && <span className="text-muted-foreground">· showing {visible.length}</span>}
+          </div>
         </div>
 
         {feedbackError && (
@@ -140,21 +228,52 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto divide-y">
+        <div className="flex-1 min-h-0 overflow-y-auto divide-y rounded-md border">
           {loading ? (
-            <p className="text-sm text-muted-foreground py-4">Loading roster…</p>
+            <p className="text-sm text-muted-foreground p-4">Loading roster…</p>
           ) : roster.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4">No freshers enrolled for this session&apos;s batch yet.</p>
-          ) : roster.map((row) => {
+            <p className="text-sm text-muted-foreground p-4">No freshers enrolled for this session&apos;s batch yet.</p>
+          ) : visible.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4">
+              {query ? <>No fresher matches &ldquo;{query}&rdquo;</> : 'No fresher in this program'}
+              {query && program !== 'all' ? ' in this program' : ''}.
+            </p>
+          ) : visible.map((row) => {
             const ex = existing[row.learner_id];
             const selfLocked = ex?.isSelf === true;
             return (
-              <div key={row.learner_id} className="py-3 space-y-2">
+              <div
+                key={row.learner_id}
+                className={`px-3 py-3 space-y-2 ${ex || ratings[row.learner_id] != null ? '' : 'bg-muted/30'}`}
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">{row.name || 'Unnamed'}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.register_number ?? '—'}{row.batch_label ? ` · Batch ${row.batch_label}` : ''}
+                    <div className="text-sm font-medium truncate">
+                      {row.name || 'Unnamed'}
+                      {row.register_number && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground tabular-nums">
+                          {row.register_number}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                      {row.program_name && (
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <GraduationCap className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{row.program_name}</span>
+                        </span>
+                      )}
+                      {row.father_mobile && (
+                        <a
+                          href={`tel:${row.father_mobile}`}
+                          className="inline-flex items-center gap-1 tabular-nums hover:text-foreground hover:underline"
+                          title="Father's mobile"
+                        >
+                          <Phone className="h-3 w-3 shrink-0" />
+                          {row.father_mobile}
+                        </a>
+                      )}
+                      {row.batch_label && <span>Batch {row.batch_label}</span>}
                     </div>
                   </div>
                   {selfLocked ? (
@@ -196,7 +315,7 @@ export function FeedbackKioskDialog({ sessionId, sessionTitle }: { sessionId: st
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>Cancel</Button>
           <Button onClick={save} disabled={saving || dirtyIds.length === 0 || feedbackError}>
-            {saving ? 'Saving…' : 'Save ratings'}
+            {saving ? 'Saving…' : `Save ratings${dirtyIds.length ? ` (${dirtyIds.length})` : ''}`}
           </Button>
         </DialogFooter>
       </DialogContent>

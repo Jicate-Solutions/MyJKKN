@@ -1017,6 +1017,13 @@ export default function AttendanceMarkPage() {
           program_id: contextData.program_id,
           department_id: contextData.department_id,
           semester_id: contextData.semester_id,
+          // Added: 2026-08-20 - Cohort scope. Unlike degree/program/semester this is
+          // not a redundant copy of something the section already implies: `sections`
+          // has no academic-year column, so without this the next intake sharing the
+          // same section row appears alongside the cohort actually being taught
+          // (JKKN AHS fresher report). NULL-safe — a timetable with no academic year
+          // keeps today's roster exactly.
+          academic_year_id: contextData.academic_year_id,
           // Updated: Use effective section_ids (practical or context)
           ...(hasMultipleSections
             ? { section_ids: effectiveSectionIds }

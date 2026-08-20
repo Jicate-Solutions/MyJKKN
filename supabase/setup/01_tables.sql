@@ -7903,3 +7903,18 @@ CREATE TABLE IF NOT EXISTS public.hostel_room_buyout_consents (
 
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS settle_billing_enabled boolean NOT NULL DEFAULT false;
+
+-- Gender domain lock for the two learner-facing tables (20260820160000).
+-- learners_profiles.gender is NOT NULL and uses '' as its "not captured" sentinel;
+-- profiles.gender is nullable and uses NULL for the same thing.
+ALTER TABLE public.learners_profiles
+  DROP CONSTRAINT IF EXISTS learners_profiles_gender_check;
+ALTER TABLE public.learners_profiles
+  ADD CONSTRAINT learners_profiles_gender_check
+  CHECK (gender IN ('Male', 'Female', 'Other', ''));
+
+ALTER TABLE public.profiles
+  DROP CONSTRAINT IF EXISTS profiles_gender_check;
+ALTER TABLE public.profiles
+  ADD CONSTRAINT profiles_gender_check
+  CHECK (gender IS NULL OR gender IN ('Male', 'Female', 'Other'));
