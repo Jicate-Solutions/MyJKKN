@@ -1,5 +1,5 @@
 -- =====================================================================
--- 20260820120000 — fn_learner_academic_years: which cohort is each learner in?
+-- 20260820124500 — fn_learner_academic_years: which cohort is each learner in?
 -- =====================================================================
 -- PURELY ADDITIVE. Creates ONE new function. Changes no existing function, no
 -- table, no policy, no signature. Nothing in the database or the codebase refers

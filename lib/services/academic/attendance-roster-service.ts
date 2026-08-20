@@ -78,7 +78,7 @@ export class AttendanceRosterService {
    * The academic year cannot be read from the browser — learners_profiles SELECT
    * RLS excludes faculty, which is why the roster is served by an RPC in the first
    * place — so it is resolved through fn_learner_academic_years (migration
-   * 20260820120000), which returns nothing but id + academic_year_id.
+   * 20260820124500), which returns nothing but id + academic_year_id.
    *
    * DEGRADES, NEVER THROWS. If the function is absent (migration not applied yet)
    * or the call fails, the roster is returned unscoped and a warning is logged.
@@ -799,7 +799,7 @@ export class AttendanceRosterService {
   // JKKN AHS: "The Fresher's Name List has been updated along with the current
   // first year's list, which is preventing us from marking attendance").
   // Optional and NULL-safe end to end — omitting it preserves today's roster
-  // exactly. Requires migration 20260820120000; see that file's deploy note.
+  // exactly. Requires migration 20260820124500; see that file's deploy note.
   static async getStudentsForAttendance(filters: {
     institution_id: string;
     degree_id?: string;
@@ -850,7 +850,7 @@ export class AttendanceRosterService {
       // academic_year_id, and the browser cannot read it from learners_profiles —
       // that table's RLS excludes faculty, which is why the roster is an RPC at all.
       // fn_learner_academic_years exposes just that one column under the same
-      // permission gate. See migration 20260820120000.
+      // permission gate. See migration 20260820124500.
       const rosterRows = (data || []) as any[];
       const scopedRows = await this.scopeRosterToAcademicYear(
         rosterRows,
