@@ -361,6 +361,9 @@ export class NativeSchedulingService {
   } | null> {
     let scheduleId = mt.schedule_id;
     let timezone = 'Asia/Kolkata';
+    // True when we already landed on the host's DEFAULT schedule, so the
+    // empty-hours fallback below has nothing left to fall back to.
+    let usedDefault = false;
 
     if (scheduleId) {
       const { data } = await supabase
@@ -384,6 +387,7 @@ export class NativeSchedulingService {
       }
       scheduleId = data.id;
       timezone = data.timezone;
+      usedDefault = true;
     }
 
     const [{ data: windows, error: wErr }, { data: overrides, error: oErr }] = await Promise.all([
@@ -401,9 +405,46 @@ export class NativeSchedulingService {
       return null;
     }
 
+    let windowRows = windows ?? [];
+
+    // ── EMPTY HOURS → the host's normal hours (Director ruling, 2026-08-21) ──
+    // A type pinned to a schedule with no weekly windows used to render a BLANK
+    // calendar with no explanation, because a pinned type never fell back. It
+    // now borrows the host's DEFAULT schedule's weekly windows instead.
+    //
+    // TIMEZONE: unchanged on purpose — the schedule the type actually points at
+    // still wins. A schedule with no windows says nothing about WHEN the host
+    // works, but its timezone is still the host's deliberate choice for this
+    // kind of meeting, and swapping it would silently move every slot. Date
+    // overrides also stay with the pinned schedule: an override is an exception
+    // the host wrote against THAT schedule.
+    //
+    // NO LOOP: the default is read at most once, and only when we did not
+    // already resolve through it. If the default is itself empty the windows
+    // stay empty — the same as today.
+    if (!usedDefault && windowRows.length === 0) {
+      const { data: fallback } = await supabase
+        .from('meeting_host_schedules')
+        .select('id')
+        .eq('host_profile_id', mt.host_profile_id)
+        .eq('is_default', true)
+        .maybeSingle();
+      if (fallback && fallback.id !== scheduleId) {
+        const { data: defaultWindows, error: dErr } = await supabase
+          .from('meeting_schedule_windows')
+          .select('weekday, start_minute, end_minute')
+          .eq('schedule_id', fallback.id);
+        if (dErr) {
+          console.error(`${LOG_PREFIX} default-hours fallback failed:`, dErr.message);
+        } else {
+          windowRows = defaultWindows ?? [];
+        }
+      }
+    }
+
     return {
       timezone,
-      windows: (windows ?? []).map((w) => ({
+      windows: windowRows.map((w) => ({
         weekday: w.weekday,
         startMinute: w.start_minute,
         endMinute: w.end_minute,
