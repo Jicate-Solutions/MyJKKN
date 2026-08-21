@@ -905,12 +905,17 @@ export async function GET(request: NextRequest) {
           dedupeKey: req.dedupeKey ?? dedupeKey(gctx.course_id),
         });
         if (r.ok) enqueued++;
-        else if (r.reason === 'in_flight') skipped++;
         else {
-          console.warn(
-            `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${r.reason}): ${r.error ?? ''}`,
-          );
-          skipped++;
+          // r is the failure branch here; name it explicitly (project tsconfig does
+          // not narrow the union's else-branch, so read the reason off a typed alias).
+          const fail = r as { ok: false; reason: string; error?: string };
+          if (fail.reason === 'in_flight') skipped++;
+          else {
+            console.warn(
+              `[cron/curriculum-lesson-spine-generate] jobs-lane enqueue failed (${fail.reason}): ${fail.error ?? ''}`,
+            );
+            skipped++;
+          }
         }
       }
     } else if (aiAvailable && requests.length > 0) {
