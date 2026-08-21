@@ -185,6 +185,20 @@ CREATE TRIGGER trg_push_notification_preferences_touch
 -- told the platform to stop under the old mechanism. Read 2026-08-21, that is
 -- ~118 people. ON CONFLICT DO NOTHING keeps this idempotent and stops a re-apply
 -- from ever overwriting somebody who has since switched push back on.
+--
+-- ⚠️ THE `EXISTS (auth.users)` GUARD IS NOT DECORATION — it is what stops this
+-- file aborting on apply. `push_subscriptions.user_id` is declared plain
+-- `UUID NOT NULL` in supabase/setup/01_tables.sql, and the FK that the generated
+-- types report (`push_subscriptions_user_id_fkey`) is defined in NO migration in
+-- this repo — so its target cannot be read from the codebase, only from the live
+-- catalog. If it points at `profiles` rather than `auth.users`, orphans are
+-- possible: this estate is known to carry profiles with no `auth.users` row
+-- (pre-registered people who have never signed in). A single such user_id in the
+-- cohort would violate THIS table's FK and roll the whole migration back. The
+-- guard costs one predicate and makes the apply safe either way; a preference row
+-- for an account that cannot sign in would mean nothing regardless. The NOTICE
+-- prints candidates and inserted separately, so a gap between them is visible
+-- rather than silent.
 DO $$
 DECLARE
   v_candidates int;
@@ -199,12 +213,13 @@ BEGIN
   SELECT DISTINCT ps.user_id, false, now()
     FROM public.push_subscriptions ps
    WHERE ps.is_active IS FALSE
+     AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = ps.user_id)
   ON CONFLICT (user_id) DO NOTHING;
 
   GET DIAGNOSTICS v_inserted = ROW_COUNT;
 
   RAISE NOTICE
-    'push opt-out backfill: % users hold an is_active=false subscription, % preference rows inserted (the rest already had one).',
+    'push opt-out backfill: % users hold an is_active=false subscription, % preference rows inserted (the rest already had one, or have no auth.users row).',
     v_candidates, v_inserted;
 END;
 $$;
