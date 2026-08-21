@@ -233,7 +233,7 @@ BEGIN
   SELECT b.id INTO v_board FROM public.session_question_board b
   WHERE b.host_type = p_host_type AND b.host_id = p_host_id;
   IF v_board IS NOT NULL THEN
-    IF NOT public._fn_session_question_can_host(v_board) THEN
+    IF NOT coalesce(public._fn_session_question_can_host(v_board), false) THEN
       RAISE EXCEPTION 'fn_session_question_board_ensure: not authorized'; END IF;
     RETURN v_board;
   END IF;
@@ -275,7 +275,7 @@ RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public 
 DECLARE v_status text; v_rows jsonb;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_session_question_host_list: not authenticated'; END IF;
-  IF NOT public._fn_session_question_can_host(p_board_id) THEN
+  IF NOT coalesce(public._fn_session_question_can_host(p_board_id), false) THEN
     RAISE EXCEPTION 'fn_session_question_host_list: not authorized'; END IF;
   SELECT b.status INTO v_status FROM public.session_question_board b WHERE b.id = p_board_id;
 
@@ -319,7 +319,7 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'Unknown state.'); END IF;
   SELECT q.board_id INTO v_board FROM public.session_question q WHERE q.id = p_question_id;
   IF v_board IS NULL THEN RETURN jsonb_build_object('success', false, 'error', 'That question no longer exists.'); END IF;
-  IF NOT public._fn_session_question_can_host(v_board) THEN
+  IF NOT coalesce(public._fn_session_question_can_host(v_board), false) THEN
     RETURN jsonb_build_object('success', false, 'error', 'Only the session host can do that.'); END IF;
 
   UPDATE public.session_question
@@ -340,7 +340,7 @@ BEGIN
   IF auth.uid() IS NULL THEN RETURN jsonb_build_object('success', false, 'error', 'Please sign in.'); END IF;
   IF p_status NOT IN ('open','closed') THEN
     RETURN jsonb_build_object('success', false, 'error', 'Unknown status.'); END IF;
-  IF NOT public._fn_session_question_can_host(p_board_id) THEN
+  IF NOT coalesce(public._fn_session_question_can_host(p_board_id), false) THEN
     RETURN jsonb_build_object('success', false, 'error', 'Only the session host can do that.'); END IF;
   UPDATE public.session_question_board SET status = p_status WHERE id = p_board_id;
   RETURN jsonb_build_object('success', true, 'error', NULL, 'status', p_status);
@@ -398,12 +398,12 @@ BEGIN
   IF v_status IS NULL THEN RAISE EXCEPTION 'fn_session_question_room: no such board'; END IF;
 
   v_learner := public.get_my_learner_id();
-  v_can_ask := public._fn_session_question_can_participate(p_board_id, v_learner);
+  v_can_ask := coalesce(public._fn_session_question_can_participate(p_board_id, v_learner), false);
   -- the gate calls the host predicate HERE, in the IF itself: a predicate that is only
   -- assigned to a variable authorises nobody, it just records an answer.
-  IF NOT (v_can_ask OR public._fn_session_question_can_host(p_board_id)) THEN
+  IF NOT (v_can_ask OR coalesce(public._fn_session_question_can_host(p_board_id), false)) THEN
     RAISE EXCEPTION 'fn_session_question_room: not allowed'; END IF;
-  v_is_host := public._fn_session_question_can_host(p_board_id);
+  v_is_host := coalesce(public._fn_session_question_can_host(p_board_id), false);
 
   SELECT q.nickname_seq INTO v_seq FROM public.session_question q
   WHERE q.board_id = p_board_id AND q.learner_id = v_learner LIMIT 1;
@@ -466,7 +466,7 @@ BEGIN
   v_learner := public.get_my_learner_id();
   IF v_learner IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'Only learners can post to the question board.'); END IF;
-  IF NOT public._fn_session_question_can_participate(p_board_id, v_learner) THEN
+  IF NOT coalesce(public._fn_session_question_can_participate(p_board_id, v_learner), false) THEN
     RETURN jsonb_build_object('success', false, 'error', 'This question board is closed, or it is not open to you.'); END IF;
 
   v_body := btrim(coalesce(p_body, ''));
@@ -534,7 +534,7 @@ BEGIN
     RETURN jsonb_build_object('success', false, 'error', 'That question is no longer on the board.'); END IF;
   IF v_state NOT IN ('visible','answered') THEN
     RETURN jsonb_build_object('success', false, 'error', 'That question is no longer on the board.'); END IF;
-  IF NOT public._fn_session_question_can_participate(v_board, v_learner) THEN
+  IF NOT coalesce(public._fn_session_question_can_participate(v_board, v_learner), false) THEN
     RETURN jsonb_build_object('success', false, 'error', 'This question board is closed, or it is not open to you.'); END IF;
 
   DELETE FROM public.session_question_vote
