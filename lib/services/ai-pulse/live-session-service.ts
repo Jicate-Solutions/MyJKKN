@@ -170,6 +170,19 @@ export interface LiveSessionData {
   quiz_open: boolean;
   quiz_async_window_open: boolean; // 48h async make-up window
   /**
+   * Length of the async make-up window in hours (`async_makeup_window_hours`
+   * policy, seeded 48).
+   *
+   * PRE-EXISTING BUG, fixed here because this gate is "you touched it, you own
+   * it": `getLiveSession` has always returned this key and
+   * `live-session-shell.tsx` has always destructured it and passed it to
+   * EngagementProgress / the quiz panel — but it was never declared on this
+   * interface, so the returned object literal tripped TS2353 (excess property)
+   * and the value was invisible to every consumer's types. Declaring it is the
+   * fix; nothing about the runtime behaviour changes.
+   */
+  async_makeup_window_hours: number;
+  /**
    * Join button window. Cycles appear on My Pulse up to a week early —
    * join_open gates the button so an early click can't farm the on-time
    * gate. Opens `join_doors_open_minutes` (policy, seeded 15) before
