@@ -587,6 +587,12 @@ export interface HRLeaveApprovalQueueRow {
   is_emergency: boolean;
   status: LeaveApplicationStatus;
   created_at: string;
+  /** profiles.id of whoever submitted it — not necessarily the employee. */
+  applied_by: string | null;
+  /** Resolved server-side: profiles is unreadable to a staff member under RLS. */
+  applied_by_name: string | null;
+  /** applied_by is somebody other than the staff member the leave is for. */
+  applied_on_behalf: boolean;
   /** The caller's own request. Display fact only — see can_decide. */
   is_own: boolean;
   /**

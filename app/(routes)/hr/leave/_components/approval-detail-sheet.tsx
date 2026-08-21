@@ -105,8 +105,11 @@ export function ApprovalDetailSheet({
                 but keeping the whole cluster together is clearer than splitting
                 it by element type.
               */}
-              <SheetDescription className="font-mono text-xs">
-                {row.staff_code ?? 'no staff ID'}
+              <SheetDescription className="text-xs">
+                <span className="font-mono">{row.staff_code ?? 'no staff ID'}</span>
+                {row.applied_on_behalf && row.applied_by_name
+                  ? ` · submitted by ${row.applied_by_name}`
+                  : ''}
               </SheetDescription>
               <div className="flex flex-wrap items-center gap-1.5">
                 <StatusBadge status={row.status} />
@@ -142,6 +145,14 @@ export function ApprovalDetailSheet({
                   </>
                 )}
                 <Field label="Applied on">{fmtStamp(row.created_at)}</Field>
+                {/* Who FILED it, which is not always who it is for. Resolved by
+                    the queue RPC — profiles is unreadable to a staff member. */}
+                <Field label="Submitted by">
+                  {row.applied_by_name ?? '—'}
+                  {row.applied_on_behalf && (
+                    <span className="ml-1 text-xs font-normal text-amber-700">on their behalf</span>
+                  )}
+                </Field>
               </dl>
 
               <div>

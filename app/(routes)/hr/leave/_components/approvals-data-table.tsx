@@ -108,8 +108,18 @@ interface Props {
   actions: ApprovalColumnActions;
   /** The React Query dataUpdatedAt, so a refetch re-runs fetchDataFn. */
   refetchKey: number;
-  /** Advanced filter controls, rendered into the DataTable toolbar. */
-  toolbar: ReactNode;
+  /**
+   * Advanced filter controls, rendered into the DataTable toolbar. A function
+   * rather than a node so the page can put a bulk-approve button beside the
+   * filters using the table's own selection state.
+   */
+  toolbar: (sel: ToolbarSelection) => ReactNode;
+}
+
+export interface ToolbarSelection {
+  selectedRows: HRLeaveApprovalQueueRow[];
+  totalSelectedCount: number;
+  resetSelection: () => void;
 }
 
 export function ApprovalsDataTable({
@@ -205,7 +215,16 @@ export function ApprovalsDataTable({
       fetchDataFn={fetchData as never}
       getColumns={() => columns as never}
       renderMobileRow={renderMobileRow as never}
-      renderToolbarContent={() => toolbar}
+      renderToolbarContent={(props) =>
+        toolbar({
+          // DataTable types its rows as ExportableData; the rows it hands back
+          // are the ones fetchDataFn returned, so this narrows rather than casts
+          // across unrelated shapes.
+          selectedRows: props.selectedRows as unknown as HRLeaveApprovalQueueRow[],
+          totalSelectedCount: props.totalSelectedCount,
+          resetSelection: props.resetSelection,
+        })
+      }
       idField="id"
       exportConfig={{
         entityName: variant === 'short' ? 'hr-short-time-off-approvals' : 'hr-leave-approvals',
@@ -234,7 +253,9 @@ export function ApprovalsDataTable({
         enableColumnFilters: false,
         enableColumnVisibility: true,
         enableColumnResizing: true,
-        enableRowSelection: false,
+        // Bulk approve needs it. The checkbox column is added by the DataTable
+        // itself, so no column definition changes.
+        enableRowSelection: true,
         enableExport: true,
         // Widths persist in localStorage under this id. The -v2 suffix retires
         // anything stored while the actions column was still 150px wide and

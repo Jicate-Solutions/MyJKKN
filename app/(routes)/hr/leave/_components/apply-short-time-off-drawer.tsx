@@ -35,6 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -60,6 +61,21 @@ function toHHMM(mins: number): string {
 }
 
 const clock = (t: string | null | undefined) => (t ? t.slice(0, 5) : '—');
+
+/** Consumed share of the allowance, clamped — an over-drawn period is still 100%. */
+function pct(used: number, total: number): number {
+  if (!total || total <= 0) return 0;
+  return Math.min(100, Math.round((used / total) * 100));
+}
+
+function Figure({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={strong ? 'text-base font-semibold' : 'text-sm font-medium'}>{value}</p>
+    </div>
+  );
+}
 
 export function ApplyShortTimeOffDrawer({
   open,
@@ -281,26 +297,74 @@ export function ApplyShortTimeOffDrawer({
                   </SelectContent>
                 </Select>
                 {limited && usage ? (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
+                  // The allowance used to be one line of muted 12px text under
+                  // the dropdown and was routinely missed. It is the single most
+                  // useful number on this form — a request that exceeds it is
+                  // refused by hr_trig_sto_enforce_limits — so it gets a card.
+                  <div className="mt-2 rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Your allowance ·{' '}
+                        {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                      </span>
+                      {usage.period_start && usage.period_end && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {new Date(`${usage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
+                          {new Date(`${usage.period_end}T00:00:00`).toLocaleDateString('en-GB')}
+                        </span>
+                      )}
+                    </div>
+
                     {usage.limit_mode === 'request_count' ? (
                       <>
-                        <strong>{usage.requests_left}</strong> of {usage.max_requests} request(s)
-                        left {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                          <Figure label="Allowed" value={`${usage.max_requests ?? 0}`} />
+                          <Figure label="Used" value={`${usage.requests_used ?? 0}`} />
+                          <Figure label="Left" value={`${usage.requests_left ?? 0}`} strong />
+                        </div>
+                        <Progress
+                          className="mt-2 h-1.5"
+                          value={pct(usage.requests_used ?? 0, usage.max_requests ?? 0)}
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">request(s)</p>
                       </>
                     ) : (
                       <>
-                        <strong>{formatMinutes(usage.minutes_left)}</strong> of{' '}
-                        {formatMinutes(usage.total_minutes)} left{' '}
-                        {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                          <Figure label="Allowance" value={formatMinutes(usage.total_minutes)} />
+                          <Figure label="Used" value={formatMinutes(usage.minutes_used ?? 0)} />
+                          <Figure label="Remaining" value={formatMinutes(usage.minutes_left)} strong />
+                        </div>
+                        <Progress
+                          className="mt-2 h-1.5"
+                          value={pct(usage.minutes_used ?? 0, usage.total_minutes ?? 0)}
+                        />
                       </>
                     )}
-                    {usage.period_start && usage.period_end && (
-                      <span className="block">
-                        Period {new Date(`${usage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
-                        {new Date(`${usage.period_end}T00:00:00`).toLocaleDateString('en-GB')}
-                      </span>
+
+                    {/* What this particular request would leave behind. */}
+                    {requestMinutes !== null && usage.limit_mode === 'total_duration' && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This request is <strong>{formatMinutes(requestMinutes)}</strong> —{' '}
+                        {requestMinutes > (usage.minutes_left ?? 0) ? (
+                          <span className="text-destructive">
+                            {formatMinutes(requestMinutes - (usage.minutes_left ?? 0))} more than you have left.
+                          </span>
+                        ) : (
+                          <>
+                            <strong>{formatMinutes((usage.minutes_left ?? 0) - requestMinutes)}</strong>{' '}
+                            would remain.
+                          </>
+                        )}
+                      </p>
                     )}
-                  </p>
+                    {requestMinutes !== null && usage.limit_mode === 'request_count' && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This request is <strong>{formatMinutes(requestMinutes)}</strong>; it uses one
+                        of your {usage.max_requests} request(s).
+                      </p>
+                    )}
+                  </div>
                 ) : windowUnresolved ? (
                   // Distinct from "no limit": the database refuses these, so
                   // saying "unlimited" here is the lie the window check exists

@@ -24,6 +24,7 @@
 import type { ColumnDef } from '@tanstack/react-table';
 
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { ApprovalRowActions, type ApprovalRowActionHandlers } from './approval-row-actions';
 import { StatusBadge } from './request-table';
@@ -52,26 +53,76 @@ export function hoursFor(r: HRLeaveApprovalQueueRow): number | null {
   return mins > 0 ? mins / 60 : null;
 }
 
-/** Name over staff ID — the ID is what HR reconciles against. */
-function staffCell(r: HRLeaveApprovalQueueRow) {
+/**
+ * Name over staff ID — the ID is what HR reconciles against.
+ *
+ * A real <button>, not a click handler on the row: the row already owns
+ * selection and column resizing, so a row-level handler would fire on every
+ * checkbox tick. This keeps the target keyboard-reachable and announced.
+ */
+function staffCell(r: HRLeaveApprovalQueueRow, onView: (row: HRLeaveApprovalQueueRow) => void) {
   return (
-    <div className="min-w-0">
-      <span className="block truncate font-medium">{r.staff_name ?? 'Unknown staff'}</span>
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onView(r); }}
+      className="min-w-0 text-left"
+      title={`View ${r.staff_name ?? 'request'} details`}
+    >
+      <span className="block truncate font-medium underline-offset-4 hover:underline">
+        {r.staff_name ?? 'Unknown staff'}
+      </span>
       <span className="block truncate font-mono text-xs text-muted-foreground">
         {r.staff_code ?? 'no staff ID'}
       </span>
-    </div>
+    </button>
   );
 }
 
-const staffColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
+/**
+ * The bulk-approve checkbox column.
+ *
+ * DataTable does NOT inject one — enableRowSelection only turns the machinery
+ * on and hands getColumns a deselection callback; the column itself has to come
+ * from here. Setting the flag without this column is why the checkboxes did not
+ * appear. Same shape as leave-type-columns.tsx, the module's other selectable
+ * table.
+ *
+ * Rows the caller cannot decide are still selectable — the toolbar reports how
+ * many of a selection it will skip, which is friendlier than a checkbox that
+ * silently refuses to tick.
+ */
+const selectColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
+  id: 'select',
+  header: ({ table }) => (
+    <Checkbox
+      checked={table.getIsAllPageRowsSelected()}
+      onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+      aria-label="Select all"
+    />
+  ),
+  cell: ({ row }) => (
+    <Checkbox
+      checked={row.getIsSelected()}
+      onCheckedChange={(v) => row.toggleSelected(!!v)}
+      aria-label="Select row"
+    />
+  ),
+  size: 50,
+  minSize: 50,
+  maxSize: 50,
+  enableSorting: false,
+  enableHiding: false,
+  enableResizing: false,
+};
+
+const staffColumn = (a: ApprovalColumnActions): ColumnDef<HRLeaveApprovalQueueRow> => ({
   accessorKey: 'staff_name',
   header: ({ column }) => <DataTableColumnHeader column={column} title="Staff member" />,
-  cell: ({ row }) => staffCell(row.original),
+  cell: ({ row }) => staffCell(row.original, a.onView),
   size: 220,
   minSize: 160,
   enableHiding: false,
-};
+});
 
 const institutionColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   accessorKey: 'institution_name',
@@ -122,7 +173,8 @@ export function getLeaveApprovalColumns(
   a: ApprovalColumnActions
 ): ColumnDef<HRLeaveApprovalQueueRow>[] {
   return [
-    staffColumn,
+    selectColumn,
+    staffColumn(a),
     institutionColumn,
     {
       accessorKey: 'leave_type_name',
@@ -184,7 +236,8 @@ export function getShortTimeOffColumns(
   a: ApprovalColumnActions
 ): ColumnDef<HRLeaveApprovalQueueRow>[] {
   return [
-    staffColumn,
+    selectColumn,
+    staffColumn(a),
     institutionColumn,
     {
       accessorKey: 'leave_type_name',

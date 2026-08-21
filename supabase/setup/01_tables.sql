@@ -7932,3 +7932,117 @@ ALTER TABLE public.staff
     CHECK (first_name IS NULL OR first_name = public.fn_canonical_staff_name(first_name)),
   ADD CONSTRAINT staff_last_name_canonical
     CHECK (last_name IS NULL OR last_name = public.fn_canonical_staff_name(last_name));
+
+-- ===========================================================================
+-- HR Payroll — per-employee salary (2026-08-21)
+-- Source: 20260821191000_hr_staff_salaries.sql
+--         20260821211000_hr_staff_salaries_superseded_by_deferrable.sql
+-- ===========================================================================
+-- Flat monthly figure, NOT split into hr_pay_components and NOT stored on
+-- hr_pay_scales: that table is keyed on designation/cadre and answers "what
+-- does an Assistant Professor Grade I earn", while this answers "what does
+-- NOT100 earn". See the migration header for the full reasoning.
+
+CREATE TABLE IF NOT EXISTS public.hr_staff_salaries (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  hr_organization_id     uuid NOT NULL REFERENCES public.hr_organizations(id),
+  salary_structure       text NOT NULL DEFAULT 'Monthly'
+                           CHECK (salary_structure IN ('Monthly','Weekly','Daily','Hourly')),
+  monthly_gross          numeric(12,2) NOT NULL CHECK (monthly_gross > 0),
+  annual_gross           numeric(14,2) GENERATED ALWAYS AS (monthly_gross * 12) STORED,
+  overtime_level         text NOT NULL DEFAULT 'No overtime'
+                           CHECK (overtime_level IN ('No overtime','Grade','Employee')),
+  overtime_amount        numeric(12,2) NOT NULL DEFAULT 0 CHECK (overtime_amount >= 0),
+  eligible_for_pf        boolean NOT NULL DEFAULT false,
+  exempt_edli            boolean NOT NULL DEFAULT false,
+  eligible_for_insurance boolean NOT NULL DEFAULT false,
+  eligible_for_gratuity  boolean NOT NULL DEFAULT false,
+  eligible_for_etf       boolean NOT NULL DEFAULT false,
+  effective_from         date NOT NULL,
+  -- DEFERRABLE is load-bearing, not stylistic: fn_hr_set_staff_salary points
+  -- the incumbent at a row it inserts one statement later, and that order is
+  -- forced by the partial unique index below, which cannot be deferred.
+  superseded_by          uuid REFERENCES public.hr_staff_salaries(id)
+                           DEFERRABLE INITIALLY DEFERRED,
+  notes                  text,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  created_by             uuid,
+  updated_by             uuid
+);
+
+-- One CURRENT salary per person. Partial, so superseded history is unbounded
+-- while "what does this person earn" stays answerable.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_staff_salaries_one_current
+  ON public.hr_staff_salaries (staff_id)
+  WHERE superseded_by IS NULL;
+
+CREATE INDEX IF NOT EXISTS hr_staff_salaries_org_idx
+  ON public.hr_staff_salaries (hr_organization_id);
+CREATE INDEX IF NOT EXISTS hr_staff_salaries_effective_idx
+  ON public.hr_staff_salaries (staff_id, effective_from DESC);
+
+DROP TRIGGER IF EXISTS trg_hr_staff_salaries_updated_at ON public.hr_staff_salaries;
+CREATE TRIGGER trg_hr_staff_salaries_updated_at
+  BEFORE UPDATE ON public.hr_staff_salaries
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- hr_staff_bank_accounts (2026-08-21)
+-- Source: 20260821240000_hr_staff_bank_accounts.sql
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_staff_bank_accounts (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id            uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+
+  -- As printed by the BANK, which is frequently not the name HR holds
+  -- (initials expanded, married name, order reversed). A transfer is rejected
+  -- on a name mismatch, so this is captured rather than derived from staff.
+  account_holder_name text NOT NULL CHECK (length(trim(account_holder_name)) > 0),
+
+  -- Digits only. Stored as text: an account number is an identifier, not a
+  -- quantity -- numeric would eat leading zeros and overflow on longer numbers.
+  account_number      text NOT NULL CHECK (account_number ~ '^[0-9]{6,20}$'),
+
+  -- Indian IFSC: 4 letters, then a literal 0, then 6 alphanumerics. Enforced
+  -- here as well as in the UI because a malformed code does not bounce loudly;
+  -- it fails the payout quietly or pays the wrong branch.
+  ifsc_code           text NOT NULL CHECK (ifsc_code ~ '^[A-Z]{4}0[A-Z0-9]{6}$'),
+
+  bank_name           text NOT NULL CHECK (length(trim(bank_name)) > 0),
+  branch_name         text,
+  account_type        text NOT NULL DEFAULT 'savings'
+                        CHECK (account_type IN ('savings', 'current')),
+
+  -- "Somebody checked this against a passbook or cancelled cheque."
+  -- A wrong IFSC or account number does not raise an error -- it silently pays
+  -- the wrong person -- so the distinction between entered and verified is the
+  -- only thing standing between a typo and a misdirected salary.
+  verified_at         timestamptz,
+  verified_by         uuid,
+
+  effective_from      date NOT NULL DEFAULT CURRENT_DATE,
+  -- Set when a later row replaces this one. NULL = the account in use.
+  superseded_by       uuid REFERENCES public.hr_staff_bank_accounts(id)
+                        DEFERRABLE INITIALLY DEFERRED,
+  notes               text,
+
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  created_by          uuid,
+  updated_by          uuid
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_staff_bank_accounts_one_current
+  ON public.hr_staff_bank_accounts (staff_id)
+  WHERE superseded_by IS NULL;
+
+CREATE INDEX IF NOT EXISTS hr_staff_bank_accounts_staff_idx
+  ON public.hr_staff_bank_accounts (staff_id, effective_from DESC);
+
+DROP TRIGGER IF EXISTS trg_hr_staff_bank_accounts_updated_at ON public.hr_staff_bank_accounts;
+CREATE TRIGGER trg_hr_staff_bank_accounts_updated_at
+  BEFORE UPDATE ON public.hr_staff_bank_accounts
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+

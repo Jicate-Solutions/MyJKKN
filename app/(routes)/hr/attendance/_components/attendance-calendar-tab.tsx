@@ -102,7 +102,7 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <span className={cn('text-xs font-bold', tones.text)}>
-                {STATUS_TOKENS[day.token].short}
+                {day.tokenLabel}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">

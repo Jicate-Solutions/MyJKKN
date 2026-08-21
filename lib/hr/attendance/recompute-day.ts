@@ -34,11 +34,26 @@ const VERDICT_TO_CODE: Record<Exclude<AttendanceVerdict, 'EXCEPTION'>, string> =
   PRESENT: 'PRESENT', HALF_DAY: 'HALF_DAY', ABSENT: 'ABSENT', WEEKLY_OFF: 'WEEKLY_OFF',
 };
 
-/** `2026-07-09T09:24:00+05:30` -> `09:24`, in the stored offset, never the server's. */
+/**
+ * `in_at` is timestamptz and PostgREST returns the INSTANT IN UTC —
+ * "2026-07-09T03:54:00+00:00" for a 09:24 IST punch. Reading the digits out of
+ * that string yields 03:54, which is before every shift boundary, so both
+ * halves fail and a fully worked day is written ABSENT. This is the identical
+ * conversion punchToHHMM in the recompute route uses, and the zone is pinned
+ * rather than left to the host: a UTC server would shift every punch.
+ */
+const IST_HHMM = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Asia/Kolkata',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
 function punchToHHMM(ts: string | null): string | null {
   if (!ts) return null;
-  const m = /T(\d{2}):(\d{2})/.exec(ts);
-  return m ? `${m[1]}:${m[2]}` : null;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return IST_HHMM.format(d);
 }
 
 export interface RecomputeDayResult {

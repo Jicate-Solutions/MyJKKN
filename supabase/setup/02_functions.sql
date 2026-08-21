@@ -47003,3 +47003,627 @@ BEGIN
 
   RETURN v_event_id;
 END $function$;
+
+-- ===========================================================================
+-- HR Leave approval queue — adds applied_by / applied_by_name / applied_on_behalf
+-- Mirrored from supabase/migrations/20260821160000_hr_leave_approval_queue_applied_by.sql
+-- Replays AFTER the 20260820170000 body above; it DROPs and recreates.
+-- ===========================================================================
+-- Approval queue also reports WHO SUBMITTED the request.
+--
+-- employee_id is who the leave is FOR; applied_by is who filed it. They are the
+-- same person on all 455 applications today, but the module has always allowed
+-- them to differ (LeaveService.applyLeave sets applied_by from the session, not
+-- from the payload) and an approver reading "on behalf of" needs to see it.
+--
+-- Resolved here rather than in the sheet: applied_by is a profiles id, and a
+-- staff member cannot read another profile under RLS, so a client-side lookup
+-- would come back blank for exactly the rows where it differs. This function is
+-- already SECURITY DEFINER.
+--
+-- RETURNS TABLE gains columns, so DROP first. DROP discards EXECUTE; re-granted.
+--
+-- The body is identical to 20260820170000 apart from the three new columns
+-- (applied_by, applied_by_name, applied_on_behalf) and the profiles LEFT JOIN.
+-- See that migration's header for the scope predicate and the can_decide rule.
+
+DROP FUNCTION IF EXISTS public.hr_leave_approval_queue();
+
+CREATE FUNCTION public.hr_leave_approval_queue()
+RETURNS TABLE (
+  id                   uuid,
+  employee_id          uuid,
+  staff_name           text,
+  staff_code           text,
+  institution_id       uuid,
+  institution_name     text,
+  hr_organization_id   uuid,
+  hr_organization_name text,
+  leave_type_id        uuid,
+  leave_type_name      text,
+  leave_type_code      text,
+  request_category     text,
+  start_date           date,
+  end_date             date,
+  start_time           time without time zone,
+  end_time             time without time zone,
+  duration_type        text,
+  duration_minutes     integer,
+  total_days           numeric,
+  reason               text,
+  is_emergency         boolean,
+  status               text,
+  created_at           timestamptz,
+  applied_by           uuid,
+  applied_by_name      text,
+  applied_on_behalf    boolean,
+  is_own               boolean,
+  can_decide           boolean,
+  waiting_on_me        boolean
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $fn$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  -- COALESCE to an empty array so `= ANY(...)` stays false rather than NULL for
+  -- an approver with no HR organisation mapping.
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+
+  RETURN QUERY
+  SELECT
+    a.id,
+    a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id,
+    i.name::text,
+    a.hr_organization_id,
+    o.name::text,
+    a.leave_type_id,
+    lt.leave_type_name::text,
+    lt.leave_type_code::text,
+    -- A missing type is treated as 'leave' rather than dropped: matching no
+    -- category would make the row vanish from EVERY tab.
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date,
+    a.end_date,
+    a.start_time,
+    a.end_time,
+    a.duration_type::text,
+    a.duration_minutes,
+    a.total_days,
+    a.reason,
+    a.is_emergency,
+    a.status::text,
+    a.created_at,
+    a.applied_by,
+    COALESCE(NULLIF(btrim(p.full_name), ''), p.email)::text AS applied_by_name,
+    (a.applied_by IS DISTINCT FROM s.profile_id)            AS applied_on_behalf,
+    (a.employee_id = ANY (v_mine))               AS is_own,
+    -- Exactly what hr_trig_leave_enforce_approver enforces: super admins are
+    -- exempt from the self-approval bar, everyone else is not.
+    (v_sa OR a.employee_id <> ALL (v_mine))      AS can_decide,
+    (
+      -- Waiting on ME: the same three tests as the trigger, so the badge cannot
+      -- promise a decision the trigger will refuse.
+      --
+      -- Unlike hr_leave_my_approval_queue this does NOT return true for every
+      -- row just because the caller is a super admin. A super admin CAN decide
+      -- anything, but a filter that selects the entire queue tells them nothing
+      -- — this is a filter, not a permission.
+      (v_sa OR a.employee_id <> ALL (v_mine))
+      AND (
+        st.step IS NULL
+        OR CASE
+             WHEN NULLIF(st.step ->> 'approver_user_id', '') IS NOT NULL
+               THEN (st.step ->> 'approver_user_id')::uuid = v_uid
+             WHEN NULLIF(st.step ->> 'approver_role', '') IS NOT NULL
+               THEN NOT EXISTS (
+                      SELECT 1 FROM public.custom_roles cr
+                       WHERE cr.role_key = st.step ->> 'approver_role' AND cr.is_active
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM public.user_roles ur
+                        JOIN public.custom_roles cr2 ON cr2.id = ur.role_id
+                       WHERE ur.user_id = v_uid
+                         AND cr2.role_key = st.step ->> 'approver_role'
+                    )
+             ELSE true
+           END
+      )
+    )                                            AS waiting_on_me
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  LEFT JOIN public.profiles         p  ON p.id  = a.applied_by
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE a.status IN ('pending', 'escalated')
+    -- Scope copied from hla_select. A DEFINER function bypasses RLS, so drifting
+    -- from the policy here would hand out rows the table itself refuses.
+    AND (
+      v_sa
+      OR a.hr_organization_id = ANY (v_orgs)
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
+  'Leave + short-time-off awaiting a decision, with the requester''s name, staff code, institution and who submitted it. Scope copies hla_select; super admins see every organisation and may decide their own requests (can_decide).';
+
+-- ===========================================================================
+-- HR Leave — no-overlap guard
+-- Mirrored from supabase/migrations/20260821170000_leave_overlap_guard.sql
+-- ===========================================================================
+-- HR Leave — one leave request per day.
+--
+-- Short time off got an overlap guard on 2026-08-21; day leave never had one.
+-- Nothing stopped two live requests covering the same dates, and 3 such pairs
+-- existed across 3 staff when this was written. Both draw down the balance on
+-- approval, so the same day is paid for twice.
+--
+-- FIRES ON INSERT AND ON THE DATE/TYPE COLUMNS ONLY — deliberately NOT on
+-- status. The pre-existing overlaps must still be approvable and rejectable; a
+-- trigger that also fired on a status change would look at the sibling row,
+-- find the overlap and refuse the decision, leaving them permanently stuck.
+-- This guard is about CREATING an overlap, not about deciding one that exists.
+--
+-- Leave vs leave only. A permission on a day already covered by full-day leave
+-- is also contradictory, but that is a different comparison (minutes against a
+-- day) and is left alone rather than guessed at here.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_enforce_no_overlap()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_category text;
+  v_clash    record;
+BEGIN
+  IF NEW.status NOT IN ('pending','approved','escalated') THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category INTO v_category
+  FROM public.hr_leave_types WHERE id = NEW.leave_type_id;
+
+  IF v_category IS DISTINCT FROM 'leave' THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(NEW.employee_id::text || ':leave-overlap', 0)
+  );
+
+  SELECT t2.leave_type_name AS type_name, a.start_date, a.end_date, a.status
+    INTO v_clash
+  FROM public.hr_leave_applications a
+  JOIN public.hr_leave_types t2 ON t2.id = a.leave_type_id
+  WHERE a.employee_id = NEW.employee_id
+    AND a.id IS DISTINCT FROM NEW.id
+    AND a.status IN ('pending','approved','escalated')
+    AND t2.request_category = 'leave'
+    AND a.start_date <= NEW.end_date
+    AND NEW.start_date <= a.end_date
+  ORDER BY a.start_date
+  LIMIT 1;
+
+  IF v_clash.type_name IS NOT NULL THEN
+    RAISE EXCEPTION
+      'This overlaps an existing % request from % to % (%). Cancel that one first, or pick different dates.',
+      v_clash.type_name,
+      to_char(v_clash.start_date, 'DD/MM/YYYY'),
+      to_char(v_clash.end_date, 'DD/MM/YYYY'),
+      v_clash.status
+      USING ERRCODE = '23505';
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+DROP TRIGGER IF EXISTS trg_hla_leave_overlap ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_leave_overlap
+  BEFORE INSERT OR UPDATE OF start_date, end_date, leave_type_id
+  ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_leave_enforce_no_overlap();
+
+COMMENT ON FUNCTION public.hr_trig_leave_enforce_no_overlap() IS
+  'Refuses a day-leave request whose dates overlap another live request for the same employee. Not fired on status changes, so pre-existing overlaps stay decidable.';
+
+-- ===========================================================================
+-- fn_hr_set_staff_salary (2026-08-21)
+-- Source: 20260821201000_fn_hr_set_staff_salary.sql
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_salary(
+  p_staff_id             uuid,
+  p_hr_organization_id   uuid,
+  p_monthly_gross        numeric,
+  p_effective_from       date,
+  p_salary_structure     text    DEFAULT 'Monthly',
+  p_overtime_level       text    DEFAULT 'No overtime',
+  p_overtime_amount      numeric DEFAULT 0,
+  p_eligible_for_pf      boolean DEFAULT false,
+  p_exempt_edli          boolean DEFAULT false,
+  p_eligible_for_insurance boolean DEFAULT false,
+  p_eligible_for_gratuity  boolean DEFAULT false,
+  p_eligible_for_etf     boolean DEFAULT false,
+  p_notes                text    DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_new_id  uuid := gen_random_uuid();
+  v_current record;
+BEGIN
+  IF p_staff_id IS NULL OR p_hr_organization_id IS NULL THEN
+    RAISE EXCEPTION 'Staff and payroll organisation are both required'
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_monthly_gross IS NULL OR p_monthly_gross <= 0 THEN
+    RAISE EXCEPTION 'Monthly salary must be greater than zero' USING ERRCODE = '22023';
+  END IF;
+  IF p_effective_from IS NULL THEN
+    RAISE EXCEPTION 'Effective date is required' USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_staff_id::text || ':salary', 0));
+
+  SELECT id, monthly_gross, effective_from INTO v_current
+    FROM public.hr_staff_salaries
+   WHERE staff_id = p_staff_id AND superseded_by IS NULL;
+
+  -- Re-writing the identical figure would bury the real history under
+  -- duplicates, so the incumbent is returned untouched instead.
+  IF FOUND
+     AND v_current.monthly_gross = p_monthly_gross
+     AND v_current.effective_from = p_effective_from THEN
+    RETURN v_current.id;
+  END IF;
+
+  IF FOUND THEN
+    UPDATE public.hr_staff_salaries
+       SET superseded_by = v_new_id, updated_at = now(), updated_by = auth.uid()
+     WHERE id = v_current.id;
+  END IF;
+
+  INSERT INTO public.hr_staff_salaries (
+    id, staff_id, hr_organization_id, salary_structure, monthly_gross,
+    overtime_level, overtime_amount, eligible_for_pf, exempt_edli,
+    eligible_for_insurance, eligible_for_gratuity, eligible_for_etf,
+    effective_from, notes, created_by, updated_by
+  ) VALUES (
+    v_new_id, p_staff_id, p_hr_organization_id, p_salary_structure, p_monthly_gross,
+    p_overtime_level, p_overtime_amount, p_eligible_for_pf, p_exempt_edli,
+    p_eligible_for_insurance, p_eligible_for_gratuity, p_eligible_for_etf,
+    p_effective_from, p_notes, auth.uid(), auth.uid()
+  );
+
+  RETURN v_new_id;
+END;
+$function$;
+
+-- CREATE OR REPLACE keeps existing grants, but a later DROP FUNCTION would
+-- discard them and revert EXECUTE to PUBLIC. Restated so a rebuild from these
+-- files lands in the same place.
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_set_staff_salary(uuid, uuid, numeric, date, text, text, numeric, boolean, boolean, boolean, boolean, boolean, text) IS
+  'Supersede-and-insert a staff salary in one transaction. SECURITY INVOKER: hr_staff_salaries_write enforces hr.payroll.salary.manage.';
+
+-- ===========================================================================
+-- hr_staff_salary_directory (2026-08-21)
+-- Source: 20260821220000_hr_staff_salary_directory_rpc.sql
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.hr_staff_salary_directory()
+RETURNS TABLE(
+  staff_uuid             uuid,
+  staff_code             text,
+  person_name            text,
+  role_title             text,
+  is_active              boolean,
+  works_at_id            uuid,
+  works_at_name          text,
+  payer_org_id           uuid,
+  payer_org_name         text,
+  salary_id              uuid,
+  salary_structure       text,
+  monthly_gross          numeric,
+  annual_gross           numeric,
+  overtime_level         text,
+  overtime_amount        numeric,
+  eligible_for_pf        boolean,
+  exempt_edli            boolean,
+  eligible_for_insurance boolean,
+  eligible_for_gratuity  boolean,
+  eligible_for_etf       boolean,
+  effective_from         date,
+  notes                  text
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.salary.view') THEN
+    RAISE EXCEPTION 'hr.payroll.salary.view is required to see employee salaries.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         COALESCE(s.is_active, false),
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text,
+         sal.id,
+         sal.salary_structure::text,
+         sal.monthly_gross,
+         sal.annual_gross,
+         sal.overtime_level::text,
+         sal.overtime_amount,
+         sal.eligible_for_pf,
+         sal.exempt_edli,
+         sal.eligible_for_insurance,
+         sal.eligible_for_gratuity,
+         sal.eligible_for_etf,
+         sal.effective_from,
+         sal.notes
+    FROM public.staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+    -- The salary IN FORCE only. Without superseded_by IS NULL a person who has
+    -- had two raises would appear three times in a roster listing.
+    LEFT JOIN public.hr_staff_salaries sal
+           ON sal.staff_id = s.id AND sal.superseded_by IS NULL
+   -- Active staff, PLUS anyone inactive who still holds a salary. Filtering on
+   -- is_active alone would hide a relieved employee awaiting final settlement --
+   -- money attached to an invisible row is the one thing this list must not do.
+   WHERE (COALESCE(s.is_active, false) OR sal.id IS NOT NULL)
+     AND public.role_has_institution_access(s.institution_id)
+   -- Unset first: this is a work queue before it is a report.
+   ORDER BY (sal.id IS NOT NULL), i.name, 3;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_salary_directory() FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_staff_salary_directory() TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.hr_staff_salary_directory() IS
+  'Every active staff member with their salary in force, or NULL where none is recorded. Gated on hr.payroll.salary.view; raises rather than returning [] so an empty list never means "denied".';
+
+-- ===========================================================================
+-- bank account RPCs (2026-08-21)
+-- Source: 20260821250000_fn_hr_set_staff_bank_account_and_directory.sql
+-- ===========================================================================
+-- Record a staff member's bank account, superseding whatever was in use.
+--
+-- Same ordering problem, and the same solution, as fn_hr_set_staff_salary: the
+-- partial unique index forbids two current rows, so the new id is minted first,
+-- the incumbent is pointed at it, and the insert follows -- which is why
+-- superseded_by has to be DEFERRABLE.
+--
+-- SECURITY INVOKER on purpose: hr_staff_bank_accounts_write enforces
+-- hr.payroll.bank.manage, so a caller without it writes nothing.
+--
+-- CHANGING THE ACCOUNT CLEARS THE VERIFICATION. A row that was verified against
+-- a passbook says nothing about the number that replaced it, and carrying the
+-- tick forward would let an edit inherit trust it never earned. Verification is
+-- re-asserted through fn_hr_verify_staff_bank_account, never as a side effect.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_set_staff_bank_account(
+  p_staff_id            uuid,
+  p_account_holder_name text,
+  p_account_number      text,
+  p_ifsc_code           text,
+  p_bank_name           text,
+  p_branch_name         text DEFAULT NULL,
+  p_account_type        text DEFAULT 'savings',
+  p_effective_from      date DEFAULT CURRENT_DATE,
+  p_notes               text DEFAULT NULL
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_new_id  uuid := gen_random_uuid();
+  v_current record;
+  v_ifsc    text := upper(trim(coalesce(p_ifsc_code, '')));
+  v_acct    text := trim(coalesce(p_account_number, ''));
+BEGIN
+  IF p_staff_id IS NULL THEN
+    RAISE EXCEPTION 'Staff is required' USING ERRCODE = '22023';
+  END IF;
+  IF length(trim(coalesce(p_account_holder_name, ''))) = 0 THEN
+    RAISE EXCEPTION 'Account holder name is required' USING ERRCODE = '22023';
+  END IF;
+  -- Re-checked here as well as by the CHECK constraint so the message names the
+  -- field. A raw 23514 tells the user only that "a constraint failed".
+  IF v_acct !~ '^[0-9]{6,20}$' THEN
+    RAISE EXCEPTION 'Account number must be 6 to 20 digits' USING ERRCODE = '22023';
+  END IF;
+  IF v_ifsc !~ '^[A-Z]{4}0[A-Z0-9]{6}$' THEN
+    RAISE EXCEPTION 'IFSC must be 4 letters, then 0, then 6 letters or digits'
+      USING ERRCODE = '22023';
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(hashtextextended(p_staff_id::text || ':bank', 0));
+
+  SELECT id, account_number, ifsc_code INTO v_current
+    FROM public.hr_staff_bank_accounts
+   WHERE staff_id = p_staff_id AND superseded_by IS NULL;
+
+  -- Re-saving the identical destination would bury the real history under
+  -- duplicates, so the incumbent is returned untouched instead.
+  IF FOUND AND v_current.account_number = v_acct AND v_current.ifsc_code = v_ifsc THEN
+    RETURN v_current.id;
+  END IF;
+
+  IF FOUND THEN
+    UPDATE public.hr_staff_bank_accounts
+       SET superseded_by = v_new_id, updated_at = now(), updated_by = auth.uid()
+     WHERE id = v_current.id;
+  END IF;
+
+  INSERT INTO public.hr_staff_bank_accounts (
+    id, staff_id, account_holder_name, account_number, ifsc_code, bank_name,
+    branch_name, account_type, effective_from, notes, created_by, updated_by
+  ) VALUES (
+    v_new_id, p_staff_id, trim(p_account_holder_name), v_acct, v_ifsc,
+    trim(p_bank_name), nullif(trim(coalesce(p_branch_name, '')), ''),
+    coalesce(p_account_type, 'savings'), coalesce(p_effective_from, CURRENT_DATE),
+    p_notes, auth.uid(), auth.uid()
+  );
+
+  RETURN v_new_id;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_set_staff_bank_account(uuid, text, text, text, text, text, text, date, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_set_staff_bank_account(uuid, text, text, text, text, text, text, date, text) TO authenticated, service_role;
+
+
+-- Mark the account in use as checked against a passbook or cancelled cheque.
+--
+-- A SEPARATE ACT FROM RECORDING IT, deliberately. If saving also verified, the
+-- flag would only ever mean "somebody typed this", which is precisely what it
+-- exists to distinguish from "somebody checked it".
+CREATE OR REPLACE FUNCTION public.fn_hr_verify_staff_bank_account(
+  p_account_id uuid,
+  p_verified   boolean DEFAULT true
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  UPDATE public.hr_staff_bank_accounts
+     SET verified_at = CASE WHEN p_verified THEN now() ELSE NULL END,
+         verified_by = CASE WHEN p_verified THEN auth.uid() ELSE NULL END,
+         updated_at  = now(),
+         updated_by  = auth.uid()
+   -- Superseded rows are history and stay exactly as they were.
+   WHERE id = p_account_id AND superseded_by IS NULL;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'That bank account is not the one currently in use'
+      USING ERRCODE = '22023';
+  END IF;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_verify_staff_bank_account(uuid, boolean) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_verify_staff_bank_account(uuid, boolean) TO authenticated, service_role;
+
+
+-- Every payable person and where their money goes, INCLUDING those with no
+-- account on file -- the same roster-driven shape as hr_staff_salary_directory,
+-- and for the same reason: the gap is the work.
+--
+-- THE ACCOUNT NUMBER IS RETURNED IN FULL. The audience is two roles, and the
+-- edit form needs it; the list masks it in the client. Masking in SQL instead
+-- would mean a second privileged path just to populate the edit dialog.
+CREATE OR REPLACE FUNCTION public.hr_staff_bank_directory()
+RETURNS TABLE(
+  staff_uuid          uuid,
+  staff_code          text,
+  person_name         text,
+  role_title          text,
+  is_active           boolean,
+  works_at_id         uuid,
+  works_at_name       text,
+  payer_org_id        uuid,
+  payer_org_name      text,
+  account_id          uuid,
+  account_holder_name text,
+  account_number      text,
+  ifsc_code           text,
+  bank_name           text,
+  branch_name         text,
+  account_type        text,
+  verified_at         timestamptz,
+  effective_from      date,
+  notes               text
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT public.user_has_permission('hr.payroll.bank.view') THEN
+    RAISE EXCEPTION 'hr.payroll.bank.view is required to see employee bank accounts.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id,
+         s.staff_id::text,
+         TRIM(BOTH FROM COALESCE(s.first_name, '') || ' ' || COALESCE(s.last_name, ''))::text,
+         s.designation::text,
+         COALESCE(s.is_active, false),
+         i.id,
+         i.name::text,
+         o.id,
+         o.name::text,
+         b.id,
+         b.account_holder_name,
+         b.account_number,
+         b.ifsc_code,
+         b.bank_name,
+         b.branch_name,
+         b.account_type,
+         b.verified_at,
+         b.effective_from,
+         b.notes
+    FROM public.staff s
+    JOIN public.institutions i ON i.id = s.institution_id
+    LEFT JOIN public.hr_staff_payroll p ON p.staff_id = s.id
+    LEFT JOIN public.hr_organizations o ON o.id = p.hr_organization_id
+    LEFT JOIN public.hr_staff_bank_accounts b
+           ON b.staff_id = s.id AND b.superseded_by IS NULL
+   -- Active staff, plus anyone inactive who still has an account on file --
+   -- a final settlement is paid to someone who has already left.
+   WHERE (COALESCE(s.is_active, false) OR b.id IS NOT NULL)
+     AND public.role_has_institution_access(s.institution_id)
+   -- Unrecorded first, then recorded-but-unverified, then done.
+   ORDER BY (b.id IS NOT NULL), (b.verified_at IS NOT NULL), i.name, 3;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_staff_bank_directory() FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_staff_bank_directory() TO authenticated, service_role;

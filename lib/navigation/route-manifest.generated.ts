@@ -4479,8 +4479,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/hr/payroll/bank-accounts",
+            "label": "Bank Accounts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/salaries",
+            "label": "Salaries",
             "iconName": "FileText",
             "children": []
           }

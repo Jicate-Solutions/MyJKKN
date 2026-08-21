@@ -15,6 +15,8 @@ import { Button } from '@/components/ui/button';
 import { TableCell } from '@/components/ui/table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
+import { CancelRequestAction, isCancellable } from '../_components/cancel-request-action';
+import { useWithdrawApplication } from '@/hooks/hr/use-leave';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
@@ -42,6 +44,7 @@ export default function ShortTimeOffPage() {
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
+  const withdraw = useWithdrawApplication();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
     ctx.employeeId || undefined
@@ -99,6 +102,7 @@ export default function ShortTimeOffPage() {
               { key: 'end', label: 'End Time' },
               { key: 'hours', label: 'Total Hours', align: 'right' },
               { key: 'status', label: 'Status' },
+              { key: 'actions', label: '', align: 'right' },
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
@@ -116,6 +120,16 @@ export default function ShortTimeOffPage() {
                   {hoursBetween(a.start_time, a.end_time)}
                 </TableCell>
                 <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell className="text-right">
+                  {isCancellable(a.status) && (
+                    <CancelRequestAction
+                      what="this permission"
+                      detail={`${fmtDate(a.start_date)} · ${fmtTime(a.start_time)}–${fmtTime(a.end_time)}`}
+                      disabled={withdraw.isPending}
+                      onConfirm={() => withdraw.mutateAsync(a.id)}
+                    />
+                  )}
+                </TableCell>
               </RequestRow>
             ))}
           </RequestTable>

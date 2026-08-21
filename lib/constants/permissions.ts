@@ -944,6 +944,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.payroll.institution.view', label: 'View Payroll Organisation' },
       { key: 'hr.payroll.institution.manage', label: 'Manage Payroll Organisation' },
 
+      // ── Employee salary (2026-08-21) ─────────────────────────────────────
+      // SEPARATE from the two keys above on purpose. Those say who may see
+      // WHICH ORGANISATION pays someone; these say who may see HOW MUCH. An HR
+      // user who maintains the payer directory is not automatically entitled to
+      // everyone's pay, so the amount got its own pair rather than riding along.
+      // Enforced by hr_staff_salaries RLS, which additionally lets anyone read
+      // their OWN row — reading your own pay needs no HR permission.
+      { key: 'hr.payroll.salary.view', label: 'View Employee Salary' },
+      { key: 'hr.payroll.salary.manage', label: 'Manage Employee Salary' },
+
+      // ── Employee bank account (2026-08-21) ───────────────────────────────
+      // A THIRD pair, not a reuse of the salary keys. Amount and destination
+      // are different questions: a payroll clerk who must see what someone
+      // earns is not automatically entitled to the account it lands in, and an
+      // account number is the one field on this whole module that a change to
+      // redirects real money. Enforced by hr_staff_bank_accounts RLS, which —
+      // unlike the salary table — does NOT let people read their own row: the
+      // self-service surface for "which account am I paid into" does not exist
+      // yet, and opening the read path before there is a screen for it would
+      // only widen the blast radius.
+      { key: 'hr.payroll.bank.view', label: 'View Employee Bank Account' },
+      { key: 'hr.payroll.bank.manage', label: 'Manage Employee Bank Account' },
+
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
       // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
