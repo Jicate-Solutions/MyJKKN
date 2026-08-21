@@ -39,8 +39,11 @@ interface SwitchToOnlineRequestProps {
 
 const CODE_MESSAGES: Record<string, string> = {
   already_online: 'This meeting is already a video call.',
+  // No longer "this is a phone call": since ruling 1 (2026-08-21) a phone call
+  // can be made into a video call, so this is only reached by a mode nobody has
+  // decided about.
   unsupported_mode:
-    'This booking is a phone call, so there is no video link to add to it.',
+    'This booking is not set up in a way a video link can be added to.',
   too_late:
     'It is too close to the start time to change how this meeting happens.',
   calendar_not_connected:

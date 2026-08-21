@@ -41,6 +41,8 @@ const row = (
   publications: 0,
   solutions_built: 0,
   solutions_used: 0,
+  departments_dormant: 0,
+  departments_at_risk: 0,
   ...over,
 });
 
@@ -200,5 +202,94 @@ describe('the two finish lines are parallel, never ranked (negative control)', (
         /instead|merely|only|lesser|better|best|ultimate/,
       );
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REGRESSION — the 2026-08-17 sweep, and the two quiets that must stay apart.
+//
+// On 2026-08-17 13:58 UTC `update_department_statuses()` moved ALL 44 solution
+// departments to 'dormant' in one statement. The funnel view joined on
+// `sd.status = 'active'`, so it matched nothing and the council page reported
+// that no college had ever activated a solution department. The view now joins
+// on `activated_at IS NOT NULL` — an event, which no later sweep can un-write —
+// and reports current status as its own pair of columns.
+//
+// These tests guard the CONSEQUENCE of that fix in the client: the activation
+// count survives a full dormant sweep, and the two near-identical "quiet"
+// figures stay separately readable.
+// ---------------------------------------------------------------------------
+
+/** Production 2026-09-08, per college: activated / producing / solutions / dormant. */
+const PRODUCTION_AFTER_THE_SWEEP: CacFunnelRow[] = [
+  row('Allied Health Sciences', { departments_activated: 9, departments_dormant: 9 }),
+  row('Arts and Science'),
+  row('Arts and Science (Self Finance)', {
+    departments_activated: 9,
+    departments_dormant: 9,
+  }),
+  row('Education'),
+  row('Engineering and Technology', {
+    departments_activated: 6,
+    departments_producing: 1,
+    solutions: 2,
+    departments_dormant: 6,
+  }),
+  row('Nursing and Research', { departments_activated: 5, departments_dormant: 5 }),
+  row('Pharmacy', { departments_activated: 6, departments_dormant: 6 }),
+  row('Dental College and Hospital', { departments_activated: 9, departments_dormant: 9 }),
+];
+
+describe('a dormant sweep can no longer erase what the colleges did', () => {
+  it('still counts 44 activated departments when all 44 are dormant', () => {
+    // The bug in one line: under the old `status = 'active'` join this total
+    // was 0 and the page said no college had ever activated anything.
+    const totals = summariseFunnel(PRODUCTION_AFTER_THE_SWEEP);
+    expect(totals.departmentsActivated).toBe(44);
+    expect(totals.departmentsDormant).toBe(44);
+    expect(totals.departmentsProducing).toBe(1);
+    expect(totals.solutions).toBe(2);
+  });
+
+  it('keeps "produced nothing" and "gone quiet" as two different numbers', () => {
+    // 43 produced nothing (an outcome); 44 are dormant (a status). They are one
+    // apart and they are not the same measurement. Reconciling them — picking
+    // one, averaging them, deriving one from the other — destroys information.
+    const totals = summariseFunnel(PRODUCTION_AFTER_THE_SWEEP);
+    const producedNothing =
+      totals.departmentsActivated - totals.departmentsProducing;
+    expect(producedNothing).toBe(43);
+    expect(totals.departmentsDormant).toBe(44);
+    expect(producedNothing).not.toBe(totals.departmentsDormant);
+  });
+
+  it('recognises the all-dormant case that the panel announces in one line', () => {
+    // The exact condition the panel's headline is gated on.
+    const totals = summariseFunnel(PRODUCTION_AFTER_THE_SWEEP);
+    expect(
+      totals.departmentsActivated > 0 &&
+        totals.departmentsDormant === totals.departmentsActivated,
+    ).toBe(true);
+  });
+
+  it('does not announce all-dormant for a cluster that activated nothing', () => {
+    // 0 === 0 is true, so without the `> 0` guard an empty cluster would be
+    // told every department it activated has gone quiet.
+    const totals = summariseFunnel([row('Empty')]);
+    expect(
+      totals.departmentsActivated > 0 &&
+        totals.departmentsDormant === totals.departmentsActivated,
+    ).toBe(false);
+  });
+
+  it('survives a client older than the two status columns without printing NaN', () => {
+    const legacy = { ...row('Old', { departments_activated: 9 }) } as Partial<CacFunnelRow>;
+    delete legacy.departments_dormant;
+    delete legacy.departments_at_risk;
+    const totals = summariseFunnel([legacy as CacFunnelRow]);
+    expect(Number.isNaN(totals.departmentsDormant)).toBe(false);
+    expect(Number.isNaN(totals.departmentsAtRisk)).toBe(false);
+    expect(totals.departmentsDormant).toBe(0);
+    expect(totals.departmentsActivated).toBe(9);
   });
 });
