@@ -2,10 +2,23 @@
 -- 2026-08-21 · Switching push notifications OFF is remembered for the PERSON,
 --              not for the browser endpoint that happened to be switched off.
 --
--- 🛑 FILE ONLY / NOT APPLIED TO ANY DATABASE — Director-gated apply.
---    Nothing below has been run against production. Every claim in this header
---    is about the file, or about readings taken BEFORE it — never about a live
---    object created by it.
+-- ✅ APPLIED TO PRODUCTION 2026-08-21 — ledger row 20260821111941.
+--    (This header previously read "FILE ONLY / NOT APPLIED". That was true when
+--    the file was written and is no longer true; the PR body does not land in the
+--    repo, this header does, so a future session greps THIS.)
+--    Applied under an explicit Director gate authorising live application of this
+--    wave. Sequence: SQL reviewed → duplicate-prefix check → baseline re-verified
+--    immediately before the write → full dry-run in BEGIN … ROLLBACK with
+--    EFFECTIVE-privilege probes (has_table_privilege / has_function_privilege, not
+--    the ACL string) → rollback confirmed held → committed → ledger row written.
+--    Post-apply readings: 118 preference rows, all push_enabled=false, matching the
+--    118 distinct users holding an is_active=false subscription EXACTLY; all 109
+--    resurrected users covered, 0 unprotected; anon SELECT=false,
+--    authenticated SELECT=true, anon EXECUTE on the touch trigger=false;
+--    4 RLS policies live.
+--    The SCHEMA is live; the CODE in this PR is not. Until it merges and deploys,
+--    production still runs the old behaviour — which is safe, because the helper
+--    treats a missing table as "feature not live".
 --
 -- WHAT IS ACTUALLY BROKEN.
 --   Read on production 2026-08-21: ~118 people hold at least one
