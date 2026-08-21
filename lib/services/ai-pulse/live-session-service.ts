@@ -30,6 +30,23 @@
  *   agents writing to the same row (rotation marker, async makeup writer)
  *   don't get clobbered.
  *
+ * LEAVE TIME IS A JSONB SIGNAL, NOT A COLUMN
+ *   `ai_pulse_live_attendance.left_at` exists in the schema and has NEVER been
+ *   written: 0 of 3,631 production rows (measured 2026-08-21). The only code
+ *   that ever tried was `app/api/ai-pulse/meet/webhook`, which until this
+ *   change wrote to `event_team_attendance` — a per-TEAM table that has no
+ *   `left_at`, no `joined_at` and no `learner_id` column, so every call failed
+ *   before it could reach this table.
+ *
+ *   Leave time therefore lives ONLY in `engagement_signals`:
+ *     last_heartbeat_at — ISO, the last moment the learner was observed
+ *     stayed_until      — the same instant rendered IST "HH:MM" (e.g. "19:28")
+ *   Both are written together by `recordHeartbeat` and by the Meet webhook.
+ *   The 4-AND gate consumes `stayed_until` (see `isPresentAtEnd`); the trend
+ *   and participation surfaces test it for PRESENCE. Do NOT reintroduce a
+ *   `left_at` read anywhere — it returns a confident null that reads as a real
+ *   "0 minutes / never left" in any report that trusts it.
+ *
  * Permission gate:
  *   Page-level uses `aiPulse:view.self` (in PR #716). The service itself
  *   trusts RLS — every write is keyed to auth.uid() so a learner can only
@@ -134,10 +151,19 @@ export interface LiveSessionData {
     primary_language: string;
     secondary_language: string | null;
   };
+  /**
+   * NO `left_at` HERE, DELIBERATELY. The column exists on
+   * `ai_pulse_live_attendance` and has never been written — 0 of 3,631
+   * production rows carry a value (measured 2026-08-21). It used to be
+   * surfaced on this type as an always-null field, which is the worst
+   * possible shape: a consumer reading it gets a confident `null` that looks
+   * like "never left" rather than "never recorded". Leave time is read from
+   * `engagement_signals.stayed_until` (IST "HH:MM") / `last_heartbeat_at`
+   * (ISO), which every other AI Pulse surface already uses.
+   */
   attendance: {
     id: string | null;
     joined_at: string | null;
-    left_at: string | null;
     engagement_signals: EngagementSignals;
   };
   polls: LivePoll[];
@@ -175,7 +201,7 @@ function diffMinutes(a: string, b: string): number {
  * for backward compatibility (6 files read it); semantically it now means
  * "joined within the configured late threshold".
  */
-function withinJoinWindow(
+export function withinJoinWindow(
   joinedAt: string,
   startsAt: string | null,
   windowMinutes: number,
@@ -190,7 +216,7 @@ function withinJoinWindow(
 // Policy reads (config mandate — every threshold is an ai_pulse_policies row)
 // ---------------------------------------------------------------------------
 
-type PolicyMap = Record<string, unknown>;
+export type PolicyMap = Record<string, unknown>;
 
 let policyCache: { fetchedAt: number; map: PolicyMap } | null = null;
 const POLICY_CACHE_TTL_MS = 60_000;
@@ -201,7 +227,7 @@ const POLICY_CACHE_TTL_MS = 60_000;
  * getLiveSession) don't refetch on every call. RLS: active rows are readable
  * by any authenticated user (PR #644/#715).
  */
-async function readPolicies(supabase: any): Promise<PolicyMap> {
+export async function readPolicies(supabase: any): Promise<PolicyMap> {
   if (policyCache && Date.now() - policyCache.fetchedAt < POLICY_CACHE_TTL_MS) {
     return policyCache.map;
   }
@@ -222,13 +248,13 @@ async function readPolicies(supabase: any): Promise<PolicyMap> {
 }
 
 /** Coerce a policy value to a finite number, else the fallback. */
-function policyNumber(map: PolicyMap, key: string, fallback: number): number {
+export function policyNumber(map: PolicyMap, key: string, fallback: number): number {
   const v = Number(map[key]);
   return Number.isFinite(v) ? v : fallback;
 }
 
 /** "HH:MM" of an ISO timestamp in IST (Asia/Kolkata). */
-function isoToIstHHMM(iso: string): string {
+export function isoToIstHHMM(iso: string): string {
   const d = new Date(iso);
   // toLocaleTimeString with IST keeps formatting consistent across deploys
   return d.toLocaleTimeString('en-GB', {
@@ -370,7 +396,8 @@ export class LiveSessionService {
     // Existing per-learner attendance row (if any)
     const { data: attRow } = await supabase
       .from('ai_pulse_live_attendance')
-      .select('id, joined_at, left_at, engagement_signals, day_type')
+      // `left_at` is deliberately NOT selected — see LiveSessionData.attendance.
+      .select('id, joined_at, engagement_signals, day_type')
       .eq('event_id', cycleId)
       .eq('profile_id', user.id)
       .eq('day_type', 'live_session')
@@ -455,7 +482,6 @@ export class LiveSessionService {
       attendance: {
         id: (attRow?.id ?? null) as string | null,
         joined_at: (attRow?.joined_at ?? null) as string | null,
-        left_at: (attRow?.left_at ?? null) as string | null,
         engagement_signals: signals,
       },
       polls,
