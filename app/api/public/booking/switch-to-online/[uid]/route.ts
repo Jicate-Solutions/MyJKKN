@@ -87,8 +87,10 @@ export async function POST(
         case 'ALREADY_ONLINE':
           return NextResponse.json({ error: 'already_online' }, { status: 409 });
         case 'UNSUPPORTED_SOURCE_MODE':
-          // A phone booking. Its own code, not already_online — telling a
-          // visitor their phone call is "already online" would be a lie.
+          // A mode this feature has never been decided for. No longer phone,
+          // which switches exactly as in person does since ruling 1
+          // (2026-08-21). Its own code, not already_online — telling a visitor
+          // their meeting is "already online" would be a lie.
           return NextResponse.json({ error: 'unsupported_mode' }, { status: 409 });
         case 'TOO_LATE':
           return NextResponse.json({ error: 'too_late' }, { status: 409 });
