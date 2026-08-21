@@ -253,7 +253,7 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
               <p className="text-xs text-muted-foreground">
                 {booking.outcome_marked_by === 'host'
                   ? 'Recorded by the host.'
-                  : 'Closed automatically 7 days after it ended — nobody confirmed it took place.'}
+                  : 'Closed automatically before 21 August 2026 — nobody confirmed it took place.'}
               </p>
             ) : null}
           </CardContent>
@@ -425,28 +425,33 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                Nothing is recorded until you say so. If you leave it, the booking closes
-                itself as completed 7 days after it ended.
+                Nothing is recorded until you say so. Until you do, this meeting stays
+                under Awaiting you on your meetings list. It is no longer closed
+                automatically after seven days.
               </p>
               <MarkOutcomeButtons uid={booking.uid} />
             </CardContent>
           </Card>
         ) : null}
 
-        {!isCancelled && !isPast ? (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <RescheduleBookingButton uid={booking.uid} />
-              {/* Hidden entirely for a phone booking, an already-online booking,
-                  a cancelled one and a past one — there is nothing to switch. */}
-              {canSwitchToOnline ? <SwitchToOnlineButton uid={booking.uid} /> : null}
-              <CancelBookingButton uid={booking.uid} />
-            </CardContent>
-          </Card>
-        ) : null}
+        {/* The Actions card is no longer hidden once a meeting has ended: a host
+            must be able to move a meeting that was missed (Director ruling
+            2026-08-21). Each control decides for itself —
+              • Reschedule asks for a reason when the meeting has ended.
+              • Switch-to-online stays hidden via canSwitchToOnline, which
+                already excludes phone, already-online, cancelled and past.
+              • Cancel is pointless once the meeting is over, so it keeps the
+                original rule and hides. */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Actions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <RescheduleBookingButton uid={booking.uid} hasEnded={isPast || isCancelled} />
+            {canSwitchToOnline ? <SwitchToOnlineButton uid={booking.uid} /> : null}
+            {!isCancelled && !isPast ? <CancelBookingButton uid={booking.uid} /> : null}
+          </CardContent>
+        </Card>
 
         <p className="text-center text-xs text-muted-foreground">
           Source of truth: MyJKKN native scheduling
