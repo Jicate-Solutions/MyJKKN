@@ -1,8 +1,45 @@
 // =====================================================================
-// Meetings 7-day auto-close
+// Meetings 7-day auto-close — RETIRED 2026-08-21
 // =====================================================================
-// Director decision 2026-08-08: a finished meeting nobody marked closes
+// Director decision 2026-08-08 said a finished meeting nobody marked closes
 // itself as 'completed' 7 days after it ended.
+//
+// REVERSED by the Director on 2026-08-21: "Stop closing them automatically.
+// the EAO for director will manage this and followup."
+//
+// WHY. Measured on production 2026-08-21:
+//
+//   outcome_marked_by   status      count
+//   (never marked)      completed      62
+//   (never marked)      cancelled      29
+//   (never marked)      confirmed      23
+//
+// outcome_marked_by is NULL on EVERY row. Two separate facts follow, and they
+// are easy to conflate:
+//
+//   1. No meeting has ever been marked by a host. Not one. MarkOutcomeButtons
+//      has shipped the whole time and has never been used, because nothing ever
+//      put the decision in front of anyone.
+//   2. This sweep has not closed any of them either — it stamps
+//      outcome_marked_by = 'system', and none of the 62 carries that stamp. The
+//      62 predate it. The routine IS live and healthy (enabled, last fired
+//      2026-08-20 00:45Z, HTTP 200); it has simply found nothing old enough,
+//      because its cutoff is seven days.
+//
+// Which makes the timing the point. 17 bookings are currently 'confirmed' with
+// a start time already past, the oldest from 18 August — so this sweep was days
+// away from stamping its FIRST real batch as 'completed', silently, without any
+// human ever having looked at them. Retiring it now is what stops that.
+//
+// This route is KEPT rather than deleted so the scheduled routine
+// ('meetings-auto-close', daily 06:20 IST) does not start 404-ing daily and
+// reading as a broken job. It now closes nothing and says so. Disabling the
+// ai_routine_schedules row is a separate production change and is NOT done
+// here.
+//
+// What replaces it: /meetings/inbox now carries an "Awaiting you" tab listing
+// every meeting that has ended without an outcome, so the decision is visible
+// instead of being made silently by a cron job.
 //
 // Runs via the AI-routine dispatcher (ai_routine_schedules row
 // 'meetings-auto-close', daily 06:20 IST, editable at /admin/ai-routines) —
@@ -27,10 +64,6 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase/server';
-
-/** Director decision 2026-08-08. */
-const AUTO_CLOSE_AFTER_DAYS = 7;
 
 export async function GET(request: NextRequest) {
   const started = Date.now();
@@ -45,36 +78,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
-  const admin = createServiceRoleClient();
-
-  const { data, error } = await admin.rpc('fn_meetings_auto_close_unmarked', {
-    p_days: AUTO_CLOSE_AFTER_DAYS,
-  });
-
-  if (error) {
-    // Migration 20260831010000 is Director-gated and FILE ONLY, so until it is
-    // applied this RPC does not exist. Say that, rather than reporting a bare
-    // failure the dispatcher would record as an opaque error string.
-    const notDeployed = error.code === 'PGRST202';
-    return NextResponse.json(
-      {
-        ok: false,
-        error: notDeployed
-          ? 'fn_meetings_auto_close_unmarked is not present — migration 20260831010000 has not been applied'
-          : error.message,
-        elapsed_ms: Date.now() - started,
-      },
-      { status: notDeployed ? 503 : 500 },
-    );
-  }
-
-  const result = (data ?? {}) as { closed?: number; cutoff?: string };
-
+  // Retired 2026-08-21. fn_meetings_auto_close_unmarked is deliberately NOT
+  // called: a meeting nobody marked is now left for its host to decide, and
+  // /meetings/inbox surfaces it. `ok: true` because doing nothing IS the
+  // correct outcome now — reporting a failure would make a healthy routine
+  // look broken in the dispatcher log every morning.
   return NextResponse.json({
     ok: true,
-    days: AUTO_CLOSE_AFTER_DAYS,
-    closed: result.closed ?? 0,
-    cutoff: result.cutoff ?? null,
+    retired: true,
+    closed: 0,
+    reason:
+      'Auto-close was retired on 2026-08-21. A meeting that has ended without an ' +
+      'outcome now waits for its host under Awaiting you on /meetings/inbox, ' +
+      'instead of being recorded as completed after 7 days.',
     elapsed_ms: Date.now() - started,
   });
 }

@@ -58,6 +58,17 @@ export interface CacFunnelRow {
   solutions_built: number;
   /** Solutions with a row in `sh_solution_first_use`. */
   solutions_used: number;
+  /**
+   * Departments whose `status` is currently 'dormant'. This is CURRENT STATE,
+   * and it is deliberately a column rather than a filter: until 2026-09-08 the
+   * view counted only `status = 'active'` departments, so when a scheduled
+   * sweep moved all 44 to dormant the funnel reported that no college had ever
+   * activated anything. Activation is now counted from `activated_at`, and
+   * having gone quiet is reported here beside it instead of erasing it.
+   */
+  departments_dormant: number;
+  /** Departments whose `status` is currently 'at_risk'. 0 cluster-wide today. */
+  departments_at_risk: number;
 }
 
 /**
@@ -205,6 +216,10 @@ export function summariseFunnel(rows: CacFunnelRow[]) {
       // NaN — which renders as a broken figure rather than an empty one.
       solutionsBuilt: acc.solutionsBuilt + (r.solutions_built ?? 0),
       solutionsUsed: acc.solutionsUsed + (r.solutions_used ?? 0),
+      // Same `?? 0` guard, same reason: these two columns landed on the view
+      // after the ones above, so a cached bundle can receive rows without them.
+      departmentsDormant: acc.departmentsDormant + (r.departments_dormant ?? 0),
+      departmentsAtRisk: acc.departmentsAtRisk + (r.departments_at_risk ?? 0),
     }),
     {
       institutions: 0,
@@ -215,6 +230,8 @@ export function summariseFunnel(rows: CacFunnelRow[]) {
       publications: 0,
       solutionsBuilt: 0,
       solutionsUsed: 0,
+      departmentsDormant: 0,
+      departmentsAtRisk: 0,
     },
   );
 }
