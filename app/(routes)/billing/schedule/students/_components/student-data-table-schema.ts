@@ -19,9 +19,22 @@ export const studentBillingSearchParamsSchema = z.object({
   semester_id: z.string().optional(),
   section_id: z.string().optional(),
   accommodation_type: z.string().optional(),
+  // Unified operator search box (name OR roll no OR register no OR mobile).
+  // Replaces the three separate first_name / roll_number / mobile_number
+  // boxes on the UI; those keys stay in the schema because bookmarked URLs
+  // and the bulk pages still carry them.
+  q: z.string().optional(),
+  // '1' when `q` came from the camera barcode scanner rather than the
+  // keyboard. A scan identifies exactly one learner, so the results table
+  // opens the bill popup for them automatically — nothing to click between
+  // scanning a card and typing an amount. Typed searches never set this: a
+  // half-typed name that happens to match one row must NOT pop a modal open
+  // under the clerk's cursor.
+  scan: z.string().optional(),
   first_name: z.string().optional(),
   last_name: z.string().optional(),
   roll_number: z.string().optional(),
+  register_number: z.string().optional(),
   mobile_number: z.string().optional(),
   is_profile_complete: z.boolean().optional(),
   student_email: z.string().optional(), // For filtering by student email (used for student role)

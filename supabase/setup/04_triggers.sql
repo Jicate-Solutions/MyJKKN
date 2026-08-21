@@ -1937,3 +1937,37 @@ CREATE TRIGGER trg_enforce_room_buyout_lock_update
   FOR EACH ROW
   WHEN (NEW.room_id IS DISTINCT FROM OLD.room_id OR OLD.check_out_date IS NOT NULL)
   EXECUTE FUNCTION public._enforce_room_buyout_lock();
+
+-- Learner gender -> profiles.gender (20260820140000). A: profile gains a learner
+-- link, pull the gender. B: learner's gender is edited, push it to the profile.
+CREATE TRIGGER trg_sync_profile_gender_from_learner
+  AFTER INSERT OR UPDATE OF learner_id ON public.profiles
+  FOR EACH ROW
+  WHEN (NEW.learner_id IS NOT NULL AND NEW.gender IS NULL)
+  EXECUTE FUNCTION public.sync_profile_gender_from_learner();
+
+CREATE TRIGGER trg_sync_learner_gender_to_profile
+  AFTER INSERT OR UPDATE OF gender ON public.learners_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.sync_learner_gender_to_profile();
+
+-- Gender canonicalisation (20260820160000). BEFORE triggers so the CHECK
+-- constraints below them are backstops that should never actually fire.
+CREATE TRIGGER trg_normalize_gender_learners_profiles
+  BEFORE INSERT OR UPDATE OF gender ON public.learners_profiles
+  FOR EACH ROW EXECUTE FUNCTION public.tg_normalize_learner_gender();
+
+CREATE TRIGGER trg_normalize_gender_profiles
+  BEFORE INSERT OR UPDATE OF gender ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.tg_normalize_profile_gender();
+
+-- ---------------------------------------------------------------------------
+-- admission_fee_structures: hostel room/mess tier integrity guard
+-- (migration 20260910110000)
+-- ---------------------------------------------------------------------------
+DROP TRIGGER IF EXISTS trg_fee_structure_hostel_categories_guard
+  ON public.admission_fee_structures;
+
+CREATE TRIGGER trg_fee_structure_hostel_categories_guard
+  BEFORE INSERT OR UPDATE ON public.admission_fee_structures
+  FOR EACH ROW
+  EXECUTE FUNCTION public._fee_structure_hostel_categories_guard();

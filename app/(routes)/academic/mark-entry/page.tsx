@@ -77,7 +77,9 @@ export default function MarkEntryPage() {
   // state when a prop changes" (react.dev/learn/you-might-not-need-an-effect).
   const pdfContext = useMemo(() => {
     const inst = institutions.find((i) => i.id === institutionId);
-    const header = getInstitutionHeader(inst?.name, inst?.institution_code);
+    // counselling_code is what useInstitutionsWithAccess exposes, and it IS the
+    // COE institution_code bridge — there is no `institution_code` field here.
+    const header = getInstitutionHeader(inst?.name, inst?.counselling_code);
     return {
       institutionName: header.institution_name,
       institutionAccreditation: header.institution_accreditation,

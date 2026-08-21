@@ -7,7 +7,9 @@ import {
   Sheet,
   SheetHeader,
   SheetContent,
-  SheetTrigger
+  SheetTrigger,
+  SheetTitle,
+  SheetDescription
 } from '@/components/ui/sheet';
 
 export function SheetMenu() {
@@ -21,6 +23,18 @@ export function SheetMenu() {
       </SheetTrigger>
       <SheetContent className='sm:w-72 px-3 h-full flex flex-col' side='left'>
         <SheetHeader>
+          {/* Radix requires an accessible name and description on every dialog
+              surface (a Sheet IS a DialogContent underneath) and logs
+              "Missing `Description` or `aria-describedby={undefined}` for
+              {DialogContent}" without them. This sheet is mounted on EVERY
+              authenticated page, so the warning fired on every page load. Both
+              are sr-only: the visible branding below already names the panel
+              for sighted users, so announcing it twice would be worse, not
+              better. */}
+          <SheetTitle className='sr-only'>Navigation menu</SheetTitle>
+          <SheetDescription className='sr-only'>
+            Browse the MyJKKN sections you have access to.
+          </SheetDescription>
           <Button
             className='flex justify-center items-center pb-2 pt-1'
             variant='link'

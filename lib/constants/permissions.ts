@@ -20,11 +20,14 @@ export const INSTITUTIONS = [
   { value: 'jkkn_NV', label: 'JKKN Nattraja Vidhyalya' }
 ] as const;
 
+// profiles.gender domain. Title Case per profiles_gender_check (20260820160000);
+// trg_normalize_gender_profiles canonicalises anything else on write.
+// 'prefer_not_to_say' is gone - it was never stored on either learner table and the
+// constraint now rejects it.
 export const GENDERS = [
-  { value: 'male', label: 'Male' },
-  { value: 'female', label: 'Female' },
-  { value: 'other', label: 'Other' },
-  { value: 'prefer_not_to_say', label: 'Prefer not to say' }
+  { value: 'Male', label: 'Male' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Other', label: 'Other' }
 ] as const;
 
 export const DEPARTMENTS = {
@@ -1500,7 +1503,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'school_fees.manage', label: 'Create / Edit School Fee Plans & Term Calendar' },
       { key: 'school_fees.activate', label: 'Activate Plans & Create New Versions' },
       { key: 'school_fees.generate', label: 'Generate Yearly Fee Bills' },
-      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' }
+      { key: 'school_fees.concession', label: 'Manage Concession Schemes & Learner Assignments' },
+      { key: 'school_fees.collect', label: 'Collect Fee Payments & Issue Receipts (Counter)' }
     ]
   },
   {
@@ -2500,7 +2504,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'bos.experts.edit', label: 'Edit BoS External Experts (legacy key — enforced by RLS)' },
       { key: 'bos.experts.delete', label: 'Delete BoS External Experts (legacy key — enforced by RLS)' },
       { key: 'bos.meetings.view', label: 'View BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' },
-      { key: 'bos.meetings.edit', label: 'Edit BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' }
+      { key: 'bos.meetings.edit', label: 'Edit BoS Course Reviews & Meeting Documents (legacy key — enforced by RLS)' },
+
+      // ── Legacy `bos.*` keys that MENU_PERMISSIONS never stopped using (2026-08-14)
+      // Same failure class as the RLS block above, one layer up. These two are
+      // the SIDEBAR gates — lib/sidebarMenuLink.ts:1313 and :1325 map
+      // '/bos/compositions' and '/bos/reports' to them — while the pages
+      // themselves gate on the canonical keys (BosViewGuard 'academic.bos-
+      // compositions', and hasBosPermission('academic.bos-reports.view') in
+      // app/api/bos/reports/*). Because they were absent here, no role could
+      // hold them, so both links were invisible to everyone but super admins
+      // even when the role had complete working access to both pages by URL.
+      // Registered so the right can be granted; first granted to bos_coordinator
+      // (20260825010000). The tidier fix is to repoint those two
+      // MENU_PERMISSIONS entries at the canonical academic.bos-*.view keys and
+      // retire these — that changes sidebar visibility for every existing role,
+      // so it is deliberately not bundled here.
+      { key: 'bos.compositions.view', label: 'Show BoS Compositions in sidebar (legacy key — sidebar gate only)' },
+      { key: 'bos.reports.view', label: 'Show BoS Reports in sidebar (legacy key — sidebar gate only)' }
     ]
   },
   // Added 2026-04-27 — menu-coverage baseline cleanup (Failure 1 of #511/#515
@@ -2548,7 +2569,11 @@ export const PERMISSION_CATEGORIES = [
       { key: 'courses.view', label: 'View Courses' },
       { key: 'courses.create', label: 'Create Courses' },
       { key: 'courses.edit', label: 'Edit Courses' },
-      { key: 'courses.delete', label: 'Delete Courses (cascades packages, sessions, forms)' },
+      // Retained for the audit gate and for re-delegating deletion later, but it
+      // no longer grants deletion on its own: course delete cascades through
+      // enrollments, bills and payments, so both the course_events_delete RLS
+      // policy and fn_course_delete_cascade check is_super_admin() instead.
+      { key: 'courses.delete', label: 'Delete Courses (superseded — super admin only)' },
       { key: 'courses.packages.manage', label: 'Manage Course Packages & Installment Plans' },
       { key: 'courses.forms.manage', label: 'Manage Course Registration Forms' },
       { key: 'courses.sessions.manage', label: 'Manage Course Sessions & Venue Holds' },

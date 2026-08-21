@@ -15,6 +15,12 @@
 //
 // POLICY: conflicts are ADVISORY — the brain reports, the caller decides. A
 // teaching overlap is often legitimately resolvable; v1 warns rather than refuses.
+//
+// excludeSessionId: when EDITING an existing timed assignment, the booking being
+// edited is not a conflict with itself — pass its session id and the brain skips
+// that one row. The key is spread in only when set, so on a database that hasn't
+// taken 20260827010000 yet the 3-arg call still resolves and create-new keeps
+// its full conflict check.
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 // The availability-brain RPCs (fn_person_conflicts / fn_people_conflicts) are
@@ -44,6 +50,7 @@ export class PersonAvailabilityService {
     profileId: string,
     startIso: string,
     endIso: string,
+    excludeSessionId?: string | null,
   ): Promise<PersonConflict[]> {
     if (!profileId || !startIso || !endIso) return [];
     const supabase = getSupabase();
@@ -51,6 +58,7 @@ export class PersonAvailabilityService {
       p_profile_id: profileId,
       p_start: startIso,
       p_end: endIso,
+      ...(excludeSessionId ? { p_exclude_session_id: excludeSessionId } : {}),
     });
     if (error) throw error;
     return (data as PersonConflict[]) ?? [];
@@ -63,6 +71,7 @@ export class PersonAvailabilityService {
     profileIds: string[],
     startIso: string,
     endIso: string,
+    excludeSessionId?: string | null,
   ): Promise<PersonConflict[]> {
     if (!profileIds.length || !startIso || !endIso) return [];
     const supabase = getSupabase();
@@ -70,6 +79,7 @@ export class PersonAvailabilityService {
       p_profile_ids: profileIds,
       p_start: startIso,
       p_end: endIso,
+      ...(excludeSessionId ? { p_exclude_session_id: excludeSessionId } : {}),
     });
     if (error) throw error;
     return (data as PersonConflict[]) ?? [];
