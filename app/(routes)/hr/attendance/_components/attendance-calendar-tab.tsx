@@ -71,6 +71,13 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
   const tones = tonesFor(day.token);
   const showToken = day.inMonth && !day.isFuture;
   const [first, second] = day.halfPair;
+  // halfPairFor repeats the day token unless the day is HALF_DAY, so a split
+  // pair IS the half day. Rendering only the pair — the reference UI's
+  // `AB : AB` — meant a half day appeared as `AB : P`, which reads as "absent"
+  // against a legend whose entries are all DAY tokens (P, HD, AB, WO...) and
+  // never pairs. The day's own verdict now leads; the split is the detail
+  // under it, and an unsplit day drops the redundant `P : P` entirely.
+  const isSplit = first !== second;
 
   return (
     <div
@@ -95,13 +102,19 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
           <Tooltip>
             <TooltipTrigger asChild>
               <span className={cn('text-xs font-bold', tones.text)}>
-                {STATUS_TOKENS[first].short} : {STATUS_TOKENS[second].short}
+                {STATUS_TOKENS[day.token].short}
               </span>
             </TooltipTrigger>
             <TooltipContent className="max-w-xs">
               <CellTooltip day={day} />
             </TooltipContent>
           </Tooltip>
+
+          {isSplit && (
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {STATUS_TOKENS[first].short} : {STATUS_TOKENS[second].short}
+            </span>
+          )}
 
           {day.inTime && day.outTime && (
             <span className="text-[10px] tabular-nums text-muted-foreground">
@@ -115,12 +128,20 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
 }
 
 function CellTooltip({ day }: { day: AttendanceDay }) {
+  const [first, second] = day.halfPair;
   return (
     <div className="space-y-1">
       <p className="font-semibold">
         {format(day.dateObj, 'EEEE, d MMMM yyyy')} — {STATUS_TOKENS[day.token].label}
         {day.tokenDetail ? ` (${day.tokenDetail})` : ''}
       </p>
+      {/* Spell the halves out. "AB : P" on the cell is compact, not obvious. */}
+      {first !== second && (
+        <p>
+          Morning {STATUS_TOKENS[first].label.toLowerCase()} · afternoon{' '}
+          {STATUS_TOKENS[second].label.toLowerCase()}
+        </p>
+      )}
       {day.inTime && day.outTime && (
         <p>
           In {day.inTime} · Out {day.outTime} · Effective{' '}
@@ -128,8 +149,16 @@ function CellTooltip({ day }: { day: AttendanceDay }) {
         </p>
       )}
       {day.lateMinutes !== null && day.lateMinutes > 0 && (
-        <p>Late by {day.lateMinutes} minute(s).</p>
+        <p>
+          Late by {day.lateMinutes} minute(s).
+          {/* Without this line a 09:24 arrival reading PRESENT looks like the
+              bug fixed on 2026-08-20 rather than an approved permission. */}
+          {day.excusedMinutes ? ` ${day.excusedMinutes} minute(s) covered by an approved permission.` : ''}
+        </p>
       )}
+      {!day.lateMinutes && day.excusedMinutes ? (
+        <p>{day.excusedMinutes} minute(s) covered by an approved permission.</p>
+      ) : null}
       {day.exception?.reason && <p className="text-xs">{day.exception.reason}</p>}
     </div>
   );

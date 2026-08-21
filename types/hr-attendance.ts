@@ -125,6 +125,8 @@ export interface AttendanceRecord {
   overtime_minutes: number | null;
   break_minutes: number | null;
   late_minutes: number | null;
+  /** Minutes of a half reinstated by an approved permission. See evaluate-day.ts. */
+  excused_minutes: number | null;
   device_status: string | null;
   first_half_attended: boolean | null;
   second_half_attended: boolean | null;
@@ -171,6 +173,12 @@ export interface AttendanceDay {
   /** The machine's own worked time. Already excludes recorded breaks. */
   effectiveMinutes: number | null;
   lateMinutes: number | null;
+  /**
+   * Minutes an approved short-time-off permission covered. Non-zero is the only
+   * reason a day past the grace deadline can still read PRESENT, so the UI has
+   * to be able to say so.
+   */
+  excusedMinutes: number | null;
   /** False for the leading/trailing days that pad the calendar grid. */
   inMonth: boolean;
   isToday: boolean;
@@ -362,6 +370,7 @@ export function buildAttendanceDays({
           ? null
           : Math.round(Number(record.hours_worked) * 60),
       lateMinutes: record?.late_minutes ?? null,
+      excusedMinutes: record?.excused_minutes ?? null,
       inMonth: date >= format(monthStart, 'yyyy-MM-dd') && date <= format(monthEnd, 'yyyy-MM-dd'),
       isToday: date === todayKey,
       isFuture: date > todayKey,

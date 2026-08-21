@@ -91,7 +91,16 @@ export interface ImportPreviewRow {
   out_time: string | null;
   work_minutes: number | null;
   overtime_minutes: number | null;
+  /**
+   * The machine's own P/A. STORED on the row and used by the reconciliation
+   * and status-disagreement checks, but no longer shown per row in the preview:
+   * a machine 'P' beside our 'Half day' read as a contradiction when it is only
+   * the machine saying "there was a punch". Our verdict comes from the shift
+   * timing and nothing else.
+   */
   device_status: string;
+  /** The window this verdict was judged against, e.g. '09:00–16:30 +5m'. */
+  shift_window: string | null;
   verdict: ImportVerdict;
   day_calc: string | null;
   late_minutes: number | null;
@@ -227,6 +236,41 @@ export const ANOMALY_LABEL: Record<BiometricAnomalyKind, string> = {
   status_disagreement: 'Machine and MyJKKN disagree',
 };
 
+/**
+ * Which shift timing the importer resolved for one employee, and how.
+ *
+ * hr_shift_timings can be set three ways — a per-CATEGORY override, or a
+ * blanket teaching / non_teaching row — and fn_resolve_shift_timings_bulk picks
+ * between them per staff member per date, category first. That choice decides
+ * every verdict in the file, and until now the only trace of it was one
+ * EXCEPTION row per unresolved DAY buried in the exceptions list. A staff
+ * member with no timing at all produced 31 of them and no statement of the
+ * actual problem.
+ */
+export interface BiometricShiftCoverageRow {
+  code: string;
+  staff_name: string | null;
+  staff_code: string | null;
+  category_name: string | null;
+  is_teaching: boolean | null;
+  /** 'category' | 'teaching' | 'non_teaching', or null when nothing resolved. */
+  matched_by: string | null;
+  /** True when different days resolved through different scopes. */
+  mixed: boolean;
+  /** '09:00–17:30', from the first day that resolved. */
+  window: string | null;
+  grace_minutes: number | null;
+  days_total: number;
+  /** Days with no timing at all — each becomes a needs-review row. */
+  days_without_timing: number;
+}
+
+export const SHIFT_SCOPE_LABEL: Record<string, string> = {
+  category: 'Category override',
+  teaching: 'Teaching',
+  non_teaching: 'Non-teaching',
+};
+
 export interface BiometricImportReport {
   success: boolean;
   dry_run: boolean;
@@ -246,6 +290,8 @@ export interface BiometricImportReport {
   exceptions_total: number;
   skipped_no_organization: number;
   /** Field-level validation of the new machine columns. */
+  /** Per-employee shift-timing resolution, so the rule can be checked before committing. */
+  shift_coverage: BiometricShiftCoverageRow[];
   reconciliation: BiometricReconciliationRow[];
   reconciled_employees: number;
   anomalies: BiometricAnomaly[];
