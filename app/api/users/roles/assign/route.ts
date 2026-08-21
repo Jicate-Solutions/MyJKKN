@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { isPushOptedOut } from '@/lib/push/opt-out';
 import webpush from 'web-push';
 
 // Configure web-push with VAPID keys once on module load (same as notifications/send).
@@ -162,13 +163,19 @@ export async function POST(request: NextRequest) {
     let pushed = 0;
     try {
       if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-        // is_active=false is how an unsubscribe is recorded, so pushing to
-        // those rows would buzz someone who explicitly opted out.
-        const { data: subs } = await admin
-          .from('push_subscriptions')
-          .select('id, subscription')
-          .eq('user_id', userId)
-          .eq('is_active', true);
+        // Check the person's own preference before looking up any subscription.
+        // is_active alone cannot carry that answer: unsubscribing destroys the
+        // browser endpoint, so the next page load mints a NEW row that is
+        // is_active=true and passes the filter below perfectly.
+        const optedOut = await isPushOptedOut(admin, userId);
+        const subsResult = optedOut
+          ? null
+          : await admin
+              .from('push_subscriptions')
+              .select('id, subscription')
+              .eq('user_id', userId)
+              .eq('is_active', true);
+        const subs = subsResult?.data;
         if (subs && subs.length) {
           const payload = JSON.stringify({
             title,
