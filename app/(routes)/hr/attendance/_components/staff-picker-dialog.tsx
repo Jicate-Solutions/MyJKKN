@@ -62,7 +62,12 @@ interface Props {
 }
 
 export function StaffPickerDialog({
-  target, onOpenChange, staff, machineName, assignedElsewhere, onSelect,
+  target,
+  onOpenChange,
+  staff,
+  machineName,
+  assignedElsewhere,
+  onSelect,
 }: Props) {
   // Seeded from the machine's own spelling — the name HR is actually hunting
   // for. Keyed on the code so switching rows re-seeds rather than stranding the
@@ -145,8 +150,8 @@ export function StaffPickerDialog({
           </DialogTitle>
           <DialogDescription>
             The machine calls this person{' '}
-            <strong>{target?.deviceName || 'nothing at all'}</strong>. Pick the MyJKKN staff record
-            they belong to — only staff in this list can ever be imported.
+            <strong>{target?.deviceName || 'nothing at all'}</strong>. Pick the MyJKKN team member
+            record they belong to — only team members in this list can ever be imported.
           </DialogDescription>
         </DialogHeader>
 
@@ -157,9 +162,9 @@ export function StaffPickerDialog({
               autoFocus
               value={term}
               onChange={(e) => setTerm(e.target.value)}
-              placeholder="Search name or staff code…"
+              placeholder="Search name or team member code…"
               className="pl-9 pr-9"
-              aria-label="Search staff"
+              aria-label="Search team members"
             />
             {term && (
               <button
@@ -212,7 +217,7 @@ export function StaffPickerDialog({
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              {results.length} of {staff.length} staff match
+              {results.length} of {staff.length} team members match
               {results.length > MAX_RESULTS ? ` — showing the first ${MAX_RESULTS}` : ''}
             </p>
             {filtersOn && (
@@ -228,11 +233,11 @@ export function StaffPickerDialog({
             <div className="flex flex-col items-center gap-2 p-8 text-center">
               <UserRound className="h-6 w-6 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                No staff match {term.trim() ? <>&ldquo;{term.trim()}&rdquo;</> : 'these filters'}.
+                No team members match {term.trim() ? <>&ldquo;{term.trim()}&rdquo;</> : 'these filters'}.
               </p>
               <p className="max-w-sm text-xs text-muted-foreground">
                 The machine&rsquo;s spelling often differs from MyJKKN&rsquo;s. Widen the search, or
-                accept that this person has no staff record — their punches will not import.
+                accept that this person has no team member record — their punches will not import.
               </p>
               {filtersOn && (
                 <Button variant="outline" size="sm" onClick={resetFilters}>
@@ -273,7 +278,7 @@ export function StaffPickerDialog({
                           )}
                         </span>
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {[s.staff_id ?? 'no staff code', s.institution_name ?? 'no institution'].join(' · ')}
+                          {[s.staff_id ?? 'no team member code', s.institution_name ?? 'no institution'].join(' · ')}
                         </span>
                         {clash && (
                           <span className="mt-0.5 block text-xs text-destructive">

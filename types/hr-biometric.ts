@@ -275,7 +275,7 @@ export const VERDICT_CLASS: Record<ImportVerdict, string> = {
 
 // ---------------------------------------------------------------------------
 // Import purge — super admin only. See
-// supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+// supabase/migrations/20260820150000_biometric_import_purge_super_admin.sql
 // ---------------------------------------------------------------------------
 
 /**

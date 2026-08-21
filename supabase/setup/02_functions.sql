@@ -44816,7 +44816,7 @@ END $function$;
 
 -- ===========================================================================
 -- HR Biometric import purge (super admin only)
--- Mirrored from supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+-- Mirrored from supabase/migrations/20260820150000_biometric_import_purge_super_admin.sql
 -- ===========================================================================
 -- HR Attendance — super-admin-only purge of one imported biometric month.
 --
