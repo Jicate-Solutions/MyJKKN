@@ -1708,7 +1708,7 @@ export function SyllabusForm({
                grid + exam scheme live in bds_content/exam_scheme (course_content
                is NULL) — render the dedicated read-only card. */
             <BdsContentCard
-              content={formData.bds_content as any}
+              content={(formData as any).bds_content}
               examScheme={formData.exam_scheme}
               textbooks={formData.textbooks}
             />
