@@ -89,6 +89,9 @@ COMMENT ON TABLE public.session_question_vote IS
 -- without a deploy. Seeded with a short, unambiguous English set; matching is on whole
 -- words (see fn_session_question_moderation_verdict) so ordinary words containing a
 -- term are not caught.
+-- Terms in ANY script are matched, Tamil included — the seed is English only because
+-- that is what can be reviewed here; a Tamil set must be curated into this table by a
+-- native speaker rather than guessed at in a migration.
 CREATE TABLE IF NOT EXISTS public.session_question_blocked_term (
   term        text PRIMARY KEY,
   created_at  timestamptz NOT NULL DEFAULT now()
@@ -146,14 +149,34 @@ CREATE POLICY session_question_blocked_term_super_admin ON public.session_questi
 -- the fail-open behaviour (D6).
 CREATE OR REPLACE FUNCTION public.fn_session_question_moderation_verdict(p_body text)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
-DECLARE v_norm text; v_hit text;
+DECLARE
+  -- Word separators: ASCII whitespace and ASCII punctuation, and NOTHING else. Every
+  -- character from U+0080 up survives, so a Tamil question reaches the match instead of
+  -- being erased before it. The class this replaces was [^a-z0-9], which normalised a
+  -- whole Tamil question down to the empty string — in a Tamil Nadu institution the
+  -- check could therefore only ever see English.
+  --   * literal ASCII ranges, not [[:alnum:]]/[[:punct:]]: those are lc_ctype-dependent
+  --     and classify Tamil letters and combining marks differently on macOS libc than on
+  --     the Linux libc production runs, so the same question would be judged differently
+  --     depending on where the SQL ran.
+  --   * escaped (\t\n\v\f\r), not literal control bytes, so CRLF normalisation of this
+  --     file cannot silently rewrite the class.
+  c_sep constant text := '[\t\n\v\f\r -/:-@[-`{-~]+';
+  v_norm text; v_hit text;
 BEGIN
-  -- collapse everything that is not a letter/digit to a single space, and pad the
-  -- ends, so '% <term> %' is a true word-boundary test.
-  v_norm := ' ' || regexp_replace(lower(coalesce(p_body, '')), '[^a-z0-9]+', ' ', 'g') || ' ';
+  -- collapse every separator run to a single space, and pad the ends, so '% <term> %'
+  -- is a true word-boundary test.
+  v_norm := ' ' || regexp_replace(lower(coalesce(p_body, '')), c_sep, ' ', 'g') || ' ';
+  -- The TERM is normalised the SAME way, so a curated term and the learner's text meet
+  -- in one shape — otherwise a Tamil term keeping its combining marks could never equal
+  -- a body that had lost them. A term that normalises to nothing is skipped: an
+  -- all-punctuation row would become the pattern '%  %' and flag every question on the
+  -- board. Normalising the term also strips % and _, so a curated term cannot smuggle
+  -- in a LIKE wildcard.
   SELECT b.term INTO v_hit
   FROM public.session_question_blocked_term b
-  WHERE v_norm LIKE '% ' || b.term || ' %'
+  CROSS JOIN LATERAL (SELECT btrim(regexp_replace(lower(b.term), c_sep, ' ', 'g')) AS t) n
+  WHERE n.t <> '' AND v_norm LIKE '% ' || n.t || ' %'
   LIMIT 1;
   IF v_hit IS NOT NULL THEN
     RETURN jsonb_build_object('blocked', true, 'note', 'auto-check: matched a community-rules term');
@@ -192,18 +215,28 @@ REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_host(uuid) FROM anon,
 -- disclosure-oracle shape as the 2-arg user_has_permission closed on 2026-08-19.
 REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_host(uuid) FROM authenticated;
 
--- May THIS learner take part in THIS board? Induction reuses the poll rule (enrolled in
--- the event + the session applies to their batch); the other host types scope on the
--- board's institution, which for a learner role resolves to their own institution.
-CREATE OR REPLACE FUNCTION public._fn_session_question_can_participate(p_board_id uuid, p_learner uuid)
+-- May THIS learner READ this board — irrespective of whether it is still taking
+-- questions? Induction reuses the poll rule (enrolled in the event + the session applies
+-- to their batch); the other host types scope on the board's institution, which for a
+-- learner role resolves to their own institution.
+--
+-- Split out from _can_participate on purpose. MEMBERSHIP ("this board is mine to read")
+-- and OPEN-NESS ("this board is still taking questions") are two different questions, and
+-- fusing them is what made a closed board vanish from the learner's screen with no
+-- message — CLAUDE.md #27 — taking the answers to their own questions with it. Read paths
+-- ask this one; write paths ask _can_participate.
+-- Named to the repo's `fn_<domain>_can_<verb>` authority-helper family on purpose: that
+-- is the shape check-secdef-anon-revoke.mjs recognises as a real authorization predicate,
+-- and this is the predicate now gating fn_session_question_boards_for_learner.
+CREATE OR REPLACE FUNCTION public._fn_session_question_can_read(p_board_id uuid, p_learner uuid)
 RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
-DECLARE v_host_type text; v_host_id uuid; v_inst uuid; v_status text;
+DECLARE v_host_type text; v_host_id uuid; v_inst uuid;
 BEGIN
   IF p_learner IS NULL OR p_board_id IS NULL THEN RETURN false; END IF;
-  SELECT b.host_type, b.host_id, b.institution_id, b.status
-    INTO v_host_type, v_host_id, v_inst, v_status
+  SELECT b.host_type, b.host_id, b.institution_id
+    INTO v_host_type, v_host_id, v_inst
   FROM public.session_question_board b WHERE b.id = p_board_id;
-  IF v_host_type IS NULL OR v_status <> 'open' THEN RETURN false; END IF;
+  IF v_host_type IS NULL THEN RETURN false; END IF;
 
   IF v_host_type = 'induction' THEN
     RETURN EXISTS (
@@ -215,6 +248,24 @@ BEGIN
     );
   END IF;
   RETURN coalesce(public.role_has_institution_access(v_inst), false);
+END $fn$;
+REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_read(uuid, uuid) FROM anon, PUBLIC;
+-- NOT granted to authenticated, for the same disclosure-oracle reason as the predicates
+-- below: every caller is SECURITY DEFINER and runs as the owner, so the grant would buy
+-- nothing except a way to probe "is learner X in the event behind board Y?".
+REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_read(uuid, uuid) FROM authenticated;
+
+-- May THIS learner WRITE to THIS board — post a question or cast an upvote? Audience
+-- membership AND the board still being open. Unchanged in meaning; it now names the two
+-- halves separately so a read path can ask for only the first.
+CREATE OR REPLACE FUNCTION public._fn_session_question_can_participate(p_board_id uuid, p_learner uuid)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
+DECLARE v_status text;
+BEGIN
+  IF p_learner IS NULL OR p_board_id IS NULL THEN RETURN false; END IF;
+  SELECT b.status INTO v_status FROM public.session_question_board b WHERE b.id = p_board_id;
+  IF v_status IS DISTINCT FROM 'open' THEN RETURN false; END IF;
+  RETURN coalesce(public._fn_session_question_can_read(p_board_id, p_learner), false);
 END $fn$;
 REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_participate(uuid, uuid) FROM anon, PUBLIC;
 -- NOT granted to authenticated: every caller is SECURITY DEFINER and runs as the
@@ -367,12 +418,19 @@ GRANT  EXECUTE ON FUNCTION public.fn_session_question_set_board_status(uuid, tex
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Discovery for the learner's own view. Mirrors fn_induction_session_poll_for_learner:
--- only boards this learner can actually take part in. (Induction is the host type with a
+-- only boards this learner actually belongs to. (Induction is the host type with a
 -- shared membership join; ai_pulse / meeting boards are reached from their own page with
 -- a known board id.)
+-- A CLOSED board is still listed, carrying status='closed'. It is how a learner reaches
+-- the answer to the question they asked after the host has wrapped the session up;
+-- dropping it here is what made the board disappear without a word. The caller renders it
+-- read-only from `status` — see session-question-board.tsx.
+-- Return signature changed 2026-08-21 (status added), and PostgreSQL cannot CREATE OR
+-- REPLACE across a changed RETURNS TABLE — drop first so a re-apply works.
+DROP FUNCTION IF EXISTS public.fn_session_question_boards_for_learner();
 CREATE OR REPLACE FUNCTION public.fn_session_question_boards_for_learner()
 RETURNS TABLE (board_id uuid, host_type text, host_id uuid, title text, day_number integer,
-               question_count bigint, my_question_count bigint)
+               status text, question_count bigint, my_question_count bigint)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
 DECLARE v_learner uuid;
 BEGIN
@@ -380,7 +438,7 @@ BEGIN
   v_learner := public.get_my_learner_id();
   IF v_learner IS NULL THEN RETURN; END IF;
   RETURN QUERY
-  SELECT b.id, b.host_type, b.host_id, es.title, es.day_number,
+  SELECT b.id, b.host_type, b.host_id, es.title, es.day_number, b.status,
          (SELECT count(*) FROM public.session_question q
            WHERE q.board_id = b.id AND q.state IN ('visible','answered')),
          (SELECT count(*) FROM public.session_question q
@@ -389,10 +447,10 @@ BEGIN
   JOIN public.event_sessions es ON es.id = b.host_id
   JOIN public.induction_enrollment ie
     ON ie.event_id = es.event_id AND ie.learner_id = v_learner
-  WHERE b.host_type = 'induction' AND b.status = 'open'
+  WHERE b.host_type = 'induction'
     AND (es.batch_id IS NULL OR es.batch_id = ie.batch_id)
-    -- same rule the room and write paths use, asserted here rather than left to the join
-    AND public._fn_session_question_can_participate(b.id, v_learner)
+    -- the same membership rule the room uses, asserted here rather than left to the join
+    AND public._fn_session_question_can_read(b.id, v_learner)
   ORDER BY es.start_at NULLS LAST, es.day_number NULLS LAST;
 END $fn$;
 REVOKE EXECUTE ON FUNCTION public.fn_session_question_boards_for_learner() FROM anon, PUBLIC;
@@ -412,10 +470,16 @@ BEGIN
   IF v_status IS NULL THEN RAISE EXCEPTION 'fn_session_question_room: no such board'; END IF;
 
   v_learner := public.get_my_learner_id();
+  -- can_ask is about WRITING, and it goes false the moment the host closes the board.
+  -- The gate below must NOT be that question, or closing a board deletes it from every
+  -- learner's screen — including the answers to the questions they asked, which is the
+  -- one thing this feature is measured on. Read access is audience membership, which a
+  -- close does not revoke.
   v_can_ask := coalesce(public._fn_session_question_can_participate(p_board_id, v_learner), false);
   -- the gate calls the host predicate HERE, in the IF itself: a predicate that is only
   -- assigned to a variable authorises nobody, it just records an answer.
-  IF NOT (v_can_ask OR coalesce(public._fn_session_question_can_host(p_board_id), false)) THEN
+  IF NOT (coalesce(public._fn_session_question_can_read(p_board_id, v_learner), false)
+          OR coalesce(public._fn_session_question_can_host(p_board_id), false)) THEN
     RAISE EXCEPTION 'fn_session_question_room: not allowed'; END IF;
   v_is_host := coalesce(public._fn_session_question_can_host(p_board_id), false);
 
@@ -459,10 +523,27 @@ GRANT  EXECUTE ON FUNCTION public.fn_session_question_room(uuid) TO authenticate
 -- The write path. Three decisions live here and are the reason it returns a result
 -- object instead of raising:
 --   D3 the question is posted INSTANTLY and auto-checked — there is no host approval queue.
---   D6 the auto-check FAILS OPEN. If it is slow (2s budget), errors, or the term list is
---      unreadable, the exception block leaves state='visible' and the question SHOWS. A
---      board that goes blank mid-session is never trusted again, so a checker fault must
---      never swallow a learner's question.
+--   D6 the auto-check FAILS OPEN — genuinely, which needs two mechanisms, not one:
+--      (a) lock_timeout, set transaction-locally right before the check. An unreachable
+--          checker in practice means its term list is lock-held (an admin curating it, a
+--          stalled ALTER), and lock_timeout is armed per lock acquisition, so it raises
+--          lock_not_available (55P03) in milliseconds — an ORDINARY, catchable error.
+--      (b) an explicit `WHEN query_canceled` handler. This is the one that matters:
+--          statement_timeout raises 57014, and PL/pgSQL's `WHEN OTHERS` DOES NOT MATCH
+--          57014 (it is excluded by the language, along with assert_failure). The
+--          previous version relied on `WHEN OTHERS` alone, so the exact failure it named
+--          — a checker that runs out of time — sailed straight through it and aborted the
+--          whole call. Verified: with the term list locked and a 1s budget, the learner's
+--          question was LOST, not shown. Naming query_canceled is what makes the handler
+--          able to fire at all.
+--      Either way the question is inserted state='visible' and marked in
+--      moderation_note as posted-unchecked, so the host can review what the checker never
+--      saw. A board that goes blank mid-session is never trusted again, so a checker
+--      fault must never swallow a learner's question.
+--      What is still NOT survivable, honestly: the whole RPC being killed (the caller's
+--      statement budget expiring across the entire call, or the connection dropping). At
+--      that point no line of this function runs, the client gets an error, and the UI
+--      renders it — a told failure the learner can retry, not a silent loss.
 --   D7 a blocked learner is TOLD in general terms. The row is still written (the host can
 --      review and restore it) and {success:false, error:...} comes back for the UI to
 --      render — never a silent failure and never a silent redirect (CLAUDE.md #27).
@@ -473,7 +554,7 @@ RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = publi
 DECLARE
   v_learner uuid; v_body text; v_seq int; v_id uuid;
   v_state text := 'visible'; v_note text := NULL;
-  v_verdict jsonb; v_prev_timeout text;
+  v_verdict jsonb; v_prev_lock_timeout text;
 BEGIN
   IF auth.uid() IS NULL THEN
     RETURN jsonb_build_object('success', false, 'error', 'Please sign in to ask a question.'); END IF;
@@ -489,24 +570,33 @@ BEGIN
   IF length(v_body) > 500 THEN
     RETURN jsonb_build_object('success', false, 'error', 'Please keep your question under 500 characters.'); END IF;
 
-  v_prev_timeout := current_setting('statement_timeout', true);
+  v_prev_lock_timeout := current_setting('lock_timeout', true);
   BEGIN
-    -- Best-effort only: PostgreSQL arms the statement timer when the TOP-LEVEL statement
-    -- begins, so set_config here does NOT re-arm it for the statement already running.
-    -- The real guarantee is the fail-open EXCEPTION below, not this budget. Harmless to
-    -- keep (it does bound any future out-of-line checker call), but do not rely on it.
-    PERFORM set_config('statement_timeout', '2000', true);
+    -- Unlike statement_timeout — which PostgreSQL arms when the TOP-LEVEL statement
+    -- begins, so setting it here cannot re-arm it — lock_timeout is evaluated at each
+    -- lock acquisition. Setting it here really does bound the check, and it turns the
+    -- realistic "checker unavailable" case (its term list is lock-held) into
+    -- lock_not_available, which an exception handler can actually catch.
+    PERFORM set_config('lock_timeout', '250ms', true);
     v_verdict := public.fn_session_question_moderation_verdict(v_body);
     IF coalesce((v_verdict->>'blocked')::boolean, false) THEN
       v_state := 'blocked';
       v_note  := v_verdict->>'note';
     END IF;
-  EXCEPTION WHEN OTHERS THEN
-    -- D6 fail open: cancelled, errored, or unavailable checker => the question shows.
-    v_state := 'visible';
-    v_note  := NULL;
+  EXCEPTION
+    WHEN query_canceled THEN
+      -- 57014. Named EXPLICITLY because `WHEN OTHERS` does not match it — that omission
+      -- is what silently discarded a learner's question when the checker ran long.
+      -- Narrow cost of naming it: a DBA cancelling this backend during the few
+      -- milliseconds inside the check is absorbed here instead of ending the call.
+      v_state := 'visible';
+      v_note  := 'auto-check did not finish in time — posted unchecked';
+    WHEN OTHERS THEN
+      -- lock_not_available, a missing or broken checker, an unreadable term list.
+      v_state := 'visible';
+      v_note  := 'auto-check unavailable — posted unchecked';
   END;
-  PERFORM set_config('statement_timeout', coalesce(nullif(v_prev_timeout, ''), '0'), true);
+  PERFORM set_config('lock_timeout', coalesce(nullif(v_prev_lock_timeout, ''), '0'), true);
 
   PERFORM pg_advisory_xact_lock(hashtext(p_board_id::text));
   SELECT q.nickname_seq INTO v_seq FROM public.session_question q

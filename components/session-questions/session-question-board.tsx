@@ -111,7 +111,8 @@ export function SessionQuestionBoard({ boardId }: { boardId: string }) {
   }
   if (!board) return null;
 
-  const open = board.status === 'open' && board.can_ask;
+  const closed = board.status === 'closed';
+  const open = !closed && board.can_ask;
   const remaining = MAX_LEN - body.length;
 
   return (
@@ -122,7 +123,7 @@ export function SessionQuestionBoard({ boardId }: { boardId: string }) {
         {board.my_nickname && (
           <Badge variant="secondary" className="text-xs">You appear as {board.my_nickname}</Badge>
         )}
-        {board.status === 'closed' && (
+        {closed && (
           <Badge variant="outline" className="text-xs text-muted-foreground">Board closed</Badge>
         )}
       </div>
@@ -131,6 +132,16 @@ export function SessionQuestionBoard({ boardId }: { boardId: string }) {
         Everyone in the room sees your question under a nickname, not your name. The host can
         see who asked, so they can group your questions together.
       </p>
+
+      {/* A closed board stays readable — the questions and their answers are still here.
+          Saying so is the point: a board that silently emptied itself would take the
+          answers with it and tell the learner nothing (CLAUDE.md #27). */}
+      {closed && (
+        <p className="rounded-md border border-muted bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+          The host has closed this board, so no new questions or upvotes. Everything asked
+          during the session, and the answers, stay here to read.
+        </p>
+      )}
 
       {open && (
         <div className="space-y-2">
@@ -160,7 +171,7 @@ export function SessionQuestionBoard({ boardId }: { boardId: string }) {
 
       {board.questions.length === 0 ? (
         <p className="rounded-md bg-muted/40 px-3 py-4 text-center text-sm text-muted-foreground">
-          No questions yet. Ask the first one.
+          {closed ? 'No questions were asked on this board.' : 'No questions yet. Ask the first one.'}
         </p>
       ) : (
         <ul className="space-y-2">

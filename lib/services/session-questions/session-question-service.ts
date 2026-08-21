@@ -14,13 +14,18 @@ export type SessionQuestionHostType = 'induction' | 'ai_pulse' | 'meeting';
 export type SessionQuestionState = 'visible' | 'blocked' | 'answered' | 'dismissed';
 export type SessionQuestionBoardStatus = 'open' | 'closed';
 
-/** A board the signed-in learner can take part in (banner discovery). */
+/**
+ * A board the signed-in learner belongs to (banner discovery). CLOSED boards are listed
+ * too, carrying status:'closed' — a closed board goes read-only, it does not disappear.
+ * It is how a learner reads the answer to the question they asked after the session ends.
+ */
 export interface LearnerQuestionBoard {
   board_id: string;
   host_type: SessionQuestionHostType;
   host_id: string;
   title: string | null;
   day_number: number | null;
+  status: SessionQuestionBoardStatus;
   question_count: number;
   my_question_count: number;
 }
@@ -180,9 +185,14 @@ export class SessionQuestionService {
   /**
    * Post a question. It goes up immediately — there is no host approval step. If the
    * auto-check refuses it, `success` is false and `error` carries the plain-English
-   * reason to show the learner. A slow or broken checker returns success:true, because
-   * the server-side check fails OPEN on purpose: a board that goes blank mid-session is
-   * never trusted again.
+   * reason to show the learner.
+   *
+   * A checker that is slow, broken or unreachable returns success:true and the question
+   * is posted `visible`, marked in moderation_note as unchecked for the host to review —
+   * the server-side check fails OPEN on purpose, because a board that goes blank
+   * mid-session is never trusted again. If the whole call is killed (the caller's
+   * statement budget, a dropped connection) the learner is TOLD via `error` and can
+   * retry; that path is a visible failure, never a silent loss.
    */
   static async ask(boardId: string, body: string): Promise<AskResult> {
     const { data, error } = await getSupabase().rpc('fn_session_question_ask', {
