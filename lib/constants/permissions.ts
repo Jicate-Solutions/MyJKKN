@@ -242,13 +242,27 @@ export const PERMISSION_CATEGORIES = [
   {
     // Added 2026-06-27 — Fresher Induction module (Phase 1). Keys referenced by
     // RLS on induction_* tables + the SECURITY DEFINER engine RPCs
-    // (fn_induction_create_program / auto_enroll / auto_split_batches). Grant
-    // 'induction.manage' to induction coordinators; super_admin/admin bypass.
+    // (fn_induction_create_program / auto_enroll / auto_split_batches).
+    // super_admin/admin bypass all three.
+    //
+    // 'induction.create' was split out of 'induction.manage' on 2026-08-21.
+    // Before that, manage bundled create+enroll+batches+attendance in one key and
+    // 654 users across ten roles held it — every Facilitator (493) and HOD (120)
+    // could stand up a new induction. Creation is now its own key, held by
+    // Induction Lead alone.
+    //
+    // WHY THE SPLIT IS SAFE OPERATIONALLY: fn_induction_create_program is the only
+    // manage-gated RPC with NO `OR fn_induction_is_event_coordinator(...)` leg.
+    // mark_attendance, upsert_session, auto_enroll, appoint_feedback_volunteer and
+    // the rest all accept an appointed per-event coordinator, so taking manage away
+    // from a role does not stop the people actually running an induction — it stops
+    // them starting a new one. That is the whole point of the split.
     name: 'Induction',
     key: 'induction',
     permissions: [
       { key: 'induction.view', label: 'View Induction Programs' },
-      { key: 'induction.manage', label: 'Manage Induction (create, enroll, batches, attendance)' }
+      { key: 'induction.create', label: 'Create Induction Program' },
+      { key: 'induction.manage', label: 'Manage Induction (enroll, batches, attendance)' }
     ]
   },
   {

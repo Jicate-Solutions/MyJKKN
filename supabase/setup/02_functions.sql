@@ -45229,3 +45229,1755 @@ BEGIN
   RETURN NEW;
 END
 $$;
+
+-- ===========================================================================
+-- HR Leave approval queue (identity + institution + cross-org scope)
+-- Mirrored from supabase/migrations/20260820160000_hr_leave_approval_queue.sql
+-- ===========================================================================
+-- HR Leave — one approval queue carrying WHO is asking.
+--
+-- WHY THIS EXISTS
+-- ---------------
+-- The Approvals tab read /api/hr/leave/applications, which embeds only
+-- hr_leave_types. Three consequences, all visible on the screen:
+--
+-- 1. NO IDENTITY. The table showed leave type, dates, days and status — never
+--    the staff member. An approver decided on anonymous rows. Adding a staff
+--    embed on the client does not fix it: staff_select_scope_aware requires
+--    is_super_admin() OR staff.view within a module scope, and hr.leave.approve
+--    grants neither, so the embed returns NULL for exactly the approvers who
+--    need the name. Blank instead of missing is worse than either. Resolving it
+--    in a SECURITY DEFINER function that mirrors the hla_select predicate is
+--    the only way the name is there for every legitimate approver.
+--
+-- 2. NO INSTITUTION. hr_leave_applications has no institution_id at all; the
+--    college comes from staff.institution_id, one join further out — and staff
+--    is the table the approver cannot read.
+--
+-- 3. SUPER ADMINS SAW NOTHING, OR ONE ORG. The page passed the caller's own
+--    hr_organization_id and the hook was enabled: !!hrOrgId, so a super admin
+--    with no HR employee record never issued the query, and one with a record
+--    saw a single organisation. The database was never the constraint —
+--    hla_select, hla_update, hr_can_approve_leave() and
+--    hr_trig_leave_enforce_approver all short-circuit TRUE on is_super_admin().
+--    The gap was entirely client-side scoping, and it is fixed here by scoping
+--    in one place that copies the RLS predicate rather than guessing at it.
+--
+-- Also returns request_category, so the tab can separate Leave from Short Time
+-- Off. They share hr_leave_applications and differ only by the type's category,
+-- and the old queue filtered on neither — so 240 pending short-time-off requests
+-- were being rendered in the "Leave Requests" table with a day count and no
+-- times, against 206 real leave requests.
+--
+-- And it returns EVERY pending row. The REST route defaults to pageSize 50 and
+-- the page never overrode it, so the queue silently stopped at 50 of 446.
+--
+-- SCOPE PREDICATE — copied from hla_select, deliberately, not invented:
+--     is_super_admin()
+--  OR (hr.leave.approve AND hr_organization_id IN fn_my_hr_organization_ids())
+--  OR fn_is_designated_leave_approver(id)
+-- A DEFINER function bypasses RLS, so drifting from the policy here would hand
+-- out rows the table itself refuses. The hr.leave.approve test is already made
+-- by the hr_can_approve_leave() gate at the top.
+
+CREATE OR REPLACE FUNCTION public.hr_leave_approval_queue()
+RETURNS TABLE (
+  id                   uuid,
+  employee_id          uuid,
+  staff_name           text,
+  staff_code           text,
+  institution_id       uuid,
+  institution_name     text,
+  hr_organization_id   uuid,
+  hr_organization_name text,
+  leave_type_id        uuid,
+  leave_type_name      text,
+  leave_type_code      text,
+  request_category     text,
+  start_date           date,
+  end_date             date,
+  start_time           time without time zone,
+  end_time             time without time zone,
+  duration_type        text,
+  duration_minutes     integer,
+  total_days           numeric,
+  reason               text,
+  is_emergency         boolean,
+  status               text,
+  created_at           timestamptz,
+  is_own               boolean,
+  waiting_on_me        boolean
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $fn$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  -- COALESCE to an empty array so `= ANY(...)` stays false rather than NULL for
+  -- an approver with no HR organisation mapping.
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+
+  RETURN QUERY
+  SELECT
+    a.id,
+    a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id,
+    i.name::text,
+    a.hr_organization_id,
+    o.name::text,
+    a.leave_type_id,
+    lt.leave_type_name::text,
+    lt.leave_type_code::text,
+    -- A missing type is treated as 'leave' rather than dropped: matching no
+    -- category would make the row vanish from EVERY tab, which is the silent
+    -- hiding the service layer's LEFT joins exist to prevent.
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date,
+    a.end_date,
+    a.start_time,
+    a.end_time,
+    a.duration_type::text,
+    a.duration_minutes,
+    a.total_days,
+    a.reason,
+    a.is_emergency,
+    a.status::text,
+    a.created_at,
+    (a.employee_id = ANY (v_mine)),
+    (
+      -- Waiting on ME: the same three tests as hr_trig_leave_enforce_approver,
+      -- so the badge cannot promise a decision the trigger will refuse.
+      --
+      -- Unlike hr_leave_my_approval_queue this does NOT return true for every
+      -- row just because the caller is a super admin. A super admin CAN decide
+      -- anything — the trigger says so — but a filter that selects the entire
+      -- queue tells them nothing, and this one is a filter, not a permission.
+      a.employee_id <> ALL (v_mine)
+      AND (
+        st.step IS NULL
+        OR CASE
+             WHEN NULLIF(st.step ->> 'approver_user_id', '') IS NOT NULL
+               THEN (st.step ->> 'approver_user_id')::uuid = v_uid
+             WHEN NULLIF(st.step ->> 'approver_role', '') IS NOT NULL
+               THEN NOT EXISTS (
+                      SELECT 1 FROM public.custom_roles cr
+                       WHERE cr.role_key = st.step ->> 'approver_role' AND cr.is_active
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM public.user_roles ur
+                        JOIN public.custom_roles cr2 ON cr2.id = ur.role_id
+                       WHERE ur.user_id = v_uid
+                         AND cr2.role_key = st.step ->> 'approver_role'
+                    )
+             ELSE true
+           END
+      )
+    )
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE a.status IN ('pending', 'escalated')
+    AND (
+      v_sa
+      OR a.hr_organization_id = ANY (v_orgs)
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$fn$;
+
+-- CREATE OR REPLACE resets EXECUTE to PUBLIC, so re-state the grants every time.
+REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
+  'Leave + short-time-off awaiting a decision, with the requester''s name, staff code and institution. Scope copies hla_select; super admins see every organisation.';
+
+-- ===========================================================================
+-- HR Leave approval queue — super-admin self-approval (adds can_decide)
+-- Mirrored from supabase/migrations/20260820170000_hr_leave_queue_super_admin_self_approval.sql
+-- Replays AFTER the 20260820160000 body above; it DROPs and recreates.
+-- ===========================================================================
+-- HR Leave — a super admin may decide their OWN request.
+--
+-- The database already allowed it. hr_trig_leave_enforce_approver returns NEW
+-- on is_super_admin() BEFORE it reaches the self-approval check, and hla_update
+-- permits is_super_admin() outright. Two layers above the database disagreed:
+--
+--   * LeaveService.assertCanDecide() threw 'You cannot decide on your own leave
+--     application.' for everyone, unconditionally (fixed in the service);
+--   * hr_leave_approval_queue() reported is_own and a waiting_on_me that
+--     excluded own rows, so the tab hid the buttons before the click.
+--
+-- This adds can_decide, which is what the UI should gate on: is_own stays as a
+-- display fact ("this is yours"), can_decide answers "will the trigger let me".
+-- Keeping them separate matters — a super admin's own row is BOTH.
+--
+-- RETURNS TABLE gains a column, and CREATE OR REPLACE cannot change a return
+-- type, so this DROPs first. DROP discards EXECUTE grants (they revert to
+-- PUBLIC on recreate), which is why every grant is re-stated below rather than
+-- assumed to have carried over.
+
+DROP FUNCTION IF EXISTS public.hr_leave_approval_queue();
+
+CREATE FUNCTION public.hr_leave_approval_queue()
+RETURNS TABLE (
+  id                   uuid,
+  employee_id          uuid,
+  staff_name           text,
+  staff_code           text,
+  institution_id       uuid,
+  institution_name     text,
+  hr_organization_id   uuid,
+  hr_organization_name text,
+  leave_type_id        uuid,
+  leave_type_name      text,
+  leave_type_code      text,
+  request_category     text,
+  start_date           date,
+  end_date             date,
+  start_time           time without time zone,
+  end_time             time without time zone,
+  duration_type        text,
+  duration_minutes     integer,
+  total_days           numeric,
+  reason               text,
+  is_emergency         boolean,
+  status               text,
+  created_at           timestamptz,
+  is_own               boolean,
+  can_decide           boolean,
+  waiting_on_me        boolean
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $fn$
+DECLARE
+  v_uid  uuid := auth.uid();
+  v_sa   boolean;
+  v_orgs uuid[];
+  v_mine uuid[];
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF NOT public.hr_can_approve_leave() THEN
+    RAISE EXCEPTION 'You do not have permission to approve leave'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_sa   := public.is_super_admin();
+  -- COALESCE to an empty array so `= ANY(...)` stays false rather than NULL for
+  -- an approver with no HR organisation mapping.
+  v_orgs := COALESCE(public.fn_my_hr_organization_ids(), ARRAY[]::uuid[]);
+  v_mine := COALESCE(public.fn_my_staff_ids(), ARRAY[]::uuid[]);
+
+  RETURN QUERY
+  SELECT
+    a.id,
+    a.employee_id,
+    NULLIF(btrim(concat_ws(' ', s.first_name, s.last_name)), '')::text,
+    NULLIF(btrim(s.staff_id), '')::text,
+    s.institution_id,
+    i.name::text,
+    a.hr_organization_id,
+    o.name::text,
+    a.leave_type_id,
+    lt.leave_type_name::text,
+    lt.leave_type_code::text,
+    -- A missing type is treated as 'leave' rather than dropped: matching no
+    -- category would make the row vanish from EVERY tab.
+    COALESCE(lt.request_category, 'leave')::text,
+    a.start_date,
+    a.end_date,
+    a.start_time,
+    a.end_time,
+    a.duration_type::text,
+    a.duration_minutes,
+    a.total_days,
+    a.reason,
+    a.is_emergency,
+    a.status::text,
+    a.created_at,
+    (a.employee_id = ANY (v_mine))               AS is_own,
+    -- Exactly what hr_trig_leave_enforce_approver enforces: super admins are
+    -- exempt from the self-approval bar, everyone else is not.
+    (v_sa OR a.employee_id <> ALL (v_mine))      AS can_decide,
+    (
+      -- Waiting on ME: the same three tests as the trigger, so the badge cannot
+      -- promise a decision the trigger will refuse.
+      --
+      -- Unlike hr_leave_my_approval_queue this does NOT return true for every
+      -- row just because the caller is a super admin. A super admin CAN decide
+      -- anything, but a filter that selects the entire queue tells them nothing
+      -- — this is a filter, not a permission.
+      (v_sa OR a.employee_id <> ALL (v_mine))
+      AND (
+        st.step IS NULL
+        OR CASE
+             WHEN NULLIF(st.step ->> 'approver_user_id', '') IS NOT NULL
+               THEN (st.step ->> 'approver_user_id')::uuid = v_uid
+             WHEN NULLIF(st.step ->> 'approver_role', '') IS NOT NULL
+               THEN NOT EXISTS (
+                      SELECT 1 FROM public.custom_roles cr
+                       WHERE cr.role_key = st.step ->> 'approver_role' AND cr.is_active
+                    )
+                    OR EXISTS (
+                      SELECT 1
+                        FROM public.user_roles ur
+                        JOIN public.custom_roles cr2 ON cr2.id = ur.role_id
+                       WHERE ur.user_id = v_uid
+                         AND cr2.role_key = st.step ->> 'approver_role'
+                    )
+             ELSE true
+           END
+      )
+    )                                            AS waiting_on_me
+  FROM public.hr_leave_applications a
+  LEFT JOIN public.hr_leave_types   lt ON lt.id = a.leave_type_id
+  LEFT JOIN public.staff            s  ON s.id  = a.employee_id
+  LEFT JOIN public.institutions     i  ON i.id  = s.institution_id
+  LEFT JOIN public.hr_organizations o  ON o.id  = a.hr_organization_id
+  CROSS JOIN LATERAL (SELECT a.approval_chain -> a.current_step AS step) st
+  WHERE a.status IN ('pending', 'escalated')
+    -- Scope copied from hla_select. A DEFINER function bypasses RLS, so drifting
+    -- from the policy here would hand out rows the table itself refuses.
+    AND (
+      v_sa
+      OR a.hr_organization_id = ANY (v_orgs)
+      OR public.fn_is_designated_leave_approver(a.id)
+    )
+  ORDER BY a.created_at DESC;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.hr_leave_approval_queue() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_leave_approval_queue() TO authenticated;
+
+COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
+  'Leave + short-time-off awaiting a decision, with the requester''s name, staff code and institution. Scope copies hla_select; super admins see every organisation and may decide their own requests (can_decide).';
+
+-- ===========================================================================
+-- HR Leave day calculation — weekends from hr_shift_timings, not ISODOW 6/7
+-- Mirrored from supabase/migrations/20260820180000_hr_leave_days_respect_shift_timings.sql
+-- ===========================================================================
+-- HR Leave — stop charging a two-day request as one.
+--
+-- THE BUG
+-- -------
+-- Casual Leave 17/07/2026 -> 18/07/2026 stored total_days = 1. 17 Jul is a
+-- Friday, 18 Jul is a Saturday, and hr_calc_leave_days skipped it:
+--
+--     IF p_skip_weekends AND EXTRACT(ISODOW FROM cur) IN (6, 7) THEN NULL;
+--
+-- ISODOW 6 is Saturday. The rule was hardcoded to a Mon-Fri week that this
+-- organisation does not work. hr_shift_timings — the table the attendance
+-- engine has always used — says otherwise for every one of the 14 configured
+-- institutions:
+--
+--     day_of_week 1..5  is_working_day = true
+--     day_of_week 6     is_working_day = true   (Saturday IS a working day)
+--                       second_saturday_holiday = true for 4 institutions only
+--     day_of_week 7     is_working_day = false
+--
+-- So leave and attendance disagreed about what a non-working day is. Biometric
+-- attendance marks a plain Saturday PRESENT/ABSENT off the configured timing,
+-- while leave silently refused to charge for it. Measured on the current data:
+-- 39 of 174 full-day applications were under-counted, 39 leave days in total.
+-- All 39 were still pending, so no balance had consumed the wrong number — see
+-- the backfill note at the bottom.
+--
+-- THE FIX
+-- -------
+-- Ask the same configuration the attendance engine asks, per staff member per
+-- date, instead of guessing from the day number. That also makes the four
+-- institutions with second_saturday_holiday correct for free — previously every
+-- Saturday was skipped everywhere, so the distinction could not be expressed.
+--
+-- WHY NOT CALL fn_resolve_shift_timing DIRECTLY
+-- ----------------------------------------------
+-- It raises 42501 unless the caller is a super admin, an admin, the staff
+-- member themselves, or holds hr.shift_timings.view. Calling it from a BEFORE
+-- INSERT trigger would make leave submission depend on a shift-timing
+-- permission — an HR officer applying on behalf of someone else would be
+-- refused outright, and a service-role context (auth.uid() IS NULL) would fail
+-- every time. hr_is_working_day below carries the same resolution with no
+-- authorisation gate, which is safe because it returns a single boolean about
+-- an institution's working calendar and nothing about the staff member.
+
+-- ---------------------------------------------------------------------------
+-- 1. Is this a working day for this staff member?
+-- ---------------------------------------------------------------------------
+-- Resolution copied from fn_resolve_shift_timing: same institution + ISO
+-- day_of_week + effective window + staff_scope precedence (category beats
+-- teaching/non_teaching), same second-Saturday rule (ISODOW 6 falling on day
+-- 8..14 of the month).
+--
+-- Returns NULL — not false — when nothing is configured, so the caller can tell
+-- "no rule" apart from "rest day" and pick its own fallback.
+CREATE OR REPLACE FUNCTION public.hr_is_working_day(p_staff_id uuid, p_date date)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_institution_id uuid;
+  v_category_id    uuid;
+  v_is_teaching    boolean;
+  v_dow            smallint;
+  v_second_sat     boolean;
+  v_working        boolean;
+BEGIN
+  IF p_staff_id IS NULL OR p_date IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT s.institution_id, s.category_id, ec.is_teaching
+    INTO v_institution_id, v_category_id, v_is_teaching
+  FROM public.staff s
+  JOIN public.employment_categories ec ON ec.id = s.category_id
+  WHERE s.id = p_staff_id;
+
+  IF v_institution_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
+  v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
+
+  SELECT CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false
+              ELSE t.is_working_day END
+    INTO v_working
+  FROM public.hr_shift_timings t
+  WHERE t.institution_id = v_institution_id
+    AND t.day_of_week    = v_dow
+    AND t.is_active
+    AND t.effective_from <= p_date
+    AND (t.effective_until IS NULL OR t.effective_until > p_date)
+    AND (
+         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
+      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
+      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
+    )
+  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
+           t.effective_from DESC
+  LIMIT 1;
+
+  RETURN v_working;  -- NULL when no timing row matched
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.hr_is_working_day(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_is_working_day(uuid, date) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.hr_is_working_day(uuid, date) IS
+  'Working-day lookup from hr_shift_timings for one staff member on one date, second-Saturday rule included. NULL when no timing is configured. Ungated on purpose — it returns a calendar boolean, not staff data — so leave calculation never depends on hr.shift_timings.view.';
+
+-- ---------------------------------------------------------------------------
+-- 2. hr_calc_leave_days learns who the leave is for.
+-- ---------------------------------------------------------------------------
+-- The signature gains p_employee_id. A defaulted 7th argument cannot simply be
+-- added, because the existing 6-argument function would still match every
+-- existing call and Postgres would report the pair as ambiguous — so the old
+-- one is dropped first. DROP discards EXECUTE grants, hence the explicit
+-- re-grant below.
+DROP FUNCTION IF EXISTS public.hr_calc_leave_days(date, date, character varying, boolean, boolean, uuid);
+
+CREATE FUNCTION public.hr_calc_leave_days(
+  p_start          date,
+  p_end            date,
+  p_duration       character varying,
+  p_skip_weekends  boolean,
+  p_skip_holidays  boolean,
+  p_hr_org         uuid,
+  p_employee_id    uuid DEFAULT NULL
+)
+RETURNS numeric
+LANGUAGE plpgsql
+STABLE
+AS $fn$
+DECLARE
+  days_count numeric := 0;
+  cur        date := p_start;
+  inst_id    uuid;
+  v_working  boolean;
+BEGIN
+  -- Resolve institution for holiday lookup
+  SELECT institution_id INTO inst_id FROM hr_organizations WHERE id = p_hr_org;
+
+  -- Fractional types return immediately (decision #5)
+  IF p_duration = 'hourly' THEN RETURN 0.125; END IF;
+  IF p_duration IN ('first_half', 'second_half') THEN RETURN 0.5; END IF;
+
+  -- Full-day loop: iterate date range
+  WHILE cur <= p_end LOOP
+    v_working := NULL;
+    IF p_skip_weekends THEN
+      v_working := public.hr_is_working_day(p_employee_id, cur);
+      IF v_working IS NULL THEN
+        -- No configured timing, or no employee passed. Fall back to SUNDAY
+        -- ONLY, not Sat+Sun: every institution that has been configured marks
+        -- day_of_week 6 as a working day, so treating Saturday as rest would
+        -- reintroduce the very bug this migration fixes for anyone whose
+        -- timings are not set up yet.
+        v_working := EXTRACT(ISODOW FROM cur) <> 7;
+      END IF;
+    END IF;
+
+    IF p_skip_weekends AND NOT v_working THEN
+      NULL;
+    -- Skip institutional holidays (institution_leaves) OR global calendar holidays
+    ELSIF p_skip_holidays AND (
+      (inst_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM institution_leaves
+        WHERE institution_id = inst_id
+          AND cur BETWEEN start_date AND end_date
+      ))
+      OR EXISTS (
+        SELECT 1 FROM calendar_entries ce
+        WHERE ce.kind = 'holiday' AND ce.is_active = true AND ce.blocks_attendance = true
+          AND cur BETWEEN ce.start_at::date AND ce.end_at::date
+          AND (ce.scope_institution_ids IS NULL OR (inst_id IS NOT NULL AND inst_id = ANY(ce.scope_institution_ids)))
+      )
+    ) THEN
+      NULL;
+    ELSE
+      days_count := days_count + 1;
+    END IF;
+    cur := cur + 1;
+  END LOOP;
+
+  RETURN days_count;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.hr_calc_leave_days(date, date, character varying, boolean, boolean, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.hr_calc_leave_days(date, date, character varying, boolean, boolean, uuid, uuid) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.hr_calc_leave_days(date, date, character varying, boolean, boolean, uuid, uuid) IS
+  'Chargeable days for a leave request. Weekends come from hr_shift_timings via hr_is_working_day when p_employee_id is given, so Saturday counts wherever the institution works it; Sunday-only fallback otherwise.';
+
+-- ---------------------------------------------------------------------------
+-- 3. Every caller now passes the employee. Without this the new parameter
+--    defaults to NULL and the fallback silently applies to everyone.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.hr_trig_populate_total_days()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_skip_weekends bool;
+  v_skip_holidays bool;
+BEGIN
+  SELECT skip_weekends, skip_holidays
+    INTO v_skip_weekends, v_skip_holidays
+    FROM public.hr_leave_types
+   WHERE id = NEW.leave_type_id;
+
+  NEW.total_days := public.hr_calc_leave_days(
+    NEW.start_date,
+    NEW.end_date,
+    NEW.duration_type,
+    COALESCE(v_skip_weekends, true),
+    COALESCE(v_skip_holidays, true),
+    NEW.hr_organization_id,
+    NEW.employee_id
+  );
+
+  -- Minutes only mean something for an hourly request with both bounds.
+  IF NEW.duration_type = 'hourly'
+     AND NEW.start_time IS NOT NULL
+     AND NEW.end_time IS NOT NULL THEN
+    NEW.duration_minutes :=
+      GREATEST(0, EXTRACT(EPOCH FROM (NEW.end_time - NEW.start_time))::integer / 60);
+  ELSE
+    NEW.duration_minutes := NULL;
+  END IF;
+
+  NEW.updated_at := now();
+  RETURN NEW;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.hr_trig_leave_enforce_period_cap()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  t record;
+  w record;
+  v_this numeric;
+  v_used numeric := 0;
+BEGIN
+  IF NEW.status NOT IN ('pending','approved','escalated') THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category, leave_type_name, leave_limit_period,
+         leave_max_days_per_period, skip_weekends, skip_holidays
+    INTO t
+  FROM public.hr_leave_types
+  WHERE id = NEW.leave_type_id;
+
+  IF t.request_category IS DISTINCT FROM 'leave'
+     OR t.leave_limit_period IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_this := public.hr_calc_leave_days(
+    NEW.start_date, NEW.end_date, NEW.duration_type,
+    COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
+    NEW.hr_organization_id, NEW.employee_id
+  );
+
+  IF v_this > t.leave_max_days_per_period THEN
+    RAISE EXCEPTION
+      'This request is % day(s); the maximum per % for % is % day(s).',
+      v_this, t.leave_limit_period, t.leave_type_name, t.leave_max_days_per_period;
+  END IF;
+
+  SELECT * INTO w FROM public.hr_leave_period_window(
+    t.leave_limit_period, NEW.hr_academic_year_id, NEW.start_date);
+
+  IF w.period_start IS NULL OR w.period_end IS NULL THEN
+    RAISE EXCEPTION 'Cannot determine the % period for this request; contact HR.',
+      t.leave_limit_period;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(NEW.employee_id::text || ':' || NEW.leave_type_id::text, 0)
+  );
+
+  SELECT COALESCE(sum(
+           public.hr_calc_leave_days(
+             a.start_date, a.end_date, a.duration_type,
+             COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
+             a.hr_organization_id, a.employee_id)
+         ), 0)
+    INTO v_used
+  FROM public.hr_leave_applications a
+  WHERE a.employee_id   = NEW.employee_id
+    AND a.leave_type_id = NEW.leave_type_id
+    AND a.id IS DISTINCT FROM NEW.id
+    AND a.status IN ('pending','approved','escalated')
+    AND a.start_date BETWEEN w.period_start AND w.period_end;
+
+  IF v_used + v_this > t.leave_max_days_per_period THEN
+    RAISE EXCEPTION
+      'Limit reached: % of % day(s) of % already used between % and %; this request needs %.',
+      v_used, t.leave_max_days_per_period, t.leave_type_name,
+      w.period_start, w.period_end, v_this;
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.hr_leave_period_usage(
+  p_staff_id uuid,
+  p_leave_type_id uuid,
+  p_hr_academic_year_id uuid DEFAULT NULL::uuid,
+  p_on date DEFAULT CURRENT_DATE
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  t record;
+  w record;
+  v_used numeric := 0;
+BEGIN
+  IF NOT public.is_super_admin()
+     AND NOT (p_staff_id IN (SELECT unnest(public.fn_my_staff_ids())))
+     AND NOT public.user_has_permission('hr.leave.approve') THEN
+    RAISE EXCEPTION 'Not authorized to read this usage';
+  END IF;
+
+  SELECT request_category, leave_limit_period, leave_max_days_per_period,
+         skip_weekends, skip_holidays
+    INTO t
+  FROM public.hr_leave_types
+  WHERE id = p_leave_type_id;
+
+  IF t.request_category IS DISTINCT FROM 'leave'
+     OR t.leave_limit_period IS NULL THEN
+    RETURN jsonb_build_object('limited', false);
+  END IF;
+
+  SELECT * INTO w FROM public.hr_leave_period_window(
+    t.leave_limit_period, p_hr_academic_year_id, p_on);
+
+  IF w.period_start IS NULL THEN
+    RETURN jsonb_build_object(
+      'limited', true, 'window_unresolved', true,
+      'limit_period', t.leave_limit_period,
+      'max_days', t.leave_max_days_per_period);
+  END IF;
+
+  SELECT COALESCE(sum(
+           public.hr_calc_leave_days(
+             a.start_date, a.end_date, a.duration_type,
+             COALESCE(t.skip_weekends, true), COALESCE(t.skip_holidays, true),
+             a.hr_organization_id, a.employee_id)
+         ), 0)
+    INTO v_used
+  FROM public.hr_leave_applications a
+  WHERE a.employee_id   = p_staff_id
+    AND a.leave_type_id = p_leave_type_id
+    AND a.status IN ('pending','approved','escalated')
+    AND a.start_date BETWEEN w.period_start AND w.period_end;
+
+  RETURN jsonb_build_object(
+    'limited',      true,
+    'limit_period', t.leave_limit_period,
+    'period_start', w.period_start,
+    'period_end',   w.period_end,
+    'max_days',     t.leave_max_days_per_period,
+    'days_used',    v_used,
+    'days_left',    GREATEST(0, t.leave_max_days_per_period - v_used)
+  );
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.hr_trig_recompute_on_holiday_change()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $function$
+DECLARE
+  v_affected_start  date;
+  v_affected_end    date;
+  v_inst_id         uuid;
+  v_app             RECORD;
+  v_new_days        numeric;
+  v_delta           numeric;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    v_affected_start := OLD.start_date;
+    v_affected_end   := OLD.end_date;
+    v_inst_id        := OLD.institution_id;
+  ELSE
+    v_affected_start := LEAST(NEW.start_date, COALESCE(OLD.start_date, NEW.start_date));
+    v_affected_end   := GREATEST(NEW.end_date, COALESCE(OLD.end_date, NEW.end_date));
+    v_inst_id        := NEW.institution_id;
+  END IF;
+
+  FOR v_app IN
+    SELECT hla.id, hla.employee_id, hla.leave_type_id, hla.hr_academic_year_id,
+           hla.hr_organization_id, hla.start_date, hla.end_date,
+           hla.duration_type, hla.total_days,
+           hlt.skip_weekends, hlt.skip_holidays
+      FROM hr_leave_applications hla
+      JOIN hr_leave_types hlt ON hlt.id = hla.leave_type_id
+      JOIN hr_organizations hro ON hro.id = hla.hr_organization_id
+     WHERE hla.status = 'approved'
+       AND hro.institution_id = v_inst_id
+       AND hla.start_date <= v_affected_end
+       AND hla.end_date   >= v_affected_start
+       AND hlt.skip_holidays = true  -- only re-calc if type respects holidays
+  LOOP
+    v_new_days := hr_calc_leave_days(
+      v_app.start_date, v_app.end_date, v_app.duration_type,
+      v_app.skip_weekends, v_app.skip_holidays, v_app.hr_organization_id,
+      v_app.employee_id
+    );
+
+    v_delta := v_new_days - v_app.total_days;
+
+    IF v_delta != 0 THEN
+      UPDATE hr_leave_applications
+         SET total_days  = v_new_days,
+             updated_at  = now()
+       WHERE id = v_app.id;
+
+      UPDATE hr_leave_balances
+         SET used       = GREATEST(0, used + v_delta),
+             updated_at = now()
+       WHERE employee_id         = v_app.employee_id
+         AND leave_type_id       = v_app.leave_type_id
+         AND hr_academic_year_id = v_app.hr_academic_year_id;
+    END IF;
+  END LOOP;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END $function$;
+
+-- ---------------------------------------------------------------------------
+-- 4. Existing rows: backfilled 2026-08-20, outside this migration.
+-- ---------------------------------------------------------------------------
+-- 39 pending applications carried an under-counted total_days, 39 days in
+-- total, two of them stored as 0.00 (a leave taken entirely on a Saturday was
+-- charged nothing at all). None were approved, so no hr_leave_balances row had
+-- consumed the wrong number.
+--
+-- THE COLUMN NAMED IN SET MATTERS. Both triggers are UPDATE OF <columns>:
+--
+--   trg_hla_populate_total_days  BEFORE INSERT OR UPDATE OF start_date,
+--       end_date, duration_type, leave_type_id, start_time, end_time
+--   trg_hla_leave_period_cap     BEFORE INSERT OR UPDATE OF start_date,
+--       end_date, duration_type, leave_type_id, status
+--
+-- updated_at is in neither list, so `SET updated_at = now()` bumps the column
+-- and fires nothing — the first backfill attempt touched all 39 rows and
+-- recomputed none of them. `SET start_date = start_date` does fire both, since
+-- UPDATE OF triggers on a column being MENTIONED, not on its value changing.
+--
+-- Run row by row with the exception captured per row, so that a corrected total
+-- breaking a per-period cap is reported rather than aborting the batch. All 39
+-- succeeded with no cap violations; zero rows now disagree with the function.
+
+-- ===========================================================================
+-- Leave approval -> attendance: respect request_category and duration_type
+-- Mirrored from supabase/migrations/20260820200000_leave_approval_attendance_respects_category.sql
+-- ===========================================================================
+-- HR Attendance — an hourly permission must not erase a worked day.
+--
+-- THE BUG
+-- -------
+-- 09/07/2026 showed LEAVE against punches of 09:24-17:48 — a full day worked.
+-- Two approved "Permission (Hourly)" requests covered 09:05-09:35 that morning,
+-- 30 minutes each, total_days 0.13.
+--
+-- fn_recompute_attendance_on_leave_approval fires whenever ANY leave
+-- application reaches 'approved' and then does this:
+--
+--     UPDATE hr_attendance_records SET status_type_id = <LEAVE>
+--      WHERE employee_id = NEW.employee_id
+--        AND work_date BETWEEN NEW.start_date AND NEW.end_date
+--
+-- No request_category test. No duration_type test. LEAVE is the only status it
+-- can write. So a 30-minute permission overwrote the whole day, and a half-day
+-- leave would overwrite a half-worked day just as completely.
+--
+-- THE TRIGGER NEXT DOOR ALREADY KNEW BETTER
+-- ------------------------------------------
+-- hr_trig_update_leave_balance, on the same table, guards exactly this:
+--
+--     IF v_category IN ('compensatory_off', 'short_time_off') THEN
+--       -- "Comp off is credit-backed; short time off is minute-backed.
+--       --  Neither draws on a day entitlement."
+--
+-- The balance side knew a permission is not a day. The attendance side never
+-- learned. Two triggers on one table, one of them carrying the rule.
+--
+-- THE FIX
+-- -------
+--   short_time_off, or duration_type 'hourly'  -> touch nothing. A permission
+--       is minute-backed; the day keeps whatever the biometric engine decided.
+--   first_half / second_half                   -> write HALF_DAY, not LEAVE.
+--       The person worked the other half; erasing it as full LEAVE loses that.
+--   everything else (full-day leave, comp off)  -> LEAVE, unchanged.
+--
+-- compensatory_off is deliberately NOT skipped here even though the balance
+-- trigger skips it: booking comp off IS a day away from work, so LEAVE is the
+-- right attendance status. It is skipped for BALANCE because it draws on a
+-- credit rather than an entitlement. Different question, different answer.
+--
+-- The audit-log INSERT is kept in step with the UPDATE — it previously recorded
+-- 'previous status -> LEAVE' for rows that are now becoming HALF_DAY.
+
+CREATE OR REPLACE FUNCTION public.fn_recompute_attendance_on_leave_approval()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_target_status_id UUID;
+  v_target_code      TEXT;
+  v_category         TEXT;
+  v_event_id         UUID := gen_random_uuid();
+BEGIN
+  IF NOT (TG_OP = 'UPDATE'
+          AND NEW.status = 'approved'
+          AND COALESCE(OLD.status, '') <> 'approved') THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category INTO v_category
+  FROM hr_leave_types WHERE id = NEW.leave_type_id;
+
+  -- A permission is measured in minutes, not days. It leaves the day's verdict
+  -- exactly as the biometric engine computed it.
+  IF v_category = 'short_time_off' OR NEW.duration_type = 'hourly' THEN
+    RETURN NEW;
+  END IF;
+
+  v_target_code := CASE
+    WHEN NEW.duration_type IN ('first_half', 'second_half') THEN 'HALF_DAY'
+    ELSE 'LEAVE'
+  END;
+
+  SELECT id INTO v_target_status_id
+  FROM hr_attendance_status_types
+  WHERE code = v_target_code AND institution_id IS NULL
+  LIMIT 1;
+
+  IF v_target_status_id IS NULL THEN RETURN NEW; END IF;
+
+  INSERT INTO hr_attendance_audit_log (
+    attendance_record_id, employee_id, institution_id, actor_id, action,
+    before_state, after_state, reason, created_at
+  )
+  SELECT
+    r.id, r.employee_id, r.institution_id, NEW.final_approver_id, 'recompute',
+    jsonb_build_object('status_type_id', r.status_type_id),
+    jsonb_build_object('status_type_id', v_target_status_id,
+                       'status_code', v_target_code,
+                       'event_id', v_event_id,
+                       'leave_application_id', NEW.id),
+    format('Leave application approved; previous status -> %s', v_target_code),
+    NOW()
+  FROM hr_attendance_records r
+  WHERE r.employee_id = NEW.employee_id
+    AND r.work_date BETWEEN NEW.start_date AND NEW.end_date
+    AND r.status_type_id <> v_target_status_id;
+
+  UPDATE hr_attendance_records r
+    SET status_type_id = v_target_status_id,
+        recomputed_from_event_id = v_event_id,
+        updated_at = NOW()
+  WHERE r.employee_id = NEW.employee_id
+    AND r.work_date BETWEEN NEW.start_date AND NEW.end_date
+    AND r.status_type_id <> v_target_status_id;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_recompute_attendance_on_leave_approval() IS
+  'On leave approval, stamps the covered days LEAVE (or HALF_DAY for a half-day request). Short time off and hourly requests are skipped entirely — a permission is minute-backed and does not change the day''s attendance verdict.';
+
+-- ---------------------------------------------------------------------------
+-- Repair the days already overwritten.
+-- ---------------------------------------------------------------------------
+-- One row today: 09/07/2026 for staff NOT148, punched 09:24-17:48 and stamped
+-- LEAVE by a 30-minute permission. The correct verdict comes from evaluateDay,
+-- which is TypeScript and cannot be re-run from SQL — so this only UNDOES the
+-- bad stamp where the audit log recorded what the status was before. Rows with
+-- no audit trail are left alone rather than guessed at; re-importing the month
+-- recomputes them from the punches.
+UPDATE public.hr_attendance_records r
+   SET status_type_id = (l.before_state ->> 'status_type_id')::uuid,
+       recomputed_from_event_id = NULL,
+       updated_at = NOW()
+  FROM (
+    SELECT DISTINCT ON (a.attendance_record_id)
+           a.attendance_record_id, a.before_state
+      FROM public.hr_attendance_audit_log a
+      JOIN public.hr_leave_applications la
+        ON la.id = (a.after_state ->> 'leave_application_id')::uuid
+      JOIN public.hr_leave_types t ON t.id = la.leave_type_id
+     WHERE a.action = 'recompute'
+       AND a.after_state ->> 'status_code' = 'LEAVE'
+       AND (t.request_category = 'short_time_off' OR la.duration_type = 'hourly')
+       AND a.before_state ->> 'status_type_id' IS NOT NULL
+     ORDER BY a.attendance_record_id, a.created_at ASC
+  ) l
+ WHERE r.id = l.attendance_record_id
+   AND r.status_type_id = (SELECT id FROM public.hr_attendance_status_types
+                            WHERE code = 'LEAVE' AND institution_id IS NULL LIMIT 1);
+
+-- ===========================================================================
+-- Short Time Off — overlap guard (one permission per time slot)
+-- Mirrored from supabase/migrations/20260821090000_short_time_off_overlap_guard.sql
+-- ===========================================================================
+-- HR Short Time Off — one permission per time slot.
+--
+-- THE GAP
+-- -------
+-- 09/07/2026 carried TWO approved "Permission (Hourly)" requests for the same
+-- staff member, same date, both 09:05-09:35. 0.26 days deducted for one
+-- 30-minute absence, and the day was stamped LEAVE twice.
+--
+-- hr_trig_sto_enforce_limits already governs short time off, but it counts and
+-- sums; it has no concept of two requests occupying the same minutes. For
+-- Permission (Hourly) the limits are total_duration 120 min/month, min 30,
+-- max 60 — so two 30-minute requests are 60 of 120 and both passed cleanly.
+--
+-- WHY THIS SITS BEFORE THE LIMITS RESOLUTION
+-- -------------------------------------------
+-- The existing function returns early when a type has no limits configured:
+--
+--     IF lim.limit_mode IS NULL OR lim.limit_mode = 'none' THEN RETURN NEW;
+--
+-- Everything after that line is unreachable for such a type — including, today,
+-- the `end_time <= start_time` sanity check. An overlap guard placed after it
+-- would protect only the types that happen to have limits set. Both the window
+-- sanity check and the overlap check are therefore moved ahead of it: they are
+-- statements about whether the request is COHERENT, not about how much of an
+-- allowance it consumes.
+--
+-- OVERLAP TEST: half-open intervals, `a.start < NEW.end AND NEW.start < a.end`.
+-- Back-to-back slots (09:00-09:30 then 09:30-10:00) do NOT clash, which is the
+-- intended reading — the second begins as the first ends.
+--
+-- The advisory lock is keyed on (employee, date) rather than the limits block's
+-- (employee, leave_type): two concurrent inserts of DIFFERENT permission types
+-- on the same morning must still serialise against each other. Both locks are
+-- taken in the same order by every caller, so they cannot deadlock.
+--
+-- EXISTING ROWS ARE NOT TOUCHED. Two overlapping pairs exist today across two
+-- staff members, both exact duplicates. A trigger cannot retro-reject them and
+-- cancelling someone's approved request is not a migration's decision.
+
+CREATE OR REPLACE FUNCTION public.hr_trig_sto_enforce_limits()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'extensions'
+AS $function$
+DECLARE
+  v_category text;
+  lim  record;
+  w    record;
+  v_requests integer := 0;
+  v_minutes  integer := 0;
+  v_this     integer;
+  v_name     text;
+  v_needs_duration boolean;
+  v_clash    record;
+BEGIN
+  IF NEW.status NOT IN ('pending','approved','escalated') THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT request_category, leave_type_name INTO v_category, v_name
+  FROM public.hr_leave_types WHERE id = NEW.leave_type_id;
+  IF v_category IS DISTINCT FROM 'short_time_off' THEN
+    RETURN NEW;
+  END IF;
+
+  -- ---- Coherence checks: every short-time-off request, limits or not -------
+  IF NEW.duration_type = 'hourly'
+     AND NEW.start_time IS NOT NULL AND NEW.end_time IS NOT NULL THEN
+
+    IF NEW.end_time <= NEW.start_time THEN
+      RAISE EXCEPTION 'End time must be after start time.';
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(
+      hashtextextended(NEW.employee_id::text || ':sto:' || NEW.start_date::text, 0)
+    );
+
+    SELECT t2.leave_type_name AS type_name, a.start_time, a.end_time, a.status
+      INTO v_clash
+    FROM public.hr_leave_applications a
+    JOIN public.hr_leave_types t2 ON t2.id = a.leave_type_id
+    WHERE a.employee_id = NEW.employee_id
+      AND a.id IS DISTINCT FROM NEW.id
+      AND a.status IN ('pending','approved','escalated')
+      AND t2.request_category = 'short_time_off'
+      AND a.duration_type = 'hourly'
+      AND a.start_date = NEW.start_date
+      AND a.start_time IS NOT NULL
+      AND a.end_time   IS NOT NULL
+      AND a.start_time < NEW.end_time
+      AND NEW.start_time < a.end_time
+    ORDER BY a.start_time
+    LIMIT 1;
+
+    IF v_clash.type_name IS NOT NULL THEN
+      RAISE EXCEPTION
+        'This overlaps an existing % request on % — % to % (%). Cancel that one first, or pick a different slot.',
+        v_clash.type_name,
+        to_char(NEW.start_date, 'DD/MM/YYYY'),
+        to_char(v_clash.start_time, 'HH24:MI'),
+        to_char(v_clash.end_time, 'HH24:MI'),
+        v_clash.status
+        USING ERRCODE = '23505';
+    END IF;
+  END IF;
+
+  -- ---- Allowance checks ----------------------------------------------------
+  SELECT * INTO lim FROM public.hr_resolve_sto_limits(NEW.leave_type_id, NEW.employee_id);
+  IF lim.limit_mode IS NULL OR lim.limit_mode = 'none' THEN
+    RETURN NEW;
+  END IF;
+
+  v_needs_duration := lim.limit_mode = 'total_duration'
+                      OR lim.min_minutes IS NOT NULL
+                      OR lim.max_minutes IS NOT NULL;
+
+  IF NEW.duration_type = 'hourly'
+     AND NEW.start_time IS NOT NULL AND NEW.end_time IS NOT NULL THEN
+    -- end > start is already guaranteed above; not re-raised here so there is
+    -- one source of truth for that message.
+    v_this := ROUND(EXTRACT(EPOCH FROM (NEW.end_time - NEW.start_time)) / 60.0)::integer;
+  ELSIF v_needs_duration THEN
+    IF lim.limit_mode = 'total_duration' THEN
+      RAISE EXCEPTION
+        '% is limited by total duration, so a request needs a start and end time.',
+        v_name;
+    ELSE
+      RAISE EXCEPTION
+        '% sets a minimum or maximum length per request, so a request needs a start and end time.',
+        v_name;
+    END IF;
+  ELSE
+    v_this := 0;
+  END IF;
+
+  IF lim.min_minutes IS NOT NULL AND v_this < lim.min_minutes THEN
+    RAISE EXCEPTION 'This request is % minute(s); the minimum for % is % minute(s).',
+      v_this, v_name, lim.min_minutes;
+  END IF;
+
+  IF lim.max_minutes IS NOT NULL AND v_this > lim.max_minutes THEN
+    RAISE EXCEPTION 'This request is % minute(s); the maximum per request for % is % minute(s).',
+      v_this, v_name, lim.max_minutes;
+  END IF;
+
+  SELECT * INTO w FROM public.hr_leave_period_window(
+    lim.limit_period, NEW.hr_academic_year_id, NEW.start_date);
+  IF w.period_start IS NULL OR w.period_end IS NULL THEN
+    RAISE EXCEPTION
+      'Cannot determine the % period for this request; contact HR.', lim.limit_period;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(NEW.employee_id::text || ':' || NEW.leave_type_id::text, 0)
+  );
+
+  SELECT count(*),
+         COALESCE(sum(
+           CASE
+             WHEN a.duration_type = 'hourly'
+              AND a.start_time IS NOT NULL AND a.end_time IS NOT NULL
+              AND a.end_time > a.start_time
+             THEN ROUND(EXTRACT(EPOCH FROM (a.end_time - a.start_time)) / 60.0)::integer
+             ELSE 0
+           END
+         ), 0)
+    INTO v_requests, v_minutes
+  FROM public.hr_leave_applications a
+  WHERE a.employee_id   = NEW.employee_id
+    AND a.leave_type_id = NEW.leave_type_id
+    AND a.id IS DISTINCT FROM NEW.id
+    AND a.status IN ('pending','approved','escalated')
+    AND a.start_date BETWEEN w.period_start AND w.period_end;
+
+  IF lim.limit_mode = 'request_count' AND v_requests + 1 > lim.max_requests THEN
+    RAISE EXCEPTION 'Limit reached: % of % request(s) already used between % and %.',
+      v_requests, lim.max_requests, w.period_start, w.period_end;
+  END IF;
+
+  IF lim.limit_mode = 'total_duration' AND v_minutes + v_this > lim.total_minutes THEN
+    RAISE EXCEPTION 'Limit reached: % of % minute(s) already used between % and %; this request needs %.',
+      v_minutes, lim.total_minutes, w.period_start, w.period_end, v_this;
+  END IF;
+
+  RETURN NEW;
+END $function$;
+
+COMMENT ON FUNCTION public.hr_trig_sto_enforce_limits() IS
+  'Short time off gate. Coherence first (end > start, and no overlap with another live permission on the same date) so it applies even to types with no limits configured; then the per-period request-count / total-duration allowance.';
+
+-- ===========================================================================
+-- Attendance excused-minutes columns + fn_shift_window (service-role safe)
+-- Mirrored from supabase/migrations/20260821110000_attendance_excused_minutes.sql
+-- ===========================================================================
+-- HR Attendance — record WHY a late day counts as present.
+--
+-- evaluateDay() can now reinstate a half whose missing minutes are fully
+-- covered by an approved short-time-off window (see lib/hr/biometric/
+-- evaluate-day.ts). Without somewhere to put that, HR would see a 09:24 arrival
+-- against an 09:05 deadline reading PRESENT with nothing on screen explaining
+-- it — indistinguishable from the bug we spent 2026-08-20 fixing.
+--
+-- late_minutes deliberately stays RAW. It answers "how late was this person";
+-- excused_minutes answers "how much of the shortfall was covered". Collapsing
+-- them would lose the first question, which is the one attendance reports ask.
+
+ALTER TABLE public.hr_attendance_records
+  ADD COLUMN IF NOT EXISTS excused_minutes integer,
+  ADD COLUMN IF NOT EXISTS excused_by_application_ids uuid[];
+
+COMMENT ON COLUMN public.hr_attendance_records.excused_minutes IS
+  'Minutes of a required half-window reinstated by an approved short-time-off permission. NULL = never evaluated for excusal; 0 = evaluated, nothing excused.';
+COMMENT ON COLUMN public.hr_attendance_records.excused_by_application_ids IS
+  'hr_leave_applications ids of the permissions that did the reinstating. No FK: these rows outlive an application that is later purged, and an orphaned id is better than losing the audit of why a day counted.';
+
+-- ---------------------------------------------------------------------------
+-- A shift window lookup that a service-role context can actually call.
+-- ---------------------------------------------------------------------------
+-- fn_resolve_shift_timing and fn_resolve_shift_timings_bulk both guard on
+-- is_super_admin / is_admin / hr.shift_timings.view / hr.attendance.override.
+-- All four are false when auth.uid() is NULL, so neither can be used from a
+-- service-role client — which is exactly what recomputing a day on leave
+-- approval needs, because an HR Manager holding hr.leave.approve holds none of
+-- those four and cannot write hr_attendance_records either.
+--
+-- This variant carries the identical resolution — institution + ISO day_of_week
+-- + effective window + staff_scope precedence (category beats teaching /
+-- non_teaching) + the second-Saturday override — with no authorisation gate,
+-- for the same reason hr_is_working_day has none: it returns an institution's
+-- working-hours calendar for one date. No punches, no verdicts, nothing about
+-- the person beyond which shift pattern applies to them.
+CREATE OR REPLACE FUNCTION public.fn_shift_window(p_staff_id uuid, p_date date)
+RETURNS TABLE (
+  timing_id          uuid,
+  is_working_day     boolean,
+  first_half_start   time without time zone,
+  first_half_end     time without time zone,
+  second_half_start  time without time zone,
+  second_half_end    time without time zone,
+  grace_minutes      integer,
+  matched_by         text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_institution_id uuid;
+  v_category_id    uuid;
+  v_is_teaching    boolean;
+  v_dow            smallint;
+  v_second_sat     boolean;
+BEGIN
+  IF p_staff_id IS NULL OR p_date IS NULL THEN
+    RETURN;
+  END IF;
+
+  SELECT s.institution_id, s.category_id, ec.is_teaching
+    INTO v_institution_id, v_category_id, v_is_teaching
+  FROM public.staff s
+  JOIN public.employment_categories ec ON ec.id = s.category_id
+  WHERE s.id = p_staff_id;
+
+  IF v_institution_id IS NULL THEN
+    RETURN;
+  END IF;
+
+  v_dow        := EXTRACT(ISODOW FROM p_date)::smallint;
+  v_second_sat := (v_dow = 6 AND EXTRACT(DAY FROM p_date) BETWEEN 8 AND 14);
+
+  RETURN QUERY
+  SELECT
+    t.id,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN false ELSE t.is_working_day END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_start  END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.first_half_end    END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_start END,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN NULL ELSE t.second_half_end   END,
+    t.grace_minutes,
+    CASE WHEN (v_second_sat AND t.second_saturday_holiday) THEN 'second_saturday_holiday'
+         ELSE t.staff_scope END
+  FROM public.hr_shift_timings t
+  WHERE t.institution_id = v_institution_id
+    AND t.day_of_week    = v_dow
+    AND t.is_active
+    AND t.effective_from <= p_date
+    AND (t.effective_until IS NULL OR t.effective_until > p_date)
+    AND (
+         (t.staff_scope = 'category'     AND t.employment_category_id = v_category_id)
+      OR (t.staff_scope = 'teaching'     AND v_is_teaching)
+      OR (t.staff_scope = 'non_teaching' AND NOT v_is_teaching)
+    )
+  ORDER BY CASE t.staff_scope WHEN 'category' THEN 0 ELSE 1 END,
+           t.effective_from DESC
+  LIMIT 1;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.fn_shift_window(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_shift_window(uuid, date) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_shift_window(uuid, date) IS
+  'Shift window for one staff member on one date, second-Saturday rule included. Ungated on purpose — it returns a working-hours calendar, not staff data — so a service-role recompute after a leave decision can resolve it.';
+
+
+-- ===========================================================================
+-- Migration: supabase/migrations/20260821120000_induction_live_gate_writes.sql
+-- Migration: supabase/migrations/20260821130000_induction_live_gate_reads.sql
+-- Induction Draft/Live lifecycle gate. Supersedes any earlier definition of
+-- the five learner-facing RPCs below (this snapshot appends; last one wins).
+-- ===========================================================================
+
+-- Induction lifecycle gate, part 1 of 2: WRITES.
+--
+-- Why this exists. The Draft <-> Live model shipped 2026-08-18 (types/events.ts
+-- INDUCTION_STATUS_TRANSITIONS + InductionEventService) as a DISPLAY and
+-- TRANSITION layer only. INDUCTION_ACTIVE_STATUS was referenced in exactly two
+-- places -- the constant itself and a badge colour -- and not one of the ~130
+-- fn_induction_* RPCs ever compared events.status to 'live'. So a Draft
+-- induction behaved identically to a Live one: freshers saw it, coordinators
+-- marked attendance on it, volunteers captured feedback for it.
+--
+-- Measured on production 2026-08-21, BEFORE this migration:
+--   3 Draft inductions holding 317 enrolled learners,
+--   83 attendance rows and 19 feedback rows already recorded against them.
+-- Those rows are left in place -- this guard is about new writes, and deleting
+-- captured feedback is not a migration's call.
+--
+-- WHY A TRIGGER AND NOT A CHECK IN EACH RPC. Seven SECURITY DEFINER functions
+-- write these four tables:
+--   event_session_attendance  <- mark_attendance, mark_day_attendance,
+--                                volunteer_mark_attendance
+--   event_session_feedback    <- submit_feedback, submit_feedback_proxy,
+--                                volunteer_submit_feedback
+--   event_day_feedback        <- submit_day_feedback
+--   event_program_feedback    <- submit_program_feedback
+-- Editing seven bodies means seven chances for the predicate to drift, and the
+-- eighth writer added next month would arrive ungated. The table is the real
+-- boundary, so the guard belongs on the table.
+--
+-- WHAT IS DELIBERATELY *NOT* GATED. Draft is the build phase and must stay
+-- usable: fn_induction_auto_enroll (enrolling the cohort),
+-- fn_induction_upsert_session (writing the schedule), mentor/volunteer
+-- appointment, and fn_induction_training_mark_attended (peer mentors are
+-- trained BEFORE the programme opens). Gating those would block legitimate
+-- preparation. The line drawn here is: Draft = build it, Live = run it.
+
+-- ---------------------------------------------------------------------------
+-- The predicate, in one place.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_assert_live(p_event_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_status text;
+BEGIN
+  -- SECURITY DEFINER is load-bearing: this runs inside a learner's INSERT, and
+  -- a learner cannot necessarily SELECT the events row. Reading it as the
+  -- caller would return NOT FOUND and the guard would fail OPEN -- the exact
+  -- failure mode it exists to prevent.
+  --
+  -- The join to induction_programs scopes the guard to INDUCTIONS. These four
+  -- tables are named event_* and today carry induction rows only (verified
+  -- 2026-08-21: 5,162 attendance / 12,419 feedback rows, all induction), but a
+  -- marathon or tournament writing them later must not inherit this rule.
+  SELECT e.status
+    INTO v_status
+    FROM public.events e
+    JOIN public.induction_programs ip ON ip.event_id = e.id
+   WHERE e.id = p_event_id;
+
+  IF NOT FOUND THEN
+    RETURN;  -- not an induction; not this guard's business
+  END IF;
+
+  -- IS DISTINCT FROM, never <>: `v_status <> 'live'` is NULL when the status is
+  -- NULL, and a NULL condition in plpgsql takes the ELSE branch -- the guard
+  -- would pass silently on exactly the rows most likely to be malformed.
+  IF v_status IS DISTINCT FROM 'live' THEN
+    RAISE EXCEPTION
+      'This induction is %. Attendance and feedback can only be recorded while it is Live -- change its status to Live first.',
+      COALESCE(initcap(v_status), 'not yet activated')
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$function$;
+
+COMMENT ON FUNCTION public.fn_induction_assert_live(uuid) IS
+  'Raises unless the given induction event is Live. No-op for non-induction events. Guards attendance/feedback writes.';
+
+-- ---------------------------------------------------------------------------
+-- Two trigger adapters: one resolves the event via session_id, one reads it
+-- straight off the row.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.trg_induction_require_live_by_session()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_event uuid;
+BEGIN
+  SELECT s.event_id INTO v_event
+    FROM public.event_sessions s
+   WHERE s.id = NEW.session_id;
+
+  IF v_event IS NOT NULL THEN
+    PERFORM public.fn_induction_assert_live(v_event);
+  END IF;
+
+  RETURN NEW;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION public.trg_induction_require_live_by_event()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM public.fn_induction_assert_live(NEW.event_id);
+  RETURN NEW;
+END
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- Induction lifecycle gate, part 2 of 2: READS (learner visibility).
+--
+-- A trigger cannot filter a SELECT, so the read side is patched in the five
+-- learner-facing RPCs. CREATE OR REPLACE throughout -- never DROP + CREATE:
+-- DROP FUNCTION discards the function's grants and EXECUTE silently reverts to
+-- PUBLIC. Signatures are unchanged, so REPLACE is sufficient.
+--
+-- fn_induction_my_enrollments is the master switch. /learners/my-induction
+-- takes rows[0] and renders its empty state when that is null, so filtering
+-- here makes the whole page go dark for a Draft induction; the other four are
+-- defence in depth for the banners and the peer-mentor lane, which fetch
+-- independently of the enrollment call.
+--
+-- FUTURE STATUSES. The predicate is `= 'live'` because Draft <-> Live are the
+-- only two states this module has (verified 2026-08-21: 8 inductions, 3 draft,
+-- 5 live, none in a legacy status). If inductions ever gain a post-completion
+-- state such as 'archived', THIS READ PREDICATE MUST WIDEN -- otherwise a
+-- fresher loses their own induction history the moment it is closed out. The
+-- WRITE guard in the companion migration must stay `= 'live'` regardless.
+
+-- ---------------------------------------------------------------------------
+-- 1. The master switch: a learner's own enrollments.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_my_enrollments()
+ RETURNS TABLE(event_id uuid, event_name text, institution_id uuid, institution_name text, start_date date, end_date date, status text, batch_id uuid, batch_label text, sessions_total integer, sessions_attended integer, attendance_pct numeric, participation_complete boolean, value_score_avg numeric, advocacy_score numeric, is_profile_complete boolean, profile_fields_total integer, profile_fields_filled integer, feedback_day_enabled boolean, feedback_program_enabled boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_my_enrollments: not authenticated';
+  END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    e.id::uuid,
+    e.name::text,
+    e.institution_id::uuid,
+    i.name::text,
+    e.start_date::date,
+    e.end_date::date,
+    e.status::text,
+    ie.batch_id::uuid,
+    b.label::text,
+    COALESCE(c.sessions_total, 0)::integer,
+    COALESCE(c.sessions_attended, 0)::integer,
+    COALESCE(c.attendance_pct, 0)::numeric,
+    COALESCE(c.participation_complete, false)::boolean,
+    c.value_score_avg::numeric,
+    c.advocacy_score::numeric,
+    COALESCE(lp.is_profile_complete, false)::boolean,
+    4::integer,
+    (
+      (lp.college_email   IS NOT NULL AND btrim(lp.college_email) <> '')::int +
+      (lp.academic_year_id IS NOT NULL)::int +
+      (lp.semester_id      IS NOT NULL)::int +
+      (lp.section_id       IS NOT NULL)::int
+    )::integer,
+    COALESCE(ip.feedback_day_enabled, false)::boolean,
+    COALESCE(ip.feedback_program_enabled, false)::boolean
+  FROM public.induction_enrollment ie
+  JOIN public.events             e  ON e.id = ie.event_id
+  JOIN public.institutions       i  ON i.id = e.institution_id
+  LEFT JOIN public.induction_batches    b  ON b.id = ie.batch_id
+  LEFT JOIN public.induction_completion c  ON c.event_id = ie.event_id AND c.learner_id = ie.learner_id
+  LEFT JOIN public.learners_profiles    lp ON lp.id = ie.learner_id
+  LEFT JOIN public.induction_programs   ip ON ip.event_id = ie.event_id
+  WHERE ie.learner_id = v_learner
+    -- Lifecycle gate. Enrollment happens during Draft (fn_induction_auto_enroll
+    -- is prep work), so being enrolled must NOT by itself reveal the programme.
+    AND e.status = 'live'
+  ORDER BY e.start_date DESC NULLS LAST;
+END $function$;
+
+-- ---------------------------------------------------------------------------
+-- 2. The day-by-day schedule.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_list_sessions(p_event_id uuid)
+ RETURNS TABLE(id uuid, day_number integer, session_order integer, batch_id uuid, batch_label text, start_at timestamp with time zone, end_at timestamp with time zone, title text, description text, venue_text text, venue_resource_id uuid, speaker_text text, outcome_text text, resource_links jsonb, status text, kind text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_inst UUID;
+  v_is_coordinator BOOLEAN;
+  v_is_speaker BOOLEAN;
+  v_my_learner UUID;
+  v_my_batch UUID;
+  v_enrolled BOOLEAN;
+  v_event_status TEXT;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_list_sessions: not authenticated'; END IF;
+  SELECT ip.institution_id INTO v_inst FROM public.induction_programs ip WHERE ip.event_id = p_event_id;
+  IF v_inst IS NULL THEN RAISE EXCEPTION 'fn_induction_list_sessions: not an induction event'; END IF;
+
+  v_is_coordinator := is_super_admin() OR is_admin()
+    OR (user_has_permission('induction.view') AND role_has_institution_access(v_inst))
+    OR public.fn_induction_is_event_coordinator(p_event_id);
+
+  v_is_speaker := public.fn_induction_is_event_speaker(p_event_id);
+
+  v_my_learner := get_my_learner_id();
+  SELECT true, ie.batch_id INTO v_enrolled, v_my_batch
+  FROM public.induction_enrollment ie
+  WHERE ie.event_id = p_event_id AND ie.learner_id = v_my_learner;
+
+  IF NOT v_is_coordinator AND NOT v_is_speaker AND NOT COALESCE(v_enrolled, false) THEN
+    RAISE EXCEPTION 'fn_induction_list_sessions: not authorized';
+  END IF;
+
+  -- Lifecycle gate, learners only. Coordinators and resource persons keep full
+  -- Draft access -- Draft is precisely where the schedule is built and
+  -- previewed, so gating them would break the authoring flow this module needs.
+  IF NOT v_is_coordinator AND NOT v_is_speaker THEN
+    SELECT e.status INTO v_event_status FROM public.events e WHERE e.id = p_event_id;
+    IF v_event_status IS DISTINCT FROM 'live' THEN
+      RAISE EXCEPTION 'fn_induction_list_sessions: this induction is not live yet';
+    END IF;
+  END IF;
+
+  RETURN QUERY
+  SELECT s.id::uuid, s.day_number::integer, s.session_order::integer,
+         s.batch_id::uuid, b.label::text,
+         s.start_at, s.end_at,
+         s.title::text, s.description::text, s.venue_text::text,
+         s.venue_resource_id::uuid,
+         s.speaker_text::text, s.outcome_text::text,
+         COALESCE(s.resource_links, '[]'::jsonb), s.status::text,
+         s.kind::text
+  FROM public.event_sessions s
+  LEFT JOIN public.induction_batches b ON b.id = s.batch_id
+  WHERE s.event_id = p_event_id
+    AND (v_is_coordinator OR v_is_speaker OR v_my_batch IS NULL OR s.batch_id IS NULL OR s.batch_id = v_my_batch)
+  ORDER BY s.day_number NULLS LAST, s.start_at NULLS LAST, s.session_order;
+END $function$;
+
+-- ---------------------------------------------------------------------------
+-- 3 & 4. The two learner banners. Both already join events, so the gate is one
+-- predicate each.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_session_poll_for_learner()
+ RETURNS TABLE(poll_id uuid, session_id uuid, event_id uuid, event_name text, title text, day_number integer, auto_close_at timestamp with time zone, already_answered boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_learner uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_poll_for_learner: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  SELECT p.id, p.session_id, p.event_id, ev.name, es.title, es.day_number, p.auto_close_at,
+         EXISTS (SELECT 1 FROM public.induction_session_poll_vote v WHERE v.poll_id = p.id AND v.learner_id = v_learner)
+  FROM public.induction_session_poll p
+  JOIN public.event_sessions es ON es.id = p.session_id
+  JOIN public.events ev         ON ev.id = p.event_id
+  JOIN public.induction_enrollment ie ON ie.event_id = p.event_id AND ie.learner_id = v_learner
+  WHERE p.status = 'open' AND (p.auto_close_at IS NULL OR p.auto_close_at > now())
+    AND (es.batch_id IS NULL OR es.batch_id = ie.batch_id)
+    AND ev.status = 'live'   -- lifecycle gate
+  ORDER BY p.issued_at DESC;
+END $function$;
+
+CREATE OR REPLACE FUNCTION public.fn_induction_session_pulse_for_learner()
+ RETURNS TABLE(pulse_id uuid, session_id uuid, event_id uuid, event_name text, title text, day_number integer, auto_close_at timestamp with time zone, already_answered boolean)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_learner uuid;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_session_pulse_for_learner: not authenticated'; END IF;
+  v_learner := get_my_learner_id();
+  IF v_learner IS NULL THEN RETURN; END IF;  -- not a learner -> no pulses
+
+  RETURN QUERY
+  SELECT p.id, p.session_id, p.event_id, ev.name, es.title, es.day_number, p.auto_close_at,
+         EXISTS (
+           SELECT 1 FROM public.event_session_feedback f
+           WHERE f.session_id = p.session_id AND f.learner_id = v_learner
+         ) AS already_answered
+  FROM public.induction_session_pulse p
+  JOIN public.event_sessions es ON es.id = p.session_id
+  JOIN public.events ev         ON ev.id = p.event_id
+  JOIN public.induction_enrollment ie
+    ON ie.event_id = p.event_id AND ie.learner_id = v_learner          -- I am enrolled
+  WHERE p.is_open = true
+    AND p.auto_close_at > now()
+    AND (es.batch_id IS NULL OR es.batch_id = ie.batch_id)             -- session is for my batch
+    AND ev.status = 'live'                                             -- lifecycle gate
+  ORDER BY p.issued_at DESC;
+END $function$;
+
+-- ---------------------------------------------------------------------------
+-- 5. The peer-mentor / feedback-volunteer lane (/my-induction-feedback).
+-- Without this a Senior Peer Mentor still sees a Draft programme's sessions and
+-- opens the check-in and group-capture dialogs on them -- the writes would now
+-- be refused by the trigger, but the lane should not offer them at all.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_induction_my_volunteer_sessions()
+ RETURNS TABLE(event_id uuid, event_name text, institution_name text, session_id uuid, session_title text, day_number integer, start_at timestamp with time zone, end_at timestamp with time zone, group_size integer, captured integer, kind text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_my_learner UUID;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_induction_my_volunteer_sessions: not authenticated'; END IF;
+  v_my_learner := get_my_learner_id();
+  IF v_my_learner IS NULL THEN RETURN; END IF;  -- not a learner -> empty
+
+  RETURN QUERY
+  SELECT v.event_id,
+         ev.name::text,
+         inst.name::text,
+         s.id,
+         s.title::text,
+         s.day_number,
+         s.start_at,
+         s.end_at,
+         -- my group size for THIS session (respect batch-specific sessions)
+         (SELECT count(*)::int
+            FROM public.induction_feedback_volunteer_group g
+            JOIN public.induction_enrollment ie
+              ON ie.event_id = v.event_id AND ie.learner_id = g.learner_id
+            WHERE g.volunteer_id = v.id
+              AND (s.batch_id IS NULL OR ie.batch_id = s.batch_id)),
+         -- of those (within the session's batch), how many already have a rating --
+         -- same batch guard as group_size so captured can never exceed it (review #1694 r2)
+         (SELECT count(*)::int
+            FROM public.induction_feedback_volunteer_group g
+            JOIN public.induction_enrollment ie
+              ON ie.event_id = v.event_id AND ie.learner_id = g.learner_id
+            JOIN public.event_session_feedback f
+              ON f.session_id = s.id AND f.learner_id = g.learner_id
+            WHERE g.volunteer_id = v.id
+              AND (s.batch_id IS NULL OR ie.batch_id = s.batch_id)),
+         s.kind::text
+  FROM public.induction_feedback_volunteers v
+  JOIN public.events ev ON ev.id = v.event_id
+  LEFT JOIN public.institutions inst ON inst.id = v.institution_id
+  JOIN public.event_sessions s ON s.event_id = v.event_id
+  WHERE v.learner_id = v_my_learner AND v.is_active
+    AND ev.status = 'live'   -- lifecycle gate
+  ORDER BY ev.name, s.day_number NULLS LAST, s.start_at;
+END $function$;
+
+
+-- ===========================================================================
+-- Migration: supabase/migrations/20260821150000_induction_create_permission_split.sql
+-- induction.create split out of induction.manage; creation is Induction Lead
+-- + super admin only. Supersedes the earlier fn_induction_create_program.
+-- ===========================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_induction_create_program(
+  p_institution_id uuid, p_academic_year_id uuid, p_name text,
+  p_start_date timestamp with time zone, p_end_date timestamp with time zone,
+  p_venue_text text DEFAULT 'Campus'::text, p_description text DEFAULT NULL::text,
+  p_admission_year integer DEFAULT NULL::integer,
+  p_enroll_scope text DEFAULT 'institution'::text,
+  p_venue_resource_id uuid DEFAULT NULL::uuid,
+  p_degree_type_filter text DEFAULT NULL::text,
+  p_institution_ids uuid[] DEFAULT NULL::uuid[],
+  p_degree_ids uuid[] DEFAULT NULL::uuid[],
+  p_department_ids uuid[] DEFAULT NULL::uuid[])
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_event_id uuid; v_slug text;
+  v_scope text := COALESCE(NULLIF(p_enroll_scope,''),'institution');
+  v_degree text := NULLIF(p_degree_type_filter,'');
+  v_multi boolean := (p_institution_ids IS NOT NULL AND cardinality(p_institution_ids) > 0);
+  v_owning uuid := CASE WHEN v_multi THEN p_institution_ids[1] ELSE p_institution_id END;
+BEGIN
+  -- Gate 1 — may this caller create an induction at all?
+  IF NOT (is_super_admin() OR is_admin() OR user_has_permission('induction.create')) THEN
+    RAISE EXCEPTION 'fn_induction_create_program: not authorized to create inductions';
+  END IF;
+
+  -- Gate 2 — scope only. Institution reach is a separate question from the right
+  -- to create, so this leg carries no permission key of its own.
+  IF NOT (is_super_admin() OR is_admin()) THEN
+    IF v_multi THEN
+      IF EXISTS (SELECT 1 FROM unnest(p_institution_ids) x(iid)
+                  WHERE NOT role_has_institution_access(x.iid)) THEN
+        RAISE EXCEPTION 'fn_induction_create_program: not authorized for one or more selected institutions';
+      END IF;
+    ELSE
+      IF NOT role_has_institution_access(p_institution_id) THEN
+        RAISE EXCEPTION 'fn_induction_create_program: not authorized';
+      END IF;
+    END IF;
+  END IF;
+
+  IF v_owning IS NULL OR p_name IS NULL THEN
+    RAISE EXCEPTION 'fn_induction_create_program: institution and name are required'; END IF;
+  IF v_scope NOT IN ('institution','group') THEN
+    RAISE EXCEPTION 'fn_induction_create_program: enroll_scope must be institution or group'; END IF;
+  IF v_degree IS NOT NULL AND v_degree NOT IN ('ug','pg') THEN
+    RAISE EXCEPTION 'fn_induction_create_program: degree_type_filter must be ug, pg, or null'; END IF;
+
+  v_slug := lower(regexp_replace(coalesce(p_name,'induction'), '[^a-zA-Z0-9]+', '-', 'g'))
+            || '-' || left(replace(gen_random_uuid()::text, '-', ''), 8);
+
+  INSERT INTO public.events (institution_id, event_type, name, slug, venue_text, venue_resource_id,
+                             start_date, end_date, description, status, created_by)
+  VALUES (v_owning, 'induction', p_name, v_slug,
+          CASE WHEN p_venue_resource_id IS NOT NULL THEN NULLIF(p_venue_text,'Campus') ELSE coalesce(p_venue_text,'Campus') END,
+          p_venue_resource_id, p_start_date, p_end_date, p_description, 'draft', auth.uid())
+  RETURNING id INTO v_event_id;
+
+  INSERT INTO public.induction_programs (event_id, institution_id, academic_year_id, admission_year,
+    enroll_scope, degree_type_filter, target_institution_ids, target_degree_ids, target_department_ids)
+  VALUES (v_event_id, v_owning, p_academic_year_id, p_admission_year, v_scope, v_degree,
+          CASE WHEN v_multi THEN p_institution_ids ELSE NULL END,
+          NULLIF(p_degree_ids, '{}'::uuid[]),
+          NULLIF(p_department_ids, '{}'::uuid[]));
+
+  RETURN v_event_id;
+END $function$;

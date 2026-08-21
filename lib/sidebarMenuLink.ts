@@ -510,7 +510,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
   '/events/induction': 'induction.view',
-  '/events/induction/new': 'induction.manage',
+  // Split off induction.manage 2026-08-21 — creating an induction is Induction
+  // Lead + super admin only; manage now covers running one, not starting one.
+  '/events/induction/new': 'induction.create',
   '/events/induction/catalog': 'induction.view',
   // Events landing + Projects module entry (menu-visibility gap fix
   // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in

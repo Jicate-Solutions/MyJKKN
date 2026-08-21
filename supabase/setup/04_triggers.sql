@@ -1989,3 +1989,22 @@ CREATE TRIGGER trg_normalize_staff_names
   BEFORE INSERT OR UPDATE OF first_name, last_name ON public.staff
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_normalize_staff_names();
+
+-- Migration: supabase/migrations/20260821120000_induction_live_gate_writes.sql
+-- Refuse attendance/feedback writes unless the parent induction is Live.
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_session_attendance;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_session_attendance
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_session();
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_session_feedback;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_session_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_event();
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_day_feedback;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_day_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_event();
+DROP TRIGGER IF EXISTS trg_a_induction_require_live ON public.event_program_feedback;
+CREATE TRIGGER trg_a_induction_require_live
+  BEFORE INSERT OR UPDATE ON public.event_program_feedback
+  FOR EACH ROW EXECUTE FUNCTION public.trg_induction_require_live_by_event();

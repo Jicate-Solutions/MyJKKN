@@ -11,6 +11,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { InductionService, type PreviewEnrollResult } from '@/lib/services/induction/induction-service';
+import { INDUCTION_ACTIVE_STATUS } from '@/types/events';
 import { SessionsSection } from './_components/sessions-section';
 import { EventCoordinatorsSection } from './_components/event-coordinators-section';
 import { FeedbackVolunteersSection } from './_components/feedback-volunteers-section';
@@ -310,7 +311,13 @@ export default function InductionDetailPage() {
         </Card>
 
         {/* Day-by-day schedule editor */}
-        <SessionsSection eventId={id} batches={batches.map((b) => ({ id: b.id, label: b.label }))} />
+        <SessionsSection
+          eventId={id}
+          batches={batches.map((b) => ({ id: b.id, label: b.label }))}
+          // Only 'live' opens attendance/feedback — a legacy status is not Live.
+          // Server-enforced by fn_induction_assert_live; this just mirrors it.
+          isLive={event.status === INDUCTION_ACTIVE_STATUS}
+        />
 
         {/* Peer-mentor feedback scale layer — appoint mentors, auto-balance, coverage */}
         <FeedbackVolunteersSection eventId={id} />
