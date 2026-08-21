@@ -36881,10 +36881,32 @@ DECLARE
   v_id        uuid;
   v_existing  text;
 BEGIN
+  -- Two gates, not one. The general power to mint a permanent number for
+  -- a learner or a team member stays on users.jkkn_id.issue, which is
+  -- also the key on the jkkn_identities INSERT/UPDATE policies — so it
+  -- remains the only way to write that table by hand.
+  --
+  -- An external_participant identity is different in kind. It is never
+  -- issued on its own: it exists only as one step inside
+  -- fn_course_approve_application, which has already established that the
+  -- caller may decide this application. Requiring the global key there
+  -- meant a Course Coordinator who could approve got 42501 at the last
+  -- step, and the only way to unblock them was to grant the global key —
+  -- which would also let them mint and rewrite identities for any learner
+  -- or team member straight through PostgREST.
+  --
+  -- IS NOT DISTINCT FROM, not `=`: with `=`, a NULL p_person_kind makes
+  -- that term NULL, the OR chain evaluates to NULL, and plpgsql treats
+  -- IF NULL as false — the gate would pass silently. This form fails
+  -- closed.
   IF NOT (
     COALESCE(public.is_super_admin(), false)
     OR public.is_admin()
     OR public.user_has_permission('users.jkkn_id.issue')
+    OR (
+      p_person_kind IS NOT DISTINCT FROM 'external_participant'
+      AND public.user_has_permission('courses.applications.decide')
+    )
   ) THEN
     RAISE EXCEPTION 'Not authorised to issue a JKKN ID'
       USING ERRCODE = '42501';
@@ -36992,7 +37014,7 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) IS
-  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13). Admin-gated on users.jkkn_id.issue. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
+  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13). Gated on users.jkkn_id.issue, EXCEPT the external_participant kind, which also accepts courses.applications.decide because it is only ever minted inside fn_course_approve_application by someone already entitled to decide that application. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
 
 -- DROP FUNCTION discarded the ACL. Restore it.
 REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) FROM anon, PUBLIC;

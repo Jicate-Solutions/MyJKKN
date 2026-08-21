@@ -232,11 +232,17 @@ export const PERMISSION_CATEGORIES = [
       { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' },
       // Added 2026-08-10 — JKKN permanent ID. `.view` gates the lookup page and
       // the two read RPCs (fn_resolve_person, fn_check_duplicate_person).
-      // `.issue` gates fn_issue_jkkn_id and is DELIBERATELY GRANTED TO NO ROLE:
-      // that is what keeps the register dormant. Granting it is the switch-on,
-      // and is a decision, not a default.
+      // `.issue` gates fn_issue_jkkn_id AND the jkkn_identities INSERT/UPDATE
+      // policies, so it is the whole write side of the register in one key.
+      // Held only by administrator and coo. Granting it is a decision, not a
+      // default — it lets the holder mint a permanent lifetime number for any
+      // learner or team member, and rewrite identity rows via PostgREST.
+      //
+      // It is NOT needed to approve a course application: the issuer accepts
+      // courses.applications.decide for the external_participant kind alone
+      // (20260821070100). Do not tick this key just to unblock /courses.
       { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
-      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID (dormant — granted to no role)' }
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' }
     ]
   },
   {
