@@ -97,7 +97,13 @@ export interface AnsweredScoreboardRow {
   host_id: string;
   institution_id: string;
   questions_asked: number;
-  questions_answered: number;
+  /** EVER answered — a question answered then dismissed still counts. This is the
+   *  number the success test is measured on; a metric an ordinary host action can
+   *  destroy is not a metric. */
+  questions_ever_answered: number;
+  /** Still showing as answered right now. Reported separately so current state and
+   *  what was once true never get confused for each other. */
+  questions_currently_answered: number;
   first_answered_at: string | null;
 }
 

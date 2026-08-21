@@ -186,7 +186,11 @@ BEGIN
   RETURN false;
 END $fn$;
 REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_host(uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public._fn_session_question_can_host(uuid) TO authenticated;
+-- NOT granted to authenticated: every caller is SECURITY DEFINER and runs as the
+-- owner, so the grant changes no behaviour — but it WOULD let any signed-in user
+-- probe "is learner X in the event behind board Y?" one boolean at a time. Same
+-- disclosure-oracle shape as the 2-arg user_has_permission closed on 2026-08-19.
+REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_host(uuid) FROM authenticated;
 
 -- May THIS learner take part in THIS board? Induction reuses the poll rule (enrolled in
 -- the event + the session applies to their batch); the other host types scope on the
@@ -213,7 +217,11 @@ BEGIN
   RETURN coalesce(public.role_has_institution_access(v_inst), false);
 END $fn$;
 REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_participate(uuid, uuid) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public._fn_session_question_can_participate(uuid, uuid) TO authenticated;
+-- NOT granted to authenticated: every caller is SECURITY DEFINER and runs as the
+-- owner, so the grant changes no behaviour — but it WOULD let any signed-in user
+-- probe "is learner X in the event behind board Y?" one boolean at a time. Same
+-- disclosure-oracle shape as the 2-arg user_has_permission closed on 2026-08-19.
+REVOKE EXECUTE ON FUNCTION public._fn_session_question_can_participate(uuid, uuid) FROM authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Host RPCs
@@ -325,8 +333,14 @@ BEGIN
   UPDATE public.session_question
   SET state           = p_state,
       moderation_note = CASE WHEN p_state = 'visible' THEN NULL ELSE coalesce(p_note, moderation_note) END,
-      answered_at     = CASE WHEN p_state = 'answered' THEN coalesce(answered_at, now()) ELSE NULL END,
-      answered_by     = CASE WHEN p_state = 'answered' THEN coalesce(answered_by, auth.uid()) ELSE NULL END
+      -- STICKY ON PURPOSE. A host who answers a question and later dismisses it must
+      -- not erase the fact that it WAS answered: D4's success test (>=3 sessions with
+      -- an answered learner question in a month) is measured from this column, and a
+      -- metric an ordinary host action can destroy is not a metric. Same class as the
+      -- status='active' filter that once zeroed the CAC funnel — record what was EVER
+      -- true, and let `state` carry what is true NOW.
+      answered_at     = CASE WHEN p_state = 'answered' THEN coalesce(answered_at, now())    ELSE answered_at END,
+      answered_by     = CASE WHEN p_state = 'answered' THEN coalesce(answered_by, auth.uid()) ELSE answered_by END
   WHERE id = p_question_id;
 
   RETURN jsonb_build_object('success', true, 'error', NULL, 'state', p_state);
@@ -477,7 +491,10 @@ BEGIN
 
   v_prev_timeout := current_setting('statement_timeout', true);
   BEGIN
-    -- a slow checker must not hold up the room; 2s then give up and show the question
+    -- Best-effort only: PostgreSQL arms the statement timer when the TOP-LEVEL statement
+    -- begins, so set_config here does NOT re-arm it for the statement already running.
+    -- The real guarantee is the fail-open EXCEPTION below, not this budget. Harmless to
+    -- keep (it does bound any future out-of-line checker call), but do not rely on it.
     PERFORM set_config('statement_timeout', '2000', true);
     v_verdict := public.fn_session_question_moderation_verdict(v_body);
     IF coalesce((v_verdict->>'blocked')::boolean, false) THEN
@@ -558,26 +575,34 @@ GRANT  EXECUTE ON FUNCTION public.fn_session_question_toggle_vote(uuid) TO authe
 
 -- D4: the success test in one call — sessions where a learner-asked question actually
 -- got ANSWERED. Count the rows in a 30-day window; three or more is the target.
+-- Return signature changed 2026-08-21 (ever-answered split out), and PostgreSQL cannot
+-- CREATE OR REPLACE across a changed RETURNS TABLE — drop first so a re-apply works.
+DROP FUNCTION IF EXISTS public.fn_session_question_answered_scoreboard(timestamptz);
 CREATE OR REPLACE FUNCTION public.fn_session_question_answered_scoreboard(
   p_since timestamptz DEFAULT (now() - interval '30 days'))
 RETURNS TABLE (board_id uuid, host_type text, host_id uuid, institution_id uuid,
-               questions_asked bigint, questions_answered bigint, first_answered_at timestamptz)
+               questions_asked bigint, questions_ever_answered bigint,
+               questions_currently_answered bigint, first_answered_at timestamptz)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $fn$
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'fn_session_question_answered_scoreboard: not authenticated'; END IF;
   RETURN QUERY
   SELECT b.id, b.host_type, b.host_id, b.institution_id,
          count(q.id),
+         -- EVER answered, not currently answered — see the sticky note on
+         -- fn_session_question_set_state. A question answered then dismissed still
+         -- counts toward D4, because it genuinely was answered.
+         count(q.id) FILTER (WHERE q.answered_at IS NOT NULL),
          count(q.id) FILTER (WHERE q.state = 'answered'),
-         min(q.answered_at) FILTER (WHERE q.state = 'answered')
+         min(q.answered_at) FILTER (WHERE q.answered_at IS NOT NULL)
   FROM public.session_question_board b
   JOIN public.session_question q ON q.board_id = b.id
   WHERE q.created_at >= p_since
     AND (public.is_super_admin() OR public.is_admin()
          OR coalesce(public.role_has_institution_access(b.institution_id), false))
   GROUP BY b.id, b.host_type, b.host_id, b.institution_id
-  HAVING count(q.id) FILTER (WHERE q.state = 'answered') > 0
-  ORDER BY min(q.answered_at) FILTER (WHERE q.state = 'answered') DESC;
+  HAVING count(q.id) FILTER (WHERE q.answered_at IS NOT NULL) > 0
+  ORDER BY min(q.answered_at) FILTER (WHERE q.answered_at IS NOT NULL) DESC;
 END $fn$;
 REVOKE EXECUTE ON FUNCTION public.fn_session_question_answered_scoreboard(timestamptz) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_session_question_answered_scoreboard(timestamptz) TO authenticated;
