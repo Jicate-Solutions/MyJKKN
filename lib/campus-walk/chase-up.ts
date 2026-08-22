@@ -70,6 +70,58 @@
  * the notification already reached the recipient; losing the audit trail is
  * the lesser failure, and the DB idempotency key still protects against a
  * duplicate next run regardless.
+ *
+ * RULING 1 (Director) — THE DIRECTOR'S OWN CLOCK:
+ * The four rungs above deliberately skip a task in `review` — awaiting the
+ * Director's approve/send-back decision is not the fixer's fault, and none of
+ * `due_date`, `is_blocked`, or `rungs_sent` should ever read as the fixer
+ * being late for it. But that same skip meant nothing ever chased the ONE
+ * person who can now stall a job indefinitely: the Director himself. A fifth,
+ * INDEPENDENT clock — `chaseReviewWaitDirector` below — watches
+ * `metadata.fix.approval.state === 'awaiting_approval'` and dates the wait
+ * from `metadata.fix.submitted_at`, the exact field
+ * app/api/campus-walk/fix/route.ts stamps (alongside that same `approval`
+ * object) the moment it moves a task into `review` — reused rather than a new
+ * column, because that route is the only writer of this state and the only
+ * place the wait genuinely starts. Two full days waiting
+ * (`REVIEW_WAIT_THRESHOLD_DAYS = 2`) pages the Director, and — unlike the four
+ * due-date rungs, which fire each AT MOST ONCE ever — this one may
+ * legitimately need to recur if he keeps not looking. It repeats on a BOUNDED
+ * cadence (`REVIEW_WAIT_REPEAT_DAYS = 3`, capped at `REVIEW_WAIT_MAX_WAVES`
+ * total sends — a bounded repeat, not a one-shot and not an unbounded nag; see
+ * chaseReviewWaitDirector's own comment for why that shape was chosen over
+ * once-only) and stops the instant he decides, because a decided task no
+ * longer matches `awaiting_approval` and drops out of the candidate query on
+ * the very next sweep. The fixer is never touched by any of this: no
+ * due_date, is_blocked, or rungs_sent write happens anywhere in this path.
+ *
+ * RULING 2 (Director) — WHEN THE ACCOUNTABLE PERSON LEAVES:
+ * Before this ruling, `accountableStaff.isActive === false` resolved silently
+ * to "nobody to remind" (see the comment on `StaffLite` below) — correct for
+ * not chasing someone who no longer works here, wrong for the job itself,
+ * which then dropped out of view for good. `reassignDepartedAccountable`
+ * below hands the task to the department head
+ * (`staff.department_id -> departments.head_of_department_id`), or — since
+ * that link is populated on roughly 7 of 89 departments in production
+ * (measured 2026-07-30, app/api/cron/learner-risk-notifications/route.ts) —
+ * to the EAO / CAMPUS-OPS project owner, THE COMMON PATH here, not the
+ * fallback of last resort. This is the exact resolution order
+ * lib/services/campus-walk/campus-walk-service.ts's `routeAccountable` /
+ * `resolveDepartmentHeadProfileId` / `resolveEao` already use for its
+ * on-approved-leave case; those helpers are module-private in a file this
+ * lane must not edit, so the same order and the same two columns are
+ * reimplemented here against the maps `bulkResolve` already batches for the
+ * whole sweep — not a second, driftable design, the same one. The handover
+ * reassigns `project_tasks.owner_staff_id` and the `project_task_assignees`
+ * Accountable row for real (the new owner can act on
+ * app/api/campus-walk/fix/route.ts immediately, not just receive a notice —
+ * and the DB's own `ix_pta_one_accountable` partial unique index means the old
+ * Accountable row MUST be cleared, not merely superseded, before the new one
+ * can be inserted), tells the Director it happened and tells the new owner
+ * they inherited it, and records the outcome on
+ * `metadata.campus_walk_chase.reassignment` / `...reassignment_history` so a
+ * rerun sees the NEW accountable is active and never repeats the handover for
+ * the same departure.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -87,13 +139,40 @@ const MODULE = 'campus-walk/chase-up';
 const CAMPUS_OPS_PROJECT_CODE = 'CAMPUS-OPS';
 const CAMPUS_WALK_SOURCE = 'campus-walk';
 
+/**
+ * Ruling 1: the Director asked to be nudged "after 2 days" waiting on his
+ * decision. daysWaiting is a whole-day count from metadata.fix.submitted_at,
+ * so 2 means two full days have passed — that is the fire point. He is the
+ * only person who can stall a job indefinitely and the only one nothing else
+ * chases, so this errs early rather than late.
+ */
+const REVIEW_WAIT_THRESHOLD_DAYS = 2;
+/** Ruling 1: once past the threshold, how often the Director is re-paged. */
+const REVIEW_WAIT_REPEAT_DAYS = 3;
+/**
+ * Ruling 1: hard ceiling on how many times one task re-pages the Director
+ * (waves 0..MAX-1, i.e. day 2, 5, 8, ... up to ~30 days). Chosen as a BOUNDED
+ * repeat over once-only because a Director who has not looked in 2 days may
+ * well not look in 5 either, and the whole point of this ruling is that
+ * nothing else in this codebase will ever chase him — but bounded, not
+ * unbounded, because past a month of unanswered pages the right response is a
+ * manual escalation outside this notification channel, not a louder bell. The
+ * cap is logged once (`review_wait_director.cap_reached`), not resent.
+ */
+const REVIEW_WAIT_MAX_WAVES = 10;
+
 /** Never chase a task already past the fixer's hands. `archived` added as the
  *  same kind of done-adjacent terminal state as the three the brief names
  *  explicitly (review/done/cancelled) — project_statuses seeds it in category
  *  'archived', distinct from 'active'. */
 const TERMINAL_STATUS_KEYS = ['review', 'done', 'cancelled', 'archived'];
 
-type RungKey = 'reminder_1' | 'reminder_2' | 'escalate_accountable' | 'escalate_director';
+type RungKey =
+  | 'reminder_1'
+  | 'reminder_2'
+  | 'escalate_accountable'
+  | 'escalate_director'
+  | 'review_wait_director';
 
 interface RungCopy {
   title: string;
@@ -198,6 +277,11 @@ export interface CampusWalkChaseUpResult {
   processed: number;
   notifications_sent: number;
   rungs: Record<RungKey, number>;
+  /** Ruling 1 — the review-wait candidate set (status_key='review'), disjoint from `scanned` above. */
+  review_wait_scanned: number;
+  review_wait_processed: number;
+  /** Ruling 2 — tasks whose departed Accountable was successfully handed to a new owner this run. */
+  reassignments_sent: number;
   director_resolution: DirectorResolution['source'];
   errors: string[];
   elapsed_ms: number;
@@ -209,6 +293,28 @@ interface StaffLite {
   profileId: string | null;
   isActive: boolean;
   departmentId: string | null;
+}
+
+/** Ruling 2's audit record — appended to `metadata.campus_walk_chase.reassignment_history`. */
+interface ReassignmentRecord {
+  reason: 'accountable_inactive';
+  from_staff_id: string;
+  to_staff_id: string | null;
+  to_profile_id: string | null;
+  to_role: 'department_head' | 'campus_ops_owner' | null;
+  resolved_at: string;
+  outcome: 'reassigned' | 'no_target_found' | 'assignee_write_failed';
+  director_notified?: boolean;
+  new_owner_notified?: boolean;
+  error?: string;
+}
+
+interface ReassignmentOutcome {
+  handled: boolean;
+  record: ReassignmentRecord;
+  newStaffId: string | null;
+  newProfileId: string | null;
+  newDepartmentId: string | null;
 }
 
 async function fetchProjectId(db: SupabaseClient): Promise<{ id: string; ownerStaffId: string | null } | null> {
@@ -255,6 +361,9 @@ async function bulkResolve(
   accountableStaffIdByTask: Map<string, string>;
   staffById: Map<string, StaffLite>;
   deptHeadByDept: Map<string, string>;
+  /** Ruling 2 — department head's own active-staff id, needed to write
+   *  owner_staff_id / project_task_assignees.staff_id on reassignment. */
+  headStaffIdByProfile: Map<string, string>;
   profileActive: Map<string, boolean>;
 }> {
   const taskIds = tasks.map((t) => t.id);
@@ -296,7 +405,10 @@ async function bulkResolve(
 
   const departmentIds = new Set<string>();
   for (const s of staffById.values()) {
-    if (s.isActive && s.departmentId) departmentIds.add(s.departmentId);
+    // Ruling 2: looked up for EVERY candidate staff row, active or not — an
+    // inactive Accountable's department head is exactly who
+    // reassignDepartedAccountable() below needs to find.
+    if (s.departmentId) departmentIds.add(s.departmentId);
   }
 
   const deptHeadByDept = new Map<string, string>();
@@ -307,6 +419,25 @@ async function bulkResolve(
       .in('id', [...departmentIds]);
     for (const d of (depts ?? []) as any[]) {
       if (d.head_of_department_id) deptHeadByDept.set(d.id, d.head_of_department_id);
+    }
+  }
+
+  // Ruling 2: the department head's own STAFF id (active only) — needed to
+  // write project_tasks.owner_staff_id / project_task_assignees.staff_id,
+  // matching the same active-staff requirement
+  // campus-walk-service.ts's routeAccountable applies to its own
+  // department-head fallback.
+  const headProfileIds = [...deptHeadByDept.values()];
+  const headStaffIdByProfile = new Map<string, string>();
+  if (headProfileIds.length > 0) {
+    const { data: headStaffRows } = await db
+      .from('staff')
+      .select('id, profile_id, is_active')
+      .in('profile_id', headProfileIds);
+    for (const r of (headStaffRows ?? []) as any[]) {
+      if (r.profile_id && r.is_active && !headStaffIdByProfile.has(r.profile_id)) {
+        headStaffIdByProfile.set(r.profile_id, r.id);
+      }
     }
   }
 
@@ -329,7 +460,7 @@ async function bulkResolve(
     }
   }
 
-  return { accountableStaffIdByTask, staffById, deptHeadByDept, profileActive };
+  return { accountableStaffIdByTask, staffById, deptHeadByDept, headStaffIdByProfile, profileActive };
 }
 
 /**
@@ -380,6 +511,387 @@ async function sendRung(
 }
 
 /**
+ * Ruling 2 — see the file header. Hands a task whose Accountable has left the
+ * institution (`staff.is_active = false`) to someone who can still act on it,
+ * tells both the Director and the new owner, and returns what happened so the
+ * caller can fold it into the task's audit trail.
+ *
+ * Resolution order matches lib/services/campus-walk/campus-walk-service.ts's
+ * routeAccountable exactly (department head, then EAO / CAMPUS-OPS project
+ * owner) — reimplemented against this file's own bulk-fetched maps because
+ * that module's resolveDepartmentHeadProfileId/resolveEao are module-private
+ * and this lane must not edit that file (parallel-PR boundary). Same order,
+ * same two columns, not a second design.
+ *
+ * Never throws: the caller's per-task try/catch is the backstop, but every
+ * notification here is independently guarded so a bell failure can never
+ * undo the handover write that already landed, and one departed staff member
+ * can never abort the sweep.
+ */
+async function reassignDepartedAccountable(
+  db: SupabaseClient,
+  opts: {
+    taskId: string;
+    taskTitle: string;
+    dueDate: string;
+    departedStaffId: string;
+    departedDepartmentId: string | null;
+    deptHeadByDept: Map<string, string>;
+    headStaffIdByProfile: Map<string, string>;
+    profileActive: Map<string, boolean>;
+    projectOwnerStaffId: string | null;
+    projectOwnerProfileId: string | null;
+    director: DirectorResolution;
+    nowIso: string;
+  }
+): Promise<ReassignmentOutcome> {
+  const {
+    taskId,
+    taskTitle,
+    dueDate,
+    departedStaffId,
+    departedDepartmentId,
+    deptHeadByDept,
+    headStaffIdByProfile,
+    profileActive,
+    projectOwnerStaffId,
+    projectOwnerProfileId,
+    director,
+    nowIso
+  } = opts;
+
+  const headProfileId = departedDepartmentId ? deptHeadByDept.get(departedDepartmentId) ?? null : null;
+  const headStaffId = headProfileId ? headStaffIdByProfile.get(headProfileId) ?? null : null;
+  const headActive = headProfileId ? profileActive.get(headProfileId) !== false : false;
+
+  let newProfileId: string | null = null;
+  let newStaffId: string | null = null;
+  let toRole: ReassignmentRecord['to_role'] = null;
+  let newDepartmentId: string | null = null;
+
+  if (headProfileId && headStaffId && headActive && headStaffId !== departedStaffId) {
+    newProfileId = headProfileId;
+    newStaffId = headStaffId;
+    toRole = 'department_head';
+    newDepartmentId = departedDepartmentId;
+  } else if (projectOwnerStaffId && projectOwnerProfileId && projectOwnerStaffId !== departedStaffId) {
+    newProfileId = projectOwnerProfileId;
+    newStaffId = projectOwnerStaffId;
+    toRole = 'campus_ops_owner';
+  }
+
+  const idemBase = `campus-walk-chase:reassign:${taskId}:${departedStaffId}`;
+
+  if (!newStaffId || !newProfileId) {
+    // Nobody to hand it to. The whole point of this ruling is that this state
+    // must never again be invisible — tell the Director even though there is
+    // no automatic fix.
+    let directorNotified = false;
+    try {
+      const check = validateTargeting(director.ids);
+      if (check.ok) {
+        const sendResult = await sendRung(db, {
+          recipientIds: check.userIds,
+          title: `Needs a new owner: ${truncate(taskTitle, 80)}`,
+          body:
+            `A Management walk item ("${truncate(taskTitle, 150)}", due ${dueDate}) can no longer be ` +
+            `chased automatically — the person responsible for it is no longer active staff, and no ` +
+            `department head or Campus Operations owner could be found to hand it to. It needs a manual reassignment.`,
+          url: '/projects',
+          category: 'campus-walk:reassign-failed',
+          metadata: { task_id: taskId, source: CAMPUS_WALK_SOURCE, reason: 'accountable_inactive_no_target' },
+          idempotencyKey: `${idemBase}:director-failed`
+        });
+        directorNotified = sendResult.sent;
+      }
+    } catch {
+      // fail soft — the record below still marks this attempt as auditable.
+    }
+    return {
+      handled: false,
+      record: {
+        reason: 'accountable_inactive',
+        from_staff_id: departedStaffId,
+        to_staff_id: null,
+        to_profile_id: null,
+        to_role: null,
+        resolved_at: nowIso,
+        outcome: 'no_target_found',
+        director_notified: directorNotified
+      },
+      newStaffId: null,
+      newProfileId: null,
+      newDepartmentId: null
+    };
+  }
+
+  // The actual handover. Delete/delete/insert rather than a conditional
+  // update: the DB's own ix_pta_one_accountable partial unique index allows
+  // at most one 'accountable' row per task, and uq_project_task_assignees
+  // allows at most one role per (task_id, staff_id) — so the old Accountable
+  // row must be cleared, and any pre-existing row for the NEW owner (e.g. they
+  // were already Consulted) must be cleared too, before the new Accountable
+  // row can be inserted without a 23505. Runs at most once per departure by
+  // construction: the next sweep's bulk query reads project_task_assignees
+  // fresh and no longer sees the departed staff id as Accountable, so this
+  // branch is not re-entered for the same event.
+  try {
+    await db.from('project_task_assignees').delete().eq('task_id', taskId).eq('staff_id', newStaffId);
+    await db.from('project_task_assignees').delete().eq('task_id', taskId).eq('role', 'accountable');
+    const { error: insErr } = await db
+      .from('project_task_assignees')
+      .insert({ task_id: taskId, staff_id: newStaffId, role: 'accountable' });
+    if (insErr) throw new Error(insErr.message);
+  } catch (e: any) {
+    return {
+      handled: false,
+      record: {
+        reason: 'accountable_inactive',
+        from_staff_id: departedStaffId,
+        to_staff_id: newStaffId,
+        to_profile_id: newProfileId,
+        to_role: toRole,
+        resolved_at: nowIso,
+        outcome: 'assignee_write_failed',
+        error: e?.message ?? String(e)
+      },
+      newStaffId: null,
+      newProfileId: null,
+      newDepartmentId: null
+    };
+  }
+
+  // Tell the Director it happened, and tell the new owner they inherited it.
+  // Fail soft from here on — the handover itself already landed above, and a
+  // notification failure must not undo it or abort the sweep.
+  let directorNotified = false;
+  try {
+    const directorCheck = validateTargeting(director.ids);
+    if (directorCheck.ok) {
+      const sendResult = await sendRung(db, {
+        recipientIds: directorCheck.userIds,
+        title: `Reassigned — owner no longer active: ${truncate(taskTitle, 70)}`,
+        body:
+          `A Management walk item ("${truncate(taskTitle, 150)}") was assigned to someone who is no ` +
+          `longer active staff. It has been automatically reassigned to ${
+            toRole === 'department_head' ? 'the department head' : 'the Campus Operations owner'
+          } to keep it moving.`,
+        url: '/projects',
+        category: 'campus-walk:reassigned',
+        metadata: { task_id: taskId, source: CAMPUS_WALK_SOURCE, to_role: toRole },
+        idempotencyKey: `${idemBase}:director`
+      });
+      directorNotified = sendResult.sent;
+    }
+  } catch {
+    // fail soft
+  }
+
+  let newOwnerNotified = false;
+  try {
+    const sendResult = await sendRung(db, {
+      recipientIds: [newProfileId],
+      title: `You have inherited a Management walk item: ${truncate(taskTitle, 70)}`,
+      body:
+        `"${truncate(taskTitle, 150)}" (due ${dueDate}) has been reassigned to you because its previous ` +
+        `owner is no longer active staff. Please action it, or mark it "blocked" if something is holding you up.`,
+      url: `/campus-walk/fix?task=${taskId}`,
+      category: 'campus-walk:reassigned',
+      metadata: { task_id: taskId, source: CAMPUS_WALK_SOURCE, to_role: toRole },
+      idempotencyKey: `${idemBase}:new-owner`
+    });
+    newOwnerNotified = sendResult.sent;
+  } catch {
+    // fail soft
+  }
+
+  return {
+    handled: true,
+    record: {
+      reason: 'accountable_inactive',
+      from_staff_id: departedStaffId,
+      to_staff_id: newStaffId,
+      to_profile_id: newProfileId,
+      to_role: toRole,
+      resolved_at: nowIso,
+      outcome: 'reassigned',
+      director_notified: directorNotified,
+      new_owner_notified: newOwnerNotified
+    },
+    newStaffId,
+    newProfileId,
+    newDepartmentId
+  };
+}
+
+/**
+ * Ruling 1 — see the file header. Runs on its OWN candidate set (status_key =
+ * 'review'), disjoint from the overdue set the main sweep below reads
+ * (TERMINAL_STATUS_KEYS excludes 'review' from that query on purpose), so
+ * this is called unconditionally by runCampusWalkChaseUp — even on a run with
+ * zero overdue tasks.
+ *
+ * Only `metadata.fix.approval.state === 'awaiting_approval'` is chased.
+ * Already-approved and already-sent-back tasks are not waiting on anyone and
+ * are skipped, same as a task that never had a fix submitted at all.
+ *
+ * BOUNDED REPEAT, not once-only (Director's explicit call to make): the wait
+ * is dated from `metadata.fix.submitted_at` and re-pages every
+ * REVIEW_WAIT_REPEAT_DAYS days in "waves" (wave 0 = day 2, wave 1 = day 5,
+ * ...), each wave keyed by its own idempotency key
+ * (`campus-walk-chase:review_wait_director:<task_id>:<wave>`) so a rerun
+ * before the next wave is due is a no-op, and a wave once sent is never sent
+ * twice. Capped at REVIEW_WAIT_MAX_WAVES total — past that, one warning is
+ * logged (`review_wait_director.cap_reached`, checked so it fires only once)
+ * and no further bells go out; a task stuck that long needs a human, not a
+ * louder notification.
+ */
+async function chaseReviewWaitDirector(
+  db: SupabaseClient,
+  opts: {
+    projectId: string;
+    director: DirectorResolution;
+    todayISO: string;
+    nowIso: string;
+  }
+): Promise<{ scanned: number; processed: number; sent: number; errors: string[] }> {
+  const errors: string[] = [];
+
+  const { data: rows, error } = await db
+    .from('project_tasks')
+    .select('id, title, metadata')
+    .eq('project_id', opts.projectId)
+    .eq('metadata->>source', CAMPUS_WALK_SOURCE)
+    .eq('status_key', 'review');
+
+  if (error) {
+    errors.push(`review-wait select failed: ${error.message}`);
+    return { scanned: 0, processed: 0, sent: 0, errors };
+  }
+
+  const tasks = (rows ?? []) as Array<{ id: string; title: string; metadata: Record<string, any> }>;
+  let sent = 0;
+  let processed = 0;
+
+  for (const task of tasks) {
+    try {
+      const metadata = (task.metadata ?? {}) as Record<string, any>;
+      const approval = metadata.fix?.approval ?? null;
+      if (!approval || approval.state !== 'awaiting_approval') {
+        // Decided already (approved / changes_requested), or nothing
+        // submitted yet — not waiting on the Director either way.
+        processed++;
+        continue;
+      }
+
+      const submittedAt = metadata.fix?.submitted_at;
+      if (typeof submittedAt !== 'string' || !submittedAt) {
+        errors.push(`task ${task.id}: awaiting_approval with no fix.submitted_at — cannot date the wait`);
+        processed++;
+        continue;
+      }
+
+      const daysWaiting = daysPastDue(submittedAt, opts.todayISO);
+      if (daysWaiting < REVIEW_WAIT_THRESHOLD_DAYS) {
+        processed++;
+        continue;
+      }
+
+      const priorState = (metadata.campus_walk_chase?.review_wait_director ?? {}) as {
+        sent_waves?: number[];
+        cap_reached?: boolean;
+      };
+      const sentWaves = Array.isArray(priorState.sent_waves) ? [...priorState.sent_waves] : [];
+      const wave = Math.floor((daysWaiting - REVIEW_WAIT_THRESHOLD_DAYS) / REVIEW_WAIT_REPEAT_DAYS);
+
+      if (sentWaves.includes(wave)) {
+        // Already sent for this wave — the common case on every run between
+        // repeat intervals.
+        processed++;
+        continue;
+      }
+
+      if (wave >= REVIEW_WAIT_MAX_WAVES) {
+        if (!priorState.cap_reached) {
+          errors.push(
+            `task ${task.id}: review wait exceeded ${REVIEW_WAIT_MAX_WAVES} escalation(s) — needs manual follow-up, no further auto-reminders will be sent`
+          );
+          const { error: capErr } = await db
+            .from('project_tasks')
+            .update({
+              metadata: {
+                ...metadata,
+                campus_walk_chase: {
+                  ...(metadata.campus_walk_chase ?? {}),
+                  review_wait_director: { ...priorState, cap_reached: true }
+                }
+              }
+            })
+            .eq('id', task.id);
+          if (capErr) errors.push(`task ${task.id}: cap-reached metadata write failed — ${capErr.message}`);
+        }
+        processed++;
+        continue;
+      }
+
+      const check = validateTargeting(opts.director.ids);
+      if (!check.ok) {
+        errors.push(`task ${task.id} (review_wait_director): no resolvable recipient — ${check.reason}`);
+        processed++;
+        continue;
+      }
+
+      const idempotencyKey = `campus-walk-chase:review_wait_director:${task.id}:${wave}`;
+      const sendResult = await sendRung(db, {
+        recipientIds: check.userIds,
+        title: `Awaiting your decision (${pluralDays(daysWaiting)}): ${truncate(task.title, 80)}`,
+        body:
+          `A Management walk item ("${truncate(task.title, 150)}") has had a fix photo submitted and has ` +
+          `been waiting ${pluralDays(daysWaiting)} for your approve/send-back decision. The person who ` +
+          `fixed it is done — this one is on your desk.`,
+        url: '/campus-walk/review',
+        category: 'campus-walk:review-wait-director',
+        metadata: { task_id: task.id, source: CAMPUS_WALK_SOURCE, days_waiting: daysWaiting, wave },
+        idempotencyKey
+      });
+
+      if (sendResult.sent) {
+        sentWaves.push(wave);
+        sent++;
+        const { error: updErr } = await db
+          .from('project_tasks')
+          .update({
+            metadata: {
+              ...metadata,
+              campus_walk_chase: {
+                ...(metadata.campus_walk_chase ?? {}),
+                review_wait_director: {
+                  sent_waves: sentWaves,
+                  cap_reached: priorState.cap_reached ?? false,
+                  last_sent_at: sendResult.notifiedAt ?? opts.nowIso
+                }
+              }
+            }
+          })
+          .eq('id', task.id);
+        if (updErr) {
+          errors.push(`task ${task.id}: review_wait_director metadata write failed — ${updErr.message}`);
+        }
+      } else {
+        errors.push(`task ${task.id} (review_wait_director): notification send failed`);
+      }
+
+      processed++;
+    } catch (e: any) {
+      errors.push(`task ${task.id} (review_wait_director): ${e?.message ?? String(e)}`);
+      // fail soft — one task's exception must not abort this pass.
+    }
+  }
+
+  return { scanned: tasks.length, processed, sent, errors };
+}
+
+/**
  * Run one pass of the chase-up ladder. Safe to call repeatedly (idempotent
  * per rung, see file header) and safe to call after any gap (a task found
  * already several days overdue fires every rung it has newly reached, in
@@ -403,8 +915,12 @@ export async function runCampusWalkChaseUp(
       reminder_1: 0,
       reminder_2: 0,
       escalate_accountable: 0,
-      escalate_director: 0
+      escalate_director: 0,
+      review_wait_director: 0
     },
+    review_wait_scanned: 0,
+    review_wait_processed: 0,
+    reassignments_sent: 0,
     director_resolution: 'none',
     errors: [],
     elapsed_ms: 0
@@ -431,6 +947,8 @@ export async function runCampusWalkChaseUp(
   //                           always computed against the fair, extended date.
   //   due_date < today     -> not due yet is not overdue
   //   status_key not in    -> review/done/cancelled/archived are never chased
+  //                           by THIS query — 'review' has its own clock, see
+  //                           chaseReviewWaitDirector below (Ruling 1).
   const { data: rows, error: selectError } = await db
     .from('project_tasks')
     .select('id, title, description, due_date, status_key, owner_staff_id, metadata')
@@ -450,24 +968,39 @@ export async function runCampusWalkChaseUp(
   const tasks = (rows ?? []) as ChaseableTask[];
   result.scanned = tasks.length;
 
+  // Resolved once for the whole run — cheap, and needed by BOTH the overdue
+  // ladder's escalate_director rung and Ruling 1's independent review-wait
+  // clock below, whether or not there happen to be any overdue tasks this
+  // run. resolveDirectors() already covers the three paths fn_can_hand_over()
+  // does and falls back to super admins with the fallback recorded in
+  // `source` rather than silently indistinguishable from success.
+  const director = await resolveDirectors(db);
+  result.director_resolution = director.source;
+
+  // Ruling 1: must run every pass, independent of whether the overdue query
+  // above found anything — its candidate set is disjoint (status_key =
+  // 'review', which the query above explicitly excludes).
+  const reviewWait = await chaseReviewWaitDirector(db, {
+    projectId: project.id,
+    director,
+    todayISO,
+    nowIso
+  });
+  result.review_wait_scanned = reviewWait.scanned;
+  result.review_wait_processed = reviewWait.processed;
+  result.rungs.review_wait_director = reviewWait.sent;
+  result.notifications_sent += reviewWait.sent;
+  result.errors.push(...reviewWait.errors);
+
   if (tasks.length === 0) {
     result.elapsed_ms = Date.now() - startTime;
     return result;
   }
 
-  const { accountableStaffIdByTask, staffById, deptHeadByDept, profileActive } = await bulkResolve(
-    db,
-    tasks
-  );
+  const { accountableStaffIdByTask, staffById, deptHeadByDept, headStaffIdByProfile, profileActive } =
+    await bulkResolve(db, tasks);
 
   const projectOwnerProfileId = await resolveProjectOwnerProfile(db, project.ownerStaffId);
-
-  // Resolved once for the whole run — cheap, and every task past day 5 shares
-  // the same answer. resolveDirectors() already covers the three paths
-  // fn_can_hand_over() does and falls back to super admins with the fallback
-  // recorded in `source` rather than silently indistinguishable from success.
-  const director = await resolveDirectors(db);
-  result.director_resolution = director.source;
 
   for (const task of tasks) {
     try {
@@ -480,11 +1013,69 @@ export async function runCampusWalkChaseUp(
       }
 
       const metadata = (task.metadata ?? {}) as Record<string, any>;
-      const priorChase = (metadata.campus_walk_chase ?? {}) as { rungs_sent?: Partial<Record<RungKey, string>> };
+      const priorChase = (metadata.campus_walk_chase ?? {}) as {
+        rungs_sent?: Partial<Record<RungKey, string>>;
+        reassignment_history?: ReassignmentRecord[];
+      };
       const rungsSent: Partial<Record<RungKey, string>> = { ...(priorChase.rungs_sent ?? {}) };
 
-      const accountableStaffId = accountableStaffIdByTask.get(task.id) ?? task.owner_staff_id ?? null;
-      const accountableStaff = accountableStaffId ? staffById.get(accountableStaffId) ?? null : null;
+      let accountableStaffId = accountableStaffIdByTask.get(task.id) ?? task.owner_staff_id ?? null;
+      let accountableStaff = accountableStaffId ? staffById.get(accountableStaffId) ?? null : null;
+      let newOwnerStaffIdThisRun: string | null = null;
+      // True whenever the reassignment block below actually ran, whether or
+      // not it found somewhere to send the task — either way there is a new
+      // audit record on `metadata.campus_walk_chase.reassignment` that must
+      // be persisted, so this is NOT the same condition as "reassignment
+      // succeeded".
+      let reassignmentAttempted = false;
+
+      // Ruling 2: the Accountable is no longer active staff. Reassign rather
+      // than silently letting this resolve to "nobody to remind" (which is
+      // what accountableProfileId's own isActive check below would otherwise
+      // do) — see the file header ("RULING 2") and
+      // reassignDepartedAccountable's own comment.
+      if (accountableStaffId && accountableStaff && accountableStaff.isActive === false) {
+        reassignmentAttempted = true;
+        const outcome = await reassignDepartedAccountable(db, {
+          taskId: task.id,
+          taskTitle: task.title,
+          dueDate: task.due_date,
+          departedStaffId: accountableStaffId,
+          departedDepartmentId: accountableStaff.departmentId,
+          deptHeadByDept,
+          headStaffIdByProfile,
+          profileActive,
+          projectOwnerStaffId: project.ownerStaffId,
+          projectOwnerProfileId,
+          director,
+          nowIso
+        });
+
+        const priorHistory = Array.isArray(priorChase.reassignment_history)
+          ? priorChase.reassignment_history
+          : [];
+        metadata.campus_walk_chase = {
+          ...(metadata.campus_walk_chase ?? {}),
+          reassignment: outcome.record,
+          reassignment_history: [...priorHistory, outcome.record].slice(-20)
+        };
+
+        if (outcome.handled && outcome.newStaffId && outcome.newProfileId) {
+          result.reassignments_sent++;
+          newOwnerStaffIdThisRun = outcome.newStaffId;
+          accountableStaffId = outcome.newStaffId;
+          accountableStaff = {
+            profileId: outcome.newProfileId,
+            isActive: true,
+            departmentId: outcome.newDepartmentId
+          };
+        } else {
+          result.errors.push(
+            `task ${task.id}: accountable staff ${outcome.record.from_staff_id} is inactive and could not be reassigned (${outcome.record.outcome})`
+          );
+        }
+      }
+
       const accountableProfileId =
         accountableStaff && accountableStaff.isActive && accountableStaff.profileId
           ? profileActive.get(accountableStaff.profileId) !== false
@@ -498,7 +1089,7 @@ export async function runCampusWalkChaseUp(
       const deptHeadActive = deptHeadId ? profileActive.get(deptHeadId) !== false : false;
       const escalationContactProfileId = deptHeadId && deptHeadActive ? deptHeadId : projectOwnerProfileId;
 
-      let metadataChanged = false;
+      let metadataChanged = reassignmentAttempted;
 
       for (const rung of RUNGS) {
         if (daysOverdue < rung.atDay) break; // RUNGS is ascending by atDay
@@ -550,18 +1141,24 @@ export async function runCampusWalkChaseUp(
       }
 
       if (metadataChanged) {
+        const updatePayload: Record<string, unknown> = {
+          metadata: {
+            ...metadata,
+            campus_walk_chase: {
+              ...(metadata.campus_walk_chase ?? {}),
+              rungs_sent: rungsSent,
+              last_run_at: nowIso,
+              last_days_overdue: daysOverdue
+            }
+          }
+        };
+        if (newOwnerStaffIdThisRun) {
+          updatePayload.owner_staff_id = newOwnerStaffIdThisRun;
+        }
+
         const { error: updateError } = await db
           .from('project_tasks')
-          .update({
-            metadata: {
-              ...metadata,
-              campus_walk_chase: {
-                rungs_sent: rungsSent,
-                last_run_at: nowIso,
-                last_days_overdue: daysOverdue
-              }
-            }
-          })
+          .update(updatePayload)
           .eq('id', task.id);
         if (updateError) {
           // The notification(s) already went out; losing the audit trail here
