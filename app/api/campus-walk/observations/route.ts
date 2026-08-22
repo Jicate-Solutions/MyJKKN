@@ -47,6 +47,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
+import {
+  DUPLICATE_RECENCY_WINDOW_MS,
+  extractSha256FromStoragePath,
+  findLikelyDuplicate,
+  type RecentLaneTaskPhoto,
+} from '@/lib/campus-walk/duplicates';
 import { isJpegMagic, stripJpegMetadata, scanJpegForMetadata } from '@/lib/services/pde/jpeg-metadata';
 import {
   createWalkTask,
@@ -321,6 +327,75 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Likely-duplicate flag (Director ruling, 2026-08-21) ───────────────────
+  // The offline queue retries an upload interrupted mid-flight, because it
+  // cannot tell whether the server received the first attempt. That retry is
+  // deliberate — losing an observation is worse than an extra ticket — but it
+  // can file the same problem twice, and a fixer sent to the same broken tap
+  // twice stops trusting the tickets.
+  //
+  // So: flag, never drop. Photos are stored at content-addressed sha256 paths,
+  // so a re-send of the same bytes lands on an identical path — that is the
+  // signal. Wholly best-effort: this runs AFTER the task exists, and any
+  // failure here leaves a correctly-filed observation untouched.
+  let duplicateOf: string | null = null;
+  try {
+    const since = new Date(Date.now() - DUPLICATE_RECENCY_WINDOW_MS).toISOString();
+    const { data: recent } = await supabase
+      .from('project_tasks')
+      .select('id, created_at, metadata')
+      .eq('metadata->>source', 'campus-walk')
+      .gte('created_at', since)
+      .neq('id', result.taskId)
+      .limit(50);
+
+    const recentLaneTasks: RecentLaneTaskPhoto[] = (recent ?? [])
+      .map((r) => {
+        const md = (r.metadata ?? {}) as Record<string, unknown>;
+        const path = typeof md.photo_storage_path === 'string' ? md.photo_storage_path : null;
+        const hash = path ? extractSha256FromStoragePath(path) : null;
+        return {
+          taskId: r.id as string,
+          createdAt: r.created_at as string,
+          photoHashes: hash ? [hash] : [],
+        };
+      })
+      .filter((t) => t.photoHashes.length > 0);
+
+    const candidatePhotoHashes = uploaded
+      .map((u) => extractSha256FromStoragePath(u.storagePath))
+      .filter((h): h is string => Boolean(h));
+
+    const verdict = findLikelyDuplicate({ candidatePhotoHashes, recentLaneTasks });
+    if (verdict.isLikelyDuplicate && verdict.matchedTaskId) {
+      duplicateOf = verdict.matchedTaskId;
+      // Record it on the task so the queue and any later review can see it.
+      // Not fatal if it fails — the response still carries the flag.
+      const { data: fresh } = await supabase
+        .from('project_tasks')
+        .select('metadata')
+        .eq('id', result.taskId)
+        .maybeSingle();
+      const md = ((fresh?.metadata ?? {}) as Record<string, unknown>);
+      await supabase
+        .from('project_tasks')
+        .update({
+          metadata: {
+            ...md,
+            possible_duplicate_of: verdict.matchedTaskId,
+            possible_duplicate_detected_at: new Date().toISOString(),
+            possible_duplicate_age_ms: verdict.ageMs,
+          },
+        })
+        .eq('id', result.taskId);
+    }
+  } catch (e: unknown) {
+    console.warn(
+      '[campus-walk] duplicate check skipped:',
+      e instanceof Error ? e.message : e,
+    );
+  }
+
   return NextResponse.json(
     {
       success: true,
@@ -329,6 +404,9 @@ export async function POST(request: NextRequest) {
       attachmentId: result.attachmentId,
       photos: uploaded,
       photoIssues,
+      // The client surfaces this as a dismissible "looks like the one you just
+      // sent" in the queue. It never discards anything on its own.
+      possibleDuplicateOf: duplicateOf,
     },
     { status: 200 },
   );
