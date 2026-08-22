@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import {
   Eye,
@@ -18,7 +18,10 @@ import {
   CreditCard,
   Filter,
   EllipsisVertical,
-  MoreHorizontal
+  MoreHorizontal,
+  ChevronDown,
+  ChevronRight,
+  CalendarClock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -57,7 +60,14 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { usePermissions } from '@/hooks/use-permissions';
 import { toast } from 'react-hot-toast';
-import { StudentBillService } from '@/lib/services/billing/schedule/student-bill-service';
+import {
+  StudentBillService,
+  type BillInstalmentState,
+} from '@/lib/services/billing/schedule/student-bill-service';
+import {
+  BillInstalmentSchedule,
+  instalmentSummary,
+} from './bill-instalment-schedule';
 import type { StudentBill } from '@/types/billing-schedule';
 import { isBillableBill } from '@/lib/billing/bill-status';
 import { Card } from '@/components/ui/card';
@@ -78,6 +88,50 @@ export function StudentBillsTable({
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [selectedBills, setSelectedBills] = useState<string[]>([]);
+
+  // Payment schedules, keyed by bill id. A bill collectable in tranches is ONE
+  // bill of the full amount, so without this the table shows only the bill's
+  // due_date — which is merely the NEXT unsettled tranche, with no sign that
+  // the rest exists.
+  const [schedules, setSchedules] = useState<Map<string, BillInstalmentState[]>>(
+    new Map()
+  );
+  const [expandedBills, setExpandedBills] = useState<Set<string>>(new Set());
+
+  // Stable key so the effect refetches when the bill SET changes, not on every
+  // re-render that happens to rebuild the array.
+  const billIdsKey = useMemo(
+    () => bills.map((b) => b.id).sort().join(','),
+    [bills]
+  );
+
+  useEffect(() => {
+    if (!billIdsKey) {
+      setSchedules(new Map());
+      return;
+    }
+    let cancelled = false;
+    StudentBillService.getInstalmentsForBills(billIdsKey.split(','))
+      .then((map) => {
+        if (!cancelled) setSchedules(map);
+      })
+      .catch(() => {
+        // The service already degrades to an empty map; this is belt and
+        // braces so a schedule fetch can never blank the bills table.
+        if (!cancelled) setSchedules(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [billIdsKey]);
+
+  const toggleSchedule = (billId: string) =>
+    setExpandedBills((prev) => {
+      const next = new Set(prev);
+      if (next.has(billId)) next.delete(billId);
+      else next.add(billId);
+      return next;
+    });
 
   // Students have view-only access - hide all action permissions
   const canEditBills = !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'update'));
@@ -415,6 +469,13 @@ export function StudentBillsTable({
           </div>
         </div>
 
+        {/* Mobile: the schedule always expanded rather than behind a toggle.
+            On a phone the tap target and the extra state cost more than the
+            rows do, and a scheduled bill is the case worth seeing in full. */}
+        {(schedules.get(bill.id)?.length ?? 0) > 0 && (
+          <BillInstalmentSchedule rows={schedules.get(bill.id)!} className='mt-3' />
+        )}
+
         {/* Additional Info */}
         {(bill.remarks || bill.quantity > 1) && (
           <div className='pt-2 border-t space-y-1'>
@@ -433,8 +494,8 @@ export function StudentBillsTable({
   );
 
   const renderBillRow = (bill: StudentBill, index: number) => (
+    <Fragment key={bill.id}>
     <TableRow
-      key={bill.id}
       className={`hover:bg-muted/50 transition-colors ${
         index % 2 === 0
           ? 'bg-white dark:bg-gray-900'
@@ -488,6 +549,24 @@ export function StudentBillsTable({
                 <AlertCircle className='h-3 w-3' />
                 Overdue
               </div>
+            )}
+            {/* Only rendered for a bill that HAS a schedule, so an ordinary
+                single-date bill looks exactly as it always has. */}
+            {(schedules.get(bill.id)?.length ?? 0) > 0 && (
+              <button
+                type='button'
+                onClick={() => toggleSchedule(bill.id)}
+                aria-expanded={expandedBills.has(bill.id)}
+                className='flex items-center gap-1 text-xs text-blue-700 hover:underline dark:text-blue-400'
+              >
+                {expandedBills.has(bill.id) ? (
+                  <ChevronDown className='h-3 w-3' aria-hidden='true' />
+                ) : (
+                  <ChevronRight className='h-3 w-3' aria-hidden='true' />
+                )}
+                <CalendarClock className='h-3 w-3' aria-hidden='true' />
+                {instalmentSummary(schedules.get(bill.id)!)}
+              </button>
             )}
           </div>
         </div>
@@ -601,6 +680,20 @@ export function StudentBillsTable({
         </DropdownMenu>
       </TableCell>
     </TableRow>
+
+    {/* The schedule spans the full width beneath its bill rather than
+        squeezing into the Due Date column — six columns of money and dates
+        need the room to stay readable. */}
+    {expandedBills.has(bill.id) && (schedules.get(bill.id)?.length ?? 0) > 0 && (
+      <TableRow className='hover:bg-transparent'>
+        <TableCell colSpan={7} className='p-0'>
+          <div className='px-4 pb-3 pt-1'>
+            <BillInstalmentSchedule rows={schedules.get(bill.id)!} />
+          </div>
+        </TableCell>
+      </TableRow>
+    )}
+    </Fragment>
   );
 
   return (

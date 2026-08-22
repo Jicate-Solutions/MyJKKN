@@ -14,6 +14,7 @@ import {
   InductionVolunteerService,
   type FeedbackVolunteer,
   type TrainingSession,
+  type AutobalanceMode,
 } from '@/lib/services/induction/induction-volunteer-service';
 import { InductionService, type FeedbackMethodMix } from '@/lib/services/induction/induction-service';
 import { AppointMentorDialog } from './appoint-mentor-dialog';
@@ -26,7 +27,12 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger,
 } from '@/components/ui/dialog';
-import { MessagesSquare, X, Loader2, Scale, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { MessagesSquare, X, Loader2, GraduationCap, AlertTriangle, ShieldCheck, CalendarClock, UserCheck, Shuffle, UserPlus } from 'lucide-react';
 
 export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
   const [hidden, setHidden] = useState(false);
@@ -107,19 +113,43 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
     }
   };
 
-  const autobalance = async () => {
+  /**
+   * mode 'incremental' (the Assign pending button) keeps every existing
+   * mentor↔fresher pair and places only the unassigned. 'rebalance' re-deals
+   * the whole cohort and is therefore behind a confirmation.
+   */
+  const autobalance = async (mode: AutobalanceMode) => {
     setBalancing(true);
     try {
-      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity);
+      const r = await InductionVolunteerService.autobalanceVolunteers(eventId, capacity, mode);
       const mentors = `${activeCount} mentor${activeCount === 1 ? '' : 's'}`;
-      if (r.unassigned > 0) {
-        // Surface the coverage TRUTH — don't imply full coverage when freshers are unowned.
-        toast.warning(
-          `Assigned ${r.assigned} of ${r.enrolled} freshers across ${mentors}. ` +
-          `${r.unassigned} fresher${r.unassigned === 1 ? ' has' : 's have'} NO mentor — raise the per-mentor cap or appoint more mentors.`,
+
+      if (mode === 'rebalance') {
+        toast.success(`Re-dealt all ${r.assigned} fresher${r.assigned === 1 ? '' : 's'} across ${mentors}.`);
+      } else if (r.newly_assigned === 0 && r.unassigned === 0) {
+        // The common repeat press. Say plainly that nothing needed doing rather
+        // than reporting a success that implies work happened.
+        toast.success(
+          `Every fresher already has a mentor — nothing to assign. ` +
+          `Use Rebalance all only if you want to even out group sizes from scratch.`,
         );
-      } else {
-        toast.success(`Assigned all ${r.assigned} fresher${r.assigned === 1 ? '' : 's'} across ${mentors}.`);
+      } else if (r.newly_assigned > 0) {
+        const kept = r.kept > 0 ? ` ${r.kept} existing assignment${r.kept === 1 ? '' : 's'} left untouched.` : '';
+        const released = r.released > 0
+          ? ` ${r.released} stale assignment${r.released === 1 ? '' : 's'} released (mentor no longer active).`
+          : '';
+        toast.success(
+          `Assigned ${r.newly_assigned} pending fresher${r.newly_assigned === 1 ? '' : 's'} across ${mentors}.${kept}${released}`,
+        );
+      }
+
+      // Independent of the above: an uncovered fresher is the one thing that
+      // must never be implied away, so it warns even on an otherwise-good run.
+      if (r.unassigned > 0) {
+        toast.warning(
+          `${r.unassigned} fresher${r.unassigned === 1 ? ' has' : 's have'} NO mentor ` +
+          `(${r.assigned} of ${r.enrolled} covered) — raise the per-mentor cap or appoint more mentors.`,
+        );
       }
       load();
     } catch (e: any) {
@@ -166,10 +196,42 @@ export function FeedbackVolunteersSection({ eventId }: { eventId: string }) {
                 onChange={(e) => setCapacity(Math.max(1, Math.min(100, Number(e.target.value) || 1)))}
                 className="h-8 w-20" />
             </div>
-            <Button size="sm" variant="outline" onClick={autobalance} disabled={balancing || activeCount === 0}>
-              <Scale className="h-3.5 w-3.5 mr-1" />
-              {balancing ? 'Balancing…' : 'Auto-balance'}
+            {/* The everyday action. Additive: it never moves a fresher who
+                already has a mentor, so it is safe to press after every new
+                admission intake. */}
+            <Button size="sm" onClick={() => autobalance('incremental')} disabled={balancing || activeCount === 0}>
+              <UserPlus className="h-3.5 w-3.5 mr-1" />
+              {balancing ? 'Assigning…' : 'Assign pending'}
             </Button>
+            {/* The destructive one. Breaks every existing pair, so it is behind
+                a confirmation and worded as what it actually does. */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline" disabled={balancing || activeCount === 0}>
+                  <Shuffle className="h-3.5 w-3.5 mr-1" />
+                  Rebalance all
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Re-deal every fresher from scratch?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This breaks <strong>all {totalAssigned} existing mentor assignments</strong> and
+                    deals the whole cohort again. Freshers a mentor has already walked will
+                    likely land with someone else, and any temporary cover in force is discarded.
+                    <br /><br />
+                    To place only freshers who have no mentor yet — new admissions, for instance —
+                    use <strong>Assign pending</strong> instead; it leaves existing pairs alone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => autobalance('rebalance')}>
+                    Yes, re-deal everyone
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
           <div className="text-xs text-muted-foreground tabular-nums">
             {activeCount} active mentor{activeCount === 1 ? '' : 's'} · {totalCaptured}/{totalAssigned} assigned freshers captured

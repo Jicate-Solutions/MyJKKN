@@ -4,6 +4,7 @@ import {
   createClientSupabaseClient,
   createAdminClient
 } from '@/lib/supabase/client';
+import { normalizeStaffNameFields } from '@/lib/utils/staff-name';
 import type {
   Staff,
   StaffFilters,
@@ -215,6 +216,13 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Canonical staff name (UPPERCASE, trimmed, single-spaced). Applied here
+      // rather than at the call site so BOTH the direct insert below and the
+      // API-route fallback send the same value. The DB is still the guarantee
+      // (trg_normalize_staff_names + the staff_*_name_canonical CHECKs); doing
+      // it here keeps the returned record consistent with what was submitted.
+      data = normalizeStaffNameFields(data);
 
       // Role key validation: must exist, must not be reserved.
       // Added: 2026-04-14 for dynamic staff role onboarding.
@@ -439,6 +447,11 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Canonical staff name — see createStaff. normalizeStaffNameFields only
+      // touches keys that are PRESENT, so a partial update that omits
+      // last_name does not gain an undefined last_name and blank a surname.
+      data = normalizeStaffNameFields(data);
 
       // Normalize empty optional unique fields to null so the
       // staff_staff_id_not_empty CHECK constraint doesn't reject blanks

@@ -16,6 +16,7 @@ import {
   STUDENT_BILL_BULK_EDIT_HEADERS,
   type BulkEditDownloadFilters
 } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
+import { filterBillableAcademicYears } from '@/lib/utils/mappings/student-bill-excel-mappings';
 
 export const maxDuration = 60;
 
@@ -43,13 +44,20 @@ export async function GET(request: NextRequest) {
     const bills = await StudentBillService.getBillsForBulkEdit(filters, supabase);
 
     // Dropdown sources.
+    //
+    // No is_active filter on academic_years: the apply route resolves a year by
+    // institution + name against the whole table, so an inactive year is a
+    // legal edit. Filtering here only hid the four Dental "…Additional n"
+    // cohorts from a list that would have accepted them.
+    //
+    // filterBillableAcademicYears applies the same 2020-2021 floor as the
+    // bulk-create template — the two pickers are meant to agree.
     const { data: ayRows } = await supabase
       .from('academic_years')
       .select('academic_year_name')
-      .eq('is_active', true)
       .order('academic_year_name', { ascending: false });
-    const academicYearNames = Array.from(
-      new Set((ayRows ?? []).map((r: any) => r.academic_year_name).filter(Boolean))
+    const academicYearNames = filterBillableAcademicYears(
+      (ayRows ?? []).map((r: any) => r.academic_year_name)
     );
 
     const { data: catRows } = await supabase

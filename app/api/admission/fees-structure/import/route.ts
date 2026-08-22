@@ -15,7 +15,9 @@ import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
 import {
   FEE_STRUCTURE_SHEET_NAME,
+  FEE_SCHEDULE_SHEET_NAME,
   resolveRow,
+  resolveScheduleSheet,
   type RowResolution,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
 import { loadBulkResolveLookups } from '@/lib/services/admission/fee-structure-bulk-lookups';
@@ -73,12 +75,36 @@ export async function POST(req: NextRequest) {
 
     const lookups = await loadBulkResolveLookups(supabase);
 
+    // ── Sheet 2, optional ────────────────────────────────────────────────
+    // A workbook WITHOUT this tab is not an error: it is an older export, and
+    // the RPC preserves every schedule when the payload omits the key. Only a
+    // present-but-broken tab stops the import.
+    const schedWs = wb.Sheets[FEE_SCHEDULE_SHEET_NAME];
+    const schedules = schedWs
+      ? resolveScheduleSheet(
+          XLSX.utils.sheet_to_json<Record<string, unknown>>(schedWs, { defval: '' }),
+          lookups,
+        )
+      : null;
+
     // Resolve every non-blank row up front (no DB writes yet).
     const resolutions: RowResolution[] = [];
     for (let i = 0; i < rawRows.length; i++) {
       const raw = rawRows[i];
       if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
-      resolutions.push(resolveRow(raw, i + 2, lookups)); // header = row 1
+      const res = resolveRow(raw, i + 2, lookups); // header = row 1
+
+      // Attach this structure's schedules, if the sheet carried any. The key is
+      // set ONLY when sheet 2 exists — its absence is what tells the RPC to
+      // preserve what is already configured rather than clear it.
+      if (schedules && res.payload) {
+        const forStructure = res.payload.structure_id
+          ? schedules.byStructure.get(res.payload.structure_id)
+          : undefined;
+        if (forStructure) res.payload.item_schedules = forStructure;
+      }
+
+      resolutions.push(res);
     }
 
     if (resolutions.length === 0) {
@@ -87,9 +113,38 @@ export async function POST(req: NextRequest) {
 
     const preview = buildPreview(resolutions);
 
+    // Sheet-2 problems block the batch exactly like sheet-1 problems do. They
+    // are reported as their own rows rather than folded into a structure row:
+    // a schedule error names a Schedules row number, and pointing the operator
+    // at the wrong sheet is worse than an extra line in the list.
+    if (schedules && schedules.errors.length > 0) {
+      preview.rows.push(
+        ...schedules.errors.map((message) => ({
+          row: 0,
+          name: FEE_SCHEDULE_SHEET_NAME,
+          action: 'error' as const,
+          errors: [message],
+        })),
+      );
+      preview.summary.errorRows += schedules.errors.length;
+      preview.summary.total += schedules.errors.length;
+      preview.canApply = false;
+    }
+
+    // Rides along with EVERY response that carries a preview — including the
+    // 422 below, which re-seeds the dialog's preview state. Leaving it off
+    // there made the banner report "no Fee Schedules tab" for a workbook that
+    // had one, which is worse than saying nothing at all.
+    const scheduleSummary = schedules
+      ? {
+          structures: schedules.byStructure.size,
+          items: [...schedules.byStructure.values()].reduce((n, list) => n + list.length, 0),
+        }
+      : null;
+
     // ---- Validate (dry-run): return the preview, write nothing. ----
     if (mode === 'validate') {
-      return NextResponse.json({ mode: 'validate', ...preview });
+      return NextResponse.json({ mode: 'validate', ...preview, scheduleSummary });
     }
 
     // ---- Apply: block-until-all-clear. Refuse the whole batch on any error. ----
@@ -99,6 +154,7 @@ export async function POST(req: NextRequest) {
           mode: 'apply-blocked',
           error: `${preview.summary.errorRows} row(s) still have errors. Fix them and re-upload — nothing was changed.`,
           ...preview,
+          scheduleSummary,
         },
         { status: 422 },
       );

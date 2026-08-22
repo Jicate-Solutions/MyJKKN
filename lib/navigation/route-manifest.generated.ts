@@ -2149,6 +2149,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "Wallet",
         "children": [
           {
+            "path": "/billing/school-fees/collect",
+            "label": "Collect",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
             "path": "/billing/school-fees/concessions",
             "label": "Concessions",
             "iconName": "Wallet",
@@ -4330,6 +4336,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/close",
+            "label": "Close",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/import",
             "label": "Import",
             "iconName": "CheckSquare",
@@ -4492,8 +4504,20 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/hr/payroll/bank-accounts",
+            "label": "Bank Accounts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/salaries",
+            "label": "Salaries",
             "iconName": "FileText",
             "children": []
           }

@@ -85,7 +85,10 @@ async function loadBooking(uid: string, token: string): Promise<BookingView | nu
   );
   const canAskForVideo =
     booking.status === 'confirmed' &&
-    source === 'in_person' &&
+    // 'switchable' is in-person OR phone since ruling 1 (2026-08-21). It read
+    // 'in_person' before that; leaving it would have hidden the ask from
+    // everyone, because switchSourceMode no longer returns that value.
+    source === 'switchable' &&
     isSwitchAllowedNow(booking.start_time as string, minNotice);
 
   return {

@@ -70,6 +70,11 @@ export const queryKeys = {
     list: (filters: unknown) => [...queryKeys.courses.lists(), filters] as const,
     details: () => [...queryKeys.courses.all, 'detail'] as const,
     detail: (id: string) => [...queryKeys.courses.details(), id] as const,
+    /** Under `all` on purpose: useDeleteCourseEvent invalidates `all`, and the
+     *  blockers query is the one query the list page is guaranteed to have
+     *  cached when a delete fires — which is what makes the DataTable refresh
+     *  bridge actually see an invalidate event. */
+    deleteBlockers: (id: string) => [...queryKeys.courses.all, 'delete-blockers', id] as const,
   },
   /** Separate root from `courses` so invalidating a course list never refetches
    *  every package list, and vice versa. `list()` spreads `lists()` so one

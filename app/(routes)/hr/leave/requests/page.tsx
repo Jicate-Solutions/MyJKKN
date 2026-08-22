@@ -18,6 +18,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 
+import { CancelRequestAction, isCancellable } from '../_components/cancel-request-action';
+import { useWithdrawApplication } from '@/hooks/hr/use-leave';
 import { TimeOffShell } from '../_components/time-off-shell';
 import { PeriodFilter, allTimePeriod, type PeriodRange } from '../_components/period-filter';
 import { RequestTable, RequestRow, StatusBadge } from '../_components/request-table';
@@ -43,6 +45,7 @@ export default function LeaveRequestsPage() {
   const ctx = useTimeOffContext();
   const [period, setPeriod] = useState<PeriodRange>(allTimePeriod());
   const [applyOpen, setApplyOpen] = useState(false);
+  const withdraw = useWithdrawApplication();
 
   const { data, isLoading, refetch, isFetching } = useMyApplications(
     ctx.employeeId || undefined
@@ -139,6 +142,7 @@ export default function LeaveRequestsPage() {
               { key: 'days', label: 'Total Days', align: 'right' },
               { key: 'duration', label: 'Duration' },
               { key: 'status', label: 'Status' },
+              { key: 'actions', label: '', align: 'right' },
             ]}
             isLoading={isLoading || ctx.isLoading}
             isEmpty={rows.length === 0}
@@ -156,6 +160,16 @@ export default function LeaveRequestsPage() {
                   {LEAVE_DURATION_LABELS[a.duration_type] ?? a.duration_type}
                 </TableCell>
                 <TableCell><StatusBadge status={a.status} /></TableCell>
+                <TableCell className="text-right">
+                  {isCancellable(a.status) && (
+                    <CancelRequestAction
+                      what="this leave request"
+                      detail={`${a.hr_leave_types?.leave_type_name ?? 'Leave'} · ${fmtDate(a.start_date)} – ${fmtDate(a.end_date)}`}
+                      disabled={withdraw.isPending}
+                      onConfirm={() => withdraw.mutateAsync(a.id)}
+                    />
+                  )}
+                </TableCell>
               </RequestRow>
             ))}
           </RequestTable>

@@ -24,11 +24,16 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { ClipboardCheck, Search, X, Phone, GraduationCap } from 'lucide-react';
+import { ClipboardCheck, Search, X, Phone, GraduationCap, UsersRound } from 'lucide-react';
 import { groupRosterByCollege } from './roster-college-groups';
 
 /** Bucket for freshers whose learners_profiles.program_id is still NULL. */
 const NO_PROGRAM = '__none__';
+
+/** Bucket for freshers no Senior Peer Mentor has been assigned yet. Worth its
+ *  own entry rather than being hidden: 'who is nobody's?' is exactly the
+ *  question a coordinator asks when a group goes unwalked. */
+const NO_MENTOR = '__nomentor__';
 
 const OPTIONS: { value: AttendanceStatus; label: string; title: string; on: string }[] = [
   { value: 'present', label: 'P',  title: 'Present', on: 'bg-green-600 text-white border-green-600' },
@@ -71,6 +76,7 @@ export function AttendanceDialog({
   const [marks, setMarks] = useState<Record<string, AttendanceStatus>>({});
   const [query, setQuery] = useState('');
   const [program, setProgram] = useState('all');
+  const [mentor, setMentor] = useState('all');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -89,7 +95,7 @@ export function AttendanceDialog({
     // loadRoster identity each render costs nothing here.
   }, [sessionId, loadRoster]);
 
-  const onOpenChange = (o: boolean) => { setOpen(o); if (o) { setQuery(''); setProgram('all'); load(); } };
+  const onOpenChange = (o: boolean) => { setOpen(o); if (o) { setQuery(''); setProgram('all'); setMentor('all'); load(); } };
   const set = (id: string, s: AttendanceStatus) => setMarks((m) => ({ ...m, [id]: s }));
 
   // Programs present on THIS roster, with head counts — an optional narrowing
@@ -104,6 +110,24 @@ export function AttendanceDialog({
       a === NO_PROGRAM ? 1 : b === NO_PROGRAM ? -1 : a.localeCompare(b));
   }, [roster]);
 
+  // Senior Peer Mentors on THIS roster, with the size of each one's group.
+  // Keyed by mentor_learner_id, not name: two mentors can share a name, and the
+  // filter must not merge their groups. Optional in the same way the programme
+  // filter is — it renders only once a mentor is actually assigned, so an
+  // induction that never appointed any is unchanged.
+  const mentors = useMemo(() => {
+    const byId = new Map<string, { label: string; count: number }>();
+    for (const r of roster) {
+      const id = r.mentor_learner_id ?? NO_MENTOR;
+      const label = r.mentor_name?.trim() || 'No mentor assigned';
+      const entry = byId.get(id);
+      if (entry) entry.count += 1;
+      else byId.set(id, { label, count: 1 });
+    }
+    return [...byId.entries()].sort(([aId, a], [bId, b]) =>
+      aId === NO_MENTOR ? 1 : bId === NO_MENTOR ? -1 : a.label.localeCompare(b.label));
+  }, [roster]);
+
   // Program filter AND text search. Name / register number / program match on
   // text; a numeric query also matches the father's mobile (ignoring spaces,
   // dashes and country code).
@@ -112,15 +136,17 @@ export function AttendanceDialog({
     const qd = digits(q);
     return roster.filter((r) => {
       if (program !== 'all' && (r.program_name?.trim() || NO_PROGRAM) !== program) return false;
+      if (mentor !== 'all' && (r.mentor_learner_id ?? NO_MENTOR) !== mentor) return false;
       if (!q) return true;
       return (r.name ?? '').toLowerCase().includes(q)
         || (r.register_number ?? '').toLowerCase().includes(q)
         || (r.program_name ?? '').toLowerCase().includes(q)
+        || (r.mentor_name ?? '').toLowerCase().includes(q)
         || (qd.length >= 3 && digits(r.father_mobile ?? '').includes(qd));
     });
-  }, [roster, query, program]);
+  }, [roster, query, program, mentor]);
 
-  const narrowed = query.trim().length > 0 || program !== 'all';
+  const narrowed = query.trim().length > 0 || program !== 'all' || mentor !== 'all';
 
   // Applies to what's on screen, merged into existing marks — with a search or
   // program filter active this marks the matches, not the whole cohort.
@@ -198,7 +224,7 @@ export function AttendanceDialog({
             {/* Optional narrowing — pointless (and hidden) on a single-program roster */}
             {programs.length > 1 && (
               <Select value={program} onValueChange={setProgram}>
-                <SelectTrigger className="w-full sm:w-[260px]">
+                <SelectTrigger className="w-full sm:w-[220px]">
                   <SelectValue placeholder="All programs" />
                 </SelectTrigger>
                 <SelectContent>
@@ -206,6 +232,26 @@ export function AttendanceDialog({
                   {programs.map(([p, n]) => (
                     <SelectItem key={p} value={p}>
                       {p === NO_PROGRAM ? 'No program' : p} ({n})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {/* Senior Peer Mentor narrowing. Optional in the same way the
+                programme filter is: hidden entirely until the cohort actually
+                has mentors, so an induction that never appointed any sees the
+                screen exactly as before. Composes with programme and search —
+                all three narrow the same list. */}
+            {mentors.length > 1 && (
+              <Select value={mentor} onValueChange={setMentor}>
+                <SelectTrigger className="w-full sm:w-[220px]">
+                  <SelectValue placeholder="All mentors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All mentors ({roster.length})</SelectItem>
+                  {mentors.map(([id, m]) => (
+                    <SelectItem key={id} value={id}>
+                      {m.label} ({m.count})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -285,33 +331,16 @@ export function AttendanceDialog({
                         </a>
                       )}
                       {row.batch_label && <span>Batch {row.batch_label}</span>}
+                      {/* The mentor walking this fresher — the same value the
+                          Senior Peer Mentor filter above narrows on, so a
+                          filtered roster shows WHY each row survived. */}
+                      {row.mentor_name && (
+                        <span className="inline-flex items-center gap-1 min-w-0">
+                          <UsersRound className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{row.mentor_name}</span>
+                        </span>
+                      )}
                     </div>
-                    {/* Identity line the search box above already matches on, but
-                        which the row itself had stopped printing. It is the
-                        disambiguator that matters at a registration desk: only
-                        429 of 1,119 enrolled freshers carry a register_number at
-                        induction time, so 6 rows in 10 are otherwise just a name.
-                        program_name — NOT department — is also what a fresher
-                        means by "my department": every engineering fresher's
-                        department_id resolves to the shared first-year "Science
-                        and Humanities" row (195 of 195), so the department field
-                        cannot tell EEE from CSE. The programme name can. */}
-                    {(row.program_name || row.father_mobile) && (
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                        {row.program_name && (
-                          <span className="flex min-w-0 items-center gap-1">
-                            <GraduationCap className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{row.program_name}</span>
-                          </span>
-                        )}
-                        {row.father_mobile && (
-                          <span className="flex items-center gap-1">
-                            <Phone className="h-3 w-3 shrink-0" />
-                            {row.father_mobile}
-                          </span>
-                        )}
-                      </div>
-                    )}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     {OPTIONS.map((o) => {

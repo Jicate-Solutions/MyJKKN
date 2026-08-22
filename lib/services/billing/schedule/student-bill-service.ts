@@ -20,8 +20,77 @@ import type {
   BillForBulkEdit
 } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
+/**
+ * One tranche of a bill's payment schedule, with the money already allocated
+ * to it by the waterfall.
+ *
+ * `allocated_amount` / `is_settled` are NOT stored on the tranche — they are
+ * derived per read from the bill's paid position, oldest tranche first. That
+ * is why a stale value can never be shown: there is no value to go stale.
+ */
+export interface BillInstalmentState {
+  instalment_id: string;
+  bill_id: string;
+  sequence_no: number;
+  amount: number;
+  due_date: string;
+  allocated_amount: number;
+  outstanding: number;
+  is_settled: boolean;
+  /** Its date has arrived — this is the part of the bill actually owed now. */
+  is_due: boolean;
+  promotes_to_status_code: string | null;
+}
+
 export class StudentBillService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Payment schedules for a set of bills, keyed by bill id.
+   *
+   * Batched on purpose: a learner's page renders every bill at once, and one
+   * request per bill would be N round trips to render a table. Bills with no
+   * schedule simply have no key — the caller shows them exactly as before.
+   *
+   * Reads vw_bill_instalment_state rather than the raw table so the allocation
+   * comes from the same waterfall the promotion engine and the fee-paid
+   * threshold use. Re-deriving "how much of this tranche is paid" in the client
+   * would be a third implementation of it, free to disagree with both.
+   */
+  static async getInstalmentsForBills(
+    billIds: string[],
+  ): Promise<Map<string, BillInstalmentState[]>> {
+    const byBill = new Map<string, BillInstalmentState[]>();
+    if (billIds.length === 0) return byBill;
+
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('vw_bill_instalment_state')
+      .select(
+        'instalment_id, bill_id, sequence_no, amount, due_date, allocated_amount, outstanding, is_settled, is_due, promotes_to_status_code',
+      )
+      .in('bill_id', billIds)
+      // The waterfall settles the oldest debt first, so the schedule must read
+      // in calendar order — a schedule authored out of sequence would otherwise
+      // display in an order that contradicts how its money was allocated.
+      .order('due_date', { ascending: true })
+      .order('sequence_no', { ascending: true });
+
+    // Supabase errors are plain objects, not Error instances — check, never
+    // try/catch. A failure here must not blank the bills table: the schedule is
+    // additional detail, and the bill rows are still correct without it.
+    if (error) {
+      console.warn('[billing] could not load bill instalments:', getErrorMessage(error));
+      return byBill;
+    }
+
+    for (const row of (data ?? []) as BillInstalmentState[]) {
+      const list = byBill.get(row.bill_id);
+      if (list) list.push(row);
+      else byBill.set(row.bill_id, [row]);
+    }
+    return byBill;
+  }
 
   static async createStudentBill(
     billData: CreateStudentBillDto
@@ -442,6 +511,42 @@ export class StudentBillService {
     }
   }
 
+  // Cache for resolveInstitutionIdsByEntityType below. The institutions table
+  // is a small, effectively static catalog and this runs on every list page,
+  // pagination step and export.
+  private static institutionIdsByEntityType = new Map<string, string[]>();
+
+  /**
+   * Resolve every institution id of a given entity_type ('institution' =
+   * college, 'school', 'admin_office', 'company').
+   *
+   * Mirrors StudentSearchService.resolveInstitutionIdsByEntityType — the
+   * students list and the bills list must agree on what "a college" is.
+   * Returns [] on error, which the caller turns into a deliberate no-match
+   * rather than silently widening the result set.
+   */
+  private static async resolveInstitutionIdsByEntityType(
+    entityType: string
+  ): Promise<string[]> {
+    const cached = this.institutionIdsByEntityType.get(entityType);
+    if (cached) return cached;
+
+    try {
+      const { data, error } = await (this.supabase as any)
+        .from('institutions')
+        .select('id')
+        .eq('entity_type', entityType);
+
+      if (error) throw error;
+      const ids = (data || []).map((row: { id: string }) => row.id);
+      if (ids.length > 0) this.institutionIdsByEntityType.set(entityType, ids);
+      return ids;
+    } catch (error) {
+      console.error('Error resolving institution ids by entity type:', error);
+      return [];
+    }
+  }
+
   /**
    * Resolve an admission-year NAME (e.g. '2025-2026') to every matching
    * admission_years id. Unlike accommodation_types, this catalog is
@@ -717,6 +822,27 @@ export class StudentBillService {
 
       if (filters.student_id) {
         query = query.eq('student_id', filters.student_id);
+      }
+
+      // Entity-type gate. Same shape as StudentSearchService: resolve the
+      // matching institution ids and filter the FK column with .in(), rather
+      // than filtering the embedded institutions resource (which PostgREST
+      // only allows behind an !inner join, and an inner join here would drop
+      // bills whose institution row is not visible).
+      //
+      // This is the query half of the college-only dropdown. Without it the
+      // default "All Institutions" view still returns school-fee bills, i.e.
+      // exactly the rows the dropdown was restricted to hide.
+      if (filters.institution_entity_type) {
+        const entityInstitutionIds = await this.resolveInstitutionIdsByEntityType(
+          filters.institution_entity_type
+        );
+        query = query.in(
+          'institution_id',
+          entityInstitutionIds.length > 0
+            ? entityInstitutionIds
+            : ['00000000-0000-0000-0000-000000000000']
+        );
       }
 
       if (filters.institution_id) {
@@ -1379,7 +1505,27 @@ export class StudentBillService {
    * Shared by getBillsForBulkEdit + countBillsForBulkEdit so the count never
    * drifts from the exported set.
    */
-  private static applyBulkEditFilters(query: any, filters: BulkEditDownloadFilters) {
+  private static async applyBulkEditFilters(
+    query: any,
+    filters: BulkEditDownloadFilters,
+    client: any
+  ) {
+    // College-only, unconditionally — bulk edit is a college surface and its
+    // institution dropdown lists entity_type='institution'. With "All
+    // institutions" chosen no institution_id is sent, so without this gate the
+    // download (and therefore the APPLY step) would reach school-fee bills.
+    // Resolved through the INJECTED client: this path runs server-side, where
+    // the class-level browser client is not the caller.
+    const { data: collegeRows } = await client
+      .from('institutions')
+      .select('id')
+      .eq('entity_type', 'institution');
+    const collegeIds = (collegeRows || []).map((r: { id: string }) => r.id);
+    query = query.in(
+      'institution_id',
+      collegeIds.length > 0 ? collegeIds : ['00000000-0000-0000-0000-000000000000']
+    );
+
     if (filters.institution_id) {
       query = query.eq('institution_id', filters.institution_id);
     }
@@ -1431,7 +1577,7 @@ export class StudentBillService {
       .order('created_at', { ascending: false })
       .limit(StudentBillService.BULK_EDIT_DOWNLOAD_CAP);
 
-    query = StudentBillService.applyBulkEditFilters(query, filters);
+    query = await StudentBillService.applyBulkEditFilters(query, filters, client);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -1474,7 +1620,7 @@ export class StudentBillService {
     let query = client
       .from('billing_student_bills')
       .select('id', { count: 'exact', head: true });
-    query = StudentBillService.applyBulkEditFilters(query, filters);
+    query = await StudentBillService.applyBulkEditFilters(query, filters, client);
     const { count, error } = await query;
     if (error) throw error;
     return count || 0;

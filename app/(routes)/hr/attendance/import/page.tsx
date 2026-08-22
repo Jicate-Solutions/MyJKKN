@@ -15,6 +15,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BiometricImportDialog } from '../_components/biometric-import-dialog';
+import { BiometricPurgePanel } from '../_components/biometric-purge-panel';
 
 export default function ImportBiometricPage() {
   const [open, setOpen] = useState(false);
@@ -94,6 +95,9 @@ export default function ImportBiometricPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Renders nothing for anyone who is not a super admin. */}
+        <BiometricPurgePanel />
 
         <div className="flex items-start gap-2 rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />

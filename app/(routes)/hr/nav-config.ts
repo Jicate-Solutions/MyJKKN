@@ -176,6 +176,16 @@ const config: ModuleNavConfig = {
           href: '/hr/attendance/regularize',
           matchPaths: ['/hr/attendance/regularize'],
         },
+        {
+          // Month close. Declared here in the SAME change as the route: a module
+          // with hasNavConfig renders only the children in this file, so a
+          // MENU_PERMISSIONS entry and a GetPages leaf alone would give a
+          // sidebar row and no navbar chip.
+          label: 'Month Close',
+          icon: 'CalendarCheck',
+          href: '/hr/attendance/close',
+          matchPaths: ['/hr/attendance/close'],
+        },
       ],
     },
     // The 'Shifts' group (/hr/shifts, /hr/shifts/my, /hr/shifts/approvals) was
@@ -247,6 +257,35 @@ const config: ModuleNavConfig = {
           icon: 'Wallet',
           href: '/hr/payroll/organisation',
           matchPaths: ['/hr/payroll/organisation'],
+        },
+        {
+          // WHAT EACH PERSON EARNS (2026-08-21). Added here for the reason the
+          // block above records: hasNavConfig makes AutoTabNav render ONLY the
+          // children declared in this file, so a MENU_PERMISSIONS entry, a
+          // GetPages() submenu and a route-manifest row are together still not
+          // enough to give the page a chip. It had all three and no chip.
+          //
+          // Gated on hr.payroll.salary.view, not the Payroll group's
+          // hr.payroll.institution.view: chips inherit MENU_PERMISSIONS[href],
+          // and seeing who pays someone is a different decision from seeing
+          // what they are paid. Since 2026-08-21 that key is held by hr_head
+          // alone (super admin passes via is_super_admin()), so this chip is
+          // invisible to the rest of HR rather than visible-and-denied.
+          label: 'Employee Salaries',
+          icon: 'Banknote',
+          href: '/hr/payroll/salaries',
+          matchPaths: ['/hr/payroll/salaries'],
+        },
+        {
+          // Third payroll chip. Added in the SAME change as the route this
+          // time: hasNavConfig means AutoTabNav renders only what is declared
+          // here, so a MENU_PERMISSIONS entry and a GetPages leaf alone give a
+          // sidebar row and no chip -- which is exactly how Employee Salaries
+          // shipped half-wired.
+          label: 'Bank Accounts',
+          icon: 'Landmark',
+          href: '/hr/payroll/bank-accounts',
+          matchPaths: ['/hr/payroll/bank-accounts'],
         },
       ],
     },

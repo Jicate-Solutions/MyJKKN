@@ -83,6 +83,16 @@ export class FacultyAttendanceService {
    * Keeps every field the master does not own (sort_order, practical config, etc.).
    * A period deleted from the master has no live row — its snapshot values are then
    * left untouched rather than blanked, so the slot still renders.
+   *
+   * REPURPOSE GUARD (2026-08-19): the overlay applies ONLY when the snapshot and the
+   * master agree on period_name. A name change means the master row is no longer the
+   * same period — it was edited into something else rather than merely re-timed — and
+   * overlaying it would silently redefine every slot already scheduled against it.
+   * Real case: JKKN AHS edited the row that was "AHS P6" 15:00-16:00 into "AHS BREAK"
+   * 15:15-15:30 (is_break=true) and created a separate new "AHS P6" at 15:30-16:30.
+   * 26 active timetables still teach real classes on the repurposed row; blindly
+   * overlaying would mark them all as breaks and drop them from attendance entirely.
+   * Repointing those slots is a DATA repair, not something a read path may infer.
    */
   private static mergePeriodMaster(
     periodDef: any,
@@ -92,6 +102,17 @@ export class FacultyAttendanceService {
 
     const live = master.get(periodDef.id || periodDef.period_id);
     if (!live) return periodDef;
+
+    const snapshotName = String(periodDef.period_name ?? '').trim();
+    const masterName = String(live.period_name ?? '').trim();
+    if (snapshotName && masterName && snapshotName !== masterName) {
+      logger.warn(
+        'academic/faculty-attendance',
+        'Period master was repurposed; keeping timetable snapshot for this slot',
+        { periodId: live.id, snapshotName, masterName }
+      );
+      return periodDef;
+    }
 
     return {
       ...periodDef,

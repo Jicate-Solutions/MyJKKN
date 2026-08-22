@@ -87,6 +87,13 @@ export interface NativeMeetingType {
   deposit_amount_paise: number | null;
 }
 
+/**
+ * Why a meeting that had ALREADY ENDED is being given a new time.
+ * 'missed' moves the meeting itself; the other two leave it closed and create a
+ * successor that points back at it via follows_booking_id.
+ */
+export type PastRescheduleReason = 'missed' | 'repeat' | 'follow_up';
+
 export interface NativeBookingInput {
   meetingTypeId: string;
   /** ISO instant — must be a slot the engine currently offers. */
@@ -354,6 +361,9 @@ export class NativeSchedulingService {
   } | null> {
     let scheduleId = mt.schedule_id;
     let timezone = 'Asia/Kolkata';
+    // True when we already landed on the host's DEFAULT schedule, so the
+    // empty-hours fallback below has nothing left to fall back to.
+    let usedDefault = false;
 
     if (scheduleId) {
       const { data } = await supabase
@@ -377,6 +387,7 @@ export class NativeSchedulingService {
       }
       scheduleId = data.id;
       timezone = data.timezone;
+      usedDefault = true;
     }
 
     const [{ data: windows, error: wErr }, { data: overrides, error: oErr }] = await Promise.all([
@@ -394,9 +405,46 @@ export class NativeSchedulingService {
       return null;
     }
 
+    let windowRows = windows ?? [];
+
+    // ── EMPTY HOURS → the host's normal hours (Director ruling, 2026-08-21) ──
+    // A type pinned to a schedule with no weekly windows used to render a BLANK
+    // calendar with no explanation, because a pinned type never fell back. It
+    // now borrows the host's DEFAULT schedule's weekly windows instead.
+    //
+    // TIMEZONE: unchanged on purpose — the schedule the type actually points at
+    // still wins. A schedule with no windows says nothing about WHEN the host
+    // works, but its timezone is still the host's deliberate choice for this
+    // kind of meeting, and swapping it would silently move every slot. Date
+    // overrides also stay with the pinned schedule: an override is an exception
+    // the host wrote against THAT schedule.
+    //
+    // NO LOOP: the default is read at most once, and only when we did not
+    // already resolve through it. If the default is itself empty the windows
+    // stay empty — the same as today.
+    if (!usedDefault && windowRows.length === 0) {
+      const { data: fallback } = await supabase
+        .from('meeting_host_schedules')
+        .select('id')
+        .eq('host_profile_id', mt.host_profile_id)
+        .eq('is_default', true)
+        .maybeSingle();
+      if (fallback && fallback.id !== scheduleId) {
+        const { data: defaultWindows, error: dErr } = await supabase
+          .from('meeting_schedule_windows')
+          .select('weekday, start_minute, end_minute')
+          .eq('schedule_id', fallback.id);
+        if (dErr) {
+          console.error(`${LOG_PREFIX} default-hours fallback failed:`, dErr.message);
+        } else {
+          windowRows = defaultWindows ?? [];
+        }
+      }
+    }
+
     return {
       timezone,
-      windows: (windows ?? []).map((w) => ({
+      windows: windowRows.map((w) => ({
         weekday: w.weekday,
         startMinute: w.start_minute,
         endMinute: w.end_minute,
@@ -1189,12 +1237,32 @@ export class NativeSchedulingService {
     };
   }
 
+  /**
+   * Move a booking to a new time — or, when the meeting has already ended,
+   * continue it.
+   *
+   * `opts.reason` is supplied ONLY for a meeting whose end time has passed
+   * (Director ruling 2026-08-21). It decides which of two different things
+   * happens, because the three reasons are not the same action:
+   *
+   *   'missed'    the meeting never happened  → THIS booking moves to the new
+   *                                             time, exactly like an ordinary
+   *                                             reschedule.
+   *   'repeat'    it happened, do it again    → this booking is left alone and a
+   *   'follow_up' it happened, more to say    → NEW booking is created at the new
+   *                                             time, carrying follows_booking_id
+   *                                             back to this one.
+   *
+   * Without a reason the behaviour is unchanged: confirmed bookings only, which
+   * is what every existing caller (the public reschedule route, the host button
+   * before this change) relies on.
+   */
   static async rescheduleBooking(
     supabase: SupabaseClient,
     uid: string,
     auth: { cancelToken?: string; actorProfileId?: string },
     newStart: string,
-    opts: { now?: Date } = {},
+    opts: { now?: Date; reason?: PastRescheduleReason } = {},
   ): Promise<NativeBookingResult> {
     const { data: booking, error } = await supabase
       .from('meeting_bookings')
@@ -1204,11 +1272,51 @@ export class NativeSchedulingService {
       .eq('uid', uid)
       .maybeSingle();
     if (error || !booking) return { success: false, error: 'NOT_FOUND' };
-    if (booking.status !== 'confirmed') return { success: false, error: 'NOT_FOUND' };
+    // A reason is the caller stating "this meeting has already ended and I mean
+    // to act on it anyway", so a completed / cancelled / no_show booking is
+    // reachable. Without one the original rule stands.
+    if (!opts.reason && booking.status !== 'confirmed') {
+      return { success: false, error: 'NOT_FOUND' };
+    }
 
     const byToken = !!auth.cancelToken && auth.cancelToken === booking.cancel_token;
     const byHost = !!auth.actorProfileId && auth.actorProfileId === booking.host_profile_id;
     if (!byToken && !byHost) return { success: false, error: 'NOT_FOUND' };
+
+    // ── repeat / follow_up: the meeting DID happen ─────────────────────────
+    // Nothing about the original changes. createBooking is reused rather than
+    // hand-rolling an insert so the successor gets the same slot re-validation,
+    // Google event, room hold and confirmation mail every other booking gets.
+    if (opts.reason === 'repeat' || opts.reason === 'follow_up') {
+      const created = await this.createBooking(
+        supabase,
+        {
+          meetingTypeId: booking.meeting_type_id as string,
+          start: newStart,
+          attendeeName: (booking.attendee_name as string) ?? '',
+          attendeeEmail: (booking.attendee_email as string) ?? '',
+          attendeePhone: (booking.attendee_phone as string | null) ?? null,
+          source: `meetings:${opts.reason}`,
+        },
+        { now: opts.now },
+      );
+      if (!created.success) return created;
+
+      // Stamp the link AFTER creation: createBooking owns the insert, and a
+      // failure here must not lose the booking it just made — the successor is
+      // still a real, valid meeting, only its back-reference is missing.
+      const { error: linkErr } = await supabase
+        .from('meeting_bookings')
+        .update({
+          reschedule_reason: opts.reason,
+          follows_booking_id: booking.id,
+        })
+        .eq('uid', created.uid);
+      if (linkErr) {
+        console.error(`${LOG_PREFIX} follow-up link failed:`, linkErr.message);
+      }
+      return created;
+    }
 
     const mt = await this.getMeetingType(supabase, booking.meeting_type_id);
     if (!mt) return { success: false, error: 'NOT_FOUND' };
@@ -1253,17 +1361,29 @@ export class NativeSchedulingService {
     }
     const endIso = new Date(startDate.getTime() + mt.duration_min * 60_000).toISOString();
 
+    // 'missed' means the meeting never happened, so the booking itself moves.
+    // A booking that had been closed (completed / cancelled / no_show) comes
+    // back to 'confirmed' — it is a live meeting again and must reappear in
+    // every list, reminder and calendar sync that filters on that status.
+    const movePatch: Record<string, unknown> = {
+      start_time: startIso,
+      end_time: endIso,
+      previous_start_time: booking.start_time,
+      rescheduled_at: new Date().toISOString(),
+      reschedule_count: ((booking.reschedule_count as number | null) ?? 0) + 1,
+    };
+    if (opts.reason) {
+      movePatch.reschedule_reason = opts.reason;
+      if (booking.status !== 'confirmed') movePatch.status = 'confirmed';
+    }
+
     const { data: moved, error: upErr } = await supabase
       .from('meeting_bookings')
-      .update({
-        start_time: startIso,
-        end_time: endIso,
-        previous_start_time: booking.start_time,
-        rescheduled_at: new Date().toISOString(),
-        reschedule_count: ((booking.reschedule_count as number | null) ?? 0) + 1,
-      })
+      .update(movePatch)
       .eq('id', booking.id)
-      .eq('status', 'confirmed')
+      // Compare-and-swap on the status we actually read, not a hardcoded
+      // 'confirmed' — otherwise reviving a completed booking could never match.
+      .eq('status', booking.status as string)
       .eq('start_time', booking.start_time) // concurrent-reschedule guard
       .select('id')
       .maybeSingle();
