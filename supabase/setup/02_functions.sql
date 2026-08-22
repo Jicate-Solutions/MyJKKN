@@ -47627,3 +47627,1033 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.hr_staff_bank_directory() FROM anon;
 GRANT EXECUTE ON FUNCTION public.hr_staff_bank_directory() TO authenticated, service_role;
+
+-- ===========================================================================
+-- attendance month close RPCs (2026-08-22)
+-- Source: 20260822020000 + 20260822030000
+-- ===========================================================================
+-- Freeze one institution-month: compute every staff member's day counts, then
+-- close it.
+--
+-- THE COUNTS COME FROM hr_attendance_records, not from a calendar rule. The
+-- evaluator already wrote WEEKLY_OFF from hr_shift_timings, so working days are
+-- "days that are neither a weekly off nor a holiday" and cannot disagree with
+-- what the attendance log shows. fn_prepare_payroll_period computes them a
+-- different way (calendar minus Sundays minus holidays) and is wrong for this
+-- organisation, where Saturday is a working day at all 14 institutions.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_compute_attendance_period_summary(
+  p_period_id uuid
+)
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_period public.hr_attendance_periods;
+  v_start  date;
+  v_end    date;
+  v_rows   integer;
+BEGIN
+  SELECT * INTO v_period FROM public.hr_attendance_periods WHERE id = p_period_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Attendance period not found: %', p_period_id USING ERRCODE = 'P0002';
+  END IF;
+
+  v_start := make_date(v_period.period_year, v_period.period_month, 1);
+  v_end   := (v_start + interval '1 month - 1 day')::date;
+
+  DELETE FROM public.hr_attendance_period_summaries WHERE period_id = p_period_id;
+
+  WITH rec AS (
+    SELECT r.employee_id,
+           st.code,
+           COALESCE(r.late_minutes, 0)    AS late_minutes,
+           COALESCE(r.excused_minutes, 0) AS excused_minutes
+      FROM public.hr_attendance_records r
+      JOIN public.hr_attendance_status_types st ON st.id = r.status_type_id
+     WHERE r.institution_id = v_period.institution_id
+       AND r.work_date BETWEEN v_start AND v_end
+  ),
+  agg AS (
+    SELECT employee_id,
+           count(*)                                                   AS total_days,
+           count(*) FILTER (WHERE code = 'WEEKLY_OFF')                AS weekly_off,
+           count(*) FILTER (WHERE code = 'HOLIDAY')                   AS holiday,
+           count(*) FILTER (WHERE code IN ('PRESENT','REGULARIZED'))  AS full_present,
+           count(*) FILTER (WHERE code = 'HALF_DAY')                  AS half_day,
+           count(*) FILTER (WHERE code = 'ABSENT')                    AS absent,
+           count(*) FILTER (WHERE code IN ('ON_DUTY','on_clinical_posting')) AS on_duty,
+           -- A day the evaluator could not judge. A payslip built on top of
+           -- these should say so rather than quietly treat them as absent.
+           count(*) FILTER (WHERE code NOT IN (
+             'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
+             'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting'))      AS unprocessed,
+           sum(late_minutes)                                          AS late_minutes,
+           sum(excused_minutes)                                       AS excused_minutes
+      FROM rec
+     GROUP BY employee_id
+  ),
+  -- Approved requests expanded to individual dates, then INTERSECTED with the
+  -- attendance records: a leave that falls on a Sunday is not a leave day, and
+  -- counting it from the application alone would inflate the total.
+  req AS (
+    SELECT la.employee_id,
+           lt.leave_type_code,
+           lt.is_paid,
+           lt.request_category,
+           g.d::date AS dt,
+           CASE WHEN la.duration_type ILIKE '%half%' THEN 0.5 ELSE 1.0 END AS wt,
+           la.start_time, la.end_time
+      FROM public.hr_leave_applications la
+      JOIN public.hr_leave_types lt ON lt.id = la.leave_type_id
+      CROSS JOIN LATERAL generate_series(la.start_date, la.end_date, interval '1 day') g(d)
+     WHERE la.status = 'approved'
+       AND g.d::date BETWEEN v_start AND v_end
+  ),
+  req_effective AS (
+    SELECT q.*
+      FROM req q
+      JOIN public.hr_attendance_records r
+        ON r.employee_id = q.employee_id AND r.work_date = q.dt
+      JOIN public.hr_attendance_status_types st ON st.id = r.status_type_id
+     WHERE r.institution_id = v_period.institution_id
+       AND st.code NOT IN ('WEEKLY_OFF', 'HOLIDAY')
+  ),
+  req_agg AS (
+    SELECT employee_id,
+           COALESCE(sum(wt) FILTER (WHERE request_category = 'leave' AND is_paid), 0)         AS paid_leave,
+           COALESCE(sum(wt) FILTER (WHERE request_category = 'leave' AND NOT is_paid), 0)     AS unpaid_leave,
+           COALESCE(sum(wt) FILTER (WHERE request_category = 'compensatory_off'), 0)          AS comp_off,
+           COALESCE(sum(
+             GREATEST(0, EXTRACT(EPOCH FROM (end_time - start_time)) / 60)
+           ) FILTER (WHERE request_category = 'short_time_off'), 0)::int                      AS sto_minutes,
+           COALESCE(
+             jsonb_object_agg(leave_type_code, days)
+               FILTER (WHERE request_category = 'leave' AND leave_type_code IS NOT NULL),
+             '{}'::jsonb)                                                                     AS leave_by_type
+      FROM (
+        SELECT employee_id, request_category, is_paid, leave_type_code,
+               start_time, end_time, wt,
+               sum(wt) OVER (PARTITION BY employee_id, leave_type_code) AS days
+          FROM req_effective
+      ) x
+     GROUP BY employee_id
+  )
+  INSERT INTO public.hr_attendance_period_summaries (
+    period_id, staff_id, working_days, present_days, half_days, absent_days,
+    weekly_off_days, holiday_days, leave_days, on_duty_days, comp_off_days,
+    lop_days, payable_days, leave_by_type, short_time_off_minutes,
+    late_minutes, excused_minutes, unprocessed_days
+  )
+  SELECT
+    p_period_id,
+    a.employee_id,
+    (a.total_days - a.weekly_off - a.holiday)::numeric(5,1)                  AS working_days,
+    (a.full_present + a.half_day * 0.5)::numeric(5,1)                        AS present_days,
+    a.half_day,
+    (a.absent + a.half_day * 0.5)::numeric(5,1)                              AS absent_days,
+    a.weekly_off,
+    a.holiday,
+    (COALESCE(r.paid_leave, 0) + COALESCE(r.unpaid_leave, 0))::numeric(5,1)  AS leave_days,
+    a.on_duty::numeric(5,1),
+    COALESCE(r.comp_off, 0)::numeric(5,1),
+    -- LOP: working days neither attended nor covered by a PAID absence.
+    -- Unpaid leave is deliberately not subtracted -- that is what makes it
+    -- unpaid.
+    GREATEST(0, (a.total_days - a.weekly_off - a.holiday)
+                - LEAST((a.total_days - a.weekly_off - a.holiday),
+                        (a.full_present + a.half_day * 0.5)
+                        + COALESCE(r.paid_leave, 0) + a.on_duty
+                        + COALESCE(r.comp_off, 0)))::numeric(5,1)            AS lop_days,
+    LEAST((a.total_days - a.weekly_off - a.holiday),
+          (a.full_present + a.half_day * 0.5)
+          + COALESCE(r.paid_leave, 0) + a.on_duty
+          + COALESCE(r.comp_off, 0))::numeric(5,1)                           AS payable_days,
+    COALESCE(r.leave_by_type, '{}'::jsonb),
+    COALESCE(r.sto_minutes, 0),
+    COALESCE(a.late_minutes, 0),
+    COALESCE(a.excused_minutes, 0),
+    a.unprocessed
+  FROM agg a
+  LEFT JOIN req_agg r ON r.employee_id = a.employee_id;
+
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  UPDATE public.hr_attendance_periods
+     SET staff_count = v_rows,
+         working_days_count = (
+           SELECT max(working_days)::int
+             FROM public.hr_attendance_period_summaries
+            WHERE period_id = p_period_id
+         ),
+         updated_at = now()
+   WHERE id = p_period_id;
+
+  RETURN v_rows;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_compute_attendance_period_summary(uuid) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_hr_compute_attendance_period_summary(uuid) TO service_role;
+
+
+-- Close an institution-month.
+--
+-- PENDING REQUESTS BLOCK THE LOCK. Locking a month with an undecided short
+-- time off silently denies it: the employee applied, nobody answered, and the
+-- day is counted absent forever. Refusing names the count so HR can go and
+-- clear them.
+--
+-- THE FORCE PATH REJECTS, IT DOES NOT IGNORE. A month can otherwise be held
+-- open indefinitely by one forgotten application. Forcing is super-admin-only,
+-- demands a reason, and REJECTS the outstanding requests with that reason
+-- stamped on them -- so the employee sees a decision instead of a request that
+-- quietly stopped mattering. hr_trig_leave_enforce_approver returns early for a
+-- super admin, so those rejections pass the approver gate, and
+-- trg_hla_balance_update restores the balances on the way through.
+
+CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
+  p_institution_id uuid,
+  p_year           integer,
+  p_month          integer,
+  p_force          boolean DEFAULT false,
+  p_force_reason   text    DEFAULT NULL
+)
+RETURNS public.hr_attendance_periods
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_period   public.hr_attendance_periods;
+  v_start    date;
+  v_end      date;
+  v_pending  integer;
+  v_records  integer;
+  v_is_sa    boolean := public.is_super_admin();
+BEGIN
+  IF NOT (v_is_sa OR public.user_has_permission('hr.attendance.period.manage')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.manage is required to close an attendance month.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF p_month < 1 OR p_month > 12 THEN
+    RAISE EXCEPTION 'Month must be 1-12, got %', p_month USING ERRCODE = '22023';
+  END IF;
+
+  v_start := make_date(p_year, p_month, 1);
+  v_end   := (v_start + interval '1 month - 1 day')::date;
+
+  -- Refuse to close a month that has nothing in it. An empty close would
+  -- freeze a set of zeroes and read as "everyone was absent".
+  SELECT count(*) INTO v_records
+    FROM public.hr_attendance_records
+   WHERE institution_id = p_institution_id
+     AND work_date BETWEEN v_start AND v_end;
+
+  IF v_records = 0 THEN
+    RAISE EXCEPTION 'No attendance records for that institution in %-%. Import the biometric data first.',
+      p_year, lpad(p_month::text, 2, '0')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.hr_attendance_periods (
+    institution_id, period_year, period_month, status, created_by, updated_by
+  ) VALUES (p_institution_id, p_year, p_month, 'open', auth.uid(), auth.uid())
+  ON CONFLICT (institution_id, period_year, period_month) DO NOTHING;
+
+  SELECT * INTO v_period
+    FROM public.hr_attendance_periods
+   WHERE institution_id = p_institution_id
+     AND period_year = p_year AND period_month = p_month
+   FOR UPDATE;
+
+  IF v_period.status = 'locked' THEN
+    RAISE EXCEPTION 'That attendance month is already closed (locked %).',
+      to_char(v_period.locked_at, 'DD Mon YYYY') USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Undecided requests overlapping the month, for staff of this institution.
+  SELECT count(*) INTO v_pending
+    FROM public.hr_leave_applications la
+    JOIN public.staff s ON s.id = la.employee_id
+   WHERE s.institution_id = p_institution_id
+     AND la.status = 'pending'
+     AND la.start_date <= v_end AND la.end_date >= v_start;
+
+  IF v_pending > 0 AND NOT p_force THEN
+    RAISE EXCEPTION
+      '% request(s) for this month are still awaiting a decision. Clear them in Leave Approvals, or close with an override.',
+      v_pending
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_pending > 0 AND p_force THEN
+    IF NOT v_is_sa THEN
+      RAISE EXCEPTION 'Only a Super Administrator may close a month over % outstanding request(s).', v_pending
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_force_reason IS NULL OR length(trim(p_force_reason)) = 0 THEN
+      RAISE EXCEPTION 'A reason is required to close a month over outstanding requests.'
+        USING ERRCODE = '22023';
+    END IF;
+
+    UPDATE public.hr_leave_applications la
+       SET status = 'rejected',
+           final_approver_id = auth.uid(),
+           final_decided_at = now(),
+           updated_at = now()
+      FROM public.staff s
+     WHERE s.id = la.employee_id
+       AND s.institution_id = p_institution_id
+       AND la.status = 'pending'
+       AND la.start_date <= v_end AND la.end_date >= v_start;
+  END IF;
+
+  PERFORM public.fn_hr_compute_attendance_period_summary(v_period.id);
+
+  UPDATE public.hr_attendance_periods
+     SET status = 'locked',
+         locked_at = now(),
+         locked_by = auth.uid(),
+         forced = (v_pending > 0 AND p_force),
+         force_reason = CASE WHEN v_pending > 0 AND p_force THEN trim(p_force_reason) END,
+         updated_by = auth.uid()
+   WHERE id = v_period.id
+  RETURNING * INTO v_period;
+
+  RETURN v_period;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text) TO authenticated, service_role;
+
+
+-- Reopen a closed month. SUPER ADMIN ONLY, reason required.
+--
+-- Deliberately narrower than closing it. Reopening lets the day counts move
+-- again underneath anything already generated from them, so it is not an HR
+-- Head action -- and the frozen summaries are DELETED rather than kept, because
+-- a stale summary beside a reopened month is worse than none.
+CREATE OR REPLACE FUNCTION public.fn_hr_reopen_attendance_period(
+  p_period_id uuid,
+  p_reason    text
+)
+RETURNS public.hr_attendance_periods
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_period public.hr_attendance_periods;
+BEGIN
+  IF NOT public.is_super_admin() THEN
+    RAISE EXCEPTION 'Only a Super Administrator may reopen a closed attendance month.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF p_reason IS NULL OR length(trim(p_reason)) = 0 THEN
+    RAISE EXCEPTION 'A reason is required to reopen a closed month.' USING ERRCODE = '22023';
+  END IF;
+
+  SELECT * INTO v_period FROM public.hr_attendance_periods WHERE id = p_period_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Attendance period not found.' USING ERRCODE = 'P0002';
+  END IF;
+  IF v_period.status <> 'locked' THEN
+    RAISE EXCEPTION 'That month is not closed.' USING ERRCODE = 'P0001';
+  END IF;
+
+  DELETE FROM public.hr_attendance_period_summaries WHERE period_id = p_period_id;
+
+  UPDATE public.hr_attendance_periods
+     SET status = 'open',
+         locked_at = NULL,
+         locked_by = NULL,
+         reopened_at = now(),
+         reopened_by = auth.uid(),
+         reopen_reason = trim(p_reason),
+         staff_count = NULL,
+         working_days_count = NULL,
+         updated_by = auth.uid()
+   WHERE id = p_period_id
+  RETURNING * INTO v_period;
+
+  RETURN v_period;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_reopen_attendance_period(uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_reopen_attendance_period(uuid, text) TO authenticated, service_role;
+
+
+-- Every institution's state for one month -- what the HR Head console lists.
+--
+-- Institutions with NO attendance data still appear, with zeroes. A month that
+-- silently omits an institution reads as "done" when it means "never imported",
+-- which is the failure this console exists to make visible.
+CREATE OR REPLACE FUNCTION public.hr_attendance_period_console(
+  p_year  integer,
+  p_month integer
+)
+RETURNS TABLE(
+  institution_id   uuid,
+  institution_name text,
+  period_id        uuid,
+  status           text,
+  locked_at        timestamptz,
+  forced           boolean,
+  staff_with_records integer,
+  record_count       integer,
+  pending_requests   integer,
+  approved_requests  integer,
+  unprocessed_days   integer
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_start date := make_date(p_year, p_month, 1);
+  v_end   date := (make_date(p_year, p_month, 1) + interval '1 month - 1 day')::date;
+BEGIN
+  IF NOT (public.is_super_admin()
+          OR public.user_has_permission('hr.attendance.period.view')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.view is required to see the attendance close console.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT i.id,
+         i.name::text,
+         ap.id,
+         COALESCE(ap.status, 'open')::text,
+         ap.locked_at,
+         COALESCE(ap.forced, false),
+         COALESCE(r.staff_ct, 0)::int,
+         COALESCE(r.rec_ct, 0)::int,
+         COALESCE(q.pending_ct, 0)::int,
+         COALESCE(q.approved_ct, 0)::int,
+         COALESCE(r.unprocessed_ct, 0)::int
+    FROM public.institutions i
+    LEFT JOIN public.hr_attendance_periods ap
+           ON ap.institution_id = i.id
+          AND ap.period_year = p_year AND ap.period_month = p_month
+    LEFT JOIN LATERAL (
+      SELECT count(DISTINCT rr.employee_id) AS staff_ct,
+             count(*)                       AS rec_ct,
+             count(*) FILTER (WHERE st.code NOT IN (
+               'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
+               'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting')) AS unprocessed_ct
+        FROM public.hr_attendance_records rr
+        JOIN public.hr_attendance_status_types st ON st.id = rr.status_type_id
+       WHERE rr.institution_id = i.id
+         AND rr.work_date BETWEEN v_start AND v_end
+    ) r ON true
+    LEFT JOIN LATERAL (
+      SELECT count(*) FILTER (WHERE la.status = 'pending')  AS pending_ct,
+             count(*) FILTER (WHERE la.status = 'approved') AS approved_ct
+        FROM public.hr_leave_applications la
+        JOIN public.staff s ON s.id = la.employee_id
+       WHERE s.institution_id = i.id
+         AND la.start_date <= v_end AND la.end_date >= v_start
+    ) q ON true
+   WHERE public.role_has_institution_access(i.id)
+   ORDER BY (COALESCE(r.rec_ct, 0) = 0), i.name;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_attendance_period_console(integer, integer) FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated, service_role;
+
+-- ===========================================================================
+-- attendance close: count 'escalated' as outstanding (2026-08-22)
+-- Source: 20260822060000_hr_attendance_period_console_count_escalated.sql
+-- ===========================================================================
+-- Count ESCALATED requests as outstanding, not just 'pending'.
+--
+-- hr_leave_approval_queue selects status IN ('pending','escalated') -- an
+-- escalated request has been pushed up a level and is still waiting on somebody.
+-- This console counted only 'pending', so an escalated request would have been
+-- invisible here AND would not have blocked the close: the month would freeze
+-- with a live request inside it, and the trigger would then refuse the very
+-- decision the approver had been escalated to make.
+--
+-- There are no escalated rows in the data today, which is exactly why this was
+-- worth fixing before there are.
+--
+-- fn_hr_lock_attendance_period is restated with the same predicate. The button
+-- and the server must refuse on the same set, or one enables what the other
+-- rejects.
+--
+-- The remaining difference from the approvals SCREEN is deliberate and is not a
+-- bug: that screen is not date-filtered, because an approver must see a request
+-- dated next month, while a close only counts requests overlapping the month
+-- being closed. Following an unscoped link showed 141 outstanding for Dental
+-- where the close screen said 67. The console links now carry
+-- ?institution=&from=&to= so the two agree.
+
+DROP FUNCTION IF EXISTS public.hr_attendance_period_console(integer, integer);
+
+CREATE OR REPLACE FUNCTION public.hr_attendance_period_console(
+  p_year  integer,
+  p_month integer
+)
+RETURNS TABLE(
+  institution_id      uuid,
+  institution_name    text,
+  period_id           uuid,
+  status              text,
+  locked_at           timestamptz,
+  forced              boolean,
+  staff_with_records  integer,
+  record_count        integer,
+  pending_total       integer,
+  pending_leave       integer,
+  pending_short_time_off integer,
+  pending_comp_off    integer,
+  approved_leave      integer,
+  approved_short_time_off integer,
+  approved_comp_off   integer,
+  unprocessed_days    integer
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_start date := make_date(p_year, p_month, 1);
+  v_end   date := (make_date(p_year, p_month, 1) + interval '1 month - 1 day')::date;
+BEGIN
+  IF NOT (public.is_super_admin()
+          OR public.user_has_permission('hr.attendance.period.view')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.view is required to see the attendance close console.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT i.id,
+         i.name::text,
+         ap.id,
+         COALESCE(ap.status, 'open')::text,
+         ap.locked_at,
+         COALESCE(ap.forced, false),
+         COALESCE(r.staff_ct, 0)::int,
+         COALESCE(r.rec_ct, 0)::int,
+         COALESCE(q.p_total, 0)::int,
+         COALESCE(q.p_leave, 0)::int,
+         COALESCE(q.p_sto, 0)::int,
+         COALESCE(q.p_comp, 0)::int,
+         COALESCE(q.a_leave, 0)::int,
+         COALESCE(q.a_sto, 0)::int,
+         COALESCE(q.a_comp, 0)::int,
+         COALESCE(r.unprocessed_ct, 0)::int
+    FROM public.institutions i
+    LEFT JOIN public.hr_attendance_periods ap
+           ON ap.institution_id = i.id
+          AND ap.period_year = p_year AND ap.period_month = p_month
+    LEFT JOIN LATERAL (
+      SELECT count(DISTINCT rr.employee_id) AS staff_ct,
+             count(*)                       AS rec_ct,
+             count(*) FILTER (WHERE st.code NOT IN (
+               'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
+               'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting')) AS unprocessed_ct
+        FROM public.hr_attendance_records rr
+        JOIN public.hr_attendance_status_types st ON st.id = rr.status_type_id
+       WHERE rr.institution_id = i.id
+         AND rr.work_date BETWEEN v_start AND v_end
+    ) r ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        count(*) FILTER (WHERE la.status IN ('pending','escalated'))  AS p_total,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'leave')             AS p_leave,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'short_time_off')    AS p_sto,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'compensatory_off')  AS p_comp,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'leave')             AS a_leave,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'short_time_off')    AS a_sto,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'compensatory_off')  AS a_comp
+        FROM public.hr_leave_applications la
+        JOIN public.hr_leave_types lt ON lt.id = la.leave_type_id
+        JOIN public.staff s ON s.id = la.employee_id
+       WHERE s.institution_id = i.id
+         AND la.start_date <= v_end AND la.end_date >= v_start
+    ) q ON true
+   WHERE public.role_has_institution_access(i.id)
+   -- Institutions with no data first (they need importing), then the ones still
+   -- blocked by outstanding requests, then the ones ready to close.
+   ORDER BY (COALESCE(r.rec_ct, 0) = 0) DESC,
+            (COALESCE(q.p_total, 0) > 0) DESC,
+            i.name;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_attendance_period_console(integer, integer) FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated, service_role;
+
+
+CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
+  p_institution_id uuid,
+  p_year           integer,
+  p_month          integer,
+  p_force          boolean DEFAULT false,
+  p_force_reason   text    DEFAULT NULL
+)
+RETURNS public.hr_attendance_periods
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_period   public.hr_attendance_periods;
+  v_start    date;
+  v_end      date;
+  v_pending  integer;
+  v_records  integer;
+  v_is_sa    boolean := public.is_super_admin();
+BEGIN
+  IF NOT (v_is_sa OR public.user_has_permission('hr.attendance.period.manage')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.manage is required to close an attendance month.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF p_month < 1 OR p_month > 12 THEN
+    RAISE EXCEPTION 'Month must be 1-12, got %', p_month USING ERRCODE = '22023';
+  END IF;
+
+  v_start := make_date(p_year, p_month, 1);
+  v_end   := (v_start + interval '1 month - 1 day')::date;
+
+  -- Refuse to close a month that has nothing in it. An empty close would
+  -- freeze a set of zeroes and read as "everyone was absent".
+  SELECT count(*) INTO v_records
+    FROM public.hr_attendance_records
+   WHERE institution_id = p_institution_id
+     AND work_date BETWEEN v_start AND v_end;
+
+  IF v_records = 0 THEN
+    RAISE EXCEPTION 'No attendance records for that institution in %-%. Import the biometric data first.',
+      p_year, lpad(p_month::text, 2, '0')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.hr_attendance_periods (
+    institution_id, period_year, period_month, status, created_by, updated_by
+  ) VALUES (p_institution_id, p_year, p_month, 'open', auth.uid(), auth.uid())
+  ON CONFLICT (institution_id, period_year, period_month) DO NOTHING;
+
+  SELECT * INTO v_period
+    FROM public.hr_attendance_periods
+   WHERE institution_id = p_institution_id
+     AND period_year = p_year AND period_month = p_month
+   FOR UPDATE;
+
+  IF v_period.status = 'locked' THEN
+    RAISE EXCEPTION 'That attendance month is already closed (locked %).',
+      to_char(v_period.locked_at, 'DD Mon YYYY') USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Undecided requests overlapping the month, for staff of this institution.
+  SELECT count(*) INTO v_pending
+    FROM public.hr_leave_applications la
+    JOIN public.staff s ON s.id = la.employee_id
+   WHERE s.institution_id = p_institution_id
+     AND la.status IN ('pending', 'escalated')
+     AND la.start_date <= v_end AND la.end_date >= v_start;
+
+  IF v_pending > 0 AND NOT p_force THEN
+    RAISE EXCEPTION
+      '% request(s) for this month are still awaiting a decision. Clear them in Leave Approvals, or close with an override.',
+      v_pending
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_pending > 0 AND p_force THEN
+    IF NOT v_is_sa THEN
+      RAISE EXCEPTION 'Only a Super Administrator may close a month over % outstanding request(s).', v_pending
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_force_reason IS NULL OR length(trim(p_force_reason)) = 0 THEN
+      RAISE EXCEPTION 'A reason is required to close a month over outstanding requests.'
+        USING ERRCODE = '22023';
+    END IF;
+
+    UPDATE public.hr_leave_applications la
+       SET status = 'rejected',
+           final_approver_id = auth.uid(),
+           final_decided_at = now(),
+           updated_at = now()
+      FROM public.staff s
+     WHERE s.id = la.employee_id
+       AND s.institution_id = p_institution_id
+       AND la.status IN ('pending', 'escalated')
+       AND la.start_date <= v_end AND la.end_date >= v_start;
+  END IF;
+
+  PERFORM public.fn_hr_compute_attendance_period_summary(v_period.id);
+
+  UPDATE public.hr_attendance_periods
+     SET status = 'locked',
+         locked_at = now(),
+         locked_by = auth.uid(),
+         forced = (v_pending > 0 AND p_force),
+         force_reason = CASE WHEN v_pending > 0 AND p_force THEN trim(p_force_reason) END,
+         updated_by = auth.uid()
+   WHERE id = v_period.id
+  RETURNING * INTO v_period;
+
+  RETURN v_period;
+END;
+$function$;
+
+-- ===========================================================================
+-- attendance close: the force override is removed (2026-08-22)
+-- Source: 20260822070000_hr_attendance_close_remove_force_override.sql
+-- ===========================================================================
+-- RESOLVING EVERY REQUEST BEFORE CLOSING IS COMPULSORY. The override is gone.
+--
+-- The close previously accepted p_force, which a Super Administrator could use
+-- to reject the outstanding requests and close anyway. That is now removed
+-- entirely rather than merely hidden in the UI: a force path left in the
+-- function is still reachable over PostgREST by anyone holding
+-- hr.attendance.period.manage, so hiding the button would have made the rule a
+-- convention instead of a control.
+--
+-- THE COLUMNS GO TOO. `forced` and `force_reason` can no longer be set by
+-- anything, and a column nothing can write is worse than absent -- the next
+-- reader has to work out how a period might become forced before concluding
+-- that it cannot. The table holds 0 rows and none was ever forced, so nothing
+-- is lost.
+--
+-- The way out of a stuck month is unchanged and was always the better one:
+-- decide the requests. A Super Administrator can approve or reject any of them
+-- directly, because hr_trig_leave_enforce_approver returns early for one.
+
+-- The console returns `forced`, so it has to stop before the column is dropped.
+DROP FUNCTION IF EXISTS public.hr_attendance_period_console(integer, integer);
+-- Old 5-argument signature, replaced below by the 3-argument one.
+DROP FUNCTION IF EXISTS public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text);
+
+ALTER TABLE public.hr_attendance_periods
+  DROP COLUMN IF EXISTS forced,
+  DROP COLUMN IF EXISTS force_reason;
+
+
+CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
+  p_institution_id uuid,
+  p_year           integer,
+  p_month          integer
+)
+RETURNS public.hr_attendance_periods
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_period   public.hr_attendance_periods;
+  v_start    date;
+  v_end      date;
+  v_pending  integer;
+  v_records  integer;
+BEGIN
+  IF NOT (public.is_super_admin()
+          OR public.user_has_permission('hr.attendance.period.manage')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.manage is required to close an attendance month.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF p_month < 1 OR p_month > 12 THEN
+    RAISE EXCEPTION 'Month must be 1-12, got %', p_month USING ERRCODE = '22023';
+  END IF;
+
+  v_start := make_date(p_year, p_month, 1);
+  v_end   := (v_start + interval '1 month - 1 day')::date;
+
+  -- Refuse to close a month that has nothing in it: an empty close would freeze
+  -- a set of zeroes and read as "everyone was absent".
+  SELECT count(*) INTO v_records
+    FROM public.hr_attendance_records
+   WHERE institution_id = p_institution_id
+     AND work_date BETWEEN v_start AND v_end;
+
+  IF v_records = 0 THEN
+    RAISE EXCEPTION 'No attendance records for that institution in %-%. Import the biometric data first.',
+      p_year, lpad(p_month::text, 2, '0')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.hr_attendance_periods (
+    institution_id, period_year, period_month, status, created_by, updated_by
+  ) VALUES (p_institution_id, p_year, p_month, 'open', auth.uid(), auth.uid())
+  ON CONFLICT (institution_id, period_year, period_month) DO NOTHING;
+
+  SELECT * INTO v_period
+    FROM public.hr_attendance_periods
+   WHERE institution_id = p_institution_id
+     AND period_year = p_year AND period_month = p_month
+   FOR UPDATE;
+
+  IF v_period.status = 'locked' THEN
+    RAISE EXCEPTION 'That attendance month is already closed (locked %).',
+      to_char(v_period.locked_at, 'DD Mon YYYY') USING ERRCODE = 'P0001';
+  END IF;
+
+  -- 'escalated' counts: it is still awaiting somebody's decision.
+  SELECT count(*) INTO v_pending
+    FROM public.hr_leave_applications la
+    JOIN public.staff s ON s.id = la.employee_id
+   WHERE s.institution_id = p_institution_id
+     AND la.status IN ('pending', 'escalated')
+     AND la.start_date <= v_end AND la.end_date >= v_start;
+
+  -- Unconditional. There is no override.
+  IF v_pending > 0 THEN
+    RAISE EXCEPTION
+      '% request(s) for this month are still awaiting a decision. Every leave, short time off and compensatory off must be decided before the month can be closed.',
+      v_pending
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  PERFORM public.fn_hr_compute_attendance_period_summary(v_period.id);
+
+  UPDATE public.hr_attendance_periods
+     SET status = 'locked',
+         locked_at = now(),
+         locked_by = auth.uid(),
+         updated_by = auth.uid()
+   WHERE id = v_period.id
+  RETURNING * INTO v_period;
+
+  RETURN v_period;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer) TO authenticated, service_role;
+
+
+CREATE OR REPLACE FUNCTION public.hr_attendance_period_console(
+  p_year  integer,
+  p_month integer
+)
+RETURNS TABLE(
+  institution_id      uuid,
+  institution_name    text,
+  period_id           uuid,
+  status              text,
+  locked_at           timestamptz,
+  staff_with_records  integer,
+  record_count        integer,
+  pending_total       integer,
+  pending_leave       integer,
+  pending_short_time_off integer,
+  pending_comp_off    integer,
+  approved_leave      integer,
+  approved_short_time_off integer,
+  approved_comp_off   integer,
+  unprocessed_days    integer
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_start date := make_date(p_year, p_month, 1);
+  v_end   date := (make_date(p_year, p_month, 1) + interval '1 month - 1 day')::date;
+BEGIN
+  IF NOT (public.is_super_admin()
+          OR public.user_has_permission('hr.attendance.period.view')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.view is required to see the attendance close console.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT i.id,
+         i.name::text,
+         ap.id,
+         COALESCE(ap.status, 'open')::text,
+         ap.locked_at,
+         COALESCE(r.staff_ct, 0)::int,
+         COALESCE(r.rec_ct, 0)::int,
+         COALESCE(q.p_total, 0)::int,
+         COALESCE(q.p_leave, 0)::int,
+         COALESCE(q.p_sto, 0)::int,
+         COALESCE(q.p_comp, 0)::int,
+         COALESCE(q.a_leave, 0)::int,
+         COALESCE(q.a_sto, 0)::int,
+         COALESCE(q.a_comp, 0)::int,
+         COALESCE(r.unprocessed_ct, 0)::int
+    FROM public.institutions i
+    LEFT JOIN public.hr_attendance_periods ap
+           ON ap.institution_id = i.id
+          AND ap.period_year = p_year AND ap.period_month = p_month
+    LEFT JOIN LATERAL (
+      SELECT count(DISTINCT rr.employee_id) AS staff_ct,
+             count(*)                       AS rec_ct,
+             count(*) FILTER (WHERE st.code NOT IN (
+               'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
+               'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting')) AS unprocessed_ct
+        FROM public.hr_attendance_records rr
+        JOIN public.hr_attendance_status_types st ON st.id = rr.status_type_id
+       WHERE rr.institution_id = i.id
+         AND rr.work_date BETWEEN v_start AND v_end
+    ) r ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        count(*) FILTER (WHERE la.status IN ('pending','escalated'))  AS p_total,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'leave')            AS p_leave,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'short_time_off')   AS p_sto,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'compensatory_off') AS p_comp,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'leave')                          AS a_leave,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'short_time_off')                 AS a_sto,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'compensatory_off')               AS a_comp
+        FROM public.hr_leave_applications la
+        JOIN public.hr_leave_types lt ON lt.id = la.leave_type_id
+        JOIN public.staff s ON s.id = la.employee_id
+       WHERE s.institution_id = i.id
+         AND la.start_date <= v_end AND la.end_date >= v_start
+    ) q ON true
+   WHERE public.role_has_institution_access(i.id)
+   ORDER BY (COALESCE(r.rec_ct, 0) = 0) DESC,
+            (COALESCE(q.p_total, 0) > 0) DESC,
+            i.name;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_attendance_period_console(integer, integer) FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer) IS
+  'Close an institution-month. Refuses unconditionally while any leave / short time off / comp-off overlapping it is pending or escalated. There is no override.';
+
+-- ===========================================================================
+-- hr_attendance_period_console: biometric coverage (2026-08-22)
+-- Source: 20260822080000_hr_attendance_period_console_coverage.sql
+-- ===========================================================================
+-- Report BIOMETRIC COVERAGE, not just a staff count.
+--
+-- The console showed count(DISTINCT employee_id) from hr_attendance_records
+-- under the heading "Staff", which reads as headcount and is not: it is how many
+-- people appear in the imported file. For July that was 4 at Dental College
+-- against 152 active staff, and 5 at Engineering against 91. Closing on those
+-- numbers freezes day counts for four people and writes NOTHING for the other
+-- 148 -- so payroll later finds no row rather than a zero, which is the quiet
+-- kind of wrong.
+--
+-- active_staff is the denominator that makes the gap visible.
+-- relieved_with_records is the other half of the same story: the biometric
+-- import matches on the employee code alone and ignores staff.is_active, so 22
+-- of July's 209 counted people have already left and still carry 31 days of
+-- punches each. That is also why coverage can exceed 100% -- Nursing sat at 25
+-- of 24 -- and the UI deliberately reports that rather than clamping it.
+
+DROP FUNCTION IF EXISTS public.hr_attendance_period_console(integer, integer);
+
+CREATE OR REPLACE FUNCTION public.hr_attendance_period_console(
+  p_year  integer,
+  p_month integer
+)
+RETURNS TABLE(
+  institution_id      uuid,
+  institution_name    text,
+  period_id           uuid,
+  status              text,
+  locked_at           timestamptz,
+  staff_with_records  integer,
+  active_staff        integer,
+  relieved_with_records integer,
+  record_count        integer,
+  pending_total       integer,
+  pending_leave       integer,
+  pending_short_time_off integer,
+  pending_comp_off    integer,
+  approved_leave      integer,
+  approved_short_time_off integer,
+  approved_comp_off   integer,
+  unprocessed_days    integer
+)
+LANGUAGE plpgsql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_start date := make_date(p_year, p_month, 1);
+  v_end   date := (make_date(p_year, p_month, 1) + interval '1 month - 1 day')::date;
+BEGIN
+  IF NOT (public.is_super_admin()
+          OR public.user_has_permission('hr.attendance.period.view')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.view is required to see the attendance close console.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  RETURN QUERY
+  SELECT i.id,
+         i.name::text,
+         ap.id,
+         COALESCE(ap.status, 'open')::text,
+         ap.locked_at,
+         COALESCE(r.staff_ct, 0)::int,
+         COALESCE(h.active_ct, 0)::int,
+         COALESCE(r.relieved_ct, 0)::int,
+         COALESCE(r.rec_ct, 0)::int,
+         COALESCE(q.p_total, 0)::int,
+         COALESCE(q.p_leave, 0)::int,
+         COALESCE(q.p_sto, 0)::int,
+         COALESCE(q.p_comp, 0)::int,
+         COALESCE(q.a_leave, 0)::int,
+         COALESCE(q.a_sto, 0)::int,
+         COALESCE(q.a_comp, 0)::int,
+         COALESCE(r.unprocessed_ct, 0)::int
+    FROM public.institutions i
+    LEFT JOIN public.hr_attendance_periods ap
+           ON ap.institution_id = i.id
+          AND ap.period_year = p_year AND ap.period_month = p_month
+    LEFT JOIN LATERAL (
+      SELECT count(DISTINCT rr.employee_id) AS staff_ct,
+             count(DISTINCT rr.employee_id)
+               FILTER (WHERE NOT COALESCE(s2.is_active, false)) AS relieved_ct,
+             count(*)                       AS rec_ct,
+             count(*) FILTER (WHERE st.code NOT IN (
+               'PRESENT','REGULARIZED','HALF_DAY','ABSENT','WEEKLY_OFF',
+               'HOLIDAY','LEAVE','ON_DUTY','on_clinical_posting')) AS unprocessed_ct
+        FROM public.hr_attendance_records rr
+        JOIN public.hr_attendance_status_types st ON st.id = rr.status_type_id
+        LEFT JOIN public.staff s2 ON s2.id = rr.employee_id
+       WHERE rr.institution_id = i.id
+         AND rr.work_date BETWEEN v_start AND v_end
+    ) r ON true
+    -- The denominator. Active roster, regardless of whether anyone imported them.
+    LEFT JOIN LATERAL (
+      SELECT count(*) AS active_ct
+        FROM public.staff s3
+       WHERE s3.institution_id = i.id
+         AND COALESCE(s3.is_active, false)
+    ) h ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        count(*) FILTER (WHERE la.status IN ('pending','escalated'))  AS p_total,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'leave')            AS p_leave,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'short_time_off')   AS p_sto,
+        count(*) FILTER (WHERE la.status IN ('pending','escalated') AND lt.request_category = 'compensatory_off') AS p_comp,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'leave')                          AS a_leave,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'short_time_off')                 AS a_sto,
+        count(*) FILTER (WHERE la.status = 'approved' AND lt.request_category = 'compensatory_off')               AS a_comp
+        FROM public.hr_leave_applications la
+        JOIN public.hr_leave_types lt ON lt.id = la.leave_type_id
+        JOIN public.staff s ON s.id = la.employee_id
+       WHERE s.institution_id = i.id
+         AND la.start_date <= v_end AND la.end_date >= v_start
+    ) q ON true
+   WHERE public.role_has_institution_access(i.id)
+   ORDER BY (COALESCE(r.rec_ct, 0) = 0) DESC,
+            (COALESCE(q.p_total, 0) > 0) DESC,
+            i.name;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.hr_attendance_period_console(integer, integer) FROM anon;
+GRANT EXECUTE ON FUNCTION public.hr_attendance_period_console(integer, integer) TO authenticated, service_role;
+
+COMMENT ON FUNCTION public.hr_attendance_period_console(integer, integer) IS
+  'Per-institution readiness for an attendance month close. staff_with_records is BIOMETRIC COVERAGE, not headcount -- active_staff is the denominator.';

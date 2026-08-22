@@ -87,9 +87,31 @@ export default function LeaveApprovalsPage() {
   const decide = useDecideApplication();
   const { data: claims } = usePendingCompOffClaims(canApprove === true);
 
-  const [filters, setFilters] = useState<ApprovalFilterState>(() =>
-    emptyApprovalFilters(allTimePeriod())
-  );
+  /**
+   * `?institution=<id>&from=<ymd>&to=<ymd>` are seeded from the URL so the Month
+   * Close screen can link to exactly the rows it counted.
+   *
+   * THE DATE RANGE IS THE IMPORTANT HALF. This queue is deliberately NOT
+   * date-filtered by default — an approver must see a request dated next month —
+   * while a month close only counts requests overlapping the month being closed.
+   * Following an unscoped link showed 141 outstanding for Dental where the close
+   * screen said 67, and the two numbers looked broken rather than differently
+   * scoped. With the range carried across they agree exactly, because the row
+   * predicate here is the same overlap test the console uses.
+   */
+  const [filters, setFilters] = useState<ApprovalFilterState>(() => {
+    const from = params.get('from');
+    const to = params.get('to');
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    return {
+      ...emptyApprovalFilters(
+        from && to && ymd.test(from) && ymd.test(to)
+          ? { preset: 'custom' as const, from, to }
+          : allTimePeriod()
+      ),
+      institutionId: params.get('institution') ?? 'any',
+    };
+  });
   const [detailRow, setDetailRow] = useState<HRLeaveApprovalQueueRow | null>(null);
   /** What the approve confirmation is about. null = closed. */
   const [approving, setApproving] = useState<

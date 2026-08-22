@@ -1006,6 +1006,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
 
+      // ── Attendance month close (2026-08-22) ──────────────────────────────
+      // CLOSING the month is not the same as overriding a record.
+      // hr.attendance.override lets an HR user correct one day; these two let
+      // someone freeze an entire institution-month, after which nobody can
+      // raise, decide or withdraw a leave / short time off / comp-off request
+      // that touches it. Held by hr_head alone plus the Super Administrator.
+      //
+      // Enforced by hr_attendance_periods RLS, by hr_attendance_period_console
+      // and fn_hr_lock_attendance_period, and — the part hr_payroll_periods
+      // never had — by triggers on hr_attendance_records and
+      // hr_leave_applications that refuse writes inside a closed month.
+      //
+      // REOPENING deliberately has NO key: it is super-admin-only and checked
+      // with is_super_admin() inside fn_hr_reopen_attendance_period, so it
+      // cannot be granted to a role by mistake.
+      { key: 'hr.attendance.period.view', label: 'View Attendance Month Close' },
+      { key: 'hr.attendance.period.manage', label: 'Close and Reopen Attendance Months' },
+
       // ── Shift timings (2026-08-06) ────────────────────────────────────────
       // Institution x staff-category x weekday working hours, with the
       // first/second half windows and the morning grace period that biometric

@@ -9605,3 +9605,69 @@ COMMENT ON COLUMN public.hr_staff_bank_accounts.account_holder_name IS
 COMMENT ON COLUMN public.hr_staff_bank_accounts.verified_at IS
   'Somebody checked this against a passbook or cancelled cheque. A wrong account number does not error -- it pays the wrong person.';
 
+
+-- ===========================================================================
+-- hr_attendance_periods + summaries (2026-08-22)
+-- Source: 20260822010000_hr_attendance_periods_and_summaries.sql
+-- ===========================================================================
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_attendance_periods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_attendance_period_summaries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_attendance_periods_service_role ON public.hr_attendance_periods;
+CREATE POLICY hr_attendance_periods_service_role ON public.hr_attendance_periods
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Reading WHETHER a month is closed is not sensitive -- it is a fact every
+-- employee needs, because it is the reason their leave form refuses. Gated on
+-- the ordinary self-service attendance key rather than the manage key.
+DROP POLICY IF EXISTS hr_attendance_periods_select ON public.hr_attendance_periods;
+CREATE POLICY hr_attendance_periods_select ON public.hr_attendance_periods
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.view'))
+    OR (SELECT public.user_has_permission('hr.attendance.view_self'))
+  );
+
+DROP POLICY IF EXISTS hr_attendance_periods_write ON public.hr_attendance_periods;
+CREATE POLICY hr_attendance_periods_write ON public.hr_attendance_periods
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  );
+
+DROP POLICY IF EXISTS hr_attendance_period_summaries_service_role ON public.hr_attendance_period_summaries;
+CREATE POLICY hr_attendance_period_summaries_service_role ON public.hr_attendance_period_summaries
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Day counts drive pay, so the read gate is the period key OR your own row.
+DROP POLICY IF EXISTS hr_attendance_period_summaries_select ON public.hr_attendance_period_summaries;
+CREATE POLICY hr_attendance_period_summaries_select ON public.hr_attendance_period_summaries
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.view'))
+    OR staff_id IN (SELECT unnest(public.fn_my_staff_ids()))
+  );
+
+DROP POLICY IF EXISTS hr_attendance_period_summaries_write ON public.hr_attendance_period_summaries;
+CREATE POLICY hr_attendance_period_summaries_write ON public.hr_attendance_period_summaries
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  );
+
+COMMENT ON TABLE public.hr_attendance_periods IS
+  'Attendance month close, per institution. Upstream of hr_payroll_periods: freeze the day counts BEFORE payroll reads them, not after distribution.';
+COMMENT ON COLUMN public.hr_attendance_periods.forced IS
+  'Locked while requests were still pending. Those requests were auto-rejected with a stamped reason rather than silently denied.';
+COMMENT ON TABLE public.hr_attendance_period_summaries IS
+  'Frozen per-staff day counts. Derived from hr_attendance_records so working days match the evaluator, not a separate calendar rule.';
+

@@ -388,6 +388,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // the amount and the destination are separate decisions, and the destination
   // is the field a change to redirects real money.
   '/hr/payroll/bank-accounts': 'hr.payroll.bank.view',
+  // Closing an attendance month. Its own key, NOT the self-service
+  // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
+  // entry here longest-prefix resolution would hand all of them the ability to
+  // freeze an institution-month.
+  '/hr/attendance/close': 'hr.attendance.period.view',
   // The hub at /hr/payroll only redirects to the page above, but it needs its
   // own entry: without one the longest-prefix match falls through to '/hr' →
   // 'hr.view', so anyone in HR could open it and be denied one redirect later.
@@ -2632,6 +2637,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
             { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
+            // HR-ops, not self-service: gated on hr.attendance.period.view so it
+            // is invisible to the 22 roles that hold only view_self.
+            { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },

@@ -176,6 +176,16 @@ const config: ModuleNavConfig = {
           href: '/hr/attendance/regularize',
           matchPaths: ['/hr/attendance/regularize'],
         },
+        {
+          // Month close. Declared here in the SAME change as the route: a module
+          // with hasNavConfig renders only the children in this file, so a
+          // MENU_PERMISSIONS entry and a GetPages leaf alone would give a
+          // sidebar row and no navbar chip.
+          label: 'Month Close',
+          icon: 'CalendarCheck',
+          href: '/hr/attendance/close',
+          matchPaths: ['/hr/attendance/close'],
+        },
       ],
     },
     // The 'Shifts' group (/hr/shifts, /hr/shifts/my, /hr/shifts/approvals) was
