@@ -9,11 +9,12 @@
 // lib/services/campus-walk/campus-walk-service.ts; this page only captures.
 //
 // D2 (locked 2026-08-17): "Director only for v1 — prove routing before
-// opening up." Gated here by exact email match against the same
-// DIRECTOR_EMAIL constant already used for the write-mode preview boundary,
-// with an explicit "you don't have access" card rather than a silent
-// redirect (rule #27). The API route this screen posts to re-checks
-// server-side — this is a fast UI-level gate, not the enforcement boundary.
+// opening up." Still exactly one permitted person, but the rule now resolves
+// from a configuration row via lib/campus-walk/reporters.ts rather than a
+// hardcoded address compared in five separate places. Refusal renders an
+// explicit "you don't have access" card, never a silent redirect (rule #27).
+// The API route this screen posts to re-checks server-side — this is a fast
+// UI-level gate, not the enforcement boundary.
 
 import { AlertCircle } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -21,7 +22,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient } from '@/lib/supabase/server';
-import { DIRECTOR_EMAIL } from '@/lib/auth/preview-session';
+import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { WalkClient } from './_components/walk-client';
 
 export const dynamic = 'force-dynamic';
@@ -48,18 +49,18 @@ export default async function CampusWalkPage() {
     );
   }
 
-  const email = (user.email ?? '').toLowerCase();
-  if (email !== DIRECTOR_EMAIL) {
+  if (!(await isCampusWalkReporter(user.email))) {
     return (
       <ContentLayout title="Campus Walk">
         <Card className="mt-6">
           <CardContent className="flex items-start gap-3 py-6">
             <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
             <div>
-              <p className="font-medium">Campus Walk is Director-only for now</p>
+              <p className="font-medium">You don&apos;t have access to Campus Walk</p>
               <p className="text-sm text-muted-foreground">
-                This is v1 — routing is being proven before it opens up to anyone else. Contact
-                the Director if you believe you should have access.
+                Filing campus walk observations is limited to named people in this release —
+                routing is being proven before it opens up to anyone else. Contact the
+                Director&apos;s office if you believe you should have access.
               </p>
             </div>
           </CardContent>

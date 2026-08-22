@@ -32,7 +32,7 @@ export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { DIRECTOR_EMAIL } from '@/lib/auth/preview-session';
+import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { reopenAsRepeat } from '@/lib/campus-walk/repeats';
 
 function fail(error: string, status: number, extra?: Record<string, unknown>) {
@@ -49,10 +49,11 @@ export async function POST(request: NextRequest) {
   }
 
   // D2 — Director-only for v1. Same rule, same source of truth
-  // (DIRECTOR_EMAIL), as observations/route.ts. The database does not, and
+  // (resolved via lib/campus-walk/reporters.ts), as observations/route.ts
+  // does. The database does not, and
   // will not, enforce D2 — this comparison is the only gate.
   const callerEmail = (user.email ?? '').toLowerCase();
-  if (callerEmail !== DIRECTOR_EMAIL.toLowerCase()) {
+  if (!(await isCampusWalkReporter(callerEmail))) {
     return fail('Only the Director can mark a ticket as "same as before" in this release.', 403);
   }
 

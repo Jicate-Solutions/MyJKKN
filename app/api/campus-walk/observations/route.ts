@@ -46,7 +46,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { DIRECTOR_EMAIL } from '@/lib/auth/preview-session';
+import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { isJpegMagic, stripJpegMetadata, scanJpegForMetadata } from '@/lib/services/pde/jpeg-metadata';
 import {
   createWalkTask,
@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
   // request.formData() is even called, so a non-Director caller's photo is
   // never parsed or buffered, matching "permission gate before reading bytes".
   const callerEmail = (user.email ?? '').toLowerCase();
-  if (callerEmail !== DIRECTOR_EMAIL.toLowerCase()) {
+  if (!(await isCampusWalkReporter(callerEmail))) {
     return fail(
       'Campus Walk is Director-only in this release — ask the Director to file this observation.',
       403,

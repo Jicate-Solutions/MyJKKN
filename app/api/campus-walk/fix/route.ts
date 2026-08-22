@@ -44,6 +44,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { isJpegMagic, scanJpegForMetadata, stripJpegMetadata } from '@/lib/services/pde/jpeg-metadata';
+import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
+import { resolveDirectors, validateTargeting } from '@/lib/services/director-desk/handover-chase-service';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -61,6 +63,16 @@ const BLOCK_REASONS = new Set([
   'needs_contractor',
   'other',
 ]);
+
+/** Plain-English labels for the block reason codes — snake_case is not fit
+ *  for a notification the Director reads on his phone in a corridor. */
+const BLOCK_REASON_LABELS: Record<string, string> = {
+  no_budget: 'no budget',
+  materials_not_delivered: 'materials not delivered',
+  no_access: 'no access',
+  needs_contractor: 'needs a contractor',
+  other: 'other',
+};
 
 type SupabaseAny = ReturnType<typeof createServiceRoleClient>;
 
@@ -359,6 +371,76 @@ function closePause(
   return { dueDate, pausedDays };
 }
 
+/**
+ * Director ruling, unsafe-block alert: a worker is never blamed for an empty
+ * store room ("I can't fix this yet" still just pauses the clock, no
+ * penalty, unchanged) — but when the item is `metadata.unsafe === true`, that
+ * cannot be allowed to sit quietly for weeks with nothing showing wrong. This
+ * tells the Director AT THE MOMENT OF BLOCKING, carrying the worker's own
+ * reason, so he can decide to release money or close off the area without
+ * having to chase anyone down first.
+ *
+ * Resolved the way this lane already resolves "the Director" — `resolveDirectors`
+ * + `validateTargeting`, the same pair `lib/campus-walk/chase-up.ts` uses for its
+ * day-5 escalation rung — rather than hardcoding a person or a role string here.
+ *
+ * Idempotent for the life of the task, same convention as chase-up.ts's rung
+ * keys (`<prefix>:<key>:<task_id>`, no timestamp component): `nowIso` is
+ * generated fresh per request, so a key built from it would let a retried
+ * block POST (client resent after a dropped response) double-alert. Keying on
+ * `task_id` alone means the DB's partial unique index on
+ * `notifications.idempotency_key` — not a read-then-write check — guarantees
+ * this specific unsafe condition pages the Director at most once for as long
+ * as this task exists, whether the worker's block request is retried or the
+ * ticket is blocked again later while still in the same open state.
+ *
+ * FAIL SOFT: every failure here is caught and logged. This is called only
+ * AFTER the worker's block has already been written to `project_tasks`, so a
+ * broken notification path can never roll that back — losing the alert is
+ * bad, losing the worker's "I'm stuck" is worse.
+ *
+ * Attribution stays "Management walk" (D10): the message is about a
+ * condition, never about a named person's failure.
+ */
+async function notifyDirectorUnsafeBlocked(
+  admin: SupabaseAny,
+  opts: {
+    taskId: string;
+    title: string;
+    dueDate: string | null;
+    reasonCode: string;
+    reason: string;
+  }
+): Promise<void> {
+  try {
+    const director = await resolveDirectors(admin as any);
+    const check = validateTargeting(director.ids);
+    if (!check.ok) {
+      console.error(
+        `[campus-walk/fix] unsafe-block Director alert: no resolvable recipient (${check.reason}) — task ${opts.taskId}`
+      );
+      return;
+    }
+
+    const reasonLabel = BLOCK_REASON_LABELS[opts.reasonCode] ?? opts.reasonCode;
+    await createBellNotification(admin as any, {
+      recipientIds: check.userIds,
+      createdBy: check.userIds[0],
+      title: `Unsafe item blocked: ${opts.title.slice(0, 90)}`,
+      body:
+        `A Management walk item marked UNSAFE is now blocked (${reasonLabel}): "${opts.reason}". ` +
+        `The deadline has been paused${opts.dueDate ? ` (was due ${opts.dueDate})` : ''}. This needs ` +
+        `your call — release what is needed, or close off the area, while it sits open.`,
+      url: '/projects',
+      category: 'campus-walk:unsafe-blocked',
+      metadata: { task_id: opts.taskId, source: 'campus-walk', reason_code: opts.reasonCode },
+      idempotencyKey: `campus-walk-unsafe-block:${opts.taskId}`,
+    });
+  } catch (e: any) {
+    console.error('[campus-walk/fix] unsafe-block Director alert failed:', e?.message ?? e);
+  }
+}
+
 // ─── POST ────────────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
@@ -475,6 +557,21 @@ export async function POST(request: NextRequest) {
         },
         { status: 502 }
       );
+    }
+
+    // Director ruling: blocking still reads on the worker's screen exactly as
+    // above — no penalty, no change to this response — but an UNSAFE item
+    // must not be allowed to just sit paused and invisible. Fired only after
+    // the block itself is safely written; see notifyDirectorUnsafeBlocked's
+    // own doc comment for the idempotency and fail-soft guarantees.
+    if (metadata.unsafe === true) {
+      await notifyDirectorUnsafeBlocked(admin, {
+        taskId,
+        title: task.title,
+        dueDate: task.due_date,
+        reasonCode,
+        reason,
+      });
     }
 
     return NextResponse.json({

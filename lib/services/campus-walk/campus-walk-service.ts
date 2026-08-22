@@ -658,6 +658,18 @@ export interface CancelWalkTaskResult {
  * the task's RACI (accountable + consulted, via project_task_assignees) is
  * told it was WITHDRAWN — never left silently wondering why a ticket vanished.
  *
+ * Director ruling (cancel-must-not-erase-work): cancelling still closes the
+ * job, but if the fixer had already uploaded their proof photo and was
+ * waiting on approval, that work is CREDITED, not silently discarded.
+ * Detection reuses the exact markers app/api/campus-walk/fix/route.ts's
+ * `submit` action writes together in one update (D4) — `metadata.fix`
+ * (submitted_at/by) and `status_key = 'review'` — rather than inventing a new
+ * one. `metadata.fix` itself is never deleted or overwritten here (the whole
+ * prior metadata object is preserved via spread); a sibling `metadata.fix_credit`
+ * block is added purely as a flat, self-contained summary for any later
+ * credit / performance view to read without having to reconstruct it from the
+ * approval-flow shape of `metadata.fix`.
+ *
  * Fail-soft, same rule as createWalkTask: returns null only when the task
  * itself could not be read or updated. The notification step is best-effort
  * and independently guarded.
@@ -677,7 +689,7 @@ export async function cancelWalkTask(
 
     const { data: existing, error: fetchError } = await db
       .from('project_tasks')
-      .select('id, title, metadata')
+      .select('id, title, status_key, metadata')
       .eq('id', input.taskId)
       .maybeSingle();
 
@@ -691,6 +703,37 @@ export async function cancelWalkTask(
 
     const priorMetadata = ((existing as any).metadata as Record<string, unknown>) ?? {};
 
+    // A fix was already submitted iff the fixer's screen recorded one
+    // (metadata.fix.submitted_at) OR the task is sitting in 'review' — the
+    // exact pair fix/route.ts's `submit` action writes atomically together.
+    // Checking both, not inventing a third marker, in case one write landed
+    // and the metadata shape ever drifts from the status column.
+    const priorFix = (priorMetadata as any)?.fix ?? null;
+    const hadSubmission =
+      Boolean(priorFix?.submitted_at) || (existing as any).status_key === 'review';
+    const submitterProfileId: string | null =
+      hadSubmission && typeof priorFix?.submitted_by_profile_id === 'string'
+        ? (priorFix.submitted_by_profile_id as string)
+        : null;
+
+    const nowIso = new Date().toISOString();
+
+    // Flat, self-contained credit record — who did the work and when, plus
+    // when it was cancelled out from under them. metadata.fix (the approval
+    // flow's own record) is left completely untouched above via the spread.
+    const fixCredit = hadSubmission
+      ? {
+          completed: true,
+          completed_at: priorFix?.submitted_at ?? null,
+          completed_by_profile_id: priorFix?.submitted_by_profile_id ?? null,
+          completed_by_staff_id: priorFix?.submitted_by_staff_id ?? null,
+          completed_by_name: priorFix?.submitted_by_name ?? null,
+          attachment_id: priorFix?.attachment_id ?? null,
+          attachment_version: priorFix?.attachment_version ?? null,
+          cancelled_at: nowIso
+        }
+      : null;
+
     const { error: updateError } = await db
       .from('project_tasks')
       .update({
@@ -701,8 +744,9 @@ export async function cancelWalkTask(
           ...priorMetadata,
           cancelled: true,
           cancelled_reason: reason,
-          cancelled_at: new Date().toISOString(),
-          cancelled_by_profile_id: input.cancelledByProfileId ?? null
+          cancelled_at: nowIso,
+          cancelled_by_profile_id: input.cancelledByProfileId ?? null,
+          ...(fixCredit ? { fix_credit: fixCredit } : {})
         }
       })
       .eq('id', input.taskId);
@@ -723,21 +767,59 @@ export async function cancelWalkTask(
       ] as string[];
 
       const profileMap = await mapStaffToProfilesLocal(db, staffIds);
-      notifiedProfileIds = [...new Set(profileMap.values())].filter(
+      const raciProfileIds = [...new Set(profileMap.values())].filter(
         (id) => id !== (input.cancelledByProfileId ?? undefined)
       );
 
-      if (notifiedProfileIds.length > 0) {
+      // The person who actually submitted the fix (if any) gets a DIFFERENT
+      // message than the rest of the RACI — one that says plainly their
+      // completed work is recorded, not just that the job vanished. When
+      // nothing was submitted, submitterProfileId is null and this whole
+      // block behaves exactly as before: one notice, to the same recipients,
+      // with the same wording.
+      const isSubmitterCancelling =
+        submitterProfileId !== null && submitterProfileId === (input.cancelledByProfileId ?? null);
+      const generalRecipients = submitterProfileId
+        ? raciProfileIds.filter((id) => id !== submitterProfileId)
+        : raciProfileIds;
+      const title = ((existing as any).title ?? '').slice(0, 100);
+
+      if (generalRecipients.length > 0) {
         await createBellNotification(db, {
-          recipientIds: notifiedProfileIds,
-          createdBy: input.cancelledByProfileId ?? notifiedProfileIds[0],
-          title: `Campus Walk withdrawn — ${((existing as any).title ?? '').slice(0, 100)}`,
+          recipientIds: generalRecipients,
+          createdBy: input.cancelledByProfileId ?? generalRecipients[0],
+          title: `Campus Walk withdrawn — ${title}`,
           body: `This item has been withdrawn: ${reason}`,
           url: '/projects',
           category: 'campus-walk:cancelled',
           metadata: { task_id: input.taskId, source: 'campus-walk', reason }
         });
       }
+
+      // The whole point of the ruling: someone who watches their finished job
+      // vanish with nothing to show learns not to hurry next time. Skipped
+      // only when the canceller IS the submitter — nobody needs telling they
+      // credited themselves.
+      if (submitterProfileId && !isSubmitterCancelling) {
+        await createBellNotification(db, {
+          recipientIds: [submitterProfileId],
+          createdBy: input.cancelledByProfileId ?? submitterProfileId,
+          title: `Campus Walk withdrawn — ${title}`,
+          body:
+            `This item has been withdrawn: ${reason}. Your completed work on this job has been ` +
+            `recorded and credited — it is not lost, even though the ticket itself is now closed.`,
+          url: '/projects',
+          category: 'campus-walk:cancelled',
+          metadata: { task_id: input.taskId, source: 'campus-walk', reason, fix_credited: true }
+        });
+      }
+
+      notifiedProfileIds = [
+        ...new Set([
+          ...generalRecipients,
+          ...(submitterProfileId && !isSubmitterCancelling ? [submitterProfileId] : [])
+        ])
+      ];
     } catch (e: any) {
       console.error('[campus-walk] cancelWalkTask notification failed:', e?.message ?? e);
     }

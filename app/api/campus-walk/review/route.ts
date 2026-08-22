@@ -45,7 +45,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { DIRECTOR_EMAIL } from '@/lib/auth/preview-session';
+import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { createBellNotification } from '@/lib/services/meetings/meeting-trigger-service';
 
 export const dynamic = 'force-dynamic';
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
   // Before the body is read: a caller who may not decide should not have their
   // payload parsed, and should be told plainly rather than bounced (rule #27).
   const callerEmail = (user.email ?? '').toLowerCase();
-  if (callerEmail !== DIRECTOR_EMAIL.toLowerCase()) {
+  if (!(await isCampusWalkReporter(callerEmail))) {
     return fail(
       'not_director',
       'Approving campus walk jobs is Director-only in this release.',

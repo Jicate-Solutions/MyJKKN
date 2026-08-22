@@ -18,7 +18,7 @@
 // lane back into a to-do list.
 //
 // ── D2: DIRECTOR-ONLY ───────────────────────────────────────────────────────
-// Gated here by exact email match on the same DIRECTOR_EMAIL constant that
+// Gated here via lib/campus-walk/reporters.ts — the one place that
 // app/(routes)/campus-walk/page.tsx and app/api/campus-walk/observations/route.ts
 // already use — imported, never re-typed. This gate is UX; the enforcement copy
 // lives in app/api/campus-walk/review/route.ts and stands alone, because
@@ -43,7 +43,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageHeader } from '@/components/page-header';
 import { Card, CardContent } from '@/components/ui/card';
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { DIRECTOR_EMAIL } from '@/lib/auth/preview-session';
+import { isCampusWalkReporter } from '@/lib/campus-walk/reporters';
 import { ReviewClient, type ReviewItem } from './_components/review-client';
 
 export const dynamic = 'force-dynamic';
@@ -226,7 +226,7 @@ export default async function CampusWalkReviewPage() {
   const admin = createServiceRoleClient();
 
   const email = (user.email ?? '').toLowerCase();
-  if (email !== DIRECTOR_EMAIL.toLowerCase()) {
+  if (!(await isCampusWalkReporter(email))) {
     return (
       <Shell>
         <DeniedCard
