@@ -35,8 +35,50 @@
 // One task's storage failure must not abort the sweep — every candidate task
 // is handled independently, errors are collected rather than thrown, and a
 // task is only marked purged after its objects were actually removed (or
-// found to have none). A task already marked purged is skipped, so
-// re-running this cron (a Vercel retry, or a manual trigger) never
+// found to have none). Idempotency key: metadata.photo_retention's own
+// `last_evaluated_closed_at`, compared against THIS closure's closedAt (not
+// a bare "ever purged" boolean) — see the Ruling 1 section below for why a
+// bare boolean is wrong once a task can be reopened and closed again.
+//
+// ── RULING 1 (Director, 2026-08-2x): keep one photo per occurrence on a
+//    recurring problem ───────────────────────────────────────────────────
+// Plain deletion at 90 days is right for a one-off ticket, but wrong for a
+// problem that keeps coming back: lib/campus-walk/repeats.ts's "same as
+// before" (D7) reopens the SAME task and appends to metadata.occurrences,
+// so a corridor that floods nine times shows "9th time" with no photographic
+// evidence behind the number by the time anyone wants to fund a permanent
+// fix.
+//
+// What "per occurrence" means in THIS schema, stated plainly: D7's reopen
+// (repeats.ts, read-only to this file) never attaches a new photo — it only
+// flips status/due-date/routing and logs a dated entry with no photo
+// reference. The only problem photo this data model can ever address is the
+// ORIGINAL filing's primary photo (metadata.photo_storage_path, written once
+// by campus-walk-service.ts at intake and never touched by a reopen). So
+// today "keep the primary problem photo for each occurrence" reduces to
+// "keep that one photo, forever, once the task is known to be recurring" —
+// there is no second, third, ... ninth problem photo to separately keep
+// because none is ever captured. If a future change gives "same as before"
+// its own photo capture step, extend `primaryProblemPhotoPath` below (and
+// the keep-set it feeds) to also retain that occurrence's own path; nothing
+// here should be read as claiming evidence exists for occurrences 2-9 today.
+//
+// Recurring is decided by lib/campus-walk/repeats.ts's own
+// `getOccurrenceCount()` (occurrence_count > 1) rather than a second,
+// driftable copy of that arithmetic. Fix photos are NEVER kept by this rule
+// — the ruling is explicit that only the primary PROBLEM photo survives,
+// not "the whole set" (a task's 2nd/3rd original angle) and not the fix
+// chain; those still purge at 90 days exactly as before.
+//
+// The decision is recorded on the task itself (metadata.photo_retention),
+// keyed to the closedAt it was made for, so a rerun (Vercel retry, or the
+// task closing again after a LATER recurrence) never re-evaluates from
+// scratch for the same closure, but does correctly re-evaluate a fresh
+// closure after a reopen — a bare "photos_purged: true" boolean would
+// silently skip that fresh closure forever, since repeats.ts's reopen does
+// not (and should not, per this file's scope) clear that flag.
+//
+// A task already marked purged is skipped, so re-running this cron never
 // re-attempts already-cleared work and never double-reports on it.
 //
 // Auth: CRON_SECRET, same pattern as every other cron in this repo — Bearer
@@ -51,6 +93,7 @@ export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { getOccurrenceCount } from '@/lib/campus-walk/repeats';
 
 const BUCKET = 'campus-walk';
 
@@ -80,11 +123,45 @@ interface PurgeOutcome {
   task_id: string;
   closed_at: string | null;
   objects_removed: number;
+  /** Ruling 1: photo(s) deliberately NOT removed because this task is a
+   *  recurring problem. Empty for a task that has never recurred. */
+  kept_storage_paths: string[];
+  /** Plain-English reason for kept_storage_paths, or null when nothing was kept. */
+  kept_reason: string | null;
 }
 
 interface PurgeError {
   task_id: string;
   error: string;
+}
+
+interface AttachmentRow {
+  storage_path: string | null;
+  version: number | null;
+  is_final_report: boolean | null;
+  created_at: string;
+}
+
+/**
+ * Ruling 1 — the one photo this task's occurrence history keeps past 90
+ * days. Always metadata.photo_storage_path: the original observation's
+ * primary photo, written once at intake by campus-walk-service.ts and never
+ * touched by a D7 reopen (lib/campus-walk/repeats.ts). Falls back to the
+ * earliest non-fix attachment row (lowest version, then earliest created_at)
+ * for the rare case that field's own insert failed at intake — the same
+ * fallback app/api/campus-walk/fix/route.ts already uses for its own
+ * "primaryObservation" lookup, reused here rather than re-guessed.
+ */
+function primaryProblemPhotoPath(metadata: Record<string, any>, attachments: AttachmentRow[]): string | null {
+  if (typeof metadata.photo_storage_path === 'string' && metadata.photo_storage_path.length > 0) {
+    return metadata.photo_storage_path;
+  }
+  const originals = attachments
+    .filter((a): a is AttachmentRow & { storage_path: string } => typeof a.storage_path === 'string' && a.is_final_report !== true)
+    .sort(
+      (a, b) => (a.version ?? 0) - (b.version ?? 0) || Date.parse(a.created_at) - Date.parse(b.created_at)
+    );
+  return originals[0]?.storage_path ?? null;
 }
 
 /** The date this task counts as "closed" from, per the two lanes above. Null means not closed (should not happen — the queries below only select closed tasks — but stays defensive). */
@@ -152,26 +229,37 @@ export async function GET(request: NextRequest) {
 
     for (const task of candidates) {
       const metadata = (task.metadata ?? {}) as Record<string, any>;
+      const closedAt = closedAtFor(task);
 
-      // Idempotent: a task already marked purged is left alone, so a re-run
-      // (Vercel retry, or a manual trigger) never re-deletes or double-counts.
-      if (metadata.photos_purged === true) {
+      // Idempotent per CLOSURE, not per task: keyed to this closure's own
+      // closedAt rather than a bare "ever purged" boolean. A bare boolean
+      // would skip this task forever the first time it is purged, including
+      // after a LATER D7 reopen closes it again with a fresh fix photo to
+      // evaluate — repeats.ts does not (and should not, per this file's
+      // scope) clear that flag on reopen, so the dedupe key has to be the
+      // thing that changes across a reopen instead.
+      const priorRetention = (metadata.photo_retention ?? null) as
+        | { last_evaluated_closed_at?: string }
+        | null;
+      if (closedAt && priorRetention?.last_evaluated_closed_at === closedAt) {
         skippedAlreadyPurged++;
         continue;
       }
 
-      const closedAt = closedAtFor(task);
-
       try {
         const { data: attachments, error: attErr } = await admin
           .from('project_task_attachments')
-          .select('storage_path')
-          .eq('task_id', task.id);
+          .select('storage_path, version, is_final_report, created_at')
+          .eq('task_id', task.id)
+          .order('version', { ascending: true })
+          .order('created_at', { ascending: true });
         if (attErr) throw attErr;
 
+        const attachmentRows = (attachments ?? []) as AttachmentRow[];
+
         const paths = new Set<string>(
-          (attachments ?? [])
-            .map((r: any) => (typeof r.storage_path === 'string' ? r.storage_path : null))
+          attachmentRows
+            .map((r) => (typeof r.storage_path === 'string' ? r.storage_path : null))
             .filter((p: string | null): p is string => Boolean(p))
         );
         // Belt-and-braces: the primary observation photo path is also
@@ -182,30 +270,70 @@ export async function GET(request: NextRequest) {
           paths.add(metadata.photo_storage_path);
         }
 
+        // ── Ruling 1: recurring problem keeps its one problem photo ──────
+        // "Recurring" is repeats.ts's own occurrence_count > 1, not a second
+        // copy of that arithmetic. Fix photos are never kept here, and
+        // neither is anything beyond the single primary — only that one
+        // path is ever excluded from removal.
+        const occurrenceCount = getOccurrenceCount(metadata);
+        const isRecurring = occurrenceCount > 1;
+        const primaryPath = isRecurring ? primaryProblemPhotoPath(metadata, attachmentRows) : null;
+        const keepPaths = new Set<string>(primaryPath ? [primaryPath] : []);
+        const keptReason = primaryPath
+          ? `Recurring problem (occurrence #${occurrenceCount}) — primary problem photo kept as evidence; everything else purges on schedule.`
+          : null;
+        const pathsToRemove = [...paths].filter((p) => !keepPaths.has(p));
+
         if (dryRun) {
-          purged.push({ task_id: task.id, closed_at: closedAt, objects_removed: paths.size });
+          purged.push({
+            task_id: task.id,
+            closed_at: closedAt,
+            objects_removed: pathsToRemove.length,
+            kept_storage_paths: [...keepPaths],
+            kept_reason: keptReason
+          });
           continue;
         }
 
-        if (paths.size > 0) {
-          const { error: removeErr } = await admin.storage.from(BUCKET).remove([...paths]);
+        if (pathsToRemove.length > 0) {
+          const { error: removeErr } = await admin.storage.from(BUCKET).remove(pathsToRemove);
           if (removeErr) throw removeErr;
         }
 
+        const evaluatedAt = new Date().toISOString();
         const { error: markErr } = await admin
           .from('project_tasks')
           .update({
             metadata: {
               ...metadata,
+              // Kept for any reader of the old shape ("marked with
+              // whether/when the purge ran" per this file's own header) —
+              // photos_purged_object_count now reflects what was actually
+              // removed (excludes anything kept under Ruling 1).
               photos_purged: true,
-              photos_purged_at: new Date().toISOString(),
-              photos_purged_object_count: paths.size
+              photos_purged_at: evaluatedAt,
+              photos_purged_object_count: pathsToRemove.length,
+              // The auditable, rerun-safe record: what this run decided and
+              // why, keyed to the closure it was decided for.
+              photo_retention: {
+                last_evaluated_at: evaluatedAt,
+                last_evaluated_closed_at: closedAt,
+                occurrence_count_at_evaluation: occurrenceCount,
+                kept_storage_paths: [...keepPaths],
+                kept_reason: keptReason
+              }
             }
           })
           .eq('id', task.id);
         if (markErr) throw markErr;
 
-        purged.push({ task_id: task.id, closed_at: closedAt, objects_removed: paths.size });
+        purged.push({
+          task_id: task.id,
+          closed_at: closedAt,
+          objects_removed: pathsToRemove.length,
+          kept_storage_paths: [...keepPaths],
+          kept_reason: keptReason
+        });
       } catch (e: any) {
         // One task's failure must not abort the sweep — collected, not
         // thrown, and NOT marked purged so it is retried on the next run.

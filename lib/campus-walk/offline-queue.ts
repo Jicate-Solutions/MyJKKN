@@ -31,6 +31,37 @@
  * A genuine offline attempt (airplane mode) always throws inside fetch()
  * and is always transient — that is the exact path the acceptance test
  * exercises.
+ *
+ * ── RULING 2 (Director): the client side of flag-likely-duplicates ───────
+ * reviveInterruptedUploads() below documents a trade-off that stays exactly
+ * as-is: an item still 'uploading' when the app was force-closed goes back
+ * to 'pending' and retries, because the client cannot know whether the
+ * server already received the first attempt. That retry is correct —
+ * losing an observation is worse than an extra ticket — but the server
+ * should be told it may be looking at a resend, not a fresh report:
+ *
+ *   - A revived item is marked `retryAfterCrash: true` on the QueueItem
+ *     itself and sent as a `retryAfterCrash` form field on every upload
+ *     attempt for that item from then on (lib/campus-walk/duplicates.ts's
+ *     header, section 5, documents this exact contract from the server
+ *     side). It is informational only for logs/analytics — the pure
+ *     hash+recency matcher in duplicates.ts never reads it and never will,
+ *     so a wrong or missing flag can never suppress the real check.
+ *   - The intake route (app/api/campus-walk/observations/route.ts, owned by
+ *     another agent — shipped in commit c6a4586a78, "flag likely duplicate
+ *     observations instead of filing them twice") answers a successful
+ *     upload with `possibleDuplicateOf: string | null`, the matched task's
+ *     id or null. NOTE for whoever reads lib/campus-walk/duplicates.ts's own
+ *     header next: that file's section 4 sketches a richer
+ *     `duplicate: { isLikely, matchedTaskId, matchedAt }` shape, but the
+ *     route that actually shipped uses the flatter `possibleDuplicateOf`
+ *     field instead — this file follows the REAL response, confirmed by
+ *     reading app/api/campus-walk/observations/route.ts directly, not the
+ *     doc comment. uploadItem() parses `possibleDuplicateOf` and pumpOnce()
+ *     carries it onto the finished QueueItem as `duplicate`, so the queue
+ *     view can show "this looks like the one you just sent". Flagging is
+ *     never deleting: the task the server created stays created either way;
+ *     dismissDuplicateFlag() below only clears the on-screen notice.
  */
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -50,6 +81,13 @@ interface QueuedPhoto {
 }
 
 export type QueueItemStatus = 'pending' | 'uploading' | 'done' | 'error';
+
+/** What the server told us about a finished upload possibly re-sending an
+ *  existing task. Set on the QueueItem only when the server flagged one —
+ *  see uploadItem()'s parsing of the `possibleDuplicateOf` response field. */
+export interface DuplicateFlag {
+  matchedTaskId: string;
+}
 
 export interface QueueItem {
   id: string;
@@ -71,6 +109,16 @@ export interface QueueItem {
    *  queue either way — only an explicit user "Discard" removes it. */
   terminal: boolean;
   nextAttemptAt: number;
+  /** Ruling 2 — set true the moment reviveInterruptedUploads() puts a
+   *  force-closed 'uploading' item back to 'pending'. Sent to the server as
+   *  the `retryAfterCrash` form field on every subsequent attempt; never
+   *  cleared once true, since the historical fact that this item survived a
+   *  crash stays true regardless of how the retry eventually resolves. */
+  retryAfterCrash: boolean;
+  /** Ruling 2 — set from the server's response once this item finishes
+   *  uploading and the server flags it as a likely resend. Null when there
+   *  is nothing to show. Cleared only by dismissDuplicateFlag() below. */
+  duplicate: DuplicateFlag | null;
 }
 
 export interface NewObservationInput {
@@ -184,7 +232,9 @@ export async function enqueueObservation(input: NewObservationInput): Promise<Qu
     attempts: 0,
     lastError: null,
     terminal: false,
-    nextAttemptAt: now
+    nextAttemptAt: now,
+    retryAfterCrash: false,
+    duplicate: null
   };
   await putItem(item);
   notify();
@@ -216,6 +266,22 @@ export async function discardItem(id: string): Promise<void> {
   notify();
 }
 
+/**
+ * Ruling 2 — the "one-tap discard" on a duplicate notice. This clears the
+ * notice only; the observation was already sent and the task the server
+ * created stays exactly as it is. Flagging is not deleting, and the
+ * Director — not this tap — decides what happens to the ticket itself. A
+ * missing item is a harmless no-op (already gone, e.g. pruned after a day).
+ */
+export async function dismissDuplicateFlag(id: string): Promise<void> {
+  const item = await getItem(id);
+  if (!item || !item.duplicate) return;
+  item.duplicate = null;
+  item.updatedAt = Date.now();
+  await putItem(item);
+  notify();
+}
+
 /** Drops queue entries that finished successfully more than a day ago, so the
  *  database does not grow forever with sent-history. Run opportunistically. */
 async function pruneOldDone(): Promise<void> {
@@ -239,6 +305,11 @@ async function pruneOldDone(): Promise<void> {
  * better than the alternative (silently losing the observation), and is
  * the same trade-off the acceptance test's "force-close mid-flight" case
  * forces on any offline queue with no server-side idempotency key.
+ *
+ * Ruling 2: this is also the one and only place `retryAfterCrash` is ever
+ * set. It tells the server "this exact item survived a force-close", so the
+ * likely-duplicate check has real context instead of guessing from the
+ * retry alone — the retry itself is unaffected by this flag either way.
  */
 async function reviveInterruptedUploads(): Promise<void> {
   const items = await getAllItems();
@@ -248,6 +319,7 @@ async function reviveInterruptedUploads(): Promise<void> {
       item.status = 'pending';
       item.nextAttemptAt = now;
       item.updatedAt = now;
+      item.retryAfterCrash = true;
       await putItem(item);
     }
   }
@@ -273,6 +345,23 @@ interface UploadOutcome {
   ok: boolean;
   terminal: boolean;
   message: string | null;
+  /** Ruling 2 — only ever populated on an `ok` outcome; null otherwise. */
+  duplicate: DuplicateFlag | null;
+}
+
+/**
+ * Ruling 2 — parses the intake route's actual `possibleDuplicateOf` response
+ * field (app/api/campus-walk/observations/route.ts, confirmed by reading
+ * that route directly — see this file's header for why that is NOT the
+ * shape lib/campus-walk/duplicates.ts's own comments sketch). Deliberately
+ * strict: anything that isn't a non-empty string is treated as "no flag"
+ * rather than guessed at, since a wrongly-surfaced duplicate notice would
+ * train him to distrust it.
+ */
+function parseDuplicateFlag(json: any): DuplicateFlag | null {
+  const matchedTaskId = json?.possibleDuplicateOf;
+  if (typeof matchedTaskId !== 'string' || matchedTaskId.length === 0) return null;
+  return { matchedTaskId };
 }
 
 async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
@@ -283,6 +372,10 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
   form.append('isUnsafe', String(item.isUnsafe));
   form.append('category', item.category);
   form.append('blocker', item.blocker);
+  // Ruling 2 — informational context for the server's duplicate check; see
+  // this file's header for why it is sent unconditionally (always a
+  // well-formed 'true'/'false' string) rather than only when true.
+  form.append('retryAfterCrash', String(item.retryAfterCrash));
   if (item.geo) form.append('geo', JSON.stringify(item.geo));
   item.photos.forEach((p, i) => {
     form.append('photos', new Blob([p.data], { type: p.type }), p.name || `photo-${i + 1}.jpg`);
@@ -294,7 +387,7 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
   } catch {
     // The exact path airplane mode produces. Always transient — this is the
     // failure the whole module exists to survive.
-    return { ok: false, terminal: false, message: 'No connection — will retry automatically.' };
+    return { ok: false, terminal: false, message: 'No connection — will retry automatically.', duplicate: null };
   }
 
   let json: any = null;
@@ -307,7 +400,7 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
   // Contract: { success: true, ... } | { success: false, error }. Tolerant of
   // extra/renamed fields either side adds later — only `success`/`error` are load-bearing.
   if (res.ok && json && json.success !== false) {
-    return { ok: true, terminal: false, message: null };
+    return { ok: true, terminal: false, message: null, duplicate: parseDuplicateFlag(json) };
   }
 
   const serverMessage: string | undefined = json?.error;
@@ -318,20 +411,31 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
     return {
       ok: false,
       terminal: true,
-      message: serverMessage ?? 'Not signed in — sign in again, then retry this one.'
+      message: serverMessage ?? 'Not signed in — sign in again, then retry this one.',
+      duplicate: null
     };
   }
   if (res.status === 413) {
-    return { ok: false, terminal: true, message: serverMessage ?? 'Too large for the server to accept.' };
+    return {
+      ok: false,
+      terminal: true,
+      message: serverMessage ?? 'Too large for the server to accept.',
+      duplicate: null
+    };
   }
   if (res.status === 415) {
-    return { ok: false, terminal: true, message: serverMessage ?? 'Photo format not accepted.' };
+    return { ok: false, terminal: true, message: serverMessage ?? 'Photo format not accepted.', duplicate: null };
   }
   if (res.status === 400 || res.status === 422) {
-    return { ok: false, terminal: true, message: serverMessage ?? 'The server rejected this observation.' };
+    return {
+      ok: false,
+      terminal: true,
+      message: serverMessage ?? 'The server rejected this observation.',
+      duplicate: null
+    };
   }
   if (res.status === 429) {
-    return { ok: false, terminal: false, message: serverMessage ?? 'Busy — will retry shortly.' };
+    return { ok: false, terminal: false, message: serverMessage ?? 'Busy — will retry shortly.', duplicate: null };
   }
   // 502 from THIS route specifically means every photo in the batch failed
   // its own validation (not a JPEG, too small/large) — confirmed by reading
@@ -342,7 +446,8 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
     return {
       ok: false,
       terminal: true,
-      message: serverMessage ?? 'None of the photos could be saved — retake and try again.'
+      message: serverMessage ?? 'None of the photos could be saved — retake and try again.',
+      duplicate: null
     };
   }
   // Every other 5xx and anything unrecognised: assume transient. Losing a photo silently
@@ -352,7 +457,8 @@ async function uploadItem(item: QueueItem): Promise<UploadOutcome> {
   return {
     ok: false,
     terminal: false,
-    message: serverMessage ?? `Upload failed (HTTP ${res.status}) — will retry.`
+    message: serverMessage ?? `Upload failed (HTTP ${res.status}) — will retry.`,
+    duplicate: null
   };
 }
 
@@ -400,6 +506,10 @@ async function pumpOnce(): Promise<boolean> {
       // The server has the bytes now — free them. The record stays (briefly,
       // pruned after a day) purely so the UI can keep showing "Sent".
       next.photos = [];
+      // Ruling 2 — surfaced in the queue view as a dismissible notice; see
+      // dismissDuplicateFlag(). Null clears any stale flag from an earlier
+      // attempt of this same item that the server did NOT flag this time.
+      next.duplicate = outcome.duplicate;
       await putItem(next);
     } else {
       next.attempts += 1;

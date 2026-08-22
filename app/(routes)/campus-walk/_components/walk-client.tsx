@@ -37,6 +37,7 @@ import {
   Camera,
   Check,
   Clock,
+  Copy,
   Loader2,
   MapPin,
   RefreshCw,
@@ -65,6 +66,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   discardItem,
+  dismissDuplicateFlag,
   enqueueObservation,
   listQueue,
   retryItem,
@@ -600,36 +602,60 @@ export function WalkClient() {
             </div>
             <ul className="divide-y">
               {queue.map((item) => (
-                <li key={item.id} className="py-3 flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate text-sm">{item.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {item.photoCount} photo{item.photoCount === 1 ? '' : 's'} ·{' '}
-                      {item.status === 'uploading' && 'Sending…'}
-                      {item.status === 'pending' &&
-                        (item.attempts > 0
-                          ? `Retrying — ${item.lastError ?? 'no connection'}`
-                          : 'Waiting to send')}
-                      {item.status === 'done' && 'Sent'}
-                      {item.status === 'error' && (item.lastError ?? 'Failed')}
-                    </p>
+                <li key={item.id} className="py-3">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate text-sm">{item.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {item.photoCount} photo{item.photoCount === 1 ? '' : 's'} ·{' '}
+                        {item.status === 'uploading' && 'Sending…'}
+                        {item.status === 'pending' &&
+                          (item.attempts > 0
+                            ? `Retrying — ${item.lastError ?? 'no connection'}`
+                            : 'Waiting to send')}
+                        {item.status === 'done' && 'Sent'}
+                        {item.status === 'error' && (item.lastError ?? 'Failed')}
+                      </p>
+                    </div>
+                    {item.status === 'uploading' && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
+                    {item.status === 'pending' && item.attempts === 0 && (
+                      <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                    )}
+                    {item.status === 'pending' && item.attempts > 0 && (
+                      <WifiOff className="h-4 w-4 text-amber-600 shrink-0" />
+                    )}
+                    {item.status === 'done' && <Check className="h-4 w-4 text-green-600 shrink-0" />}
+                    {item.status === 'error' && (
+                      <div className="flex items-center gap-1 shrink-0">
+                        <AlertTriangle className="h-4 w-4 text-destructive" />
+                        <Button size="sm" variant="outline" onClick={() => void retryItem(item.id)}>
+                          Retry
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => void discardItem(item.id)}>
+                          Discard
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  {item.status === 'uploading' && <Loader2 className="h-4 w-4 animate-spin shrink-0" />}
-                  {item.status === 'pending' && item.attempts === 0 && (
-                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                  )}
-                  {item.status === 'pending' && item.attempts > 0 && (
-                    <WifiOff className="h-4 w-4 text-amber-600 shrink-0" />
-                  )}
-                  {item.status === 'done' && <Check className="h-4 w-4 text-green-600 shrink-0" />}
-                  {item.status === 'error' && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <AlertTriangle className="h-4 w-4 text-destructive" />
-                      <Button size="sm" variant="outline" onClick={() => void retryItem(item.id)}>
-                        Retry
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void discardItem(item.id)}>
-                        Discard
+
+                  {/* Ruling 2 — the server's "this looks like a resend"
+                      signal. Lives in the queue, never in the shutter path.
+                      Flagging is not deleting: the ticket the server already
+                      created is untouched either way — this only dismisses
+                      the notice, one tap. */}
+                  {item.duplicate && (
+                    <div className="mt-2 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 px-2.5 py-1.5">
+                      <Copy className="h-3.5 w-3.5 text-amber-700 shrink-0" />
+                      <p className="text-xs text-amber-900 dark:text-amber-200 flex-1">
+                        This looks like the one you just sent.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs shrink-0"
+                        onClick={() => void dismissDuplicateFlag(item.id)}
+                      >
+                        Dismiss
                       </Button>
                     </div>
                   )}

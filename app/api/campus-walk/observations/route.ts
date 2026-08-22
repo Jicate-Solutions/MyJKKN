@@ -185,6 +185,15 @@ export async function POST(request: NextRequest) {
   // it will let an observation be queued, so dropping it here would quietly gut
   // the guardrail: it is the field that keeps a walk pointed at the systemic
   // cause rather than at whoever happens to be standing next to the problem.
+  // The offline queue sets this on any item revived after a force-close killed
+  // it mid-upload (lib/campus-walk/offline-queue.ts). Informational: it does
+  // NOT gate the duplicate check — the sha256 match is the signal — but it
+  // separates two very different situations that otherwise look identical:
+  // a crash-retry of one observation, versus the Director deliberately
+  // photographing the same thing twice.
+  const retryAfterCrash =
+    String(form.get('retryAfterCrash') ?? '').trim().toLowerCase() === 'true';
+
   const blockerRaw = form.get('blocker');
   const blocker = blockerRaw ? String(blockerRaw).trim().slice(0, 1000) || null : null;
 
@@ -385,6 +394,10 @@ export async function POST(request: NextRequest) {
             possible_duplicate_of: verdict.matchedTaskId,
             possible_duplicate_detected_at: new Date().toISOString(),
             possible_duplicate_age_ms: verdict.ageMs,
+            // true => almost certainly one observation sent twice by the retry
+            // pump. false => the same photo arrived twice without a crash,
+            // which is a deliberate re-send and worth a closer look.
+            possible_duplicate_after_crash: retryAfterCrash,
           },
         })
         .eq('id', result.taskId);
