@@ -1,132 +1,99 @@
--- ╔══════════════════════════════════════════════════════════════════════════╗
--- ║  SUPERSEDED — DO NOT APPLY / DO NOT REPLAY THIS FILE.                     ║
--- ║  Replaced by 20260909010000_induction_peer_mentor_band_second_year_and_-  ║
--- ║  above.sql, which is what is live.                                        ║
--- ╚══════════════════════════════════════════════════════════════════════════╝
+-- 20260909010000_induction_peer_mentor_band_second_year_and_above.sql
+-- Senior Peer Mentor picker — every student past their first year is eligible.
 --
--- IT NEVER APPLIED. Verified against production 2026-08-21: pg_proc held zero
--- rows for public.fn_induction_peer_mentor_year, and the deployed
--- fn_induction_assignable_peer_mentors was still the 20260818100000 body with
--- the `ceil(sem.semester_order::numeric / 2)` band. It could not have applied as
--- written: it declares p_duration_yrs as `integer` and then calls the function
--- with programs.program_duration_yrs, which is numeric(3,1). numeric -> integer
--- is an assignment cast, not an implicit one, so the call did not resolve and
--- the file errored out. Its header claims production measurements; those were
--- taken, but the migration that was supposed to act on them never landed.
+-- THE REPORT. An admin filtered the picker to the "4 Year" semester and got back
+-- only students badged "Year 2", and three colleges show nobody at all.
 --
--- IT IS NOW ACTIVELY DANGEROUS, which it was not before. 20260909010000 created
--- fn_induction_peer_mentor_year with a `numeric` duration parameter — the type
--- this file was missing. So the resolution failure that used to make this file
--- abort harmlessly no longer happens. Replaying it today would SUCCEED, and in
--- succeeding would:
---   1. add a second, integer-duration overload of fn_induction_peer_mentor_year,
---      making the call site ambiguous; and
---   2. recreate BOTH picker functions with the old capped band
---      `BETWEEN 2 AND LEAST(3, duration)` — silently reverting the live rule
---      back to "2nd and 3rd year only" and re-emptying the picker for JKKN
---      Dental (500 eligible), Nursing (229) and Allied Health (240).
+-- WHAT IS ACTUALLY LIVE (read off production 2026-08-21, not off this repo).
+-- The deployed fn_induction_assignable_peer_mentors is the 20260818100000
+-- version. Its band is:
 --
--- A fresh `db reset` is safe: 20260909010000 sorts after this file and drops the
--- integer overload before recreating everything. The danger is an out-of-order
--- manual run of THIS file alone — in the SQL Editor, or by someone working
--- through the migration list by hand. Do not do that.
+--     AND sem.semester_order IS NOT NULL
+--     AND ceil(sem.semester_order::numeric / 2) BETWEEN 2 AND LEAST(3, duration)
 --
--- Everything below is kept verbatim as history. The reasoning about
--- semester_order being untrustworthy is correct and was carried into
--- 20260909010000; only the band and the parameter type changed.
+-- 20260901020000 — which was supposed to replace exactly this with admission-year
+-- arithmetic — WAS NEVER APPLIED. public.fn_induction_peer_mentor_year does not
+-- exist in the database (pg_proc has zero rows for that name). It could not have
+-- applied as written: it declares p_duration_yrs as `integer` and then calls
+-- itself with programs.program_duration_yrs, which is numeric(3,1). numeric ->
+-- integer is an assignment cast, not an implicit one, so the call does not
+-- resolve and the whole file errors out. That type mismatch is fixed here by
+-- declaring the parameter numeric, which is what the column actually is.
 --
--- ── original header follows ─────────────────────────────────────────────────
+-- TWO BUGS, ONE BAND. Both had to move for "everyone except first-years":
 --
--- 20260901020000_induction_peer_mentor_year_band_from_admission_year.sql
--- Senior Peer Mentor picker — the year band stops trusting semesters.semester_order.
+--   1. THE CAP AT 3 excluded 4th- and 5th-year students by rule.
 --
--- THE BUG, as reported: searching a real student in "Appoint a Senior Peer
--- Mentor" (JKKN College of Allied Health Sciences, "Manos24cct@jkkn.ac.in")
--- returned "No eligible student matches". The search WAS matching college_email
--- already (20260901010000 added that) — the row was being thrown away one
--- predicate later, by the year band:
+--   2. ceil(semester_order / 2) IS NOT A YEAR for half this database. On
+--      year-based programmes (Dental, Nursing, Allied Health, and the schools)
+--      the `semesters` rows are named "1 Year".."4 Year" and semester_order
+--      holds the YEAR, not the semester. Halving it turns a 4th-year into
+--      "Year 2" — precisely the mixture that was reported — and where
+--      semester_order is 1 for the whole college, ceil(1/2) = 1 and the picker
+--      is permanently empty. The `sem.semester_order IS NOT NULL` guard made a
+--      missing semester tag mean "ineligible" on top of that.
 --
---     ceil(sem.semester_order::numeric / 2) BETWEEN 2 AND LEAST(3, duration)
+-- Measured on production 2026-08-21, active learners with a login in their own
+-- college on a 2+ year programme. "band only" = lifting the cap to 3 alone;
+-- "this migration" = lifting the cap AND deriving the year from admission year:
 --
--- That formula assumes `semesters` rows are per-semester and ordered 1..N. Half
--- of them are not. Measured 2026-08-19 on production data: of 430 semester rows,
--- 184 carry semester_order = 1, and they are named "1 Year", "2 Year", "3 Year",
--- "4 Year", "TERM" — the year-based programmes (Dental, Nursing, Allied Health,
--- and every school). For those learners ceil(1/2) = 1 for EVERYBODY, so the band
--- 2..3 matched nobody and three colleges had a permanently empty picker:
+--     college                                    live   band only   this migration
+--     JKKN College of Allied Health Sciences        0           0              240
+--     JKKN College of Arts and Science (Aided)    308         308              320
+--     JKKN College of Arts and Science (Self)     736         736              780
+--     JKKN College of Engineering and Technology  595         775              786
+--     JKKN College of Nursing and Research          0           0              229
+--     JKKN College of Pharmacy                    304         401              559
+--     JKKN Dental College and Hospital              0           0              500
 --
---     college                              eligible before   eligible after
---     JKKN Dental College and Hospital                   0              234
---     JKKN College of Allied Health Sci.                 0              139
---     JKKN College of Nursing and Research               0              114
+-- Lifting the cap alone leaves three colleges at zero, so it does not deliver
+-- "every college, everyone except first-years". Both halves are required.
 --
--- The learner in the report is a case in point: BSC (CCT), 4-year programme,
--- admitted 2024-2025, sitting on the semester row named "2 Year" whose
--- semester_order is 1. Third year by every other page in this app; year 1, and
--- therefore invisible, to this one.
---
--- THE FIX. Derive the year the way the rest of the app already does — from the
--- admission year (fn_learner_year_of_study, which the billing year-of-study
--- cards and v_learner_hostelites use), capped by programme length. Only 5 active
--- learners in the whole database have no admission_year_id, so this is the
--- best-populated signal available; semester_order stays as the last fallback for
--- them. A student who reads as "3rd year" on a billing report can no longer read
--- as "1st year" here.
+-- THE YEAR. Derived the way the rest of the app already does it — from the
+-- admission year (mirroring fn_learner_year_of_study, which the billing
+-- year-of-study cards and v_learner_hostelites use), then batch start, then
+-- semester_order as a last resort for the handful of learners with neither. A
+-- student who reads "3rd year" on a billing report can no longer read "1st
+-- year" here. enquiry_date is deliberately NOT in the chain: migrated rows carry
+-- a sentinel enquiry_date that would label a whole cohort the same year.
 --
 -- INHERITED CAVEAT, on purpose. Like fn_learner_year_of_study, the year rolls on
 -- 1 January rather than at the June/July academic boundary, so between January
--- and the new academic year a learner reads one year ahead. Keeping the same
--- arithmetic keeps this picker in step with the billing and hostel views; fixing
--- it here alone would only create a second, disagreeing definition of "year".
+-- and the new academic year a learner reads one year ahead. Kept identical so
+-- this picker agrees with the billing and hostel views; a second, disagreeing
+-- definition of "year" would be worse than the skew.
 --
--- enquiry_date is deliberately NOT in the fallback chain even though
--- fn_learner_year_of_study uses it: migrated rows carry a sentinel enquiry_date,
--- which would silently label a whole cohort as the same year.
+-- NO UPPER BOUND ON THE BAND, for that reason. A cap at `duration` would look
+-- tidier but would silently empty the picker of final-years every January, when
+-- they compute as duration + 1. Learners who have genuinely finished are
+-- excluded by lifecycle_status <> 'active', the guard designed for it.
 --
--- WHAT ELSE MOVES. 211 learners LOSE eligibility, all of them 2020-2023
--- admissions whose semester tag lags a promotion — e.g. a 2023-admitted BPHARM
--- still tagged "Semester VI" reads as year 3 by semester maths but is in year 4
--- of a 4-year programme in 2026-27. Excluding them is the stated policy (2nd and
--- 3rd year only), not a regression.
+-- WHAT STILL EXCLUDES SOMEONE, unchanged: lifecycle_status <> 'active';
+-- enrolled as a fresher on THIS event; already an active mentor on this event;
+-- no login in this college; program_duration_yrs NULL or < 2 (that last one is
+-- now load-bearing — without an upper bound, a finished 1-year learner would
+-- otherwise read as year 2).
 --
--- The `semesters` JOIN also drops to LEFT: the semester tag is now display and
--- filter material, not the source of eligibility, so a learner with no semester
--- set is no longer silently unappointable.
---
--- STALE OVERLOAD, removed. 20260901010000 (dated ahead of 20260818100000, so it
--- applies last) re-created the OLD 2-argument fn_induction_assignable_peer_mentors
--- alongside the 8-argument filtered one. Verified on production 2026-08-19: both
--- signatures answer. PostgREST picks between overloads by argument names, so the
--- dialog reaches the 8-arg version today, but any caller sending only
--- {p_event_id, p_query} silently gets the unfiltered 25-row version instead.
--- This file is numbered to sort after 20260901010000 so it also wins on a fresh
--- `db reset`, and drops the 2-arg one for good.
---
--- ONE MORE THING THE SAME SEARCH SHOWED. The digits-only mobile fallback ran on
--- every query, so an email query was stripped to its digits and matched on those:
--- "Manos24cct@jkkn.ac.in" became "24" and pulled in every learner whose mobile
--- contains 24. It now fires only for a phone-shaped query (no letters, no '@',
--- 5+ digits), which is the case it was written for.
---
--- Nothing else changes: the auth gate, the fresher and already-a-mentor
--- exclusions, lifecycle_status = 'active', the must-have-a-login-in-this-college
--- JOIN, the cascading filters, the search predicate, the clamped limit and the
--- total_matches window are all carried over verbatim from 20260818100000.
+-- The auth gate, the search predicate, the cascading filters, the clamped limit,
+-- the total_matches window and both payload shapes are carried over verbatim
+-- from what is live.
 
-DROP FUNCTION IF EXISTS public.fn_induction_assignable_peer_mentors(uuid, text);
-
+-- The repo's unapplied 20260901020000 declares this with an integer duration. If
+-- that file is ever replayed it would add a second overload and make the call
+-- ambiguous, so any such overload is removed first.
+DROP FUNCTION IF EXISTS public.fn_induction_peer_mentor_year(integer, date, integer, integer);
 
 -- ── One definition of "which year is this learner in" ────────────────────────
--- Scalars in, year out: no lookups, so it can be dropped into a WHERE clause and
--- a SELECT list of a query that already joined these tables, and both callers
+-- Scalars in, year out: no lookups, so it drops into both a WHERE clause and a
+-- SELECT list of a query that already joined these tables, and the two callers
 -- below are guaranteed to agree. STABLE, not IMMUTABLE — it reads CURRENT_DATE.
--- Mirrors fn_learner_year_of_study's shape (cap at duration + 1 so a finished
--- learner is visibly past the end rather than pinned to the final year).
+-- p_duration_yrs is numeric because programs.program_duration_yrs is
+-- numeric(3,1); declaring it integer is what stopped 20260901020000 applying.
 CREATE OR REPLACE FUNCTION public.fn_induction_peer_mentor_year(
   p_admission_year integer,   -- admission_years.year
   p_batch_start    date,      -- batches.start_date
   p_semester_order integer,   -- semesters.semester_order  (last resort)
-  p_duration_yrs   integer    -- programs.program_duration_yrs
+  p_duration_yrs   numeric    -- programs.program_duration_yrs
 )
 RETURNS integer
 LANGUAGE sql
@@ -136,21 +103,21 @@ AS $function$
   SELECT CASE
     WHEN p_admission_year IS NOT NULL THEN
       GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - p_admission_year + 1,
-                        coalesce(p_duration_yrs, 99) + 1))
+                        floor(coalesce(p_duration_yrs, 99))::integer + 1))
     WHEN p_batch_start IS NOT NULL THEN
       GREATEST(1, LEAST(EXTRACT(year FROM CURRENT_DATE)::integer - EXTRACT(year FROM p_batch_start)::integer + 1,
-                        coalesce(p_duration_yrs, 99) + 1))
+                        floor(coalesce(p_duration_yrs, 99))::integer + 1))
     WHEN p_semester_order IS NOT NULL THEN
       ceil(p_semester_order::numeric / 2)::integer
     ELSE NULL::integer
   END;
 $function$;
 
-COMMENT ON FUNCTION public.fn_induction_peer_mentor_year(integer, date, integer, integer) IS
-  'Year of study for the Senior Peer Mentor picker: admission year first (semesters.semester_order is 1 for every learner on year-based programmes and cannot be trusted), batch start next, semester order last.';
+COMMENT ON FUNCTION public.fn_induction_peer_mentor_year(integer, date, integer, numeric) IS
+  'Year of study for the Senior Peer Mentor picker: admission year first (semesters.semester_order holds the YEAR on year-based programmes and is 1 for entire colleges, so it cannot be halved into a year), batch start next, semester order last.';
 
-REVOKE ALL   ON FUNCTION public.fn_induction_peer_mentor_year(integer, date, integer, integer) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_induction_peer_mentor_year(integer, date, integer, integer) TO authenticated;
+REVOKE ALL   ON FUNCTION public.fn_induction_peer_mentor_year(integer, date, integer, numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_induction_peer_mentor_year(integer, date, integer, numeric) TO authenticated;
 
 
 -- ── The picker ───────────────────────────────────────────────────────────────
@@ -198,12 +165,9 @@ BEGIN
 
   v_like   := '%' || btrim(coalesce(p_query, '')) || '%';
   v_digits := regexp_replace(coalesce(p_query, ''), '\D', '', 'g');
-  -- The digits-only branch exists so "98765 43210" / "+91-98765-43210" still find
-  -- a stored "9876543210". Applied to ANY query it does harm: typing the email
-  -- "Manos24cct@jkkn.ac.in" strips to "24", which matched every learner whose
-  -- mobile contains 24 — measured 2026-08-19, one search returned 9 rows of which
-  -- 8 were that noise. So it fires only for a phone-SHAPED query: no letters, no
-  -- '@', and enough digits to be a number rather than a fragment.
+  -- Fires only for a phone-SHAPED query: no letters, no '@', and enough digits to
+  -- be a number rather than a fragment. Applied to any query it strips an email
+  -- to its digits and matches on those.
   v_phone  := length(v_digits) >= 5 AND coalesce(p_query, '') !~ '[A-Za-z@]';
   -- Clamp: a caller asking for 100k rows gets 500. The UI pages by filtering.
   v_limit  := LEAST(GREATEST(coalesce(p_limit, 50), 1), 500);
@@ -219,16 +183,17 @@ BEGIN
            sec.section_name::text                                 AS sec_nm,
            public.fn_induction_peer_mentor_year(ay.year, bt.start_date,
                                                 sem.semester_order, prg.program_duration_yrs) AS yr,
+           prg.program_duration_yrs                               AS dur,
            lp.college_email::text                                 AS c_email,
            lp.student_email::text                                 AS s_email,
            lp.student_mobile::text                                AS s_mobile
     FROM public.learners_profiles lp
     -- must have a login in THIS college (so they can actually use the mentor page)
     JOIN public.profiles  p   ON p.learner_id = lp.id AND p.institution_id = v_inst
-    -- INNER: programme length is what the year band is measured against.
+    -- INNER: programme length is what the year is measured against.
     JOIN public.programs  prg ON prg.id = lp.program_id
-    -- LEFT, all four: display, filter and fallback material only. An INNER join
-    -- on `semesters` is what used to make a missing/odd semester tag mean
+    -- LEFT, all five: display, filter and fallback material only. An INNER join on
+    -- `semesters` is what made a missing or year-based semester tag mean
     -- "ineligible" — the failure this migration exists to stop.
     LEFT JOIN public.semesters       sem  ON sem.id  = lp.semester_id
     LEFT JOIN public.admission_years ay   ON ay.id   = lp.admission_year_id
@@ -242,13 +207,12 @@ BEGIN
       AND NOT EXISTS (  -- not already an active mentor on this event
             SELECT 1 FROM public.induction_feedback_volunteers v
             WHERE v.event_id = p_event_id AND v.learner_id = lp.id AND v.is_active)
-      -- Eligibility band: 2nd year up to the mentor year (3rd, or final year of a 2-yr PG).
+      -- Eligibility band: 2nd year and above. No upper bound — see the header.
       AND prg.program_duration_yrs IS NOT NULL
       AND prg.program_duration_yrs >= 2          -- programme must HAVE a senior year
       AND public.fn_induction_peer_mentor_year(ay.year, bt.start_date,
-                                               sem.semester_order, prg.program_duration_yrs)
-          BETWEEN 2 AND LEAST(3, prg.program_duration_yrs)
-      -- Cascading filters. NULL means "Any" and is ignored, so the six of them
+                                               sem.semester_order, prg.program_duration_yrs) >= 2
+      -- Cascading filters. NULL means "Any" and is ignored, so the five of them
       -- compose without needing a branch per combination.
       AND (p_degree_id     IS NULL OR lp.degree_id     = p_degree_id)
       AND (p_department_id IS NULL OR lp.department_id = p_department_id)
@@ -273,7 +237,14 @@ BEGIN
          b.c_email, b.s_email, b.s_mobile,
          count(*) OVER () AS total_matches
   FROM base b
-  ORDER BY b.yr DESC, b.nm    -- most senior first, then by name
+  -- Current students first, most senior of them at the top; learners whose year
+  -- has run past their programme length sink to the bottom. They are still
+  -- listed and still searchable — they are only DE-PRIORITISED, because they are
+  -- overwhelmingly a lifecycle-status lag (a finished learner still flagged
+  -- 'active'), and sorting them first put stale records at the top of the list:
+  -- 125 of 559 at Pharmacy, 58 of 229 at Nursing, measured 2026-08-21. Hiding
+  -- them outright is the wrong trade — see the header on the January year-roll.
+  ORDER BY (b.yr > b.dur) ASC, b.yr DESC, b.nm
   LIMIT v_limit;
 END $function$;
 
@@ -281,11 +252,14 @@ REVOKE ALL ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text, u
 REVOKE ALL ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text, uuid, uuid, uuid, uuid, uuid, integer) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text, uuid, uuid, uuid, uuid, uuid, integer) TO authenticated;
 
+COMMENT ON FUNCTION public.fn_induction_assignable_peer_mentors(uuid, text, uuid, uuid, uuid, uuid, uuid, integer) IS
+  'Senior Peer Mentor picker. Eligible = active learner of the event''s college, 2nd year or above (no upper bound), on a programme of 2+ years, with a login in that college, not a fresher on this event and not already a mentor on it.';
+
 
 -- ── Filter options for the picker's cascading dropdowns ──────────────────────
--- Same eligibility rules as the search above minus the filters, so a filter
--- value can never match zero people. Only the year band and the semesters JOIN
--- move; the payload shape is unchanged.
+-- Same eligibility rules as the search above minus the filters, so a filter value
+-- can never match zero people. The band has to move here too, or a final-year
+-- section would be reachable by typing a name but absent from the Section list.
 CREATE OR REPLACE FUNCTION public.fn_induction_peer_mentor_filter_options(p_event_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -321,8 +295,7 @@ BEGIN
       AND prg.program_duration_yrs IS NOT NULL
       AND prg.program_duration_yrs >= 2
       AND public.fn_induction_peer_mentor_year(ay.year, b.start_date,
-                                               sem.semester_order, prg.program_duration_yrs)
-          BETWEEN 2 AND LEAST(3, prg.program_duration_yrs)
+                                               sem.semester_order, prg.program_duration_yrs) >= 2
   )
   SELECT jsonb_build_object(
     'institution', (SELECT jsonb_build_object('id', i.id, 'name', i.name)
@@ -370,8 +343,7 @@ BEGIN
     AND prg.program_duration_yrs IS NOT NULL
     AND prg.program_duration_yrs >= 2
     AND public.fn_induction_peer_mentor_year(ay.year, b.start_date,
-                                             sem.semester_order, prg.program_duration_yrs)
-        BETWEEN 2 AND LEAST(3, prg.program_duration_yrs)
+                                             sem.semester_order, prg.program_duration_yrs) >= 2
     AND NOT EXISTS (SELECT 1 FROM public.profiles p
                     WHERE p.learner_id = lp.id AND p.institution_id = v_inst);
 
