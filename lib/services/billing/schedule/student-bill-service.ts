@@ -20,8 +20,77 @@ import type {
   BillForBulkEdit
 } from '@/lib/utils/mappings/student-bill-bulk-edit-mappings';
 
+/**
+ * One tranche of a bill's payment schedule, with the money already allocated
+ * to it by the waterfall.
+ *
+ * `allocated_amount` / `is_settled` are NOT stored on the tranche — they are
+ * derived per read from the bill's paid position, oldest tranche first. That
+ * is why a stale value can never be shown: there is no value to go stale.
+ */
+export interface BillInstalmentState {
+  instalment_id: string;
+  bill_id: string;
+  sequence_no: number;
+  amount: number;
+  due_date: string;
+  allocated_amount: number;
+  outstanding: number;
+  is_settled: boolean;
+  /** Its date has arrived — this is the part of the bill actually owed now. */
+  is_due: boolean;
+  promotes_to_status_code: string | null;
+}
+
 export class StudentBillService {
   private static supabase = createClientSupabaseClient();
+
+  /**
+   * Payment schedules for a set of bills, keyed by bill id.
+   *
+   * Batched on purpose: a learner's page renders every bill at once, and one
+   * request per bill would be N round trips to render a table. Bills with no
+   * schedule simply have no key — the caller shows them exactly as before.
+   *
+   * Reads vw_bill_instalment_state rather than the raw table so the allocation
+   * comes from the same waterfall the promotion engine and the fee-paid
+   * threshold use. Re-deriving "how much of this tranche is paid" in the client
+   * would be a third implementation of it, free to disagree with both.
+   */
+  static async getInstalmentsForBills(
+    billIds: string[],
+  ): Promise<Map<string, BillInstalmentState[]>> {
+    const byBill = new Map<string, BillInstalmentState[]>();
+    if (billIds.length === 0) return byBill;
+
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('vw_bill_instalment_state')
+      .select(
+        'instalment_id, bill_id, sequence_no, amount, due_date, allocated_amount, outstanding, is_settled, is_due, promotes_to_status_code',
+      )
+      .in('bill_id', billIds)
+      // The waterfall settles the oldest debt first, so the schedule must read
+      // in calendar order — a schedule authored out of sequence would otherwise
+      // display in an order that contradicts how its money was allocated.
+      .order('due_date', { ascending: true })
+      .order('sequence_no', { ascending: true });
+
+    // Supabase errors are plain objects, not Error instances — check, never
+    // try/catch. A failure here must not blank the bills table: the schedule is
+    // additional detail, and the bill rows are still correct without it.
+    if (error) {
+      console.warn('[billing] could not load bill instalments:', getErrorMessage(error));
+      return byBill;
+    }
+
+    for (const row of (data ?? []) as BillInstalmentState[]) {
+      const list = byBill.get(row.bill_id);
+      if (list) list.push(row);
+      else byBill.set(row.bill_id, [row]);
+    }
+    return byBill;
+  }
 
   static async createStudentBill(
     billData: CreateStudentBillDto

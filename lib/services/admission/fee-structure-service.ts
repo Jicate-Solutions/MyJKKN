@@ -17,6 +17,81 @@ export type FeeItemApplicability = {
   applies_year_of_study: number | null;
 };
 
+/**
+ * The schedule columns an item write carries (2026-08-21). Split out so the
+ * create path and upsertItems build byte-identical rows — the two used to
+ * duplicate their column lists, which is how a new column reaches one path and
+ * not the other.
+ */
+function scheduleColumnsFor(it: Partial<AdmissionFeeStructureItem>) {
+  const isSplit = it.schedule_mode === 'split';
+  return {
+    schedule_mode: it.schedule_mode ?? 'single',
+    due_anchor: it.due_anchor ?? 'generation_date',
+    // A split item's dates live on its lines; carrying an item-level date as
+    // well would leave two sources of truth for the same fee.
+    due_offset_days: isSplit ? null : it.due_offset_days ?? null,
+    due_date: isSplit ? null : it.due_date ?? null,
+    // Documented as ignored when split — persist NULL rather than dead config,
+    // so nothing can later read it back and fire a rule the author replaced
+    // with per-instalment targets.
+    promotes_to_status_code: isSplit ? null : it.promotes_to_status_code ?? null,
+  };
+}
+
+/**
+ * Replaces the schedule lines of the given items. Delete-then-insert per item,
+ * not a diff: sequence_no is UNIQUE per item and must stay contiguous from 1,
+ * so an in-place update would have to sequence its writes to dodge its own
+ * unique index. Items in `single` mode simply have their lines removed.
+ *
+ * The shape check (>= 2 lines, no sequence gaps, percentages totalling 100)
+ * lives in a DEFERRED constraint trigger, so it fires at commit on the whole
+ * inserted batch rather than rejecting line 1 of a 30/30/40 split for summing
+ * to 30.
+ */
+async function replaceItemSchedules(
+  supabase: ReturnType<typeof createClientSupabaseClient>,
+  itemIdByCategory: Map<string, string>,
+  items: Array<Partial<AdmissionFeeStructureItem> & { billing_category_id: string }>
+): Promise<void> {
+  const itemIds = items
+    .map((it) => itemIdByCategory.get(it.billing_category_id))
+    .filter((id): id is string => !!id);
+  if (itemIds.length === 0) return;
+
+  const { error: delError } = await supabase
+    .from('admission_fee_structure_item_schedules')
+    .delete()
+    .in('fee_structure_item_id', itemIds);
+  if (delError) throw delError;
+
+  const rows = items.flatMap((it) => {
+    if (it.schedule_mode !== 'split') return [];
+    const itemId = itemIdByCategory.get(it.billing_category_id);
+    if (!itemId) return [];
+    return (it.schedules ?? []).map((s, idx) => ({
+      fee_structure_item_id: itemId,
+      // Renumber on write: the UI can leave gaps mid-edit, and the database
+      // rejects them outright.
+      sequence_no: idx + 1,
+      share_percent: s.fixed_amount != null ? null : s.share_percent ?? null,
+      fixed_amount: s.fixed_amount ?? null,
+      due_offset_days: s.due_date ? null : s.due_offset_days ?? null,
+      due_date: s.due_date ?? null,
+      promotes_to_status_code: s.promotes_to_status_code ?? null,
+      label: s.label ?? null,
+    }));
+  });
+
+  if (rows.length === 0) return;
+
+  const { error: insError } = await supabase
+    .from('admission_fee_structure_item_schedules')
+    .insert(rows);
+  if (insError) throw insError;
+}
+
 /** Whether a fee item applies to a learner currently in `yearOfStudy`. */
 export function feeItemAppliesToYear(item: FeeItemApplicability, yearOfStudy: number): boolean {
   if (item.applies_to === 'every_year') return true;
@@ -229,7 +304,8 @@ export class FeeStructureService {
     const { data, error } = await supabase
       .from('admission_fee_structures')
       .select(
-        '*, items:admission_fee_structure_items(*),' +
+        '*, items:admission_fee_structure_items(*,' +
+        ' schedules:admission_fee_structure_item_schedules(*)),' +
         ' communities:admission_fee_structure_communities(community_category_id)',
       )
       .eq('id', id)
@@ -242,6 +318,15 @@ export class FeeStructureService {
       community_category_ids: (row.communities ?? []).map(
         (c: { community_category_id: string }) => c.community_category_id,
       ),
+      // PostgREST does not order an embedded resource for you, and the whole
+      // meaning of an instalment is its position — the engine orders by
+      // sequence_no and the bill renders "n/N" from it.
+      items: (row.items ?? []).map((it: any) => ({
+        ...it,
+        schedules: [...(it.schedules ?? [])].sort(
+          (a: any, b: any) => a.sequence_no - b.sequence_no,
+        ),
+      })),
     } as AdmissionFeeStructureWithItems;
   }
 
@@ -289,7 +374,7 @@ export class FeeStructureService {
         mess_category:mess_categories(id, name),
         communities:admission_fee_structure_communities(community_category_id, community_category:community_categories(id, name)),
         admission_year:admission_years(id, admission_year_name),
-        items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency))
+        items:admission_fee_structure_items(*, billing_category:billing_categories(id, category_name, frequency), schedules:admission_fee_structure_item_schedules(*))
       `)
       .eq('id', id)
       .maybeSingle();
@@ -337,11 +422,18 @@ export class FeeStructureService {
       items: joined.items.map((it) => {
         const withJoin = it as typeof it & {
           billing_category: { category_name: string; frequency: string } | null;
+          schedules?: Array<{ sequence_no: number }> | null;
         };
         return {
           ...it,
           category_name: withJoin.billing_category?.category_name ?? null,
           category_frequency: withJoin.billing_category?.frequency ?? null,
+          // PostgREST does not order an embedded resource, and an instalment's
+          // whole meaning is its position — unordered, the detail page would
+          // render "3 / 1 / 2" with the wrong amounts beside each share.
+          schedules: [...(withJoin.schedules ?? [])].sort(
+            (a, b) => a.sequence_no - b.sequence_no,
+          ),
         };
       }),
     };
@@ -475,12 +567,30 @@ export class FeeStructureService {
         applies_to: it.applies_to ?? 'every_year',
         applies_year_of_study:
           it.applies_to === 'specific_year' ? it.applies_year_of_study ?? null : null,
+        ...scheduleColumnsFor(it),
       }));
-      const { error: itemError } = await supabase.from('admission_fee_structure_items').insert(rows);
+      const { data: insertedItems, error: itemError } = await supabase
+        .from('admission_fee_structure_items')
+        .insert(rows)
+        .select('id, billing_category_id');
       if (itemError) {
         // Item failure also rolls back parent + junction (parent cascade).
         await supabase.from('admission_fee_structures').delete().eq('id', created.id);
         throw itemError;
+      }
+
+      try {
+        await replaceItemSchedules(
+          supabase,
+          new Map((insertedItems ?? []).map((r: any) => [r.billing_category_id, r.id])),
+          items as any
+        );
+      } catch (scheduleError) {
+        // Same rollback as an item failure: a structure whose items exist but
+        // whose schedules do not would generate bills on the wrong dates, which
+        // is worse than no structure at all.
+        await supabase.from('admission_fee_structures').delete().eq('id', created.id);
+        throw scheduleError;
       }
     }
 
@@ -598,11 +708,19 @@ export class FeeStructureService {
       applies_to: it.applies_to ?? 'every_year',
       applies_year_of_study:
         it.applies_to === 'specific_year' ? it.applies_year_of_study ?? null : null,
+      ...scheduleColumnsFor(it),
     }));
-    const { error } = await supabase
+    const { data: upserted, error } = await supabase
       .from('admission_fee_structure_items')
-      .upsert(rows, { onConflict: 'fee_structure_id,billing_category_id' });
+      .upsert(rows, { onConflict: 'fee_structure_id,billing_category_id' })
+      .select('id, billing_category_id');
     if (error) throw error;
+
+    await replaceItemSchedules(
+      supabase,
+      new Map((upserted ?? []).map((r: any) => [r.billing_category_id, r.id])),
+      items as any
+    );
   }
 
   static async removeItem(itemId: string): Promise<void> {
@@ -701,6 +819,10 @@ export class FeeStructureService {
       name: overrides?.name ?? `${source.name} (cloned)`,
       status: 'draft',
       notes: source.notes,
+      // Without this the clone silently falls back to the column default of 30,
+      // so a structure customised to (say) 45 days would bill its clone on a
+      // different schedule with nothing on screen to explain the difference.
+      default_due_offset_days: source.default_due_offset_days ?? 30,
       items: source.items.map(it => ({
         billing_category_id: it.billing_category_id,
         amount: it.amount,
@@ -708,6 +830,19 @@ export class FeeStructureService {
         sort_order: it.sort_order,
         applies_to: it.applies_to,
         applies_year_of_study: it.applies_year_of_study,
+        // Schedules ride along with the clone. Dropping them would leave a
+        // structure that looks identical in the list but silently bills on
+        // +30 days with no status rules — the worst kind of divergence,
+        // because nothing about the clone announces it.
+        schedule_mode: it.schedule_mode,
+        due_anchor: it.due_anchor,
+        due_offset_days: it.due_offset_days,
+        due_date: it.due_date,
+        promotes_to_status_code: it.promotes_to_status_code,
+        // Strip the identity columns: these are NEW lines under NEW items.
+        // Carrying `id` through would make the insert collide with the source's
+        // own rows, and fee_structure_item_id is assigned by replaceItemSchedules.
+        schedules: (it.schedules ?? []).map(({ id, fee_structure_item_id, ...line }) => line),
       })),
     });
   }

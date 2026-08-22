@@ -7933,6 +7933,96 @@ ALTER TABLE public.staff
   ADD CONSTRAINT staff_last_name_canonical
     CHECK (last_name IS NULL OR last_name = public.fn_canonical_staff_name(last_name));
 
+-- ============================================================================
+-- 2026-08-21 — Fee structure per-item due dates, splits and status rules
+-- Applied by: 20260821180000_fee_structure_item_schedules.sql
+--             20260821190000_fee_schedule_generation_engine.sql (promotes_to_status_code)
+-- ============================================================================
+-- Before this, a generated bill's due date was the literal `now() + 30 days`,
+-- hardcoded in BOTH generation paths, and the account -> reserved -> admitted
+-- ladder was one pooled percentage over the learner's whole bill book. Every
+-- default below reproduces the old behaviour exactly, so nothing changes until
+-- a schedule is configured.
+
+ALTER TABLE public.admission_fee_structures
+  ADD COLUMN IF NOT EXISTS default_due_offset_days integer NOT NULL DEFAULT 30
+    CONSTRAINT chk_afs_default_due_offset CHECK (default_due_offset_days >= 0);
+
+ALTER TABLE public.admission_fee_structure_items
+  ADD COLUMN IF NOT EXISTS schedule_mode   text NOT NULL DEFAULT 'single'
+    CONSTRAINT chk_afsi_schedule_mode CHECK (schedule_mode IN ('single','split')),
+  ADD COLUMN IF NOT EXISTS due_anchor      text NOT NULL DEFAULT 'generation_date'
+    CONSTRAINT chk_afsi_due_anchor
+    CHECK (due_anchor IN ('generation_date','academic_year_start','fixed_date')),
+  ADD COLUMN IF NOT EXISTS due_offset_days integer
+    CONSTRAINT chk_afsi_due_offset CHECK (due_offset_days >= 0),
+  ADD COLUMN IF NOT EXISTS due_date        date,
+  -- Status rule for an UNSPLIT item; ignored when schedule_mode = 'split'
+  -- (the schedule lines carry their own targets).
+  ADD COLUMN IF NOT EXISTS promotes_to_status_code text;
+
+ALTER TABLE public.admission_fee_structure_items
+  ADD CONSTRAINT chk_afsi_fixed_date_present
+  CHECK (due_anchor <> 'fixed_date' OR schedule_mode = 'split' OR due_date IS NOT NULL);
+
+-- Ordered instalments of ONE fee item. Mirrors billing_instalment_plan_lines
+-- column for column so both feed the same split engine.
+CREATE TABLE IF NOT EXISTS public.admission_fee_structure_item_schedules (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  fee_structure_item_id   uuid NOT NULL
+    REFERENCES public.admission_fee_structure_items(id) ON DELETE CASCADE,
+  sequence_no             integer NOT NULL CHECK (sequence_no >= 1),
+  share_percent           numeric(7,4) CHECK (share_percent > 0 AND share_percent <= 100),
+  fixed_amount            numeric(12,2) CHECK (fixed_amount > 0),
+  due_offset_days         integer CHECK (due_offset_days >= 0),
+  due_date                date,
+  -- admission_statuses.code (scope='learner'). Validated by
+  -- afsis_validate_status_target(), not an FK: admission_statuses has no
+  -- unique constraint on `code` to point at.
+  promotes_to_status_code text,
+  label                   text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_afsis_amount_exactly_one
+    CHECK ((share_percent IS NULL) <> (fixed_amount IS NULL)),
+  CONSTRAINT chk_afsis_due_exactly_one
+    CHECK ((due_offset_days IS NULL) <> (due_date IS NULL)),
+  CONSTRAINT uq_afsis_item_sequence UNIQUE (fee_structure_item_id, sequence_no)
+);
+
+CREATE INDEX IF NOT EXISTS ix_afsis_item
+  ON public.admission_fee_structure_item_schedules (fee_structure_item_id, sequence_no);
+
+-- Instalment identity on the bill. instalment_group_id is what lets
+-- billing_enforce_once_per_learner treat N instalments of ONE fee as one
+-- logical bill — without it, splitting Tuition / Application Fee / University
+-- Fee / Uniform Fee is impossible, since all four are once_per_learner.
+ALTER TABLE public.billing_student_bills
+  ADD COLUMN IF NOT EXISTS instalment_group_id   uuid,
+  ADD COLUMN IF NOT EXISTS instalment_no         smallint
+    CONSTRAINT chk_bsb_instalment_no CHECK (instalment_no IS NULL OR instalment_no >= 1),
+  ADD COLUMN IF NOT EXISTS instalment_count      smallint
+    CONSTRAINT chk_bsb_instalment_count CHECK (instalment_count IS NULL OR instalment_count >= 2),
+  ADD COLUMN IF NOT EXISTS fee_structure_item_id uuid
+    REFERENCES public.admission_fee_structure_items(id) ON DELETE SET NULL;
+
+ALTER TABLE public.billing_student_bills
+  ADD CONSTRAINT chk_bsb_instalment_triplet
+  CHECK (
+    (instalment_group_id IS NULL AND instalment_no IS NULL AND instalment_count IS NULL)
+    OR
+    (instalment_group_id IS NOT NULL AND instalment_no IS NOT NULL
+     AND instalment_count IS NOT NULL AND instalment_no <= instalment_count)
+  );
+
+CREATE INDEX IF NOT EXISTS ix_bsb_instalment_group
+  ON public.billing_student_bills (instalment_group_id, instalment_no)
+  WHERE instalment_group_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ix_bsb_fee_structure_item
+  ON public.billing_student_bills (student_id, fee_structure_item_id)
+  WHERE fee_structure_item_id IS NOT NULL;
+
 -- ===========================================================================
 -- HR Payroll — per-employee salary (2026-08-21)
 -- Source: 20260821191000_hr_staff_salaries.sql
@@ -8046,6 +8136,42 @@ CREATE TRIGGER trg_hr_staff_bank_accounts_updated_at
   BEFORE UPDATE ON public.hr_staff_bank_accounts
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+
+-- ============================================================================
+-- 2026-08-22 — One bill per fee, with an instalment schedule inside it
+-- Applied by: 20260822090000_billing_bill_instalments.sql
+-- ============================================================================
+-- SUPERSEDES the split-into-N-bills behaviour of 20260821190000. A fee split
+-- 30/40/30 is ONE debt collectable in three tranches, not three debts — the old
+-- model turned three fee items into five bills and made the cashier choose
+-- which instalment a payment was for, when 1,735 bills were already being paid
+-- partially.
+--
+-- Allocation of money to tranches is DERIVED, never stored: see
+-- billing_bill_instalment_state() and vw_bill_instalment_state.
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_instalments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bill_id     uuid NOT NULL
+    REFERENCES public.billing_student_bills(id) ON DELETE CASCADE,
+  sequence_no smallint NOT NULL CHECK (sequence_no >= 1),
+  amount      numeric(15,2) NOT NULL CHECK (amount > 0),
+  due_date    date NOT NULL,
+  -- Lifecycle status reaching this tranche promotes the learner to.
+  promotes_to_status_code text,
+  -- Provenance: which fee-structure schedule line produced this tranche.
+  -- ON DELETE SET NULL — deleting a structure line must never delete history.
+  fee_structure_item_schedule_id uuid
+    REFERENCES public.admission_fee_structure_item_schedules(id) ON DELETE SET NULL,
+  label      text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_bbi_bill_sequence UNIQUE (bill_id, sequence_no)
+);
+
+-- The waterfall orders by (due_date, sequence_no) — money settles the oldest
+-- debt first, so allocation follows the calendar and not the sequence number.
+CREATE INDEX IF NOT EXISTS ix_bbi_bill_due
+  ON public.billing_bill_instalments (bill_id, due_date, sequence_no);
 
 -- ===========================================================================
 -- hr_attendance_periods + hr_attendance_period_summaries (2026-08-22)

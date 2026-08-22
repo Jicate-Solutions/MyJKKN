@@ -2208,3 +2208,85 @@ COMMENT ON FUNCTION public.hr_trig_block_writes_in_locked_period() IS
   'Refuses any write to hr_attendance_records inside a locked attendance month. This is what makes the lock a control rather than a label.';
 COMMENT ON FUNCTION public.hr_trig_block_leave_in_locked_period() IS
   'Refuses leave / STO / comp-off writes overlapping a locked attendance month. Any overlap blocks, so a cross-month application cannot alter the closed half.';
+
+
+-- ===========================================================================
+-- Source: 20260821180000_fee_structure_item_schedules.sql
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_afsis_touch ON public.admission_fee_structure_item_schedules;
+
+CREATE TRIGGER trg_afsis_touch
+  BEFORE UPDATE ON public.admission_fee_structure_item_schedules
+  FOR EACH ROW EXECUTE FUNCTION public._touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_afsis_validate_status
+  ON public.admission_fee_structure_item_schedules;
+
+CREATE TRIGGER trg_afsis_validate_status
+  BEFORE INSERT OR UPDATE OF promotes_to_status_code
+  ON public.admission_fee_structure_item_schedules
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_status_target();
+
+DROP TRIGGER IF EXISTS trg_afsis_validate_shape
+  ON public.admission_fee_structure_item_schedules;
+
+CREATE CONSTRAINT TRIGGER trg_afsis_validate_shape
+  AFTER INSERT OR UPDATE OR DELETE
+  ON public.admission_fee_structure_item_schedules
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_schedule_shape();
+
+-- ===========================================================================
+-- Source: 20260821190000_fee_schedule_generation_engine.sql
+-- ===========================================================================
+-- Reuse phase 1's validator: it reads only NEW.promotes_to_status_code, so it
+-- is table-agnostic and needs no edit.
+DROP TRIGGER IF EXISTS trg_afsi_validate_status ON public.admission_fee_structure_items;
+
+CREATE TRIGGER trg_afsi_validate_status
+  BEFORE INSERT OR UPDATE OF promotes_to_status_code
+  ON public.admission_fee_structure_items
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_status_target();
+
+-- ===========================================================================
+-- Source: 20260822090000_billing_bill_instalments.sql
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_bbi_validate_status ON public.billing_bill_instalments;
+
+CREATE TRIGGER trg_bbi_validate_status
+  BEFORE INSERT OR UPDATE OF promotes_to_status_code
+  ON public.billing_bill_instalments
+  FOR EACH ROW EXECUTE FUNCTION public.afsis_validate_status_target();
+
+DROP TRIGGER IF EXISTS trg_bbi_validate_sum ON public.billing_bill_instalments;
+
+CREATE CONSTRAINT TRIGGER trg_bbi_validate_sum
+  AFTER INSERT OR UPDATE OR DELETE
+  ON public.billing_bill_instalments
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_validate_sum_equals_bill();
+
+DROP TRIGGER IF EXISTS trg_bbi_rescale_on_amount_change ON public.billing_student_bills;
+
+CREATE TRIGGER trg_bbi_rescale_on_amount_change
+  AFTER UPDATE OF final_amount ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_rescale_on_bill_amount_change();
+
+-- ===========================================================================
+-- Source: 20260822100000_single_bill_generation_and_due_date_sync.sql
+-- ===========================================================================
+DROP TRIGGER IF EXISTS trg_bbi_sync_due_date ON public.billing_bill_instalments;
+
+CREATE TRIGGER trg_bbi_sync_due_date
+  AFTER INSERT OR UPDATE OF amount, due_date, sequence_no OR DELETE
+  ON public.billing_bill_instalments
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_sync_due_date_from_instalment();
+
+-- Named to sort AFTER trg_evaluate_status_after_bill_paid, so the promotion
+-- engine still sees the bill exactly as the payment left it. Postgres fires row
+-- triggers in alphabetical order by name, and 'trg_z' is deliberate.
+DROP TRIGGER IF EXISTS trg_z_bbi_sync_due_date_after_payment ON public.billing_student_bills;
+
+CREATE TRIGGER trg_z_bbi_sync_due_date_after_payment
+  AFTER UPDATE OF balance_amount ON public.billing_student_bills
+  FOR EACH ROW EXECUTE FUNCTION public.bbi_sync_due_date_after_payment();

@@ -238,6 +238,10 @@
     {
       "schedule": "23 * * * *",
       "path": "/api/cron/lc-broadcast-autosend?secret=${CRON_SECRET}"
+    },
+    {
+      "schedule": "35 20 * * *",
+      "path": "/api/cron/billing/learner-status-sweep?secret=${CRON_SECRET}"
     }
   ]
 }

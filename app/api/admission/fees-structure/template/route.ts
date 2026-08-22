@@ -4,7 +4,11 @@ import { NextRequest, NextResponse, connection } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import ExcelJS from 'exceljs';
-import { FIXED_HEADERS } from '@/lib/utils/mappings/fee-structure-excel-mappings';
+import {
+  FIXED_HEADERS,
+  FEE_SCHEDULE_SHEET_NAME,
+  SCHEDULE_HEADERS,
+} from '@/lib/utils/mappings/fee-structure-excel-mappings';
 import { loadActiveFeeCategories } from '@/lib/services/admission/fee-structure-bulk-lookups';
 
 function serverClient(cookieStore: any) {
@@ -142,6 +146,20 @@ export async function GET(_req: NextRequest) {
     validate('Mess Category', [colRange('H', messNames.length)], true, messNames.length > 0);
     validate('Status', ['Lists!$D$2:$D$4'], true);
 
+    // ---- Sheet: Fee Schedules (empty, with headers) ----
+    // Shipped empty but PRESENT. An operator who has to know to create a tab by
+    // hand will not create it, and the feature would go unused; a visible tab
+    // with real column names is its own documentation.
+    const sched = wb.addWorksheet(FEE_SCHEDULE_SHEET_NAME);
+    sched.columns = SCHEDULE_HEADERS.map((h) => ({
+      header: h,
+      key: h,
+      width: Math.max(16, h.length + 4),
+    }));
+    sched.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sched.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
+    sched.views = [{ state: 'frozen', ySplit: 1 }];
+
     // ---- Sheet 3: Instructions ----
     const instr = wb.addWorksheet('Instructions');
     instr.columns = [{ width: 100 }];
@@ -163,9 +181,42 @@ export async function GET(_req: NextRequest) {
       '7. Status: draft (default), active, or archived. Dates: yyyy-mm-dd.',
       '8. Valid rows are saved even if others fail; the import dialog lists per-row errors to fix and re-upload.',
       '9. On UPDATE rows, the 6 dimensions are read-only identity — changing them rejects the row.',
+      '10. "Default Due (Days)": how many days after admission a fee falls due when it sets no',
+      '    date of its own. Blank = leave unchanged (30 on a new structure).',
+      '',
+      'SHEET "Fee Schedules" — INSTALMENTS, DUE DATES AND STATUS RULES',
+      '',
+      'S1. ONE ROW = ONE INSTALMENT. Rows are grouped by Fee Structure ID + Fee Category.',
+      'S2. "Fee Structure ID" is REQUIRED here — a schedule attaches to a structure that already',
+      '    exists. To schedule a NEW structure: import it first, Export for Edit, then fill this tab.',
+      'S3. "Instalment #" BLANK = the whole fee, paid in one go. Use it to give a single fee its own',
+      '    due date or status rule. Exactly one blank row per category.',
+      'S4. "Instalment #" 1,2,3... = a split. At least 2 rows, numbered from 1 with no gaps.',
+      '    Percentages must total exactly 100 (unless you use Fixed Amount instead).',
+      'S5. Each row: EITHER "Share %" OR "Fixed Amount" — never both. The LAST instalment absorbs',
+      '    any rounding, so the parts always add up to the fee exactly.',
+      'S6. Each row: EITHER "Due After (Days)" OR "Due Date" — never both. Mixing the two ACROSS',
+      '    rows is allowed: "+15 days" for the first, a hard calendar date for the rest.',
+      '    Keep instalments in chronological order — payments settle the earliest one first.',
+      'S7. "Promotes To": the lifecycle status the learner reaches when THAT instalment is settled',
+      '    (e.g. Reserved, Admitted). Blank = no rule. Statuses that grant a portal login can never',
+      '    be reached automatically and are rejected.',
+      'S8. A category with NO rows here keeps whatever schedule it already has — this tab only',
+      '    needs to carry what you are CHANGING. To remove a split, give the category one blank-#',
+      '    row with no dates: that is an explicit "one payment, no schedule".',
+      '',
+      'EXAMPLE — tuition collected 30/40/30 across three dates, promoting twice:',
+      '    <id>  1 Year Tuition Fee   1   30      +15    Reserved',
+      '    <id>  1 Year Tuition Fee   2   40      +90    Admitted',
+      '    <id>  1 Year Tuition Fee   3   30      +180',
     ].forEach((line, i) => {
       const row = instr.addRow([line]);
-      row.font = i === 0 ? { bold: true, size: 14 } : line.match(/^\d+\./) ? { bold: true, size: 11 } : { size: 10 };
+      row.font =
+        i === 0 || line.startsWith('SHEET "')
+          ? { bold: true, size: line.startsWith('SHEET "') ? 12 : 14 }
+          : line.match(/^(\d+\.|S\d+\.|EXAMPLE)/)
+            ? { bold: true, size: 11 }
+            : { size: 10 };
     });
 
     const buffer = await wb.xlsx.writeBuffer();

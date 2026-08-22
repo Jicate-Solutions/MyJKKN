@@ -9531,6 +9531,65 @@ CREATE POLICY hcoc_withdraw_own_pending ON public.hr_comp_off_credits
 COMMENT ON POLICY hcoc_withdraw_own_pending ON public.hr_comp_off_credits IS
   'The claimant may take back their own claim while it is still pending. USING pins the old status, WITH CHECK pins the new one, so this grants withdrawal and nothing else.';
 
+-- ============================================================================
+-- 2026-08-21 — admission_fee_structure_item_schedules
+-- Applied by: 20260821180000_fee_structure_item_schedules.sql
+-- ============================================================================
+-- NO new permission keys. The schedule is a child of a fee structure item, so
+-- it inherits admission_fees.read / admission_fees.manage through the same
+-- nested-EXISTS shape fee_structure_items_read/_write already use, one level
+-- deeper. Those keys are already granted to 7 roles, so this ships reachable
+-- rather than declaring a key no role holds.
+
+ALTER TABLE public.admission_fee_structure_item_schedules ENABLE ROW LEVEL SECURITY;
+
+-- Supabase default privileges hand anon (holder of the publishable key embedded
+-- in every bundle) ALL on a new table.
+REVOKE ALL ON TABLE public.admission_fee_structure_item_schedules FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON TABLE public.admission_fee_structure_item_schedules TO authenticated;
+GRANT ALL ON TABLE public.admission_fee_structure_item_schedules TO service_role;
+
+DROP POLICY IF EXISTS "fee_structure_item_schedules_read"
+  ON public.admission_fee_structure_item_schedules;
+CREATE POLICY "fee_structure_item_schedules_read"
+ON public.admission_fee_structure_item_schedules
+FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.admission_fee_structures fs ON fs.id = fsi.fee_structure_id
+     WHERE fsi.id = admission_fee_structure_item_schedules.fee_structure_item_id
+       AND (SELECT public.user_has_permission('admission_fees.read'))
+       AND public.role_has_institution_access(fs.institution_id)
+  )
+);
+
+DROP POLICY IF EXISTS "fee_structure_item_schedules_write"
+  ON public.admission_fee_structure_item_schedules;
+CREATE POLICY "fee_structure_item_schedules_write"
+ON public.admission_fee_structure_item_schedules
+FOR ALL USING (
+  EXISTS (
+    SELECT 1
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.admission_fee_structures fs ON fs.id = fsi.fee_structure_id
+     WHERE fsi.id = admission_fee_structure_item_schedules.fee_structure_item_id
+       AND (SELECT public.user_has_permission('admission_fees.manage'))
+       AND public.role_has_institution_access(fs.institution_id)
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.admission_fee_structures fs ON fs.id = fsi.fee_structure_id
+     WHERE fsi.id = admission_fee_structure_item_schedules.fee_structure_item_id
+       AND (SELECT public.user_has_permission('admission_fees.manage'))
+       AND public.role_has_institution_access(fs.institution_id)
+  )
+);
+
 -- ===========================================================================
 -- hr_staff_salaries (2026-08-21)
 -- Source: 20260821191000_hr_staff_salaries.sql
@@ -9605,6 +9664,56 @@ COMMENT ON COLUMN public.hr_staff_bank_accounts.account_holder_name IS
 COMMENT ON COLUMN public.hr_staff_bank_accounts.verified_at IS
   'Somebody checked this against a passbook or cancelled cheque. A wrong account number does not error -- it pays the wrong person.';
 
+
+-- ============================================================================
+-- 2026-08-22 — billing_bill_instalments
+-- Applied by: 20260822090000_billing_bill_instalments.sql
+-- ============================================================================
+-- The SELECT policy is a bare EXISTS against the parent, deliberately: bills
+-- carry SEVEN policies (admin permissions, two institution-scoped paths, two
+-- learner self-view linkages) and Postgres applies the parent's RLS inside this
+-- subquery. Restating any of it here would create a second copy free to drift.
+--
+-- Writes are NOT inherited that way — a learner can SELECT their own bill and
+-- must not be able to rewrite its schedule — so they gate on bill-edit rights.
+
+ALTER TABLE public.billing_bill_instalments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.billing_bill_instalments FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.billing_bill_instalments TO authenticated;
+GRANT ALL ON TABLE public.billing_bill_instalments TO service_role;
+
+DROP POLICY IF EXISTS "bill_instalments_select" ON public.billing_bill_instalments;
+CREATE POLICY "bill_instalments_select" ON public.billing_bill_instalments
+FOR SELECT USING (
+  EXISTS (SELECT 1 FROM public.billing_student_bills b
+           WHERE b.id = billing_bill_instalments.bill_id)
+);
+
+DROP POLICY IF EXISTS "bill_instalments_write" ON public.billing_bill_instalments;
+CREATE POLICY "bill_instalments_write" ON public.billing_bill_instalments
+FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.billing_student_bills b
+    WHERE b.id = billing_bill_instalments.bill_id
+      AND ((SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+        OR (public.role_has_institution_access(b.institution_id)
+            AND ((SELECT public.user_has_permission('billing.bills.edit'))
+              OR (SELECT public.user_has_permission('billing.schedule.update')))))
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.billing_student_bills b
+    WHERE b.id = billing_bill_instalments.bill_id
+      AND ((SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+        OR (public.role_has_institution_access(b.institution_id)
+            AND ((SELECT public.user_has_permission('billing.bills.create'))
+              OR (SELECT public.user_has_permission('billing.bills.edit'))
+              OR (SELECT public.user_has_permission('billing.schedule.create'))
+              OR (SELECT public.user_has_permission('billing.schedule.update')))))
+  )
+);
 
 -- ===========================================================================
 -- hr_attendance_periods + summaries (2026-08-22)
