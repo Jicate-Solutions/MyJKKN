@@ -1433,20 +1433,53 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     page_url TEXT,
     -- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping
     -- NULL page_url → 'unknown'; unrecognized path → 'other'
+    -- Updated: 2026-08-21 - Restored the 34-module CASE that migration
+    --   20260505000000_extend_bug_module_classifier.sql applied to production on
+    --   2026-05-05. Commit 2f399d271c ("fix: bos issue", 2026-05-25) merged a
+    --   pre-#719 copy of this file and silently reverted this CASE to its old
+    --   11-branch form. Production kept the 34-branch column; only this file
+    --   regressed. That is why check-bug-module-classifier.mjs has reported ~29
+    --   "missing" slugs ever since — 22 of them were phantom, an artifact of the
+    --   clobber rather than real classifier drift.
     module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN 'unknown'
         WHEN page_url ~ '/academic/' THEN 'academic'
+        WHEN page_url ~ '/admission/' THEN 'admission'                 -- before /admin/
+        WHEN page_url ~ '/admin/' THEN 'admin'
+        WHEN page_url ~ '/ai-query/' THEN 'ai-query'
+        WHEN page_url ~ '/application-hub/' THEN 'application-hub'     -- before /applications/
+        WHEN page_url ~ '/applications/' THEN 'applications'
+        WHEN page_url ~ '/audit-trail/' THEN 'audit-trail'             -- before /audit/
+        WHEN page_url ~ '/audit/' THEN 'audit'
+        WHEN page_url ~ '/accreditation/' THEN 'accreditation'
         WHEN page_url ~ '/billing/' THEN 'billing'
-        WHEN page_url ~ '/organizations?/' THEN 'organization'
+        WHEN page_url ~ '/bug-leaderboard/' THEN 'bug-leaderboard'
+        WHEN page_url ~ '/campus-living/' THEN 'campus-living'
+        WHEN page_url ~ '/dashboard/' THEN 'dashboard'
+        WHEN page_url ~ '/events/' THEN 'events'
+        WHEN page_url ~ '/faculty/' THEN 'faculty'
+        WHEN page_url ~ '/health/' THEN 'health'
+        WHEN page_url ~ '/hr/' THEN 'hr'
+        WHEN page_url ~ '/learners-council/' THEN 'learners-council'   -- before /learners/
         WHEN page_url ~ '/learners/' THEN 'learners'
-        WHEN page_url ~ '/staff/' THEN 'staff'
-        WHEN page_url ~ '/admission/' THEN 'admission'   -- must come before /admin/
-        WHEN page_url ~ '/admin/'     THEN 'admin'
-        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
-        WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/learn/' THEN 'learn'
         WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
+        WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
+        WHEN page_url ~ '/notifications/' THEN 'notifications'
+        WHEN page_url ~ '/okr/' THEN 'okr'
+        WHEN page_url ~ '/organizations?/' THEN 'organizations'
+        WHEN page_url ~ '/profile/' THEN 'profile'
+        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
+        WHEN page_url ~ '/service-requests/' THEN 'service-requests'
         WHEN page_url ~ '/settings/' THEN 'settings'
+        WHEN page_url ~ '/solutions/' THEN 'solutions'
+        WHEN page_url ~ '/staff/' THEN 'staff'
+        WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/system/' THEN 'system'
+        WHEN page_url ~ '/users/' THEN 'users'
+        WHEN page_url ~ '/vac/' THEN 'vac'
+        WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
         ELSE 'other'
       END
     ) STORED,
@@ -1457,30 +1490,44 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     sub_module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN NULL
-        WHEN page_url ~ '/academic/'
-          THEN substring(page_url FROM '/academic/([^/?#]+)')
-        WHEN page_url ~ '/billing/'
-          THEN substring(page_url FROM '/billing/([^/?#]+)')
-        WHEN page_url ~ '/organizations?/'
-          THEN substring(page_url FROM '/organizations?/([^/?#]+)')
-        WHEN page_url ~ '/learners/'
-          THEN substring(page_url FROM '/learners/([^/?#]+)')
-        WHEN page_url ~ '/staff/'
-          THEN substring(page_url FROM '/staff/([^/?#]+)')
-        WHEN page_url ~ '/admission/'
-          THEN substring(page_url FROM '/admission/([^/?#]+)')
-        WHEN page_url ~ '/admin/'
-          THEN substring(page_url FROM '/admin/([^/?#]+)')
-        WHEN page_url ~ '/resource-management/'
-          THEN substring(page_url FROM '/resource-management/([^/?#]+)')
-        WHEN page_url ~ '/startup-studio/'
-          THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
-        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
-          THEN substring(page_url FROM '/moments/([^/?#]+)')
-        WHEN page_url ~ '/settings/'
-          THEN substring(page_url FROM '/settings/([^/?#]+)')
-        WHEN page_url ~ '/service-requests/'
-          THEN substring(page_url FROM '/service-requests/([^/?#]+)')
+        -- IMPORTANT: ordering matches the module_name CASE above — longer
+        -- prefixes first so /admission/ wins over /admin/, etc.
+        WHEN page_url ~ '/academic/' THEN substring(page_url FROM '/academic/([^/?#]+)')
+        WHEN page_url ~ '/admission/' THEN substring(page_url FROM '/admission/([^/?#]+)')
+        WHEN page_url ~ '/admin/' THEN substring(page_url FROM '/admin/([^/?#]+)')
+        WHEN page_url ~ '/ai-query/' THEN substring(page_url FROM '/ai-query/([^/?#]+)')
+        WHEN page_url ~ '/application-hub/' THEN substring(page_url FROM '/application-hub/([^/?#]+)')
+        WHEN page_url ~ '/applications/' THEN substring(page_url FROM '/applications/([^/?#]+)')
+        WHEN page_url ~ '/audit-trail/' THEN substring(page_url FROM '/audit-trail/([^/?#]+)')
+        WHEN page_url ~ '/audit/' THEN substring(page_url FROM '/audit/([^/?#]+)')
+        WHEN page_url ~ '/accreditation/' THEN substring(page_url FROM '/accreditation/([^/?#]+)')
+        WHEN page_url ~ '/billing/' THEN substring(page_url FROM '/billing/([^/?#]+)')
+        WHEN page_url ~ '/bug-leaderboard/' THEN substring(page_url FROM '/bug-leaderboard/([^/?#]+)')
+        WHEN page_url ~ '/campus-living/' THEN substring(page_url FROM '/campus-living/([^/?#]+)')
+        WHEN page_url ~ '/dashboard/' THEN substring(page_url FROM '/dashboard/([^/?#]+)')
+        WHEN page_url ~ '/events/' THEN substring(page_url FROM '/events/([^/?#]+)')
+        WHEN page_url ~ '/faculty/' THEN substring(page_url FROM '/faculty/([^/?#]+)')
+        WHEN page_url ~ '/health/' THEN substring(page_url FROM '/health/([^/?#]+)')
+        WHEN page_url ~ '/hr/' THEN substring(page_url FROM '/hr/([^/?#]+)')
+        WHEN page_url ~ '/learners-council/' THEN substring(page_url FROM '/learners-council/([^/?#]+)')
+        WHEN page_url ~ '/learners/' THEN substring(page_url FROM '/learners/([^/?#]+)')
+        WHEN page_url ~ '/learn/' THEN substring(page_url FROM '/learn/([^/?#]+)')
+        WHEN page_url ~ '/moments/' THEN substring(page_url FROM '/moments/([^/?#]+)')  -- Added: 2026-06-12 Family Moments
+        WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
+        WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
+        WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
+        WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
+        WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
+        WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')
+        WHEN page_url ~ '/service-requests/' THEN substring(page_url FROM '/service-requests/([^/?#]+)')
+        WHEN page_url ~ '/settings/' THEN substring(page_url FROM '/settings/([^/?#]+)')
+        WHEN page_url ~ '/solutions/' THEN substring(page_url FROM '/solutions/([^/?#]+)')
+        WHEN page_url ~ '/staff/' THEN substring(page_url FROM '/staff/([^/?#]+)')
+        WHEN page_url ~ '/startup-studio/' THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/system/' THEN substring(page_url FROM '/system/([^/?#]+)')
+        WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
+        WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
+        WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,

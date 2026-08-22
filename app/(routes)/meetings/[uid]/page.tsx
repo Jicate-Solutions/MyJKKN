@@ -36,12 +36,14 @@ import { MeetingAgendaService } from '@/lib/services/meetings/meeting-agenda-ser
 import { MeetingActionItemService } from '@/lib/services/meetings/meeting-action-item-service';
 import {
   effectiveLocationMode,
+  switchBackState,
   switchRequestState,
   switchSourceMode,
 } from '@/lib/services/meetings/meeting-mode-switch';
 import { CancelBookingButton } from './_components/cancel-booking-button';
 import { RescheduleBookingButton } from './_components/reschedule-booking-button';
 import { SwitchToOnlineButton } from './_components/switch-to-online-button';
+import { SwitchBackButton } from './_components/switch-back-button';
 import { ModeSwitchRequestButtons } from './_components/mode-switch-request-buttons';
 import { MarkOutcomeButtons } from './_components/mark-outcome-buttons';
 import { AgendaSection } from './_components/agenda-section';
@@ -161,23 +163,37 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
     user.id === booking.host_profile_id &&
     new Date(booking.start_time).getTime() < Date.now();
 
-  // Mode switch (2026-08-19). Two independent questions:
-  //   • canSwitchToOnline — may the host turn this face-to-face booking into a
-  //     Google Meet? Only 'in_person' qualifies; switchSourceMode deliberately
-  //     rejects phone and anything unrecognised rather than waving it through.
+  // Mode switch (2026-08-19, widened 2026-08-21). Three independent questions:
+  //   • canSwitchToOnline — may the host turn this booking into a Google Meet?
+  //     Since ruling 1 that is in-person AND phone bookings; switchSourceMode
+  //     still rejects anything unrecognised rather than waving it through.
+  //   • canSwitchBack — may the host turn a video meeting back? Ruling 2 makes
+  //     this HOST ONLY, so unlike canSwitchToOnline it carries an explicit host
+  //     check here as well (same pattern as canMark below). A booking that is
+  //     online because its TYPE is online reads as 'online_by_type' and offers
+  //     nothing, because clearing the override could not change it.
   //   • hasPendingSwitchRequest — is a visitor's request still live? A request
   //     whose notice window has closed reads as 'expired' and is treated as
   //     declined (decision B), so it must not offer the host an Approve button
   //     the service would then refuse.
-  // Both are re-checked server-side inside the actions; these only decide what
-  // is worth rendering.
+  // All three are re-checked server-side inside the actions; these only decide
+  // what is worth rendering.
   const isOnline =
     effectiveLocationMode(meetingType?.location_mode, booking.location_mode_override) ===
     'online';
   const canSwitchToOnline =
     !isCancelled &&
     !isPast &&
-    switchSourceMode(meetingType?.location_mode, booking.location_mode_override) === 'in_person';
+    switchSourceMode(meetingType?.location_mode, booking.location_mode_override) === 'switchable';
+  const canSwitchBack =
+    !isCancelled &&
+    !isPast &&
+    !!user &&
+    user.id === booking.host_profile_id &&
+    switchBackState(meetingType?.location_mode, booking.location_mode_override) === 'switchable';
+  // Where it lands once the override is cleared — the meeting type's own mode.
+  const switchBackTo =
+    effectiveLocationMode(meetingType?.location_mode, null) === 'phone' ? 'phone' : 'in_person';
   const hasPendingSwitchRequest =
     !isCancelled &&
     !isPast &&
@@ -439,7 +455,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
             2026-08-21). Each control decides for itself —
               • Reschedule asks for a reason when the meeting has ended.
               • Switch-to-online stays hidden via canSwitchToOnline, which
-                already excludes phone, already-online, cancelled and past.
+                already excludes already-online, cancelled and past.
+              • Switch-back stays hidden via canSwitchBack, which additionally
+                requires the viewer to BE the host (ruling 2, 2026-08-21).
               • Cancel is pointless once the meeting is over, so it keeps the
                 original rule and hides. */}
         <Card>
@@ -449,6 +467,9 @@ export default async function MeetingDetailPage({ params }: DetailPageProps) {
           <CardContent className="space-y-3">
             <RescheduleBookingButton uid={booking.uid} hasEnded={isPast || isCancelled} />
             {canSwitchToOnline ? <SwitchToOnlineButton uid={booking.uid} /> : null}
+            {canSwitchBack ? (
+              <SwitchBackButton uid={booking.uid} backTo={switchBackTo} />
+            ) : null}
             {!isCancelled && !isPast ? <CancelBookingButton uid={booking.uid} /> : null}
           </CardContent>
         </Card>

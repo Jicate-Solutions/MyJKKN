@@ -72,6 +72,18 @@ export interface SwitchedToOnlineEmailParams
   switchedBy: 'attendee' | 'host';
 }
 
+/**
+ * A video meeting went BACK to being face-to-face or a phone call (host-only
+ * switch-back, 2026-08-21). `locationMode` is where it lands — never 'online',
+ * which is the state being undone. Only a host can cause this, so there is no
+ * `switchedBy`: the copy always names the host.
+ */
+export interface SwitchedBackEmailParams
+  extends Omit<BookingEmailParams, 'cancelUrl' | 'rescheduleUrl' | 'locationMode' | 'videoUrl'> {
+  locationMode: 'in_person' | 'phone';
+  videoUrl?: null;
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -545,6 +557,82 @@ export class MeetingBookingEmailService {
         `Now online – ${params.attendeeName} (${params.meetingTitle})`,
         emailShell('#2563eb', '&#128187;&nbsp; A booking with you moved online', hostBody),
         `meeting-online-host-${params.uid}-${switchKey}`
+      )
+    );
+  }
+
+  /**
+   * The meeting is NOT online any more: the host turned it back into a
+   * face-to-face meeting or a phone call (2026-08-21).
+   *
+   * The mirror of sendBookingSwitchedToOnlineEmails, and one email for the same
+   * reason: the Google revert runs with sendUpdates=all, so the attendee's
+   * existing calendar entry has already lost the join link and been corrected
+   * in place. No cancellation, no re-invite.
+   *
+   * The time never changes on a switch back, so there is no "Was" row and no
+   * previousStartTime to carry.
+   */
+  static async sendBookingSwitchedBackEmails(
+    params: SwitchedBackEmailParams
+  ): Promise<MeetingEmailPair> {
+    const when = fmtWhen(params.startTime, params.timezone);
+    const hostName = esc(params.hostName || 'the host');
+    const attendeeName = esc(params.attendeeName || 'the attendee');
+    const title = esc(params.meetingTitle);
+    const onPhone = params.locationMode === 'phone';
+    // Plain English, and it must match what the Where row below actually says.
+    const backTo = onPhone ? 'a phone call' : 'an in-person meeting';
+
+    const card = detailsCard([
+      { label: 'Meeting', value: title },
+      { label: 'When', value: `<strong>${when}</strong>` },
+      { label: 'Duration', value: `${params.durationMin} minutes` },
+      locationRow({ locationMode: params.locationMode, locationText: params.locationText }),
+      { label: 'Changed by', value: hostName },
+      { label: 'Reference', value: params.uid },
+    ]);
+
+    const attendeeBody = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${attendeeName},
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        Your meeting with <strong>${hostName}</strong> is no longer a video call.
+        It is now <strong>${backTo}</strong>, at the same time as before.
+        ${onPhone ? 'The host will call you.' : 'Please come in person.'}
+      </p>
+      ${card}
+      <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.65;">
+        Your calendar entry has been updated in place, so the join link has been
+        removed from the event you already have. The cancel and reschedule links
+        from your confirmation email keep working.
+      </p>`;
+
+    const hostBody = `
+      <p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.65;">
+        Hi ${hostName},
+      </p>
+      <p style="margin:0 0 28px;color:#374151;font-size:15px;line-height:1.65;">
+        The meeting with <strong>${attendeeName}</strong> is back to being
+        <strong>${backTo}</strong>. The Google Meet link has been removed from
+        the calendar event.
+      </p>
+      ${card}`;
+
+    const backKey = params.startTime.replace(/[^0-9]/g, '').slice(0, 12);
+    return sendPair(
+      send(
+        params.attendeeEmail,
+        `No longer online – ${params.meetingTitle}`,
+        emailShell('#0f766e', '&#128205;&nbsp; Your meeting is not a video call any more', attendeeBody),
+        `meeting-offline-attendee-${params.uid}-${backKey}`
+      ),
+      send(
+        params.hostEmail,
+        `No longer online – ${params.attendeeName} (${params.meetingTitle})`,
+        emailShell('#0f766e', '&#128205;&nbsp; A booking with you is back off video', hostBody),
+        `meeting-offline-host-${params.uid}-${backKey}`
       )
     );
   }

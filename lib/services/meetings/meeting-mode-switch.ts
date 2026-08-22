@@ -14,6 +14,14 @@
 //   C. The notice check runs TWICE — when the request is made and again when
 //      it is approved. A request made Monday and approved Thursday must not
 //      move a Tuesday meeting.
+//
+// Director's decisions of 2026-08-21, added here:
+//   1. A PHONE booking switches to a video call exactly as a face-to-face one
+//      does. Phone was excluded on 2026-08-19 as "never decided"; it is now
+//      decided, and it is the bigger population (95 live phone types with 95
+//      hosts, against 141 in-person types with 110 hosts).
+//   2. Switching BACK is HOST ONLY. A visitor may ask to go online; only the
+//      person who owns the room and the calendar may undo it.
 
 /** Where a meeting happens. Mirrors meeting_types.location_mode. */
 export type LocationMode = 'in_person' | 'phone' | 'online';
@@ -93,27 +101,55 @@ export function switchRequestState(
 /**
  * Can this booking's CURRENT mode be switched to online, and if not, why?
  *
- * The approved scope is in_person -> online, one direction only. Enforcing that
- * needs a stricter reading than effectiveLocationMode gives: that function
- * deliberately coerces anything it does not recognise to 'in_person' so a live
- * booking never renders as an unknown mode. That is the right default for
- * DISPLAY and the wrong one for a GATE — it would wave through a mode nobody
- * has decided about.
+ * Answering this needs a stricter reading than effectiveLocationMode gives:
+ * that function deliberately coerces anything it does not recognise to
+ * 'in_person' so a live booking never renders as an unknown mode. That is the
+ * right default for DISPLAY and the wrong one for a GATE — it would wave
+ * through a mode nobody has decided about.
  *
- * The type's raw mode must therefore be exactly 'in_person' here. A phone
- * booking (95 of the 236 live meeting types) and any future or misspelled mode
- * both land on 'unsupported' instead of being switched.
+ * The type's raw mode must therefore be one this feature has actually been
+ * decided for. Since the Director's ruling of 2026-08-21 that is BOTH
+ * 'in_person' and 'phone' — a phone call becomes a video call the same way a
+ * face-to-face meeting does, and phone is the larger population (95 live phone
+ * types against 141 in-person). Anything else still lands on 'unsupported'
+ * rather than being switched.
  *
  *   'online'      — already online, via the type or the booking override.
- *   'in_person'   — the one switchable source.
- *   'unsupported' — phone, or a mode this feature has never been scoped for.
+ *   'switchable'  — in person or on the phone; a Meet link can be added.
+ *   'unsupported' — a mode this feature has never been scoped for.
  */
 export function switchSourceMode(
   typeMode: LocationMode | string | null | undefined,
   override: string | null | undefined,
-): 'online' | 'in_person' | 'unsupported' {
+): 'online' | 'switchable' | 'unsupported' {
   if (effectiveLocationMode(typeMode, override) === 'online') return 'online';
-  return typeMode === 'in_person' ? 'in_person' : 'unsupported';
+  return typeMode === 'in_person' || typeMode === 'phone' ? 'switchable' : 'unsupported';
+}
+
+/**
+ * Can this booking be turned BACK into a face-to-face or phone meeting?
+ *
+ * Turning it back means CLEARING location_mode_override, because the column's
+ * CHECK constraint admits only 'online' or NULL
+ * (20260909100000_meeting_booking_mode_switch.sql:49). That single fact decides
+ * every answer here:
+ *
+ *   'switchable'     — the override is what made this booking online, so
+ *                      clearing it returns the booking to its type's own mode.
+ *   'online_by_type' — the MEETING TYPE is online, for everyone who books it.
+ *                      Clearing the override would change nothing, and the
+ *                      column cannot say "in person" for one booking. Refused
+ *                      with its own answer rather than a misleading failure:
+ *                      the fix is to change the type, not this booking.
+ *   'not_online'     — it is not a video call, so there is nothing to undo.
+ */
+export function switchBackState(
+  typeMode: LocationMode | string | null | undefined,
+  override: string | null | undefined,
+): 'switchable' | 'online_by_type' | 'not_online' {
+  if (typeMode === 'online') return 'online_by_type';
+  if (override === 'online') return 'switchable';
+  return 'not_online';
 }
 
 /** The columns that clear a request, whatever its outcome. */
