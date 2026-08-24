@@ -296,7 +296,7 @@ export interface HRLeaveApplication {
   employee_id: string;
   leave_type_id: string;
   /**
-   * The HR year (Apr 1 -> Mar 31), not academic_years. Nullable in the schema
+   * The HR year (Jun 1 -> May 31), not academic_years. Nullable in the schema
    * but effectively always set: trg_hla_aa_default_hr_ay resolves it from
    * start_date on insert when the client omits it.
    */
