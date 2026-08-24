@@ -110,7 +110,7 @@ merged, or apply the migration to staging and test there.
 
 ### A. Admin — build a form
 
-1. Sign in as `test.superadmin@jkkn.ac.in` (password `Test@1234`) at
+1. Sign in as `test.superadmin@jkkn.ac.in` (password: the seeded test-account password (set `PERSONA_PASSWORD`, or ask the team password manager)) at
    `/auth/test-login`.
 2. Go to `/meetings/routing-forms` → click **New routing form**.
 3. Title: `Talk to us`. Slug auto-fills `talk-to-us`. Click **Create** → lands on

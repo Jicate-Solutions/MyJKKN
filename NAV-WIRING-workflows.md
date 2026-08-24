@@ -117,7 +117,7 @@ Template placeholders: `{{attendee_name}}`, `{{start_time}}`, `{{host_name}}`,
 Local dev MUST run from a `jicate/main` worktree (per CLAUDE.md), not omm-dev.
 
 **A. Builder UI (no provider needed):**
-1. Sign in as `test.superadmin@jkkn.ac.in` (`/auth/test-login`, `Test@1234`).
+1. Sign in as `test.superadmin@jkkn.ac.in` (`/auth/test-login`; password: the seeded test-account password (set `PERSONA_PASSWORD`, or ask the team password manager)).
 2. Go to `/meetings/workflows` → "New workflow" → name "Day-before reminder",
    trigger "Before the meeting" → Create.
 3. In the builder, set offset to `1440` (1 day), add an Email action with

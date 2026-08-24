@@ -12,7 +12,7 @@ Since Google OAuth redirects to jkkn.ai, you can create a test user with email/p
 4. Click: **Add User** → **Create new user**
 5. Fill in:
    - **Email**: `test-payment@jkkn.ac.in`
-   - **Password**: `Test@123456`
+   - **Password**: `<choose a strong password; do not commit it>`
    - **Auto Confirm User**: ✅ Check this
 6. Click: **Create user**
 
@@ -59,7 +59,7 @@ If you already have a user with email/password login:
 1. **Access**: `http://localhost:3000`
 2. **Login with**:
    - Email: `test-payment@jkkn.ac.in`
-   - Password: `Test@123456`
+   - Password: `<the password you set above>`
 3. **Navigate to**: Billing → Students
 4. **Test payment flow**
 

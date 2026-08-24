@@ -100,7 +100,7 @@ REVOKE/GRANT). Also add the filename to `supabase/SQL_FILE_INDEX.md`.
 
 ## 4. Manual test steps
 
-Prereq: log in (e.g. `test.superadmin@jkkn.ac.in` / `Test@1234` at
+Prereq: log in (e.g. `test.superadmin@jkkn.ac.in` / the seeded test-account password (set `PERSONA_PASSWORD`, or ask the team password manager) at
 `/auth/test-login`) and ensure the migration has been applied.
 
 1. Navigate to `/meetings/analytics`.

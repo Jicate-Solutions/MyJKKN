@@ -47,7 +47,7 @@ the prod `.env.local` file.
 npx tsx scripts/create-test-accounts.ts
 ```
 
-Creates `test.<role>@jkkn.ac.in` (21 roles), all with password `Test@1234`, in the staging
+Creates `test.<role>@jkkn.ac.in` (21 roles), all with the seeded test password (`PERSONA_PASSWORD`), in the staging
 project from Step 1.
 
 > The script's own help text suggests `source .env.local` — **ignore it**, that points at
@@ -110,7 +110,7 @@ A dedicated `unit-lead` test account should therefore hold `learners_council.vie
 
 ### Reference (the moving parts)
 - Seeding: `scripts/create-test-accounts.ts` — needs `NEXT_PUBLIC_SUPABASE_URL` +
-  `SUPABASE_SERVICE_ROLE_KEY`; 21 accounts; password `Test@1234`.
+  `SUPABASE_SERVICE_ROLE_KEY`; 21 accounts; password from `PERSONA_PASSWORD`.
 - Login page: `app/auth/test-login/page.tsx` — blocked when `NODE_ENV === 'production'`.
 - Setup: `e2e/auth.setup.ts` — reads `GUIDE_E2E_BASE` (default `:3104`), `GUIDE_E2E_AUTH_DIR`
   (default `.auth`); no-op unless `GUIDE_E2E_AUTHED=1`.
