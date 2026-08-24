@@ -30,6 +30,7 @@ import {
   Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle,
 } from '@/components/ui/sheet';
 import { StatusBadge } from './request-table';
+import { LeaveDocumentList } from './leave-document-list';
 import { formatDays, formatHours } from './format';
 import { hoursFor } from './approval-queue-columns';
 import type { ApprovalRowActionHandlers } from './approval-row-actions';
@@ -159,6 +160,19 @@ export function ApprovalDetailSheet({
                 <p className="mb-1 text-xs text-muted-foreground">Reason</p>
                 <p className="whitespace-pre-wrap text-sm">{row.reason || '—'}</p>
               </div>
+
+              {/* Straight after the reason: the certificate is the evidence FOR
+                  the reason, and an approver reads the two together. Waits on
+                  the REST fetch — the queue RPC does not return documents. */}
+              {isLoading ? (
+                <Skeleton className="h-12 w-full" />
+              ) : (
+                <LeaveDocumentList
+                  documents={app?.documents}
+                  outstanding={!!app && (app.documents?.length ?? 0) === 0 && !!app.is_emergency}
+                  hideWhenEmpty
+                />
+              )}
 
               <Separator />
 

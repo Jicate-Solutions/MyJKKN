@@ -9,6 +9,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import type {
   HRLeaveApplication,
   HRLeaveApplicationInsert,
@@ -269,6 +270,30 @@ export class LeaveService {
     if (leaveType.max_continuous_days && durationDays > leaveType.max_continuous_days) {
       throw new Error(
         `This leave type allows max ${leaveType.max_continuous_days} continuous days. Requested ${durationDays}.`
+      );
+    }
+
+    // 4b. Supporting document (decision: On-Duty and Half Pay Leave carry
+    // requires_documents). THE authority — the drawer runs the same predicate
+    // to decide whether to show the field, but this call is reachable directly
+    // and a client check alone would gate nothing.
+    //
+    // The 0.5/0.125 duration factors are deliberately NOT applied here: the
+    // threshold in document_required_after_days is about how long somebody is
+    // away, and a five-day half-day request is five days away from their desk.
+    // The balance checks below use the factored figure because that is about
+    // how much entitlement is consumed — a different question.
+    const documentRule = leaveDocumentRequirement(
+      {
+        requires_documents: leaveType.requires_documents ?? false,
+        document_required_after_days: leaveType.document_required_after_days ?? null,
+      },
+      durationDays,
+      payload.is_emergency ?? false,
+    );
+    if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
+      throw new Error(
+        `${leaveType.leave_type_name} requires a supporting document. Attach one and submit again.`
       );
     }
 
@@ -713,6 +738,8 @@ export class LeaveService {
       max_continuous_days: (row.max_continuous_days ?? null) as number | null,
       min_advance_notice_days: Number(row.min_advance_notice_days ?? 0),
       requires_documents: (row.requires_documents ?? false) as boolean,
+      document_required_after_days:
+        (row.document_required_after_days ?? null) as number | null,
       entitlement_source:
         (row.entitlement_source ?? 'policy') as HRLeaveBalanceWithType['entitlement_source'],
     }));

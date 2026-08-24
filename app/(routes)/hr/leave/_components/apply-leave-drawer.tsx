@@ -12,7 +12,7 @@
  * of the 11 organizations maintains its own catalog.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AlertCircle, CalendarPlus } from 'lucide-react';
 
 import {
@@ -34,8 +34,10 @@ import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
+import { LeaveDocumentUpload } from './leave-document-upload';
+import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
-import type { HRLeaveApplicationWithType, LeaveDurationType } from '@/types/hr';
+import type { HRLeaveApplicationWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
   { value: 'full', label: 'Full day', days: 1 },
@@ -75,6 +77,18 @@ export function ApplyLeaveDrawer({
   const [reason, setReason] = useState('');
   const [isEmergency, setIsEmergency] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Picked but NOT uploaded — see LeaveDocumentUpload for why the upload
+  // waits for Submit.
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  /**
+   * Drive results keyed by the File object itself, so a Submit that uploads
+   * fine and then fails at /applications re-uses the file it already put in
+   * Drive instead of duplicating it on the retry. A WeakMap because the key
+   * IS the File — once the user removes it, the entry goes with it.
+   */
+  const uploadedRef = useRef<WeakMap<File, LeaveDocument>>(new WeakMap());
 
   const options = ctx.balancesFor('leave');
   const selected = options.find((b) => b.leave_type_id === leaveTypeId);
@@ -152,19 +166,84 @@ export function ApplyLeaveDrawer({
     }) ?? null;
   }, [mine, startDate, endDate]);
 
+  // Does THIS request need a certificate? Shared with the server so the drawer
+  // and LeaveService.createApplication cannot disagree about the answer.
+  const docRule = leaveDocumentRequirement(
+    selected
+      ? {
+          requires_documents: selected.requires_documents,
+          document_required_after_days: selected.document_required_after_days,
+        }
+      : null,
+    requestedDays,
+    isEmergency,
+  );
+
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
     setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
+    setDocumentFiles([]); setUploadError(null); setUploading(false);
+    uploadedRef.current = new WeakMap();
   };
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous &&
     !overPeriod && !periodWindowBroken && !clash &&
-    requestedDays > 0 && !mutation.isPending;
+    requestedDays > 0 && !mutation.isPending && !uploading &&
+    // A type that demands a certificate must not be submittable without one.
+    // The server enforces the same rule; this only spares the round trip.
+    (!docRule.required || documentFiles.length > 0);
+
+  /**
+   * Upload every picked file, skipping any this Submit already uploaded.
+   * Sequential, not Promise.all: three 5 MB files racing on a phone connection
+   * is how you get a timeout, and the count is capped at three anyway.
+   */
+  const uploadDocuments = async (): Promise<LeaveDocument[]> => {
+    const out: LeaveDocument[] = [];
+    for (const file of documentFiles) {
+      const cached = uploadedRef.current.get(file);
+      if (cached) { out.push(cached); continue; }
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('employee_id', ctx.employeeId);
+      fd.append('leave_type_id', leaveTypeId);
+      fd.append('start_date', startDate);
+
+      const res = await fetch('/api/hr/leave/documents/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Could not upload "${file.name}".`);
+      }
+      const doc = (await res.json()) as LeaveDocument;
+      uploadedRef.current.set(file, doc);
+      out.push(doc);
+    }
+    return out;
+  };
 
   const submit = async () => {
     setError(null);
+    setUploadError(null);
+
+    // Files go to Drive BEFORE the application row exists. The worst case is an
+    // orphaned Drive file; the alternative — create the row, then attach — can
+    // leave a required document missing on exactly the requests that need one.
+    let documents: LeaveDocument[] = [];
+    if (documentFiles.length > 0) {
+      setUploading(true);
+      try {
+        documents = await uploadDocuments();
+      } catch (err) {
+        setUploadError(getErrorMessage(err));
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
     try {
       await mutation.mutateAsync({
         hr_organization_id: ctx.hrOrgId,
@@ -178,7 +257,7 @@ export function ApplyLeaveDrawer({
         end_time: null,
         reason,
         is_emergency: isEmergency,
-        documents: [],
+        documents,
         applied_by: '', // server fills from the authenticated user
         department_id: null,
       });
@@ -416,6 +495,17 @@ export function ApplyLeaveDrawer({
                   placeholder="Explain the reason for your leave" />
               </div>
 
+              {(docRule.required || docRule.optional) && (
+                <LeaveDocumentUpload
+                  files={documentFiles}
+                  onChange={setDocumentFiles}
+                  required={docRule.required}
+                  reason={docRule.reason}
+                  uploading={uploading}
+                  error={uploadError}
+                />
+              )}
+
               <div className="flex items-start gap-2">
                 <Checkbox id="emergency" checked={isEmergency}
                   onCheckedChange={(v) => setIsEmergency(v === true)} />
@@ -440,7 +530,7 @@ export function ApplyLeaveDrawer({
         <SheetFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            {mutation.isPending ? 'Submitting…' : 'Submit'}
+            {uploading ? 'Uploading…' : mutation.isPending ? 'Submitting…' : 'Submit'}
           </Button>
         </SheetFooter>
       </SheetContent>
