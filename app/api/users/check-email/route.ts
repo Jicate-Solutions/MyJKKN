@@ -23,9 +23,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');
 
-    console.log('=== EMAIL CHECK DEBUG ===');
-    console.log('Checking email:', email);
-
     if (!email) {
       return NextResponse.json(
         { error: 'Email parameter is required' },
@@ -33,45 +30,27 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // For OAuth-only system, only check profiles table (including pre-registered)
-    const { data: profileData, error: profileError } = await supabaseAdmin
+    // This endpoint is reachable UNAUTHENTICATED — the signup flow checks
+    // whether an email is already taken before the visitor has logged in.
+    // It must therefore never return the matched profile's record: doing so
+    // lets anyone on the internet enumerate accounts and privileged roles.
+    // Select only the flag the availability message needs; never id / name /
+    // role / status / created_at.
+    const { data: profileData } = await supabaseAdmin
       .from('profiles')
-      .select('id, email, full_name, role, is_active, created_at, is_pre_registered')
+      .select('is_pre_registered')
       .eq('email', email)
       .single();
 
-    console.log('Profile check result:', {
-      data: profileData ? 'Profile found' : 'No profile',
-      isPreRegistered: profileData?.is_pre_registered,
-      error: profileError?.message || 'No error'
-    });
-
     const emailExists = profileData !== null;
-
-    console.log('Final result - Email exists:', emailExists);
-    console.log('=== END EMAIL CHECK DEBUG ===');
-
-    // Prepare user details for better UX
-    let existingUserDetails = null;
-    let isPreRegistered = false;
-    
-    if (emailExists && profileData) {
-      isPreRegistered = profileData.is_pre_registered || false;
-      existingUserDetails = {
-        id: profileData.id,
-        email: profileData.email,
-        fullName: profileData.full_name,
-        role: profileData.role,
-        isActive: profileData.is_active,
-        isPreRegistered: isPreRegistered,
-        createdAt: profileData.created_at
-      };
-    }
+    const isPreRegistered = emailExists
+      ? profileData?.is_pre_registered || false
+      : false;
 
     // Different messages based on registration status
     let message = 'Email is available';
     let suggestion = null;
-    
+
     if (emailExists) {
       if (isPreRegistered) {
         message = 'This email is pre-registered and pending Google login';
@@ -82,10 +61,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Availability only — no user record is returned to unauthenticated callers.
     return NextResponse.json({
       available: !emailExists,
       message,
-      existingUser: existingUserDetails,
       isPreRegistered,
       suggestion
     });
