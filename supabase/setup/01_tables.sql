@@ -442,11 +442,22 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     regulation_id UUID,
     batch_id UUID,
 
-    -- Admission Year (Reconciled: 2026-04-23 — column was added directly via
-    -- Supabase MCP earlier without an explicit migration. Backfilled here for
-    -- canonical-source truth per CLAUDE.md SQL File Management Rules.)
-    -- Legacy integer kept for B2A endpoint back-compat (6 endpoints expose it).
-    admission_year INTEGER,
+    -- Admission Year — REMOVED 2026-08-24. There is no `admission_year` integer
+    -- column on learners_profiles in production; information_schema returns zero
+    -- for it. This file declared one anyway, which made the canonical source lie:
+    -- rebuilding from it would CREATE a column production has never had, and a
+    -- function written against this file would resolve it at runtime and fail on
+    -- every call (the #3055 class of bug).
+    --
+    -- The note this replaces said the integer was "kept for B2A endpoint
+    -- back-compat (6 endpoints expose it)". Those endpoints do still expose the
+    -- field, but they DERIVE it from the admission_years FK join — see
+    -- app/api/b2a/learners/route.ts ("Derive legacy admission_year integer from
+    -- FK join for back-compat") and api-management/learners/profiles (Phase C-8,
+    -- 2026-05-02). Not one of them reads a physical column, so nothing depends on
+    -- this declaration and no endpoint changes with its removal.
+    --
+    -- The FK below is the real, and only, admission-year anchor.
     -- Added: 2026-04-23 — shadow FK to admission_years (institution + program scoped cohorts).
     -- Migration: supabase/migrations/learners_profiles_admission_year_id_shadow_fk.sql
     -- Backfill: only lifecycle_status='admitted' rows get latest active cohort;
