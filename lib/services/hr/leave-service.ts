@@ -256,8 +256,13 @@ export class LeaveService {
         (new Date(payload.start_date).getTime() - new Date(todayIso).getTime()) / (1000 * 60 * 60 * 24)
       );
       if (noticeDays < leaveType.min_advance_notice_days) {
+        // A NEGATIVE figure means the start date is in the past, and reporting
+        // it as "you gave -38" reads like a system fault rather than an
+        // instruction. Say what happened and what to do instead.
         throw new Error(
-          `This leave type requires ${leaveType.min_advance_notice_days} days advance notice. You gave ${noticeDays}.`
+          noticeDays < 0
+            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice, or tick Emergency leave if this could not have been filed in time.`
+            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date, or tick Emergency leave.`
         );
       }
     }

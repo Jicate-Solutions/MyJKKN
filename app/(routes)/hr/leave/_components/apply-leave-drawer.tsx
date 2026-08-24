@@ -126,6 +126,27 @@ export function ApplyLeaveDrawer({
   }, [startDate, endDate, effectiveDuration]);
 
   const overBalance = available !== null && requestedDays > available;
+  /**
+   * Advance notice, checked here as well as on the server.
+   *
+   * It was server-only, so the whole form could be filled in and the rule only
+   * surfaced as a 400 on Submit — which is how "You gave -38" reached a user.
+   * Mirrors LeaveService.applyLeave exactly, including the is_emergency bypass:
+   * a difference between the two would either block a request the server would
+   * take, or promise one it will refuse.
+   */
+  const noticeDays = useMemo(() => {
+    if (!startDate) return null;
+    const today = new Date().toISOString().split('T')[0];
+    return Math.floor(
+      (new Date(startDate).getTime() - new Date(today).getTime()) / 86_400_000
+    );
+  }, [startDate]);
+
+  const requiredNotice = selected?.min_advance_notice_days ?? 0;
+  const shortNotice =
+    !isEmergency && requiredNotice > 0 && noticeDays !== null && noticeDays < requiredNotice;
+
   const overContinuous =
     selected?.max_continuous_days != null && requestedDays > selected.max_continuous_days;
 
@@ -188,7 +209,7 @@ export function ApplyLeaveDrawer({
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
-    !!endDate && !!reason.trim() && !overBalance && !overContinuous &&
+    !!endDate && !!reason.trim() && !overBalance && !overContinuous && !shortNotice &&
     !overPeriod && !periodWindowBroken && !clash &&
     requestedDays > 0 && !mutation.isPending && !uploading &&
     // A type that demands a certificate must not be submittable without one.
@@ -453,6 +474,27 @@ export function ApplyLeaveDrawer({
                     from {new Date(`${clash.start_date}T00:00:00`).toLocaleDateString('en-GB')} to{' '}
                     {new Date(`${clash.end_date}T00:00:00`).toLocaleDateString('en-GB')} ({clash.status}).
                     Pick different dates, or cancel that request first.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {shortNotice && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {noticeDays! < 0 ? (
+                      <>
+                        {selected?.leave_type_name} cannot be applied for a past date —{' '}
+                        {startDate} was {Math.abs(noticeDays!)} day(s) ago.
+                      </>
+                    ) : (
+                      <>
+                        {selected?.leave_type_name} needs {requiredNotice} day(s) advance
+                        notice; {startDate} is only {noticeDays} day(s) away.
+                      </>
+                    )}{' '}
+                    Tick <strong>Emergency leave</strong> below if it could not have been
+                    filed in time.
                   </AlertDescription>
                 </Alert>
               )}
