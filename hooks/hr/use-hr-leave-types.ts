@@ -8,9 +8,11 @@ import type {
   HRLeaveTypeInsert,
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
+import type { HRBalanceAdjustPayload } from '@/types/hr-leave-staff-balances';
 
 const KEY = 'hr-leave-types';
 const ANALYTICS_KEY = 'hr-leave-balance-analytics';
+const STAFF_BALANCES_KEY = 'hr-leave-staff-balances';
 const CAN_APPROVE_KEY = 'hr-can-approve-leave';
 
 /**
@@ -39,6 +41,47 @@ export function useLeaveBalanceAnalytics(hrAcademicYearId: string | null) {
     queryKey: [ANALYTICS_KEY, hrAcademicYearId],
     queryFn: () =>
       HRLeaveTypeService.getBalanceAnalytics(supabase, hrAcademicYearId),
+  });
+}
+
+/**
+ * One institution's staff-wise balances for the selected year.
+ *
+ * Disabled until an institution is chosen — the RPC requires an org id, and
+ * firing it with null would surface a "p_hr_org_id is required" error as the
+ * tab's empty state.
+ */
+export function useStaffLeaveBalances(
+  hrOrgId: string | null,
+  hrAcademicYearId: string | null
+) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [STAFF_BALANCES_KEY, hrOrgId, hrAcademicYearId],
+    queryFn: () =>
+      HRLeaveTypeService.getStaffBalances(supabase, hrOrgId as string, hrAcademicYearId),
+    enabled: !!hrOrgId,
+  });
+}
+
+/**
+ * Correct one staff member's balance.
+ *
+ * Invalidates the analytics key as well as the staff key: an adjustment moves
+ * the used/entitled totals and the covered-staff count that the Analytics tab
+ * renders, so leaving it stale would show two different numbers for the same
+ * year on two tabs of one page.
+ */
+export function useAdjustLeaveBalance() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (payload: HRBalanceAdjustPayload) =>
+      HRLeaveTypeService.adjustBalance(supabase, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+    },
   });
 }
 

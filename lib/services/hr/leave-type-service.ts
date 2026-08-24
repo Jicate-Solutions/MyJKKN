@@ -17,6 +17,11 @@ import type {
   HRLeaveTypeUpdate,
 } from '@/types/hr-leave-types';
 import type { HRLeaveBalanceAnalytics } from '@/types/hr-leave-analytics';
+import type {
+  HRBalanceAdjustPayload,
+  HRBalanceAdjustResult,
+  HRStaffBalanceDetail,
+} from '@/types/hr-leave-staff-balances';
 import type { LeavePeriodUsage, StoUsage } from '@/types/hr-leave-types';
 
 export interface GenerateBalancesFallback {
@@ -227,6 +232,52 @@ export class HRLeaveTypeService {
     });
     if (error) throw error;
     return data as HRLeaveBalanceAnalytics;
+  }
+
+  /**
+   * One institution's staff, pivot-ready.
+   *
+   * Goes through the RPC rather than reading v_hr_leave_balance directly: that
+   * view gates non-self rows on hr.leave.approve, but the page that renders
+   * this is guarded on hr.leave.balance.manage, and those are different keys —
+   * Board Member holds manage without approve and would have seen an empty
+   * table. The RPC gates on manage, matching getBalanceAnalytics above.
+   */
+  static async getStaffBalances(
+    supabase: SupabaseClient,
+    hrOrgId: string,
+    hrAcademicYearId: string | null
+  ): Promise<HRStaffBalanceDetail> {
+    const { data, error } = await supabase.rpc('hr_leave_balance_staff_detail', {
+      p_hr_org_id: hrOrgId,
+      p_hr_academic_year_id: hrAcademicYearId,
+    });
+    if (error) throw error;
+    return data as HRStaffBalanceDetail;
+  }
+
+  /**
+   * Correct a single (staff, leave type) cell, with an audit row.
+   *
+   * The RPC applies a DIFFERENT permission key per action — set_used needs
+   * hr.leave.policies.write, the entitlement actions need
+   * hr.leave.balance.manage — mirroring each table's own RLS. Callers should
+   * hide the lever they cannot use rather than let the RPC refuse it.
+   */
+  static async adjustBalance(
+    supabase: SupabaseClient,
+    payload: HRBalanceAdjustPayload
+  ): Promise<HRBalanceAdjustResult> {
+    const { data, error } = await supabase.rpc('hr_leave_balance_adjust', {
+      p_employee_id: payload.employee_id,
+      p_leave_type_id: payload.leave_type_id,
+      p_hr_academic_year_id: payload.hr_academic_year_id,
+      p_action: payload.action,
+      p_value: payload.value,
+      p_reason: payload.reason,
+    });
+    if (error) throw error;
+    return data as HRBalanceAdjustResult;
   }
 
   static async generateBalances(

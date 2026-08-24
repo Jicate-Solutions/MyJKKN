@@ -29,17 +29,34 @@ import {
 } from '@/components/ui/select';
 import { useApplyLeave } from '@/hooks/hr/use-leave';
 import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
+import { useMyApplications } from '@/hooks/hr/use-leave';
+import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
-import type { LeaveDurationType } from '@/types/hr';
+import type { HRLeaveApplicationWithType, LeaveDurationType } from '@/types/hr';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
   { value: 'full', label: 'Full day', days: 1 },
   { value: 'first_half', label: 'First half (AM)', days: 0.5 },
   { value: 'second_half', label: 'Second half (PM)', days: 0.5 },
 ];
+
+/** Consumed share of the entitlement, clamped — an over-drawn type is still 100%. */
+function pct(used: number, total: number): number {
+  if (!total || total <= 0) return 0;
+  return Math.min(100, Math.round((used / total) * 100));
+}
+
+function Figure({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={strong ? 'text-base font-semibold' : 'text-sm font-medium'}>{value}</p>
+    </div>
+  );
+}
 
 export function ApplyLeaveDrawer({
   open,
@@ -114,6 +131,27 @@ export function ApplyLeaveDrawer({
   const periodWindowBroken = !!periodUsage?.limited && !!periodUsage.window_unresolved;
   const overPeriod = periodCapped && requestedDays > Number(periodUsage?.days_left ?? 0);
 
+  /**
+   * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
+   * refuses it outright — this says so while the dates are being picked instead
+   * of after Submit.
+   *
+   * Reads the caller's own list, which the applications route caps at 50. Fine
+   * for one person's requests, and the trigger is the enforcement point either
+   * way, so a miss here costs a round trip and not a double booking.
+   */
+  const { data: mine } = useMyApplications(ctx.employeeId || undefined);
+  const clash = useMemo(() => {
+    if (!startDate || !endDate || endDate < startDate) return null;
+    // The route embeds hr_leave_types; the hook's return type predates that.
+    const list = (mine?.data ?? []) as HRLeaveApplicationWithType[];
+    return list.find((a) => {
+      if ((a.hr_leave_types?.request_category ?? 'leave') !== 'leave') return false;
+      if (!['pending', 'approved', 'escalated'].includes(a.status)) return false;
+      return a.start_date <= endDate && startDate <= a.end_date;
+    }) ?? null;
+  }, [mine, startDate, endDate]);
+
   const reset = () => {
     setLeaveTypeId(''); setStartDate(''); setEndDate('');
     setDurationType('full'); setReason(''); setIsEmergency(false); setError(null);
@@ -122,7 +160,7 @@ export function ApplyLeaveDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous &&
-    !overPeriod && !periodWindowBroken &&
+    !overPeriod && !periodWindowBroken && !clash &&
     requestedDays > 0 && !mutation.isPending;
 
   const submit = async () => {
@@ -207,22 +245,68 @@ export function ApplyLeaveDrawer({
                     })}
                   </SelectContent>
                 </Select>
+                {/* The entitlement used to be one muted line here and was easy
+                    to miss. It decides whether the request can be submitted at
+                    all, so it gets a card — matching the short-time-off drawer. */}
                 {selected && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
-                    Entitled {selected.entitled} · used {selected.used} · carried{' '}
-                    {selected.carried_forward}
-                    {selected.max_continuous_days != null && (
-                      <> · max {selected.max_continuous_days} day(s) at a time</>
+                  <div className="mt-2 rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Your balance · this academic year
+                      </span>
+                      {selected.max_continuous_days != null && (
+                        <span className="text-[11px] text-muted-foreground">
+                          max {selected.max_continuous_days} day(s) at a time
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="mt-2 grid grid-cols-4 gap-2 text-center">
+                      <Figure label="Entitled" value={formatDays(selected.entitled)} />
+                      <Figure label="Carried" value={formatDays(selected.carried_forward)} />
+                      <Figure label="Used" value={formatDays(selected.used)} />
+                      <Figure label="Available" value={formatDays(available)} strong />
+                    </div>
+                    <Progress
+                      className="mt-2 h-1.5"
+                      value={pct(selected.used, selected.entitled + selected.carried_forward)}
+                    />
+
+                    {/* The per-period throttle sits ALONGSIDE the entitlement: a
+                        request can be well inside the balance and still refused. */}
+                    {periodCapped && (
+                      <div className="mt-2 border-t pt-2">
+                        <p className="text-xs text-muted-foreground">
+                          Also capped at{' '}
+                          <strong>{formatDays(periodUsage?.max_days)}</strong> day(s){' '}
+                          {LIMIT_PERIOD_LABELS[periodUsage!.limit_period ?? 'month'].toLowerCase()} —{' '}
+                          <strong>{formatDays(periodUsage?.days_left)}</strong> left
+                          {periodUsage?.period_start && periodUsage?.period_end && (
+                            <>
+                              {' '}({new Date(`${periodUsage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
+                              {new Date(`${periodUsage.period_end}T00:00:00`).toLocaleDateString('en-GB')})
+                            </>
+                          )}
+                        </p>
+                      </div>
                     )}
-                  </p>
-                )}
-                {periodCapped && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    <strong>{formatDays(periodUsage?.days_left)}</strong> of{' '}
-                    {formatDays(periodUsage?.max_days)} day(s) left{' '}
-                    {LIMIT_PERIOD_LABELS[periodUsage!.limit_period ?? 'month'].toLowerCase()}
-                    {' '}({periodUsage?.period_start} to {periodUsage?.period_end})
-                  </p>
+
+                    {requestedDays > 0 && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This request is <strong>{formatDays(requestedDays)}</strong> day(s) —{' '}
+                        {overBalance ? (
+                          <span className="text-destructive">
+                            {formatDays(requestedDays - (available ?? 0))} more than you have.
+                          </span>
+                        ) : (
+                          <>
+                            <strong>{formatDays((available ?? 0) - requestedDays)}</strong> would
+                            remain.
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -282,6 +366,18 @@ export function ApplyLeaveDrawer({
                   </AlertDescription>
                 </Alert>
               )}
+              {clash && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    You already have a {clash.hr_leave_types?.leave_type_name ?? 'leave'} request
+                    from {new Date(`${clash.start_date}T00:00:00`).toLocaleDateString('en-GB')} to{' '}
+                    {new Date(`${clash.end_date}T00:00:00`).toLocaleDateString('en-GB')} ({clash.status}).
+                    Pick different dates, or cancel that request first.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {overContinuous && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />

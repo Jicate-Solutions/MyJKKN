@@ -1334,3 +1334,276 @@ WHERE (SELECT public.is_super_admin())
 
 REVOKE ALL ON public.v_hr_leave_balance FROM anon;
 GRANT SELECT ON public.v_hr_leave_balance TO authenticated;
+
+
+-- ================================================================================
+-- vw_learner_payment_progress (mirrored 2026-08-18)
+-- ================================================================================
+-- Per-learner fee position. Feeds the reserved -> admitted promotion gate
+-- (evaluate_learner_status_after_payment) and the Awaiting Payment tier of
+-- /learners/onboarding (fn_onboarding_payment_progress).
+--
+-- paid_pct is the DUE-AS-ON-DATE basis per the 2026-08-11 Director ruling: paid
+-- over billed across non-application bills whose due_date has arrived. The three
+-- bases are exposed explicitly, each with a matching amount pair, so
+-- admission_statuses.threshold_basis can select one without any caller
+-- re-deriving the predicate:
+--     billed_to_date           -> pct_billed_to_date   + countable_billed / countable_paid
+--     due_to_date              -> pct_due_to_date      + due_billed       / due_paid
+--     due_to_date_current_year -> pct_due_current_year + due_cy_billed    / due_cy_paid
+--
+-- Cancelled AND superseded bills are excluded (143 cancelled bills carrying
+-- Rs 22.31 lakh used to drag real learners' percentages down).
+-- security_invoker = true, so RLS on learners_profiles + billing_student_bills
+-- applies to the caller. That is also why fn_onboarding_payment_progress is
+-- SECURITY DEFINER: reading these totals must not require billing.bills.view.
+CREATE OR REPLACE VIEW public.vw_learner_payment_progress
+WITH (security_invoker = true) AS
+SELECT
+  lp.id AS learner_id,
+  lp.institution_id,
+  lp.lifecycle_status,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee'), 0) AS countable_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee'), 0) AS countable_paid,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 2)
+  END AS paid_pct,
+  BOOL_OR(bc.kind = 'application_fee' AND b.status = 'paid') AS application_fee_paid,
+  COUNT(b.id) AS total_bills,
+  COUNT(b.id) FILTER (WHERE b.status = 'paid') AS paid_bills,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount) FILTER (WHERE bc.kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount) FILTER (WHERE bc.kind <> 'application_fee')
+      / SUM(b.final_amount)                    FILTER (WHERE bc.kind <> 'application_fee'), 2)
+  END AS pct_billed_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 2)
+  END AS pct_due_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.final_amount)
+                  FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                          AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) = 0
+      THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.final_amount - b.balance_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                  AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE)
+      / SUM(b.final_amount)
+          FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                  AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 2)
+  END AS pct_due_current_year,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) AS due_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE), 0) AS due_paid,
+  COALESCE(SUM(b.final_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                   AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) AS due_cy_billed,
+  COALESCE(SUM(b.final_amount - b.balance_amount)
+           FILTER (WHERE bc.kind <> 'application_fee' AND b.due_date <= CURRENT_DATE
+                   AND ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE), 0) AS due_cy_paid
+FROM public.learners_profiles lp
+LEFT JOIN public.billing_student_bills b
+  ON b.student_id = lp.id AND b.status NOT IN ('superseded', 'cancelled')
+LEFT JOIN public.billing_categories bc
+  ON bc.id = b.item_category_id
+LEFT JOIN public.academic_years ayr
+  ON ayr.id = b.academic_year_id
+GROUP BY lp.id, lp.institution_id, lp.lifecycle_status;
+
+
+-- ===========================================================================
+-- Source: 20260822090000_billing_bill_instalments.sql
+-- ===========================================================================
+-- =============================================================================
+-- §6 Set-wide rollup, for the threshold view and list screens
+-- =============================================================================
+-- The per-bill function above is a loop; a view over 19k bills cannot call it
+-- per row. This does the same waterfall as pure set arithmetic:
+--
+--   running_before = sum of tranche amounts strictly BEFORE this one
+--   allocated      = clamp(paid_on_bill - running_before, 0, amount)
+--
+-- which is exactly what the loop computes, without the loop.
+
+CREATE OR REPLACE VIEW public.vw_bill_instalment_state
+WITH (security_invoker = true) AS
+WITH ranked AS (
+  SELECT
+    i.id            AS instalment_id,
+    i.bill_id,
+    i.sequence_no,
+    i.amount,
+    i.due_date,
+    i.promotes_to_status_code,
+    b.student_id,
+    b.institution_id,
+    b.item_category_id,
+    b.academic_year_id,
+    b.status        AS bill_status,
+    GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid_on_bill,
+    COALESCE(SUM(i.amount) OVER (
+      PARTITION BY i.bill_id
+      ORDER BY i.due_date, i.sequence_no
+      ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+    ), 0) AS running_before
+  FROM public.billing_bill_instalments i
+  JOIN public.billing_student_bills b ON b.id = i.bill_id
+)
+SELECT
+  instalment_id,
+  bill_id,
+  student_id,
+  institution_id,
+  item_category_id,
+  academic_year_id,
+  bill_status,
+  sequence_no,
+  amount,
+  due_date,
+  promotes_to_status_code,
+  LEAST(GREATEST(paid_on_bill - running_before, 0), amount) AS allocated_amount,
+  amount - LEAST(GREATEST(paid_on_bill - running_before, 0), amount) AS outstanding,
+  (LEAST(GREATEST(paid_on_bill - running_before, 0), amount) >= amount) AS is_settled,
+  (due_date <= CURRENT_DATE) AS is_due
+FROM ranked;
+
+COMMENT ON VIEW public.vw_bill_instalment_state IS
+  'Set-based form of the billing_bill_instalment_state waterfall, for the threshold view and list screens. security_invoker = true so the underlying bill RLS applies.';
+
+REVOKE ALL ON TABLE public.vw_bill_instalment_state FROM anon, PUBLIC;
+
+GRANT SELECT ON TABLE public.vw_bill_instalment_state TO authenticated, service_role;
+
+-- ===========================================================================
+-- Source: 20260822110000_instalment_aware_threshold_and_late_charge.sql
+-- ===========================================================================
+-- =============================================================================
+-- §1 The threshold view, tranche-aware
+-- =============================================================================
+-- CREATE OR REPLACE VIEW cannot reorder, rename or drop a column, so all 14
+-- keep their name, type and position. Only how `due_amount` is derived changes.
+--
+--   bill WITH tranches : due = sum of tranche amounts whose date has arrived
+--   bill WITHOUT       : due = final_amount when due_date has arrived, else 0
+--                        — byte for byte the previous expression
+--
+-- The numerator is LEAST(paid, due) rather than paid: that is the waterfall
+-- restated. Money settles the oldest tranche first, so a learner who pays ahead
+-- of schedule cannot have the surplus counted against a tranche that is not yet
+-- due — which would inflate their percentage and promote them early.
+--
+-- A bill with no billing_category (bc.kind IS NULL) is excluded from the
+-- countable totals by `bc.kind <> 'application_fee'` evaluating to NULL. That
+-- is pre-existing behaviour, preserved deliberately rather than "fixed" here.
+
+CREATE OR REPLACE VIEW public.vw_learner_payment_progress
+WITH (security_invoker = true) AS
+WITH bill AS (
+  SELECT
+    b.id,
+    b.student_id,
+    bc.kind        AS category_kind,
+    b.status       AS bill_status,
+    b.final_amount,
+    GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount)) AS paid,
+    (ayr.start_date <= CURRENT_DATE AND ayr.end_date >= CURRENT_DATE) AS in_current_ay,
+    CASE
+      WHEN EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+        THEN COALESCE((SELECT SUM(i.amount)
+                         FROM public.billing_bill_instalments i
+                        WHERE i.bill_id = b.id
+                          AND i.due_date <= CURRENT_DATE), 0)
+      WHEN b.due_date <= CURRENT_DATE THEN b.final_amount
+      ELSE 0
+    END AS due_amount
+  FROM public.billing_student_bills b
+  LEFT JOIN public.billing_categories bc ON bc.id = b.item_category_id
+  LEFT JOIN public.academic_years ayr    ON ayr.id = b.academic_year_id
+  WHERE b.status NOT IN ('superseded', 'cancelled')
+)
+SELECT
+  lp.id             AS learner_id,
+  lp.institution_id,
+  lp.lifecycle_status,
+  COALESCE(SUM(b.final_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS countable_billed,
+  COALESCE(SUM(b.paid)         FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS countable_paid,
+  -- paid_pct: DUE-AS-ON-DATE basis (platform default, 2026-08-11 ruling),
+  -- now measured tranche by tranche.
+  CASE
+    WHEN COALESCE(SUM(b.due_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0) = 0
+      THEN 0
+    ELSE ROUND(
+      100.0 * SUM(LEAST(b.paid, b.due_amount)) FILTER (WHERE b.category_kind <> 'application_fee')
+            / SUM(b.due_amount)                FILTER (WHERE b.category_kind <> 'application_fee')
+    , 2)
+  END AS paid_pct,
+  BOOL_OR(b.category_kind = 'application_fee' AND b.bill_status = 'paid') AS application_fee_paid,
+  COUNT(b.id) AS total_bills,
+  COUNT(b.id) FILTER (WHERE b.bill_status = 'paid') AS paid_bills,
+  -- The three explicit bases.
+  CASE
+    WHEN COALESCE(SUM(b.final_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(b.paid)         FILTER (WHERE b.category_kind <> 'application_fee')
+      / SUM(b.final_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 2)
+  END AS pct_billed_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.due_amount) FILTER (WHERE b.category_kind <> 'application_fee'), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(LEAST(b.paid, b.due_amount)) FILTER (WHERE b.category_kind <> 'application_fee')
+      / SUM(b.due_amount)                FILTER (WHERE b.category_kind <> 'application_fee'), 2)
+  END AS pct_due_to_date,
+  CASE
+    WHEN COALESCE(SUM(b.due_amount)
+           FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 0) = 0 THEN 0
+    ELSE ROUND(100.0
+      * SUM(LEAST(b.paid, b.due_amount))
+          FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay)
+      / SUM(b.due_amount)
+          FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 2)
+  END AS pct_due_current_year,
+  COALESCE(SUM(b.due_amount)                FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS due_billed,
+  COALESCE(SUM(LEAST(b.paid, b.due_amount)) FILTER (WHERE b.category_kind <> 'application_fee'), 0)
+    AS due_paid,
+  -- Columns 15-16. NOT in 20260821040000 — they were added to the live view
+  -- afterwards and the migration file was never updated, so the file on disk
+  -- described a 14-column view while the database had 16. Omitting them here
+  -- was rejected outright ("cannot drop columns from view"), which is the one
+  -- kind of drift Postgres catches for you.
+  COALESCE(SUM(b.due_amount)
+    FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 0)
+    AS due_cy_billed,
+  COALESCE(SUM(LEAST(b.paid, b.due_amount))
+    FILTER (WHERE b.category_kind <> 'application_fee' AND b.in_current_ay), 0)
+    AS due_cy_paid
+FROM public.learners_profiles lp
+LEFT JOIN bill b ON b.student_id = lp.id
+GROUP BY lp.id, lp.institution_id, lp.lifecycle_status;
+
+COMMENT ON VIEW public.vw_learner_payment_progress IS
+  'Per-learner payment progress. paid_pct = DUE-AS-ON-DATE basis, now computed tranche by tranche: a bill with billing_bill_instalments contributes only the tranches whose date has arrived; a bill without contributes its whole amount once its due_date has arrived (unchanged). The numerator is LEAST(paid, due) — the payment waterfall restated, so paying ahead of schedule never inflates the percentage. Cancelled and superseded bills excluded. security_invoker = true so RLS applies.';
+
+REVOKE ALL ON TABLE public.vw_learner_payment_progress FROM anon, PUBLIC;
+
+GRANT SELECT ON TABLE public.vw_learner_payment_progress TO authenticated, service_role;

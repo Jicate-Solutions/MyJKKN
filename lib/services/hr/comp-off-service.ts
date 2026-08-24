@@ -119,6 +119,27 @@ export class CompOffService {
    * The RLS UPDATE policy blocks self-approval, so an approver cannot decide
    * their own claim even though they hold the permission.
    */
+  /**
+   * The claimant takes back their own claim before anyone has decided it.
+   *
+   * Guarded by the hcoc_withdraw_own_pending policy, whose WITH CHECK pins the
+   * new status — so a forged status here is refused by Postgres, not by this
+   * method. The .eq('status','pending') is a courtesy that turns a race into
+   * "0 rows" rather than a policy denial.
+   */
+  static async withdrawClaim(supabase: SupabaseClient, creditId: string): Promise<void> {
+    const { data, error } = await supabase
+      .from('hr_comp_off_credits')
+      .update({ status: 'withdrawn' })
+      .eq('id', creditId)
+      .eq('status', 'pending')
+      .select('id');
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error('This claim is no longer pending — it may have just been decided.');
+    }
+  }
+
   static async decideClaim(
     supabase: SupabaseClient,
     creditId: string,

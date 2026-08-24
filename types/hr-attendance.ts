@@ -125,6 +125,8 @@ export interface AttendanceRecord {
   overtime_minutes: number | null;
   break_minutes: number | null;
   late_minutes: number | null;
+  /** Minutes of a half reinstated by an approved permission. See evaluate-day.ts. */
+  excused_minutes: number | null;
   device_status: string | null;
   first_half_attended: boolean | null;
   second_half_attended: boolean | null;
@@ -132,6 +134,32 @@ export interface AttendanceRecord {
   notes: string | null;
   /** LEFT joined — null if the status type row was deleted. */
   status: { code: string; label: string } | null;
+}
+
+/** An approved application as fetched, before it is expanded across its days. */
+export interface ApprovedRequestRange {
+  id: string;
+  start_date: string;
+  end_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  leave_type_name: string;
+  leave_type_code: string | null;
+  request_category: 'leave' | 'short_time_off' | 'compensatory_off';
+}
+
+/** One approved request overlapping a day, for the log's Time off column. */
+export interface DayRequest {
+  id: string;
+  category: 'leave' | 'short_time_off' | 'compensatory_off';
+  type_name: string;
+  /** hr_leave_types.leave_type_code — 'CL', 'ML'. Null when HR left it blank. */
+  type_code: string | null;
+  /** 'HH:MM' — short time off only. */
+  start_time: string | null;
+  end_time: string | null;
+  /** True when the request spans more days than this one. */
+  multi_day: boolean;
 }
 
 /** An open `hr_attendance_exceptions` row, used to explain an AEYP day. */
@@ -155,6 +183,15 @@ export interface AttendanceDay {
   exception: AttendanceException | null;
   token: AttendanceToken;
   /**
+   * What to PRINT for this day's token.
+   *
+   * STATUS_TOKENS maps LEAVE to a bare 'L', which cannot tell Casual Leave from
+   * Loss of Pay — and the difference is whether the day was paid. When an
+   * approved day-leave covers the date its own leave_type_code is used instead
+   * ('CL'), falling back to 'L' only when HR left the code blank.
+   */
+  tokenLabel: string;
+  /**
    * Why this token, when the token alone is ambiguous. A Saturday that is a
    * configured working day but still reads WEEKLY_OFF is the 2nd-Saturday rule
    * firing, and nothing on screen used to say so — the only way to find out was
@@ -171,6 +208,21 @@ export interface AttendanceDay {
   /** The machine's own worked time. Already excludes recorded breaks. */
   effectiveMinutes: number | null;
   lateMinutes: number | null;
+  /**
+   * Minutes an approved short-time-off permission covered. Non-zero is the only
+   * reason a day past the grace deadline can still read PRESENT, so the UI has
+   * to be able to say so.
+   */
+  excusedMinutes: number | null;
+  /**
+   * APPROVED time-off covering this day — leave, permission or booked comp off.
+   *
+   * A day-leave day already reads LEAVE from its status, but the status never
+   * says WHICH leave. A permission says nothing at all: it deliberately does not
+   * stamp attendance (it excuses a shortfall instead), so before this the only
+   * trace of an approved 09:05-09:35 was an unexplained excused_minutes.
+   */
+  requests: DayRequest[];
   /** False for the leading/trailing days that pad the calendar grid. */
   inMonth: boolean;
   isToday: boolean;
@@ -297,6 +349,21 @@ function halfPairFor(
  * place a reader can discover that; the attendance row records the verdict,
  * not the reason for it.
  */
+/**
+ * 'CL' rather than 'L' when a day-leave covers the date. Comp off is a day away
+ * too, so it gets the same treatment; a permission never owns the day and is
+ * deliberately ignored here.
+ */
+function tokenLabelFor(token: AttendanceToken, requests: DayRequest[]): string {
+  const generic = STATUS_TOKENS[token].short;
+  if (token !== 'LEAVE') return generic;
+  const owner = requests.find(
+    (r) => r.category === 'leave' || r.category === 'compensatory_off',
+  );
+  const code = owner?.type_code?.trim();
+  return code ? code.toUpperCase() : generic;
+}
+
 function weekOffDetail(token: AttendanceToken, dateObj: Date): string | null {
   if (token !== 'WEEKLY_OFF') return null;
   return isSecondSaturday(dateObj) ? '2nd Saturday holiday' : null;
@@ -314,6 +381,8 @@ interface BuildDaysArgs {
   month: MonthKey;
   records: AttendanceRecord[];
   exceptions?: AttendanceException[];
+  /** Approved time-off overlapping the month. Empty is a valid month. */
+  requests?: ApprovedRequestRange[];
   /** Pad to whole Monday→Sunday weeks for the calendar grid. */
   padWeeks?: boolean;
 }
@@ -326,6 +395,7 @@ export function buildAttendanceDays({
   month,
   records,
   exceptions = [],
+  requests = [],
   padWeeks = false,
 }: BuildDaysArgs): AttendanceDay[] {
   const monthStart = startOfMonth(monthKeyToDate(month));
@@ -336,6 +406,30 @@ export function buildAttendanceDays({
 
   const excByDate = new Map<string, AttendanceException>();
   for (const e of exceptions) excByDate.set(e.exception_date, e);
+
+  // Expanded per day rather than matched per row: a request spans a range, and
+  // the log renders days.
+  const reqByDate = new Map<string, DayRequest[]>();
+  for (const r of requests) {
+    const multi = r.end_date > r.start_date;
+    for (const d of eachDayOfInterval({
+      start: new Date(`${r.start_date}T00:00:00`),
+      end: new Date(`${r.end_date}T00:00:00`),
+    })) {
+      const key = format(d, 'yyyy-MM-dd');
+      const list = reqByDate.get(key) ?? [];
+      list.push({
+        id: r.id,
+        category: r.request_category,
+        type_name: r.leave_type_name,
+        type_code: r.leave_type_code,
+        start_time: r.start_time ? r.start_time.slice(0, 5) : null,
+        end_time: r.end_time ? r.end_time.slice(0, 5) : null,
+        multi_day: multi,
+      });
+      reqByDate.set(key, list);
+    }
+  }
 
   const from = padWeeks ? startOfWeek(monthStart, { weekStartsOn: 1 }) : monthStart;
   const to = padWeeks ? endOfWeek(monthEnd, { weekStartsOn: 1 }) : monthEnd;
@@ -352,6 +446,7 @@ export function buildAttendanceDays({
       record,
       exception: excByDate.get(date) ?? null,
       token,
+      tokenLabel: tokenLabelFor(token, reqByDate.get(date) ?? []),
       tokenDetail: weekOffDetail(token, dateObj),
       halfPair: halfPairFor(record, token),
       inTime: formatPunchTime(record?.in_at ?? null),
@@ -362,6 +457,8 @@ export function buildAttendanceDays({
           ? null
           : Math.round(Number(record.hours_worked) * 60),
       lateMinutes: record?.late_minutes ?? null,
+      excusedMinutes: record?.excused_minutes ?? null,
+      requests: reqByDate.get(date) ?? [],
       inMonth: date >= format(monthStart, 'yyyy-MM-dd') && date <= format(monthEnd, 'yyyy-MM-dd'),
       isToday: date === todayKey,
       isFuture: date > todayKey,

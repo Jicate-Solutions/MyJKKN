@@ -56,6 +56,19 @@ export function useDecideCompOffClaim() {
 
 const CLAIMS_KEY = 'hr-comp-off-pending-claims';
 
+/** The claimant takes back their own pending claim. */
+export function useWithdrawCompOffClaim() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (creditId: string) => CompOffService.withdrawClaim(supabase, creditId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
+    },
+  });
+}
+
 /**
  * Claims awaiting decision. Scoped by RLS to the approver's organizations,
  * so no org argument is threaded through the client.

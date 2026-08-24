@@ -466,5 +466,21 @@ export const MISC_AI_ROUTINES: AIRoutine[] = [
     "sideEffects": "WRITES in-app notifications (notifications + user_notifications fan-out) to one recipient, each expiring after one more quiet cycle (14 days). Reads sh_clients, sh_client_communications, projects (+ statuses/tasks/milestones via the shared digest compute) and its OWN ai_routine_schedules row. Sends nothing and says so when its schedule row is missing.",
     "safeToManualTrigger": false,
     "notes": "Rules-based, no LLM. BACKLOG FLOOR (memory feedback_a_time_window_rule_judges_the_backlog): the quiet clock is clamped at this routine's own ai_routine_schedules row's created_at — quiet_since = GREATEST(latest communication_date, floor) — so tick one never judges silence that predates the rule's existence; the floor is echoed in every response as a self-check, and a missing schedule row nudges NOBODY (explicit floorMissing, never silent). Fires via the AI-routine dispatcher (ai_routine_schedules row 'solutions-client-touch-nudge', seeded by migration 20260826110000 — daily, minute_of_day 563 = 09:23 IST, deliberately off the :00/:30 marks; fires in the 09:15–09:30 slot), NOT a raw vercel.json cron (hard 100-entry cap). Auth: CRON_SECRET (Bearer or ?secret=). Marked unsafe-to-manual because a run delivers real nudges naming real clients; re-running is safe (per-episode idempotency surfaces repeats as duplicates). Fails LOUD (500) when the recipient profile cannot be resolved."
+  },
+  {
+    "id": "meetings-auto-close",
+    "name": "Meetings — 7-day auto-close of unmarked meetings",
+    "category": "misc-ai",
+    "type": "cron",
+    "schedule": "Daily · 06:15 IST (editable via dispatcher)",
+    "triggerPath": "/api/cron/meetings-auto-close",
+    "callsClaude": false,
+    "featureKey": null,
+    "featureKeyNote": "One rules-based SQL UPDATE (fn_meetings_auto_close_unmarked); the route resolves no model.",
+    "whatItDoes": "Director decision 2026-08-08: a meeting nobody said anything about closes itself as 'completed' 7 days after it ended. Until this shipped, meeting_bookings had carried 'completed' and 'no_show' in its status CHECK since June with NOTHING ever writing either — production on 2026-08-13 held 74 bookings, 52 confirmed, 22 cancelled, and zero of both.",
+    "configKnobs": "AUTO_CLOSE_AFTER_DAYS = 7 (the Director decision) in the route; passed to fn_meetings_auto_close_unmarked(p_days). Day/time editable at /admin/ai-routines (ai_routine_schedules row 'meetings-auto-close').",
+    "sideEffects": "DB writes only: sets status='completed', outcome_marked_at=now(), outcome_marked_by='system' on confirmed bookings that ended more than 7 days ago. Sends NOTHING — no email, no notification. A booking the host already marked is not 'confirmed' and is never touched, so its outcome_marked_by='host' stamp survives.",
+    "safeToManualTrigger": true,
+    "notes": "Rules-based, no LLM. All logic is in the SECURITY DEFINER RPC fn_meetings_auto_close_unmarked (migration 20260831010000, service_role only — REVOKEd from anon, authenticated, PUBLIC). Fires via the AI-routine dispatcher, NOT a raw vercel.json cron: that file has a HARD 100-cron cap and the 101st entry fails EVERY production build with a schema error while the old build keeps serving 200s. Auth: CRON_SECRET (Bearer or ?secret=). IDEMPOTENT BY CONSTRUCTION rather than by a guard column — the predicate is status='confirmed' and the UPDATE's own effect is to leave that set, so a second run in the same minute closes 0. TIMEZONE: minute_of_day 380 = 06:20 IST, which fn_ai_routine_claim_due floors to the 06:15 IST slot; it is NOT a UTC value. DORMANT until migration 20260831010000 is applied (Director-gated) — the route returns 503 with the migration number rather than a bare 500 so a dispatcher record cannot be mistaken for a code fault. FIRST RUN IS A BACKFILL: every past-dated confirmed booking is already older than 7 days, so the first successful run closes roughly two dozen historical meetings at once, all stamped 'system' — visibly an assumption, not an observation."
   }
 ];

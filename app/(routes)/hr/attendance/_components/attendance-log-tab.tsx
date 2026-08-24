@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { format } from 'date-fns';
 import { ArrowRight, TriangleAlert } from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -49,11 +50,12 @@ export function AttendanceLogTab({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[22%]">Date</TableHead>
-              <TableHead className="w-[34%]">Attendance Visual</TableHead>
-              <TableHead className="w-[14%] text-right">Effective hours</TableHead>
-              <TableHead className="w-[14%] text-right">Gross hours</TableHead>
-              <TableHead className="w-[16%] text-right">Actions</TableHead>
+              <TableHead className="w-[18%]">Date</TableHead>
+              <TableHead className="w-[26%]">Attendance Visual</TableHead>
+              <TableHead className="w-[20%]">Time off</TableHead>
+              <TableHead className="w-[12%] text-right">Effective hours</TableHead>
+              <TableHead className="w-[12%] text-right">Gross hours</TableHead>
+              <TableHead className="w-[12%] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -64,6 +66,55 @@ export function AttendanceLogTab({
         </Table>
       </div>
     </TooltipProvider>
+  );
+}
+
+const CATEGORY_LABEL: Record<string, string> = {
+  leave: 'Leave',
+  short_time_off: 'Permission',
+  compensatory_off: 'Comp off',
+};
+
+/**
+ * Approved time-off covering this day.
+ *
+ * A LEAVE day already reads LEAVE from its status, but never WHICH leave. A
+ * permission reads nothing at all — it deliberately does not stamp attendance,
+ * it excuses a shortfall — so its only previous trace was an unexplained
+ * excused_minutes on a day that looked ordinary.
+ */
+function TimeOffCell({ day }: { day: AttendanceDay }) {
+  if (day.isFuture) return <span className="text-muted-foreground">—</span>;
+  if (day.requests.length === 0) {
+    // Excused with no request visible means the covering permission sits outside
+    // this month's fetch. Say something rather than nothing.
+    return day.excusedMinutes
+      ? <span className="text-xs text-muted-foreground">{day.excusedMinutes}m excused</span>
+      : <span className="text-muted-foreground">—</span>;
+  }
+
+  return (
+    <div className="space-y-1">
+      {day.requests.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-center gap-1">
+          <Badge variant="outline" className="font-normal">
+            {CATEGORY_LABEL[r.category] ?? r.category}
+          </Badge>
+          <span className="truncate text-xs" title={r.type_name}>{r.type_name}</span>
+          {r.start_time && r.end_time && (
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {r.start_time}–{r.end_time}
+            </span>
+          )}
+          {r.multi_day && <span className="text-[11px] text-muted-foreground">(multi-day)</span>}
+        </div>
+      ))}
+      {day.excusedMinutes ? (
+        <p className="text-[11px] text-muted-foreground">
+          {day.excusedMinutes}m of lateness covered
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -80,7 +131,7 @@ function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boo
           </span>
           {!day.isFuture && isNonWorkingToken(day.token) && (
             <>
-              <AttendanceTokenBadge token={day.token} />
+              <AttendanceTokenBadge token={day.token} label={day.tokenLabel} />
               {day.tokenDetail && (
                 <span className="text-[11px] text-muted-foreground">{day.tokenDetail}</span>
               )}
@@ -91,6 +142,10 @@ function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boo
 
       <TableCell>
         <AttendanceVisual day={day} />
+      </TableCell>
+
+      <TableCell>
+        <TimeOffCell day={day} />
       </TableCell>
 
       <TableCell className="text-right tabular-nums text-muted-foreground">
