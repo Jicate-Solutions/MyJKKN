@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveScheduleSheet,
+  normalizeDueAnchor,
+  columnLetter,
+  headerColumn,
   SCHEDULE_HEADERS,
+  SCHEDULE_REF_HEADERS,
   FEE_SCHEDULE_SHEET_NAME,
   type BulkResolveLookups,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
@@ -318,4 +322,313 @@ describe('Fee Schedules round-trip: ExcelJS writes it, xlsx reads it', () => {
     expect(lines[1].due_date).toBe('2027-01-31');
     // ExcelJS's first import alone runs well past the 5s default.
   }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// The export now writes a row for EVERY fee item, not only the configured few,
+// because a sheet you cannot see a row in is a sheet you cannot edit. That
+// makes two properties load-bearing: the "(ref)" columns must not change how a
+// row resolves, and an untouched export must re-import as a no-op.
+describe('Fee Schedules: the "(ref)" context columns', () => {
+  it('are part of the sheet, so export and template both write them', () => {
+    expect(SCHEDULE_HEADERS).toContain('Institution (ref)');
+    expect(SCHEDULE_HEADERS).toContain('Structure Name (ref)');
+  });
+
+  it('do not change how a row resolves', () => {
+    const withRef = resolveScheduleSheet(
+      [
+        row({
+          'Fee Structure ID': STRUCT, 'Institution (ref)': 'Test College',
+          'Structure Name (ref)': 'BE CSE — General — 2026',
+          'Fee Category': '1 Year Tuition Fee', 'Due After (Days)': 45,
+        }),
+      ],
+      lookups,
+    );
+    const withoutRef = resolveScheduleSheet(
+      [row({ 'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee', 'Due After (Days)': 45 })],
+      lookups,
+    );
+    expect(withRef.errors).toEqual([]);
+    expect(withRef.byStructure.get(STRUCT)).toEqual(withoutRef.byStructure.get(STRUCT));
+  });
+
+  it('a row carrying ONLY ref columns counts as blank, not as a broken row', () => {
+    // Otherwise a stray filtered-and-pasted context row would fail the whole
+    // batch with "Fee Structure ID is required".
+    const { errors, byStructure } = resolveScheduleSheet(
+      [row({ 'Institution (ref)': 'Test College', 'Structure Name (ref)': 'Leftover' })],
+      lookups,
+    );
+    expect(errors).toEqual([]);
+    expect(byStructure.size).toBe(0);
+  });
+});
+
+describe('Fee Schedules: an untouched export re-imports as a no-op', () => {
+  it('an unconfigured fee exports as a bare row that means "no schedule"', () => {
+    // This is the shape the export writes for each of the 946 unconfigured
+    // items. It must resolve to single/no-lines/no-dates -- i.e. exactly what
+    // that item already is -- or a straight round-trip would rewrite the world.
+    const { errors, byStructure } = resolveScheduleSheet(
+      [
+        row({
+          'Fee Structure ID': STRUCT, 'Institution (ref)': 'Test College',
+          'Structure Name (ref)': 'BE CSE — General — 2026',
+          'Fee Category': '1 Year Tuition Fee',
+        }),
+      ],
+      lookups,
+    );
+    expect(errors).toEqual([]);
+    const cfg = byStructure.get(STRUCT)![0];
+    expect(cfg.schedule_mode).toBe('single');
+    expect(cfg.lines).toEqual([]);
+    expect(cfg.due_offset_days).toBeNull();
+    expect(cfg.due_date).toBeNull();
+    expect(cfg.promotes_to_status_code).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// "Due Anchor" — the column that decides whether a due date is ever READ.
+//
+// The generation engine resolves an UNSPLIT item's date as
+//   CASE WHEN anchor = 'fixed_date' AND item.due_date IS NOT NULL THEN due_date
+//        ELSE anchor_base + offset END
+// so before this column existed, a Due Date typed into this tab was stored and
+// then silently ignored at billing time. Every test here guards that seam.
+describe('Fee Schedules: Due Anchor', () => {
+  const whole = (over: Record<string, unknown>) =>
+    row({ 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', ...over });
+
+  const only = (rows: Record<string, unknown>[]) => {
+    const { errors, byStructure } = resolveScheduleSheet(rows, lookups);
+    return { errors, cfg: byStructure.get(STRUCT)?.[0] };
+  };
+
+  it('is a real column on the sheet', () => {
+    expect(SCHEDULE_HEADERS).toContain('Due Anchor');
+  });
+
+  it('reads the label and the stored code, case- and spacing-insensitively', () => {
+    expect(normalizeDueAnchor('Academic Year Start')).toBe('academic_year_start');
+    expect(normalizeDueAnchor('academic_year_start')).toBe('academic_year_start');
+    expect(normalizeDueAnchor('  GENERATION date ')).toBe('generation_date');
+    expect(normalizeDueAnchor('')).toBeNull();
+    expect(normalizeDueAnchor('whenever')).toBe('INVALID');
+  });
+
+  it('DERIVES fixed_date from a Due Date, so the date actually reaches the bill', () => {
+    const { errors, cfg } = only([whole({ 'Due Date': '2027-01-31' })]);
+    expect(errors).toEqual([]);
+    expect(cfg!.due_anchor).toBe('fixed_date');
+    expect(cfg!.due_date).toBe('2027-01-31');
+  });
+
+  it('still derives it when the exported default "Generation Date" sits beside the date', () => {
+    // The export stamps this on all ~949 rows; it is the column default, not a
+    // choice. Erroring here would break the commonest edit the tab exists for.
+    const { errors, cfg } = only([
+      whole({ 'Due Anchor': 'Generation Date', 'Due Date': '2027-01-31' }),
+    ]);
+    expect(errors).toEqual([]);
+    expect(cfg!.due_anchor).toBe('fixed_date');
+  });
+
+  it('REJECTS a Due Date beside Academic Year Start — that one was chosen', () => {
+    const { errors } = only([
+      whole({ 'Due Anchor': 'Academic Year Start', 'Due Date': '2027-01-31' }),
+    ]);
+    expect(errors[0]).toMatch(/would never be used/);
+  });
+
+  it('rejects Fixed Date with nothing to point at', () => {
+    const { errors } = only([whole({ 'Due Anchor': 'Fixed Date' })]);
+    expect(errors[0]).toMatch(/no Due Date/);
+  });
+
+  it('carries academic_year_start through on a whole fee', () => {
+    const { errors, cfg } = only([
+      whole({ 'Due Anchor': 'Academic Year Start', 'Due After (Days)': 30 }),
+    ]);
+    expect(errors).toEqual([]);
+    expect(cfg!.due_anchor).toBe('academic_year_start');
+    expect(cfg!.due_offset_days).toBe(30);
+  });
+
+  it('OMITS the key when the column is blank, so the RPC keeps what is stored', () => {
+    const { errors, cfg } = only([whole({ 'Due After (Days)': 45 })]);
+    expect(errors).toEqual([]);
+    expect(cfg).not.toHaveProperty('due_anchor');
+  });
+
+  it('carries the anchor onto a split, where it bases every instalment offset', () => {
+    const anchored = (n: number, pct: number, days: number) =>
+      row({
+        'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee',
+        'Instalment #': n, 'Share %': pct, 'Due After (Days)': days,
+        'Due Anchor': 'Academic Year Start',
+      });
+    const { errors, byStructure } = resolveScheduleSheet(
+      [anchored(1, 40, 0), anchored(2, 60, 120)],
+      lookups,
+    );
+    expect(errors).toEqual([]);
+    expect(byStructure.get(STRUCT)![0].due_anchor).toBe('academic_year_start');
+  });
+
+  it('rejects Fixed Date on a split — the instalments carry their own dates', () => {
+    const bad = (n: number, pct: number, days: number) =>
+      row({
+        'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee',
+        'Instalment #': n, 'Share %': pct, 'Due After (Days)': days,
+        'Due Anchor': 'Fixed Date',
+      });
+    const { errors } = resolveScheduleSheet([bad(1, 50, 15), bad(2, 50, 90)], lookups);
+    expect(errors[0]).toMatch(/means nothing/);
+  });
+
+  it('rejects two different anchors on one fee — an item stores only one', () => {
+    const mixed = (n: number, pct: number, anchor: string) =>
+      row({
+        'Fee Structure ID': STRUCT, 'Fee Category': '1 Year Tuition Fee',
+        'Instalment #': n, 'Share %': pct, 'Due After (Days)': n * 30,
+        'Due Anchor': anchor,
+      });
+    const { errors } = resolveScheduleSheet(
+      [mixed(1, 50, 'Generation Date'), mixed(2, 50, 'Academic Year Start')],
+      lookups,
+    );
+    expect(errors[0]).toMatch(/more than one Due Anchor/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('Fee Schedules: "Amount (ref)" is read-only decoration', () => {
+  it('every ref header is a real column on the sheet', () => {
+    // SCHEDULE_HEADERS is now written out literally rather than spread from
+    // SCHEDULE_REF_HEADERS, so nothing but this test stops the two drifting.
+    for (const h of SCHEDULE_REF_HEADERS) expect(SCHEDULE_HEADERS).toContain(h);
+  });
+
+  it('does not change how a row resolves', () => {
+    const base = { 'Fee Structure ID': STRUCT, 'Fee Category': 'Uniform Fee', 'Due After (Days)': 45 };
+    const withAmt = resolveScheduleSheet([row({ ...base, 'Amount (ref)': 125000 })], lookups);
+    const without = resolveScheduleSheet([row(base)], lookups);
+    expect(withAmt.errors).toEqual([]);
+    expect(withAmt.byStructure.get(STRUCT)).toEqual(without.byStructure.get(STRUCT));
+  });
+
+  it('a row carrying only ref columns is still blank, not a broken row', () => {
+    const { errors, byStructure } = resolveScheduleSheet(
+      [row({ 'Institution (ref)': 'Test College', 'Amount (ref)': 999 })],
+      lookups,
+    );
+    expect(errors).toEqual([]);
+    expect(byStructure.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The full export shape, through a REAL workbook. The unit tests above hand
+// resolveScheduleSheet a hand-built object; this one writes the rows the export
+// route actually writes -- every column populated, "Due Anchor" stamped on each
+// row, "Amount (ref)" carrying rupees -- with ExcelJS, reads them back with
+// `xlsx`, and checks the result is a no-op. That is the property the whole tab
+// rests on: 949 rows get downloaded, a handful get edited, and the rest must
+// come back through unchanged.
+describe('Fee Schedules: an export-shaped workbook round-trips to a no-op', () => {
+  it('keeps unconfigured fees unconfigured and splits intact', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const XLSX = await import('xlsx');
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(FEE_SCHEDULE_SHEET_NAME);
+    ws.columns = SCHEDULE_HEADERS.map((h) => ({ header: h, key: h }));
+
+    const ref = {
+      'Fee Structure ID': STRUCT,
+      'Institution (ref)': 'Test College',
+      'Structure Name (ref)': 'BE CSE — General — 2026',
+    };
+    // An unconfigured fee, exactly as the export writes it.
+    ws.addRow({
+      ...ref, 'Fee Category': 'Uniform Fee',
+      'Instalment #': '', 'Share %': '', 'Fixed Amount': '',
+      'Amount (ref)': 12000, 'Due Anchor': 'Generation Date',
+      'Due After (Days)': '', 'Due Date': '', 'Promotes To': '',
+    });
+    // A configured 30/70 split, exactly as the export writes it.
+    ws.addRow({
+      ...ref, 'Fee Category': '1 Year Tuition Fee',
+      'Instalment #': 1, 'Share %': 30, 'Fixed Amount': '',
+      'Amount (ref)': 30000, 'Due Anchor': 'Academic Year Start',
+      'Due After (Days)': 15, 'Due Date': '', 'Promotes To': 'Reserved',
+    });
+    ws.addRow({
+      ...ref, 'Fee Category': '1 Year Tuition Fee',
+      'Instalment #': 2, 'Share %': 70, 'Fixed Amount': '',
+      'Amount (ref)': 70000, 'Due Anchor': 'Academic Year Start',
+      'Due After (Days)': 120, 'Due Date': '', 'Promotes To': '',
+    });
+
+    const read = XLSX.read(await wb.xlsx.writeBuffer(), { type: 'buffer', cellDates: true });
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+      read.Sheets[FEE_SCHEDULE_SHEET_NAME], { defval: '' },
+    );
+    // No stray "__EMPTY" keys: every header survived the two libraries.
+    for (const key of Object.keys(rows[0])) expect(SCHEDULE_HEADERS).toContain(key);
+
+    const { errors, byStructure } = resolveScheduleSheet(rows, lookups);
+    expect(errors).toEqual([]);
+
+    const configs = byStructure.get(STRUCT)!;
+    const uniform = configs.find((c) => c.billing_category_id === UNIFORM)!;
+    expect(uniform.schedule_mode).toBe('single');
+    expect(uniform.lines).toEqual([]);
+    expect(uniform.due_date).toBeNull();
+    expect(uniform.due_offset_days).toBeNull();
+    // The exported default resolves back to the default — not to fixed_date,
+    // which would be a due date invented out of an empty cell.
+    expect(uniform.due_anchor).toBe('generation_date');
+
+    const tuition = configs.find((c) => c.billing_category_id === TUITION)!;
+    expect(tuition.schedule_mode).toBe('split');
+    expect(tuition.due_anchor).toBe('academic_year_start');
+    expect(tuition.lines.map((l) => l.share_percent)).toEqual([30, 70]);
+    expect(tuition.lines.map((l) => l.due_offset_days)).toEqual([15, 120]);
+    expect(tuition.lines[0].promotes_to_status_code).toBe('reserved');
+  }, 60_000);
+});
+
+// ---------------------------------------------------------------------------
+// The template attaches its dropdowns by column LETTER. Those letters are
+// derived from the header arrays, but a derivation is only as good as the
+// arrays: inserting a header shifts every column after it, and a validation
+// pinned to the old letter lands on the wrong column WITHOUT error -- exactly
+// how the Status dropdown once ended up on Communities. These assertions fail
+// the moment a header moves, which is the only warning anyone gets.
+describe('Fee Schedules: the dropdown columns the template writes', () => {
+  it('resolves header positions to the letters the validations use', () => {
+    expect(columnLetter(0)).toBe('A');
+    expect(columnLetter(25)).toBe('Z');
+    expect(columnLetter(26)).toBe('AA');
+
+    expect(headerColumn(SCHEDULE_HEADERS, 'Fee Category')).toBe('D');
+    expect(headerColumn(SCHEDULE_HEADERS, 'Due Anchor')).toBe('I');
+    expect(headerColumn(SCHEDULE_HEADERS, 'Promotes To')).toBe('L');
+    expect(headerColumn(SCHEDULE_HEADERS, 'Not A Header')).toBeNull();
+  });
+
+  it('keeps the editable columns in the order the on-screen editor shows them', () => {
+    // Share % · Amount · Due · On payment → status. A sheet that reads
+    // left-to-right differently from the screen is a sheet people mis-fill.
+    const order = ['Share %', 'Fixed Amount', 'Amount (ref)', 'Due Anchor',
+                   'Due After (Days)', 'Due Date', 'Promotes To'];
+    const positions = order.map((h) => SCHEDULE_HEADERS.indexOf(h as any));
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(positions).not.toContain(-1);
+  });
 });
