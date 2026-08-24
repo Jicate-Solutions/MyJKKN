@@ -24,6 +24,41 @@ import type {
 } from '@/types/hr-leave-staff-balances';
 import type { LeavePeriodUsage, StoUsage } from '@/types/hr-leave-types';
 
+/**
+ * What hr_leave_type_delete() returns, for both the dry run and the commit.
+ *
+ * `blockers` is present on the refusal AND on a successful dry run — all zeros
+ * in the latter case — so the dialog can render one component either way.
+ */
+export interface HRLeaveTypeDeleteResult {
+  ok: boolean;
+  dry_run?: boolean;
+  leave_type_name?: string;
+  /** 'permission_denied' | 'not_found' | 'still_active' | 'in_use' | a SQLERRM. */
+  error?: string;
+  message?: string;
+  blockers?: {
+    applications: number;
+    encashments: number;
+    consumed_balances: number;
+    overrides: number;
+    adjustments: number;
+    superseding_types: number;
+  };
+  /** Present on a clean dry run. */
+  will_remove?: HRLeaveTypeDeleteCounts;
+  /** Present after the commit. */
+  removed?: HRLeaveTypeDeleteCounts;
+}
+
+export interface HRLeaveTypeDeleteCounts {
+  /** Generated ledger rows nobody consumed — see the migration's note. */
+  placeholder_balances: number;
+  assignments: number;
+  cadre_entitlements: number;
+  policies: number;
+}
+
 export interface GenerateBalancesFallback {
   staff_code: string;
   name: string;
@@ -130,17 +165,51 @@ export class HRLeaveTypeService {
     return data as HRLeaveType;
   }
 
-  /**
-   * Soft-archive. Hard delete is intentionally not exposed: hr_leave_balances
-   * and hr_leave_applications FK to this table, so removing a type in use
-   * would either fail or orphan history.
-   */
+  /** Soft-archive: the type stops being offered, everything else is untouched. */
   static async remove(supabase: SupabaseClient, id: string): Promise<void> {
     const { error } = await supabase
       .from('hr_leave_types')
       .update({ is_active: false })
       .eq('id', id);
     if (error) throw error;
+  }
+
+  /**
+   * Un-archive. The exact inverse of remove(), and safe for the same reason:
+   * archiving never touched a balance, an application or an assignment, so
+   * putting is_active back restores precisely what was there.
+   */
+  static async restore(supabase: SupabaseClient, id: string): Promise<void> {
+    const { error } = await supabase
+      .from('hr_leave_types')
+      .update({ is_active: true })
+      .eq('id', id);
+    if (error) throw error;
+  }
+
+  /**
+   * Hard delete, through the guarded RPC.
+   *
+   * NOT a plain .delete(): nine tables FK to hr_leave_types and they disagree
+   * about what a delete means — four block it, five CASCADE, and the cascading
+   * five include the balance-adjustment audit trail and every per-staff
+   * entitlement override. hr_leave_type_delete() decides in one transaction and
+   * names what stopped it. See 20260824220000.
+   *
+   * Call with dryRun to populate the confirmation dialog; the commit re-runs
+   * every check, so the two can never disagree.
+   */
+  static async hardDelete(
+    supabase: SupabaseClient,
+    id: string,
+    dryRun: boolean
+  ): Promise<HRLeaveTypeDeleteResult> {
+    const { data, error } = await supabase.rpc('hr_leave_type_delete', {
+      p_leave_type_id: id,
+      p_dry_run: dryRun,
+    });
+    if (error) throw error;
+    return data as HRLeaveTypeDeleteResult;
   }
 
   /**
