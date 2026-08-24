@@ -121,10 +121,21 @@ export async function getReceipts(
     query = query.ilike('payer_name', `%${filters.payer_name}%`);
   }
 
-  // Apply sorting
+  // Apply sorting. 'student_name' is a filter-UI option (receipts-filters-client.tsx)
+  // but billing_receipts has no such column — it lives on the embedded `student`
+  // (learners_profiles) relation, so it must be ordered via referencedTable rather
+  // than passed straight to .order(), which would otherwise send an unknown-column
+  // sort to PostgREST and fail the whole query.
   const sortBy = filters.sortBy || 'receipt_date';
   const sortDirection = filters.sortDirection || 'desc';
-  query = query.order(sortBy, { ascending: sortDirection === 'asc' });
+  const ascending = sortDirection === 'asc';
+  if (sortBy === 'student_name') {
+    query = query
+      .order('first_name', { referencedTable: 'student', ascending })
+      .order('last_name', { referencedTable: 'student', ascending });
+  } else {
+    query = query.order(sortBy, { ascending });
+  }
 
   // Apply pagination
   const page = filters.page || 1;
