@@ -10,6 +10,18 @@
  * Times are sent as plain HH:MM strings to a `time without time zone` column.
  * Deliberately not composed into a Date and serialised: that round-trip pushes
  * the value through the local offset and lands 5h30m out in IST.
+ *
+ * THE FORM IS BOUNDED BY THE SHIFT (2026-08-21). Picking the date resolves that
+ * day's window through fn_shift_window and:
+ *   - seeds Start Time with the GRACE DEADLINE (first_half_start + grace), the
+ *     minute from which lateness is counted and therefore the one a permission
+ *     is usually raised to cover;
+ *   - clamps both inputs to [first_half_start, second_half_end], since time off
+ *     outside the shift is time that was never owed;
+ *   - refuses a slot that overlaps a request already live for that date.
+ * The last of the three is ALSO enforced by hr_trig_sto_enforce_limits. This
+ * copy exists to say so while choosing rather than after Submit, and is not the
+ * enforcement point.
  */
 
 import { useMemo, useState } from 'react';
@@ -23,21 +35,46 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { useApplyLeave } from '@/hooks/hr/use-leave';
+import { useApplyLeave, useMyRequestsOnDate } from '@/hooks/hr/use-leave';
+import { useShiftWindow } from '@/hooks/hr/use-shift-timings';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useStoUsage } from '@/hooks/hr/use-hr-leave-types';
 import { formatMinutes, STO_LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { formatHours } from './format';
 
-/** Minutes since midnight, or null when unparseable. */
-function toMinutes(hhmm: string): number | null {
-  const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
+/** Minutes since midnight, or null when unparseable. Accepts HH:MM and HH:MM:SS. */
+function toMinutes(hhmm: string | null | undefined): number | null {
+  if (!hhmm) return null;
+  const m = /^(\d{2}):(\d{2})/.exec(hhmm);
   if (!m) return null;
   return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** Minutes since midnight back to the `HH:MM` an <input type="time"> expects. */
+function toHHMM(mins: number): string {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+
+const clock = (t: string | null | undefined) => (t ? t.slice(0, 5) : '—');
+
+/** Consumed share of the allowance, clamped — an over-drawn period is still 100%. */
+function pct(used: number, total: number): number {
+  if (!total || total <= 0) return 0;
+  return Math.min(100, Math.round((used / total) * 100));
+}
+
+function Figure({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className={strong ? 'text-base font-semibold' : 'text-sm font-medium'}>{value}</p>
+    </div>
+  );
 }
 
 export function ApplyShortTimeOffDrawer({
@@ -89,6 +126,58 @@ export function ApplyShortTimeOffDrawer({
   // before the query resolves.
   const usageResolved = usage !== undefined;
 
+  // ---- the shift window bounds the whole form ------------------------------
+  const { data: shift, isLoading: shiftLoading } = useShiftWindow(
+    ctx.employeeId || undefined,
+    date || undefined,
+  );
+
+  const shiftOpen = toMinutes(shift?.first_half_start);
+  const shiftClose = toMinutes(shift?.second_half_end);
+  const graceDeadline =
+    shiftOpen === null ? null : shiftOpen + (shift?.grace_minutes ?? 0);
+  const nonWorkingDay = !!date && !!shift && shift.is_working_day === false;
+  const noShift = !!date && !shiftLoading && !shift;
+
+  // Seed Start Time from the grace deadline, once per date. Adjusting state
+  // during render rather than in an effect: an effect would paint an empty
+  // field first and then overwrite whatever the user typed in between.
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (date && graceDeadline !== null && !nonWorkingDay && seededFor !== date) {
+    setSeededFor(date);
+    setStartTime(toHHMM(graceDeadline));
+    setEndTime('');
+  }
+  if (!date && seededFor !== null) setSeededFor(null);
+
+  // ---- clashes with what is already live on that date ----------------------
+  const { data: sameDay } = useMyRequestsOnDate(ctx.employeeId || undefined, date || undefined);
+
+  const clash = useMemo(() => {
+    const s = toMinutes(startTime);
+    const e = toMinutes(endTime);
+    if (s === null || e === null || e <= s) return null;
+    return (sameDay ?? []).find((a) => {
+      if ((a.hr_leave_types?.request_category ?? 'leave') !== 'short_time_off') return false;
+      if (!['pending', 'approved', 'escalated'].includes(a.status)) return false;
+      const as = toMinutes(a.start_time);
+      const ae = toMinutes(a.end_time);
+      if (as === null || ae === null) return false;
+      // Half-open: 09:00-09:30 then 09:30-10:00 are adjacent, not overlapping.
+      return as < e && s < ae;
+    }) ?? null;
+  }, [sameDay, startTime, endTime]);
+
+  const outsideShift = (() => {
+    if (shiftOpen === null || shiftClose === null) return null;
+    const s = toMinutes(startTime);
+    const e = toMinutes(endTime);
+    if (s !== null && s < shiftOpen) return `Start time is before the shift begins at ${clock(shift?.first_half_start)}.`;
+    if (e !== null && e > shiftClose) return `End time is after the shift ends at ${clock(shift?.second_half_end)}.`;
+    if (s !== null && s >= shiftClose) return `Start time is after the shift ends at ${clock(shift?.second_half_end)}.`;
+    return null;
+  })();
+
   const totalHours = useMemo(() => {
     const s = toMinutes(startTime);
     const e = toMinutes(endTime);
@@ -132,13 +221,14 @@ export function ApplyShortTimeOffDrawer({
 
   const reset = () => {
     setLeaveTypeId(''); setDate(''); setStartTime(''); setEndTime('');
-    setReason(''); setError(null);
+    setReason(''); setError(null); setSeededFor(null);
   };
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId && !!date &&
     !!startTime && !!endTime && totalHours !== null && !!reason.trim() &&
-    !notHourly && !limitError && !mutation.isPending;
+    !notHourly && !limitError && !mutation.isPending &&
+    !clash && !outsideShift && !nonWorkingDay && !noShift;
 
   const submit = async () => {
     setError(null);
@@ -207,26 +297,74 @@ export function ApplyShortTimeOffDrawer({
                   </SelectContent>
                 </Select>
                 {limited && usage ? (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
+                  // The allowance used to be one line of muted 12px text under
+                  // the dropdown and was routinely missed. It is the single most
+                  // useful number on this form — a request that exceeds it is
+                  // refused by hr_trig_sto_enforce_limits — so it gets a card.
+                  <div className="mt-2 rounded-md border bg-muted/30 p-3">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">
+                        Your allowance ·{' '}
+                        {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                      </span>
+                      {usage.period_start && usage.period_end && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {new Date(`${usage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
+                          {new Date(`${usage.period_end}T00:00:00`).toLocaleDateString('en-GB')}
+                        </span>
+                      )}
+                    </div>
+
                     {usage.limit_mode === 'request_count' ? (
                       <>
-                        <strong>{usage.requests_left}</strong> of {usage.max_requests} request(s)
-                        left {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                          <Figure label="Allowed" value={`${usage.max_requests ?? 0}`} />
+                          <Figure label="Used" value={`${usage.requests_used ?? 0}`} />
+                          <Figure label="Left" value={`${usage.requests_left ?? 0}`} strong />
+                        </div>
+                        <Progress
+                          className="mt-2 h-1.5"
+                          value={pct(usage.requests_used ?? 0, usage.max_requests ?? 0)}
+                        />
+                        <p className="mt-1 text-[11px] text-muted-foreground">request(s)</p>
                       </>
                     ) : (
                       <>
-                        <strong>{formatMinutes(usage.minutes_left)}</strong> of{' '}
-                        {formatMinutes(usage.total_minutes)} left{' '}
-                        {STO_LIMIT_PERIOD_LABELS[usage.limit_period ?? 'month'].toLowerCase()}
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+                          <Figure label="Allowance" value={formatMinutes(usage.total_minutes)} />
+                          <Figure label="Used" value={formatMinutes(usage.minutes_used ?? 0)} />
+                          <Figure label="Remaining" value={formatMinutes(usage.minutes_left)} strong />
+                        </div>
+                        <Progress
+                          className="mt-2 h-1.5"
+                          value={pct(usage.minutes_used ?? 0, usage.total_minutes ?? 0)}
+                        />
                       </>
                     )}
-                    {usage.period_start && usage.period_end && (
-                      <span className="block">
-                        Period {new Date(`${usage.period_start}T00:00:00`).toLocaleDateString('en-GB')} –{' '}
-                        {new Date(`${usage.period_end}T00:00:00`).toLocaleDateString('en-GB')}
-                      </span>
+
+                    {/* What this particular request would leave behind. */}
+                    {requestMinutes !== null && usage.limit_mode === 'total_duration' && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This request is <strong>{formatMinutes(requestMinutes)}</strong> —{' '}
+                        {requestMinutes > (usage.minutes_left ?? 0) ? (
+                          <span className="text-destructive">
+                            {formatMinutes(requestMinutes - (usage.minutes_left ?? 0))} more than you have left.
+                          </span>
+                        ) : (
+                          <>
+                            <strong>{formatMinutes((usage.minutes_left ?? 0) - requestMinutes)}</strong>{' '}
+                            would remain.
+                          </>
+                        )}
+                      </p>
                     )}
-                  </p>
+                    {requestMinutes !== null && usage.limit_mode === 'request_count' && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        This request is <strong>{formatMinutes(requestMinutes)}</strong>; it uses one
+                        of your {usage.max_requests} request(s).
+                      </p>
+                    )}
+                  </div>
                 ) : windowUnresolved ? (
                   // Distinct from "no limit": the database refuses these, so
                   // saying "unlimited" here is the lie the window check exists
@@ -253,15 +391,31 @@ export function ApplyShortTimeOffDrawer({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label htmlFor="stoStart">Start Time <span className="text-destructive">*</span></Label>
+                  {/* min/max narrow the picker; outsideShift still checks, because
+                      a browser will happily accept a typed out-of-range value. */}
                   <Input id="stoStart" type="time" className="mt-1" value={startTime}
+                    min={shift?.first_half_start?.slice(0, 5)}
+                    max={shift?.second_half_end?.slice(0, 5)}
+                    disabled={!date || nonWorkingDay || noShift}
                     onChange={(e) => setStartTime(e.target.value)} />
                 </div>
                 <div>
                   <Label htmlFor="stoEnd">End Time <span className="text-destructive">*</span></Label>
                   <Input id="stoEnd" type="time" className="mt-1" value={endTime}
+                    min={startTime || shift?.first_half_start?.slice(0, 5)}
+                    max={shift?.second_half_end?.slice(0, 5)}
+                    disabled={!date || nonWorkingDay || noShift}
                     onChange={(e) => setEndTime(e.target.value)} />
                 </div>
               </div>
+
+              {shift && shift.is_working_day && (
+                <p className="text-xs text-muted-foreground">
+                  Shift {clock(shift.first_half_start)}–{clock(shift.second_half_end)}
+                  {shift.grace_minutes ? ` · ${shift.grace_minutes} min grace, so lateness counts from ${graceDeadline !== null ? toHHMM(graceDeadline) : '—'}` : ''}
+                  . A request must sit inside the shift.
+                </p>
+              )}
 
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
                 Total Hours{' '}
@@ -274,6 +428,44 @@ export function ApplyShortTimeOffDrawer({
                   <AlertDescription>
                     {selected?.leave_type_name} is not configured for hourly requests.
                     Ask HR to enable hourly duration on this leave type.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {nonWorkingDay && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    That date is not a working day for you, so there is no shift to take
+                    time off from.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {noShift && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    No shift timing is configured for you on that date, so the allowed
+                    hours cannot be determined. Contact HR.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {outsideShift && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{outsideShift}</AlertDescription>
+                </Alert>
+              )}
+
+              {clash && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    You have already applied for {clock(clash.start_time)}–{clock(clash.end_time)} on
+                    this date ({clash.hr_leave_types?.leave_type_name ?? 'a request'}, {clash.status}).
+                    Choose a different time, or cancel that request first.
                   </AlertDescription>
                 </Alert>
               )}

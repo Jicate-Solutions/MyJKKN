@@ -15,7 +15,11 @@ import { cookies } from 'next/headers';
 import * as XLSX from 'xlsx';
 import {
   FEE_STRUCTURE_SHEET_NAME,
+  FEE_SCHEDULE_SHEET_NAME,
+  detectSheetLayout,
   resolveRow,
+  resolveScheduleSheet,
+  resolveUnifiedSheet,
   type RowResolution,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
 import { loadBulkResolveLookups } from '@/lib/services/admission/fee-structure-bulk-lookups';
@@ -71,14 +75,68 @@ export async function POST(req: NextRequest) {
     if (!ws) return NextResponse.json({ error: `Sheet "${FEE_STRUCTURE_SHEET_NAME}" not found` }, { status: 400 });
     const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
 
+    // WHICH LAYOUT. Decided from the header row, never the tab name — both
+    // layouts call the sheet "Fee Structures", and reading one as the other
+    // would not fail loudly, it would import a coherent-looking wrong answer.
+    // Read from row 1 directly so a sheet with headers but no data rows is
+    // still classified correctly.
+    const headerRow =
+      XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, blankrows: false })[0] ?? [];
+    const layout = detectSheetLayout(headerRow);
+
     const lookups = await loadBulkResolveLookups(supabase);
 
-    // Resolve every non-blank row up front (no DB writes yet).
-    const resolutions: RowResolution[] = [];
-    for (let i = 0; i < rawRows.length; i++) {
-      const raw = rawRows[i];
-      if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
-      resolutions.push(resolveRow(raw, i + 2, lookups)); // header = row 1
+    let resolutions: RowResolution[] = [];
+    let scheduleSummary: { structures: number; items: number } | null = null;
+    // Sheet-level problems that belong to no single structure row.
+    let sheetErrors: string[] = [];
+
+    if (layout === 'unified') {
+      // ── One tab: structures, fees and instalments in one grain ──────────
+      const unified = resolveUnifiedSheet(rawRows, lookups);
+      resolutions = unified.resolutions;
+      scheduleSummary = {
+        structures: resolutions.filter((r) => r.payload).length,
+        items: unified.itemCount,
+      };
+    } else {
+      // ── LEGACY two-tab workbook, still in circulation ────────────────────
+      // A workbook WITHOUT the schedules tab is not an error: it is an older
+      // export, and the RPC preserves every schedule when the payload omits the
+      // key. Only a present-but-broken tab stops the import.
+      const schedWs = wb.Sheets[FEE_SCHEDULE_SHEET_NAME];
+      const schedules = schedWs
+        ? resolveScheduleSheet(
+            XLSX.utils.sheet_to_json<Record<string, unknown>>(schedWs, { defval: '' }),
+            lookups,
+          )
+        : null;
+
+      for (let i = 0; i < rawRows.length; i++) {
+        const raw = rawRows[i];
+        if (Object.values(raw).every((v) => String(v ?? '').trim() === '')) continue; // skip blank rows
+        const res = resolveRow(raw, i + 2, lookups); // header = row 1
+
+        // Attach this structure's schedules, if the sheet carried any. The key
+        // is set ONLY when the tab exists — its absence is what tells the RPC to
+        // preserve what is already configured rather than clear it.
+        if (schedules && res.payload) {
+          const forStructure = res.payload.structure_id
+            ? schedules.byStructure.get(res.payload.structure_id)
+            : undefined;
+          if (forStructure) res.payload.item_schedules = forStructure;
+        }
+
+        resolutions.push(res);
+      }
+
+      if (schedules) {
+        sheetErrors = schedules.errors;
+        scheduleSummary = {
+          structures: schedules.byStructure.size,
+          items: [...schedules.byStructure.values()].reduce((n, list) => n + list.length, 0),
+        };
+      }
     }
 
     if (resolutions.length === 0) {
@@ -87,9 +145,27 @@ export async function POST(req: NextRequest) {
 
     const preview = buildPreview(resolutions);
 
+    // Sheet-level problems block the batch exactly like row problems do. They
+    // are reported as their own entries rather than folded into a structure
+    // row: they already name their own row number, and attributing them to the
+    // wrong structure is worse than an extra line in the list.
+    if (sheetErrors.length > 0) {
+      preview.rows.push(
+        ...sheetErrors.map((message) => ({
+          row: 0,
+          name: FEE_SCHEDULE_SHEET_NAME,
+          action: 'error' as const,
+          errors: [message],
+        })),
+      );
+      preview.summary.errorRows += sheetErrors.length;
+      preview.summary.total += sheetErrors.length;
+      preview.canApply = false;
+    }
+
     // ---- Validate (dry-run): return the preview, write nothing. ----
     if (mode === 'validate') {
-      return NextResponse.json({ mode: 'validate', ...preview });
+      return NextResponse.json({ mode: 'validate', layout, ...preview, scheduleSummary });
     }
 
     // ---- Apply: block-until-all-clear. Refuse the whole batch on any error. ----
@@ -98,7 +174,9 @@ export async function POST(req: NextRequest) {
         {
           mode: 'apply-blocked',
           error: `${preview.summary.errorRows} row(s) still have errors. Fix them and re-upload — nothing was changed.`,
+          layout,
           ...preview,
+          scheduleSummary,
         },
         { status: 422 },
       );

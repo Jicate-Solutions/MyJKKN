@@ -17,6 +17,7 @@ import {
   ShiftTimingService,
   type GetWeekParams,
   type SaveWeekParams,
+  type ShiftWindow,
 } from '@/lib/services/hr/shift-timing-service';
 import {
   recomputeAttendance,
@@ -60,6 +61,26 @@ export function useShiftTimingCoverage(institutionId: string | null, date?: stri
 }
 
 /** Employment categories for the override picker. Global list; rarely changes. */
+/**
+ * The shift window in force for one staff member on one date.
+ *
+ * fn_shift_window, not fn_resolve_shift_timing: the latter refuses anyone
+ * without hr.shift_timings.view, and an ordinary member of staff filling in a
+ * permission form holds none of the four permissions it demands. The open
+ * variant returns a working-hours calendar and nothing about the person.
+ */
+export function useShiftWindow(staffId: string | undefined, date: string | undefined) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [KEY, 'window', staffId, date],
+    queryFn: (): Promise<ShiftWindow | null> =>
+      ShiftTimingService.window(supabase, staffId!, date!),
+    enabled: Boolean(staffId) && Boolean(date),
+    // A shift pattern does not change while a form is open.
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useEmploymentCategories() {
   const supabase = createClientSupabaseClient();
   return useQuery({

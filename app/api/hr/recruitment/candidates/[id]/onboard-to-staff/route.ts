@@ -8,6 +8,7 @@ import type { CookieOptions } from '@supabase/ssr';
 import { RecruitmentService } from '@/lib/services/hr/recruitment-service';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { OnboardToStaffPayload } from '@/types/hr-recruitment';
+import { normalizeStaffName } from '@/lib/utils/staff-name';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -157,8 +158,11 @@ export async function POST(
     const { data: staff, error: staffErr } = await admin
       .from('staff')
       .insert({
-        first_name: body.first_name.trim(),
-        last_name: body.last_name.trim(),
+        // Canonical staff name (UPPERCASE, trimmed, single-spaced) — matches
+        // what trg_normalize_staff_names would store anyway, but doing it here
+        // keeps the value returned to the caller consistent with the row.
+        first_name: normalizeStaffName(body.first_name),
+        last_name: normalizeStaffName(body.last_name),
         gender: body.gender,
         date_of_birth: body.date_of_birth,
         marital_status: body.marital_status,

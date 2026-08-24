@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Loader2, UploadCloud, CheckCircle2, AlertTriangle, FileSpreadsheet, ArrowLeft, ListChecks,
+  CalendarClock,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -31,6 +32,17 @@ interface Preview {
   summary: { total: number; toCreate: number; toUpdate: number; errorRows: number; valid: number };
   rows: PreviewRow[];
   canApply: boolean;
+  /**
+   * 'unified' = the current one-tab layout, where every row carries its fee and
+   * its instalment. 'legacy' = a workbook from before that, with a separate
+   * "Fee Schedules" tab. The server decides from the header row; the banner has
+   * to say something different for each, because on the unified sheet the
+   * schedules are never "missing" — they are the rows themselves.
+   */
+  layout?: 'unified' | 'legacy';
+  // On a legacy workbook, null means it carried no "Fee Schedules" tab at all.
+  // Distinct from a tab that is present but empty.
+  scheduleSummary: { structures: number; items: number } | null;
 }
 
 interface ApplyResult {
@@ -133,7 +145,9 @@ export function BulkFeeStructureDialog({
           <DialogTitle>Bulk Import Fee Structures</DialogTitle>
           <DialogDescription>
             Upload a filled template (or an edited export), preview what will change, then apply.
-            Rows with a blank <strong>Fee Structure ID</strong> are created; rows with an ID are updated.
+            One row = one instalment, so a structure spans several rows; they are grouped by{' '}
+            <strong>Fee Structure ID</strong>. A structure with a blank ID is created, one with an ID is
+            updated. The list below shows one entry per structure, at its first row.
           </DialogDescription>
         </DialogHeader>
 
@@ -189,6 +203,56 @@ export function BulkFeeStructureDialog({
               {s.errorRows > 0
                 ? <Badge variant="outline" className="border-destructive/40 bg-destructive/10 text-destructive">{s.errorRows} error</Badge>
                 : <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-700">0 errors</Badge>}
+            </div>
+
+            {/* Schedules are the one change a row-by-row preview cannot show:
+                they live on a second tab and rewrite due dates and status
+                rules. Silence here reads exactly like "the tab was ignored",
+                so say either way, every time. */}
+            <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
+              <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
+              {preview!.layout === 'unified' ? (
+                <span>
+                  <strong className="text-foreground">
+                    {preview!.scheduleSummary?.items ?? 0} fee
+                    {(preview!.scheduleSummary?.items ?? 0) === 1 ? '' : 's'}
+                  </strong>{' '}
+                  across{' '}
+                  <strong className="text-foreground">
+                    {preview!.scheduleSummary?.structures ?? 0} structure
+                    {(preview!.scheduleSummary?.structures ?? 0) === 1 ? '' : 's'}
+                  </strong>{' '}
+                  will be written exactly as this sheet lists them — amounts, instalments, due dates and
+                  status rules. A fee whose row you deleted is <strong className="text-foreground">removed</strong>{' '}
+                  from its structure.
+                </span>
+              ) : preview!.scheduleSummary ? (
+                preview!.scheduleSummary.items > 0 ? (
+                  <span>
+                    <strong className="text-foreground">
+                      {preview!.scheduleSummary.items} fee{preview!.scheduleSummary.items === 1 ? '' : 's'}
+                    </strong>{' '}
+                    across{' '}
+                    <strong className="text-foreground">
+                      {preview!.scheduleSummary.structures} structure
+                      {preview!.scheduleSummary.structures === 1 ? '' : 's'}
+                    </strong>{' '}
+                    will have their instalments, due dates and status rules replaced from the{' '}
+                    <strong className="text-foreground">Fee Schedules</strong> tab. Fees not listed there keep
+                    what they have now.
+                  </span>
+                ) : (
+                  <span>
+                    The <strong className="text-foreground">Fee Schedules</strong> tab is empty — every existing
+                    instalment plan and due date is left untouched.
+                  </span>
+                )
+              ) : (
+                <span>
+                  This is an older single-sheet workbook with no instalment columns, so instalments and due
+                  dates are left untouched. To edit them, download a fresh Export for Edit.
+                </span>
+              )}
             </div>
 
             {s.errorRows > 0 && (

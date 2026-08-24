@@ -6,6 +6,7 @@ import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import type { CookieOptions } from '@supabase/ssr';
 import { LeaveService } from '@/lib/services/hr/leave-service';
+import { recomputeForShortTimeOff } from '@/lib/hr/attendance/recompute-day';
 
 async function getClient() {
   const cookieStore = await cookies();
@@ -38,6 +39,13 @@ export async function POST(
     if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const updated = await LeaveService.withdrawApplication(supabase, id, user.id);
+
+    // A permission's approval state changes which halves it excuses, so the day
+    // is re-judged through the same evaluator the importer uses. Awaited, not
+    // fire-and-forget: the client refetches attendance right after this returns,
+    // and a background write would land after that read.
+    await recomputeForShortTimeOff(updated);
+
     return NextResponse.json({ data: updated });
   } catch (err) {
     console.error('[hr/leave/applications/:id/withdraw] error', err);

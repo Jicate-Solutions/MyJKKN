@@ -41,6 +41,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { CategoryService } from '@/lib/services/staff/category-service';
 import { StaffService } from '@/lib/services/staff/staff-service';
+import { normalizeStaffName } from '@/lib/utils/staff-name';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { DepartmentService } from '@/lib/services/organization/department-service';
 import { RoleService } from '@/lib/services/roles/role-service';
@@ -547,7 +548,17 @@ export default function BulkUploadStaff() {
 
       // Validate each row
       const validatedData = await Promise.all(
-        jsonData.map(async (row: any, index) => {
+        jsonData.map(async (rawRow: any, index) => {
+          // Canonicalise names BEFORE validation and preview so the operator
+          // sees exactly what will be stored. The DB normalises regardless
+          // (trg_normalize_staff_names), so without this the preview would
+          // show "Anil Kumar " and the saved record "ANIL KUMAR" — a silent
+          // mismatch the user only discovers after importing.
+          const row: any = {
+            ...rawRow,
+            first_name: normalizeStaffName(rawRow.first_name),
+            last_name: normalizeStaffName(rawRow.last_name),
+          };
           const validation = await validateRow(
             row,
             categoryNames,

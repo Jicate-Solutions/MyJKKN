@@ -9065,13 +9065,14 @@ CREATE POLICY course_events_update ON public.course_events
         AND public.role_has_institution_access(institution_id))
   );
 
+-- Super admin ONLY, deliberately narrower than courses.delete. Deleting a course
+-- cascades through enrollments, bills and payments (see fn_course_delete_cascade
+-- in 02_functions.sql), so it is not delegated by permission key. courses.delete
+-- is kept in the catalog for the audit gate and to make re-delegation a one-line
+-- change here, but it no longer grants deletion.
 CREATE POLICY course_events_delete ON public.course_events
   FOR DELETE TO authenticated
-  USING (
-    (SELECT public.is_super_admin())
-    OR ((SELECT public.user_has_permission('courses.delete'))
-        AND public.role_has_institution_access(institution_id))
-  );
+  USING ((SELECT public.is_super_admin()));
 
 -- Packages and installments: read follows courses.view, write follows
 -- courses.packages.manage. Installments have no institution_id of their
@@ -9469,3 +9470,313 @@ CREATE POLICY hostel_room_buyout_consents_select ON public.hostel_room_buyout_co
         AND public.fn_settle_can_manage(b.room_id, 'campus_living.fees.view')
     )
   )
+
+-- ===========================================================================
+-- Comp off — claimant may withdraw their own PENDING claim
+-- Mirrored from supabase/migrations/20260821140000_withdraw_own_pending_comp_off_claim.sql
+-- ===========================================================================
+-- HR Compensatory Off — let the claimant withdraw their own PENDING claim.
+--
+-- THE GAP
+-- -------
+-- A claim is raised as status='pending' and then only HR can touch it:
+--
+--   hcoc_update USING (is_super_admin()
+--                      OR (hr.leave.approve AND hr_organization_id IN fn_my_hr_organization_ids()))
+--
+-- So a member of staff who claimed the wrong worked day had no way to take it
+-- back — they had to ask an approver to reject it, which records a rejection
+-- against them for their own clerical slip. Leave and short time off already
+-- have this: hla_update admits `employee_id IN fn_my_staff_ids()`, which is how
+-- withdrawApplication() works today.
+--
+-- TWO CHANGES, BOTH NARROW
+--
+-- 1. 'withdrawn' joins the status CHECK. Not 'cancelled': leave already uses
+--    withdrawn for "the applicant took it back before a decision" and cancelled
+--    for "an approved one was undone afterwards". Reusing the same word for the
+--    same act keeps one vocabulary across the module.
+--
+-- 2. An ADDITIVE policy, not an edit to hcoc_update. Policies for the same
+--    command are OR'd, so widening the existing one would also loosen what an
+--    approver may do. This one grants exactly: my own claim, currently pending,
+--    becoming withdrawn — and nothing else. The WITH CHECK is what pins the new
+--    value; USING alone would let the owner set any status they liked.
+--
+-- A withdrawn claim is NOT deleted. The row is the only record that the day was
+-- ever claimed, and an expiring credit window is worth being able to audit.
+
+ALTER TABLE public.hr_comp_off_credits
+  DROP CONSTRAINT IF EXISTS hr_comp_off_credits_status_check;
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD CONSTRAINT hr_comp_off_credits_status_check
+  CHECK (status::text = ANY (ARRAY[
+    'pending'::text, 'approved'::text, 'rejected'::text,
+    'consumed'::text, 'withdrawn'::text
+  ]));
+
+DROP POLICY IF EXISTS hcoc_withdraw_own_pending ON public.hr_comp_off_credits;
+CREATE POLICY hcoc_withdraw_own_pending ON public.hr_comp_off_credits
+  FOR UPDATE
+  USING (
+    employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+    AND status = 'pending'
+  )
+  WITH CHECK (
+    employee_id IN (SELECT unnest(public.fn_my_staff_ids()))
+    AND status = 'withdrawn'
+  );
+
+COMMENT ON POLICY hcoc_withdraw_own_pending ON public.hr_comp_off_credits IS
+  'The claimant may take back their own claim while it is still pending. USING pins the old status, WITH CHECK pins the new one, so this grants withdrawal and nothing else.';
+
+-- ============================================================================
+-- 2026-08-21 — admission_fee_structure_item_schedules
+-- Applied by: 20260821180000_fee_structure_item_schedules.sql
+-- ============================================================================
+-- NO new permission keys. The schedule is a child of a fee structure item, so
+-- it inherits admission_fees.read / admission_fees.manage through the same
+-- nested-EXISTS shape fee_structure_items_read/_write already use, one level
+-- deeper. Those keys are already granted to 7 roles, so this ships reachable
+-- rather than declaring a key no role holds.
+
+ALTER TABLE public.admission_fee_structure_item_schedules ENABLE ROW LEVEL SECURITY;
+
+-- Supabase default privileges hand anon (holder of the publishable key embedded
+-- in every bundle) ALL on a new table.
+REVOKE ALL ON TABLE public.admission_fee_structure_item_schedules FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE
+  ON TABLE public.admission_fee_structure_item_schedules TO authenticated;
+GRANT ALL ON TABLE public.admission_fee_structure_item_schedules TO service_role;
+
+DROP POLICY IF EXISTS "fee_structure_item_schedules_read"
+  ON public.admission_fee_structure_item_schedules;
+CREATE POLICY "fee_structure_item_schedules_read"
+ON public.admission_fee_structure_item_schedules
+FOR SELECT USING (
+  EXISTS (
+    SELECT 1
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.admission_fee_structures fs ON fs.id = fsi.fee_structure_id
+     WHERE fsi.id = admission_fee_structure_item_schedules.fee_structure_item_id
+       AND (SELECT public.user_has_permission('admission_fees.read'))
+       AND public.role_has_institution_access(fs.institution_id)
+  )
+);
+
+DROP POLICY IF EXISTS "fee_structure_item_schedules_write"
+  ON public.admission_fee_structure_item_schedules;
+CREATE POLICY "fee_structure_item_schedules_write"
+ON public.admission_fee_structure_item_schedules
+FOR ALL USING (
+  EXISTS (
+    SELECT 1
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.admission_fee_structures fs ON fs.id = fsi.fee_structure_id
+     WHERE fsi.id = admission_fee_structure_item_schedules.fee_structure_item_id
+       AND (SELECT public.user_has_permission('admission_fees.manage'))
+       AND public.role_has_institution_access(fs.institution_id)
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1
+      FROM public.admission_fee_structure_items fsi
+      JOIN public.admission_fee_structures fs ON fs.id = fsi.fee_structure_id
+     WHERE fsi.id = admission_fee_structure_item_schedules.fee_structure_item_id
+       AND (SELECT public.user_has_permission('admission_fees.manage'))
+       AND public.role_has_institution_access(fs.institution_id)
+  )
+);
+
+-- ===========================================================================
+-- hr_staff_salaries (2026-08-21)
+-- Source: 20260821191000_hr_staff_salaries.sql
+-- ===========================================================================
+-- Deliberately NOT reusing hr.payroll.institution.*: those say who may see
+-- which organisation pays someone. Seeing the AMOUNT is a different decision.
+ALTER TABLE public.hr_staff_salaries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_staff_salaries_service_role ON public.hr_staff_salaries;
+CREATE POLICY hr_staff_salaries_service_role ON public.hr_staff_salaries
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS hr_staff_salaries_select ON public.hr_staff_salaries;
+CREATE POLICY hr_staff_salaries_select ON public.hr_staff_salaries
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.view'))
+    -- Your own salary. Reading your own pay needs no HR permission, and a
+    -- payslip screen would otherwise be unbuildable for ordinary staff.
+    OR staff_id IN (SELECT unnest(public.fn_my_staff_ids()))
+  );
+
+DROP POLICY IF EXISTS hr_staff_salaries_write ON public.hr_staff_salaries;
+CREATE POLICY hr_staff_salaries_write ON public.hr_staff_salaries
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.salary.manage'))
+  );
+
+-- ===========================================================================
+-- hr_staff_bank_accounts (2026-08-21)
+-- Source: 20260821240000_hr_staff_bank_accounts.sql
+-- ===========================================================================
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+-- NOTE THE DIFFERENCE FROM hr_staff_salaries: there is no "read your own row"
+-- clause. The salary table has one because a payslip screen would otherwise be
+-- unbuildable for ordinary staff. No such screen exists for bank accounts, and
+-- opening the read path before there is something to read it widens the blast
+-- radius for nothing.
+ALTER TABLE public.hr_staff_bank_accounts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_staff_bank_accounts_service_role ON public.hr_staff_bank_accounts;
+CREATE POLICY hr_staff_bank_accounts_service_role ON public.hr_staff_bank_accounts
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS hr_staff_bank_accounts_select ON public.hr_staff_bank_accounts;
+CREATE POLICY hr_staff_bank_accounts_select ON public.hr_staff_bank_accounts
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.bank.view'))
+  );
+
+DROP POLICY IF EXISTS hr_staff_bank_accounts_write ON public.hr_staff_bank_accounts;
+CREATE POLICY hr_staff_bank_accounts_write ON public.hr_staff_bank_accounts
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.bank.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.payroll.bank.manage'))
+  );
+
+COMMENT ON TABLE public.hr_staff_bank_accounts IS
+  'Payment destination for a staff member. One current account per person, superseded rather than updated so a changed account number leaves a trail.';
+COMMENT ON COLUMN public.hr_staff_bank_accounts.account_holder_name IS
+  'The name AS THE BANK HOLDS IT, which often differs from the HR record. A transfer is rejected on a name mismatch.';
+COMMENT ON COLUMN public.hr_staff_bank_accounts.verified_at IS
+  'Somebody checked this against a passbook or cancelled cheque. A wrong account number does not error -- it pays the wrong person.';
+
+
+-- ============================================================================
+-- 2026-08-22 — billing_bill_instalments
+-- Applied by: 20260822090000_billing_bill_instalments.sql
+-- ============================================================================
+-- The SELECT policy is a bare EXISTS against the parent, deliberately: bills
+-- carry SEVEN policies (admin permissions, two institution-scoped paths, two
+-- learner self-view linkages) and Postgres applies the parent's RLS inside this
+-- subquery. Restating any of it here would create a second copy free to drift.
+--
+-- Writes are NOT inherited that way — a learner can SELECT their own bill and
+-- must not be able to rewrite its schedule — so they gate on bill-edit rights.
+
+ALTER TABLE public.billing_bill_instalments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.billing_bill_instalments FROM anon, PUBLIC;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.billing_bill_instalments TO authenticated;
+GRANT ALL ON TABLE public.billing_bill_instalments TO service_role;
+
+DROP POLICY IF EXISTS "bill_instalments_select" ON public.billing_bill_instalments;
+CREATE POLICY "bill_instalments_select" ON public.billing_bill_instalments
+FOR SELECT USING (
+  EXISTS (SELECT 1 FROM public.billing_student_bills b
+           WHERE b.id = billing_bill_instalments.bill_id)
+);
+
+DROP POLICY IF EXISTS "bill_instalments_write" ON public.billing_bill_instalments;
+CREATE POLICY "bill_instalments_write" ON public.billing_bill_instalments
+FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.billing_student_bills b
+    WHERE b.id = billing_bill_instalments.bill_id
+      AND ((SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+        OR (public.role_has_institution_access(b.institution_id)
+            AND ((SELECT public.user_has_permission('billing.bills.edit'))
+              OR (SELECT public.user_has_permission('billing.schedule.update')))))
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM public.billing_student_bills b
+    WHERE b.id = billing_bill_instalments.bill_id
+      AND ((SELECT public.is_super_admin()) OR (SELECT public.is_admin())
+        OR (public.role_has_institution_access(b.institution_id)
+            AND ((SELECT public.user_has_permission('billing.bills.create'))
+              OR (SELECT public.user_has_permission('billing.bills.edit'))
+              OR (SELECT public.user_has_permission('billing.schedule.create'))
+              OR (SELECT public.user_has_permission('billing.schedule.update')))))
+  )
+);
+
+-- ===========================================================================
+-- hr_attendance_periods + summaries (2026-08-22)
+-- Source: 20260822010000_hr_attendance_periods_and_summaries.sql
+-- ===========================================================================
+-- ---------------------------------------------------------------------------
+-- RLS
+-- ---------------------------------------------------------------------------
+ALTER TABLE public.hr_attendance_periods ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_attendance_period_summaries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS hr_attendance_periods_service_role ON public.hr_attendance_periods;
+CREATE POLICY hr_attendance_periods_service_role ON public.hr_attendance_periods
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Reading WHETHER a month is closed is not sensitive -- it is a fact every
+-- employee needs, because it is the reason their leave form refuses. Gated on
+-- the ordinary self-service attendance key rather than the manage key.
+DROP POLICY IF EXISTS hr_attendance_periods_select ON public.hr_attendance_periods;
+CREATE POLICY hr_attendance_periods_select ON public.hr_attendance_periods
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.view'))
+    OR (SELECT public.user_has_permission('hr.attendance.view_self'))
+  );
+
+DROP POLICY IF EXISTS hr_attendance_periods_write ON public.hr_attendance_periods;
+CREATE POLICY hr_attendance_periods_write ON public.hr_attendance_periods
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  );
+
+DROP POLICY IF EXISTS hr_attendance_period_summaries_service_role ON public.hr_attendance_period_summaries;
+CREATE POLICY hr_attendance_period_summaries_service_role ON public.hr_attendance_period_summaries
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Day counts drive pay, so the read gate is the period key OR your own row.
+DROP POLICY IF EXISTS hr_attendance_period_summaries_select ON public.hr_attendance_period_summaries;
+CREATE POLICY hr_attendance_period_summaries_select ON public.hr_attendance_period_summaries
+  FOR SELECT USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.view'))
+    OR staff_id IN (SELECT unnest(public.fn_my_staff_ids()))
+  );
+
+DROP POLICY IF EXISTS hr_attendance_period_summaries_write ON public.hr_attendance_period_summaries;
+CREATE POLICY hr_attendance_period_summaries_write ON public.hr_attendance_period_summaries
+  FOR ALL USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  ) WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.user_has_permission('hr.attendance.period.manage'))
+  );
+
+COMMENT ON TABLE public.hr_attendance_periods IS
+  'Attendance month close, per institution. Upstream of hr_payroll_periods: freeze the day counts BEFORE payroll reads them, not after distribution.';
+COMMENT ON COLUMN public.hr_attendance_periods.forced IS
+  'Locked while requests were still pending. Those requests were auto-rejected with a stamped reason rather than silently denied.';
+COMMENT ON TABLE public.hr_attendance_period_summaries IS
+  'Frozen per-staff day counts. Derived from hr_attendance_records so working days match the evaluator, not a separate calendar rule.';
+

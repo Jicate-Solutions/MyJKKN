@@ -1433,20 +1433,53 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     page_url TEXT,
     -- Updated: 2026-03-23 - Added module_name generated column for module-wise grouping
     -- NULL page_url → 'unknown'; unrecognized path → 'other'
+    -- Updated: 2026-08-21 - Restored the 34-module CASE that migration
+    --   20260505000000_extend_bug_module_classifier.sql applied to production on
+    --   2026-05-05. Commit 2f399d271c ("fix: bos issue", 2026-05-25) merged a
+    --   pre-#719 copy of this file and silently reverted this CASE to its old
+    --   11-branch form. Production kept the 34-branch column; only this file
+    --   regressed. That is why check-bug-module-classifier.mjs has reported ~29
+    --   "missing" slugs ever since — 22 of them were phantom, an artifact of the
+    --   clobber rather than real classifier drift.
     module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN 'unknown'
         WHEN page_url ~ '/academic/' THEN 'academic'
+        WHEN page_url ~ '/admission/' THEN 'admission'                 -- before /admin/
+        WHEN page_url ~ '/admin/' THEN 'admin'
+        WHEN page_url ~ '/ai-query/' THEN 'ai-query'
+        WHEN page_url ~ '/application-hub/' THEN 'application-hub'     -- before /applications/
+        WHEN page_url ~ '/applications/' THEN 'applications'
+        WHEN page_url ~ '/audit-trail/' THEN 'audit-trail'             -- before /audit/
+        WHEN page_url ~ '/audit/' THEN 'audit'
+        WHEN page_url ~ '/accreditation/' THEN 'accreditation'
         WHEN page_url ~ '/billing/' THEN 'billing'
-        WHEN page_url ~ '/organizations?/' THEN 'organization'
+        WHEN page_url ~ '/bug-leaderboard/' THEN 'bug-leaderboard'
+        WHEN page_url ~ '/campus-living/' THEN 'campus-living'
+        WHEN page_url ~ '/dashboard/' THEN 'dashboard'
+        WHEN page_url ~ '/events/' THEN 'events'
+        WHEN page_url ~ '/faculty/' THEN 'faculty'
+        WHEN page_url ~ '/health/' THEN 'health'
+        WHEN page_url ~ '/hr/' THEN 'hr'
+        WHEN page_url ~ '/learners-council/' THEN 'learners-council'   -- before /learners/
         WHEN page_url ~ '/learners/' THEN 'learners'
-        WHEN page_url ~ '/staff/' THEN 'staff'
-        WHEN page_url ~ '/admission/' THEN 'admission'   -- must come before /admin/
-        WHEN page_url ~ '/admin/'     THEN 'admin'
-        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
-        WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/learn/' THEN 'learn'
         WHEN page_url ~ '/moments/' THEN 'moments'  -- Added: 2026-06-12 Family Moments
+        WHEN page_url ~ '/my-bug-reports/' THEN 'my-bug-reports'
+        WHEN page_url ~ '/notifications/' THEN 'notifications'
+        WHEN page_url ~ '/okr/' THEN 'okr'
+        WHEN page_url ~ '/organizations?/' THEN 'organizations'
+        WHEN page_url ~ '/profile/' THEN 'profile'
+        WHEN page_url ~ '/resource-management/' THEN 'resource-management'
+        WHEN page_url ~ '/service-requests/' THEN 'service-requests'
         WHEN page_url ~ '/settings/' THEN 'settings'
+        WHEN page_url ~ '/solutions/' THEN 'solutions'
+        WHEN page_url ~ '/staff/' THEN 'staff'
+        WHEN page_url ~ '/startup-studio/' THEN 'startup-studio'
+        WHEN page_url ~ '/system/' THEN 'system'
+        WHEN page_url ~ '/users/' THEN 'users'
+        WHEN page_url ~ '/vac/' THEN 'vac'
+        WHEN page_url ~ '/work-pulse/' THEN 'work-pulse'
         ELSE 'other'
       END
     ) STORED,
@@ -1457,30 +1490,44 @@ CREATE TABLE IF NOT EXISTS public.bug_reports (
     sub_module_name VARCHAR(100) GENERATED ALWAYS AS (
       CASE
         WHEN page_url IS NULL THEN NULL
-        WHEN page_url ~ '/academic/'
-          THEN substring(page_url FROM '/academic/([^/?#]+)')
-        WHEN page_url ~ '/billing/'
-          THEN substring(page_url FROM '/billing/([^/?#]+)')
-        WHEN page_url ~ '/organizations?/'
-          THEN substring(page_url FROM '/organizations?/([^/?#]+)')
-        WHEN page_url ~ '/learners/'
-          THEN substring(page_url FROM '/learners/([^/?#]+)')
-        WHEN page_url ~ '/staff/'
-          THEN substring(page_url FROM '/staff/([^/?#]+)')
-        WHEN page_url ~ '/admission/'
-          THEN substring(page_url FROM '/admission/([^/?#]+)')
-        WHEN page_url ~ '/admin/'
-          THEN substring(page_url FROM '/admin/([^/?#]+)')
-        WHEN page_url ~ '/resource-management/'
-          THEN substring(page_url FROM '/resource-management/([^/?#]+)')
-        WHEN page_url ~ '/startup-studio/'
-          THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
-        WHEN page_url ~ '/moments/'  -- Added: 2026-06-12 Family Moments
-          THEN substring(page_url FROM '/moments/([^/?#]+)')
-        WHEN page_url ~ '/settings/'
-          THEN substring(page_url FROM '/settings/([^/?#]+)')
-        WHEN page_url ~ '/service-requests/'
-          THEN substring(page_url FROM '/service-requests/([^/?#]+)')
+        -- IMPORTANT: ordering matches the module_name CASE above — longer
+        -- prefixes first so /admission/ wins over /admin/, etc.
+        WHEN page_url ~ '/academic/' THEN substring(page_url FROM '/academic/([^/?#]+)')
+        WHEN page_url ~ '/admission/' THEN substring(page_url FROM '/admission/([^/?#]+)')
+        WHEN page_url ~ '/admin/' THEN substring(page_url FROM '/admin/([^/?#]+)')
+        WHEN page_url ~ '/ai-query/' THEN substring(page_url FROM '/ai-query/([^/?#]+)')
+        WHEN page_url ~ '/application-hub/' THEN substring(page_url FROM '/application-hub/([^/?#]+)')
+        WHEN page_url ~ '/applications/' THEN substring(page_url FROM '/applications/([^/?#]+)')
+        WHEN page_url ~ '/audit-trail/' THEN substring(page_url FROM '/audit-trail/([^/?#]+)')
+        WHEN page_url ~ '/audit/' THEN substring(page_url FROM '/audit/([^/?#]+)')
+        WHEN page_url ~ '/accreditation/' THEN substring(page_url FROM '/accreditation/([^/?#]+)')
+        WHEN page_url ~ '/billing/' THEN substring(page_url FROM '/billing/([^/?#]+)')
+        WHEN page_url ~ '/bug-leaderboard/' THEN substring(page_url FROM '/bug-leaderboard/([^/?#]+)')
+        WHEN page_url ~ '/campus-living/' THEN substring(page_url FROM '/campus-living/([^/?#]+)')
+        WHEN page_url ~ '/dashboard/' THEN substring(page_url FROM '/dashboard/([^/?#]+)')
+        WHEN page_url ~ '/events/' THEN substring(page_url FROM '/events/([^/?#]+)')
+        WHEN page_url ~ '/faculty/' THEN substring(page_url FROM '/faculty/([^/?#]+)')
+        WHEN page_url ~ '/health/' THEN substring(page_url FROM '/health/([^/?#]+)')
+        WHEN page_url ~ '/hr/' THEN substring(page_url FROM '/hr/([^/?#]+)')
+        WHEN page_url ~ '/learners-council/' THEN substring(page_url FROM '/learners-council/([^/?#]+)')
+        WHEN page_url ~ '/learners/' THEN substring(page_url FROM '/learners/([^/?#]+)')
+        WHEN page_url ~ '/learn/' THEN substring(page_url FROM '/learn/([^/?#]+)')
+        WHEN page_url ~ '/moments/' THEN substring(page_url FROM '/moments/([^/?#]+)')  -- Added: 2026-06-12 Family Moments
+        WHEN page_url ~ '/my-bug-reports/' THEN substring(page_url FROM '/my-bug-reports/([^/?#]+)')
+        WHEN page_url ~ '/notifications/' THEN substring(page_url FROM '/notifications/([^/?#]+)')
+        WHEN page_url ~ '/okr/' THEN substring(page_url FROM '/okr/([^/?#]+)')
+        WHEN page_url ~ '/organizations?/' THEN substring(page_url FROM '/organizations?/([^/?#]+)')
+        WHEN page_url ~ '/profile/' THEN substring(page_url FROM '/profile/([^/?#]+)')
+        WHEN page_url ~ '/resource-management/' THEN substring(page_url FROM '/resource-management/([^/?#]+)')
+        WHEN page_url ~ '/service-requests/' THEN substring(page_url FROM '/service-requests/([^/?#]+)')
+        WHEN page_url ~ '/settings/' THEN substring(page_url FROM '/settings/([^/?#]+)')
+        WHEN page_url ~ '/solutions/' THEN substring(page_url FROM '/solutions/([^/?#]+)')
+        WHEN page_url ~ '/staff/' THEN substring(page_url FROM '/staff/([^/?#]+)')
+        WHEN page_url ~ '/startup-studio/' THEN substring(page_url FROM '/startup-studio/([^/?#]+)')
+        WHEN page_url ~ '/system/' THEN substring(page_url FROM '/system/([^/?#]+)')
+        WHEN page_url ~ '/users/' THEN substring(page_url FROM '/users/([^/?#]+)')
+        WHEN page_url ~ '/vac/' THEN substring(page_url FROM '/vac/([^/?#]+)')
+        WHEN page_url ~ '/work-pulse/' THEN substring(page_url FROM '/work-pulse/([^/?#]+)')
         ELSE NULL
       END
     ) STORED,
@@ -7903,3 +7950,406 @@ CREATE TABLE IF NOT EXISTS public.hostel_room_buyout_consents (
 
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS settle_billing_enabled boolean NOT NULL DEFAULT false;
+
+-- Gender domain lock for the two learner-facing tables (20260820160000).
+-- learners_profiles.gender is NOT NULL and uses '' as its "not captured" sentinel;
+-- profiles.gender is nullable and uses NULL for the same thing.
+ALTER TABLE public.learners_profiles
+  DROP CONSTRAINT IF EXISTS learners_profiles_gender_check;
+ALTER TABLE public.learners_profiles
+  ADD CONSTRAINT learners_profiles_gender_check
+  CHECK (gender IN ('Male', 'Female', 'Other', ''));
+
+ALTER TABLE public.profiles
+  DROP CONSTRAINT IF EXISTS profiles_gender_check;
+ALTER TABLE public.profiles
+  ADD CONSTRAINT profiles_gender_check
+  CHECK (gender IS NULL OR gender IN ('Male', 'Female', 'Other'));
+
+-- Staff name canonicalisation constraints (migration 20260910120000).
+-- Belt-and-braces: trg_normalize_staff_names normalises on write, so these are
+-- unreachable in normal operation, but they make the invariant impossible to
+-- bypass and self-document the rule.
+ALTER TABLE public.staff
+  DROP CONSTRAINT IF EXISTS staff_first_name_canonical,
+  DROP CONSTRAINT IF EXISTS staff_last_name_canonical;
+
+ALTER TABLE public.staff
+  ADD CONSTRAINT staff_first_name_canonical
+    CHECK (first_name IS NULL OR first_name = public.fn_canonical_staff_name(first_name)),
+  ADD CONSTRAINT staff_last_name_canonical
+    CHECK (last_name IS NULL OR last_name = public.fn_canonical_staff_name(last_name));
+
+-- ============================================================================
+-- 2026-08-21 — Fee structure per-item due dates, splits and status rules
+-- Applied by: 20260821180000_fee_structure_item_schedules.sql
+--             20260821190000_fee_schedule_generation_engine.sql (promotes_to_status_code)
+-- ============================================================================
+-- Before this, a generated bill's due date was the literal `now() + 30 days`,
+-- hardcoded in BOTH generation paths, and the account -> reserved -> admitted
+-- ladder was one pooled percentage over the learner's whole bill book. Every
+-- default below reproduces the old behaviour exactly, so nothing changes until
+-- a schedule is configured.
+
+ALTER TABLE public.admission_fee_structures
+  ADD COLUMN IF NOT EXISTS default_due_offset_days integer NOT NULL DEFAULT 30
+    CONSTRAINT chk_afs_default_due_offset CHECK (default_due_offset_days >= 0);
+
+ALTER TABLE public.admission_fee_structure_items
+  ADD COLUMN IF NOT EXISTS schedule_mode   text NOT NULL DEFAULT 'single'
+    CONSTRAINT chk_afsi_schedule_mode CHECK (schedule_mode IN ('single','split')),
+  ADD COLUMN IF NOT EXISTS due_anchor      text NOT NULL DEFAULT 'generation_date'
+    CONSTRAINT chk_afsi_due_anchor
+    CHECK (due_anchor IN ('generation_date','academic_year_start','fixed_date')),
+  ADD COLUMN IF NOT EXISTS due_offset_days integer
+    CONSTRAINT chk_afsi_due_offset CHECK (due_offset_days >= 0),
+  ADD COLUMN IF NOT EXISTS due_date        date,
+  -- Status rule for an UNSPLIT item; ignored when schedule_mode = 'split'
+  -- (the schedule lines carry their own targets).
+  ADD COLUMN IF NOT EXISTS promotes_to_status_code text;
+
+ALTER TABLE public.admission_fee_structure_items
+  ADD CONSTRAINT chk_afsi_fixed_date_present
+  CHECK (due_anchor <> 'fixed_date' OR schedule_mode = 'split' OR due_date IS NOT NULL);
+
+-- Ordered instalments of ONE fee item. Mirrors billing_instalment_plan_lines
+-- column for column so both feed the same split engine.
+CREATE TABLE IF NOT EXISTS public.admission_fee_structure_item_schedules (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  fee_structure_item_id   uuid NOT NULL
+    REFERENCES public.admission_fee_structure_items(id) ON DELETE CASCADE,
+  sequence_no             integer NOT NULL CHECK (sequence_no >= 1),
+  share_percent           numeric(7,4) CHECK (share_percent > 0 AND share_percent <= 100),
+  fixed_amount            numeric(12,2) CHECK (fixed_amount > 0),
+  due_offset_days         integer CHECK (due_offset_days >= 0),
+  due_date                date,
+  -- admission_statuses.code (scope='learner'). Validated by
+  -- afsis_validate_status_target(), not an FK: admission_statuses has no
+  -- unique constraint on `code` to point at.
+  promotes_to_status_code text,
+  label                   text,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT chk_afsis_amount_exactly_one
+    CHECK ((share_percent IS NULL) <> (fixed_amount IS NULL)),
+  CONSTRAINT chk_afsis_due_exactly_one
+    CHECK ((due_offset_days IS NULL) <> (due_date IS NULL)),
+  CONSTRAINT uq_afsis_item_sequence UNIQUE (fee_structure_item_id, sequence_no)
+);
+
+CREATE INDEX IF NOT EXISTS ix_afsis_item
+  ON public.admission_fee_structure_item_schedules (fee_structure_item_id, sequence_no);
+
+-- Instalment identity on the bill. instalment_group_id is what lets
+-- billing_enforce_once_per_learner treat N instalments of ONE fee as one
+-- logical bill — without it, splitting Tuition / Application Fee / University
+-- Fee / Uniform Fee is impossible, since all four are once_per_learner.
+ALTER TABLE public.billing_student_bills
+  ADD COLUMN IF NOT EXISTS instalment_group_id   uuid,
+  ADD COLUMN IF NOT EXISTS instalment_no         smallint
+    CONSTRAINT chk_bsb_instalment_no CHECK (instalment_no IS NULL OR instalment_no >= 1),
+  ADD COLUMN IF NOT EXISTS instalment_count      smallint
+    CONSTRAINT chk_bsb_instalment_count CHECK (instalment_count IS NULL OR instalment_count >= 2),
+  ADD COLUMN IF NOT EXISTS fee_structure_item_id uuid
+    REFERENCES public.admission_fee_structure_items(id) ON DELETE SET NULL;
+
+ALTER TABLE public.billing_student_bills
+  ADD CONSTRAINT chk_bsb_instalment_triplet
+  CHECK (
+    (instalment_group_id IS NULL AND instalment_no IS NULL AND instalment_count IS NULL)
+    OR
+    (instalment_group_id IS NOT NULL AND instalment_no IS NOT NULL
+     AND instalment_count IS NOT NULL AND instalment_no <= instalment_count)
+  );
+
+CREATE INDEX IF NOT EXISTS ix_bsb_instalment_group
+  ON public.billing_student_bills (instalment_group_id, instalment_no)
+  WHERE instalment_group_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ix_bsb_fee_structure_item
+  ON public.billing_student_bills (student_id, fee_structure_item_id)
+  WHERE fee_structure_item_id IS NOT NULL;
+
+-- ===========================================================================
+-- HR Payroll — per-employee salary (2026-08-21)
+-- Source: 20260821191000_hr_staff_salaries.sql
+--         20260821211000_hr_staff_salaries_superseded_by_deferrable.sql
+-- ===========================================================================
+-- Flat monthly figure, NOT split into hr_pay_components and NOT stored on
+-- hr_pay_scales: that table is keyed on designation/cadre and answers "what
+-- does an Assistant Professor Grade I earn", while this answers "what does
+-- NOT100 earn". See the migration header for the full reasoning.
+
+CREATE TABLE IF NOT EXISTS public.hr_staff_salaries (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  hr_organization_id     uuid NOT NULL REFERENCES public.hr_organizations(id),
+  salary_structure       text NOT NULL DEFAULT 'Monthly'
+                           CHECK (salary_structure IN ('Monthly','Weekly','Daily','Hourly')),
+  monthly_gross          numeric(12,2) NOT NULL CHECK (monthly_gross > 0),
+  annual_gross           numeric(14,2) GENERATED ALWAYS AS (monthly_gross * 12) STORED,
+  overtime_level         text NOT NULL DEFAULT 'No overtime'
+                           CHECK (overtime_level IN ('No overtime','Grade','Employee')),
+  overtime_amount        numeric(12,2) NOT NULL DEFAULT 0 CHECK (overtime_amount >= 0),
+  eligible_for_pf        boolean NOT NULL DEFAULT false,
+  exempt_edli            boolean NOT NULL DEFAULT false,
+  eligible_for_insurance boolean NOT NULL DEFAULT false,
+  eligible_for_gratuity  boolean NOT NULL DEFAULT false,
+  eligible_for_etf       boolean NOT NULL DEFAULT false,
+  effective_from         date NOT NULL,
+  -- DEFERRABLE is load-bearing, not stylistic: fn_hr_set_staff_salary points
+  -- the incumbent at a row it inserts one statement later, and that order is
+  -- forced by the partial unique index below, which cannot be deferred.
+  superseded_by          uuid REFERENCES public.hr_staff_salaries(id)
+                           DEFERRABLE INITIALLY DEFERRED,
+  notes                  text,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  created_by             uuid,
+  updated_by             uuid
+);
+
+-- One CURRENT salary per person. Partial, so superseded history is unbounded
+-- while "what does this person earn" stays answerable.
+CREATE UNIQUE INDEX IF NOT EXISTS hr_staff_salaries_one_current
+  ON public.hr_staff_salaries (staff_id)
+  WHERE superseded_by IS NULL;
+
+CREATE INDEX IF NOT EXISTS hr_staff_salaries_org_idx
+  ON public.hr_staff_salaries (hr_organization_id);
+CREATE INDEX IF NOT EXISTS hr_staff_salaries_effective_idx
+  ON public.hr_staff_salaries (staff_id, effective_from DESC);
+
+DROP TRIGGER IF EXISTS trg_hr_staff_salaries_updated_at ON public.hr_staff_salaries;
+CREATE TRIGGER trg_hr_staff_salaries_updated_at
+  BEFORE UPDATE ON public.hr_staff_salaries
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ===========================================================================
+-- hr_staff_bank_accounts (2026-08-21)
+-- Source: 20260821240000_hr_staff_bank_accounts.sql
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS public.hr_staff_bank_accounts (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id            uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+
+  -- As printed by the BANK, which is frequently not the name HR holds
+  -- (initials expanded, married name, order reversed). A transfer is rejected
+  -- on a name mismatch, so this is captured rather than derived from staff.
+  account_holder_name text NOT NULL CHECK (length(trim(account_holder_name)) > 0),
+
+  -- Digits only. Stored as text: an account number is an identifier, not a
+  -- quantity -- numeric would eat leading zeros and overflow on longer numbers.
+  account_number      text NOT NULL CHECK (account_number ~ '^[0-9]{6,20}$'),
+
+  -- Indian IFSC: 4 letters, then a literal 0, then 6 alphanumerics. Enforced
+  -- here as well as in the UI because a malformed code does not bounce loudly;
+  -- it fails the payout quietly or pays the wrong branch.
+  ifsc_code           text NOT NULL CHECK (ifsc_code ~ '^[A-Z]{4}0[A-Z0-9]{6}$'),
+
+  bank_name           text NOT NULL CHECK (length(trim(bank_name)) > 0),
+  branch_name         text,
+  account_type        text NOT NULL DEFAULT 'savings'
+                        CHECK (account_type IN ('savings', 'current')),
+
+  -- "Somebody checked this against a passbook or cancelled cheque."
+  -- A wrong IFSC or account number does not raise an error -- it silently pays
+  -- the wrong person -- so the distinction between entered and verified is the
+  -- only thing standing between a typo and a misdirected salary.
+  verified_at         timestamptz,
+  verified_by         uuid,
+
+  effective_from      date NOT NULL DEFAULT CURRENT_DATE,
+  -- Set when a later row replaces this one. NULL = the account in use.
+  superseded_by       uuid REFERENCES public.hr_staff_bank_accounts(id)
+                        DEFERRABLE INITIALLY DEFERRED,
+  notes               text,
+
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  created_by          uuid,
+  updated_by          uuid
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS hr_staff_bank_accounts_one_current
+  ON public.hr_staff_bank_accounts (staff_id)
+  WHERE superseded_by IS NULL;
+
+CREATE INDEX IF NOT EXISTS hr_staff_bank_accounts_staff_idx
+  ON public.hr_staff_bank_accounts (staff_id, effective_from DESC);
+
+DROP TRIGGER IF EXISTS trg_hr_staff_bank_accounts_updated_at ON public.hr_staff_bank_accounts;
+CREATE TRIGGER trg_hr_staff_bank_accounts_updated_at
+  BEFORE UPDATE ON public.hr_staff_bank_accounts
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- ============================================================================
+-- 2026-08-22 — One bill per fee, with an instalment schedule inside it
+-- Applied by: 20260822090000_billing_bill_instalments.sql
+-- ============================================================================
+-- SUPERSEDES the split-into-N-bills behaviour of 20260821190000. A fee split
+-- 30/40/30 is ONE debt collectable in three tranches, not three debts — the old
+-- model turned three fee items into five bills and made the cashier choose
+-- which instalment a payment was for, when 1,735 bills were already being paid
+-- partially.
+--
+-- Allocation of money to tranches is DERIVED, never stored: see
+-- billing_bill_instalment_state() and vw_bill_instalment_state.
+
+CREATE TABLE IF NOT EXISTS public.billing_bill_instalments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  bill_id     uuid NOT NULL
+    REFERENCES public.billing_student_bills(id) ON DELETE CASCADE,
+  sequence_no smallint NOT NULL CHECK (sequence_no >= 1),
+  amount      numeric(15,2) NOT NULL CHECK (amount > 0),
+  due_date    date NOT NULL,
+  -- Lifecycle status reaching this tranche promotes the learner to.
+  promotes_to_status_code text,
+  -- Provenance: which fee-structure schedule line produced this tranche.
+  -- ON DELETE SET NULL — deleting a structure line must never delete history.
+  fee_structure_item_schedule_id uuid
+    REFERENCES public.admission_fee_structure_item_schedules(id) ON DELETE SET NULL,
+  label      text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT uq_bbi_bill_sequence UNIQUE (bill_id, sequence_no)
+);
+
+-- The waterfall orders by (due_date, sequence_no) — money settles the oldest
+-- debt first, so allocation follows the calendar and not the sequence number.
+CREATE INDEX IF NOT EXISTS ix_bbi_bill_due
+  ON public.billing_bill_instalments (bill_id, due_date, sequence_no);
+
+-- ===========================================================================
+-- hr_attendance_periods + hr_attendance_period_summaries (2026-08-22)
+-- Source: 20260822010000_hr_attendance_periods_and_summaries.sql
+-- ===========================================================================
+-- CLOSING THE ATTENDANCE MONTH. One row per (institution, year, month).
+--
+-- WHY NOT hr_payroll_periods
+-- --------------------------
+-- That table already has a `locked` status, and reusing it was the obvious
+-- move. It is the wrong shape for two reasons:
+--
+--   1. ITS LOCK IS AT THE WRONG END OF THE PIPELINE. `locked` is the FINAL
+--      stage, reached only after `distributed` -- payslips are generated and
+--      handed out, THEN the month locks. Freezing attendance has to happen
+--      BEFORE payroll reads the day counts, not after.
+--   2. IT CARRIES A FIVE-SIGNATURE CHAIN (CAO, Accounts, Chairperson,
+--      Director) because it authorises MONEY. Closing attendance is one HR
+--      Head action. Putting it behind the payroll chain would mean nobody can
+--      close a month until the Chairperson has signed something unrelated.
+--
+-- hr_payroll_periods is also scoped by hr_organization_id and engine_type. An
+-- attendance month is neither -- it is simply an institution and a month.
+--
+-- TWO STATES, NOT MORE. open -> locked. A 'processing' state was considered
+-- and dropped: computing the summaries and locking are one action, and a
+-- transient state that nothing can be done in is just a way to get stuck.
+
+CREATE TABLE IF NOT EXISTS public.hr_attendance_periods (
+  id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id     uuid NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  period_year        integer NOT NULL CHECK (period_year BETWEEN 2000 AND 2100),
+  period_month       integer NOT NULL CHECK (period_month BETWEEN 1 AND 12),
+
+  status             text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'locked')),
+
+  locked_at          timestamptz,
+  locked_by          uuid,
+  -- Set when the lock was taken with pending requests still outstanding. Those
+  -- requests are auto-rejected with a stamped reason rather than left in limbo,
+  -- so this flag marks a month whose close involved a judgement call.
+  forced             boolean NOT NULL DEFAULT false,
+  force_reason       text,
+
+  reopened_at        timestamptz,
+  reopened_by        uuid,
+  reopen_reason      text,
+
+  -- Frozen at lock time. NOT recomputed on read: the whole point is that a
+  -- payslip generated against this month can be reconciled later even after
+  -- shift timings or holidays are edited.
+  working_days_count integer,
+  staff_count        integer,
+
+  notes              text,
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  created_by         uuid,
+  updated_by         uuid,
+
+  CONSTRAINT hr_attendance_periods_unique UNIQUE (institution_id, period_year, period_month)
+);
+
+CREATE INDEX IF NOT EXISTS hr_attendance_periods_lookup_idx
+  ON public.hr_attendance_periods (period_year, period_month, status);
+
+DROP TRIGGER IF EXISTS trg_hr_attendance_periods_updated_at ON public.hr_attendance_periods;
+CREATE TRIGGER trg_hr_attendance_periods_updated_at
+  BEFORE UPDATE ON public.hr_attendance_periods
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+-- The frozen day counts, one row per (period, staff member).
+--
+-- DERIVED FROM hr_attendance_records, NOT FROM A CALENDAR RULE. The evaluator
+-- already writes WEEKLY_OFF from hr_shift_timings, so working days are simply
+-- "days that are neither a weekly off nor a holiday". Recomputing them from
+-- "calendar minus Sundays" -- which is what fn_prepare_payroll_period does --
+-- would be a THIRD independent definition of a working day, and it is already
+-- wrong: Saturday is a working day at all 14 institutions, and that same
+-- assumption left every Saturday uncharged in the leave engine until it was
+-- fixed on 2026-08-20.
+CREATE TABLE IF NOT EXISTS public.hr_attendance_period_summaries (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  period_id              uuid NOT NULL REFERENCES public.hr_attendance_periods(id) ON DELETE CASCADE,
+  staff_id               uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+
+  -- numeric(5,1) throughout: a half day is 0.5, and an integer column would
+  -- silently round it into a full day of pay.
+  working_days           numeric(5,1) NOT NULL DEFAULT 0,
+  present_days           numeric(5,1) NOT NULL DEFAULT 0,
+  half_days              integer      NOT NULL DEFAULT 0,
+  absent_days            numeric(5,1) NOT NULL DEFAULT 0,
+  weekly_off_days        integer      NOT NULL DEFAULT 0,
+  holiday_days           integer      NOT NULL DEFAULT 0,
+  leave_days             numeric(5,1) NOT NULL DEFAULT 0,
+  on_duty_days           numeric(5,1) NOT NULL DEFAULT 0,
+  comp_off_days          numeric(5,1) NOT NULL DEFAULT 0,
+
+  -- Loss of pay: working days neither attended nor covered by an approved
+  -- absence. This is the number payroll prorates on.
+  lop_days               numeric(5,1) NOT NULL DEFAULT 0,
+  payable_days           numeric(5,1) NOT NULL DEFAULT 0,
+
+  -- {"CL": 2, "ML": 1} -- per leave-type code, so a payslip can print "CL 2"
+  -- rather than a pooled "leave 3" that cannot distinguish paid from unpaid.
+  leave_by_type          jsonb        NOT NULL DEFAULT '{}'::jsonb,
+
+  short_time_off_minutes integer      NOT NULL DEFAULT 0,
+  late_minutes           integer      NOT NULL DEFAULT 0,
+  excused_minutes        integer      NOT NULL DEFAULT 0,
+
+  -- Days the evaluator could not judge at lock time. Kept because a payslip
+  -- built on top of unresolved days should say so.
+  unprocessed_days       integer      NOT NULL DEFAULT 0,
+
+  computed_at            timestamptz  NOT NULL DEFAULT now(),
+
+  CONSTRAINT hr_attendance_period_summaries_unique UNIQUE (period_id, staff_id)
+);
+
+CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
+  ON public.hr_attendance_period_summaries (staff_id);
+
+
+-- ===========================================================================
+-- hr_attendance_periods: force override removed (2026-08-22)
+-- Source: 20260822070000_hr_attendance_close_remove_force_override.sql
+-- ===========================================================================
+-- Resolving every request before closing is compulsory, so nothing can set
+-- these two any more. Dropped rather than left unwritable.
+ALTER TABLE public.hr_attendance_periods
+  DROP COLUMN IF EXISTS forced,
+  DROP COLUMN IF EXISTS force_reason;

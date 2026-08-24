@@ -13,6 +13,7 @@ import { buildCasteResolver } from '@/lib/utils/caste-name-resolver';
 import { buildAccommodationTypeResolverMulti } from '@/lib/utils/accommodation-type-resolver';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { randomUUID } from 'crypto';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 
 // Create admin client for user management
 const supabaseAdmin = createClient(
@@ -25,27 +26,6 @@ const supabaseAdmin = createClient(
     }
   }
 );
-
-/**
- * Generate temporary password for new users
- */
-function generateTemporaryPassword(length = 12): string {
-  const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+~`|}{[]:;?><,./-=';
-  let password = '';
-  for (let i = 0, n = charset.length; i < length; ++i) {
-    password += charset.charAt(Math.floor(Math.random() * n));
-  }
-  // Ensure password has at least one digit
-  if (!/\d/.test(password)) {
-    password += Math.floor(Math.random() * 10);
-  }
-  // Ensure password has at least one uppercase letter
-  if (!/[A-Z]/.test(password)) {
-    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  }
-  return password.slice(0, length);
-}
 
 /**
  * Check if profile is complete

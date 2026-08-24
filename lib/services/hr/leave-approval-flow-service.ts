@@ -22,6 +22,7 @@ import type {
   LeaveApproverCandidate,
   LeaveApproverRoleOption,
 } from '@/types/hr-leave-types';
+import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 const FLOW_FOR = 'leave_approval';
 const SELECT =
@@ -158,6 +159,24 @@ export class LeaveApprovalFlowService {
     });
     if (error) throw error;
     return ((data ?? []) as Array<{ application_id: string }>).map((r) => r.application_id);
+  }
+
+  /**
+   * Everything awaiting a decision, with the requester's name, staff code and
+   * institution, across every organisation the caller may approve for.
+   *
+   * Replaces listApplications() on the Approvals tab. That path embedded only
+   * the leave type, so the queue named no one; scoped to a single
+   * hr_organization_id, so a super admin saw one org or — with no HR employee
+   * record — nothing at all; and inherited the REST route's pageSize 50, so it
+   * stopped at 50 of 446 pending rows.
+   */
+  static async approvalQueue(
+    supabase: SupabaseClient
+  ): Promise<HRLeaveApprovalQueueRow[]> {
+    const { data, error } = await supabase.rpc('hr_leave_approval_queue');
+    if (error) throw error;
+    return (data ?? []) as HRLeaveApprovalQueueRow[];
   }
 
   /** Roles offerable as approvers, flagged with whether they can actually approve. */

@@ -410,6 +410,19 @@ export class LeaveService {
     app: HRLeaveApplication,
     approverId: string
   ) {
+    // Super admins are exempt from BOTH checks below, exactly as
+    // hr_trig_leave_enforce_approver is: that trigger returns NEW on
+    // is_super_admin() before it reaches either test. Without this the service
+    // refused what the database would have allowed — a super admin could not
+    // decide their own request, and could not act on a step pinned to somebody
+    // else, despite hla_update permitting both.
+    //
+    // Resolved through the caller's own client, so is_super_admin() reads
+    // profiles for the real auth.uid() rather than trusting approverId.
+    const { data: isSuperAdmin, error: saError } = await supabase.rpc('is_super_admin');
+    if (saError) throw saError;
+    if (isSuperAdmin === true) return;
+
     const { data: myStaff, error } = await supabase
       .from('staff')
       .select('id')
