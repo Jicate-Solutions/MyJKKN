@@ -18,7 +18,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   DUE_ANCHOR_LABELS,
+  APPLIES_TO_LABELS,
   type BulkResolveLookups,
+  type FeeAppliesTo,
   type ItemScheduleConfig,
   type RowResolution,
 } from '@/lib/utils/mappings/fee-structure-excel-mappings';
@@ -103,7 +105,20 @@ function describeLine(line: {
   return `#${line.sequence_no} ${size}${due ? ` ${due}` : ''}${promo}`;
 }
 
-/** One fee, as one line of text: amount, how it is split, and when it falls due. */
+/** Which years bill this fee, as one short phrase. */
+export interface AppliesConfig {
+  appliesTo: FeeAppliesTo;
+  year: number | null;
+}
+
+function describeApplies(applies: AppliesConfig | null): string {
+  if (!applies) return APPLIES_TO_LABELS.every_year; // the column default
+  return applies.appliesTo === 'specific_year'
+    ? `Year ${applies.year} only`
+    : APPLIES_TO_LABELS[applies.appliesTo];
+}
+
+/** One fee, as one line of text: amount, which years bill it, how it is split, and when it falls due. */
 function describeFee(
   amount: number,
   plan: {
@@ -114,8 +129,12 @@ function describeFee(
     promotes_to_status_code: string | null;
     lines: Array<Parameters<typeof describeLine>[0]>;
   } | null,
+  applies: AppliesConfig | null = null,
 ): string {
-  const head = money(amount);
+  // Applies-to sits right next to the money because that is what it scales: the
+  // same 5,000 is 5,000 or 20,000 over a four-year programme depending on this
+  // one word, and it is the field the sheet could not set until now.
+  const head = `${money(amount)} · ${describeApplies(applies)}`;
   if (!plan) return `${head} · one payment`;
 
   if (plan.schedule_mode === 'split' && plan.lines.length > 0) {
@@ -143,6 +162,8 @@ function describeFee(
 interface DbItem {
   billing_category_id: string;
   amount: number;
+  applies_to: FeeAppliesTo | null;
+  applies_year_of_study: number | null;
   schedule_mode: 'single' | 'split' | null;
   due_anchor: string | null;
   due_offset_days: number | null;
@@ -164,8 +185,33 @@ interface DbItem {
  * operator reads, deliberately: if two fees render identically there is nothing
  * to show them, and a diff nobody can see is worse than no diff at all.
  */
-const feeSignature = (amount: number, plan: Parameters<typeof describeFee>[1]): string =>
-  describeFee(amount, plan);
+const feeSignature = (
+  amount: number,
+  plan: Parameters<typeof describeFee>[1],
+  applies: AppliesConfig | null,
+): string => describeFee(amount, plan, applies);
+
+function appliesFromDbItem(item: DbItem): AppliesConfig {
+  const appliesTo = (item.applies_to ?? 'every_year') as FeeAppliesTo;
+  return { appliesTo, year: appliesTo === 'specific_year' ? item.applies_year_of_study : null };
+}
+
+/**
+ * What the sheet said about a fee's years, or null when it said nothing — a
+ * blank cell or a workbook with no "Applies To" column at all. Null means the
+ * stored value survives, so the caller substitutes it rather than showing the
+ * default and reporting a change that will not happen.
+ */
+function appliesFromSheet(item: {
+  applies_to?: FeeAppliesTo;
+  applies_year_of_study?: number | null;
+}): AppliesConfig | null {
+  if (!item.applies_to) return null;
+  return {
+    appliesTo: item.applies_to,
+    year: item.applies_to === 'specific_year' ? item.applies_year_of_study ?? null : null,
+  };
+}
 
 function planFromDbItem(item: DbItem): Parameters<typeof describeFee>[1] {
   return {
@@ -239,7 +285,8 @@ export async function buildChangeSets(
           community_category_id, community_category:community_categories(name)
         ),
         items:admission_fee_structure_items(
-          billing_category_id, amount, schedule_mode, due_anchor, due_offset_days,
+          billing_category_id, amount, applies_to, applies_year_of_study,
+          schedule_mode, due_anchor, due_offset_days,
           due_date, promotes_to_status_code,
           billing_category:billing_categories(category_name),
           schedules:admission_fee_structure_item_schedules(
@@ -294,6 +341,9 @@ export async function buildChangeSets(
                     ),
                   )
                 : null,
+              // Nothing stored to inherit on a brand-new structure, so a blank
+              // cell here really does land on the column default.
+              appliesFromSheet(it),
             ),
           };
         }),
@@ -429,12 +479,18 @@ export async function buildChangeSets(
         : dbItem
           ? planFromDbItem(dbItem)
           : null;
-      const after = describeFee(it.amount, afterPlan);
+      // Blank "Applies To" on an EXISTING fee inherits what is stored; on a fee
+      // this sheet is adding there is nothing to inherit, so it takes the
+      // column default. Showing the default in the first case would report a
+      // change the RPC is not going to make.
+      const afterApplies =
+        appliesFromSheet(it) ?? (dbItem ? appliesFromDbItem(dbItem) : null);
+      const after = describeFee(it.amount, afterPlan, afterApplies);
       if (!dbItem) {
         fees.push({ category, kind: 'added', from: null, to: after });
         continue;
       }
-      const before = feeSignature(dbItem.amount, planFromDbItem(dbItem));
+      const before = feeSignature(dbItem.amount, planFromDbItem(dbItem), appliesFromDbItem(dbItem));
       if (before !== after) fees.push({ category, kind: 'changed', from: before, to: after });
     }
 
@@ -449,7 +505,7 @@ export async function buildChangeSets(
       fees.push({
         category: dbItem.billing_category?.category_name ?? catNames.get(catId) ?? 'Fee',
         kind: 'removed',
-        from: feeSignature(dbItem.amount, planFromDbItem(dbItem)),
+        from: feeSignature(dbItem.amount, planFromDbItem(dbItem), appliesFromDbItem(dbItem)),
         to: null,
       });
     }

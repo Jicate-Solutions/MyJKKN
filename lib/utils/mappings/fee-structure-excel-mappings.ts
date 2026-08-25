@@ -117,7 +117,20 @@ export interface BulkUpsertPayload {
   notes: string | null;
   effective_from: string | null;
   effective_to: string | null;
-  items: Array<{ billing_category_id: string; amount: number; is_optional: boolean }>;
+  items: Array<{
+    billing_category_id: string;
+    amount: number;
+    is_optional: boolean;
+    /**
+     * OMITTED when the sheet has no "Applies To" column, or left the cell
+     * blank. The RPC then keeps the stored value (every_year on a new fee).
+     * Sending a default here would silently re-bill a first-year-only fee in
+     * every year of the course, on every re-import of an older workbook.
+     */
+    applies_to?: FeeAppliesTo;
+    /** Only ever set alongside applies_to === 'specific_year'. */
+    applies_year_of_study?: number | null;
+  }>;
   /** Fallback due offset for items that set no date of their own. */
   default_due_offset_days?: number | null;
   /**
@@ -863,7 +876,50 @@ export function resolveScheduleSheet(
 // inherit, two different non-blank values are an error naming the row. The same
 // rule already governs Due Anchor, so there is one thing to learn, not two.
 
-export const UNIFIED_ITEM_HEADERS = ['Fee Category', 'Amount'] as const;
+export const UNIFIED_ITEM_HEADERS = [
+  'Fee Category',
+  'Amount',
+  // WHICH YEARS OF THE COURSE THIS FEE IS BILLED IN. The column defaults to
+  // 'every_year' in Postgres, so before this column existed every fee the sheet
+  // created was billed in all four years of a BE -- including one-off fees like
+  // an admission or uniform charge. There was no way to say otherwise except by
+  // opening each structure on screen afterwards.
+  'Applies To',
+  'Year of Study',
+] as const;
+
+export const APPLIES_TO_LABELS = {
+  first_year_only: 'First year only',
+  every_year: 'Every year',
+  specific_year: 'Specific year',
+} as const;
+
+export type FeeAppliesTo = keyof typeof APPLIES_TO_LABELS;
+
+/**
+ * Accepts the label the on-screen picker shows ("First year only"), the stored
+ * code ('first_year_only'), and the shapes an operator actually types --
+ * "first year", "1st year", "all years". Blank returns null, which means "the
+ * sheet did not say": the RPC then keeps what is stored rather than resetting
+ * the fee to every_year because a cell was left empty.
+ */
+export function normalizeAppliesTo(cell: unknown): FeeAppliesTo | null | 'INVALID' {
+  const key = lower(cell).replace(/[s_-]+/g, '');
+  if (key === '') return null;
+  if (key === 'firstyearonly' || key === 'firstyear' || key === '1styear') return 'first_year_only';
+  if (key === 'everyyear' || key === 'allyears' || key === 'every' || key === 'all') return 'every_year';
+  if (key === 'specificyear' || key === 'specific') return 'specific_year';
+  return 'INVALID';
+}
+
+/** Parses "Year of Study": blank -> null, else an integer 1-10. */
+export function parseYearOfStudy(cell: unknown): number | null | 'INVALID' {
+  const raw = norm(cell);
+  if (raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 10) return 'INVALID';
+  return n;
+}
 
 export const UNIFIED_INSTALMENT_HEADERS = [
   'Instalment #',
@@ -876,7 +932,7 @@ export const UNIFIED_INSTALMENT_HEADERS = [
   'Promotes To',
 ] as const;
 
-/** 29 columns: 19 structure, 2 fee item, 8 instalment. */
+/** 31 columns: 19 structure, 4 fee item, 8 instalment. */
 export const UNIFIED_HEADERS = [
   ...FIXED_HEADERS,
   ...UNIFIED_ITEM_HEADERS,
@@ -1023,6 +1079,22 @@ export function resolveUnifiedSheet(
     }
 
     const schedules: ItemScheduleConfig[] = [];
+    /**
+     * billing_category_id -> what the sheet said about which years bill this
+     * fee. Collected here and stamped onto the payload's items after
+     * resolveRow() has built them, so the wide-row validator stays the single
+     * owner of "is this a valid fee amount for a valid category".
+     */
+    const appliesByCategory = new Map<
+      string,
+      { appliesTo: FeeAppliesTo; year: number | null }
+    >();
+    // Absent COLUMN (an export taken before it existed) is not the same as a
+    // blank CELL: neither writes, but only the column's absence is a workbook
+    // the operator never had the chance to fill in.
+    const hasAppliesColumn = rows.some((r) =>
+      Object.prototype.hasOwnProperty.call(r.raw, 'Applies To'),
+    );
 
     for (const [key, group] of feeRows) {
       const categoryName = feeNames.get(key)!;
@@ -1050,6 +1122,70 @@ export function resolveUnifiedSheet(
       // Feeds resolveRow()'s wide-row validation, which reports a bad number.
       structureCells[categoryName] = amountRows[0].raw['Amount'];
       itemCount++;
+
+      // ── Which years of the course bill this fee ─────────────────────────
+      if (hasAppliesColumn) {
+        const appliesRows = group.filter((r) => norm(r.raw['Applies To']) !== '');
+        const distinctApplies = [...new Set(appliesRows.map((r) => norm(r.raw['Applies To'])))];
+        const yearRows = group.filter((r) => norm(r.raw['Year of Study']) !== '');
+        const distinctYears = [...new Set(yearRows.map((r) => norm(r.raw['Year of Study'])))];
+
+        if (distinctApplies.length > 1) {
+          at(
+            appliesRows[1].rowNumber,
+            `"${categoryName}" has more than one "Applies To" (${distinctApplies[0]} and ${distinctApplies[1]}). It is a property of the fee, so it must read the same on every row of it.`,
+          );
+          continue;
+        }
+        if (distinctYears.length > 1) {
+          at(
+            yearRows[1].rowNumber,
+            `"${categoryName}" has more than one "Year of Study" (${distinctYears[0]} and ${distinctYears[1]}). It is a property of the fee, so it must read the same on every row of it.`,
+          );
+          continue;
+        }
+
+        const appliesTo = normalizeAppliesTo(distinctApplies[0] ?? '');
+        if (appliesTo === 'INVALID') {
+          at(
+            appliesRows[0].rowNumber,
+            `"${categoryName}" has an unrecognised "Applies To" (${distinctApplies[0]}). Use First year only, Every year, or Specific year.`,
+          );
+          continue;
+        }
+
+        const year = parseYearOfStudy(distinctYears[0] ?? '');
+        if (year === 'INVALID') {
+          at(
+            yearRows[0].rowNumber,
+            `"${categoryName}" has an invalid "Year of Study" (${distinctYears[0]}). Use a whole number from 1 to 10.`,
+          );
+          continue;
+        }
+
+        // The DB guard afsi_applies_year_chk is a BICONDITIONAL: the year is
+        // set if and only if applies_to is 'specific_year'. Both halves are
+        // enforced here so the operator gets a row number instead of a
+        // constraint name mid-import.
+        if (appliesTo === 'specific_year' && year === null) {
+          at(
+            appliesRows[0].rowNumber,
+            `"${categoryName}" is set to Specific year, so it needs a "Year of Study" (1-10).`,
+          );
+          continue;
+        }
+        if (appliesTo !== 'specific_year' && year !== null) {
+          at(
+            yearRows[0].rowNumber,
+            `"${categoryName}" has a "Year of Study" but "Applies To" is ${appliesTo === null ? 'blank' : APPLIES_TO_LABELS[appliesTo]}. Year of Study only means something next to Specific year — clear one of them.`,
+          );
+          continue;
+        }
+
+        if (appliesTo !== null) {
+          appliesByCategory.set(categoryId, { appliesTo, year });
+        }
+      }
 
       const lines: RawScheduleLine[] = [];
       let lineFailed = false;
@@ -1081,6 +1217,17 @@ export function resolveUnifiedSheet(
         source: resolved.source,
       });
       continue;
+    }
+
+    for (const item of resolved.payload!.items) {
+      const applies = appliesByCategory.get(item.billing_category_id);
+      if (!applies) continue; // blank cell / absent column = leave it alone
+      item.applies_to = applies.appliesTo;
+      // Set ONLY for specific_year. The RPC derives it the same way, but a
+      // payload that carries a year next to 'every_year' is a lie either way.
+      if (applies.appliesTo === 'specific_year') {
+        item.applies_year_of_study = applies.year;
+      }
     }
 
     // ALWAYS set, even when empty: its presence is what tells the RPC the sheet
