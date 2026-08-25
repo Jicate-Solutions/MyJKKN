@@ -26,6 +26,7 @@ import {
   useShiftTimingWeek,
 } from '@/hooks/hr/use-shift-timings';
 import type { WeekDayInput } from '@/lib/services/hr/shift-timing-service';
+import { todayISO } from '@/lib/services/hr/attendance-recompute-service';
 import {
   DAY_OF_WEEK_OPTIONS,
   DEFAULT_WORKING_DAY,
@@ -43,6 +44,18 @@ interface WeeklyTimingGridProps {
   employmentCategoryId?: string | null;
   /** Human label for the scope, used in the save toast. */
   scopeLabel: string;
+  /**
+   * OWNED BY THE PAGE, NOT BY THIS GRID (2026-08-25).
+   *
+   * Each scope lives in its own TabsContent and Radix unmounts the inactive
+   * one. While this was local state it was re-initialised to today every time a
+   * tab was opened, so backdating Teaching to 1 July, switching to Non-teaching
+   * and saving silently applied that second save from TODAY -- leaving the two
+   * scopes on different rules, with no error and no warning. Hoisting it makes
+   * the date one decision for the whole edit, which is what it always was.
+   */
+  effectiveFrom: string;
+  onEffectiveFromChange: (value: string) => void;
 }
 
 function blankWeek(): WeekDayInput[] {
@@ -85,10 +98,6 @@ function hydrate(rows: HRShiftTiming[]): WeekDayInput[] {
   });
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /**
  * The next three 2nd Saturdays, starting with the current month's, as
  * "11 Jul, 8 Aug, 12 Sep". Concrete dates because the abstract rule is exactly
@@ -118,6 +127,8 @@ export function WeeklyTimingGrid({
   staffScope,
   employmentCategoryId = null,
   scopeLabel,
+  effectiveFrom,
+  onEffectiveFromChange,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
     () => ({ institutionId, staffScope, employmentCategoryId }),
@@ -128,7 +139,6 @@ export function WeeklyTimingGrid({
   const save = useSaveShiftTimingWeek();
 
   const [rows, setRows] = useState<WeekDayInput[]>(blankWeek());
-  const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
 
   // Hydrate once per scope, NOT on every `data` identity change. A background
   // refetch (this app refetches on window focus) would otherwise wipe an
@@ -264,7 +274,7 @@ export function WeeklyTimingGrid({
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             <button
               type="button"
-              onClick={() => setEffectiveFrom(currentEffectiveFrom!)}
+              onClick={() => onEffectiveFromChange(currentEffectiveFrom!)}
               className={`rounded-md border p-3 text-left text-sm transition-colors ${
                 isCorrectingHistory ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
               }`}
@@ -277,7 +287,7 @@ export function WeeklyTimingGrid({
             </button>
             <button
               type="button"
-              onClick={() => setEffectiveFrom(todayISO())}
+              onClick={() => onEffectiveFromChange(todayISO())}
               className={`rounded-md border p-3 text-left text-sm transition-colors ${
                 !isCorrectingHistory && !isScheduledChange
                   ? 'border-primary bg-primary/5'
@@ -302,7 +312,7 @@ export function WeeklyTimingGrid({
             type="date"
             className="mt-1"
             value={effectiveFrom}
-            onChange={(e) => setEffectiveFrom(e.target.value)}
+            onChange={(e) => onEffectiveFromChange(e.target.value)}
           />
         </div>
         <Button type="button" variant="outline" size="sm" onClick={copyMondayToWeekdays}>

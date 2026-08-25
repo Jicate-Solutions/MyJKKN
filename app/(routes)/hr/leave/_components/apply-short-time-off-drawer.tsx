@@ -13,15 +13,35 @@
  *
  * THE FORM IS BOUNDED BY THE SHIFT (2026-08-21). Picking the date resolves that
  * day's window through fn_shift_window and:
- *   - seeds Start Time with the GRACE DEADLINE (first_half_start + grace), the
- *     minute from which lateness is counted and therefore the one a permission
- *     is usually raised to cover;
- *   - clamps both inputs to [first_half_start, second_half_end], since time off
+ *   - clamps both inputs to the chosen half of the shift, since time off
  *     outside the shift is time that was never owed;
  *   - refuses a slot that overlaps a request already live for that date.
- * The last of the three is ALSO enforced by hr_trig_sto_enforce_limits. This
- * copy exists to say so while choosing rather than after Submit, and is not the
- * enforcement point.
+ * The second is ALSO enforced by hr_trig_sto_enforce_limits. This copy exists to
+ * say so while choosing rather than after Submit, and is not the enforcement
+ * point.
+ *
+ * THE SHIFT IS SHOWN AS TWO SESSIONS (2026-08-25). fn_shift_window has always
+ * returned all four boundaries, but the form rendered only the outer envelope --
+ * "Shift 09:00-16:30" -- so staff had no way to see where the first half ended
+ * and the second began, and guessed at the times to enter. Both are picked
+ * explicitly now:
+ *   - each session card carries its own timings, so the window is read off the
+ *     form rather than recalled;
+ *   - the picked session, not the envelope, bounds and seeds the inputs;
+ *   - the first half OPENS AT ITS GRACE DEADLINE (first_half_start + grace).
+ *     Those minutes are already free, so a permission spanning them would spend
+ *     allowance on time nobody was going to be marked late for. 09:05 is offered
+ *     and 09:04 is refused, on the card and in the picker alike;
+ *   - a time outside the half is clamped back into it as it is picked, by
+ *     clampToSession. The min/max attributes alone only narrow the spinner —
+ *     browsers still accept a value typed or pasted past them — so outsideShift
+ *     survives as the backstop rather than as the thing doing the work;
+ *   - duration chips are built from the type's own min/max, so one click cannot
+ *     compose a request hr_trig_sto_enforce_limits would then refuse.
+ * The halves OVERLAP at JKKN (09:00-13:00 against 12:30-16:30) and the DB CHECK
+ * permits that deliberately. A time inside the overlap is therefore valid under
+ * either session; the picker chooses which bound applies, it does not partition
+ * the day, and the form says so rather than letting it read as a typo.
  */
 
 import { useMemo, useState } from 'react';
@@ -90,6 +110,7 @@ export function ApplyShortTimeOffDrawer({
 
   const [leaveTypeId, setLeaveTypeId] = useState('');
   const [date, setDate] = useState('');
+  const [session, setSession] = useState<'first' | 'second'>('first');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [reason, setReason] = useState('');
@@ -140,13 +161,49 @@ export function ApplyShortTimeOffDrawer({
   const nonWorkingDay = !!date && !!shift && shift.is_working_day === false;
   const noShift = !!date && !shiftLoading && !shift;
 
-  // Seed Start Time from the grace deadline, once per date. Adjusting state
-  // during render rather than in an effect: an effect would paint an empty
-  // field first and then overwrite whatever the user typed in between.
+  // The two halves as pickable windows. Null when the day is not worked or a
+  // boundary is missing -- a timing row can only be half-filled through direct
+  // SQL, but the envelope still bounds a request correctly, so fall back to it
+  // rather than blocking the form on a config it can survive.
+  const sessions = useMemo(() => {
+    if (!shift || shift.is_working_day === false) return null;
+    const fs = toMinutes(shift.first_half_start);
+    const fe = toMinutes(shift.first_half_end);
+    const ss = toMinutes(shift.second_half_start);
+    const se = toMinutes(shift.second_half_end);
+    if (fs === null || fe === null || ss === null || se === null) return null;
+    // The first half OPENS AT ITS GRACE DEADLINE, not at its raw start. Those
+    // grace minutes are already free — nobody is marked late inside them — so a
+    // permission covering 09:00-09:05 would spend allowance on time that was
+    // never at risk. The card and the bounds both read this one value, so what
+    // is displayed is exactly what is selectable: 09:05 offered, 09:04 refused.
+    // Math.min guards a grace longer than the half itself, which the 0..240
+    // range on grace_minutes permits.
+    const graceOpen = Math.min(fs + (shift.grace_minutes ?? 0), fe);
+    return {
+      first: { key: 'first' as const, label: 'First half', period: 'AM', start: graceOpen, end: fe },
+      second: { key: 'second' as const, label: 'Second half', period: 'PM', start: ss, end: se },
+    };
+  }, [shift]);
+
+  const activeSession = sessions ? sessions[session] : null;
+
+  // What actually bounds the inputs: the picked half, or the whole shift when
+  // the halves could not be resolved.
+  const boundStart = activeSession ? activeSession.start : shiftOpen;
+  const boundEnd = activeSession ? activeSession.end : shiftClose;
+
+  // Seed Start Time at the top of the picked session, once per (date, session).
+  // For the first half that is already its grace deadline — see `sessions` — so
+  // no special case is needed here. Adjusting state during render rather than in
+  // an effect: an effect would paint an empty field first and then overwrite
+  // whatever the user typed in between.
+  const seedAt = activeSession ? activeSession.start : graceDeadline;
+  const seedKey = date ? `${date}|${activeSession?.key ?? 'shift'}` : null;
   const [seededFor, setSeededFor] = useState<string | null>(null);
-  if (date && graceDeadline !== null && !nonWorkingDay && seededFor !== date) {
-    setSeededFor(date);
-    setStartTime(toHHMM(graceDeadline));
+  if (seedKey && seedAt !== null && !nonWorkingDay && seededFor !== seedKey) {
+    setSeededFor(seedKey);
+    setStartTime(toHHMM(seedAt));
     setEndTime('');
   }
   if (!date && seededFor !== null) setSeededFor(null);
@@ -170,12 +227,18 @@ export function ApplyShortTimeOffDrawer({
   }, [sameDay, startTime, endTime]);
 
   const outsideShift = (() => {
-    if (shiftOpen === null || shiftClose === null) return null;
+    if (boundStart === null || boundEnd === null) return null;
     const s = toMinutes(startTime);
     const e = toMinutes(endTime);
-    if (s !== null && s < shiftOpen) return `Start time is before the shift begins at ${clock(shift?.first_half_start)}.`;
-    if (e !== null && e > shiftClose) return `End time is after the shift ends at ${clock(shift?.second_half_end)}.`;
-    if (s !== null && s >= shiftClose) return `Start time is after the shift ends at ${clock(shift?.second_half_end)}.`;
+    // Name the half, not the shift -- "before the shift begins" is a confusing
+    // thing to read at 09:30, when the bound actually crossed is the second half
+    // starting at 12:30.
+    const where = activeSession
+      ? `the ${activeSession.label.toLowerCase()} (${toHHMM(boundStart)}–${toHHMM(boundEnd)})`
+      : 'the shift';
+    if (s !== null && s < boundStart) return `Start time is before ${where} begins.`;
+    if (e !== null && e > boundEnd) return `End time is after ${where} ends.`;
+    if (s !== null && s >= boundEnd) return `Start time is after ${where} ends.`;
     return null;
   })();
 
@@ -190,6 +253,61 @@ export function ApplyShortTimeOffDrawer({
     !!startTime && !!endTime && totalHours === null;
 
   const requestMinutes = totalHours === null ? null : Math.round(totalHours * 60);
+
+  // Read off `usage` before the memo rather than inside its dependency array:
+  // the React Compiler cannot verify an optional-chained dep and fails the
+  // build rule react-hooks/preserve-manual-memoization on `usage?.min_minutes`.
+  const minPerRequest = usage?.min_minutes ?? null;
+  const maxPerRequest = usage?.max_minutes ?? null;
+
+  // Two choices only, by request (2026-08-25): a permission is asked for in
+  // half-hours or a full hour and nothing else, so a longer menu was clutter.
+  // Still filtered rather than hardcoded — a type configured min 45 must not
+  // offer a 30-minute chip hr_trig_sto_enforce_limits would then refuse, and a
+  // session shorter than an hour must not offer one.
+  const durationChoices = useMemo(() => {
+    const sessionLength =
+      boundStart === null || boundEnd === null ? null : boundEnd - boundStart;
+    return [30, 60].filter((mins) => {
+      if (minPerRequest && mins < minPerRequest) return false;
+      if (maxPerRequest && mins > maxPerRequest) return false;
+      if (sessionLength !== null && mins > sessionLength) return false;
+      return true;
+    });
+  }, [minPerRequest, maxPerRequest, boundStart, boundEnd]);
+
+  /**
+   * Snap a picked time back into the session.
+   *
+   * `min`/`max` on <input type="time"> only narrow the spinner — every browser
+   * still accepts a value typed, pasted or autofilled outside that range, which
+   * is why `outsideShift` existed to catch it after the fact. Clamping here
+   * refuses it at the point of selection instead: with the first half opening at
+   * 09:05, picking 09:04 lands on 09:05 rather than on an error message.
+   *
+   * An empty string is passed through — that is the user clearing the field
+   * mid-edit, not an out-of-range value.
+   */
+  const clampToSession = (value: string): string => {
+    if (!value) return value;
+    const mins = toMinutes(value);
+    if (mins === null || boundStart === null || boundEnd === null) return value;
+    return toHHMM(Math.min(Math.max(mins, boundStart), boundEnd));
+  };
+
+  /**
+   * Set End from Start plus a duration. When that would run past the session,
+   * slide Start back so the whole duration still fits, rather than producing a
+   * request the bound check rejects on the very next render.
+   */
+  const applyDuration = (mins: number) => {
+    if (boundStart === null || boundEnd === null) return;
+    const current = toMinutes(startTime);
+    if (current === null) return;
+    const start = Math.max(boundStart, Math.min(current, boundEnd - mins));
+    setStartTime(toHHMM(start));
+    setEndTime(toHHMM(start + mins));
+  };
 
   // Mirrors hr_trig_sto_enforce_limits so the form refuses what the database
   // would refuse, with the same numbers, before a round trip.
@@ -221,7 +339,8 @@ export function ApplyShortTimeOffDrawer({
   const notHourly = !!selected && !selected.allow_hourly;
 
   const reset = () => {
-    setLeaveTypeId(''); setDate(''); setStartTime(''); setEndTime('');
+    setLeaveTypeId(''); setDate(''); setSession('first');
+    setStartTime(''); setEndTime('');
     setReason(''); setError(null); setSeededFor(null);
   };
 
@@ -395,28 +514,53 @@ export function ApplyShortTimeOffDrawer({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* The shift, as the two sessions it is actually worked in. This
+                  is the answer to "which timing is the first half?" — read off
+                  the card rather than remembered or guessed. */}
+              {sessions && (
                 <div>
-                  <Label htmlFor="stoStart">Start Time <span className="text-destructive">*</span></Label>
-                  {/* min/max narrow the picker; outsideShift still checks, because
-                      a browser will happily accept a typed out-of-range value. */}
-                  <Input id="stoStart" type="time" className="mt-1" value={startTime}
-                    min={shift?.first_half_start?.slice(0, 5)}
-                    max={shift?.second_half_end?.slice(0, 5)}
-                    disabled={!date || nonWorkingDay || noShift}
-                    onChange={(e) => setStartTime(e.target.value)} />
+                  <Label>Which part of your shift? <span className="text-destructive">*</span></Label>
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    {[sessions.first, sessions.second].map((half) => {
+                      const isActive = session === half.key;
+                      return (
+                        <button
+                          key={half.key}
+                          type="button"
+                          aria-pressed={isActive}
+                          onClick={() => setSession(half.key)}
+                          className={`rounded-md border p-3 text-left transition-colors ${
+                            isActive
+                              ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                              : 'hover:bg-muted/50'
+                          }`}
+                        >
+                          <span className="flex items-baseline justify-between gap-1">
+                            <span className="text-xs font-medium">{half.label}</span>
+                            <span className="text-[11px] text-muted-foreground">{half.period}</span>
+                          </span>
+                          <span className="mt-0.5 block text-sm font-semibold tabular-nums">
+                            {toHHMM(half.start)}–{toHHMM(half.end)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Someone reading two cards that both cover 12:30–13:00 will
+                      otherwise take one of them for a typo. */}
+                  {sessions.second.start < sessions.first.end && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      The halves overlap between {toHHMM(sessions.second.start)} and{' '}
+                      {toHHMM(sessions.first.end)} — a time in that span can be booked under
+                      either.
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <Label htmlFor="stoEnd">End Time <span className="text-destructive">*</span></Label>
-                  <Input id="stoEnd" type="time" className="mt-1" value={endTime}
-                    min={startTime || shift?.first_half_start?.slice(0, 5)}
-                    max={shift?.second_half_end?.slice(0, 5)}
-                    disabled={!date || nonWorkingDay || noShift}
-                    onChange={(e) => setEndTime(e.target.value)} />
-                </div>
-              </div>
+              )}
 
-              {shift && shift.is_working_day && (
+              {/* Only reachable when the halves could not be resolved; the cards
+                  carry the timings in every other case. */}
+              {shift && shift.is_working_day && !sessions && (
                 <p className="text-xs text-muted-foreground">
                   Shift {clock(shift.first_half_start)}–{clock(shift.second_half_end)}
                   {shift.grace_minutes ? ` · ${shift.grace_minutes} min grace, so lateness counts from ${graceDeadline !== null ? toHHMM(graceDeadline) : '—'}` : ''}
@@ -424,9 +568,65 @@ export function ApplyShortTimeOffDrawer({
                 </p>
               )}
 
+              {/* Gated on usageResolved so the chips do not render the unfiltered
+                  set for a frame and then visibly shrink to the allowed ones. */}
+              {!!date && !nonWorkingDay && !noShift && usageResolved && durationChoices.length > 0 && (
+                <div>
+                  <Label>How long?</Label>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    {durationChoices.map((mins) => (
+                      <Button
+                        key={mins}
+                        type="button"
+                        size="sm"
+                        variant={requestMinutes === mins ? 'default' : 'outline'}
+                        onClick={() => applyDuration(mins)}
+                      >
+                        {formatMinutes(mins)}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Sets the end time from the start time. Either can still be adjusted below.
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="stoStart">Start Time <span className="text-destructive">*</span></Label>
+                  {/* min/max narrow the spinner; clampToSession is what actually
+                      refuses a value outside the half, since a browser will
+                      happily accept one typed or pasted past the attributes. */}
+                  <Input id="stoStart" type="time" className="mt-1" value={startTime}
+                    min={boundStart !== null ? toHHMM(boundStart) : undefined}
+                    max={boundEnd !== null ? toHHMM(boundEnd) : undefined}
+                    disabled={!date || nonWorkingDay || noShift}
+                    onChange={(e) => setStartTime(clampToSession(e.target.value))} />
+                </div>
+                <div>
+                  <Label htmlFor="stoEnd">End Time <span className="text-destructive">*</span></Label>
+                  <Input id="stoEnd" type="time" className="mt-1" value={endTime}
+                    min={startTime || (boundStart !== null ? toHHMM(boundStart) : undefined)}
+                    max={boundEnd !== null ? toHHMM(boundEnd) : undefined}
+                    disabled={!date || nonWorkingDay || noShift}
+                    onChange={(e) => setEndTime(clampToSession(e.target.value))} />
+                </div>
+              </div>
+
               <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
-                Total Hours{' '}
-                <strong>{totalHours !== null ? formatHours(totalHours) : '—'}</strong>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+                  <span>
+                    Total Hours{' '}
+                    <strong>{totalHours !== null ? formatHours(totalHours) : '—'}</strong>
+                  </span>
+                  {activeSession && totalHours !== null && !outsideShift && (
+                    <span className="text-xs text-muted-foreground">
+                      within {activeSession.label.toLowerCase()} ({toHHMM(activeSession.start)}
+                      –{toHHMM(activeSession.end)})
+                    </span>
+                  )}
+                </div>
               </div>
 
               {notHourly && (
