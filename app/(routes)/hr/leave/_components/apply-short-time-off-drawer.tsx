@@ -81,7 +81,30 @@ function toHHMM(mins: number): string {
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
 }
 
-const clock = (t: string | null | undefined) => (t ? t.slice(0, 5) : '—');
+/**
+ * Minutes since midnight as a 12-hour label: 545 -> "9:05 AM", 795 -> "1:15 PM".
+ *
+ * DISPLAY ONLY. toHHMM stays the machine format -- it feeds the min/max
+ * attributes and the value of <input type="time">, both of which are specified
+ * as 24-hour HH:MM regardless of what the browser paints on top. Every
+ * human-readable time in this form goes through here instead, because the
+ * inputs render as 12-hour under an en-IN/en-US locale and the session cards
+ * were printing 24-hour beside them -- one form quoting the same shift in two
+ * clocks, which is what made 13:15 look like a different time from 1:15 PM.
+ */
+function to12h(mins: number): string {
+  const h24 = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  const period = h24 < 12 ? 'AM' : 'PM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+/** A stored 'HH:MM[:SS]' rendered on the same 12-hour clock. */
+const clock = (t: string | null | undefined) => {
+  const mins = toMinutes(t);
+  return mins === null ? '—' : to12h(mins);
+};
 
 /** Consumed share of the allowance, clamped — an over-drawn period is still 100%. */
 function pct(used: number, total: number): number {
@@ -181,8 +204,8 @@ export function ApplyShortTimeOffDrawer({
     // range on grace_minutes permits.
     const graceOpen = Math.min(fs + (shift.grace_minutes ?? 0), fe);
     return {
-      first: { key: 'first' as const, label: 'First half', period: 'AM', start: graceOpen, end: fe },
-      second: { key: 'second' as const, label: 'Second half', period: 'PM', start: ss, end: se },
+      first: { key: 'first' as const, label: 'First half', start: graceOpen, end: fe },
+      second: { key: 'second' as const, label: 'Second half', start: ss, end: se },
     };
   }, [shift]);
 
@@ -234,7 +257,7 @@ export function ApplyShortTimeOffDrawer({
     // thing to read at 09:30, when the bound actually crossed is the second half
     // starting at 12:30.
     const where = activeSession
-      ? `the ${activeSession.label.toLowerCase()} (${toHHMM(boundStart)}–${toHHMM(boundEnd)})`
+      ? `the ${activeSession.label.toLowerCase()} (${to12h(boundStart)} – ${to12h(boundEnd)})`
       : 'the shift';
     if (s !== null && s < boundStart) return `Start time is before ${where} begins.`;
     if (e !== null && e > boundEnd) return `End time is after ${where} ends.`;
@@ -535,12 +558,12 @@ export function ApplyShortTimeOffDrawer({
                               : 'hover:bg-muted/50'
                           }`}
                         >
-                          <span className="flex items-baseline justify-between gap-1">
-                            <span className="text-xs font-medium">{half.label}</span>
-                            <span className="text-[11px] text-muted-foreground">{half.period}</span>
-                          </span>
+                          {/* The AM/PM badge that used to sit here is gone: the
+                              times now carry their own period, and the badge was
+                              wrong anyway on a first half running past noon. */}
+                          <span className="block text-xs font-medium">{half.label}</span>
                           <span className="mt-0.5 block text-sm font-semibold tabular-nums">
-                            {toHHMM(half.start)}–{toHHMM(half.end)}
+                            {to12h(half.start)} – {to12h(half.end)}
                           </span>
                         </button>
                       );
@@ -550,8 +573,8 @@ export function ApplyShortTimeOffDrawer({
                       otherwise take one of them for a typo. */}
                   {sessions.second.start < sessions.first.end && (
                     <p className="mt-1.5 text-xs text-muted-foreground">
-                      The halves overlap between {toHHMM(sessions.second.start)} and{' '}
-                      {toHHMM(sessions.first.end)} — a time in that span can be booked under
+                      The halves overlap between {to12h(sessions.second.start)} and{' '}
+                      {to12h(sessions.first.end)} — a time in that span can be booked under
                       either.
                     </p>
                   )}
@@ -563,7 +586,7 @@ export function ApplyShortTimeOffDrawer({
               {shift && shift.is_working_day && !sessions && (
                 <p className="text-xs text-muted-foreground">
                   Shift {clock(shift.first_half_start)}–{clock(shift.second_half_end)}
-                  {shift.grace_minutes ? ` · ${shift.grace_minutes} min grace, so lateness counts from ${graceDeadline !== null ? toHHMM(graceDeadline) : '—'}` : ''}
+                  {shift.grace_minutes ? ` · ${shift.grace_minutes} min grace, so lateness counts from ${graceDeadline !== null ? to12h(graceDeadline) : '—'}` : ''}
                   . A request must sit inside the shift.
                 </p>
               )}
@@ -622,8 +645,8 @@ export function ApplyShortTimeOffDrawer({
                   </span>
                   {activeSession && totalHours !== null && !outsideShift && (
                     <span className="text-xs text-muted-foreground">
-                      within {activeSession.label.toLowerCase()} ({toHHMM(activeSession.start)}
-                      –{toHHMM(activeSession.end)})
+                      within {activeSession.label.toLowerCase()} ({to12h(activeSession.start)}
+                      {' – '}{to12h(activeSession.end)})
                     </span>
                   )}
                 </div>
