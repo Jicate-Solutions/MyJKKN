@@ -20,7 +20,15 @@ export const BILLING_ACTION_TYPES = [
   'discount_apply',
   'refund_process',
   'approve',
-  'reject'
+  'reject',
+  // Receipt-cancellation lifecycle. Written by trg_log_receipt_cancel_activity
+  // (20260825170000), one row per billing_receipt_cancel_request_actions row,
+  // so the feed and the audit trail cannot drift.
+  'cancel_request',
+  'cancel_approve',
+  'cancel_decline',
+  'cancel_withdraw',
+  'cancel_failed'
 ] as const;
 
 export type BillingActionType = (typeof BILLING_ACTION_TYPES)[number];
@@ -34,7 +42,12 @@ export const BILLING_ACTION_LABELS: Record<string, string> = {
   discount_apply: 'Discount',
   refund_process: 'Refund',
   approve: 'Approved',
-  reject: 'Rejected'
+  reject: 'Rejected',
+  cancel_request: 'Cancellation Requested',
+  cancel_approve: 'Cancellation Approved',
+  cancel_decline: 'Cancellation Declined',
+  cancel_withdraw: 'Cancellation Withdrawn',
+  cancel_failed: 'Cancellation Failed'
 };
 
 export const BILLING_ACTION_COLORS: Record<string, string> = {
@@ -46,7 +59,14 @@ export const BILLING_ACTION_COLORS: Record<string, string> = {
   discount_apply: 'bg-amber-100 text-amber-800',
   refund_process: 'bg-orange-100 text-orange-800',
   approve: 'bg-teal-100 text-teal-800',
-  reject: 'bg-rose-100 text-rose-800'
+  reject: 'bg-rose-100 text-rose-800',
+  // Only cancel_approve moves money — it reads as destructive on purpose, to
+  // stand out from the three that leave the receipt and the bill untouched.
+  cancel_request: 'bg-yellow-100 text-yellow-800',
+  cancel_approve: 'bg-red-100 text-red-800',
+  cancel_decline: 'bg-slate-100 text-slate-800',
+  cancel_withdraw: 'bg-slate-100 text-slate-800',
+  cancel_failed: 'bg-rose-100 text-rose-800'
 };
 
 export const BILLING_RESOURCE_LABELS: Record<string, string> = {
