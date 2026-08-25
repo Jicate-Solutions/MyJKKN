@@ -39,6 +39,27 @@ import type {
 
 const RECENT_ACTIONS_LIMIT = 25;
 
+// Resolves each action's actor_id (auth.users/profiles id) to a display
+// name, batched in one query — never one lookup per row. A missing profile
+// or a null actor_id is left out of the map on purpose: the action-log
+// renders "unknown" for anything not in this map rather than guessing a
+// name, since an unattributable action must look unattributable.
+async function fetchActorNames(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  actorIds: Array<string | null>
+): Promise<Map<string, string>> {
+  const unique = [...new Set(actorIds.filter((id): id is string => !!id))];
+  if (unique.length === 0) return new Map();
+
+  const { data } = await supabase.from('profiles').select('id, full_name').in('id', unique);
+
+  const names = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{ id: string; full_name: string | null }>) {
+    if (row.full_name) names.set(row.id, row.full_name);
+  }
+  return names;
+}
+
 async function loadOrchestrationData() {
   const supabase = await createClient();
 
@@ -53,10 +74,17 @@ async function loadOrchestrationData() {
     supabase.from('orchestration_session_state').select('*').order('last_seen_at', { ascending: false }),
   ]);
 
+  const actions = (actionsRes.data ?? []) as OrchestrationAction[];
+  const actorNames = await fetchActorNames(
+    supabase,
+    actions.map((a) => a.actor_id)
+  );
+
   return {
     modules: (modulesRes.data ?? []) as OrchestrationModule[],
     prs: (prsRes.data ?? []) as OrchestrationPr[],
-    actions: (actionsRes.data ?? []) as OrchestrationAction[],
+    actions,
+    actorNames,
     session: (sessionRes.data ?? []) as OrchestrationSessionState[],
   };
 }
@@ -74,7 +102,7 @@ function Fallback() {
 }
 
 export default async function OrchestrationPage() {
-  const { modules, prs, actions, session } = await loadOrchestrationData();
+  const { modules, prs, actions, actorNames, session } = await loadOrchestrationData();
   const newestHeartbeat = session[0]?.last_seen_at ?? null;
   const readyCount = modules.filter((m) => m.status === 'gated' || m.status === 'idle').length;
 
@@ -123,7 +151,7 @@ export default async function OrchestrationPage() {
             </div>
           )}
 
-          <ActionLog actions={actions} />
+          <ActionLog actions={actions} actorNames={actorNames} />
         </div>
       </ContentLayout>
     </SuperAdminOnly>
