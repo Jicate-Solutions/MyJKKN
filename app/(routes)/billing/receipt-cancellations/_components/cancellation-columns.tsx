@@ -5,6 +5,12 @@ import { format } from 'date-fns';
 import { Eye } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import type { ReceiptCancelRequest } from '@/lib/services/billing/receipts/receipt-cancellation-service';
 
@@ -57,9 +63,9 @@ export function statusVariant(status: string) {
  * Columns for the cancellation queue.
  *
  * No approve/decline buttons in the row: a decision needs the learner, the
- * receipt and the bills it settled, none of which fit here. The request number
- * and the trailing button both open the detail dialog, where the decision is
- * taken with that evidence on screen.
+ * receipt and the bills it settled, none of which fit here. The trailing view
+ * icon is the single way in, and the decision is taken in the dialog with that
+ * evidence on screen.
  *
  * `enableSorting: false` on the three snapshot-derived columns is not a style
  * choice — sorting is server-side, and those values live inside a JSONB blob
@@ -73,13 +79,7 @@ export function getCancellationColumns(
       accessorKey: 'request_number',
       header: ({ column }) => <DataTableColumnHeader column={column} title='Request' />,
       cell: ({ row }) => (
-        <Button
-          variant='link'
-          className='h-auto p-0 font-medium'
-          onClick={() => onView(row.original.id)}
-        >
-          {row.original.request_number}
-        </Button>
+        <span className='font-medium'>{row.original.request_number}</span>
       ),
       size: 150,
     },
@@ -143,23 +143,34 @@ export function getCancellationColumns(
     },
     {
       id: 'actions',
-      header: '',
+      header: () => <span className='sr-only'>Actions</span>,
       cell: ({ row }) => (
         <div className='flex justify-end'>
-          <Button
-            variant='ghost'
-            size='sm'
-            onClick={() => onView(row.original.id)}
-            aria-label={`View ${row.original.request_number}`}
-          >
-            <Eye className='mr-1.5 h-4 w-4' />
-            Details
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant='ghost'
+                  size='sm'
+                  className='h-8 w-8 p-0'
+                  onClick={() => onView(row.original.id)}
+                  // Icon-only, so the accessible name has to come from here —
+                  // naming the request keeps a screen-reader row list usable.
+                  aria-label={`View ${row.original.request_number}`}
+                >
+                  <Eye className='h-4 w-4' />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>View details</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       ),
       enableSorting: false,
       enableHiding: false,
-      size: 110,
+      size: 70,
     },
   ];
 }
