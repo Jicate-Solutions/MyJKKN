@@ -63,9 +63,9 @@ export function statusVariant(status: string) {
  * Columns for the cancellation queue.
  *
  * No approve/decline buttons in the row: a decision needs the learner, the
- * receipt and the bills it settled, none of which fit here. The trailing view
- * icon is the single way in, and the decision is taken in the dialog with that
- * evidence on screen.
+ * receipt and the bills it settled, none of which fit here. The request number
+ * and the trailing view icon both open the detail dialog, where the decision is
+ * taken with that evidence on screen.
  *
  * `enableSorting: false` on the three snapshot-derived columns is not a style
  * choice — sorting is server-side, and those values live inside a JSONB blob
@@ -79,7 +79,13 @@ export function getCancellationColumns(
       accessorKey: 'request_number',
       header: ({ column }) => <DataTableColumnHeader column={column} title='Request' />,
       cell: ({ row }) => (
-        <span className='font-medium'>{row.original.request_number}</span>
+        <Button
+          variant='link'
+          className='h-auto justify-start p-0 font-medium'
+          onClick={() => onView(row.original.id)}
+        >
+          {row.original.request_number}
+        </Button>
       ),
       size: 150,
     },
