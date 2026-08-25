@@ -33956,6 +33956,7 @@ export type Database = {
           room_source_category_id: string | null
           settle_billing_enabled: boolean
           sort_order: number
+          tier_key: string
           type: string
           updated_at: string
           upgrade_hold_days: number
@@ -33974,6 +33975,7 @@ export type Database = {
           room_source_category_id?: string | null
           settle_billing_enabled?: boolean
           sort_order?: number
+          tier_key?: string
           type: string
           updated_at?: string
           upgrade_hold_days?: number
@@ -33992,6 +33994,7 @@ export type Database = {
           room_source_category_id?: string | null
           settle_billing_enabled?: boolean
           sort_order?: number
+          tier_key?: string
           type?: string
           updated_at?: string
           upgrade_hold_days?: number

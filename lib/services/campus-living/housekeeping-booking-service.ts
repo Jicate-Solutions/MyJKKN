@@ -1,12 +1,12 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
-import { HOUSEKEEPING_POLICY_KEYS } from '@/lib/services/campus-living/housekeeping-policy-keys';
 
 // ── Housekeeping slot booking (table: hostel_cleaning_bookings) ────────────
 // Spec: specs/housekeeping-slot-booking-spec-2026-06-10.md
 // Migration (Agent A): supabase/migrations/20260610190000_housekeeping_slot_booking.sql
+// Entitlement rework: supabase/migrations/20260825120000_housekeeping_entitlement_by_room_category.sql
 //
-// Premium residents book 10-minute room-cleaning slots. Slots are COMPUTED
+// Premium-room residents book 10-minute room-cleaning slots. Slots are COMPUTED
 // server-side (service window ÷ slot_duration − bookings), never materialized;
 // every knob is a platform_policies row (see housekeeping-policy-keys.ts) so
 // the Director can retune without a deploy. Booking WRITES go through
@@ -17,7 +17,7 @@ import { HOUSEKEEPING_POLICY_KEYS } from '@/lib/services/campus-living/housekeep
 // Identity chain reminder: hostel_allocations.learner_id FKs profiles
 // (= auth.users.id), while hostel_cleaning_bookings.learner_id FKs
 // learners_profiles (denormalized for RLS speed) — bridge via
-// profiles.learner_id when both are needed (see getMyEntitlement).
+// profiles.learner_id when both are needed.
 
 export type HousekeepingBookingStatus =
   | 'booked'
@@ -107,12 +107,14 @@ export interface BookingBoardRow extends HostelCleaningBooking {
   learner_name: string | null;
 }
 
-/** Composed entitlement state for the current user (see getMyEntitlement). */
+/** Entitlement envelope returned verbatim by fn_housekeeping_my_entitlement. */
 export interface EntitlementResult {
-  /** True when tier_features has 'book_housekeeping_slots' AND weekly quota > 0. */
+  /** True when the room category's tier carries the feature AND quota > 0. */
   entitled: boolean;
-  /** hostel_tier_policy.tier_key ('standard' when allocation has no tier row). */
+  /** hostel_categories.tier_key ('standard' | 'premium' | 'premium_plus'). */
   tierKey: string | null;
+  /** The resident's room category, e.g. 'Premium Room' — names the refusal. */
+  categoryName: string | null;
   weeklyQuota: number;
   /** Own bookings this ISO week with status in ('booked','completed'). */
   usedThisWeek: number;
@@ -120,27 +122,15 @@ export interface EntitlementResult {
   reason?: 'no_active_allocation' | 'tier_not_entitled' | 'no_weekly_quota';
 }
 
-/** Seeded defaults mirror the migration — used only if the policy read fails. */
-const DEFAULT_QUOTA_BY_TIER: Record<string, number> = {
-  standard: 0,
-  premium: 2,
-  premium_plus: 5,
+/** Shown when the RPC itself fails — never treated as an entitlement. */
+const ENTITLEMENT_UNKNOWN: EntitlementResult = {
+  entitled: false,
+  tierKey: null,
+  categoryName: null,
+  weeklyQuota: 0,
+  usedThisWeek: 0,
+  reason: 'no_active_allocation',
 };
-
-/** Tier feature flag the migration appends to premium/premium_plus tiers. */
-const BOOKING_FEATURE_KEY = 'book_housekeeping_slots';
-
-/** Monday→Sunday date range (local) of the ISO week containing `ref`. */
-function isoWeekRange(ref: Date): { start: string; end: string } {
-  const monday = new Date(ref);
-  // getDay(): 0=Sun..6=Sat → distance back to Monday is (day + 6) % 7.
-  monday.setDate(ref.getDate() - ((ref.getDay() + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const fmt = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return { start: fmt(monday), end: fmt(sunday) };
-}
 
 export class HousekeepingBookingService {
   // ── Slots ──────────────────────────────────────────────────────────
@@ -285,8 +275,15 @@ export class HousekeepingBookingService {
 
   // ── Entitlement ────────────────────────────────────────────────────
   /**
-   * Composed client reads (no RPC): active allocation → tier feature flag +
-   * weekly quota policy row + own usage count this ISO week.
+   * Whole entitlement envelope in ONE SECURITY DEFINER call.
+   *
+   * This used to be composed client-side from five queries (auth → allocation
+   * → tier → policy → profile → weekly count), which duplicated the write
+   * gate's rules in TypeScript and let the two drift — the client, for one,
+   * computed the ISO week in browser-local time while the RPC computed it in
+   * IST. fn_housekeeping_my_entitlement is now the single definition both the
+   * UI gate and fn_housekeeping_book_slot read, so the meter a resident sees
+   * can never disagree with the quota that rejects them.
    *
    * "No active allocation" is a clean non-error state — staff, day scholars
    * and residents whose allocation is still pending_approval all land there.
@@ -294,124 +291,16 @@ export class HousekeepingBookingService {
   static async getMyEntitlement(): Promise<EntitlementResult> {
     try {
       const supabase = createClientSupabaseClient();
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-      if (authError || !user) {
-        return {
-          entitled: false,
-          tierKey: null,
-          weeklyQuota: 0,
-          usedThisWeek: 0,
-          reason: 'no_active_allocation',
-        };
-      }
-
-      // 1. Active allocation (hostel_allocations.learner_id FKs profiles = auth uid).
-      const { data: allocation, error: allocError } = await supabase
-        .from('hostel_allocations')
-        .select('id, tier_id')
-        .eq('learner_id', user.id)
-        .eq('status', 'active')
-        .order('allocation_date', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (allocError) {
-        logger.error('campus-living/housekeeping', 'Failed to fetch active allocation', allocError);
-        throw allocError;
-      }
-      if (!allocation) {
-        return {
-          entitled: false,
-          tierKey: null,
-          weeklyQuota: 0,
-          usedThisWeek: 0,
-          reason: 'no_active_allocation',
-        };
-      }
-
-      // 2. Tier row → tier_key + booking feature flag (no tier row = standard).
-      let tierKey = 'standard';
-      let hasFeature = false;
-      if (allocation.tier_id) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: tier, error: tierError } = await (supabase as any)
-          .from('hostel_tier_policy')
-          .select('tier_key, tier_features')
-          .eq('id', allocation.tier_id)
-          .maybeSingle();
-        if (tierError) {
-          logger.error('campus-living/housekeeping', 'Failed to fetch tier policy', tierError);
-          throw tierError;
-        }
-        if (tier) {
-          tierKey = tier.tier_key as string;
-          hasFeature =
-            Array.isArray(tier.tier_features) &&
-            (tier.tier_features as string[]).includes(BOOKING_FEATURE_KEY);
-        }
-      }
-
-      // 3. Weekly quota by tier — single global policy row via the canonical
-      //    reader; falls back to the seeded defaults if the read fails.
-      let quotaByTier: Record<string, number> = DEFAULT_QUOTA_BY_TIER;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: quotaValue, error: quotaError } = await (supabase as any).rpc(
-        'fn_get_policy',
-        { p_key: HOUSEKEEPING_POLICY_KEYS.WEEKLY_QUOTA_BY_TIER, p_scope_id: null }
+      const { data, error } = await (supabase as any).rpc(
+        'fn_housekeeping_my_entitlement'
       );
-      if (quotaError) {
-        logger.warn('campus-living/housekeeping', 'Quota policy read failed, using defaults', {
-          error: quotaError.message,
-        });
-      } else if (quotaValue && typeof quotaValue === 'object' && !Array.isArray(quotaValue)) {
-        quotaByTier = quotaValue as Record<string, number>;
+      if (error) {
+        logger.error('campus-living/housekeeping', 'Failed to fetch entitlement', error);
+        throw error;
       }
-      const rawQuota = quotaByTier[tierKey];
-      const weeklyQuota = typeof rawQuota === 'number' && Number.isFinite(rawQuota) ? rawQuota : 0;
-
-      // 4. Own bookings this ISO week (booked + completed count against quota).
-      //    Bookings key on learners_profiles.id — bridge via profiles.learner_id.
-      let usedThisWeek = 0;
-      const { data: profileRow, error: profileError } = await supabase
-        .from('profiles')
-        .select('learner_id')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (profileError) {
-        logger.error('campus-living/housekeeping', 'Failed to fetch profile learner_id', profileError);
-        throw profileError;
-      }
-      const learnerProfileId = profileRow?.learner_id as string | null | undefined;
-      if (learnerProfileId) {
-        const { start, end } = isoWeekRange(new Date());
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { count, error: countError } = await (supabase as any)
-          .from('hostel_cleaning_bookings')
-          .select('id', { count: 'exact', head: true })
-          .eq('learner_id', learnerProfileId)
-          .gte('booking_date', start)
-          .lte('booking_date', end)
-          .in('status', ['booked', 'completed']);
-        if (countError) {
-          logger.error('campus-living/housekeeping', 'Failed to count weekly bookings', countError);
-          throw countError;
-        }
-        usedThisWeek = count ?? 0;
-      }
-
-      const entitled = hasFeature && weeklyQuota > 0;
-      if (entitled) {
-        return { entitled, tierKey, weeklyQuota, usedThisWeek };
-      }
-      return {
-        entitled,
-        tierKey,
-        weeklyQuota,
-        usedThisWeek,
-        reason: !hasFeature ? 'tier_not_entitled' : 'no_weekly_quota',
-      };
+      if (!data || typeof data !== 'object') return ENTITLEMENT_UNKNOWN;
+      return data as EntitlementResult;
     } catch (error) {
       logger.error('campus-living/housekeeping', 'Unexpected error in getMyEntitlement', error);
       throw error;

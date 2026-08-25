@@ -5498,6 +5498,19 @@ ALTER TABLE public.hostel_categories
 
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS room_source_category_id uuid REFERENCES public.hostel_categories(id);
+
+-- 20260825120000: which entitlement band a room category grants, matching
+-- hostel_tier_policy.tier_key. Premium-only features gate on THIS, not on the
+-- category name (renaming a category must never change who is entitled) and not on
+-- hostel_allocations.tier_id (production never populated it — every row is 'standard',
+-- which silently refused every resident of the housekeeping slot-booking feature).
+-- Plain text, no FK: adding a tier must never block a category write, and an
+-- unmatched key resolves to no entitlement. Read by fn_housekeeping_entitlement_tier.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS tier_key text NOT NULL DEFAULT 'standard';
+
+CREATE INDEX IF NOT EXISTS idx_hostel_categories_tier_key
+  ON public.hostel_categories (tier_key);
 ALTER TABLE public.hostel_categories
   DROP CONSTRAINT IF EXISTS chk_room_source_not_self;
 ALTER TABLE public.hostel_categories
