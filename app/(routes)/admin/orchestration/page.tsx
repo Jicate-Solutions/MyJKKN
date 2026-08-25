@@ -29,6 +29,7 @@ import { FreshnessBadge } from './_components/freshness-badge';
 import { WaitingQueue } from './_components/waiting-queue';
 import { ModuleCard } from './_components/module-card';
 import { ActionLog } from './_components/action-log';
+import { DeployControl } from './_components/deploy-lock';
 import type {
   OrchestrationAction,
   OrchestrationModule,
