@@ -12,7 +12,7 @@ import type {
 } from '@/types/organizations';
 import { StorageService } from '@/lib/storage/storage-service';
 import { logger, serializeError } from '@/lib/utils/enhanced-logger';
-import type { Database } from '@/types/database.types';
+import type { Database } from '@/types/supabase';
 
 export class OrganizationService {
   private static get supabase() {
@@ -413,19 +413,17 @@ export class OrganizationService {
       if (filters.userId && !filters.bypassInstitutionFilter) {
         const accessibleInstitutionIds =
           await this.getUserAccessibleInstitutionIds(filters.userId);
+        // Per-user access grants only ever model institution/school rows —
+        // admin_office and company rows (Main Office, Jicate Solutions) never
+        // receive grants, so intersecting them with the grant list silently
+        // hid them from every entityType:'all' consumer. Let those two entity
+        // types through; the entityType filter above still scopes the result.
         if (accessibleInstitutionIds.length > 0) {
-          query = query.in('id', accessibleInstitutionIds);
+          query = query.or(
+            `id.in.(${accessibleInstitutionIds.join(',')}),entity_type.in.(admin_office,company)`
+          );
         } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
+          query = query.in('entity_type', ['admin_office', 'company']);
         }
       }
 
@@ -607,7 +605,14 @@ export class OrganizationService {
 
       if (error) throw error;
 
-      return data || [];
+      // entity_type is a plain text column in the generated types; values are
+      // constrained to the EntityType union by the app's write paths.
+      return (data || []) as {
+        id: string;
+        name: string;
+        counselling_code: string;
+        entity_type: EntityType;
+      }[];
     } catch (error) {
       const serialized = serializeError(error);
       logger.error(
