@@ -55,6 +55,10 @@ import {
   useActOnReceiptCancellation,
   useWithdrawReceiptCancellation,
 } from '@/hooks/billing/use-receipt-cancellations';
+import {
+  useCanDecideCancellation,
+  useResolvedCancelApprover,
+} from '@/hooks/billing/use-receipt-cancel-flows';
 import type { ReceiptCancelRequest } from '@/lib/services/billing/receipts/receipt-cancellation-service';
 import { statusVariant } from './cancellation-columns';
 
@@ -116,14 +120,20 @@ export function CancellationDetailDialog({
     setWithdrawOpen(false);
   }
 
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const { userProfile } = usePermissions();
   const { data, isLoading } = useReceiptCancelRequestDetail(request?.id ?? null);
   const act = useActOnReceiptCancellation();
   const withdraw = useWithdrawReceiptCancellation();
 
-  // Super admin ONLY — mirrors fn_act_on_receipt_cancellation, which gates on
-  // is_super_admin() and cannot be delegated through Role Management.
-  const canApprove = isSuperAdmin;
+  // Asked of the server, not re-derived here: fn_can_decide_receipt_cancellation
+  // is the SAME function fn_act_on_receipt_cancellation gates on, so the button
+  // and the RPC cannot drift. A local copy of the rule is the thing that rots
+  // when a super admin edits the flow under an open page.
+  const { data: canDecide } = useCanDecideCancellation(request?.id ?? null);
+  const { data: approverFlow } = useResolvedCancelApprover(
+    request?.institution_id ?? null
+  );
+  const canApprove = canDecide === true;
   const isPending = request?.status === 'pending_approval';
   // The RPC refuses self-approval, so never offer a button guaranteed to fail.
   const isOwnRequest = !!userProfile?.id && request?.requested_by === userProfile.id;
@@ -181,6 +191,28 @@ export function CancellationDetailDialog({
               </p>
               <p className='mt-1 text-sm'>{request?.reason}</p>
             </div>
+
+            {/* Who this is waiting on. Without a configured flow the answer is
+                "a super admin", which is also the fallback the RPC applies. */}
+            {request?.status === 'pending_approval' && (
+              <div className='rounded-lg border p-3 text-sm'>
+                <span className='text-muted-foreground text-xs uppercase tracking-wide'>
+                  Pending with
+                </span>
+                <p className='mt-0.5 font-medium'>
+                  {approverFlow
+                    ? approverFlow.approver_role_name
+                      ? `${approverFlow.approver_role_name} (role)`
+                      : (approverFlow.approver_user_name ?? 'Configured approver')
+                    : 'Any super admin'}
+                  {approverFlow && (
+                    <span className='text-muted-foreground ml-2 text-xs font-normal'>
+                      via {approverFlow.institution_id ? 'institution flow' : 'group default'}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
 
             {/* States the outcome in money terms. Withdrawn and declined both
                 leave the receipt valid and the bill paid, which reads as "it
@@ -465,7 +497,7 @@ export function CancellationDetailDialog({
 
                     {canApprove && isOwnRequest && (
                       <p className='text-muted-foreground self-center text-xs'>
-                        Your own request — another super admin must decide it
+                        Your own request — another approver must decide it
                       </p>
                     )}
 

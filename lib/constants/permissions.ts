@@ -802,18 +802,26 @@ export const PERMISSION_CATEGORIES = [
       // institutions — see lib/auth/bulk-receipt-access.ts.
       { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
       // Cancelling a receipt reverses money, so it is split in two: staff RAISE
-      // a request, and only a SUPER ADMIN decides it. There is deliberately no
-      // "cancel.approve" key — approval is gated on is_super_admin() in
-      // fn_act_on_receipt_cancellation and cannot be delegated through Role
-      // Management. A key here would be a toggle that grants nothing.
+      // a request, and someone else DECIDES it.
+      //
+      // There is still deliberately no "cancel.approve" key, but the reason
+      // changed on 2026-08-25. Approval is no longer hardcoded to
+      // is_super_admin(); it is resolved from
+      // billing_receipt_cancel_approval_flows, which a super admin configures
+      // per institution (with an optional group-wide default) and which only a
+      // super admin may write. Deciding authority therefore lives in that
+      // table, NOT in Role Management — a key here would be a second, competing
+      // source of truth for the same question. With no flow configured the
+      // answer falls back to super-admin-only, exactly as it was before.
+      //
       // Anyone holding billing.receipts.delete can still void directly and
       // bypass this, which is why it was revoked from the accounts roles and
       // from Chief Accountant.
-      // Narrowed 2026-08-25 to Chief Accountant (role_key 'accounts') ALONE,
-      // plus super admins who bypass the key via is_super_admin(). Revoked from
-      // accountant_assistant, administrator and admission — see migration
-      // 20260825120000. Both UI surfaces also hard-block learners on role, so a
-      // future mis-grant cannot hand this to a student.
+      //
+      // The key below was narrowed on 2026-08-25 to Chief Accountant alone
+      // (migration 20260825120000). Note the consequence for the queue page: a
+      // delegated approver will NOT hold it, which is why that page guards on
+      // "requester OR configured approver" rather than on this key.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },

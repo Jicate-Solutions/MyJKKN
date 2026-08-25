@@ -3,7 +3,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { DataTable } from '@/components/data-table/data-table';
 import type { DataFetchParams } from '@/components/data-table/data-table';
+import { UserCog } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/use-permissions';
 import { ReceiptCancellationService } from '@/lib/services/billing/receipts/receipt-cancellation-service';
 import type {
   CancelRequestStatus,
@@ -15,6 +17,7 @@ import {
   type CancellationRow,
 } from './cancellation-columns';
 import { CancellationDetailDialog } from './cancellation-detail-dialog';
+import { ApprovalFlowDialog } from './approval-flow-dialog';
 
 const STATUSES: Array<{ key: CancelRequestStatus | 'all'; label: string }> = [
   { key: 'pending_approval', label: 'Pending' },
@@ -30,6 +33,8 @@ export function CancellationQueueClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Bumped to force DataTable to refetch after a decision changes a row.
   const [refreshToken, setRefreshToken] = useState(0);
+  const [flowDialogOpen, setFlowDialogOpen] = useState(false);
+  const { isSuperAdmin } = usePermissions();
 
   // The table renders flat rows (ExportableData is scalars-only), but the
   // dialog needs the whole request. Hold the last page's full objects so the
@@ -82,7 +87,7 @@ export function CancellationQueueClient() {
 
   const renderToolbar = useCallback(
     () => (
-      <div className='flex flex-wrap gap-2'>
+      <div className='flex flex-wrap items-center gap-2'>
         {STATUSES.map((s) => (
           <Button
             key={s.key}
@@ -93,9 +98,23 @@ export function CancellationQueueClient() {
             {s.label}
           </Button>
         ))}
+        {/* Configuring who approves is a super-admin power by design — RLS on
+            billing_receipt_cancel_approval_flows enforces it; hiding the button
+            is only the affordance. */}
+        {isSuperAdmin && (
+          <Button
+            size='sm'
+            variant='outline'
+            className='ml-auto'
+            onClick={() => setFlowDialogOpen(true)}
+          >
+            <UserCog className='mr-2 h-4 w-4' />
+            Approval flow
+          </Button>
+        )}
       </div>
     ),
-    [status]
+    [status, isSuperAdmin]
   );
 
   return (
@@ -142,6 +161,10 @@ export function CancellationQueueClient() {
         }}
         onActed={() => setRefreshToken((n) => n + 1)}
       />
+
+      {isSuperAdmin && (
+        <ApprovalFlowDialog open={flowDialogOpen} onOpenChange={setFlowDialogOpen} />
+      )}
     </>
   );
 }

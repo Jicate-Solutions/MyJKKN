@@ -53348,3 +53348,132 @@ $function$;
 REVOKE ALL ON FUNCTION public.admission_bulk_upsert_fee_structure(jsonb) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.admission_bulk_upsert_fee_structure(jsonb)
   TO authenticated, service_role;
+
+
+-- ── Receipt cancellation approval flow resolution (20260825160000) ────────
+-- fn_act_on_receipt_cancellation now gates on fn_can_decide_receipt_cancellation
+-- instead of a hardcoded is_super_admin() (migration 20260825160100).
+-- ── Resolution ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fn_resolve_receipt_cancel_approver(
+  p_institution_id uuid
+)
+RETURNS public.billing_receipt_cancel_approval_flows
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT *
+  FROM public.billing_receipt_cancel_approval_flows
+  WHERE is_active
+    AND (institution_id = p_institution_id OR institution_id IS NULL)
+  -- Specific beats general: a row for the institution sorts before the
+  -- group-wide default, which carries a NULL institution_id.
+  ORDER BY institution_id NULLS LAST
+  LIMIT 1;
+$function$;
+
+/**
+ * Does the CURRENT user hold the role named by a flow?
+ *
+ * Mirrors user_has_permission()'s role resolution exactly: the UNION of
+ * profiles.role and user_roles -> custom_roles.role_key. This is not
+ * belt-and-braces. Measured 2026-08-25: 448 users hold a user_roles role that
+ * differs from profiles.role (multi-role, not corruption) and 45 users have a
+ * profiles.role with no user_roles row at all. Consulting either source alone
+ * grants the wrong people authority or locks out the other set, silently.
+ */
+CREATE OR REPLACE FUNCTION public._fn_current_user_holds_role(p_role_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT p_role_key IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM public.profiles p
+             WHERE p.id = auth.uid() AND p.role = p_role_key)
+    OR EXISTS (SELECT 1 FROM public.user_roles ur
+                 JOIN public.custom_roles cr ON cr.id = ur.role_id
+                WHERE ur.user_id = auth.uid() AND cr.role_key = p_role_key)
+  );
+$function$;
+
+/** "Am I an approver for this institution?" — for the page guard and RLS. */
+CREATE OR REPLACE FUNCTION public.fn_is_receipt_cancel_approver(
+  p_institution_id uuid DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_flow public.billing_receipt_cancel_approval_flows;
+BEGIN
+  IF is_super_admin() THEN
+    RETURN true;
+  END IF;
+
+  IF p_institution_id IS NULL THEN
+    -- No institution in hand (the page guard asks "anywhere?"): true when any
+    -- active flow names this user.
+    RETURN EXISTS (
+      SELECT 1 FROM public.billing_receipt_cancel_approval_flows f
+      WHERE f.is_active
+        AND (f.approver_user_id = auth.uid()
+             OR public._fn_current_user_holds_role(f.approver_role_key))
+    );
+  END IF;
+
+  v_flow := public.fn_resolve_receipt_cancel_approver(p_institution_id);
+  IF v_flow.id IS NULL THEN
+    RETURN false; -- no flow: super admins only, and they returned above
+  END IF;
+
+  RETURN (
+    v_flow.approver_user_id = auth.uid()
+    OR public._fn_current_user_holds_role(v_flow.approver_role_key)
+  ) AND role_has_institution_access(p_institution_id);
+END;
+$function$;
+
+/**
+ * The single authority check for deciding one request. Both
+ * fn_act_on_receipt_cancellation and the UI call this, so the button and the
+ * RPC cannot drift apart.
+ *
+ * Four-eyes is NOT applied here — the caller reports "you raised this" as its
+ * own message, and the UI needs to distinguish "not an approver" from "your
+ * own request".
+ */
+CREATE OR REPLACE FUNCTION public.fn_can_decide_receipt_cancellation(
+  p_request_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_req public.billing_receipt_cancel_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO v_req FROM public.billing_receipt_cancel_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  RETURN public.fn_is_receipt_cancel_approver(v_req.institution_id);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_resolve_receipt_cancel_approver(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public._fn_current_user_holds_role(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_is_receipt_cancel_approver(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_can_decide_receipt_cancellation(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_resolve_receipt_cancel_approver(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public._fn_current_user_holds_role(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_is_receipt_cancel_approver(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_can_decide_receipt_cancellation(uuid) TO authenticated, service_role;

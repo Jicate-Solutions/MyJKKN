@@ -8366,3 +8366,41 @@ CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
 ALTER TABLE public.hr_attendance_periods
   DROP COLUMN IF EXISTS forced,
   DROP COLUMN IF EXISTS force_reason;
+
+
+-- ── Receipt cancellation approval flows (20260825160000) ──────────────────
+-- Who decides a receipt-cancellation request. institution_id NULL = the
+-- group-wide default; a row for a specific institution overrides it. No
+-- active flow at all means super-admin-only, the pre-2026-08-25 behaviour.
+CREATE TABLE IF NOT EXISTS public.billing_receipt_cancel_approval_flows (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- NULL = group-wide default. A row for a specific institution wins over it.
+  institution_id    uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  flow_name         text NOT NULL,
+  -- role_key, not custom_roles.id: it is unique, it is what profiles.role
+  -- stores, and it keeps the row readable. ON UPDATE CASCADE so renaming a
+  -- role cannot silently orphan a flow.
+  approver_role_key text REFERENCES public.custom_roles(role_key)
+                         ON UPDATE CASCADE ON DELETE RESTRICT,
+  approver_user_id  uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  is_active         boolean NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid REFERENCES public.profiles(id),
+  updated_by        uuid REFERENCES public.profiles(id),
+  CONSTRAINT billing_receipt_cancel_flow_one_approver CHECK (
+    (approver_role_key IS NOT NULL)::int + (approver_user_id IS NOT NULL)::int = 1
+  )
+);
+
+COMMENT ON TABLE public.billing_receipt_cancel_approval_flows IS
+  'Who may decide a receipt-cancellation request. One active flow per institution, plus an optional group-wide default. No flow = super admin only.';
+
+-- At most one active flow per institution, and at most one active group-wide.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_institution
+  ON public.billing_receipt_cancel_approval_flows (institution_id)
+  WHERE is_active AND institution_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_global
+  ON public.billing_receipt_cancel_approval_flows ((institution_id IS NULL))
+  WHERE is_active AND institution_id IS NULL;

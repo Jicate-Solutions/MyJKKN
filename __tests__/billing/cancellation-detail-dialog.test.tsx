@@ -12,6 +12,9 @@ const detail = {
   isLoading: false,
 };
 const withdrawMutate = vi.fn();
+// canApprove is now the SERVER's answer (fn_can_decide_receipt_cancellation),
+// not a local isSuperAdmin check — so the tests drive that verdict directly.
+const flow = { canDecide: false as boolean, approver: null as unknown };
 
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => permissions,
@@ -21,6 +24,11 @@ vi.mock('@/hooks/billing/use-receipt-cancellations', () => ({
   useReceiptCancelRequestDetail: () => detail,
   useActOnReceiptCancellation: () => ({ mutate: vi.fn(), isPending: false }),
   useWithdrawReceiptCancellation: () => ({ mutate: withdrawMutate, isPending: false }),
+}));
+
+vi.mock('@/hooks/billing/use-receipt-cancel-flows', () => ({
+  useCanDecideCancellation: () => ({ data: flow.canDecide }),
+  useResolvedCancelApprover: () => ({ data: flow.approver }),
 }));
 
 beforeAll(() => {
@@ -113,6 +121,8 @@ beforeEach(() => {
   detail.data = DETAIL_DATA;
   detail.isLoading = false;
   withdrawMutate.mockReset();
+  flow.canDecide = false;
+  flow.approver = null;
 });
 
 afterEach(() => cleanup());
@@ -175,17 +185,17 @@ describe('CancellationDetailDialog', () => {
     ).toBeInTheDocument();
   });
 
-  // Approval is super-admin only — fn_act_on_receipt_cancellation gates on
-  // is_super_admin() and cannot be delegated through Role Management.
-  it('hides approve/decline from a non-super-admin', () => {
-    permissions.isSuperAdmin = false;
+  // Deciding authority is resolved server-side from the configured flow, so
+  // the dialog asks rather than re-deriving the rule from isSuperAdmin.
+  it('hides approve/decline when the server says you may not decide', () => {
+    flow.canDecide = false;
     open();
     expect(q(/Approve/)).toBeNull();
     expect(q(/Decline/)).toBeNull();
   });
 
-  it('offers approve, decline and a comment box to a super admin', () => {
-    permissions.isSuperAdmin = true;
+  it('offers approve, decline and a comment box to a permitted decider', () => {
+    flow.canDecide = true;
     open();
     expect(q(/Approve & cancel receipt/)).toBeInTheDocument();
     expect(q(/Decline/)).toBeInTheDocument();
@@ -193,15 +203,52 @@ describe('CancellationDetailDialog', () => {
   });
 
   // The RPC refuses self-approval, so the button must never be offered.
-  it('refuses to let a super admin decide their own request', () => {
-    permissions.isSuperAdmin = true;
+  it('refuses to let a permitted decider act on their own request', () => {
+    flow.canDecide = true;
     permissions.userProfile = { id: 'me' };
     open({ requested_by: 'me' });
     expect(q(/Approve & cancel receipt/)).toBeNull();
     expect(q(/Decline/)).toBeNull();
     expect(
-      within(dialog()).getByText(/another super admin must decide it/)
+      within(dialog()).getByText(/another approver must decide it/)
     ).toBeInTheDocument();
+  });
+
+  it('names a super admin as the decider when no flow is configured', () => {
+    flow.approver = null;
+    open();
+    const d = within(dialog());
+    expect(d.getByText('Pending with')).toBeInTheDocument();
+    expect(d.getByText('Any super admin')).toBeInTheDocument();
+  });
+
+  it('names the configured role, and which flow supplied it', () => {
+    flow.approver = {
+      institution_id: 'inst1',
+      approver_role_name: 'Principal',
+      approver_user_name: null,
+    };
+    open();
+    const d = within(dialog());
+    expect(d.getByText(/Principal \(role\)/)).toBeInTheDocument();
+    expect(d.getByText(/via institution flow/)).toBeInTheDocument();
+  });
+
+  it('marks a group-wide default as such', () => {
+    flow.approver = {
+      institution_id: null,
+      approver_role_name: null,
+      approver_user_name: 'Meera R',
+    };
+    open();
+    const d = within(dialog());
+    expect(d.getByText(/Meera R/)).toBeInTheDocument();
+    expect(d.getByText(/via group default/)).toBeInTheDocument();
+  });
+
+  it('shows no "Pending with" once the request is decided', () => {
+    open({ status: 'approved' });
+    expect(within(dialog()).queryByText('Pending with')).toBeNull();
   });
 
   it('lets the requester withdraw their own pending request', () => {
@@ -276,7 +323,7 @@ describe('CancellationDetailDialog', () => {
   });
 
   it('offers no decision controls once the request is decided', () => {
-    permissions.isSuperAdmin = true;
+    flow.canDecide = true;
     open({ status: 'approved', decided_at: '2026-08-21T09:00:00Z', decided_by_name: 'SA' });
     expect(q(/Approve & cancel receipt/)).toBeNull();
     expect(q(/Decline/)).toBeNull();

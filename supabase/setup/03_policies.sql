@@ -9780,3 +9780,55 @@ COMMENT ON COLUMN public.hr_attendance_periods.forced IS
 COMMENT ON TABLE public.hr_attendance_period_summaries IS
   'Frozen per-staff day counts. Derived from hr_attendance_records so working days match the evaluator, not a separate calendar rule.';
 
+
+
+-- ── Receipt cancellation approval flows (20260825160000) ──────────────────
+ALTER TABLE public.billing_receipt_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+-- Readable by anyone who can see the queue, so a requester can be told who
+-- their request is waiting on. Writable by super admins ONLY, which is the
+-- whole point: approval authority must not be delegable by whoever holds a
+-- billing permission.
+DROP POLICY IF EXISTS billing_receipt_cancel_flows_select ON public.billing_receipt_cancel_approval_flows;
+CREATE POLICY billing_receipt_cancel_flows_select
+  ON public.billing_receipt_cancel_approval_flows FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT user_has_permission('billing.receipts.view'))
+    OR (SELECT user_has_permission('billing.receipts.cancel.request'))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_flows_write ON public.billing_receipt_cancel_approval_flows;
+CREATE POLICY billing_receipt_cancel_flows_write
+  ON public.billing_receipt_cancel_approval_flows FOR ALL TO authenticated
+  USING ((SELECT is_super_admin()))
+  WITH CHECK ((SELECT is_super_admin()));
+
+-- The two queue SELECTs were widened at the same time: without the
+-- fn_is_receipt_cancel_approver() arm, a delegated approver opens the page
+-- to an EMPTY list, because most candidate roles lack billing.receipts.view.
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR requested_by = (SELECT auth.uid())
+    OR ((SELECT user_has_permission('billing.receipts.view')) AND role_has_institution_access(institution_id))
+    OR public.fn_is_receipt_cancel_approver(institution_id)
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.billing_receipt_cancel_requests r
+      WHERE r.id = billing_receipt_cancel_request_actions.request_id
+        AND (
+          (SELECT is_super_admin())
+          OR r.requested_by = (SELECT auth.uid())
+          OR ((SELECT user_has_permission('billing.receipts.view')) AND role_has_institution_access(r.institution_id))
+          OR public.fn_is_receipt_cancel_approver(r.institution_id)
+        )
+    )
+  );
