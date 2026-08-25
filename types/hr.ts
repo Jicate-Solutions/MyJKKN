@@ -284,10 +284,30 @@ export interface LeaveApprovalStep {
   edited_at?: string | null;
 }
 
+/**
+ * One supporting document on a leave application, stored in the `documents`
+ * JSONB array.
+ *
+ * Files live in GOOGLE DRIVE, not Supabase Storage. They are medical
+ * certificates and duty orders, so the Drive file carries NO public permission
+ * — `url` is only useful to someone already authorised on the Drive itself, and
+ * the app serves the bytes through /api/hr/leave/documents/[fileId], which
+ * checks the viewer against the application first. `drive_file_id` is the key
+ * that route needs; treat it as the real identifier and `url` as a convenience.
+ *
+ * `storage_path` predates Drive and is kept only so the shape stays readable
+ * next to older code. Nothing writes it — all 535 applications that existed
+ * when uploads shipped carried an empty documents array, so there is no legacy
+ * data behind it.
+ */
 export interface LeaveDocument {
   name: string;
   storage_path: string;
   uploaded_at: string;
+  drive_file_id?: string;
+  url?: string;
+  mime_type?: string;
+  size_bytes?: number;
 }
 
 export interface HRLeaveApplication {
@@ -391,6 +411,12 @@ export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   max_continuous_days: number | null;
   min_advance_notice_days: number;
   requires_documents: boolean;
+  /**
+   * Length above which requires_documents actually bites. NULL = no
+   * threshold, so a document is required at any length. Read together
+   * with requires_documents by leaveDocumentRequirement().
+   */
+  document_required_after_days: number | null;
   /**
    * 'policy'   — the leave type's default_entitled_days (the common case)
    * 'override' — an explicit hr_leave_entitlement_overrides row

@@ -20,6 +20,7 @@
 import crypto from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MeetingBookingEmailService } from '@/lib/services/email/meeting-booking-email-service';
+import { bookingEventTitle } from './booking-event-title';
 import { formatVenueDirections } from './venue-directions';
 import { resolveVenuePlan, createVenueReservation } from './venue-reservation';
 import { GoogleCalendarService } from '@/lib/services/integrations/google-calendar-service';
@@ -86,6 +87,11 @@ export interface NativeMeetingType {
   /** deposit to collect, in paise (e.g. ₹500 → 50000). NULL when no deposit. */
   deposit_amount_paise: number | null;
 }
+
+// The title itself lives in its own module so a CLI can import it without
+// booting this file's Resend / Supabase / ActivityService import chain.
+// Re-exported here because this is where every existing caller looks for it.
+export { bookingEventTitle } from './booking-event-title';
 
 /**
  * Why a meeting that had ALREADY ENDED is being given a new time.
@@ -925,9 +931,12 @@ export class NativeSchedulingService {
         : false;
 
       const event = await GoogleCalendarService.createEvent(supabase, primaryHost, {
-        summary: noteInTitle
-          ? `${mt.title} — ${input.attendeeName} — ${discussionNote}`
-          : `${mt.title} — ${input.attendeeName}`,
+        summary: bookingEventTitle({
+          attendeeName: input.attendeeName,
+          typeTitle: mt.title,
+          note: discussionNote,
+          showNote: noteInTitle,
+        }),
         description: [
           `Booked via JKKN (${input.source ?? 'direct'}). Reference: ${uid}`,
           discussionNote ? `Discussion note: ${discussionNote}` : '',
@@ -954,7 +963,7 @@ export class NativeSchedulingService {
     // link this time" rather than blocking the booking.
     if (wantsVideo && !videoUrl && (provider === 'zoom' || provider === 'teams')) {
       videoUrl = await this.mintProviderVideoUrl(supabase, primaryHost, provider, {
-        topic: `${mt.title} — ${input.attendeeName}`,
+        topic: bookingEventTitle({ attendeeName: input.attendeeName, typeTitle: mt.title }),
         startIso,
         durationMin: mt.duration_min,
         timezone: sched.timezone,

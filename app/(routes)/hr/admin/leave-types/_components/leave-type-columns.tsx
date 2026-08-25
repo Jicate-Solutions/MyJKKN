@@ -17,6 +17,7 @@ import {
   type HRLeaveType,
 } from '@/types/hr-leave-types';
 import { LeaveTypeRowActions } from './leave-type-row-actions';
+import type { HRLeaveTypeDeleteResult } from '@/lib/services/hr/leave-type-service';
 
 export interface LeaveTypeColumnActions {
   canManage: boolean;
@@ -27,6 +28,9 @@ export interface LeaveTypeColumnActions {
   /** Opens the approval-chain editor for this type. */
   onApprovalFlow: (t: HRLeaveType) => void;
   onArchive: (t: HRLeaveType) => Promise<void> | void;
+  onActivate: (t: HRLeaveType) => Promise<void> | void;
+  onCheckDelete: (t: HRLeaveType) => Promise<HRLeaveTypeDeleteResult>;
+  onDelete: (t: HRLeaveType) => Promise<void> | void;
   /**
    * hr_organization_id → institution name, from useHrOrgMappings.
    *
@@ -244,6 +248,9 @@ export function getLeaveTypeColumns(
           onEdit={actions.onEdit}
           onApprovalFlow={actions.onApprovalFlow}
           onArchive={actions.onArchive}
+          onActivate={actions.onActivate}
+          onCheckDelete={actions.onCheckDelete}
+          onDelete={actions.onDelete}
         />
       ),
     },
