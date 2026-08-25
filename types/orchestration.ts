@@ -2,7 +2,7 @@
 //
 // Backs /admin/orchestration (Phase 1 of the Orchestration Console). Mirrors
 // the four orchestration_* tables from
-// supabase/migrations/20261003000000_orchestration_console.sql exactly.
+// supabase/migrations/20261003000001_orchestration_console.sql exactly.
 // See artifacts/orchestration-console-spec.html for the full spec.
 
 export type OrchestrationModuleStatus = 'idle' | 'working' | 'gated' | 'blocked';
