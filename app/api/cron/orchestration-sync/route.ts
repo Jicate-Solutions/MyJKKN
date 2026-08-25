@@ -15,12 +15,22 @@
 //      with a module_key derived from the PR title's conventional-commit
 //      scope (`fix(campus-living): …` → `campus-living`), falling back to
 //      the branch-name prefix when the title carries no scope.
-//   3. Upserts orchestration_modules rows for each distinct module_key seen
-//      this run, deriving `status` from that module's current PRs. Only
-//      `key`, `title` (kept as-is if the module already exists) and `status`
-//      are written — does_text/output_text/impact_text/module_url/
-//      blocked_reason/blocked_impact are NEVER touched here, so a human's
-//      hand-written explainer text can never be clobbered by a cron tick.
+//   3. Upserts orchestration_modules rows — but ONLY for a known module key:
+//      one of the ~11 seeded modules, or a key a human has already curated
+//      (any of does_text/output_text/impact_text/blocked_reason/
+//      blocked_impact/module_url is non-empty). Every other PR scope folds
+//      into a single `other` catch-all row instead of minting a new one —
+//      this is what used to blow up into 55 module cards, one per commit
+//      scope ever seen. `status` is derived from that module's current PRs,
+//      but can only ever be the non-blocking vocabulary (`idle`/`gated`) —
+//      `status='blocked'` is written only by preserving a module's existing
+//      status when it already carries a human blocked_reason; PR state alone
+//      can never produce a blocked row with no explanation. Only `key`,
+//      `title` (kept as-is if the module already exists), `status` and
+//      `updated_at` are written — does_text/output_text/impact_text/
+//      module_url/blocked_reason/blocked_impact are NEVER touched here, so a
+//      human's hand-written explainer text can never be clobbered by a cron
+//      tick. Unreachable, uncurated module rows are pruned in the same step.
 //   4. Writes a heartbeat row into orchestration_session_state (session_id
 //      'cron-sync') — this is what powers the console's "updated Xm ago"
 //      freshness stamp even when no tower session is currently open.
@@ -120,6 +130,10 @@ function humanizeModuleKey(key: string): string {
 // module status rule below. Deliberately reads only ci_state/mergeable/
 // is_draft — fields this writer itself computes — and leaves `gate_state`
 // alone since that column's vocabulary belongs to a different agent's work.
+// NOTE: this 'blocked' label is a PR-level signal only — moduleStatusFromPrs
+// below never turns it into a module's status='blocked' on its own. A module
+// only ever becomes 'blocked' when a human has written a blocked_reason (see
+// the sync route's module-status step); PR state alone folds into 'gated'.
 function classifyPr(pr: { ciState: CiState | null; mergeableState: string | null; isDraft: boolean }): 'blocked' | 'gated' | 'ok' {
   const conflictStates = new Set(['dirty', 'blocked']);
   if (pr.ciState === 'fail' || (pr.mergeableState && conflictStates.has(pr.mergeableState.toLowerCase()))) {
@@ -131,9 +145,15 @@ function classifyPr(pr: { ciState: CiState | null; mergeableState: string | null
   return 'ok';
 }
 
+// PR-derived status is deliberately limited to the non-blocking vocabulary
+// ('idle' / 'gated'). A module's status can only become 'blocked' when a
+// human has written a blocked_reason — the sync route enforces that at the
+// call site below, not here. A CI failure or merge conflict on a PR still
+// surfaces as 'gated' ("needs attention"), never invents a blocked module
+// with no explanation attached.
 function moduleStatusFromPrs(classifications: Array<'blocked' | 'gated' | 'ok'>): ModuleStatus {
-  if (classifications.some((c) => c === 'blocked')) return 'blocked';
-  if (classifications.length > 0 && classifications.every((c) => c === 'gated')) return 'gated';
+  if (classifications.length === 0) return 'idle';
+  if (classifications.some((c) => c === 'blocked' || c === 'gated')) return 'gated';
   return 'idle';
 }
 
@@ -285,6 +305,7 @@ export async function GET(request: NextRequest) {
     prs_upserted: 0,
     prs_pruned: 0,
     modules_upserted: 0,
+    modules_pruned: 0,
     heartbeat_written: false,
     tables_missing: [] as string[],
     errors: [] as string[],
@@ -380,24 +401,40 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // ── 4) Upsert orchestration_modules for every module_key seen ──────────
-  const moduleKeys = Array.from(
-    new Set(openPrs.map((p) => p.moduleKey).filter((k): k is string => !!k && k.length > 0)),
-  );
-  if (moduleKeys.length > 0) {
-    try {
-      const statusByModule = new Map<string, ModuleStatus>();
-      for (const key of moduleKeys) {
-        const classifications = openPrs
-          .filter((p) => p.moduleKey === key)
-          .map((p) => classifyPr(p));
-        statusByModule.set(key, moduleStatusFromPrs(classifications));
-      }
+  // ── 4) Upsert orchestration_modules — constrained to a known module set ─
+  // This used to mint a fresh module row for every distinct commit-scope
+  // seen in an open PR title — one PR titled `fix(doctrines): …` invented a
+  // permanent "Doctrines" module. Instead: a PR's derived scope only gets
+  // its own row when it's one of the seeded modules below, or a human has
+  // already written something onto that key (curated into existence). Any
+  // other scope folds into the single CATCH_ALL_MODULE_KEY bucket rather
+  // than minting a new row. PRs are still tracked in full under their real
+  // scope in orchestration_prs (step 2, above, untouched) — only module-row
+  // creation is constrained here.
+  const CATCH_ALL_MODULE_KEY = 'other';
+  const SEED_MODULE_KEYS = new Set([
+    'referral',
+    'notifications',
+    'learners-council',
+    'security',
+    'accreditation',
+    'campus-living',
+    'hr',
+    'solutions',
+    'academic',
+    'admissions',
+    'orchestration',
+  ]);
 
-      const { data: existingModules, error: fetchErr } = await supabase
+  if (openPrs.length > 0) {
+    try {
+      // Read the FULL existing catalog — not just this run's module keys —
+      // needed to (a) tell real/curated modules apart from cron-invented
+      // noise, and (b) find prune candidates below.
+      const { data: allModules, error: fetchErr } = await supabase
         .from('orchestration_modules')
-        .select('key, title')
-        .in('key', moduleKeys);
+        .select('key, title, status, blocked_reason, blocked_impact, does_text, output_text, impact_text, module_url');
+
       if (fetchErr) {
         if (isMissingRelationError(fetchErr)) {
           summary.tables_missing.push('orchestration_modules');
@@ -405,15 +442,49 @@ export async function GET(request: NextRequest) {
           summary.errors.push(`orchestration_modules read: ${fetchErr.message}`);
         }
       } else {
-        const existingTitleByKey = new Map((existingModules ?? []).map((m) => [m.key as string, m.title as string]));
+        const existingByKey = new Map((allModules ?? []).map((m) => [m.key as string, m as Record<string, unknown>]));
+
+        // Any of these being non-empty means a human (or a prior seed
+        // script) deliberately curated this module into existence — never
+        // re-derive its status from raw PR state, never prune it.
+        const hasHumanContent = (m: Record<string, unknown> | undefined): boolean =>
+          !!m &&
+          [m.blocked_reason, m.blocked_impact, m.does_text, m.output_text, m.impact_text, m.module_url].some(
+            (v) => typeof v === 'string' && v.trim().length > 0,
+          );
+
+        const isProtectedKey = (key: string): boolean =>
+          SEED_MODULE_KEYS.has(key) || hasHumanContent(existingByKey.get(key));
+
+        const mappedKeyForPr = (moduleKey: string | null): string =>
+          moduleKey && isProtectedKey(moduleKey) ? moduleKey : CATCH_ALL_MODULE_KEY;
+
+        const targetKeys = Array.from(new Set(openPrs.map((p) => mappedKeyForPr(p.moduleKey))));
+
+        const statusByModule = new Map<string, ModuleStatus>();
+        for (const key of targetKeys) {
+          const existing = existingByKey.get(key);
+          const blockedReason = existing?.blocked_reason;
+          if (typeof blockedReason === 'string' && blockedReason.trim().length > 0) {
+            // A human already explained why this module is blocked — leave
+            // its status exactly as-is instead of recomputing it from PRs.
+            statusByModule.set(key, ((existing?.status as ModuleStatus) ?? 'blocked'));
+          } else {
+            const classifications = openPrs
+              .filter((p) => mappedKeyForPr(p.moduleKey) === key)
+              .map((p) => classifyPr(p));
+            statusByModule.set(key, moduleStatusFromPrs(classifications));
+          }
+        }
+
         const nowIso = new Date().toISOString();
         // Only key/title/status/updated_at are ever written here — module_url,
         // blocked_reason, blocked_impact, does_text, output_text, impact_text
         // are intentionally absent from this payload so a human's hand-written
         // text (or the seed script's) is never clobbered by a sync tick.
-        const moduleRows = moduleKeys.map((key) => ({
+        const moduleRows = targetKeys.map((key) => ({
           key,
-          title: existingTitleByKey.get(key) ?? humanizeModuleKey(key),
+          title: (existingByKey.get(key)?.title as string | undefined) ?? humanizeModuleKey(key),
           status: statusByModule.get(key) ?? 'idle',
           updated_at: nowIso,
         }));
@@ -425,6 +496,25 @@ export async function GET(request: NextRequest) {
           else summary.errors.push(`orchestration_modules upsert: ${upsertErr.message}`);
         } else {
           summary.modules_upserted = moduleRows.length;
+        }
+
+        // ── Prune sensibly — only rows that are both unreachable by any
+        // open PR this run AND carry no human-written text/blocked_reason.
+        // When in doubt (protected key, or still targeted), leave the row.
+        const staleKeys = (allModules ?? [])
+          .map((m) => m.key as string)
+          .filter((key) => key !== CATCH_ALL_MODULE_KEY && !targetKeys.includes(key) && !isProtectedKey(key));
+        if (staleKeys.length > 0) {
+          const { error: pruneErr, count } = await supabase
+            .from('orchestration_modules')
+            .delete({ count: 'exact' })
+            .in('key', staleKeys);
+          if (pruneErr) {
+            if (isMissingRelationError(pruneErr)) summary.tables_missing.push('orchestration_modules');
+            else summary.errors.push(`orchestration_modules prune: ${pruneErr.message}`);
+          } else {
+            summary.modules_pruned = count ?? 0;
+          }
         }
       }
     } catch (err) {
