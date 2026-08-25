@@ -134,6 +134,14 @@ export interface RowResolution {
   name: string;
   payload?: BulkUpsertPayload;
   errors: string[];
+  /**
+   * The structure columns as the SHEET spells them, carried through untouched.
+   * The payload holds ids; ids cannot be shown to an operator, and inverting the
+   * lookup maps only gets the lowercased key back. This is the one place the
+   * operator's own text survives, so the change preview can say
+   * "Institution: JKKN College" on a row that is creating one.
+   */
+  source?: Record<string, string>;
 }
 
 const norm = (v: unknown): string => String(v ?? '').trim();
@@ -360,10 +368,13 @@ export function resolveRow(
     }
   }
 
-  if (errors.length > 0) return { rowNumber, name, errors };
+  const source: Record<string, string> = {};
+  for (const header of FIXED_HEADERS) source[header] = norm(raw[header]);
+
+  if (errors.length > 0) return { rowNumber, name, errors, source };
 
   return {
-    rowNumber, name, errors: [],
+    rowNumber, name, errors: [], source,
     payload: {
       structure_id: structureId,
       institution_id: instId!, degree_id: degId!, department_id: deptId!,
@@ -918,6 +929,13 @@ export interface UnifiedSheetResolution {
 export function resolveUnifiedSheet(
   rawRows: Record<string, unknown>[],
   lookups: BulkResolveLookups,
+  /**
+   * Spreadsheet row number of rawRows[0]. 2 when the header is on row 1, which
+   * it almost always is — but an operator who inserts a title line above the
+   * headers shifts every row, and a preview that then names row 7 for a problem
+   * on row 8 sends them to the wrong cell.
+   */
+  firstRowNumber = 2,
 ): UnifiedSheetResolution {
   interface SheetRow { rowNumber: number; raw: Record<string, unknown> }
 
@@ -946,9 +964,10 @@ export function resolveUnifiedSheet(
     const key = structureId
       ? `id::${structureId}`
       : `new::${NEW_KEY_FIELDS.map((f) => lower(raw[f])).join(' ')}`;
+    const rowNumber = firstRowNumber + i;
     const b = buckets.get(key);
-    if (b) b.push({ rowNumber: i + 2, raw });
-    else buckets.set(key, [{ rowNumber: i + 2, raw }]);
+    if (b) b.push({ rowNumber, raw });
+    else buckets.set(key, [{ rowNumber, raw }]);
   });
 
   const resolutions: RowResolution[] = [];
@@ -1055,7 +1074,12 @@ export function resolveUnifiedSheet(
     const resolved = resolveRow(structureCells, headRow, lookups);
     resolved.errors = [...resolved.errors, ...errors];
     if (resolved.errors.length > 0) {
-      resolutions.push({ rowNumber: headRow, name: resolved.name, errors: resolved.errors });
+      resolutions.push({
+        rowNumber: headRow,
+        name: resolved.name,
+        errors: resolved.errors,
+        source: resolved.source,
+      });
       continue;
     }
 
@@ -1067,4 +1091,152 @@ export function resolveUnifiedSheet(
   }
 
   return { resolutions, itemCount };
+}
+
+// ============================================================================
+// WHICH TAB, AND WHICH ROW IS THE HEADER
+// ============================================================================
+// The importer used to do `wb.Sheets['Fee Structures']` and 400 with
+// `Sheet "Fee Structures" not found` when that exact key was absent. Every one
+// of these ordinary things produced that dead end, with nothing in the message
+// to say what had actually been uploaded:
+//
+//   • Excel duplicating a tab as "Fee Structures (2)" (right-click → Move or
+//     Copy, the usual way an operator keeps a backup before editing).
+//   • The sheet pasted onto a fresh tab, or the tab simply renamed.
+//   • A workbook re-saved as CSV and renamed back to .xlsx — SheetJS then
+//     reports a single tab called "Sheet1".
+//   • A non-breaking space or a stray trailing space in the tab name.
+//
+// detectSheetLayout() already refuses to trust the tab NAME for the layout,
+// for exactly these reasons; sheet SELECTION never got the same treatment.
+// It does now: a sheet is recognised by the COLUMNS it carries. The name is
+// only a tie-breaker.
+//
+// The same pass also finds the header ROW, because the other half of this
+// failure is an operator inserting a title line above the headers. sheet_to_json
+// assumes row 1, so that one insertion silently re-keys every column and the
+// whole file comes back as errors about missing institutions.
+
+/**
+ * Columns that mark a sheet as a fee-structure data sheet. Deliberately spans
+ * BOTH layouts (the unified tab's 'Fee Category'/'Amount' and the structure
+ * columns both layouts share) so an old wide-format workbook scores just as
+ * well as a current one — the layout question is detectSheetLayout()'s, not
+ * this one's.
+ */
+export const SHEET_SIGNATURE_HEADERS: readonly string[] = [
+  'Fee Structure ID',
+  'Institution',
+  'Degree',
+  'Department',
+  'Programme',
+  'Admission Year',
+  'Quota',
+  'Communities',
+  'Name',
+  'Status',
+  'Fee Category',
+  'Amount',
+];
+
+/**
+ * Header text, comparable. Collapses the non-breaking space Excel leaves behind
+ * when a header is pasted from a web page, folds runs of whitespace, and
+ * lowercases — so "  Fee  Structure ID " matches "Fee Structure ID".
+ */
+export function normalizeHeaderText(v: unknown): string {
+  return String(v ?? '').replace(/[\u00a0\u2007\u202f]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** How many signature columns a candidate header row carries. */
+export function headerRowScore(row: readonly unknown[]): number {
+  const seen = new Set(row.map(normalizeHeaderText).filter(Boolean));
+  return SHEET_SIGNATURE_HEADERS.filter((h) => seen.has(normalizeHeaderText(h))).length;
+}
+
+/**
+ * 5 of 12, not all 12: an operator is allowed to delete columns they are not
+ * editing, and an old export predates some of them. 5 is comfortably more than
+ * any non-data tab in these workbooks scores — the legacy "Fee Schedules" tab
+ * shares only 'Fee Structure ID' and 'Fee Category', and "Lists" shares at most
+ * a handful of one-word names.
+ */
+const MIN_SIGNATURE_SCORE = 5;
+
+/** How far down a sheet to look for the header row. */
+const HEADER_SEARCH_DEPTH = 10;
+
+export interface SheetCandidate {
+  name: string;
+  /** The sheet's first rows as arrays (XLSX.utils.sheet_to_json(ws, {header:1})). */
+  rows: ReadonlyArray<readonly unknown[]>;
+}
+
+export interface DataSheetPick {
+  name: string;
+  /** 0-based index of the header row WITHIN the sheet. 0 = the normal case. */
+  headerRowIndex: number;
+  header: unknown[];
+  layout: 'unified' | 'legacy';
+  score: number;
+  /** True when the tab was actually called "Fee Structures". */
+  nameMatched: boolean;
+}
+
+/** The best header row in one sheet, or null when it carries none. */
+function bestHeaderRow(rows: SheetCandidate['rows']): { index: number; score: number } | null {
+  let best: { index: number; score: number } | null = null;
+  const depth = Math.min(rows.length, HEADER_SEARCH_DEPTH);
+  for (let i = 0; i < depth; i++) {
+    const score = headerRowScore(rows[i] ?? []);
+    // Strictly greater, so the EARLIEST row wins a tie. A data row can repeat a
+    // header's text, and picking the later one would drop rows above it.
+    if (score >= MIN_SIGNATURE_SCORE && (!best || score > best.score)) {
+      best = { index: i, score };
+    }
+  }
+  return best;
+}
+
+/**
+ * Picks the data sheet out of a workbook by its columns.
+ *
+ * Preference order: a tab actually named "Fee Structures" that also carries the
+ * columns, then the highest-scoring tab, then workbook order. Returns null when
+ * no tab looks like a fee-structure sheet — the caller reports what it DID find
+ * rather than naming a tab the operator does not have.
+ */
+export function pickDataSheet(sheets: readonly SheetCandidate[]): DataSheetPick | null {
+  const target = normalizeHeaderText(FEE_STRUCTURE_SHEET_NAME);
+  let best: DataSheetPick | null = null;
+
+  for (const sheet of sheets) {
+    const head = bestHeaderRow(sheet.rows);
+    if (!head) continue;
+    const header = [...(sheet.rows[head.index] ?? [])];
+    const pick: DataSheetPick = {
+      name: sheet.name,
+      headerRowIndex: head.index,
+      header,
+      layout: detectSheetLayout(header),
+      score: head.score,
+      nameMatched: normalizeHeaderText(sheet.name) === target,
+    };
+    if (
+      !best ||
+      (pick.nameMatched && !best.nameMatched) ||
+      (pick.nameMatched === best.nameMatched && pick.score > best.score)
+    ) {
+      best = pick;
+    }
+  }
+
+  return best;
+}
+
+/** The workbook's real key for a tab, matched loosely. Used for "Fee Schedules". */
+export function findSheetName(sheetNames: readonly string[], target: string): string | null {
+  const want = normalizeHeaderText(target);
+  return sheetNames.find((n) => normalizeHeaderText(n) === want) ?? null;
 }
