@@ -2,20 +2,34 @@
 
 // One card per module — spec section 04. Title links to the module's real
 // MyJKKN page; the does/output/impact lines make every action self-explaining
-// (spec section 05); Run AI is the only live button in Phase 1. Merge and
-// Deploy render disabled with a "Phase 2" tooltip and never call anything —
-// Phase 1 is read + Run AI only, by hard constraint.
+// (spec section 05). Run AI, Merge, and Deploy are all live in Phase 2 —
+// Merge and Deploy each open a confirm dialog (spec section 05: "Does · You'll
+// get · Impact") before calling their server routes at
+// /api/admin/orchestration/actions/{merge,deploy}. Both routes are
+// super-admin gated and require an explicit confirm: true server-side on top
+// of this dialog — belt and suspenders, never auto-fired.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUpRight, Loader2, Play } from 'lucide-react';
+import { ArrowUpRight, GitMerge, Loader2, Play, Rocket, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { OrchestrationModule, OrchestrationPr } from '@/types/orchestration';
+import { setDeployInFlight, useDeployInFlight } from './deploy-lock';
 
 // CI signals go stale faster than the tower's own heartbeat — a green badge
 // older than this reads as "stale", never "passing" (spec pain #5: "CI's been
@@ -42,6 +56,36 @@ function honestCiLabel(pr: OrchestrationPr): { label: string; className: string 
   return { label: pr.ci_state, className: 'bg-muted text-muted-foreground' };
 }
 
+// GitHub's REST/CLI mergeable field is 'MERGEABLE' | 'CONFLICTING' |
+// 'UNKNOWN' (gh pr list --json mergeable); the sync route stores whatever
+// string it was given verbatim, so match case-insensitively rather than
+// assume exact casing survived every writer.
+function isMergeableStatus(pr: OrchestrationPr): boolean {
+  return (pr.mergeable ?? '').toUpperCase() === 'MERGEABLE';
+}
+
+// The mockup shows one Merge button per module card, targeting whichever PR
+// is actually ready — not a picker. Prefer the oldest ready, non-draft PR
+// (it's been waiting longest); fall back to none, which disables the button.
+function pickMergeCandidate(prs: OrchestrationPr[]): OrchestrationPr | null {
+  const ready = prs.filter((p) => isMergeableStatus(p) && !p.is_draft);
+  if (ready.length === 0) return null;
+  return [...ready].sort((a, b) => a.number - b.number)[0];
+}
+
+// The action routes fail closed with { ok:false, reason } once past the
+// super-admin/confirm gate, but return { ok:false, error } for the auth/
+// validation guards ahead of that — surface whichever is present, verbatim,
+// never swallowed.
+function extractActionError(data: unknown, fallback: string): string {
+  if (data && typeof data === 'object') {
+    const d = data as { reason?: unknown; error?: unknown };
+    if (typeof d.reason === 'string' && d.reason.trim()) return d.reason;
+    if (typeof d.error === 'string' && d.error.trim()) return d.error;
+  }
+  return fallback;
+}
+
 interface ModuleCardProps {
   module: OrchestrationModule;
   prs: OrchestrationPr[];
@@ -51,7 +95,19 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
   const router = useRouter();
   const [isRunning, setIsRunning] = useState(false);
 
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [isMerging, setIsMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  // Deploy fires one global hook — disable every card's button, not just
+  // this one, while any card's deploy request is in flight.
+  const deployInFlight = useDeployInFlight();
+
   const gatedCount = prs.filter((p) => p.gate_state === 'green' || p.gate_state === 'gated').length;
+  const mergeCandidate = pickMergeCandidate(prs);
 
   async function handleRunAi() {
     setIsRunning(true);
@@ -72,6 +128,75 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
       toast.error(err instanceof Error ? err.message : 'Run AI failed');
     } finally {
       setIsRunning(false);
+    }
+  }
+
+  function openMergeDialog() {
+    setMergeError(null);
+    setMergeDialogOpen(true);
+  }
+
+  async function handleMergeConfirm() {
+    if (!mergeCandidate) return;
+    setIsMerging(true);
+    setMergeError(null);
+    try {
+      const resp = await fetch('/api/admin/orchestration/actions/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prNumber: mergeCandidate.number, confirm: true }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok || !data?.ok) {
+        const message = extractActionError(data, `Merge failed (status ${resp.status})`);
+        setMergeError(message);
+        toast.error(message);
+        return;
+      }
+      toast.success(`Merged PR #${mergeCandidate.number}`);
+      setMergeDialogOpen(false);
+      router.refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Merge failed';
+      setMergeError(message);
+      toast.error(message);
+    } finally {
+      setIsMerging(false);
+    }
+  }
+
+  function openDeployDialog() {
+    setDeployError(null);
+    setDeployDialogOpen(true);
+  }
+
+  async function handleDeployConfirm() {
+    setIsDeploying(true);
+    setDeployInFlight(true);
+    setDeployError(null);
+    try {
+      const resp = await fetch('/api/admin/orchestration/actions/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok || !data?.ok) {
+        const message = extractActionError(data, `Deploy failed (status ${resp.status})`);
+        setDeployError(message);
+        toast.error(message);
+        return;
+      }
+      toast.success(typeof data.reason === 'string' ? data.reason : 'Deploy hook fired');
+      setDeployDialogOpen(false);
+      router.refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Deploy failed';
+      setDeployError(message);
+      toast.error(message);
+    } finally {
+      setIsDeploying(false);
+      setDeployInFlight(false);
     }
   }
 
@@ -145,12 +270,23 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <div>
-                  <Button size="sm" variant="outline" disabled>
-                    Merge
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-emerald-300 text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900"
+                    disabled={!mergeCandidate}
+                    onClick={openMergeDialog}
+                  >
+                    <GitMerge className="h-3.5 w-3.5" />
+                    Merge{mergeCandidate ? ` #${mergeCandidate.number}` : ''}
                   </Button>
                 </div>
               </TooltipTrigger>
-              <TooltipContent>Phase 2 — not wired yet</TooltipContent>
+              <TooltipContent>
+                {mergeCandidate
+                  ? `Merge PR #${mergeCandidate.number}: ${mergeCandidate.title ?? 'untitled'}`
+                  : 'No PR here is mergeable yet'}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
 
@@ -158,16 +294,135 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <div>
-                  <Button size="sm" variant="outline" disabled>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-red-300 text-red-800 hover:bg-red-50 hover:text-red-900"
+                    disabled={deployInFlight}
+                    onClick={openDeployDialog}
+                  >
+                    <Rocket className="h-3.5 w-3.5" />
                     Deploy
                   </Button>
                 </div>
               </TooltipTrigger>
-              <TooltipContent>Phase 2 — not wired yet</TooltipContent>
+              <TooltipContent>
+                {deployInFlight ? 'A deploy is already in flight' : 'Publish current main to jkkn.ai'}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
       </CardContent>
+
+      <AlertDialog open={mergeDialogOpen} onOpenChange={(open) => !isMerging && setMergeDialogOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <GitMerge className="h-4 w-4 text-emerald-700" />
+              Merge PR #{mergeCandidate?.number}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-left">
+                <p className="font-medium text-foreground">{mergeCandidate?.title ?? 'Untitled PR'}</p>
+                <dl className="space-y-1.5">
+                  <div>
+                    <dt className="inline font-medium text-foreground">Does: </dt>
+                    <dd className="inline">Combines one ready pull request into the main code line.</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">You&apos;ll get: </dt>
+                    <dd className="inline">That change joins what the next deploy will ship.</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">Impact: </dt>
+                    <dd className="inline">
+                      <Badge variant="outline" className="mr-1 border-transparent bg-amber-100 text-amber-800">
+                        changes code
+                      </Badge>
+                      Reversible by revert, but it moves main — for {module.title}.
+                    </dd>
+                  </div>
+                </dl>
+                {mergeError && (
+                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-800" role="alert">
+                    {mergeError}
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isMerging}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-700 hover:bg-emerald-800"
+              disabled={isMerging || !mergeCandidate}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleMergeConfirm();
+              }}
+            >
+              {isMerging && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Confirm merge
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deployDialogOpen} onOpenChange={(open) => !isDeploying && setDeployDialogOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <TriangleAlert className="h-4 w-4 text-red-600" />
+              Deploy to production
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-left">
+                <p className="font-semibold text-red-700">
+                  Publishes to the live site jkkn.ai — every college sees it.
+                </p>
+                <dl className="space-y-1.5">
+                  <div>
+                    <dt className="inline font-medium text-foreground">Does: </dt>
+                    <dd className="inline">Publishes current main to the live site, jkkn.ai.</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">You&apos;ll get: </dt>
+                    <dd className="inline">A new production build; the change reaches users in minutes.</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-medium text-foreground">Impact: </dt>
+                    <dd className="inline">
+                      <Badge variant="outline" className="mr-1 border-transparent bg-red-100 text-red-800">
+                        goes live
+                      </Badge>
+                      Every college sees it. Blocked if main is broken.
+                    </dd>
+                  </div>
+                </dl>
+                {deployError && (
+                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-800" role="alert">
+                    {deployError}
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeploying}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-700 hover:bg-red-800"
+              disabled={isDeploying}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleDeployConfirm();
+              }}
+            >
+              {isDeploying && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              Confirm deploy
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
