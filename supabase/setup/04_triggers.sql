@@ -2299,3 +2299,16 @@ DROP TRIGGER IF EXISTS trg_log_receipt_cancel_activity
 CREATE TRIGGER trg_log_receipt_cancel_activity
   AFTER INSERT ON public.billing_receipt_cancel_request_actions
   FOR EACH ROW EXECUTE FUNCTION public._fn_log_receipt_cancel_activity();
+
+
+-- ── Learner status reversal on payment drop (20260825180000) ──────────────
+-- Keyed on the paid amount DROPPING rather than on a workflow, so receipt
+-- cancellation, a direct void, a refund and a manual bill edit are all covered.
+DROP TRIGGER IF EXISTS trg_learner_status_on_bill_payment_drop
+  ON public.billing_student_bills;
+
+-- AFTER, so the reverted balance is already visible to the re-evaluation.
+CREATE TRIGGER trg_learner_status_on_bill_payment_drop
+  AFTER UPDATE OF balance_amount, final_amount, status ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public._fn_learner_status_on_bill_payment_drop();
