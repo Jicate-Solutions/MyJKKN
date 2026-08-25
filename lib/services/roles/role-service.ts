@@ -1,5 +1,9 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { Database } from '@/types/database.types';
+// '@/types/database.types' does not exist in this repo (nothing generates it —
+// the import resolved to nothing, so CustomRoleRow was silently `any`).
+// '@/types/supabase' is the tracked generated schema, and it is what the
+// Supabase client itself is typed with in lib/supabase/client.ts.
+import type { Database } from '@/types/supabase';
 import {
   CustomRole,
   CustomRoleCreate,
