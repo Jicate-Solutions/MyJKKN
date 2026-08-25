@@ -29,6 +29,7 @@ import { FreshnessBadge } from './_components/freshness-badge';
 import { WaitingQueue } from './_components/waiting-queue';
 import { ModuleCard } from './_components/module-card';
 import { ActionLog } from './_components/action-log';
+import { DeployControl } from './_components/deploy-lock';
 import type {
   OrchestrationAction,
   OrchestrationModule,
@@ -77,6 +78,10 @@ export default async function OrchestrationPage() {
   const newestHeartbeat = session[0]?.last_seen_at ?? null;
   const readyCount = modules.filter((m) => m.status === 'gated' || m.status === 'idle').length;
 
+  // Read server-side only, never sent to the client — the DeployControl
+  // component below gets a plain boolean, never this env var's value.
+  const canDeploy = Boolean(process.env.ORCH_VERCEL_DEPLOY_HOOK);
+
   const prsByModule = new Map<string, OrchestrationPr[]>();
   for (const pr of prs) {
     const key = pr.module_key ?? '';
@@ -90,10 +95,16 @@ export default async function OrchestrationPage() {
       <ContentLayout title="Orchestration Console">
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <FreshnessBadge lastSeenAt={newestHeartbeat} />
-            <span className="text-sm text-muted-foreground">
-              {modules.length} module{modules.length === 1 ? '' : 's'} · {readyCount} ready
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <FreshnessBadge lastSeenAt={newestHeartbeat} />
+              <span className="text-sm text-muted-foreground">
+                {modules.length} module{modules.length === 1 ? '' : 's'} · {readyCount} ready
+              </span>
+            </div>
+            {/* One global production deploy for all of `main` — not a
+                per-module action, so it lives here once, not on every
+                module card. See _components/deploy-lock.tsx. */}
+            <DeployControl canDeploy={canDeploy} />
           </div>
 
           <WaitingQueue modules={modules} />

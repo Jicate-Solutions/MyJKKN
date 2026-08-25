@@ -2,16 +2,21 @@
 
 // One card per module — spec section 04. Title links to the module's real
 // MyJKKN page; the does/output/impact lines make every action self-explaining
-// (spec section 05). Run AI, Merge, and Deploy are all live in Phase 2 —
-// Merge and Deploy each open a confirm dialog (spec section 05: "Does · You'll
-// get · Impact") before calling their server routes at
-// /api/admin/orchestration/actions/{merge,deploy}. Both routes are
-// super-admin gated and require an explicit confirm: true server-side on top
-// of this dialog — belt and suspenders, never auto-fired.
+// (spec section 05). Run AI and Merge are live here in Phase 2 — Merge opens
+// a confirm dialog (spec section 05: "Does · You'll get · Impact") before
+// calling its server route at /api/admin/orchestration/actions/merge, which
+// is super-admin gated and requires an explicit confirm: true server-side on
+// top of this dialog — belt and suspenders, never auto-fired.
+//
+// Deploy is NOT here (corrected 2026-08-25): it fires ONE global Vercel
+// production deploy hook that rebuilds all of `main` and ships it to every
+// college — it was never a per-module action, so 55 enabled per-card Deploy
+// buttons lied about what the button does. It now lives once, in the page
+// header — see `_components/deploy-lock.tsx` and `page.tsx`.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUpRight, GitMerge, Loader2, Play, Rocket, TriangleAlert } from 'lucide-react';
+import { ArrowUpRight, GitMerge, Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -29,7 +34,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { OrchestrationModule, OrchestrationPr } from '@/types/orchestration';
-import { setDeployInFlight, useDeployInFlight } from './deploy-lock';
 
 // CI signals go stale faster than the tower's own heartbeat — a green badge
 // older than this reads as "stale", never "passing" (spec pain #5: "CI's been
@@ -114,13 +118,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
   const [isMerging, setIsMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
 
-  const [deployDialogOpen, setDeployDialogOpen] = useState(false);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deployError, setDeployError] = useState<string | null>(null);
-  // Deploy fires one global hook — disable every card's button, not just
-  // this one, while any card's deploy request is in flight.
-  const deployInFlight = useDeployInFlight();
-
   const gatedCount = prs.filter((p) => p.gate_state === 'green' || p.gate_state === 'gated').length;
   const mergeCandidate = pickMergeCandidate(prs);
 
@@ -177,41 +174,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
       toast.error(message);
     } finally {
       setIsMerging(false);
-    }
-  }
-
-  function openDeployDialog() {
-    setDeployError(null);
-    setDeployDialogOpen(true);
-  }
-
-  async function handleDeployConfirm() {
-    setIsDeploying(true);
-    setDeployInFlight(true);
-    setDeployError(null);
-    try {
-      const resp = await fetch('/api/admin/orchestration/actions/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-      });
-      const data = await resp.json().catch(() => null);
-      if (!resp.ok || !data?.ok) {
-        const message = extractActionError(data, `Deploy failed (status ${resp.status})`);
-        setDeployError(message);
-        toast.error(message);
-        return;
-      }
-      toast.success(typeof data.reason === 'string' ? data.reason : 'Deploy hook fired');
-      setDeployDialogOpen(false);
-      router.refresh();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Deploy failed';
-      setDeployError(message);
-      toast.error(message);
-    } finally {
-      setIsDeploying(false);
-      setDeployInFlight(false);
     }
   }
 
@@ -304,28 +266,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-red-300 text-red-800 hover:bg-red-50 hover:text-red-900"
-                    disabled={deployInFlight}
-                    onClick={openDeployDialog}
-                  >
-                    <Rocket className="h-3.5 w-3.5" />
-                    Deploy
-                  </Button>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                {deployInFlight ? 'A deploy is already in flight' : 'Publish current main to jkkn.ai'}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </CardContent>
 
@@ -378,62 +318,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
             >
               {isMerging && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               Confirm merge
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={deployDialogOpen} onOpenChange={(open) => !isDeploying && setDeployDialogOpen(open)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <TriangleAlert className="h-4 w-4 text-red-600" />
-              Deploy to production
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3 text-left">
-                <p className="font-semibold text-red-700">
-                  Publishes to the live site jkkn.ai — every college sees it.
-                </p>
-                <dl className="space-y-1.5">
-                  <div>
-                    <dt className="inline font-medium text-foreground">Does: </dt>
-                    <dd className="inline">Publishes current main to the live site, jkkn.ai.</dd>
-                  </div>
-                  <div>
-                    <dt className="inline font-medium text-foreground">You&apos;ll get: </dt>
-                    <dd className="inline">A new production build; the change reaches users in minutes.</dd>
-                  </div>
-                  <div>
-                    <dt className="inline font-medium text-foreground">Impact: </dt>
-                    <dd className="inline">
-                      <Badge variant="outline" className="mr-1 border-transparent bg-red-100 text-red-800">
-                        goes live
-                      </Badge>
-                      Every college sees it. Blocked if main is broken.
-                    </dd>
-                  </div>
-                </dl>
-                {deployError && (
-                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-800" role="alert">
-                    {deployError}
-                  </p>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeploying}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-700 hover:bg-red-800"
-              disabled={isDeploying}
-              onClick={(e) => {
-                e.preventDefault();
-                void handleDeployConfirm();
-              }}
-            >
-              {isDeploying && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              Confirm deploy
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
