@@ -113,12 +113,48 @@ export function useUpdateHRLeaveType() {
   });
 }
 
+/** Archive (soft): the type stops being offered. Reversible with useRestoreHRLeaveType. */
 export function useDeleteHRLeaveType() {
   const qc = useQueryClient();
   const supabase = createClientSupabaseClient();
   return useMutation({
     mutationFn: (id: string) => HRLeaveTypeService.remove(supabase, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** Un-archive. */
+export function useRestoreHRLeaveType() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (id: string) => HRLeaveTypeService.restore(supabase, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/**
+ * Hard delete, via the guarded RPC.
+ *
+ * Also invalidates the balance keys: a successful delete removes the type's
+ * placeholder ledger rows, which the analytics tab and the staff-balances tab
+ * both count. Leaving them stale would show a leave type that no longer exists
+ * on a page one click away.
+ */
+export function useHardDeleteHRLeaveType() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: ({ id, dryRun }: { id: string; dryRun: boolean }) =>
+      HRLeaveTypeService.hardDelete(supabase, id, dryRun),
+    onSuccess: (result) => {
+      // A dry run wrote nothing — invalidating on it would refetch the table
+      // every time someone merely opened the confirmation dialog.
+      if (result?.dry_run) return;
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
+      qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
+    },
   });
 }
 

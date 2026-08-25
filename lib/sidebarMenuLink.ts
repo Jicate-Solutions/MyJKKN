@@ -1547,6 +1547,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // "My Meetings" — the meetings the signed-in user is IN, hosting OR
+  // attending. Same gate as the inbox: the page only ever reads the caller's
+  // own participation, so a separate key would add role-config burden without
+  // adding protection.
+  '/meetings/my-bookings': 'meetings.view',
   // Host-initiated scheduling. Same gate as the rest of the module: the page
   // can only ever book the SIGNED-IN user's own calendar, so a separate key
   // would add a role-config burden without adding any protection.
@@ -3220,6 +3225,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarClock,
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
             { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
