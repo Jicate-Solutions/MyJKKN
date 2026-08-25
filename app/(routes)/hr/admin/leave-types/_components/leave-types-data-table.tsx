@@ -33,6 +33,7 @@ import {
 
 import { getLeaveTypeColumns } from './leave-type-columns';
 import { LeaveTypeRowActions } from './leave-type-row-actions';
+import type { HRLeaveTypeDeleteResult } from '@/lib/services/hr/leave-type-service';
 import type { LeaveTypeFilterState, TriState } from './leave-type-filters';
 
 interface LeaveTypesDataTableProps {
@@ -45,6 +46,9 @@ interface LeaveTypesDataTableProps {
   /** Opens the approval-chain editor for this type. */
   onApprovalFlow: (t: HRLeaveType) => void;
   onArchive: (t: HRLeaveType) => Promise<void> | void;
+  onActivate: (t: HRLeaveType) => Promise<void> | void;
+  onCheckDelete: (t: HRLeaveType) => Promise<HRLeaveTypeDeleteResult>;
+  onDelete: (t: HRLeaveType) => Promise<void> | void;
   /**
    * Bumped by the page after a save or archive. Needed in addition to the
    * invalidate bridge below: that bridge listens for cache events, which only
@@ -70,6 +74,9 @@ export function LeaveTypesDataTable({
   onAssign,
   onApprovalFlow,
   onArchive,
+  onActivate,
+  onCheckDelete,
+  onDelete,
   refreshToken,
 }: LeaveTypesDataTableProps) {
   // Both counters only ever increase, so their sum is a valid monotonic key.
@@ -81,8 +88,8 @@ export function LeaveTypesDataTable({
   const { orgNameById } = useHrOrgMappings();
 
   const columns = useMemo(
-    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, orgNameById }),
-    [canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, orgNameById]
+    () => getLeaveTypeColumns({ canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, onActivate, onCheckDelete, onDelete, orgNameById }),
+    [canManage, onView, onAssign, onEdit, onApprovalFlow, onArchive, onActivate, onCheckDelete, onDelete, orgNameById]
   );
 
   const fetchData = useCallback(
@@ -201,6 +208,9 @@ export function LeaveTypesDataTable({
                 onEdit={onEdit}
                 onApprovalFlow={onApprovalFlow}
                 onArchive={onArchive}
+                onActivate={onActivate}
+                onCheckDelete={onCheckDelete}
+                onDelete={onDelete}
               />
             )}
           </div>
@@ -231,7 +241,7 @@ export function LeaveTypesDataTable({
         </div>
       </div>
     ),
-    [canManage, onView, onAssign, onEdit, onArchive, orgNameById]
+    [canManage, onView, onAssign, onEdit, onArchive, onActivate, onCheckDelete, onDelete, orgNameById]
   );
 
   const renderToolbarContent = useCallback(
