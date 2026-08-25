@@ -177,41 +177,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
     }
   }
 
-  function openDeployDialog() {
-    setDeployError(null);
-    setDeployDialogOpen(true);
-  }
-
-  async function handleDeployConfirm() {
-    setIsDeploying(true);
-    setDeployInFlight(true);
-    setDeployError(null);
-    try {
-      const resp = await fetch('/api/admin/orchestration/actions/deploy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-      });
-      const data = await resp.json().catch(() => null);
-      if (!resp.ok || !data?.ok) {
-        const message = extractActionError(data, `Deploy failed (status ${resp.status})`);
-        setDeployError(message);
-        toast.error(message);
-        return;
-      }
-      toast.success(typeof data.reason === 'string' ? data.reason : 'Deploy hook fired');
-      setDeployDialogOpen(false);
-      router.refresh();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Deploy failed';
-      setDeployError(message);
-      toast.error(message);
-    } finally {
-      setIsDeploying(false);
-      setDeployInFlight(false);
-    }
-  }
-
   return (
     <Card>
       <CardHeader className="pb-2">
