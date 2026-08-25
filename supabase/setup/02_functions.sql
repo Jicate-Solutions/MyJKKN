@@ -24770,7 +24770,11 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_req public.billing_receipt_cancel_requests%ROWTYPE;
+  v_req   public.billing_receipt_cancel_requests%ROWTYPE;
+  v_name  text;
+  v_email text;
+  v_super boolean;
+  v_role  text;
 BEGIN
   SELECT * INTO v_req FROM public.billing_receipt_cancel_requests
   WHERE id = p_request_id FOR UPDATE;
@@ -24784,11 +24788,28 @@ BEGIN
     RAISE EXCEPTION 'Only the requester can withdraw this request';
   END IF;
 
+  -- Identity SNAPSHOT, matching the request/decide RPCs. Added 20260825140000:
+  -- this insert used to write actor_id only, so a withdrawn request's History
+  -- showed a badge and a timestamp with nobody attached. Snapshotted rather
+  -- than joined live because a profile can be renamed, have its email changed
+  -- or be deactivated long after the fact.
+  SELECT p.full_name, p.email, COALESCE(p.is_super_admin, false)
+    INTO v_name, v_email, v_super
+  FROM public.profiles p WHERE p.id = auth.uid();
+
+  SELECT cr.role_name INTO v_role
+  FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+  WHERE ur.user_id = auth.uid() LIMIT 1;
+
+  -- Deliberately touches neither the receipt nor the bill: withdrawing drops
+  -- the REQUEST, it does not cancel the receipt. Only approval reverses money.
   UPDATE public.billing_receipt_cancel_requests
      SET status='withdrawn', updated_at=now() WHERE id = p_request_id;
   INSERT INTO public.billing_receipt_cancel_request_actions
-    (request_id, action_type, actor_id, notes)
-    VALUES (p_request_id, 'withdrawn', auth.uid(), p_notes);
+    (request_id, action_type, actor_id, actor_name, actor_email,
+     actor_role_name, actor_is_super_admin, notes)
+    VALUES (p_request_id, 'withdrawn', auth.uid(), v_name, v_email,
+            v_role, v_super, p_notes);
 END;
 $function$;
 

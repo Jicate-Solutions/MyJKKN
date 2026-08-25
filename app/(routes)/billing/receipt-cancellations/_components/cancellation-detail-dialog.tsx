@@ -182,6 +182,28 @@ export function CancellationDetailDialog({
               <p className='mt-1 text-sm'>{request?.reason}</p>
             </div>
 
+            {/* States the outcome in money terms. Withdrawn and declined both
+                leave the receipt valid and the bill paid, which reads as "it
+                didn't work" unless the screen says that is the outcome. */}
+            {request && request.status !== 'pending_approval' && (
+              <div
+                className={`rounded-lg border p-3 text-sm ${
+                  request.status === 'approved'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300'
+                    : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300'
+                }`}
+              >
+                {request.status === 'approved' &&
+                  'Approved — the receipt was cancelled and the bill reverted to unpaid with its balance restored.'}
+                {request.status === 'withdrawn' &&
+                  'Withdrawn — the request was dropped before a decision, so the receipt is still valid and the bill is still paid. Nothing about the payment changed. To cancel the receipt, raise a new request.'}
+                {request.status === 'declined' &&
+                  'Declined — the receipt stays valid and the bill stays paid. Nothing about the payment changed.'}
+                {request.status === 'failed' &&
+                  'Failed — the receipt no longer existed when the decision was made, so there was nothing left to cancel.'}
+              </div>
+            )}
+
             {/* ── Learner ─────────────────────────────────────────────── */}
             <section className='space-y-3'>
               <SectionHeading icon={User}>Learner</SectionHeading>

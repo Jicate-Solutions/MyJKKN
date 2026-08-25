@@ -258,6 +258,23 @@ describe('CancellationDetailDialog', () => {
     });
   });
 
+  // Withdrawn/declined leave the receipt valid and the bill paid, which reads
+  // as "it didn't work" unless the screen says that IS the outcome.
+  it.each([
+    ['withdrawn', /still valid and the bill is still paid/],
+    ['declined', /stays valid and the bill stays paid/],
+    ['approved', /cancelled and the bill reverted to unpaid/],
+    ['failed', /no longer existed when the decision was made/],
+  ])('spells out the money outcome for a %s request', (status, expected) => {
+    open({ status: status as ReceiptCancelRequest['status'] });
+    expect(within(dialog()).getByText(expected)).toBeInTheDocument();
+  });
+
+  it('shows no outcome banner while the request is still pending', () => {
+    open();
+    expect(within(dialog()).queryByText(/Nothing about the payment changed/)).toBeNull();
+  });
+
   it('offers no decision controls once the request is decided', () => {
     permissions.isSuperAdmin = true;
     open({ status: 'approved', decided_at: '2026-08-21T09:00:00Z', decided_by_name: 'SA' });
