@@ -40,11 +40,18 @@ import type { BillingReceipt } from '@/types/billing-schedule';
 interface StudentReceiptsTableProps {
   receipts: BillingReceipt[];
   onRefresh: () => void;
+  /**
+   * True when a learner is viewing their OWN record. Learners reach this page,
+   * so cancellation is gated on the role here and not on the permission alone
+   * — the same belt-and-braces the receipt detail page uses.
+   */
+  isStudentView?: boolean;
 }
 
 export function StudentReceiptsTable({
   receipts,
-  onRefresh
+  onRefresh,
+  isStudentView = false
 }: StudentReceiptsTableProps) {
   const { canAccess, isSuperAdmin } = usePermissions();
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<
@@ -58,8 +65,13 @@ export function StudentReceiptsTable({
   // Accounts staff settle bills from this page, so this is where a mis-keyed
   // receipt is noticed. Before 2026-08-25 the only way to act on one was to go
   // find it again in /billing/receipts.
+  //
+  // The grant itself is held by the Chief Accountant role alone (plus super
+  // admins, who bypass via is_super_admin()); `!isStudentView` is the second
+  // lock, so a learner never sees this even if the key is mis-granted later.
   const canRequestCancel =
-    isSuperAdmin || canAccess('billing.receipts', 'cancel.request');
+    !isStudentView &&
+    (isSuperAdmin || canAccess('billing.receipts', 'cancel.request'));
 
   // A second request is rejected by the RPC ("already awaiting approval"), so
   // a pending one shows a badge instead of the action.

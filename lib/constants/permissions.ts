@@ -809,6 +809,11 @@ export const PERMISSION_CATEGORIES = [
       // Anyone holding billing.receipts.delete can still void directly and
       // bypass this, which is why it was revoked from the accounts roles and
       // from Chief Accountant.
+      // Narrowed 2026-08-25 to Chief Accountant (role_key 'accounts') ALONE,
+      // plus super admins who bypass the key via is_super_admin(). Revoked from
+      // accountant_assistant, administrator and admission — see migration
+      // 20260825120000. Both UI surfaces also hard-block learners on role, so a
+      // future mis-grant cannot hand this to a student.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
