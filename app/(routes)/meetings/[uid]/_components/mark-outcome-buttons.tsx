@@ -2,8 +2,11 @@
 
 // app/(routes)/meetings/[uid]/_components/mark-outcome-buttons.tsx
 //
-// "Did this meeting happen?" — the host's two-button answer on a finished
-// booking. Structure, confirm-dialog UX and copy are lifted from the module
+// "Did this meeting happen?" — the two-button answer on a finished booking,
+// shown to the booking's host and (since 20260926010000) to a super admin
+// closing it on the host's behalf. Whoever presses it is recorded BY NAME, so
+// the dialog and the confirmation both say so rather than implying the host
+// answered. Structure, confirm-dialog UX and copy are lifted from the module
 // that already solved this exact problem:
 // app/(routes)/campus-living/housekeeping/bookings/_components/booking-day-board.tsx
 // (Mark complete / No-show behind an AlertDialog, mutation pending keeps the
@@ -41,7 +44,11 @@ export function MarkOutcomeButtons({ uid }: { uid: string }) {
       const result = await markMeetingOutcome(uid, outcome);
       setPendingOutcome(null);
       if (result.success) {
-        toast.success(outcome === 'completed' ? 'Marked as happened.' : 'Marked as a no-show.');
+        const what = outcome === 'completed' ? 'Marked as happened' : 'Marked as a no-show';
+        // Only say "in your name" when the caller is NOT the host — for a host
+        // it is the obvious default and reads as noise, but for a super admin
+        // closing someone else's meeting it is the fact they need confirmed.
+        toast.success(result.markedBy === 'admin' ? `${what}, in your name.` : `${what}.`);
         router.refresh();
       } else {
         toast.error(result.error ?? 'Could not save the outcome.');
@@ -89,10 +96,11 @@ export function MarkOutcomeButtons({ uid }: { uid: string }) {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pendingOutcome === 'completed'
-                ? 'The booking moves to Completed. Only you, as the host, can record this.'
+                ? 'The booking moves to Completed.'
                 : 'The booking moves to No-show, recording that the attendee did not turn up.'}{' '}
-              This is the record of what happened — it cannot be changed from this screen
-              afterwards.
+              Your name is saved as the person who closed it — not the host&apos;s, if you
+              are closing this on their behalf. This is the record of what happened — it
+              cannot be changed from this screen afterwards.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

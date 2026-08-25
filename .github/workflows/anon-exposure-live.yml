@@ -75,17 +75,37 @@ jobs:
       # Skipped on pull_request: forks and PR contexts do not get the secret, and
       # a credential-less run must never be mistaken for a clean sweep. The tests
       # above are what a PR proves.
+      # Two ways in, either is sufficient. check-anon-exposure-live.mjs has
+      # supported both since it was written (see its header): SUPABASE_DB_URL
+      # for a direct Postgres connection, or SUPABASE_ACCESS_TOKEN +
+      # SUPABASE_PROJECT_REF through the Supabase Management API. Only the first
+      # was ever wired up here, so when that one secret went missing the job
+      # failed every run from 18 Aug 2026 — a security gate inspecting nothing
+      # for four days — even though the script could have used the other route.
+      #
+      # A token is also the narrower credential: it can be revoked on its own
+      # without rotating the database password.
       - name: Sweep production
         if: github.event_name != 'pull_request'
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
-          if [ -z "${SUPABASE_DB_URL:-}" ]; then
-            echo "::error::SUPABASE_DB_URL secret is not set — the sweep cannot run."
+          if [ -z "${SUPABASE_DB_URL:-}" ] \
+             && { [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ]; }; then
+            echo "::error::No route to the database — the sweep cannot run."
+            echo "Set EITHER SUPABASE_DB_URL (direct Postgres),"
+            echo "OR both SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF (Management API)."
             echo "Failing rather than passing: a sweep that inspects nothing and reports"
             echo "success is the precise failure mode this job exists to prevent."
             exit 1
+          fi
+          if [ -n "${SUPABASE_DB_URL:-}" ]; then
+            echo "Route: direct Postgres (SUPABASE_DB_URL)."
+          else
+            echo "Route: Supabase Management API (SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF)."
           fi
           node scripts/ci/check-anon-exposure-live.mjs
 
