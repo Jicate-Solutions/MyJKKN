@@ -118,13 +118,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
   const [isMerging, setIsMerging] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
 
-  const [deployDialogOpen, setDeployDialogOpen] = useState(false);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deployError, setDeployError] = useState<string | null>(null);
-  // Deploy fires one global hook — disable every card's button, not just
-  // this one, while any card's deploy request is in flight.
-  const deployInFlight = useDeployInFlight();
-
   const gatedCount = prs.filter((p) => p.gate_state === 'green' || p.gate_state === 'gated').length;
   const mergeCandidate = pickMergeCandidate(prs);
 
