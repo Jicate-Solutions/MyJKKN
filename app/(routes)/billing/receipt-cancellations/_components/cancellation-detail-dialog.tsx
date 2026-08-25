@@ -395,14 +395,18 @@ export function CancellationDetailDialog({
                   </p>
                   {request?.decided_at ? (
                     <>
-                      <p className='flex flex-wrap items-center gap-2 text-sm font-medium'>
+                      {/* A div, not a p: Badge renders a <div>, and a block
+                          element inside <p> is invalid HTML — the browser
+                          closes the paragraph early, so the server and client
+                          trees differ and React reports a hydration error. */}
+                      <div className='flex flex-wrap items-center gap-2 text-sm font-medium'>
                         {request.decided_by_name ?? '—'}
                         {request.decided_by_is_super_admin && (
                           <Badge variant='secondary' className='text-[10px]'>
                             super admin
                           </Badge>
                         )}
-                      </p>
+                      </div>
                       <p className='text-muted-foreground text-xs break-words'>
                         {request.decided_by_email ?? '—'}
                         {request.decided_by_role ? ` · ${request.decided_by_role}` : ''}
