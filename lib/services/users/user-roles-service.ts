@@ -484,10 +484,13 @@ export class UserRolesService {
 
   /**
    * Get all available roles (for role selector)
+   *
+   * Roles are cluster-wide: custom_roles has no institution_id column, so there
+   * is nothing to filter on here. What a caller can see is already scoped by RLS
+   * via institution_scope + role_has_institution_access(). The former
+   * `institutionId` parameter was silently ignored and has been removed.
    */
-  static async getAvailableRoles(
-    institutionId?: string
-  ): Promise<CustomRole[]> {
+  static async getAvailableRoles(): Promise<CustomRole[]> {
     try {
       const supabase = createClientSupabaseClient();
 
@@ -495,9 +498,6 @@ export class UserRolesService {
         .from('custom_roles')
         .select('*')
         .order('role_name', { ascending: true });
-
-      // Note: custom_roles may not have institution_id filter
-      // This can be extended based on your requirements
 
       const { data, error } = await query;
 

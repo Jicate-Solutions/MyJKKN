@@ -23,7 +23,6 @@ export class RoleService {
   private static toCustomRole(row: CustomRoleRow): CustomRole {
     return {
       id: row.id,
-      institution_id: (row as any).institution_id ?? null,
       role_key: row.role_key,
       role_name: row.role_name,
       description: row.description,
