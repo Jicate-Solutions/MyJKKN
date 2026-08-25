@@ -22,6 +22,7 @@ import type {
   LeaveApproverCandidate,
   LeaveApproverRoleOption,
 } from '@/types/hr-leave-types';
+import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 const FLOW_FOR = 'leave_approval';
 const SELECT =
@@ -160,6 +161,24 @@ export class LeaveApprovalFlowService {
     return ((data ?? []) as Array<{ application_id: string }>).map((r) => r.application_id);
   }
 
+  /**
+   * Everything awaiting a decision, with the requester's name, staff code and
+   * institution, across every organisation the caller may approve for.
+   *
+   * Replaces listApplications() on the Approvals tab. That path embedded only
+   * the leave type, so the queue named no one; scoped to a single
+   * hr_organization_id, so a super admin saw one org or — with no HR employee
+   * record — nothing at all; and inherited the REST route's pageSize 50, so it
+   * stopped at 50 of 446 pending rows.
+   */
+  static async approvalQueue(
+    supabase: SupabaseClient
+  ): Promise<HRLeaveApprovalQueueRow[]> {
+    const { data, error } = await supabase.rpc('hr_leave_approval_queue');
+    if (error) throw error;
+    return (data ?? []) as HRLeaveApprovalQueueRow[];
+  }
+
   /** Roles offerable as approvers, flagged with whether they can actually approve. */
   static async roleOptions(supabase: SupabaseClient): Promise<LeaveApproverRoleOption[]> {
     const { data, error } = await supabase.rpc('hr_leave_approver_role_options');
@@ -170,15 +189,22 @@ export class LeaveApprovalFlowService {
   /**
    * People pinnable as approvers. Returns profiles.id — the auth uid the
    * approval gate compares against, NOT staff.id.
+   *
+   * roleKey narrows to holders of one custom_roles.role_key. It is passed to the
+   * RPC rather than applied to the result because the RPC caps at 50 rows: the
+   * largest organization has 152 candidates, so filtering the returned page
+   * would search only the first third of them.
    */
   static async candidates(
     supabase: SupabaseClient,
     hrOrgId: string,
-    search?: string
+    search?: string,
+    roleKey?: string
   ): Promise<LeaveApproverCandidate[]> {
     const { data, error } = await supabase.rpc('hr_leave_approver_candidates', {
       p_hr_organization_id: hrOrgId,
       p_search: search ?? null,
+      p_role_key: roleKey ?? null,
     });
     if (error) throw error;
     return (data ?? []) as LeaveApproverCandidate[];

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { withAuth } from '@/lib/auth/with-auth'
 import { ProspectsService } from '@/lib/services/solutions/prospects-service'
-import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api/response'
+import { paginatedResponse, createdResponse, errorResponse, successResponse } from '@/lib/api/response'
 import { getPaginationParams, getStringParam, getUuidParam } from '@/lib/api-keys/query-helpers'
 import { corsHeaders } from '@/lib/api-keys/cors'
 
@@ -11,6 +11,18 @@ export async function OPTIONS() {
 
 export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url)
+
+  // Client-scoped mode: the client page's Pipeline History card
+  // (useProspectsByClientId) asks for the prospects linked to ONE client
+  // (converted + repeat business). Previously this param was silently ignored
+  // and the generic list was returned instead.
+  // successResponse (not paginatedResponse) so apiClient unwraps to a bare array.
+  const client_id = getUuidParam(url, 'client_id')
+  if (client_id) {
+    const prospects = await ProspectsService.getProspectsByClientId(client_id)
+    return successResponse(prospects)
+  }
+
   const { page, limit } = getPaginationParams(url)
   const search = getStringParam(url, 'search')
   const pipeline_stage = getStringParam(url, 'pipeline_stage')

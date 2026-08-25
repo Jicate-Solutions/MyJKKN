@@ -70,6 +70,10 @@ import {
   isPresentAtEnd,
   isEngagedFromGates,
 } from '@/lib/services/ai-pulse/live-session-service';
+import {
+  cycleNotificationExpiresAt,
+  type AiPulseCycleRow,
+} from '@/lib/services/ai-pulse/cycle-window';
 
 const JOB_NAME = 'ai-pulse-weekly-digest';
 
@@ -210,6 +214,17 @@ export async function GET(req: NextRequest) {
     const latestCycle = cycleRows[0];
     const latestCycleId = latestCycle.id as string;
     const latestCycleName = (latestCycle.name as string) ?? 'AI Pulse Cycle';
+
+    // TTL for every digest row created below. Derived from the cycle this
+    // digest is ABOUT — a digest is superseded when the next cycle's digest
+    // lands, so a fixed hour count would either outlive its replacement or
+    // die before it. Honoured by liveNotificationOrFilter() in the bell /
+    // inbox / rollup read path; null (cycle carries no usable demo_date)
+    // keeps today's never-expires behaviour rather than guessing.
+    const expiresAt = cycleNotificationExpiresAt(
+      latestCycle as AiPulseCycleRow,
+      cycleRows as AiPulseCycleRow[],
+    );
     const cycleIds = cycleRows.map((c) => c.id as string);
     const endHHMMByCycle = new Map<string, string>(
       cycleRows.map((c) => [c.id as string, cycleEndHHMM(c.config)]),
@@ -582,6 +597,8 @@ export async function GET(req: NextRequest) {
           // /notifications/admin announcement surface (kind='announcement').
           kind: 'work_item',
           idempotency_key,
+          // Derived from THIS cycle's end (see above), never a literal.
+          expires_at: expiresAt,
           metadata,
         })
         .select('id')

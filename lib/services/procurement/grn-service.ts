@@ -21,6 +21,7 @@ import type {
   ProcurementGrnReplacement,
   ReceiveReplacementInput,
   CreateGrnInput,
+  GrnExpectations,
   GrnFilters,
 } from '@/types/procurement';
 
@@ -152,6 +153,15 @@ export class ProcurementGrnService {
       const ctx: DomainCtx = { institutionId: po.institution_id, storeId: po.store_id, userId };
       const adapter = getAdapter(domain);
 
+      // The receiver's declared expectations. Re-applied here rather than trusted from the
+      // client's preview, so the verdict we STORE is the verdict computed under the same bar
+      // the receiver was shown — and so the batch/expiry gate cannot be bypassed by posting
+      // straight to the API.
+      const expectations = input.expectations ?? null;
+      const tolerancePct = expectations?.tolerance_pct ?? null;
+      const requireBatchExpiry = expectations?.require_batch_expiry === true;
+      const traceabilityErrors: string[] = [];
+
       // 2) Build grn_item rows. Resolve chemical flag + cost from the catalog once.
       const grnItemRows: any[] = [];
       for (const line of input.lines) {
@@ -190,7 +200,23 @@ export class ProcurementGrnService {
           receivedQty: received,
           poUnitPrice: Number(poItem.unit_price ?? 0) || null,
           invoiceUnitPrice,
+          tolerancePct,
         });
+
+        if (requireBatchExpiry) {
+          traceabilityErrors.push(
+            ...validateLineForVerify(
+              {
+                item_name: poItem.item_name,
+                is_chemical: isChemical,
+                accepted_quantity: accepted,
+                batch_number: line.batch_number,
+                expiry_date: line.expiry_date,
+              },
+              { requireBatchExpiry: true }
+            )
+          );
+        }
 
         grnItemRows.push({
           po_item_id: line.po_item_id,
@@ -216,6 +242,14 @@ export class ProcurementGrnService {
         });
       }
 
+      // The receiver asked for full traceability on this delivery — hold the receipt until
+      // every accepted line carries batch + expiry. Reported together so they fix one round.
+      if (traceabilityErrors.length) {
+        throw new Error(
+          `Batch and expiry were required for this receipt:\n${traceabilityErrors.join('\n')}`
+        );
+      }
+
       // 3) Insert header, then lines.
       const grnNumber = await this.generateGrnNumber(po.institution_id);
       const { data: grn, error: grnErr } = await this.supabase
@@ -233,7 +267,7 @@ export class ProcurementGrnService {
           invoice_document_url: input.invoice_document_url ?? null,
           status: 'pending_verification',
           received_by: userId,
-          notes: input.notes ?? null,
+          notes: this.composeNotes(input.notes, expectations),
         })
         .select()
         .single();
@@ -845,6 +879,33 @@ export class ProcurementGrnService {
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', poId)
       .in('status', ['sent', 'approved', 'partially_received']);
+  }
+
+  /**
+   * Fold the receiver's expectations into the GRN note as one readable line.
+   *
+   * These have no columns of their own (they are per-receipt, not configuration), but the
+   * verifier needs to know the bar the receiver worked to — a line marked "matched" under a
+   * 2% variance is a different claim from one matched exactly. Storing it as prose keeps the
+   * record honest without a migration.
+   */
+  private static composeNotes(
+    notes: string | null | undefined,
+    expectations: GrnExpectations | null
+  ): string | null {
+    const parts: string[] = [];
+    const pct = Number(expectations?.tolerance_pct) || 0;
+    if (pct > 0) parts.push(`±${pct}% variance allowed`);
+    if (expectations?.require_batch_expiry) parts.push('batch + expiry required on every line');
+    const days = Number(expectations?.max_invoice_age_days) || 0;
+    if (days > 0) parts.push(`invoice expected within ${days} days`);
+    const watch = expectations?.watch_for?.trim();
+    if (watch) parts.push(`watch for: ${watch}`);
+
+    const summary = parts.length ? `Expectations at receipt — ${parts.join(' · ')}.` : null;
+    const own = notes?.trim() || null;
+    if (!summary) return own;
+    return own ? `${summary}\n${own}` : summary;
   }
 
   private static async generateGrnNumber(institutionId: string): Promise<string> {

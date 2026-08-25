@@ -214,10 +214,35 @@ export interface SafetyQueueRow {
 }
 
 export interface PromptSafetyHealth {
+  /** EVERY pending build, eligible or not. Still shown so the whole backlog is
+   *  visible — but deliberately NOT the number any alarm is derived from, see
+   *  eligible_waiting_count. */
   waiting_count: number;
+  /** The subset of pending builds the cron would actually pick up: graded,
+   *  scored 60-79, prompt present, not graduated, not disqualified. Zero here
+   *  with a fresh heartbeat is HEALTHY AND IDLE, not stuck.
+   *
+   *  Null means the reader could not tell us — i.e. this build of the app is
+   *  talking to a database where migration 20260813030000 has not been applied
+   *  yet. The card must treat null as "unknown" and stay quiet, never as zero
+   *  and never as an alarm: the deploy and the hand-applied migration do not
+   *  land at the same moment. */
+  eligible_waiting_count: number | null;
   rejected_count: number;
   passed_count: number;
+  /** When the oldest build the checker would ACTUALLY pick up arrived. As of
+   *  migration 20260813030000 this is eligible-only. It previously spanned every
+   *  pending build and therefore grew without bound on a healthy system —
+   *  measured at 14 days on 2026-08-06, when 44 of the 46 pending builds scored
+   *  5-58 and were permanently outside the checker's 60-79 band. */
   oldest_waiting_at: string | null;
+  /** Is the checker SUPPOSED to be working? The live kill switch
+   *  (prompt_safety_check_enabled). "Switched off" is a REPORTABLE state, not
+   *  silence, and it is not the same thing as "crashed" — the cron writes its
+   *  heartbeat before reading this switch, so a disabled checker still ticks.
+   *
+   *  Null means unknown (pre-migration reader), which is not "off". */
+  checker_enabled: boolean | null;
   /** LIVENESS — when the checker itself last ran, from the ai_pulse_cron_runs
    *  run log. This is the heartbeat. Null means no run has ever been recorded,
    *  which on a fresh deploy is expected and is NOT an alarm. */
@@ -281,9 +306,20 @@ async function fetchPromptSafetyHealth(): Promise<PromptSafetyHealth> {
   return {
     // bigint arrives as a string — Number() here, never in the component.
     waiting_count: Number(row?.waiting_count ?? 0),
+    // The two fields added by migration 20260813030000 are mapped to null when
+    // ABSENT rather than defaulted, and absent is distinguished from a real
+    // value — not folded into `?? 0` / `?? false`. The reason is deploy order:
+    // this code ships in a PR whose migration is applied by hand afterwards, so
+    // for a while the RPC returns the older six columns. Defaulting would make
+    // the card announce "0 eligible" and "checker switched off" about a checker
+    // that is running perfectly — reintroducing, from the client side, the exact
+    // false alarm this change exists to remove.
+    eligible_waiting_count:
+      row?.eligible_waiting_count == null ? null : Number(row.eligible_waiting_count),
     rejected_count: Number(row?.rejected_count ?? 0),
     passed_count: Number(row?.passed_count ?? 0),
     oldest_waiting_at: (row?.oldest_waiting_at as string | null) ?? null,
+    checker_enabled: typeof row?.checker_enabled === 'boolean' ? row.checker_enabled : null,
     checker_last_ran_at: (row?.checker_last_ran_at as string | null) ?? null,
     last_build_checked_at: (row?.last_build_checked_at as string | null) ?? null,
   };

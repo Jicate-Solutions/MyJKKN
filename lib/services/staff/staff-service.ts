@@ -4,6 +4,7 @@ import {
   createClientSupabaseClient,
   createAdminClient
 } from '@/lib/supabase/client';
+import { normalizeStaffNameFields } from '@/lib/utils/staff-name';
 import type {
   Staff,
   StaffFilters,
@@ -21,6 +22,7 @@ import type {
   StaffProfileAnalytics
 } from '@/types/staff';
 import toast from 'react-hot-toast';
+import { getErrorMessage } from '@/lib/utils';
 import {
   buildStaffSearchConditions,
   resolveStaffFiltersForUser
@@ -70,6 +72,140 @@ export class StaffService {
   private static supabase = createClientSupabaseClient();
   private static adminClient = createAdminClient();
 
+  /**
+   * Who already holds this biometric code on this machine?
+   *
+   * `staff_biometric_uq` is UNIQUE on (biometric_institution_id,
+   * fn_norm_biometric_code(biometric_id)), and the normaliser strips leading
+   * zeros from all-digit codes — so 00002, 002 and 2 are one code. That makes
+   * the 23505 genuinely baffling from the form: the operator typed a value
+   * they have never seen before and the raw Postgres message names an index,
+   * not a person. Resolving the holder turns it into an answer.
+   *
+   * Best-effort by design. Called only from an error path, so a failure here
+   * must degrade to the generic message rather than mask the real error.
+   */
+  static async findBiometricConflict(
+    biometricId: string,
+    biometricInstitutionId: string
+  ): Promise<{ id: string; staff_id: string | null; name: string } | null> {
+    if (!biometricId?.trim() || !biometricInstitutionId) return null;
+
+    // Normalise client-side with the same rule as fn_norm_biometric_code so
+    // the lookup finds 00002 when the operator typed 2. Digit-only codes lose
+    // leading zeros; anything else is upper-cased.
+    const trimmed = biometricId.trim();
+    const normalized = /^[0-9]{1,18}$/.test(trimmed)
+      ? String(BigInt(trimmed))
+      : trimmed.toUpperCase();
+
+    const { data, error } = await this.supabase
+      .from('staff')
+      .select('id, staff_id, first_name, last_name, biometric_id')
+      .eq('biometric_institution_id', biometricInstitutionId)
+      .not('biometric_id', 'is', null)
+      .limit(500);
+
+    if (error) {
+      console.warn('[StaffService] biometric conflict lookup failed:', error);
+      return null;
+    }
+
+    const match = (data ?? []).find((row: Record<string, unknown>) => {
+      const raw = String(row.biometric_id ?? '').trim();
+      if (!raw) return false;
+      const norm = /^[0-9]{1,18}$/.test(raw) ? String(BigInt(raw)) : raw.toUpperCase();
+      return norm === normalized;
+    });
+
+    if (!match) return null;
+    return {
+      id: match.id as string,
+      staff_id: (match.staff_id as string) ?? null,
+      name:
+        [match.first_name, match.last_name].filter(Boolean).join(' ').trim() ||
+        'another staff member'
+    };
+  }
+
+  /**
+   * Resolve who already holds an ID, for the 23505 on `staff_staff_id_key`.
+   *
+   * `staff_id` is GLOBALLY unique, but the table's SELECT policy is
+   * institution-scoped. So an HR user on 'own_institution' scope can collide
+   * with a row they are not allowed to see — a plain table lookup
+   * returns nothing and the operator is left retyping against an invisible
+   * wall. `fn_staff_id_conflict` is SECURITY DEFINER and permission-gated, so
+   * it can name the holder across that boundary.
+   *
+   * Best-effort by design, exactly like findBiometricConflict: called only
+   * from an error path, so any failure degrades to the generic message.
+   */
+  static async findStaffIdConflict(
+    staffId: string
+  ): Promise<{ staff_id: string; name: string; institution: string; is_active: boolean } | null> {
+    if (!staffId?.trim()) return null;
+
+    const { data, error } = await (this.supabase as any).rpc('fn_staff_id_conflict', {
+      p_staff_id: staffId.trim()
+    });
+
+    if (error) {
+      console.warn('[StaffService] staff_id conflict lookup failed:', error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+
+    return {
+      staff_id: row.staff_id,
+      name: row.full_name ?? 'another team member',
+      institution: row.institution_name ?? 'another institution',
+      is_active: !!row.is_active
+    };
+  }
+
+  /**
+   * Resolve who already holds an email, for the 23505 on staff_email_key or
+   * staff_institution_email_key. Same RLS-blindness problem as
+   * findStaffIdConflict — see that method's note.
+   *
+   * `matched_field` tells the caller WHICH column the address was found in,
+   * which is not always the field the operator typed it into.
+   */
+  static async findStaffEmailConflict(
+    email: string
+  ): Promise<{
+    matchedField: 'email' | 'institution_email';
+    staff_id: string | null;
+    name: string;
+    institution: string;
+    is_active: boolean;
+  } | null> {
+    if (!email?.trim()) return null;
+
+    const { data, error } = await (this.supabase as any).rpc('fn_staff_email_conflict', {
+      p_email: email.trim()
+    });
+
+    if (error) {
+      console.warn('[StaffService] email conflict lookup failed:', error);
+      return null;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) return null;
+
+    return {
+      matchedField: row.matched_field === 'email' ? 'email' : 'institution_email',
+      staff_id: row.staff_id ?? null,
+      name: row.full_name ?? 'another team member',
+      institution: row.institution_name ?? 'another institution',
+      is_active: !!row.is_active
+    };
+  }
+
   static async createStaff(
     data: CreateStaffDto,
     suppressToast: boolean = false
@@ -80,6 +216,13 @@ export class StaffService {
 
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
+
+      // Canonical staff name (UPPERCASE, trimmed, single-spaced). Applied here
+      // rather than at the call site so BOTH the direct insert below and the
+      // API-route fallback send the same value. The DB is still the guarantee
+      // (trg_normalize_staff_names + the staff_*_name_canonical CHECKs); doing
+      // it here keeps the returned record consistent with what was submitted.
+      data = normalizeStaffNameFields(data);
 
       // Role key validation: must exist, must not be reserved.
       // Added: 2026-04-14 for dynamic staff role onboarding.
@@ -305,6 +448,11 @@ export class StaffService {
       if (userError) throw userError;
       if (!userData.user) throw new Error('No authenticated user');
 
+      // Canonical staff name — see createStaff. normalizeStaffNameFields only
+      // touches keys that are PRESENT, so a partial update that omits
+      // last_name does not gain an undefined last_name and blank a surname.
+      data = normalizeStaffNameFields(data);
+
       // Normalize empty optional unique fields to null so the
       // staff_staff_id_not_empty CHECK constraint doesn't reject blanks
       // (mirrors the same coercion in createStaff).
@@ -523,6 +671,18 @@ export class StaffService {
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       // 'estimated' uses Postgres statistics instead of counting all rows
+      //
+      // The institutions embed is qualified with !staff_institution_id_fkey on
+      // purpose, here and at every other staff -> institutions embed in the app.
+      // PostgREST resolves embeds by RELATIONSHIP, not by column, so the moment
+      // `staff` holds a second FK to `institutions` the bare `institutions(...)`
+      // form becomes ambiguous and fails at query-planning time with PGRST201 —
+      // no rows, no build error, ~20 call sites at once. That happened on
+      // 2026-08-06 when staff.biometric_institution_id was added as an FK
+      // (see 20260806140000_staff_biometric_drop_institution_fk.sql). The
+      // constraint is gone, but the column is not, and the hint is what keeps
+      // this query correct whether or not a second FK ever comes back — and
+      // even while PostgREST is still serving a stale schema cache.
       let query = (this.supabase as any).from('staff').select(
         `
           *,
@@ -531,7 +691,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -639,7 +799,12 @@ export class StaffService {
         }
       };
     } catch (error) {
-      console.error('Error fetching staff:', error);
+      // Log the MESSAGE, not the object. A Supabase PostgrestError is a plain
+      // object and prints fine, but an Error instance (e.g. the 30s timeout
+      // reject above) has non-enumerable message/stack and console.error prints
+      // it as `{}` — which left the UI saying "check the console for details"
+      // when the console had none.
+      console.error('Error fetching staff:', getErrorMessage(error), error);
       throw error;
     }
   }
@@ -699,7 +864,11 @@ export class StaffService {
       // Use the existing getStaff method with enhanced filters
       return await this.getStaff(effectiveFilters);
     } catch (error) {
-      console.error('Error fetching staff with role-based filtering:', error);
+      console.error(
+        'Error fetching staff with role-based filtering:',
+        getErrorMessage(error),
+        error
+      );
       throw error;
     }
   }
@@ -723,7 +892,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -781,7 +950,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -909,7 +1078,7 @@ export class StaffService {
             category_name,
             is_teaching
           ),
-          institution:institutions(
+          institution:institutions!staff_institution_id_fkey(
             id,
             name,
             counselling_code
@@ -1129,7 +1298,9 @@ export class StaffService {
     'email',
     'phone',
     'designation',
-    // profile-completion optional fields
+    // profile-completion optional fields — includes blood_group: removing
+    // it here silently reintroduces a completion-calculation bug (Task 11),
+    // since getOverviewStats/getProfileAnalytics read it as a completion field.
     'staff_id',
     'profile_picture',
     'address',
@@ -1137,12 +1308,16 @@ export class StaffService {
     'district',
     'pincode',
     'institution_email',
+    // attendance enrolment — a missing code means this person's punches cannot be
+    // resolved by the biometric import, so the Profiles tab tracks them as fields.
+    'biometric_id',
+    'biometric_institution_id',
+    'blood_group',
     // demographics
     'gender',
     'marital_status',
-    'blood_group',
     // embedded display names
-    'institution:institutions(id, name)',
+    'institution:institutions!staff_institution_id_fkey(id, name)',
     'department:departments(id, department_name)',
     'category:employment_categories(id, category_name)'
   ].join(', ');
@@ -1305,7 +1480,10 @@ export class StaffService {
       'state',
       'district',
       'pincode',
-      'institution_email'
+      'institution_email',
+      'blood_group',
+      'biometric_id',
+      'biometric_institution_id'
     ];
 
     let totalFieldsExpected = 0;
@@ -1715,7 +1893,13 @@ export class StaffService {
       'district',
       'pincode',
       'institution_email',
-      'blood_group'
+      'blood_group',
+      // Both halves of the biometric enrolment are tracked, not just the code.
+      // staff_biometric_scope_chk only forces a machine when a code is present, so
+      // "machine set, code blank" is a legal state the pair-count exposes; today
+      // the two numbers are identical, and any divergence is a real gap.
+      'biometric_id',
+      'biometric_institution_id'
     ];
     const allFields = [...requiredFields, ...optionalFields];
 

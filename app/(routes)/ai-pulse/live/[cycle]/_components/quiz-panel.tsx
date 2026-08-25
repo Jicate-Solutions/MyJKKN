@@ -36,6 +36,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { useSubmitQuiz } from '@/lib/services/ai-pulse/live-session-service';
 import { QuizService } from '@/lib/services/ai-pulse/quiz-service';
+import { stripLeadingQuestionNumber } from '@/lib/services/ai-pulse/quiz-question-text';
 
 interface QuizPanelProps {
   cycleId: string;
@@ -101,8 +102,11 @@ export function QuizPanel({
         });
         const mapped: QuizQuestion[] = (ctx?.quiz.questions ?? [])
           .map((q) => {
-            const en = q.question_en?.trim() ?? '';
-            const ta = q.question_ta?.trim() ?? '';
+            // Strip any number the author typed into the text — this list is
+            // already numbered by the <ol> below, so leaving it in shows the
+            // learner the number twice.
+            const en = stripLeadingQuestionNumber(q.question_en);
+            const ta = stripLeadingQuestionNumber(q.question_ta);
             const options = q.options
               .map((o) => {
                 const oen = o.text_en?.trim() ?? '';

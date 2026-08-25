@@ -208,7 +208,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         '* First Name': 'JOHN',
         '* Last Name': 'DOE',
         '* Date of Birth': '2005-01-15',
-        '* Gender': 'MALE',
+        '* Gender': 'Male',
         '* Religion': 'HINDU',
         '* Community': 'BC',
         '* Caste': 'OBC',
@@ -253,6 +253,10 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         // Basic Details (Optional)
         'Aadhar Number': '123456789012',
         'Blood Group': 'O+',
+        // External identifiers — alphanumeric, no fixed length enforced.
+        'ABC ID': 'ED453871909686',
+        'EMIS Number': '33150200123',
+        'UMIS Number': 'UM2024005567',
         'Admission Year': '2024',
 
         // Parent/Guardian (Optional)
@@ -314,13 +318,13 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
 
         { '📊 FIELD REQUIREMENTS': '' },
         { 'Required Fields (28)': 'Must be filled for every student - marked with * in template' },
-        { 'Optional Fields (35)': 'Can be left blank - no asterisk in template' },
+        { 'Optional Fields (38)': 'Can be left blank - no asterisk in template' },
         { '': '' },
 
         { '✅ DROPDOWN FIELDS - VALID VALUES ONLY': '' },
         { 'Field Name': 'Valid Options (use these exact values)' },
         { '': '' },
-        { '* Gender (Required)': 'MALE  |  FEMALE  |  OTHER' },
+        { '* Gender (Required)': 'Male  |  Female  |  Other' },
         { '* Religion (Required)': 'HINDU  |  CHRISTIAN  |  MUSLIM  |  SIKH  |  BUDDHIST  |  JAIN  |  OTHERS' },
         { '* Community (Required)': 'OC  |  BC  |  BCM  |  MBC  |  DNC  |  BC-CC  |  SC  |  ST  |  SBC  |  SC (A)' },
         { '* Entry Type (Required)': 'FIRST YEAR  |  LATERAL ENTRY  |  RE-ADMISSION  |  COLLEGE TRANSFER' },
@@ -340,13 +344,17 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { 'College Email': 'Must end with @jkkn.ac.in  (Example: john.doe@jkkn.ac.in)' },
         { 'Academic Year': 'YYYY-YYYY  (Example: 2024-2025)' },
         { 'Aadhar Number': '12 digits  (Example: 123456789012)' },
+        { 'ABC ID': 'Letters + digits, any length  (Example: ED453871909686)' },
+        { 'EMIS Number': 'Letters + digits, any length  (Example: 33150200123)' },
+        { 'UMIS Number': 'Letters + digits, any length  (Example: UM2024005567)' },
+        { '  ↳ all three': 'Saved UPPERCASE with spaces removed. Leave blank if not issued yet.' },
         { '10th/12th Marks': 'JSON format  (Example: {"overall": "95", "maths": "98"})' },
         { '': '' },
 
         { '❌ COMMON MISTAKES': '' },
         { 'Wrong': 'Correct' },
         { 'Entry Type: "FIRST YEAR"': 'Use: REGULAR' },
-        { 'Gender: "M" or "F"': 'Use: MALE or FEMALE' },
+        { 'Gender: "M" or "F"': 'Use: Male or Female' },
         { 'Religion: "Hindu"': 'Use: HINDU (all uppercase)' },
         { 'Email: john@gmail.com': 'Use: john.doe@jkkn.ac.in' },
         { 'Mobile: 98765-43210': 'Use: 9876543210 (no dashes)' },
@@ -355,7 +363,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { '': '' },
 
         { '💡 TIPS FOR SUCCESS': '' },
-        { '✓': 'All dropdown values are case-insensitive (MALE = male = Male)' },
+        { '✓': 'All dropdown values are case-insensitive (Male = male = MALE)' },
         { '✓': 'Required fields marked with * must be filled' },
         { '✓': 'Delete the example row before uploading your actual data' },
         { '✓': 'Copy-paste the example row to create more student entries' },

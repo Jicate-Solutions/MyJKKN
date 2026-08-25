@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// Premium Stay Phase 2 — Audit Log Viewer
+// Premium Room Phase 2 — Audit Log Viewer
 // ============================================================================
 // Filterable list of hostel_premium_audit_log rows. Filters: event_type,
 // tier, institution, date range, free-text search. Click a row to view

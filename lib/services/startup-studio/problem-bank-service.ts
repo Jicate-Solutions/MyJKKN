@@ -49,7 +49,16 @@ export class ProblemBankService extends BaseService {
       query = query.eq('status', filters.status);
     }
     if (filters?.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
+      // A NULL institution_id means "shared across the platform", not
+      // "belongs to nobody". The list API always passes the caller's
+      // institution (app/api/startup-studio/problem-bank/route.ts), so a
+      // strict equality check made every unscoped row invisible to EVERY
+      // user — 7 newspaper-sourced problems sat in the table while the page
+      // read "No problems found". A civic problem from the local paper is
+      // genuinely not owned by one college; it belongs to the shared pool.
+      query = query.or(
+        `institution_id.eq.${filters.institution_id},institution_id.is.null`
+      );
     }
     if (filters?.event_id) {
       query = query.eq('event_id', filters.event_id);

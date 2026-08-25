@@ -77,6 +77,19 @@ export interface Destination {
    * these is blank the card is reported unroutable instead.
    */
   hardFields?: string[];
+  /**
+   * How to recognise a person ALREADY in this module's table.
+   *
+   * Without this, a second card from the same human (Prasanna printed two —
+   * ADAP and ICSA) enriched the shared contact book correctly and then added a
+   * SECOND row to the module list, because none of these tables has a natural
+   * unique key: `industry_partners`'s only unique index is its primary key.
+   * The contact book half was protected and the module half was not.
+   *
+   * Column names differ per table for the same fact, so each destination says
+   * which of its own columns hold the phone and the email.
+   */
+  matchOn?: { phone?: string; email?: string };
   build: (p: CardPerson, ctx: RouteContext) => Record<string, unknown>;
 }
 
@@ -127,6 +140,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Parent / student': {
     label: 'Admission lead',
     table: 'admission_leads',
+    matchOn: { phone: 'phone', email: 'email' },
     requiresParent: null,
     softFields: ['email', 'phone'],
     build: (p, ctx) => ({
@@ -153,6 +167,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Employer / recruiter': {
     label: 'CDC recruiter',
     table: 'cdc_recruiters',
+    matchOn: { phone: 'primary_contact_phone', email: 'primary_contact_email' },
     requiresParent: null,
     softFields: ['website', 'hq_city'],
     build: (p, ctx) => ({
@@ -183,6 +198,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Hospital / internship site': {
     label: 'Internship site contact',
     table: 'internship_site_contacts',
+    matchOn: { phone: 'mobile', email: 'email' },
     requiresParent: 'site',
     softFields: ['email', 'designation'],
     hardFields: ['mobile', 'institution_id'],
@@ -198,6 +214,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Hospital / internship site::preceptor': {
     label: 'Internship preceptor',
     table: 'internship_preceptors',
+    matchOn: { phone: 'mobile', email: 'email' },
     requiresParent: 'site',
     softFields: ['email', 'designation'],
     hardFields: ['institution_id'],
@@ -214,6 +231,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Industry partner': {
     label: 'Industry partner',
     table: 'industry_partners',
+    matchOn: { phone: 'contact_phone', email: 'contact_email' },
     requiresParent: null,
     softFields: ['company_website', 'city'],
     hardFields: ['institution_id'],
@@ -232,6 +250,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Industry partner::mentor': {
     label: 'Student-support mentor',
     table: 'ss_mentors',
+    matchOn: { phone: 'phone', email: 'email' },
     requiresParent: null,
     softFields: ['email', 'phone'],
     build: (p, ctx) => ({
@@ -250,6 +269,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Event sponsor': {
     label: 'Event sponsor',
     table: 'event_sponsors',
+    matchOn: { phone: 'contact_phone', email: 'contact_email' },
     requiresParent: 'event',
     softFields: ['website'],
     build: (p, ctx) => ({
@@ -267,6 +287,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   Vendor: {
     label: 'Supplier',
     table: 'ims_suppliers',
+    matchOn: { phone: 'phone', email: 'email' },
     requiresParent: null,
     softFields: ['email'],
     build: (p, ctx) => ({
@@ -284,6 +305,7 @@ export const DESTINATIONS: Record<string, Destination> = {
   'Employer / recruiter::prospect': {
     label: 'Solutions prospect',
     table: 'sh_prospects',
+    matchOn: { phone: 'contact_phone', email: 'contact_email' },
     requiresParent: null,
     softFields: ['contact_email'],
     hardFields: ['contact_phone'],
@@ -313,10 +335,60 @@ DESTINATIONS['Industry partner::prospect'] = DESTINATIONS['Employer / recruiter:
  * separately by `routeCard` below.
  */
 
+/**
+ * Find this person in a destination's own table.
+ *
+ * Phone first, then email — the same order of trust the duplicate warning uses,
+ * and for the same measured reason: two real cards for one person carried the
+ * same mobile and spelled his name two different ways. Name is NOT used here;
+ * on a module table a name-only match would happily merge two different people
+ * who share a common name, and this function WRITES.
+ *
+ * Phones compare on their last 10 digits so "+91 98430 41971" and "9843041971"
+ * are the same number, which a plain equality check would miss.
+ */
+async function findExistingRow(
+  db: SupabaseClient,
+  dest: Destination,
+  p: CardPerson,
+): Promise<Record<string, unknown> | null> {
+  if (!dest.matchOn) return null;
+  const digits = (s: string) => s.replace(/\D/g, '');
+
+  const phone = [p.mobile, p.phone]
+    .map((v) => (typeof v === 'string' ? digits(v) : ''))
+    .find((d) => d.length >= 10);
+
+  if (dest.matchOn.phone && phone) {
+    const { data } = await db
+      .from(dest.table)
+      .select('*')
+      .ilike(dest.matchOn.phone, `%${phone.slice(-10)}%`)
+      .limit(1);
+    if (data && data.length > 0) return data[0] as Record<string, unknown>;
+  }
+
+  const email = typeof p.email === 'string' ? p.email.trim().toLowerCase() : '';
+  if (dest.matchOn.email && email) {
+    const { data } = await db
+      .from(dest.table)
+      .select('*')
+      .ilike(dest.matchOn.email, email)
+      .limit(1);
+    if (data && data.length > 0) return data[0] as Record<string, unknown>;
+  }
+
+  return null;
+}
+
 export interface RouteOutcome {
   routed: boolean;
   table: string | null;
   rowId: string | null;
+  /** True when an EXISTING module row was filled rather than a new one created. */
+  updatedExisting: boolean;
+  /** Columns actually written on an update — empty on a fresh insert. */
+  filledOnExisting: string[];
   /** Set when the destination needed a parent the user skipped. */
   pendingParent: ParentKind;
   /** Soft columns the card could not fill — decision 18's "N fields missing". */
@@ -344,6 +416,8 @@ export async function routeCard(
     routed: false,
     table: null,
     rowId: null,
+    updatedExisting: false,
+    filledOnExisting: [],
     pendingParent: null,
     missingFields: [],
     error: null,
@@ -398,6 +472,39 @@ export async function routeCard(
       ...base,
       missingFields: [...base.missingFields, ...missingHard],
       error: `Cannot add to ${dest.label}: ${missingHard.join(', ')} required but not on the card.`,
+    };
+  }
+
+  // ── Already in this module's list? Fill their blanks instead of twinning ──
+  // Director decision 2026-08-06. Matches the contact book's behaviour exactly:
+  // look the person up, and if they are there, write ONLY the columns that are
+  // currently empty. Never overwrite what a human already recorded.
+  const existing = await findExistingRow(db, dest, person);
+  if (existing) {
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(row)) {
+      if (v === null || v === undefined || v === '') continue;
+      const current = existing[k];
+      const isBlank = current === null || current === undefined || String(current).trim() === '';
+      if (isBlank) patch[k] = v;
+    }
+    if (Object.keys(patch).length === 0) {
+      return {
+        ...base,
+        routed: true,
+        rowId: String(existing.id),
+        updatedExisting: true,
+        filledOnExisting: [],
+      };
+    }
+    const { error: upErr } = await db.from(dest.table).update(patch).eq('id', existing.id);
+    if (upErr) return { ...base, error: upErr.message };
+    return {
+      ...base,
+      routed: true,
+      rowId: String(existing.id),
+      updatedExisting: true,
+      filledOnExisting: Object.keys(patch),
     };
   }
 

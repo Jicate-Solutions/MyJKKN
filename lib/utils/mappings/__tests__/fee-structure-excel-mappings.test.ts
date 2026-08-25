@@ -10,10 +10,24 @@ const lookups: BulkResolveLookups = {
   programmes: new Map([['dept-1::b.sc clt', 'prog-1']]),
   admissionYears: new Map([['inst-1::2026 - 2027', 'yr-1']]),
   quotas: new Map([['management quota', 'q-1']]),
+  accommodations: new Map([['hostel', 'acc-hostel'], ['day scholar', 'acc-day'], ['dayscholar', 'acc-day']]),
+  hostelAccommodationId: 'acc-hostel',
+  roomCategories: new Map([['classic room', 'room-classic'], ['deluxe room', 'room-deluxe']]),
+  messCategories: new Map([['classic', 'mess-classic'], ['premium', 'mess-premium']]),
   communities: new Map([['bc', 'c-1'], ['mbc', 'c-2']]),
   categoriesByName: new Map([['application fee', 'cat-app'], ['1 year tuition fee', 'cat-tui']]),
   amountHeaders: ['Application Fee', '1 Year Tuition Fee'],
 };
+
+/** Shorthand for a valid row; override just the fields under test. */
+const row = (over: Record<string, unknown> = {}) => ({
+  'Fee Structure ID': '', Institution: 'JKKN CAS', Degree: 'Undergraduate',
+  Department: 'Clinical Lab', Programme: 'B.Sc CLT', 'Admission Year': '2026 - 2027',
+  Quota: 'Management Quota', Gender: '', Communities: 'BC, MBC', Name: 'Test FS',
+  Status: 'active', 'Effective From': '', 'Effective To': '', Notes: '',
+  'Application Fee': '1000',
+  ...over,
+});
 
 // Happy path
 const ok = resolveRow({
@@ -38,6 +52,53 @@ assert.ok(bad.errors.some((e) => e.includes('Institution')), 'should flag instit
 assert.ok(bad.errors.some((e) => e.includes('community')), 'should flag missing community');
 assert.ok(bad.errors.some((e) => e.includes('Application Fee')), 'should flag negative amount');
 assert.strictEqual(bad.payload, undefined);
+
+// ---- Hostel tier (migration 20260910110000) ----
+// Mirrors trg_fee_structure_hostel_categories_guard: rejected on a non-hostel
+// row, required on an ACTIVE hostel row, optional on a DRAFT hostel row.
+
+const hostelOk = resolveRow(
+  row({ Accommodation: 'Hostel', 'Room Category': 'Deluxe Room', 'Mess Category': 'Premium' }),
+  10, lookups,
+);
+assert.deepStrictEqual(hostelOk.errors, [], 'active hostel row with both tiers is valid');
+assert.strictEqual(hostelOk.payload!.hostel_category_id, 'room-deluxe');
+assert.strictEqual(hostelOk.payload!.mess_category_id, 'mess-premium');
+
+const hostelActiveMissing = resolveRow(row({ Accommodation: 'Hostel' }), 11, lookups);
+assert.ok(
+  hostelActiveMissing.errors.some((e) => e.includes('required for an active Hostel')),
+  'active hostel row without a tier must be rejected',
+);
+
+const hostelDraftMissing = resolveRow(
+  row({ Accommodation: 'Hostel', Status: 'draft' }), 12, lookups,
+);
+assert.deepStrictEqual(hostelDraftMissing.errors, [], 'draft hostel row may omit the tier');
+assert.strictEqual(hostelDraftMissing.payload!.hostel_category_id, null);
+
+const dayScholarWithTier = resolveRow(
+  row({ Accommodation: 'Day Scholar', 'Room Category': 'Classic Room' }), 13, lookups,
+);
+assert.ok(
+  dayScholarWithTier.errors.some((e) => e.includes('only be set when Accommodation is Hostel')),
+  'a tier on a day-scholar row must be rejected',
+);
+
+const unknownTier = resolveRow(
+  row({ Accommodation: 'Hostel', 'Room Category': 'Penthouse', 'Mess Category': 'Premium' }),
+  14, lookups,
+);
+assert.ok(
+  unknownTier.errors.some((e) => e.includes('Room Category "Penthouse" not found')),
+  'an unknown room category name must be reported by name',
+);
+
+// A non-hostel row with no tier stays clean — the common case must not regress.
+const dayScholarPlain = resolveRow(row({ Accommodation: 'Day Scholar' }), 15, lookups);
+assert.deepStrictEqual(dayScholarPlain.errors, [], 'plain day-scholar row unaffected');
+assert.strictEqual(dayScholarPlain.payload!.hostel_category_id, null);
+assert.strictEqual(dayScholarPlain.payload!.mess_category_id, null);
 
 assert.strictEqual(parseAmountCell(''), null);
 assert.ok(Number.isNaN(parseAmountCell('abc')));

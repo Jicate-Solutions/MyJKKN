@@ -52,7 +52,48 @@ const DIRECTOR_DESK_SECURITY_FUNCTIONS = [
   'fn_handover_key_is_blocked',
   'fn_handover_key_allowed_at_level',
   'fn_handover_grants_key',
+  // Added 2026-08-06. Both sit on the same landmine path as the five above and
+  // were missed by the original list:
+  //   user_has_permission        — 4,093 call sites; the spine CREATE OR
+  //                                REPLACEs it, so a later migration reverting
+  //                                it silently takes handovers off every RLS
+  //                                policy on the platform at once.
+  //   fn_my_handover_permissions — feeds the CLIENT page gates. Reverting it
+  //                                leaves the data readable and every page gate
+  //                                shut: the exact four-layers defect this
+  //                                feature exists to remove.
+  'user_has_permission',
+  'fn_my_handover_permissions',
 ];
+
+/**
+ * Redefinitions that HAVE been reviewed, keyed by migration version.
+ *
+ * Without this, the rule below is unshippable: the first legitimate bug-fix to
+ * any protected function fails its own guard, and the pressure is then to delete
+ * the guard rather than the bug. The registry keeps the friction where it
+ * belongs — a redefinition is allowed only when somebody wrote down which
+ * function and why, which is exactly the step PR #2840 skipped when it silently
+ * reverted the cross-tenant guard.
+ */
+const APPROVED_REDEFINITIONS: Record<string, { fns: string[]; why: string }> = {
+  '20260813020000': {
+    fns: ['fn_handover_grants_key', 'fn_my_handover_permissions'],
+    why: 'Removes the `institution_id IS NULL OR` short-circuit so a NULL institution means no-match rather than skip-the-test. Bodies machine-extracted from production via pg_get_functiondef; the only textual change is the deleted clause.',
+  },
+  '20260813030000': {
+    fns: ['fn_handover_people_search'],
+    why: 'Casts i.name::text — institutions.name is varchar(255) against a declared text OUT column, which raised 42804 and made the people picker return nothing. Found by the Director on production, not by CI.',
+  },
+  '20260820100000': {
+    fns: ['fn_director_handover_create'],
+    why: "Scopes a super admin's handover to the RECEIVER's institution instead of the granter's. Create exempted super admins from the same-institution check but still stamped the granter's institution on the row; fn_handover_grants_key then required the two to match, which can never hold across colleges — so the row was born unusable and the receiver was told their access level was wrong. Measured live 2026-08-11: 3 of 3 handovers dead this way. Body machine-extracted from production via pg_get_functiondef; the only change is the v_inst assignment. The ordinary-director branch is untouched and still raises 42501.",
+  },
+  '20260820110000': {
+    fns: ['fn_handover_grants_key', 'fn_my_handover_permissions'],
+    why: "Director decision 2 (2026-08-11): the due date stops ending access. Both access predicates carried `AND dh.due_date >= today`, so a deadline passing at midnight locked somebody out of a job they had accepted and were halfway through, and they had to come back and ask for it again. Access now ends only on a real ending — done, declined, revoked, handed back, or the grantee's profile going inactive — while the date colours the desk and drives the chase. Bodies machine-extracted from production via pg_get_functiondef and edited programmatically; the only change is the deleted clause.",
+  },
+};
 
 /** Version of the spine migration that defines them (specs/director-desk/SPEC.md). */
 const SPINE_RPCS_VERSION = '20260811100200';
@@ -138,10 +179,30 @@ describe('director-desk migrations — merge order cannot revert a security fix'
       const offenders = migrations
         .filter((m) => m.version > SPINE_RPCS_VERSION)
         .filter((m) => definesFunction(m.sql, fn))
+        // An entry in APPROVED_REDEFINITIONS is a reviewed, reasoned exception.
+        // Anything else is the accidental case this rule exists to catch.
+        .filter((m) => !(APPROVED_REDEFINITIONS[m.version]?.fns ?? []).includes(fn))
         .map((m) => m.name);
       expect(offenders).toEqual([]);
     }
   );
+
+  it('every approved redefinition names a real migration, a real function, and a reason', () => {
+    // Stops the registry rotting into a blanket mute: an entry that no longer
+    // matches a migration, or carries no reason, fails here rather than
+    // silently widening what the rule above permits.
+    for (const [version, entry] of Object.entries(APPROVED_REDEFINITIONS)) {
+      const m = migrations.find((x) => x.version === version);
+      expect(m, `approved redefinition ${version} has no matching migration`).toBeDefined();
+      expect(entry.why.length, `${version} needs a reason`).toBeGreaterThan(40);
+      for (const fn of entry.fns) {
+        expect(
+          definesFunction(m!.sql, fn),
+          `${version} claims to redefine ${fn} but does not`
+        ).toBe(true);
+      }
+    }
+  });
 
   it('the definition that WINS a full ordered apply still carries the cross-tenant guard', () => {
     // Simulates the apply: migrations run in version order, so the last file to

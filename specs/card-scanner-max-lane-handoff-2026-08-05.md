@@ -266,3 +266,190 @@ ORDER BY requested_at DESC LIMIT 3;
 3. A deliberately blurred card returns `confidence: "low"` rather than invented text.
 4. Enrich path fills an empty email on an existing contact and **refuses** to overwrite a
    non-empty organisation (already proven live on the Networker endpoint, 2026-08-05).
+
+---
+
+# 6. Director runbooks — the three actions Claude cannot take
+
+Written 2026-08-06. Each is blocked for a *structural* reason, not a technical one: the
+Mac has no route to the Windows box, Claude must not hold a database credential, and the
+pre-push hook has no bypass. Each section below is paste-ready and ends with a check that
+proves it worked, so none of them needs a follow-up question.
+
+## 6.1 Update the card reader on the Windows box  (ranked item 2)
+
+**Why you and not Claude:** the runner exists only at `~/jkkn-max-lane/` on the Windows
+machine. There is no card runner on the Mac and no remote path to that box.
+
+**What is broken today.** The box is running the *old* prompt, which gave a card exactly two
+number slots ("the mobile goes in `mobile`, the landline/office in `phone`"). A real card
+— Esstee Exports — printed **three** numbers. The third was dropped silently at
+`confidence:"high"`, and `result.raw` came back byte-identical to `fields`, so it was not
+even recoverable after the fact. The same old prompt also returns
+`city:"Tirupur - 641 602. INDIA"` instead of `city:"Tirupur"`.
+
+Both defects are fixed by the revised prompt, which is **already in §3 of this file**. It has
+not reached the box.
+
+### Step 1 — open the file
+
+```
+C:\Users\Admin\jkkn-max-lane\card-extract.mjs
+```
+
+### Step 2 — replace exactly one block
+
+Find the line that begins:
+
+```js
+const PROMPT = (file) => `Read the business card image at ./${file}.
+```
+
+Replace **from that line down to the closing backtick-semicolon** (the line ending
+`` ...unsure of any character.`; ``) with the `const PROMPT = …` block from **§3 of this
+file**. Change nothing else in the runner — not the claim loop, not `handle()`, not the
+`fn_ai_complete` call.
+
+The new prompt is additive on purpose: it keeps `phone` and `mobile` **and** adds
+`phones[]` / `emails[]`. That is why MyJKKN could ship ahead of this change — an
+un-updated box and an updated one both produce readable output.
+
+### Step 3 — confirm the two environment values
+
+| Variable | Must be | Why |
+|---|---|---|
+| `LANE` | `max-cards` | the lane the card jobs are enqueued on |
+| `CLAUDE_BIN` | `C:\Users\Admin\.local\bin\claude.exe` | a scheduled task's `PATH` does not include the CLI; bare `claude` resolves interactively and fails under Task Scheduler. All four existing drains hardcode the absolute path. |
+
+### Step 4 — restart the task
+
+```powershell
+Stop-ScheduledTask  -TaskName "ai.jkkn.maxlane.ai-jobs-cards"
+Start-ScheduledTask -TaskName "ai.jkkn.maxlane.ai-jobs-cards"
+Get-ScheduledTask   -TaskName "ai.jkkn.maxlane.ai-jobs-cards" | Select-Object TaskName, State
+```
+
+`State` should read `Running`.
+
+### Step 5 — prove it worked
+
+Scan a card that prints **three or more** numbers (the Esstee Exports card is the known
+case). Then, in the MyJKKN Supabase SQL editor:
+
+```sql
+SELECT id,
+       jsonb_array_length(result->'fields'->'phones') AS phone_count,
+       result->'fields'->'phones'                     AS phones,
+       result->'fields'->>'city'                      AS city
+FROM ai_jobs
+WHERE job_type = 'contacts.card_extract'
+ORDER BY requested_at DESC
+LIMIT 1;
+```
+
+**Pass:** `phone_count` is `3` (not 2), and `city` is the bare city name — `Tirupur`, not
+`Tirupur - 641 602. INDIA`.
+
+**Fail:** `phone_count` is `2`, or `phones` comes back `null`. `null` means the file was
+saved but the task was not restarted — Node does not re-read the script while running.
+Repeat step 4.
+
+### Step 6 — after it passes, tell the next session
+
+One stopgap can then be removed: MyJKKN currently writes surplus numbers into the contact
+note, because losing a printed number is worse than an untidy note. Once `phones[]` is
+proven, that fallback can go.
+
+## 6.2 Turn the security sweep back on  (ranked item 5)
+
+**Why you and not Claude:** it is a database credential. Claude writes the instructions;
+it must not hold the value.
+
+**What is actually wrong.** The **Live anon-exposure sweep** check has *never once run*. Its
+red is not a code finding — it is a missing secret.
+`.github/workflows/anon-exposure-live.yml` fails at line 84 with:
+
+```
+::error::SUPABASE_DB_URL secret is not set — the sweep cannot run.
+```
+
+### Step 1 — copy the connection string
+
+Supabase dashboard → project `kvizhngldtiuufknvehv` → **Project Settings → Database →
+Connection string → URI**. Use the **pooler / session** URI and substitute the real database
+password where it says `[YOUR-PASSWORD]`. It looks like:
+
+```
+postgresql://postgres.kvizhngldtiuufknvehv:<PASSWORD>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+```
+
+### Step 2 — add it as a repository secret
+
+GitHub → `Jicate-Solutions/MyJKKN` → **Settings → Secrets and variables → Actions →
+New repository secret**.
+
+- Name: `SUPABASE_DB_URL` — exactly this, it is read as `secrets.SUPABASE_DB_URL`
+- Value: the URI from step 1
+
+A **repository** secret, not an environment secret — the workflow does not declare an
+environment, so an environment secret would not be visible to it.
+
+### Step 3 — prove it worked
+
+Re-run the check on any open PR (**Checks → Live anon-exposure sweep → Re-run jobs**), then:
+
+```bash
+gh run list --repo Jicate-Solutions/MyJKKN --workflow anon-exposure-live.yml --limit 3
+```
+
+**Pass:** the run reaches the "Sweep production" step and reports a table count.
+**Fail:** the same "secret is not set" error means the name is misspelt or it was saved as
+an environment secret.
+
+⚠️ Once it runs it may legitimately go red — that would be a *real* finding, not this
+missing-secret error. Read the step output before treating a red as a regression.
+
+## 6.3 Finish the Networker tidy-up  (ranked item 6)
+
+**Why you and not Claude:** the pre-push hook blocks this repo-agnostically and has no
+bypass. Run it yourself with the `!` prefix so the output lands in the session.
+
+⚠️ **Read this first — the remote branch is stale.** `origin/feat/card-ingest-api` is **one
+commit behind** the local branch. The missing commit is:
+
+```
+4cc855f fix(search): match on phone number, not just name/organization/email
+```
+
+That commit is load-bearing. MyJKKN's duplicate check probes Networker by **phone digits**
+(`matchableContacts` in `app/api/contacts/card-scan/save/route.ts`). Without it, a second
+card from the same person will not match on phone and will create a twin — the exact
+outcome the fill-only matching exists to prevent. **So merging the branch on GitHub without
+sending that commit first would ship the wrong thing, silently.** Send it first.
+
+### The commands
+
+```bash
+cd ~/PROJECTS/Networker
+git push origin feat/card-ingest-api
+git checkout master
+git merge --ff-only feat/card-ingest-api
+git push origin HEAD
+```
+
+If `--ff-only` refuses, `master` has moved; run `git merge feat/card-ingest-api` instead and
+resolve, rather than forcing.
+
+### Prove it worked
+
+```bash
+git log --oneline origin/master -4                 # 4cc855f should be the tip
+git log --oneline master..feat/card-ingest-api     # must print nothing
+```
+
+**Pass:** the second command prints nothing — every commit is on `master`.
+
+### One dependency bump is still unpushed
+
+`next 16.1.6 → ^16.2.2` sits uncommitted on this clone. It is unrelated to the card
+ingest work; do it separately so a dependency change never rides along with an API merge.

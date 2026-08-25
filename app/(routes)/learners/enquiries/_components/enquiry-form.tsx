@@ -94,8 +94,18 @@ export const enquiryFormSchema = z.object({
   enquiry_date: z.string().nullable().optional(),
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
+  // Tamil-script name — rendered only when showTamilNames is set (Learner
+  // Profiles create + edit). Optional everywhere: the columns are nullable and
+  // the fields are absent from the other flows that share this schema.
+  first_name_tamil: z.string().optional(),
+  last_name_tamil: z.string().optional(),
+  // External identifiers — rendered only when showLearnerIdentifiers is set.
+  // Never format-validated: see the migration header for why.
+  abc_id: z.string().optional(),
+  emis: z.string().optional(),
+  umis: z.string().optional(),
   date_of_birth: z.string().min(1, 'Date of birth is required'),
-  gender: z.enum(['MALE', 'FEMALE', 'OTHER'], { required_error: 'Gender is required' }),
+  gender: z.enum(['Male', 'Female', 'Other'], { required_error: 'Gender is required' }),
   religion: z.string().min(1, 'Religion is required'),
   // FK source of truth (DB-backed community_categories / castes).
   community_category_id: z.string().uuid('Community is required'),
@@ -301,6 +311,22 @@ interface EnquiryFormProps {
    * first tab should not have to walk through four more tabs to commit it.
    */
   allowSubmitFromAnyTab?: boolean;
+  /**
+   * Render the Tamil-script name inputs (first_name_tamil / last_name_tamil)
+   * on the Basic Details tab. Defaults to false.
+   *
+   * Only Learner Profiles create + edit pass true. This form is also mounted by
+   * /learners/enquiries and the student self-fill form, and those flows were
+   * explicitly left unchanged — the flag keeps the new fields off screens that
+   * did not ask for them, the same way isStudentView gates section content.
+   */
+  showTamilNames?: boolean;
+  /**
+   * Render the external-identifier inputs (ABC ID / EMIS / UMIS) on the Basic
+   * Details tab. Defaults to false; only Learner Profiles create + edit pass
+   * true, for the same reason as showTamilNames.
+   */
+  showLearnerIdentifiers?: boolean;
 }
 
   const ALL_TABS = [
@@ -673,7 +699,9 @@ export function EnquiryForm({
   hideDraft = false,
   isStudentView = false,
   enforceAdmissionRules = true,
-  allowSubmitFromAnyTab = false
+  allowSubmitFromAnyTab = false,
+  showTamilNames = false,
+  showLearnerIdentifiers = false
 }: EnquiryFormProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -823,8 +851,15 @@ export function EnquiryForm({
           enquiry_date: learner.enquiry_date || new Date().toISOString().split('T')[0],
           first_name: learner.first_name || '',
           last_name: learner.last_name || '',
+          // NULL is the normal state for these columns — coerce to '' so the
+          // controlled Input never flips to uncontrolled on an un-backfilled row.
+          first_name_tamil: learner.first_name_tamil || '',
+          last_name_tamil: learner.last_name_tamil || '',
+          abc_id: learner.abc_id || '',
+          emis: learner.emis || '',
+          umis: learner.umis || '',
           date_of_birth: learner.date_of_birth || '',
-          gender: learner.gender?.toUpperCase() as 'MALE' | 'FEMALE' | 'OTHER' | undefined,
+          gender: (learner.gender || undefined) as 'Male' | 'Female' | 'Other' | undefined,
           religion: learner.religion || '',
           community_category_id: learner.community_category_id || '',
           caste_id: learner.caste_id || '',
@@ -982,6 +1017,11 @@ export function EnquiryForm({
           enquiry_date: new Date().toISOString().split('T')[0], // Auto-populate with today's date
           first_name: '',
           last_name: '',
+          first_name_tamil: '',
+          last_name_tamil: '',
+          abc_id: '',
+          emis: '',
+          umis: '',
           date_of_birth: '',
           gender: undefined,
           religion: '',
@@ -1187,8 +1227,35 @@ export function EnquiryForm({
       // Basic Details (string fields - NOT NULL) - Convert to UPPERCASE
       first_name: toUpperCaseField(values.first_name) || '',
       last_name: toUpperCaseField(values.last_name),
+      // Tamil names are written ONLY by the screens that render the inputs.
+      // Two deliberate differences from the fields above:
+      //  1. No toUpperCaseField — Tamil script is caseless, and .toUpperCase()
+      //     on a grapheme cluster risks mangling combining vowel signs.
+      //  2. Spread-gated on showTamilNames, so a flow that never shows the
+      //     inputs (enquiries, student self-fill) omits the keys entirely and
+      //     cannot blank a Tamil name captured elsewhere. When the inputs ARE
+      //     shown, a cleared box sends null so it can genuinely be erased.
+      ...(showTamilNames
+        ? {
+            first_name_tamil: values.first_name_tamil?.trim() || null,
+            last_name_tamil: values.last_name_tamil?.trim() || null,
+          }
+        : {}),
+      // Same spread-gate as the Tamil names: a flow that never renders these
+      // inputs omits the keys entirely and so cannot blank an identifier
+      // captured elsewhere. Upper-cased + whitespace-stripped to match what
+      // IdentifierField normalises to on blur, in case a value reached form
+      // state some other way (autofill, restored draft).
+      ...(showLearnerIdentifiers
+        ? {
+            abc_id: values.abc_id?.replace(/\s+/g, '').toUpperCase() || null,
+            emis: values.emis?.replace(/\s+/g, '').toUpperCase() || null,
+            umis: values.umis?.replace(/\s+/g, '').toUpperCase() || null,
+          }
+        : {}),
       date_of_birth: values.date_of_birth || '',
-      gender: toUpperCaseField(values.gender) || '',
+      // NOT toUpperCaseField: gender is Title Case per learners_profiles_gender_check.
+      gender: values.gender || '',
       religion: toUpperCaseField(values.religion) || '',
       // FK source of truth; community/caste TEXT are auto-filled by the DB
       // shadow trigger (sync_learner_community_caste_text) from these ids.
@@ -1887,7 +1954,7 @@ export function EnquiryForm({
           community_category_id: resolvedCommunityId,
           accommodation_type_id: resolvedAccommodationId,
           admission_year_id: values.admission_year_id ?? undefined,
-          gender: (values as { gender?: string }).gender?.toUpperCase() || undefined,
+          gender: (values as { gender?: string }).gender || undefined,
         };
         const allDimsPresent = !!(
           dims.institution_id &&
@@ -2075,6 +2142,8 @@ export function EnquiryForm({
                 form={form}
                 onImageFileChange={setPendingImageFile}
                 isStudentView={isStudentView}
+                showTamilNames={showTamilNames}
+                showLearnerIdentifiers={showLearnerIdentifiers}
               />
             </Card>
           </TabsContent>

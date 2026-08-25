@@ -4,7 +4,7 @@
  *
  * Typed accessors for the 7 `hostel.premium.*` + `hostel.premium_plus.*` rows
  * in platform_policies. These already exist in production (seeded by the
- * earlier Premium-Stay Phase 1 substrate) — this module surfaces them as a
+ * earlier Premium-Room Phase 1 substrate) — this module surfaces them as a
  * snapshot for the /admin/hostel/allocation-rules editor and lets Director
  * update them without a redeploy.
  *

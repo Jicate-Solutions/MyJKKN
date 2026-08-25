@@ -41,6 +41,8 @@ import {
   ArrowRight,
   Landmark,
   ClipboardList,
+  FileText,
+  BarChart3,
 } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -55,8 +57,8 @@ import {
   summariseClusterSpan,
   type SpanInstitution,
 } from './_lib/cluster-scope';
-import { MeasuredMetricsSection } from './_components/measured-metrics-section';
 import { ClusterCollaborationSection } from './_components/cluster-collaboration-section';
+import { UgcReadinessSection } from './_components/ugc-readiness-section';
 
 const COMMITTEES_HUB = '/accreditation/naac/committees';
 
@@ -192,6 +194,15 @@ export default function ClusterAcademicCouncilPage() {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
+              {/* The same reading on one side of A4, for walking into a sitting
+                  with a sheet of paper. It adds no number of its own — every
+                  figure on it comes from the hooks this page already renders. */}
+              <Link href="/accreditation/cac/brief">
+                <Button size="sm">
+                  <FileText className="mr-2 h-4 w-4" />
+                  One-page brief
+                </Button>
+              </Link>
               <Link href={COMMITTEES_HUB}>
                 <Button variant="outline" size="sm">
                   <Users className="mr-2 h-4 w-4" />
@@ -230,15 +241,17 @@ export default function ClusterAcademicCouncilPage() {
           </div>
         )}
 
-        {/* The measured section. Added 2026-07-30 against the CEO's July 2026
-            CAC framework, which had no representation anywhere in the platform.
-            It amends the "no scorecard" decision above rather than reversing it:
-            the council now reads real numbers, and still awards no marks, no
-            total and no ranking. Measurement without a league table. */}
-        <MeasuredMetricsSection
-          institutions={institutionList}
-          institutionsLoading={institutionsLoading}
-        />
+        {/* The measured section used to sit here. It was added 2026-07-30
+            against the CEO's July 2026 framework, and it moved to the IQAC page
+            on 2026-08-14 by Director decision.
+
+            A pointer rather than a silent removal, because a reader who knows
+            that framework by where it used to be would otherwise find a gap and
+            conclude it had been dropped. Nothing was dropped; every metric is
+            intact on the page this links to, readable by exactly the same people
+            — the same eight roles hold `accreditation.cac.view` and
+            `accreditation.metrics.view`. */}
+        <MetricsMovedPointer />
 
         {/* The collaboration section. Added 2026-08-01. The measured section
             above reads each institution on its own and sets them side by side;
@@ -248,6 +261,23 @@ export default function ClusterAcademicCouncilPage() {
             score, no ranking — and it stores nothing, every figure being derived
             from records other modules already own. */}
         <ClusterCollaborationSection />
+
+        {/* The UGC readiness checklist. Added 2026-08-14. The section above
+            reports what the colleges do with one another; this one sets that
+            beside what the UGC's cluster guidance describes a cluster as
+            having, so the asymmetry between the two is on one screen — JKKN
+            does the cluster behaviour and files none of the cluster governance.
+
+            It is NOT a compliance countdown. JKKN is not pursuing formal
+            cluster status (Director decision, 2026-08-14); the guidance is read
+            here because it describes something worth having, and the section
+            says so in its own opening sentence rather than in a footnote.
+
+            Gated separately on accreditation.cac.readiness.view — the reading
+            is about what the council has and has not done, which is a narrower
+            audience than the council's own roster and meeting record. A reader
+            without the key is told the key's name, never bounced. */}
+        <UgcReadinessSection />
 
         {/* Footer — where the row physically lives, which is not the same as
             whose council it is. Both facts matter and neither is obvious. */}
@@ -498,6 +528,50 @@ function CouncilMembers({ council }: { council: ClusterCouncil }) {
         </ul>
       )}
     </div>
+  );
+}
+
+const IQAC_METRICS = '/accreditation/iqac';
+
+/**
+ * Where the CEO's framework went, and why.
+ *
+ * A link on its own would answer "where" and leave "why" to rumour. The
+ * framework was issued in July 2026 and launched on THIS page, so its
+ * disappearance from it is the kind of change a reader is entitled to see
+ * explained in the place it used to be. The reason is stated in the reader's
+ * terms — one college can move every one of these numbers by itself — rather
+ * than as a governance argument.
+ */
+function MetricsMovedPointer() {
+  return (
+    <Card className="border-dashed">
+      <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            The measured metrics now live with the IQAC
+          </div>
+          <p className="max-w-2xl text-xs text-muted-foreground">
+            The metric framework issued in July 2026 was read on this page. Every
+            metric in it is still recorded and still readable, by exactly the
+            same people — it has moved, not gone.
+          </p>
+          <p className="max-w-2xl text-xs text-muted-foreground">
+            It moved because each of those numbers is one a single college can
+            move on its own, which makes it a measure of that college&apos;s own
+            quality. This council exists for what the colleges do{' '}
+            <em>together</em>, and that is what the sections above now report.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm" className="shrink-0">
+          <Link href={IQAC_METRICS}>
+            Open the metrics
+            <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          </Link>
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

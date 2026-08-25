@@ -152,9 +152,20 @@ const config: ModuleNavConfig = {
       icon: 'UserCheck',
       href: '/hr/attendance',
       matchPaths: ['/hr/attendance'],
+      // 2026-08-09: /hr/attendance became the employee-facing My Attendance
+      // page (Attendance Log + Calendar). 'Regularize Approvals' and 'Import
+      // Punches' were removed from here and re-homed on the HR Admin group's
+      // matchPaths below — they are HR-ops surfaces, and leaving them as
+      // self-service chips advertised them to all 76 roles holding
+      // hr.attendance.view_self.
+      //
+      // They MUST stay listed somewhere in this file: scripts/check-nav-reachability.ts
+      // treats children hrefs and matchPaths as its orphan-coverage manifest,
+      // so deleting them outright would count both routes against the
+      // --max-unreachable 60 budget rather than merely hiding them.
       children: [
         {
-          label: 'Overview',
+          label: 'My Attendance',
           icon: 'UserCheck',
           href: '/hr/attendance',
           exact: true,
@@ -166,45 +177,21 @@ const config: ModuleNavConfig = {
           matchPaths: ['/hr/attendance/regularize'],
         },
         {
-          label: 'Regularize Approvals',
-          icon: 'ShieldCheck',
-          href: '/hr/attendance/regularize/approvals',
-          matchPaths: ['/hr/attendance/regularize/approvals'],
-        },
-        {
-          label: 'Import Punches',
-          icon: 'Upload',
-          href: '/hr/attendance/import',
-          matchPaths: ['/hr/attendance/import'],
+          // Month close. Declared here in the SAME change as the route: a module
+          // with hasNavConfig renders only the children in this file, so a
+          // MENU_PERMISSIONS entry and a GetPages leaf alone would give a
+          // sidebar row and no navbar chip.
+          label: 'Month Close',
+          icon: 'CalendarCheck',
+          href: '/hr/attendance/close',
+          matchPaths: ['/hr/attendance/close'],
         },
       ],
     },
-    {
-      label: 'Shifts',
-      icon: 'Clock',
-      href: '/hr/shifts',
-      matchPaths: ['/hr/shifts'],
-      children: [
-        {
-          label: 'Overview',
-          icon: 'Clock',
-          href: '/hr/shifts',
-          exact: true,
-        },
-        {
-          label: 'My Shifts',
-          icon: 'Clock',
-          href: '/hr/shifts/my',
-          matchPaths: ['/hr/shifts/my'],
-        },
-        {
-          label: 'Shift Approvals',
-          icon: 'ClipboardCheck',
-          href: '/hr/shifts/approvals',
-          matchPaths: ['/hr/shifts/approvals'],
-        },
-      ],
-    },
+    // The 'Shifts' group (/hr/shifts, /hr/shifts/my, /hr/shifts/approvals) was
+    // removed 2026-08-06 along with the per-employee roster module it pointed at.
+    // Shift configuration now lives at /hr/admin/shift-timings, reached from the
+    // HR Admin hub and the sidebar — it is admin config, not a self-service tab.
     {
       label: 'Documents',
       icon: 'FileText',
@@ -271,6 +258,35 @@ const config: ModuleNavConfig = {
           href: '/hr/payroll/organisation',
           matchPaths: ['/hr/payroll/organisation'],
         },
+        {
+          // WHAT EACH PERSON EARNS (2026-08-21). Added here for the reason the
+          // block above records: hasNavConfig makes AutoTabNav render ONLY the
+          // children declared in this file, so a MENU_PERMISSIONS entry, a
+          // GetPages() submenu and a route-manifest row are together still not
+          // enough to give the page a chip. It had all three and no chip.
+          //
+          // Gated on hr.payroll.salary.view, not the Payroll group's
+          // hr.payroll.institution.view: chips inherit MENU_PERMISSIONS[href],
+          // and seeing who pays someone is a different decision from seeing
+          // what they are paid. Since 2026-08-21 that key is held by hr_head
+          // alone (super admin passes via is_super_admin()), so this chip is
+          // invisible to the rest of HR rather than visible-and-denied.
+          label: 'Employee Salaries',
+          icon: 'Banknote',
+          href: '/hr/payroll/salaries',
+          matchPaths: ['/hr/payroll/salaries'],
+        },
+        {
+          // Third payroll chip. Added in the SAME change as the route this
+          // time: hasNavConfig means AutoTabNav renders only what is declared
+          // here, so a MENU_PERMISSIONS entry and a GetPages leaf alone give a
+          // sidebar row and no chip -- which is exactly how Employee Salaries
+          // shipped half-wired.
+          label: 'Bank Accounts',
+          icon: 'Landmark',
+          href: '/hr/payroll/bank-accounts',
+          matchPaths: ['/hr/payroll/bank-accounts'],
+        },
       ],
     },
     {
@@ -284,10 +300,24 @@ const config: ModuleNavConfig = {
       // No explicit children — the deeper admin pages auto-surface via the
       // manifest walk (deeperTiersFromManifest), mirroring how the old
       // /admin auto-nav exposed them.
+      //
+      // The two /hr/attendance/* entries are here rather than under Attendance
+      // because they are HR-ops surfaces that moved off the self-service page
+      // on 2026-08-09. They do not live under /hr/admin/ on disk, so the
+      // manifest walk cannot find them — they must be listed explicitly or
+      // check-nav-reachability counts them as orphans.
       label: 'Admin',
       icon: 'Settings',
       href: '/hr/admin',
-      matchPaths: ['/hr/admin', '/hr/admin/leave-types', '/hr/admin/leave-balances', '/hr/admin/sanctioned-posts'],
+      matchPaths: [
+        '/hr/admin',
+        '/hr/admin/leave-types',
+        '/hr/admin/leave-balances',
+        '/hr/admin/academic-years',
+        '/hr/admin/sanctioned-posts',
+        '/hr/attendance/import',
+        '/hr/attendance/regularize/approvals',
+      ],
     },
   ],
 };

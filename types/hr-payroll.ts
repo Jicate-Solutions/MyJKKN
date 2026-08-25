@@ -171,3 +171,25 @@ export interface HRPayslip {
   reason: string | null;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Salary import (2026-08-21) — POST /api/hr/payroll/salaries/import
+// ---------------------------------------------------------------------------
+// The dry run and the commit return the SAME shape, so the preview the user
+// approves is literally the verdict the commit acts on. `written` and
+// `failures` are the only fields a dry run leaves empty.
+
+import type { SalaryUploadValidation } from '@/lib/hr/payroll/validate-salary-upload';
+
+export interface SalaryImportResponse {
+  success: boolean;
+  dry_run: boolean;
+  sheet_name: string;
+  effective_from: string;
+  parser_warnings: string[];
+  validation: SalaryUploadValidation;
+  written: number;
+  failures: Array<{ employee_code: string; message: string }>;
+  message?: string;
+  error?: string;
+}
