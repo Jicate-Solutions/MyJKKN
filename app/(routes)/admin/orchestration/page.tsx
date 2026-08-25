@@ -95,10 +95,16 @@ export default async function OrchestrationPage() {
       <ContentLayout title="Orchestration Console">
         <div className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <FreshnessBadge lastSeenAt={newestHeartbeat} />
-            <span className="text-sm text-muted-foreground">
-              {modules.length} module{modules.length === 1 ? '' : 's'} · {readyCount} ready
-            </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <FreshnessBadge lastSeenAt={newestHeartbeat} />
+              <span className="text-sm text-muted-foreground">
+                {modules.length} module{modules.length === 1 ? '' : 's'} · {readyCount} ready
+              </span>
+            </div>
+            {/* One global production deploy for all of `main` — not a
+                per-module action, so it lives here once, not on every
+                module card. See _components/deploy-lock.tsx. */}
+            <DeployControl canDeploy={canDeploy} />
           </div>
 
           <WaitingQueue modules={modules} />
