@@ -46,6 +46,7 @@ import { useStoUsage } from '@/hooks/hr/use-hr-leave-types';
 import { formatMinutes, STO_LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
 import { formatHours } from './format';
+import { toast } from 'sonner';
 
 /** Minutes since midnight, or null when unparseable. Accepts HH:MM and HH:MM:SS. */
 function toMinutes(hhmm: string | null | undefined): number | null {
@@ -253,7 +254,13 @@ export function ApplyShortTimeOffDrawer({
       reset();
       onOpenChange(false);
     } catch (err) {
-      setError(getErrorMessage(err));
+      // Toast AS WELL as the inline alert. The alert sits at the bottom of a
+      // scrollable sheet while Submit lives in the fixed footer, so a long
+      // form can push it out of view entirely — which is how a failed submit
+      // looked like nothing happening at all.
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     }
   };
 
