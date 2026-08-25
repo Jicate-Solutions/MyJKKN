@@ -31,6 +31,7 @@ import {
   DAY_OF_WEEK_OPTIONS,
   DEFAULT_WORKING_DAY,
   computeGraceDeadline,
+  timeToMinutes,
   toHHMM,
   validateTimingRow,
   type HRShiftTiming,
@@ -96,6 +97,52 @@ function hydrate(rows: HRShiftTiming[]): WeekDayInput[] {
       second_saturday_holiday: row.second_saturday_holiday,
     };
   });
+}
+
+/** 450 -> "7h 30m", 480 -> "8h", 30 -> "30m", 0 -> "0m". */
+function formatHM(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * Hours actually worked in a day: the UNION of the two halves, never their sum
+ * and never the outer span.
+ *
+ * NOT THE SUM. JKKN's real pattern is 09:00-13:00 with 12:30-16:30. Adding the
+ * halves gives 8h, but nobody is present for 8 hours between 09:00 and 16:30 --
+ * the 30-minute overlap is one stretch of time that belongs to both halves
+ * administratively and is worked once. Summing would inflate every such day.
+ *
+ * NOT THE OUTER SPAN EITHER. 09:00-13:00 with 14:00-17:00 is a lunch break, and
+ * first_half_start -> second_half_end would bill that hour off as worked.
+ *
+ * validateTimingRow guarantees fs < fe, ss < se, fs <= ss and fe <= se, so
+ * second_half_end is always the latest boundary. Returns null for a day that is
+ * not worked or not yet fully filled in, which is a blank cell rather than a 0.
+ */
+function dailyWorkingMinutes(row: WeekDayInput): {
+  minutes: number;
+  overlapMinutes: number;
+  gapMinutes: number;
+} | null {
+  if (!row.is_working_day) return null;
+
+  const fs = timeToMinutes(row.first_half_start);
+  const fe = timeToMinutes(row.first_half_end);
+  const ss = timeToMinutes(row.second_half_start);
+  const se = timeToMinutes(row.second_half_end);
+  if (fs === null || fe === null || ss === null || se === null) return null;
+  if (fe <= fs || se <= ss) return null;
+
+  // Halves touch or overlap -> one continuous stretch.
+  if (ss <= fe) {
+    return { minutes: se - fs, overlapMinutes: fe - ss, gapMinutes: 0 };
+  }
+  // Halves are separated by a break, which is not worked.
+  return { minutes: fe - fs + (se - ss), overlapMinutes: 0, gapMinutes: ss - fe };
 }
 
 /**
@@ -184,6 +231,22 @@ export function WeeklyTimingGrid({
         .filter((e): e is { dow: IsoDayOfWeek; message: string } => Boolean(e.message)),
     [rows],
   );
+
+  const weekly = useMemo(() => {
+    let minutes = 0;
+    let days = 0;
+    let hasSecondSaturdayOff = false;
+    for (const row of rows) {
+      const worked = dailyWorkingMinutes(row);
+      if (!worked) continue;
+      minutes += worked.minutes;
+      days += 1;
+      if (row.day_of_week === 6 && row.second_saturday_holiday) {
+        hasSecondSaturdayOff = true;
+      }
+    }
+    return { minutes, days, hasSecondSaturdayOff };
+  }, [rows]);
 
   const isScheduledChange = effectiveFrom > todayISO();
 
@@ -344,13 +407,14 @@ export function WeeklyTimingGrid({
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[1000px] text-sm">
           <thead>
             <tr className="border-b text-left text-muted-foreground">
               <th className="w-24 py-2 font-medium">Day</th>
               <th className="w-24 py-2 font-medium">Working</th>
               <th className="py-2 font-medium">First half</th>
               <th className="py-2 font-medium">Second half</th>
+              <th className="w-36 py-2 font-medium">Working hours</th>
               <th className="w-40 py-2 font-medium">Grace (first half)</th>
             </tr>
           </thead>
@@ -358,6 +422,7 @@ export function WeeklyTimingGrid({
             {rows.map((row) => {
               const day = DAY_OF_WEEK_OPTIONS.find((d) => d.value === row.day_of_week)!;
               const deadline = computeGraceDeadline(row.first_half_start, row.grace_minutes ?? 0);
+              const worked = dailyWorkingMinutes(row);
               const rowError = errors.find((e) => e.dow === row.day_of_week);
 
               return (
@@ -442,6 +507,31 @@ export function WeeklyTimingGrid({
                   </td>
 
                   <td className="py-3">
+                    {worked ? (
+                      <div>
+                        <p className="font-medium tabular-nums">
+                          {formatHM(worked.minutes)}
+                        </p>
+                        {/* Say why the figure is not simply the two halves added
+                            up, or 7h 30m against a 09:00-13:00 / 12:30-16:30 week
+                            reads as an off-by-30-minutes bug. */}
+                        {worked.overlapMinutes > 0 && (
+                          <p className="text-[11px] leading-snug text-muted-foreground">
+                            halves overlap {formatHM(worked.overlapMinutes)}, counted once
+                          </p>
+                        )}
+                        {worked.gapMinutes > 0 && (
+                          <p className="text-[11px] leading-snug text-muted-foreground">
+                            {formatHM(worked.gapMinutes)} break, not counted
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+
+                  <td className="py-3">
                     {row.is_working_day ? (
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -507,6 +597,22 @@ export function WeeklyTimingGrid({
               );
             })}
           </tbody>
+          <tfoot>
+            <tr className="border-t">
+              <td className="py-3 font-medium text-muted-foreground" colSpan={4}>
+                Weekly total · {weekly.days} working day(s)
+              </td>
+              <td className="py-3">
+                <p className="font-semibold tabular-nums">{formatHM(weekly.minutes)}</p>
+                {weekly.hasSecondSaturdayOff && (
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    before the monthly 2nd-Saturday off
+                  </p>
+                )}
+              </td>
+              <td />
+            </tr>
+          </tfoot>
         </table>
       </div>
 
