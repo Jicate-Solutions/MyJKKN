@@ -322,62 +322,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <AlertDialog open={deployDialogOpen} onOpenChange={(open) => !isDeploying && setDeployDialogOpen(open)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <TriangleAlert className="h-4 w-4 text-red-600" />
-              Deploy to production
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-3 text-left">
-                <p className="font-semibold text-red-700">
-                  Publishes to the live site jkkn.ai — every college sees it.
-                </p>
-                <dl className="space-y-1.5">
-                  <div>
-                    <dt className="inline font-medium text-foreground">Does: </dt>
-                    <dd className="inline">Publishes current main to the live site, jkkn.ai.</dd>
-                  </div>
-                  <div>
-                    <dt className="inline font-medium text-foreground">You&apos;ll get: </dt>
-                    <dd className="inline">A new production build; the change reaches users in minutes.</dd>
-                  </div>
-                  <div>
-                    <dt className="inline font-medium text-foreground">Impact: </dt>
-                    <dd className="inline">
-                      <Badge variant="outline" className="mr-1 border-transparent bg-red-100 text-red-800">
-                        goes live
-                      </Badge>
-                      Every college sees it. Blocked if main is broken.
-                    </dd>
-                  </div>
-                </dl>
-                {deployError && (
-                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-800" role="alert">
-                    {deployError}
-                  </p>
-                )}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeploying}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-700 hover:bg-red-800"
-              disabled={isDeploying}
-              onClick={(e) => {
-                e.preventDefault();
-                void handleDeployConfirm();
-              }}
-            >
-              {isDeploying && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              Confirm deploy
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   );
 }
