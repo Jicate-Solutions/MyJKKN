@@ -266,28 +266,6 @@ export function ModuleCard({ module, prs }: ModuleCardProps) {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-red-300 text-red-800 hover:bg-red-50 hover:text-red-900"
-                    disabled={deployInFlight}
-                    onClick={openDeployDialog}
-                  >
-                    <Rocket className="h-3.5 w-3.5" />
-                    Deploy
-                  </Button>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                {deployInFlight ? 'A deploy is already in flight' : 'Publish current main to jkkn.ai'}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </CardContent>
 
