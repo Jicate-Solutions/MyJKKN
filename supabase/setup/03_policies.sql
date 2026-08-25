@@ -9832,3 +9832,72 @@ CREATE POLICY billing_receipt_cancel_actions_select
         )
     )
   );
+
+-- Updated: 2026-08-25 - id_card_templates scoped per institution (migration
+-- 20261012000000_id_card_templates_institution_scope.sql). The table shipped in
+-- 20260507150000 WITH an institution_id column and NOT ONE of its four
+-- authenticated policies gated on it, so whoever held id_cards.templates.* held
+-- it over every college's card design. lib/services/id-cards/template-design-client.ts
+-- applies no institution filter of its own — RLS is the entire control surface,
+-- and no SECURITY DEFINER function reads this table. The predicate below is the
+-- canonical pattern; role_has_institution_access() is what decides whether a
+-- role legitimately reaches other colleges, so cross-college reach is expressed
+-- by institution_scope rather than by a missing clause.
+-- ⚠️ role_has_institution_access(NULL) returns TRUE by design and
+--    institution_id is nullable, so a NULL-institution template stays global.
+
+DROP POLICY IF EXISTS "id_card_templates_view" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_view"
+  ON public.id_card_templates FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.view'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_create" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_create"
+  ON public.id_card_templates FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.create'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_edit" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_edit"
+  ON public.id_card_templates FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.edit'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.edit'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_delete" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_delete"
+  ON public.id_card_templates FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.delete'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );

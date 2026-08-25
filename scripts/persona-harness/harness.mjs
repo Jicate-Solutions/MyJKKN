@@ -38,7 +38,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 // ---- per-platform config: personas.json next to this script -----------------
 // { "baseUrl": "https://app", "accounts": { "role": "test.x@domain" },
-//   "password"?: "Test@1234", "envPath"?: "../../.env.local",
+//   "password"?: "<from PERSONA_PASSWORD>", "envPath"?: "../../.env.local",
 //   "defaultSet"?: [["role","/path"], ...] }
 function loadConfig() {
   const p = resolve(SCRIPT_DIR, 'personas.json');
@@ -53,7 +53,7 @@ function loadConfig() {
 const CONFIG = loadConfig();
 const ROLE_EMAIL = CONFIG.accounts;
 const BASE = process.env.PERSONA_BASE_URL || CONFIG.baseUrl;
-const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password || 'Test@1234';
+const PASSWORD = process.env.PERSONA_PASSWORD || CONFIG.password;
 const HOST = new URL(BASE).hostname;
 // default set when no role:path args given — from config, else each role at '/'
 const DEFAULT_SET = CONFIG.defaultSet && CONFIG.defaultSet.length
