@@ -904,7 +904,7 @@ export type FeeAppliesTo = keyof typeof APPLIES_TO_LABELS;
  * the fee to every_year because a cell was left empty.
  */
 export function normalizeAppliesTo(cell: unknown): FeeAppliesTo | null | 'INVALID' {
-  const key = lower(cell).replace(/[s_-]+/g, '');
+  const key = lower(cell).replace(/[\s_-]+/g, '');
   if (key === '') return null;
   if (key === 'firstyearonly' || key === 'firstyear' || key === '1styear') return 'first_year_only';
   if (key === 'everyyear' || key === 'allyears' || key === 'every' || key === 'all') return 'every_year';
