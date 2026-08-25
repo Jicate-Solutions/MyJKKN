@@ -78,6 +78,10 @@ export default async function OrchestrationPage() {
   const newestHeartbeat = session[0]?.last_seen_at ?? null;
   const readyCount = modules.filter((m) => m.status === 'gated' || m.status === 'idle').length;
 
+  // Read server-side only, never sent to the client — the DeployControl
+  // component below gets a plain boolean, never this env var's value.
+  const canDeploy = Boolean(process.env.ORCH_VERCEL_DEPLOY_HOOK);
+
   const prsByModule = new Map<string, OrchestrationPr[]>();
   for (const pr of prs) {
     const key = pr.module_key ?? '';
