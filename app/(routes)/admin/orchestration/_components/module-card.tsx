@@ -56,12 +56,27 @@ function honestCiLabel(pr: OrchestrationPr): { label: string; className: string 
   return { label: pr.ci_state, className: 'bg-muted text-muted-foreground' };
 }
 
-// GitHub's REST/CLI mergeable field is 'MERGEABLE' | 'CONFLICTING' |
-// 'UNKNOWN' (gh pr list --json mergeable); the sync route stores whatever
-// string it was given verbatim, so match case-insensitively rather than
-// assume exact casing survived every writer.
+// TWO vocabularies land in `mergeable`, and only accepting one made this
+// button permanently dead in production (2026-08-25):
+//   - GraphQL / `gh pr list --json mergeable` writes  MERGEABLE | CONFLICTING | UNKNOWN
+//   - the sync cron writes GitHub REST's `mergeable_state`:  clean | unstable |
+//     dirty | blocked | unknown
+// The cron is the steady-state writer, so the column is normally `clean`, and
+// 'CLEAN' !== 'MERGEABLE' meant every card read "No PR here is mergeable yet".
+//
+// Accept both. `unstable` counts: it means git-mergeable with a non-required
+// check failing — still mergeable. `dirty` (conflicts) and `blocked` (required
+// review/check missing) do NOT.
+//
+// This only gates whether the BUTTON is offered. The real safety gate is
+// lib/services/orchestration/github-merge.ts, which re-reads the PR live from
+// GitHub at click time and refuses unless `mergeable === true` and
+// `mergeable_state` is neither 'dirty' nor 'blocked'. A stale or optimistic
+// value here can never cause a bad merge.
+const MERGEABLE_TOKENS = new Set(['MERGEABLE', 'CLEAN', 'UNSTABLE']);
+
 function isMergeableStatus(pr: OrchestrationPr): boolean {
-  return (pr.mergeable ?? '').toUpperCase() === 'MERGEABLE';
+  return MERGEABLE_TOKENS.has((pr.mergeable ?? '').trim().toUpperCase());
 }
 
 // The mockup shows one Merge button per module card, targeting whichever PR
