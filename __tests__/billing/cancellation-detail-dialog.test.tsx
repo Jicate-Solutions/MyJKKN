@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { toCancellationRow } from '@/app/(routes)/billing/receipt-cancellations/_components/cancellation-columns';
 import { CancellationDetailDialog } from '@/app/(routes)/billing/receipt-cancellations/_components/cancellation-detail-dialog';
@@ -11,6 +11,7 @@ const detail = {
   data: undefined as unknown,
   isLoading: false,
 };
+const withdrawMutate = vi.fn();
 
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => permissions,
@@ -19,7 +20,7 @@ vi.mock('@/hooks/use-permissions', () => ({
 vi.mock('@/hooks/billing/use-receipt-cancellations', () => ({
   useReceiptCancelRequestDetail: () => detail,
   useActOnReceiptCancellation: () => ({ mutate: vi.fn(), isPending: false }),
-  useWithdrawReceiptCancellation: () => ({ mutate: vi.fn(), isPending: false }),
+  useWithdrawReceiptCancellation: () => ({ mutate: withdrawMutate, isPending: false }),
 }));
 
 beforeAll(() => {
@@ -111,6 +112,7 @@ beforeEach(() => {
   permissions.userProfile = { id: 'me' };
   detail.data = DETAIL_DATA;
   detail.isLoading = false;
+  withdrawMutate.mockReset();
 });
 
 afterEach(() => cleanup());
@@ -206,6 +208,54 @@ describe('CancellationDetailDialog', () => {
     permissions.userProfile = { id: 'me' };
     open({ requested_by: 'me' });
     expect(q(/Withdraw/)).toBeInTheDocument();
+  });
+
+  // Withdrawing is terminal — fn_withdraw_receipt_cancellation refuses every
+  // later action on the request — so it must not fire on a single click.
+  describe('withdraw confirmation', () => {
+    const openAndClickWithdraw = () => {
+      permissions.userProfile = { id: 'me' };
+      open({ requested_by: 'me' });
+      fireEvent.click(within(dialog()).getByRole('button', { name: /Withdraw/ }));
+      return screen.getByRole('alertdialog');
+    };
+
+    it('asks for confirmation instead of withdrawing immediately', () => {
+      const confirm = openAndClickWithdraw();
+      expect(withdrawMutate).not.toHaveBeenCalled();
+      expect(within(confirm).getByText(/Withdraw RC-001\?/)).toBeInTheDocument();
+      expect(within(confirm).getByText(/cannot be reopened/i)).toBeInTheDocument();
+    });
+
+    it('does nothing when the confirmation is dismissed', () => {
+      const confirm = openAndClickWithdraw();
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Keep request' }));
+      expect(withdrawMutate).not.toHaveBeenCalled();
+    });
+
+    it('submits with the optional reason once confirmed', () => {
+      const confirm = openAndClickWithdraw();
+      fireEvent.change(
+        within(confirm).getByLabelText('Reason for withdrawing (optional)'),
+        { target: { value: '  raised against the wrong receipt  ' } }
+      );
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Withdraw request' }));
+
+      expect(withdrawMutate).toHaveBeenCalledTimes(1);
+      expect(withdrawMutate.mock.calls[0][0]).toEqual({
+        requestId: 'req1',
+        notes: 'raised against the wrong receipt',
+      });
+    });
+
+    it('omits the note entirely when none is given', () => {
+      const confirm = openAndClickWithdraw();
+      fireEvent.click(within(confirm).getByRole('button', { name: 'Withdraw request' }));
+      expect(withdrawMutate.mock.calls[0][0]).toEqual({
+        requestId: 'req1',
+        notes: undefined,
+      });
+    });
   });
 
   it('offers no decision controls once the request is decided', () => {

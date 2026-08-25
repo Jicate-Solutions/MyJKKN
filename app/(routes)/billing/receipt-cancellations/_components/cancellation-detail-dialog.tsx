@@ -27,6 +27,16 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
@@ -92,14 +102,18 @@ export function CancellationDetailDialog({
   onActed,
 }: CancellationDetailDialogProps) {
   const [comment, setComment] = useState('');
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawNote, setWithdrawNote] = useState('');
 
-  // Reset the comment per request, adjusted during render rather than in an
-  // effect (React's documented pattern for resetting state on a prop change).
+  // Reset per request, adjusted during render rather than in an effect
+  // (React's documented pattern for resetting state on a prop change).
   const token = request?.id ?? '';
   const [lastToken, setLastToken] = useState(token);
   if (token !== lastToken) {
     setLastToken(token);
     setComment('');
+    setWithdrawNote('');
+    setWithdrawOpen(false);
   }
 
   const { isSuperAdmin, userProfile } = usePermissions();
@@ -420,18 +434,7 @@ export function CancellationDetailDialog({
                       <Button
                         variant='ghost'
                         disabled={busy}
-                        onClick={() => {
-                          if (!request) return;
-                          withdraw.mutate(
-                            { requestId: request.id, notes: comment.trim() || undefined },
-                            {
-                              onSuccess: () => {
-                                onOpenChange(false);
-                                onActed?.();
-                              },
-                            }
-                          );
-                        }}
+                        onClick={() => setWithdrawOpen(true)}
                       >
                         <Undo2 className='mr-2 h-4 w-4' />
                         Withdraw
@@ -467,6 +470,74 @@ export function CancellationDetailDialog({
             )}
           </div>
         )}
+
+        {/* Withdrawing is TERMINAL: fn_withdraw_receipt_cancellation sets the
+            status and then refuses every later action with "This request is
+            already withdrawn". Reversing the receipt afterwards means raising a
+            fresh request, so the step is confirmed rather than one-click. */}
+        <AlertDialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Withdraw {request?.request_number}?
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className='space-y-2'>
+                  <p>
+                    This closes the request for receipt{' '}
+                    <span className='text-foreground font-medium'>
+                      {snapshot.receipt_number ?? '—'}
+                    </span>
+                    . It cannot be reopened — cancelling the receipt later means
+                    raising a new request.
+                  </p>
+                  <p>
+                    Nothing about the receipt or the bill changes: both were left
+                    untouched while the request was pending.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+
+            <div className='space-y-1.5'>
+              <Label htmlFor='withdraw-note'>Reason for withdrawing (optional)</Label>
+              <Textarea
+                id='withdraw-note'
+                value={withdrawNote}
+                onChange={(e) => setWithdrawNote(e.target.value)}
+                placeholder='Kept in the audit trail against this withdrawal'
+                rows={3}
+              />
+            </div>
+
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={withdraw.isPending}>
+                Keep request
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={withdraw.isPending}
+                onClick={(e) => {
+                  // AlertDialogAction closes on click; stop that so the dialog
+                  // stays put while the RPC runs and can surface an error.
+                  e.preventDefault();
+                  if (!request) return;
+                  withdraw.mutate(
+                    { requestId: request.id, notes: withdrawNote.trim() || undefined },
+                    {
+                      onSuccess: () => {
+                        setWithdrawOpen(false);
+                        onOpenChange(false);
+                        onActed?.();
+                      },
+                    }
+                  );
+                }}
+              >
+                {withdraw.isPending ? 'Withdrawing…' : 'Withdraw request'}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
