@@ -3,7 +3,7 @@
 // newest tower-session heartbeat, stamped with how old it is, and flips to a
 // "stale" look once that heartbeat is older than STALE_THRESHOLD_MS.
 
-import { formatDistanceToNowStrict } from 'date-fns';
+import { differenceInMilliseconds, formatDistanceToNowStrict } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -27,7 +27,7 @@ export function FreshnessBadge({ lastSeenAt }: FreshnessBadgeProps) {
   }
 
   const seenAt = new Date(lastSeenAt);
-  const ageMs = Date.now() - seenAt.getTime();
+  const ageMs = differenceInMilliseconds(new Date(), seenAt);
   const isStale = ageMs > STALE_THRESHOLD_MS;
   const relative = formatDistanceToNowStrict(seenAt, { addSuffix: true });
 
