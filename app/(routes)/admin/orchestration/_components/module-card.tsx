@@ -2,16 +2,21 @@
 
 // One card per module — spec section 04. Title links to the module's real
 // MyJKKN page; the does/output/impact lines make every action self-explaining
-// (spec section 05). Run AI, Merge, and Deploy are all live in Phase 2 —
-// Merge and Deploy each open a confirm dialog (spec section 05: "Does · You'll
-// get · Impact") before calling their server routes at
-// /api/admin/orchestration/actions/{merge,deploy}. Both routes are
-// super-admin gated and require an explicit confirm: true server-side on top
-// of this dialog — belt and suspenders, never auto-fired.
+// (spec section 05). Run AI and Merge are live here in Phase 2 — Merge opens
+// a confirm dialog (spec section 05: "Does · You'll get · Impact") before
+// calling its server route at /api/admin/orchestration/actions/merge, which
+// is super-admin gated and requires an explicit confirm: true server-side on
+// top of this dialog — belt and suspenders, never auto-fired.
+//
+// Deploy is NOT here (corrected 2026-08-25): it fires ONE global Vercel
+// production deploy hook that rebuilds all of `main` and ships it to every
+// college — it was never a per-module action, so 55 enabled per-card Deploy
+// buttons lied about what the button does. It now lives once, in the page
+// header — see `_components/deploy-lock.tsx` and `page.tsx`.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUpRight, GitMerge, Loader2, Play, Rocket, TriangleAlert } from 'lucide-react';
+import { ArrowUpRight, GitMerge, Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -29,7 +34,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { OrchestrationModule, OrchestrationPr } from '@/types/orchestration';
-import { setDeployInFlight, useDeployInFlight } from './deploy-lock';
 
 // CI signals go stale faster than the tower's own heartbeat — a green badge
 // older than this reads as "stale", never "passing" (spec pain #5: "CI's been
