@@ -4,6 +4,7 @@
   "include": [
     "next-env.d.ts",
     "app/api/hr/leave/applications/route.ts",
-    "app/api/staff/notify/route.ts"
+    "app/api/staff/notify/route.ts",
+    "lib/services/school-of-influence/apply-service.ts"
   ]
 }
