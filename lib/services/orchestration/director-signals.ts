@@ -125,7 +125,7 @@ function formatInr(amount: number): string {
 
 const recruitmentSignoff: DirectorSignalDescriptor = {
   id: 'recruitment_signoff',
-  label: 'Faculty & tutor hires awaiting your signature',
+  label: 'Hires awaiting your signature',
   // Spec named /hr/recruitment/candidates, which has no list route (only
   // /hr/recruitment/candidates/[id], a detail page needing an id). The
   // actual "awaiting my action" queue this signal describes is
@@ -182,7 +182,7 @@ const refundApproval: DirectorSignalDescriptor = {
 
     return {
       active: true,
-      cost: `₹${formatInr(amount)} · ${rows.length} student${rows.length === 1 ? '' : 's'} · oldest ${oldestDays} days`,
+      cost: `₹${formatInr(amount)} · ${rows.length} learner${rows.length === 1 ? '' : 's'} · oldest ${oldestDays} days`,
       detail: { n: rows.length, amount, oldestDays },
     };
   },
