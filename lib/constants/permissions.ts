@@ -423,6 +423,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.standing.view', label: 'View Learner Standing Verdicts (band, narrative, next steps)' },
       { key: 'learners.standing.admin_note.view', label: 'View Learner Standing ADMIN Notes (contribution + relative rank — leadership only)' },
       { key: 'learners.standing.override', label: 'Override a Learner Standing Verdict (human correction)' },
+      // Gates fn_learner_360_record_intervention (20260930010000) — the
+      // learner-360 return edge's ACT leg: recording the action a mentor or
+      // counselor took on a standing verdict. Separate from .override on
+      // purpose: correcting the AI's narrative and acting on a learner are
+      // different responsibilities, grantable independently.
+      { key: 'learners.standing.intervene', label: 'Record an Action Taken on a Learner Standing Verdict' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },

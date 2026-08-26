@@ -208,12 +208,39 @@ export async function GET(request: NextRequest) {
   // 1) COLLECT — always first (drain the previous run's verdict jobs).
   const { collected, recorded } = await collectVerdicts(admin);
 
+  // 1b) MEASURE — the loop's return edge. For every recorded intervention
+  // still awaiting a re-verdict, compare the learner's next verdict against
+  // the one that triggered the action (fn_learner_360_measure_reverdict_delta,
+  // 20260930010000). Rides this route's nightly cadence on purpose: no new
+  // schedule row, no vercel.json cron (the 100-cron ceiling). DARK-safe
+  // pre-apply: until the migration is applied the RPC does not exist and
+  // PostgREST answers PGRST202 — reported in the JSON, never thrown, and not
+  // logged as an error (it is the expected pre-apply state).
+  let measured: number | null = null;
+  let measureNote: string | null = null;
+  {
+    const { data: mData, error: mErr } = await admin.rpc(
+      'fn_learner_360_measure_reverdict_delta',
+    );
+    if (mErr) {
+      measureNote =
+        mErr.code === 'PGRST202' ? 'unavailable (migration not applied)' : mErr.message;
+      if (mErr.code !== 'PGRST202') {
+        console.error('[cron/learner-360-verdict] measure failed:', mErr.message);
+      }
+    } else {
+      measured = ((mData as { measured?: number } | null)?.measured ?? 0) as number;
+    }
+  }
+
   if (isCollectOnly) {
     return NextResponse.json({
       ok: true,
       mode: 'collect',
       collected,
       recorded,
+      measured,
+      ...(measureNote ? { measure_note: measureNote } : {}),
       elapsed_ms: Date.now() - started,
     });
   }
@@ -420,6 +447,8 @@ export async function GET(request: NextRequest) {
     ok: true,
     collected,
     recorded,
+    measured,
+    ...(measureNote ? { measure_note: measureNote } : {}),
     candidates,
     enqueued,
     skipped: skippedInflight,
