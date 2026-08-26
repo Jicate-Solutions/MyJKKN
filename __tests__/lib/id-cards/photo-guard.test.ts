@@ -1,6 +1,12 @@
 // ============================================================================
-// Guard 3: a card that would show no face never reaches the printer, and a card
-// that would print a login-account picture is not printed unnoticed.
+// Guard 3: a card with no drawable photograph on file never reaches the printer,
+// and a card that would print a login-account picture is not printed unnoticed.
+//
+// THE GUARD'S LIMIT IS PINNED HERE TOO. Every check is a SHAPE check on the
+// stored value; none of them fetch. A well-formed but dead URL therefore passes
+// the guard and the renderer draws initials after all. That is asserted below
+// ("the documented limit") rather than left as an unstated gap, so the claim
+// this suite supports stays the one the code actually delivers.
 // Created 2026-08-26.
 //
 // WHAT WENT WRONG. POST /api/id-cards/jobs checked whether the person had left
@@ -57,7 +63,12 @@ import {
   isPrintablePhoto,
   isRenderablePhotoRef
 } from '@/lib/id-cards/photo-quality';
-import { judgeCardPhoto } from '@/lib/services/id-cards/reprint-eligibility';
+import {
+  POLICY_KEY_PHOTO_REQUIRED,
+  isPolicyValueOff,
+  judgeCardPhoto,
+  readReplacementPolicy
+} from '@/lib/services/id-cards/reprint-eligibility';
 
 /** A picture the renderer can actually draw. */
 const OFFICIAL = 'https://cdn.example.test/photos/learner.jpg';
@@ -222,5 +233,137 @@ describe('drift guard against the renderer', () => {
     expect(isRenderablePhotoRef('data:text/plain;base64,abc')).toBe(false);
     expect(isRenderablePhotoRef(null)).toBe(false);
     expect(isRenderablePhotoRef(undefined)).toBe(false);
+  });
+});
+
+// ============================================================================
+// The off-switch. `id_card.photo.required` is a config row, and the file's own
+// promise is that the rule is retunable without a deploy. The original
+// `photoRequired !== false` kept that promise only for a JSON boolean: a row
+// holding the STRING "false", or 0, left the rule ON while reading as off to
+// whoever set it. Both halves are pinned here — a recognised off-value really
+// turns it off, and anything absent or unreadable really leaves it on.
+//
+// No such row exists on production today (verified read-only 2026-08-26: the
+// 18 live `id_card.*` policy keys do not include this one), so the live
+// behaviour is the fail-closed branch.
+// ============================================================================
+
+/** Minimal platform_policies stub: `.from().select().eq().eq().in()` resolves. */
+function stubPolicyClient(rows: Record<string, unknown>) {
+  return {
+    from: () => {
+      let key = '';
+      const builder: Record<string, unknown> = {};
+      builder.select = () => builder;
+      builder.eq = (column: string, value: unknown) => {
+        if (column === 'policy_key') key = String(value);
+        return builder;
+      };
+      builder.in = () =>
+        Promise.resolve(
+          Object.prototype.hasOwnProperty.call(rows, key)
+            ? { data: [{ value: rows[key], scope_type: 'global' }], error: null }
+            : { data: [], error: null }
+        );
+      return builder;
+    }
+  } as never;
+}
+
+describe('isPolicyValueOff — what may switch a guard off', () => {
+  it('accepts the values a person actually types for "off"', () => {
+    expect(isPolicyValueOff(false)).toBe(true);
+    expect(isPolicyValueOff(0)).toBe(true);
+    expect(isPolicyValueOff('false')).toBe(true);
+    expect(isPolicyValueOff('FALSE')).toBe(true);
+    expect(isPolicyValueOff('  off  ')).toBe(true);
+    expect(isPolicyValueOff('no')).toBe(true);
+    expect(isPolicyValueOff('0')).toBe(true);
+  });
+
+  it('treats absent and unreadable as NOT off — fail-closed survives', () => {
+    expect(isPolicyValueOff(undefined)).toBe(false);
+    expect(isPolicyValueOff(null)).toBe(false);
+    expect(isPolicyValueOff('')).toBe(false);
+    expect(isPolicyValueOff('flase')).toBe(false);
+    expect(isPolicyValueOff({})).toBe(false);
+    expect(isPolicyValueOff([])).toBe(false);
+    expect(isPolicyValueOff(NaN)).toBe(false);
+  });
+
+  it('never reads a truthy value as off', () => {
+    expect(isPolicyValueOff(true)).toBe(false);
+    expect(isPolicyValueOff('true')).toBe(false);
+    expect(isPolicyValueOff(1)).toBe(false);
+  });
+});
+
+describe('readReplacementPolicy — the photo rule end to end', () => {
+  it('leaves the photograph REQUIRED when no config row exists', async () => {
+    const policy = await readReplacementPolicy(stubPolicyClient({}), null);
+    expect(policy.photoRequired).toBe(true);
+  });
+
+  it('leaves it REQUIRED when the row holds JSON null', async () => {
+    const policy = await readReplacementPolicy(
+      stubPolicyClient({ [POLICY_KEY_PHOTO_REQUIRED]: null }),
+      null
+    );
+    expect(policy.photoRequired).toBe(true);
+  });
+
+  it('switches it OFF for a JSON boolean false', async () => {
+    const policy = await readReplacementPolicy(
+      stubPolicyClient({ [POLICY_KEY_PHOTO_REQUIRED]: false }),
+      null
+    );
+    expect(policy.photoRequired).toBe(false);
+  });
+
+  it('switches it OFF for the STRING "false" — the case the old check missed', async () => {
+    const policy = await readReplacementPolicy(
+      stubPolicyClient({ [POLICY_KEY_PHOTO_REQUIRED]: 'false' }),
+      null
+    );
+    expect(policy.photoRequired).toBe(false);
+  });
+
+  it('switches it OFF for 0 and "off" — also missed before', async () => {
+    for (const value of [0, 'off']) {
+      const policy = await readReplacementPolicy(
+        stubPolicyClient({ [POLICY_KEY_PHOTO_REQUIRED]: value }),
+        null
+      );
+      expect(policy.photoRequired).toBe(false);
+    }
+  });
+
+  it('keeps it REQUIRED for a typo — an unreadable value cannot open the gate', async () => {
+    const policy = await readReplacementPolicy(
+      stubPolicyClient({ [POLICY_KEY_PHOTO_REQUIRED]: 'flase' }),
+      null
+    );
+    expect(policy.photoRequired).toBe(true);
+  });
+});
+
+describe('the documented limit — a shape check is not a reachability check', () => {
+  it('classifies a well-formed but dead URL as official, and lets it print', () => {
+    // Nothing in this module fetches, so a 404 / deleted object / non-image
+    // response is indistinguishable here from a good photograph. The renderer
+    // is where that value fails, falling back to initials. Documented in
+    // lib/id-cards/photo-quality.ts; asserted here so the PR's claim and the
+    // code cannot drift apart again.
+    const dead = 'https://kvizhngldtiuufknvehv.supabase.co/storage/v1/object/public/student-photos/deleted.jpg';
+    expect(isRenderablePhotoRef(dead)).toBe(true);
+    expect(classifyCardPhoto({ officialPhotoUrl: dead }).kind).toBe('official');
+    expect(
+      judgeCardPhoto({
+        photo: { officialPhotoUrl: dead },
+        required: true,
+        unofficialAcknowledged: false
+      }).kind
+    ).toBe('allowed');
   });
 });

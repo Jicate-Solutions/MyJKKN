@@ -32,6 +32,33 @@
 //   each other so a change to the renderer turns this file red instead of
 //   silently drifting — the same guarantee address-quality.ts relies on.
 //
+// WHAT THIS DOES NOT CHECK — THE HONEST LIMIT OF THE GUARD
+//   Every function in this file is a SHAPE check on a stored value. It answers
+//   "is this the kind of value the render engine would even try to draw?" — it
+//   never answers "is there actually an image at the other end of it?" Nothing
+//   here makes a network request.
+//
+//   So a well-formed but DEAD reference — a URL whose object was deleted, a
+//   404, a non-image content-type, a host that times out — classifies as
+//   `official`, passes the guard and reaches the render worker. There
+//   `fetchImageAsDataUrl` returns null and render-card.tsx draws
+//   `initialsFromName()` after all. This guard shuts the door on values that
+//   could NEVER draw a face; it cannot shut it on values that merely fail to.
+//   The claim it supports is "a card with no drawable photo REFERENCE on file
+//   is refused", not "a card that would show no face never reaches the
+//   printer".
+//
+//   That limit is deliberate, not an oversight. Re-checking at fetch time is
+//   the render worker's job, and the estate does not currently justify paying
+//   for it twice: measured read-only on production 2026-08-26, all 4,111
+//   https photo references across the three columns
+//   (learners_profiles.student_photo_url 3,306, staff.profile_picture 372,
+//   profiles.avatar_url 433) are unsigned, non-expiring links — 3,793 of them
+//   Supabase public-bucket URLs, and ZERO signed or expiring URLs anywhere.
+//   The "valid when stored, dead by print time" case therefore has no
+//   instances today. If signed or expiring URLs ever enter these columns this
+//   limit stops being theoretical and the check belongs at fetch time.
+//
 // NOTE Column identifiers named in comments (learners_profiles.student_photo_url,
 //   staff.profile_picture, profiles.avatar_url) are existing database
 //   identifiers and are terminology-exempt. The prose a caller reads says
@@ -41,9 +68,10 @@
 /**
  * Can the render engine actually draw this value?
  *
- * Mirrors the accept test in `fetchAsDataUrl` (lib/id-cards/render-data.ts):
+ * Mirrors the accept test in `fetchImageAsDataUrl` (lib/id-cards/render-data.ts):
  * an inline `data:image/` URI is taken as-is, an `http(s)` URL is fetched, and
- * EVERYTHING ELSE returns null before a request is ever made.
+ * EVERYTHING ELSE returns null before a request is ever made. True here means
+ * the renderer would ATTEMPT this value — not that the attempt will succeed.
  *
  * This matters because the photo columns hold real junk on this estate — a
  * roll number typed into the photo field, a bare filename like `GRACIA.JPEG`
@@ -88,7 +116,7 @@ export type PhotoVerdict =
    * printable and is NOT refused — the caller confirms it knowingly.
    */
   | { kind: 'account_only' }
-  /** Nothing renderable anywhere. The card would print initials. Refuse. */
+  /** No drawable reference anywhere. The card would print initials. Refuse. */
   | { kind: 'missing' };
 
 /** Which picture, if any, this card would actually print. */

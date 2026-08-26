@@ -141,7 +141,9 @@ export async function POST(request: NextRequest) {
       return jsonError(eligibility.message, eligibility.code, 422);
     }
 
-    // GUARD 3 — a card that would show no face never reaches the printer.
+    // GUARD 3 — a card with no drawable photograph on file never reaches the
+    // printer. Shape check on the stored value only: a well-formed but dead
+    // URL still passes here (lib/id-cards/photo-quality.ts documents why).
     // Runs BEFORE the fee guard deliberately: a refusal that cannot be
     // overridden must resolve before anyone is asked for money, or a person
     // pays ₹200 and only then learns the card was never printable.
