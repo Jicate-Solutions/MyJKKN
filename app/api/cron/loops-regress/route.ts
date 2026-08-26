@@ -18,7 +18,9 @@
 // Coverage today: scf (the proven recipe), feeder (cycle_delta known-delta,
 // added 2026-07-13), mess (2026-07-26), bug-triage + induction-session
 // (2026-08-13 — the last two chartered-but-unproven loops; each asserts
-// through the loop's REAL measurement fn, never a re-implementation).
+// through the loop's REAL measurement fn, never a re-implementation),
+// work-pulse (2026-08-26 — adoption-delta measurer, Wave-2 return edge), and
+// ops-cycletime (2026-08-26 — the shared three-queue cycle-time measurer).
 // Additional loops join by adding fn_loops_regress_<loop> + extending
 // LOOP_FNS — see .claude/loop-manifests/.
 //
@@ -52,6 +54,8 @@ const LOOP_FNS: { loopKey: string; fn: string }[] = [
   // known-delta sim. Until 20260930010000/20260930020000 are applied this
   // entry reports sim-error weekly — a deliberate visible nudge, not a bug.
   { loopKey: 'learner-360', fn: 'fn_loops_regress_learner360' },
+  { loopKey: 'work-pulse', fn: 'fn_loops_regress_workpulse' },
+  { loopKey: 'ops-cycletime', fn: 'fn_loops_regress_ops_cycletime' },
 ];
 
 type RegressRow = {
