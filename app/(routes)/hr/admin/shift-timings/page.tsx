@@ -29,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useEmploymentCategories } from '@/hooks/hr/use-shift-timings';
+import { todayISO } from '@/lib/services/hr/attendance-recompute-service';
 
 import { WeeklyTimingGrid } from './_components/weekly-timing-grid';
 import { CoverageWarning } from './_components/coverage-warning';
@@ -43,6 +44,28 @@ export default function ShiftTimingsPage() {
   });
 
   const [institutionId, setInstitutionId] = useState('');
+
+  /**
+   * The effective date is one decision for the whole edit, so the page owns it
+   * rather than each scope's grid -- see WeeklyTimingGridProps for the
+   * half-applied change that fixes.
+   *
+   * It DOES reset when the institution changes. Carrying a backdate across
+   * institutions would trade the bug this fixes for a worse one: silently
+   * re-judging months of another institution's attendance because a date was
+   * set for the previous one.
+   */
+  const [effectiveFrom, setEffectiveFrom] = useState(todayISO());
+  const [dateSetFor, setDateSetFor] = useState(institutionId);
+  // Adjusted during render rather than in an effect: an effect would paint one
+  // frame carrying the previous institution's backdate, and it trips
+  // react-hooks/set-state-in-effect. This is React's documented way to reset
+  // state when a value it derives from changes.
+  if (dateSetFor !== institutionId) {
+    setDateSetFor(institutionId);
+    setEffectiveFrom(todayISO());
+  }
+
   const [categoryId, setCategoryId] = useState('');
 
   const { data: categories = [] } = useEmploymentCategories();
@@ -118,6 +141,8 @@ export default function ShiftTimingsPage() {
                       institutionId={institutionId}
                       staffScope="teaching"
                       scopeLabel="Teaching"
+                      effectiveFrom={effectiveFrom}
+                      onEffectiveFromChange={setEffectiveFrom}
                     />
                   </TabsContent>
 
@@ -126,6 +151,8 @@ export default function ShiftTimingsPage() {
                       institutionId={institutionId}
                       staffScope="non_teaching"
                       scopeLabel="Non-teaching"
+                      effectiveFrom={effectiveFrom}
+                      onEffectiveFromChange={setEffectiveFrom}
                     />
                   </TabsContent>
 
@@ -158,6 +185,8 @@ export default function ShiftTimingsPage() {
                         staffScope="category"
                         employmentCategoryId={selectedCategory.id}
                         scopeLabel={selectedCategory.category_name}
+                        effectiveFrom={effectiveFrom}
+                        onEffectiveFromChange={setEffectiveFrom}
                       />
                     )}
                   </TabsContent>

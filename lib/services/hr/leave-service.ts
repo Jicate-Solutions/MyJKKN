@@ -180,8 +180,16 @@ export class LeaveService {
       candidates.find((f) => !f.conditions?.leave_type_id);
 
     if (!chosen) {
+      // Name the exact screen. "Ask HR to add one" left the admin hunting —
+      // leave flows are set from the Leave Types list, not from a page called
+      // anything like "approval flows", which is where everyone looks first
+      // (that one is recruitment-only). Same treatment the recruitment path
+      // already got.
       throw new Error(
-        'No leave approval flow is configured for your organization. Ask HR to add one before applying.'
+        'No leave approval flow is configured for your organisation. ' +
+        'Open HR → Admin → Leave Types, use the row menu on the leave type and pick ' +
+        '"Who approves this" to add one. A flow with no leave type set acts as the ' +
+        'catch-all for every type.'
       );
     }
 
@@ -190,7 +198,11 @@ export class LeaveService {
     );
 
     if (steps.length === 0) {
-      throw new Error('The configured leave approval flow has no steps.');
+      throw new Error(
+        `The leave approval flow "${chosen.flow_name ?? 'for this type'}" exists but has no ` +
+        'approval steps, so there is nobody to send the request to. Open HR → Admin → ' +
+        'Leave Types → "Who approves this" and add at least one approver.'
+      );
     }
 
     // approver_user_id is carried through when the flow pins a specific person.
