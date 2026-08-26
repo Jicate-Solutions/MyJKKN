@@ -230,6 +230,6 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
       "DB writes only: INSERTs loop_charter_proposals rows (status='proposed' or 'insufficient') from finished ai_jobs results, stamping their delivered_at via fn_ai_collect_claim. NEVER writes loop_registry, never enqueues, no notifications, no model calls.",
     safeToManualTrigger: true,
     notes:
-      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927020000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927040000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
   },
 ];

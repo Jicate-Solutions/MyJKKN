@@ -24,7 +24,7 @@
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` OR `?secret=` query
 // param (both constant-time — ref feedback_cron_auth_must_accept_query_secret).
 // Dispatch: ai_routine_schedules row 'metaloop-charter-collect' (daily 12:41
-// IST, migration 20260927020000), NOT vercel.json.
+// IST, migration 20260927040000), NOT vercel.json.
 // =====================================================================
 
 export const dynamic = 'force-dynamic';

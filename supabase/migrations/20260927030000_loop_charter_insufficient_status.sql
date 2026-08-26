@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20260927010000_loop_charter_insufficient_status.sql
+-- 20260927030000_loop_charter_insufficient_status.sql
 -- ----------------------------------------------------------------------------
 -- MetaLoop charter drafts — make honest abstention VISIBLE.
 --

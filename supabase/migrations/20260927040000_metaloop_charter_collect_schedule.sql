@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20260927020000_metaloop_charter_collect_schedule.sql
+-- 20260927040000_metaloop_charter_collect_schedule.sql
 -- ----------------------------------------------------------------------------
 -- MetaLoop daily COLLECT — the dispatcher SCHEDULE row. The AI-routine
 -- dispatcher fires ai_routine_schedules rows; this seed row IS the

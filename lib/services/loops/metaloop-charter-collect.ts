@@ -156,7 +156,7 @@ export async function collectCharterDrafts(admin: Admin): Promise<CollectSummary
             summary.skipped++;
           } else if (parsed.kind === 'insufficient' && insErr.code === '23514') {
             // DARK-SAFE: the status CHECK doesn't admit 'insufficient' yet
-            // (migration 20260927010000 unapplied). Fall back to the old
+            // (migration 20260927030000 unapplied). Fall back to the old
             // log-only behaviour rather than erroring the sweep.
             summary.insufficient++;
             console.warn(
