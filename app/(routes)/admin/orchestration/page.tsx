@@ -25,12 +25,14 @@ export const navMeta = { label: 'Orchestration', icon: 'LayoutDashboard' } as co
 import { ContentLayout } from '@/components/layout/content-layout';
 import { SuperAdminOnly } from '@/components/auth/admin-permission-guard';
 import { createClient } from '@/lib/supabase/server';
+import { evaluateDirectorSignals } from '@/lib/services/orchestration/director-signals';
 import { FreshnessBadge } from './_components/freshness-badge';
 import { WaitingQueue } from './_components/waiting-queue';
 import { ModuleCard } from './_components/module-card';
 import { ActionLog } from './_components/action-log';
 import { DeployControl } from './_components/deploy-lock';
 import type {
+  DirectorSignal,
   OrchestrationAction,
   OrchestrationModule,
   OrchestrationPr,
@@ -63,7 +65,11 @@ async function fetchActorNames(
 async function loadOrchestrationData() {
   const supabase = await createClient();
 
-  const [modulesRes, prsRes, actionsRes, sessionRes] = await Promise.all([
+  // Computed Director signals run alongside the existing four table reads —
+  // they're independent live-query evaluations against the same RLS-scoped
+  // client, not a dependency of anything else here, so they belong in the
+  // same Promise.all as everything else this page already loads in parallel.
+  const [modulesRes, prsRes, actionsRes, sessionRes, signals] = await Promise.all([
     supabase.from('orchestration_modules').select('*').order('title', { ascending: true }),
     supabase.from('orchestration_prs').select('*').order('number', { ascending: false }),
     supabase
@@ -72,6 +78,7 @@ async function loadOrchestrationData() {
       .order('created_at', { ascending: false })
       .limit(RECENT_ACTIONS_LIMIT),
     supabase.from('orchestration_session_state').select('*').order('last_seen_at', { ascending: false }),
+    evaluateDirectorSignals(supabase),
   ]);
 
   const actions = (actionsRes.data ?? []) as OrchestrationAction[];
@@ -86,6 +93,7 @@ async function loadOrchestrationData() {
     actions,
     actorNames,
     session: (sessionRes.data ?? []) as OrchestrationSessionState[],
+    signals: signals as DirectorSignal[],
   };
 }
 
@@ -102,7 +110,7 @@ function Fallback() {
 }
 
 export default async function OrchestrationPage() {
-  const { modules, prs, actions, actorNames, session } = await loadOrchestrationData();
+  const { modules, prs, actions, actorNames, session, signals } = await loadOrchestrationData();
   const newestHeartbeat = session[0]?.last_seen_at ?? null;
   const readyCount = modules.filter((m) => m.status === 'gated' || m.status === 'idle').length;
 
@@ -135,7 +143,7 @@ export default async function OrchestrationPage() {
             <DeployControl canDeploy={canDeploy} />
           </div>
 
-          <WaitingQueue modules={modules} />
+          <WaitingQueue modules={modules} signals={signals} />
 
           {modules.length === 0 ? (
             <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
