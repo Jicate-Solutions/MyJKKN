@@ -68,7 +68,7 @@ interface NarrativeRow {
   owner_user_id: string | null;
   evidence_row_count: number | null;
   updated_at: string | null;
-  // Return-edge measurement (20260831010000): how far the reviewer moved the
+  // Return-edge measurement (20260928010000): how far the reviewer moved the
   // AI draft at okay. Optional — see the fallback in useNarratives.
   edit_ratio?: number | null;
 }
@@ -86,7 +86,7 @@ function useNarratives() {
     queryKey: ['accreditation', 'naac', 'narratives', 'list'],
     queryFn: async (): Promise<NarrativeRow[]> => {
       const sb = createClientSupabaseClient() as any;
-      // edit_ratio ships in migration 20260831010000. If code deploys before
+      // edit_ratio ships in migration 20260928010000. If code deploys before
       // that migration is applied, the explicit column would 400 the whole
       // work-list — so on an edit_ratio error we retry without it rather than
       // blacking out a fraud-critical review surface.
