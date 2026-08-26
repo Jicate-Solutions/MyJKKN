@@ -60,3 +60,40 @@ export interface OrchestrationPayload {
   actions: OrchestrationAction[];
   session: OrchestrationSessionState[];
 }
+
+// ----------------------------------------------------------------------------
+// Computed Director signals — the self-maintaining replacement for hand-typed
+// "Waiting on you" rows. Each one is a live production query, resolvable only
+// by the Director (or, for 'organisational' ones, a leadership-level call
+// that isn't code-enforced), carrying its own cost figure. See
+// lib/services/orchestration/director-signals.ts for the nine definitions
+// and artifacts/directors-board-signals.html for the survey that produced
+// them (~40 candidates rejected against the three-gate rule).
+// ----------------------------------------------------------------------------
+
+/**
+ * 'enforced'      — only the Director's account can act (a pinned approver
+ *                    id, a named assignee) — verified against RLS/approval
+ *                    logic, not just a label.
+ * 'organisational' — the underlying write path is also open to admin/
+ *                    super_admin generally; it's on the board as a
+ *                    leadership call, not a code-enforced gate.
+ */
+export type DirectorSignalConfidence = 'enforced' | 'organisational';
+
+export interface DirectorSignal {
+  id: string;
+  label: string;
+  /** Where the Director goes to resolve it. Null only if no working route
+   *  was found for this signal (see the PR description for any parked ones). */
+  resolveUrl: string | null;
+  confidence: DirectorSignalConfidence;
+  active: boolean;
+  /** A plain-English cost sentence built from the same query — never a
+   *  fabricated number. Null when the signal is inactive. */
+  cost: string | null;
+  /** Present only when the signal's query itself failed — the panel still
+   *  renders every other signal (Promise.allSettled), this just couldn't
+   *  compute. Never shown as if it were a real "you're clear" result. */
+  error?: string;
+}
