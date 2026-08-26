@@ -201,7 +201,7 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     featureKeyNote:
       "Enqueues the 'loops.charter_draft' ai_jobs type on the ₹0 Max lane (provider/model live on the ai_job_types row); no ai_model_config feature row is resolved by the route itself.",
     whatItDoes:
-      'The chartering factory. Each week it picks up to 3 active loops whose charter is incomplete (any of the 5 legs NULL) but that have real evidence (a scheduled routine or audit history), bundles that evidence (registry row + last 5 loop_audits + last 5 dispatcher runs), and asks the Max-lane model to DRAFT the charter — the 5 legs plus a mandatory kill rule and a suggested verdict owner. Finished drafts are filed as proposals on /admin/loops/charters, where a super admin approves (writing the legs onto loop_registry via fn_loop_apply_charter_proposal) or rejects. Drafts that self-report insufficient evidence are logged, never filed.',
+      'The chartering factory. Each week it picks up to 3 active loops whose charter is incomplete (any of the 5 legs NULL) but that have real evidence (a scheduled routine or audit history), bundles that evidence (registry row + last 5 loop_audits + last 5 dispatcher runs), and asks the Max-lane model to DRAFT the charter — the 5 legs plus a mandatory kill rule and a suggested verdict owner. Finished drafts are filed as proposals on /admin/loops/charters, where a super admin approves (writing the legs onto loop_registry via fn_loop_apply_charter_proposal) or rejects. Drafts that self-report insufficient evidence are filed as display-only \'insufficient\' records on the same page — the machine\'s reason names what a human must fix before the loop can be chartered. Collection also runs daily via the metaloop-charter-collect sibling, so finished drafts surface same-day instead of waiting for next Sunday.',
     configKnobs:
       'ENQUEUE_CAP=3 per run, EVIDENCE_AUDITS=5, EVIDENCE_RUNS=5 (route constants). Schedule editable on /admin/ai-routines. The prompt is the loops.charter_draft champion in ai_prompt_versions — editing it on /admin/ai-models mints a challenger.',
     sideEffects:
@@ -210,5 +210,26 @@ export const LOOP_GOVERNANCE_ROUTINES: AIRoutine[] = [
     maxLane: true,
     notes:
       "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-drafts' — day/time editable in /admin/ai-routines), NOT a raw vercel.json cron. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Idempotent: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE + one-undecided-proposal-per-loop partial index + fn_ai_enqueue_system's in-flight dedupe. Safe no-op while the loops.charter_draft job type is unapplied/disabled.",
+  },
+  {
+    id: 'metaloop-charter-collect',
+    name: 'MetaLoop — Daily Draft Collect (surfaces finished charters same-day)',
+    category: 'misc-ai',
+    type: 'cron',
+    schedule: 'Daily 12:41 IST (dispatcher-managed)',
+    triggerPath: '/api/cron/metaloop-charter-collect',
+    callsClaude: false,
+    featureKey: null,
+    featureKeyNote:
+      'Pure collect pass — it only READS finished loops.charter_draft results from ai_jobs and files them; it never enqueues and resolves no model.',
+    whatItDoes:
+      "The latency half of the chartering factory. The Sunday metaloop-charter-drafts routine enqueues drafts AND collects, but a draft the Max-lane drain finishes minutes after Sunday's collect used to sit invisible until the NEXT Sunday (receipt: the 2026-08-16 drafts surfaced 2026-08-23). This routine runs the same collect pass daily: valid drafts file as 'proposed' rows on /admin/loops/charters; honest {insufficient:true} abstentions file as display-only 'insufficient' records carrying the machine's reason. Collect-only — drafting cadence stays Sunday's decision, so no extra Max-lane spend.",
+    configKnobs:
+      'COLLECT_BATCH=25 (shared module constant). Schedule editable on /admin/ai-routines. No model, no prompt — parsing and filing rules live in lib/services/loops/metaloop-charter-collect.ts.',
+    sideEffects:
+      "DB writes only: INSERTs loop_charter_proposals rows (status='proposed' or 'insufficient') from finished ai_jobs results, stamping their delivered_at via fn_ai_collect_claim. NEVER writes loop_registry, never enqueues, no notifications, no model calls.",
+    safeToManualTrigger: true,
+    notes:
+      "Fires via the AI-routine dispatcher (ai_routine_schedules row 'metaloop-charter-collect', migration 20260927020000), NOT vercel.json. Auth: CRON_SECRET (Bearer or ?secret=, both constant-time). Exactly-once across both clocks: fn_ai_collect_claim's delivered_at stamp + source_job_id UNIQUE — whichever of the daily/Sunday collects fires first wins, the other is a clean no-op. Safe no-op while the job type is dark or migrations are unapplied.",
   },
 ];
