@@ -72,14 +72,21 @@ BEGIN
   --    also rolls the seeds back and is reported as sim-error.
   BEGIN
     -- Deterministic anchors: oldest by (created_at, id), never a superlative
-    -- that can re-aim between runs.
+    -- that can re-aim between runs. The anchor must also carry ZERO real
+    -- learner_360_verdicts: Assert A reasons about "no verdict after the
+    -- action", and a real verdict landing in the window would corrupt the
+    -- assertion (verifier finding, 2026-08-26). An honest loud failure beats
+    -- a silently mis-anchored sim.
     SELECT lp.id, lp.institution_id INTO v_learner, v_institution
       FROM public.learners_profiles lp
      WHERE lp.institution_id IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM public.learner_360_verdicts v WHERE v.learner_id = lp.id
+       )
      ORDER BY lp.created_at ASC, lp.id ASC
      LIMIT 1;
     IF v_learner IS NULL THEN
-      RAISE EXCEPTION 'no learners_profiles row with an institution to anchor the sim';
+      RAISE EXCEPTION 'no verdict-free learners_profiles row to anchor the sim (every learner carries real 360 verdicts)';
     END IF;
 
     SELECT p.id INTO v_actor
