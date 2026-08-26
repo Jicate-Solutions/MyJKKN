@@ -36,7 +36,7 @@ const TEST_ACCOUNTS = [
   { role: 'health_counselor', label: 'Health Counselor', email: 'test.health_coun@jkkn.ac.in', color: 'bg-rose-300' },
 ];
 
-const DEFAULT_PASSWORD = 'Test@1234';
+const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_TEST_PASSWORD ?? '';
 
 export default function TestLoginPage() {
   const [loading, setLoading] = useState<string | null>(null);
@@ -105,7 +105,7 @@ export default function TestLoginPage() {
           <div>
             <h1 className="text-2xl font-bold">Test Login — Role Permission Testing</h1>
             <p className="text-sm text-muted-foreground">
-              Development only. Click any role to sign in as that test user. Password: {DEFAULT_PASSWORD}
+              Development only. Click any role to sign in as that test user. Set NEXT_PUBLIC_TEST_PASSWORD in .env.local.
             </p>
           </div>
         </div>

@@ -117,7 +117,20 @@ export interface BulkUpsertPayload {
   notes: string | null;
   effective_from: string | null;
   effective_to: string | null;
-  items: Array<{ billing_category_id: string; amount: number; is_optional: boolean }>;
+  items: Array<{
+    billing_category_id: string;
+    amount: number;
+    is_optional: boolean;
+    /**
+     * OMITTED when the sheet has no "Applies To" column, or left the cell
+     * blank. The RPC then keeps the stored value (every_year on a new fee).
+     * Sending a default here would silently re-bill a first-year-only fee in
+     * every year of the course, on every re-import of an older workbook.
+     */
+    applies_to?: FeeAppliesTo;
+    /** Only ever set alongside applies_to === 'specific_year'. */
+    applies_year_of_study?: number | null;
+  }>;
   /** Fallback due offset for items that set no date of their own. */
   default_due_offset_days?: number | null;
   /**
@@ -134,6 +147,14 @@ export interface RowResolution {
   name: string;
   payload?: BulkUpsertPayload;
   errors: string[];
+  /**
+   * The structure columns as the SHEET spells them, carried through untouched.
+   * The payload holds ids; ids cannot be shown to an operator, and inverting the
+   * lookup maps only gets the lowercased key back. This is the one place the
+   * operator's own text survives, so the change preview can say
+   * "Institution: JKKN College" on a row that is creating one.
+   */
+  source?: Record<string, string>;
 }
 
 const norm = (v: unknown): string => String(v ?? '').trim();
@@ -360,10 +381,13 @@ export function resolveRow(
     }
   }
 
-  if (errors.length > 0) return { rowNumber, name, errors };
+  const source: Record<string, string> = {};
+  for (const header of FIXED_HEADERS) source[header] = norm(raw[header]);
+
+  if (errors.length > 0) return { rowNumber, name, errors, source };
 
   return {
-    rowNumber, name, errors: [],
+    rowNumber, name, errors: [], source,
     payload: {
       structure_id: structureId,
       institution_id: instId!, degree_id: degId!, department_id: deptId!,
@@ -852,7 +876,50 @@ export function resolveScheduleSheet(
 // inherit, two different non-blank values are an error naming the row. The same
 // rule already governs Due Anchor, so there is one thing to learn, not two.
 
-export const UNIFIED_ITEM_HEADERS = ['Fee Category', 'Amount'] as const;
+export const UNIFIED_ITEM_HEADERS = [
+  'Fee Category',
+  'Amount',
+  // WHICH YEARS OF THE COURSE THIS FEE IS BILLED IN. The column defaults to
+  // 'every_year' in Postgres, so before this column existed every fee the sheet
+  // created was billed in all four years of a BE -- including one-off fees like
+  // an admission or uniform charge. There was no way to say otherwise except by
+  // opening each structure on screen afterwards.
+  'Applies To',
+  'Year of Study',
+] as const;
+
+export const APPLIES_TO_LABELS = {
+  first_year_only: 'First year only',
+  every_year: 'Every year',
+  specific_year: 'Specific year',
+} as const;
+
+export type FeeAppliesTo = keyof typeof APPLIES_TO_LABELS;
+
+/**
+ * Accepts the label the on-screen picker shows ("First year only"), the stored
+ * code ('first_year_only'), and the shapes an operator actually types --
+ * "first year", "1st year", "all years". Blank returns null, which means "the
+ * sheet did not say": the RPC then keeps what is stored rather than resetting
+ * the fee to every_year because a cell was left empty.
+ */
+export function normalizeAppliesTo(cell: unknown): FeeAppliesTo | null | 'INVALID' {
+  const key = lower(cell).replace(/[\s_-]+/g, '');
+  if (key === '') return null;
+  if (key === 'firstyearonly' || key === 'firstyear' || key === '1styear') return 'first_year_only';
+  if (key === 'everyyear' || key === 'allyears' || key === 'every' || key === 'all') return 'every_year';
+  if (key === 'specificyear' || key === 'specific') return 'specific_year';
+  return 'INVALID';
+}
+
+/** Parses "Year of Study": blank -> null, else an integer 1-10. */
+export function parseYearOfStudy(cell: unknown): number | null | 'INVALID' {
+  const raw = norm(cell);
+  if (raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 10) return 'INVALID';
+  return n;
+}
 
 export const UNIFIED_INSTALMENT_HEADERS = [
   'Instalment #',
@@ -865,7 +932,7 @@ export const UNIFIED_INSTALMENT_HEADERS = [
   'Promotes To',
 ] as const;
 
-/** 29 columns: 19 structure, 2 fee item, 8 instalment. */
+/** 31 columns: 19 structure, 4 fee item, 8 instalment. */
 export const UNIFIED_HEADERS = [
   ...FIXED_HEADERS,
   ...UNIFIED_ITEM_HEADERS,
@@ -918,6 +985,13 @@ export interface UnifiedSheetResolution {
 export function resolveUnifiedSheet(
   rawRows: Record<string, unknown>[],
   lookups: BulkResolveLookups,
+  /**
+   * Spreadsheet row number of rawRows[0]. 2 when the header is on row 1, which
+   * it almost always is — but an operator who inserts a title line above the
+   * headers shifts every row, and a preview that then names row 7 for a problem
+   * on row 8 sends them to the wrong cell.
+   */
+  firstRowNumber = 2,
 ): UnifiedSheetResolution {
   interface SheetRow { rowNumber: number; raw: Record<string, unknown> }
 
@@ -946,9 +1020,10 @@ export function resolveUnifiedSheet(
     const key = structureId
       ? `id::${structureId}`
       : `new::${NEW_KEY_FIELDS.map((f) => lower(raw[f])).join(' ')}`;
+    const rowNumber = firstRowNumber + i;
     const b = buckets.get(key);
-    if (b) b.push({ rowNumber: i + 2, raw });
-    else buckets.set(key, [{ rowNumber: i + 2, raw }]);
+    if (b) b.push({ rowNumber, raw });
+    else buckets.set(key, [{ rowNumber, raw }]);
   });
 
   const resolutions: RowResolution[] = [];
@@ -1004,6 +1079,22 @@ export function resolveUnifiedSheet(
     }
 
     const schedules: ItemScheduleConfig[] = [];
+    /**
+     * billing_category_id -> what the sheet said about which years bill this
+     * fee. Collected here and stamped onto the payload's items after
+     * resolveRow() has built them, so the wide-row validator stays the single
+     * owner of "is this a valid fee amount for a valid category".
+     */
+    const appliesByCategory = new Map<
+      string,
+      { appliesTo: FeeAppliesTo; year: number | null }
+    >();
+    // Absent COLUMN (an export taken before it existed) is not the same as a
+    // blank CELL: neither writes, but only the column's absence is a workbook
+    // the operator never had the chance to fill in.
+    const hasAppliesColumn = rows.some((r) =>
+      Object.prototype.hasOwnProperty.call(r.raw, 'Applies To'),
+    );
 
     for (const [key, group] of feeRows) {
       const categoryName = feeNames.get(key)!;
@@ -1032,6 +1123,70 @@ export function resolveUnifiedSheet(
       structureCells[categoryName] = amountRows[0].raw['Amount'];
       itemCount++;
 
+      // ── Which years of the course bill this fee ─────────────────────────
+      if (hasAppliesColumn) {
+        const appliesRows = group.filter((r) => norm(r.raw['Applies To']) !== '');
+        const distinctApplies = [...new Set(appliesRows.map((r) => norm(r.raw['Applies To'])))];
+        const yearRows = group.filter((r) => norm(r.raw['Year of Study']) !== '');
+        const distinctYears = [...new Set(yearRows.map((r) => norm(r.raw['Year of Study'])))];
+
+        if (distinctApplies.length > 1) {
+          at(
+            appliesRows[1].rowNumber,
+            `"${categoryName}" has more than one "Applies To" (${distinctApplies[0]} and ${distinctApplies[1]}). It is a property of the fee, so it must read the same on every row of it.`,
+          );
+          continue;
+        }
+        if (distinctYears.length > 1) {
+          at(
+            yearRows[1].rowNumber,
+            `"${categoryName}" has more than one "Year of Study" (${distinctYears[0]} and ${distinctYears[1]}). It is a property of the fee, so it must read the same on every row of it.`,
+          );
+          continue;
+        }
+
+        const appliesTo = normalizeAppliesTo(distinctApplies[0] ?? '');
+        if (appliesTo === 'INVALID') {
+          at(
+            appliesRows[0].rowNumber,
+            `"${categoryName}" has an unrecognised "Applies To" (${distinctApplies[0]}). Use First year only, Every year, or Specific year.`,
+          );
+          continue;
+        }
+
+        const year = parseYearOfStudy(distinctYears[0] ?? '');
+        if (year === 'INVALID') {
+          at(
+            yearRows[0].rowNumber,
+            `"${categoryName}" has an invalid "Year of Study" (${distinctYears[0]}). Use a whole number from 1 to 10.`,
+          );
+          continue;
+        }
+
+        // The DB guard afsi_applies_year_chk is a BICONDITIONAL: the year is
+        // set if and only if applies_to is 'specific_year'. Both halves are
+        // enforced here so the operator gets a row number instead of a
+        // constraint name mid-import.
+        if (appliesTo === 'specific_year' && year === null) {
+          at(
+            appliesRows[0].rowNumber,
+            `"${categoryName}" is set to Specific year, so it needs a "Year of Study" (1-10).`,
+          );
+          continue;
+        }
+        if (appliesTo !== 'specific_year' && year !== null) {
+          at(
+            yearRows[0].rowNumber,
+            `"${categoryName}" has a "Year of Study" but "Applies To" is ${appliesTo === null ? 'blank' : APPLIES_TO_LABELS[appliesTo]}. Year of Study only means something next to Specific year — clear one of them.`,
+          );
+          continue;
+        }
+
+        if (appliesTo !== null) {
+          appliesByCategory.set(categoryId, { appliesTo, year });
+        }
+      }
+
       const lines: RawScheduleLine[] = [];
       let lineFailed = false;
       for (const r of group) {
@@ -1055,8 +1210,24 @@ export function resolveUnifiedSheet(
     const resolved = resolveRow(structureCells, headRow, lookups);
     resolved.errors = [...resolved.errors, ...errors];
     if (resolved.errors.length > 0) {
-      resolutions.push({ rowNumber: headRow, name: resolved.name, errors: resolved.errors });
+      resolutions.push({
+        rowNumber: headRow,
+        name: resolved.name,
+        errors: resolved.errors,
+        source: resolved.source,
+      });
       continue;
+    }
+
+    for (const item of resolved.payload!.items) {
+      const applies = appliesByCategory.get(item.billing_category_id);
+      if (!applies) continue; // blank cell / absent column = leave it alone
+      item.applies_to = applies.appliesTo;
+      // Set ONLY for specific_year. The RPC derives it the same way, but a
+      // payload that carries a year next to 'every_year' is a lie either way.
+      if (applies.appliesTo === 'specific_year') {
+        item.applies_year_of_study = applies.year;
+      }
     }
 
     // ALWAYS set, even when empty: its presence is what tells the RPC the sheet
@@ -1067,4 +1238,152 @@ export function resolveUnifiedSheet(
   }
 
   return { resolutions, itemCount };
+}
+
+// ============================================================================
+// WHICH TAB, AND WHICH ROW IS THE HEADER
+// ============================================================================
+// The importer used to do `wb.Sheets['Fee Structures']` and 400 with
+// `Sheet "Fee Structures" not found` when that exact key was absent. Every one
+// of these ordinary things produced that dead end, with nothing in the message
+// to say what had actually been uploaded:
+//
+//   • Excel duplicating a tab as "Fee Structures (2)" (right-click → Move or
+//     Copy, the usual way an operator keeps a backup before editing).
+//   • The sheet pasted onto a fresh tab, or the tab simply renamed.
+//   • A workbook re-saved as CSV and renamed back to .xlsx — SheetJS then
+//     reports a single tab called "Sheet1".
+//   • A non-breaking space or a stray trailing space in the tab name.
+//
+// detectSheetLayout() already refuses to trust the tab NAME for the layout,
+// for exactly these reasons; sheet SELECTION never got the same treatment.
+// It does now: a sheet is recognised by the COLUMNS it carries. The name is
+// only a tie-breaker.
+//
+// The same pass also finds the header ROW, because the other half of this
+// failure is an operator inserting a title line above the headers. sheet_to_json
+// assumes row 1, so that one insertion silently re-keys every column and the
+// whole file comes back as errors about missing institutions.
+
+/**
+ * Columns that mark a sheet as a fee-structure data sheet. Deliberately spans
+ * BOTH layouts (the unified tab's 'Fee Category'/'Amount' and the structure
+ * columns both layouts share) so an old wide-format workbook scores just as
+ * well as a current one — the layout question is detectSheetLayout()'s, not
+ * this one's.
+ */
+export const SHEET_SIGNATURE_HEADERS: readonly string[] = [
+  'Fee Structure ID',
+  'Institution',
+  'Degree',
+  'Department',
+  'Programme',
+  'Admission Year',
+  'Quota',
+  'Communities',
+  'Name',
+  'Status',
+  'Fee Category',
+  'Amount',
+];
+
+/**
+ * Header text, comparable. Collapses the non-breaking space Excel leaves behind
+ * when a header is pasted from a web page, folds runs of whitespace, and
+ * lowercases — so "  Fee  Structure ID " matches "Fee Structure ID".
+ */
+export function normalizeHeaderText(v: unknown): string {
+  return String(v ?? '').replace(/[\u00a0\u2007\u202f]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** How many signature columns a candidate header row carries. */
+export function headerRowScore(row: readonly unknown[]): number {
+  const seen = new Set(row.map(normalizeHeaderText).filter(Boolean));
+  return SHEET_SIGNATURE_HEADERS.filter((h) => seen.has(normalizeHeaderText(h))).length;
+}
+
+/**
+ * 5 of 12, not all 12: an operator is allowed to delete columns they are not
+ * editing, and an old export predates some of them. 5 is comfortably more than
+ * any non-data tab in these workbooks scores — the legacy "Fee Schedules" tab
+ * shares only 'Fee Structure ID' and 'Fee Category', and "Lists" shares at most
+ * a handful of one-word names.
+ */
+const MIN_SIGNATURE_SCORE = 5;
+
+/** How far down a sheet to look for the header row. */
+const HEADER_SEARCH_DEPTH = 10;
+
+export interface SheetCandidate {
+  name: string;
+  /** The sheet's first rows as arrays (XLSX.utils.sheet_to_json(ws, {header:1})). */
+  rows: ReadonlyArray<readonly unknown[]>;
+}
+
+export interface DataSheetPick {
+  name: string;
+  /** 0-based index of the header row WITHIN the sheet. 0 = the normal case. */
+  headerRowIndex: number;
+  header: unknown[];
+  layout: 'unified' | 'legacy';
+  score: number;
+  /** True when the tab was actually called "Fee Structures". */
+  nameMatched: boolean;
+}
+
+/** The best header row in one sheet, or null when it carries none. */
+function bestHeaderRow(rows: SheetCandidate['rows']): { index: number; score: number } | null {
+  let best: { index: number; score: number } | null = null;
+  const depth = Math.min(rows.length, HEADER_SEARCH_DEPTH);
+  for (let i = 0; i < depth; i++) {
+    const score = headerRowScore(rows[i] ?? []);
+    // Strictly greater, so the EARLIEST row wins a tie. A data row can repeat a
+    // header's text, and picking the later one would drop rows above it.
+    if (score >= MIN_SIGNATURE_SCORE && (!best || score > best.score)) {
+      best = { index: i, score };
+    }
+  }
+  return best;
+}
+
+/**
+ * Picks the data sheet out of a workbook by its columns.
+ *
+ * Preference order: a tab actually named "Fee Structures" that also carries the
+ * columns, then the highest-scoring tab, then workbook order. Returns null when
+ * no tab looks like a fee-structure sheet — the caller reports what it DID find
+ * rather than naming a tab the operator does not have.
+ */
+export function pickDataSheet(sheets: readonly SheetCandidate[]): DataSheetPick | null {
+  const target = normalizeHeaderText(FEE_STRUCTURE_SHEET_NAME);
+  let best: DataSheetPick | null = null;
+
+  for (const sheet of sheets) {
+    const head = bestHeaderRow(sheet.rows);
+    if (!head) continue;
+    const header = [...(sheet.rows[head.index] ?? [])];
+    const pick: DataSheetPick = {
+      name: sheet.name,
+      headerRowIndex: head.index,
+      header,
+      layout: detectSheetLayout(header),
+      score: head.score,
+      nameMatched: normalizeHeaderText(sheet.name) === target,
+    };
+    if (
+      !best ||
+      (pick.nameMatched && !best.nameMatched) ||
+      (pick.nameMatched === best.nameMatched && pick.score > best.score)
+    ) {
+      best = pick;
+    }
+  }
+
+  return best;
+}
+
+/** The workbook's real key for a tab, matched loosely. Used for "Fee Schedules". */
+export function findSheetName(sheetNames: readonly string[], target: string): string | null {
+  const want = normalizeHeaderText(target);
+  return sheetNames.find((n) => normalizeHeaderText(n) === want) ?? null;
 }

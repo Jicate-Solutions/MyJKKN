@@ -171,47 +171,17 @@ export async function updateReceipt(
   }
 }
 
-/**
- * Delete a receipt
- */
-export async function deleteReceipt(id: string): Promise<ActionResult> {
-  try {
-    const supabase = await createClient();
-
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { success: false, error: 'Not authenticated' };
-    }
-
-    const { error: deleteError } = await supabase
-      .from('billing_receipts')
-      .delete()
-      .eq('id', id);
-
-    if (deleteError) {
-      console.error('[deleteReceipt] Error deleting receipt:', deleteError);
-      return {
-        success: false,
-        error: `Failed to delete receipt: ${deleteError.message}`
-      };
-    }
-
-    // Invalidate caches
-    await revalidateTag(cacheTags.billing.receipts.byId(id), 'warm');
-    await revalidateTag(cacheTags.billing.receipts.list(), 'warm');
-
-    return { success: true };
-  } catch (error) {
-    console.error('[deleteReceipt] Unexpected error:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to delete receipt'
-    };
-  }
-}
+// deleteReceipt was removed 2026-08-25 along with the detail page's Delete
+// button, its only caller. It reported success on a blocked delete: RLS filters
+// the row out, Postgres deletes zero rows, and zero rows is not an error — so
+// `deleteError` was null and the caller toasted "deleted successfully" over a
+// receipt that still existed. An exported server action is a live endpoint, so
+// leaving it unused would have kept that hard-delete path callable.
+//
+// Reversing a receipt now goes through the cancellation workflow (request →
+// super-admin approval → bill reverted), or, for a super admin in a hurry, the
+// Void action on /billing/receipts — which keeps the receipt number accounted
+// for and requires a reason, unlike a hard delete.
 
 /**
  * Send receipt via email

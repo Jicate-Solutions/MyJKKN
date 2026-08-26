@@ -24770,7 +24770,11 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $function$
 DECLARE
-  v_req public.billing_receipt_cancel_requests%ROWTYPE;
+  v_req   public.billing_receipt_cancel_requests%ROWTYPE;
+  v_name  text;
+  v_email text;
+  v_super boolean;
+  v_role  text;
 BEGIN
   SELECT * INTO v_req FROM public.billing_receipt_cancel_requests
   WHERE id = p_request_id FOR UPDATE;
@@ -24784,11 +24788,28 @@ BEGIN
     RAISE EXCEPTION 'Only the requester can withdraw this request';
   END IF;
 
+  -- Identity SNAPSHOT, matching the request/decide RPCs. Added 20260825140000:
+  -- this insert used to write actor_id only, so a withdrawn request's History
+  -- showed a badge and a timestamp with nobody attached. Snapshotted rather
+  -- than joined live because a profile can be renamed, have its email changed
+  -- or be deactivated long after the fact.
+  SELECT p.full_name, p.email, COALESCE(p.is_super_admin, false)
+    INTO v_name, v_email, v_super
+  FROM public.profiles p WHERE p.id = auth.uid();
+
+  SELECT cr.role_name INTO v_role
+  FROM public.user_roles ur JOIN public.custom_roles cr ON cr.id = ur.role_id
+  WHERE ur.user_id = auth.uid() LIMIT 1;
+
+  -- Deliberately touches neither the receipt nor the bill: withdrawing drops
+  -- the REQUEST, it does not cancel the receipt. Only approval reverses money.
   UPDATE public.billing_receipt_cancel_requests
      SET status='withdrawn', updated_at=now() WHERE id = p_request_id;
   INSERT INTO public.billing_receipt_cancel_request_actions
-    (request_id, action_type, actor_id, notes)
-    VALUES (p_request_id, 'withdrawn', auth.uid(), p_notes);
+    (request_id, action_type, actor_id, actor_name, actor_email,
+     actor_role_name, actor_is_super_admin, notes)
+    VALUES (p_request_id, 'withdrawn', auth.uid(), v_name, v_email,
+            v_role, v_super, p_notes);
 END;
 $function$;
 
@@ -53071,3 +53092,701 @@ COMMENT ON FUNCTION public.hr_leave_type_delete(uuid, boolean) IS
 
 REVOKE ALL ON FUNCTION public.hr_leave_type_delete(uuid, boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.hr_leave_type_delete(uuid, boolean) TO authenticated;
+
+-- ===========================================================================
+-- Source: 20261004000000_bulk_upsert_fee_structure_applies_to.sql
+-- The bulk sheet carries "Applies To" / "Year of Study" per fee. The year is
+-- now DERIVED from the resolved applies_to instead of falling back on its own,
+-- so a fee moving off specific_year cannot leave a year behind and trip
+-- afsi_applies_year_chk.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION public.admission_bulk_upsert_fee_structure(p_payload jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_structure_id   uuid := NULLIF(p_payload->>'structure_id','')::uuid;
+  v_institution_id uuid := (p_payload->>'institution_id')::uuid;
+  v_existing       record;
+  v_item           jsonb;
+  v_comm           uuid;
+  v_idx            int := 0;
+  v_snapshot       jsonb := '{}'::jsonb;
+  v_prev           jsonb;
+  v_sheet          jsonb := '{}'::jsonb;
+  v_cfg            jsonb;
+  v_new_item_id    uuid;
+  v_line           jsonb;
+  v_seq            int;
+  v_has_sheet      boolean := (p_payload ? 'item_schedules');
+  v_mode           text;
+  v_anchor         text;
+  v_due_date       date;
+  v_applies        text;
+  v_applies_year   int;
+BEGIN
+  IF NOT (user_has_permission('admission_fees.manage')
+          AND role_has_institution_access(v_institution_id)) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'permission_denied');
+  END IF;
+
+  -- Sheet-supplied schedules, re-keyed by category for O(1) lookup in the loop.
+  IF v_has_sheet THEN
+    SELECT COALESCE(jsonb_object_agg(e->>'billing_category_id', e), '{}'::jsonb)
+      INTO v_sheet
+    FROM jsonb_array_elements(COALESCE(p_payload->'item_schedules','[]'::jsonb)) e
+    WHERE NULLIF(e->>'billing_category_id','') IS NOT NULL;
+  END IF;
+
+  IF v_structure_id IS NULL THEN
+    INSERT INTO admission_fee_structures (
+      institution_id, degree_id, department_id, programme_id,
+      quota_id, admission_year_id, gender, accommodation_type_id,
+      hostel_category_id, mess_category_id, package_type,
+      name, status, notes, effective_from, effective_to,
+      default_due_offset_days
+    ) VALUES (
+      v_institution_id,
+      (p_payload->>'degree_id')::uuid,
+      (p_payload->>'department_id')::uuid,
+      (p_payload->>'programme_id')::uuid,
+      (p_payload->>'quota_id')::uuid,
+      (p_payload->>'admission_year_id')::uuid,
+      NULLIF(p_payload->>'gender','')::text,
+      NULLIF(p_payload->>'accommodation_type_id','')::uuid,
+      NULLIF(p_payload->>'hostel_category_id','')::uuid,
+      NULLIF(p_payload->>'mess_category_id','')::uuid,
+      NULLIF(p_payload->>'package_type','')::text,
+      p_payload->>'name',
+      COALESCE(NULLIF(p_payload->>'status',''),'draft'),
+      NULLIF(p_payload->>'notes',''),
+      NULLIF(p_payload->>'effective_from','')::date,
+      NULLIF(p_payload->>'effective_to','')::date,
+      COALESCE(NULLIF(p_payload->>'default_due_offset_days','')::int, 30)
+    ) RETURNING id INTO v_structure_id;
+  ELSE
+    SELECT * INTO v_existing FROM admission_fee_structures WHERE id = v_structure_id;
+    IF NOT FOUND THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'structure_not_found');
+    END IF;
+    IF v_existing.institution_id <> v_institution_id
+       OR v_existing.degree_id        <> (p_payload->>'degree_id')::uuid
+       OR v_existing.department_id     <> (p_payload->>'department_id')::uuid
+       OR v_existing.programme_id      <> (p_payload->>'programme_id')::uuid
+       OR v_existing.quota_id          <> (p_payload->>'quota_id')::uuid
+       OR v_existing.admission_year_id <> (p_payload->>'admission_year_id')::uuid THEN
+      RETURN jsonb_build_object('ok', false, 'error',
+        'dimension_mismatch: dimensions are immutable on edit and no longer match this Fee Structure ID');
+    END IF;
+    UPDATE admission_fee_structures SET
+      gender                = NULLIF(p_payload->>'gender','')::text,
+      accommodation_type_id = CASE WHEN p_payload ? 'accommodation_type_id'
+                                   THEN NULLIF(p_payload->>'accommodation_type_id','')::uuid
+                                   ELSE v_existing.accommodation_type_id END,
+      hostel_category_id    = CASE WHEN p_payload ? 'hostel_category_id'
+                                   THEN NULLIF(p_payload->>'hostel_category_id','')::uuid
+                                   ELSE v_existing.hostel_category_id END,
+      mess_category_id      = CASE WHEN p_payload ? 'mess_category_id'
+                                   THEN NULLIF(p_payload->>'mess_category_id','')::uuid
+                                   ELSE v_existing.mess_category_id END,
+      -- Same absent-key contract as the tier columns above. package_type is a
+      -- LABEL, not a matching dimension -- no function reads it, and it is not
+      -- in the overlap identity -- so it is editable on an UPDATE row where the
+      -- six dimensions are frozen.
+      package_type          = CASE WHEN p_payload ? 'package_type'
+                                   THEN NULLIF(p_payload->>'package_type','')::text
+                                   ELSE v_existing.package_type END,
+      name                  = p_payload->>'name',
+      status                = COALESCE(NULLIF(p_payload->>'status',''),'draft'),
+      notes                 = NULLIF(p_payload->>'notes',''),
+      effective_from        = NULLIF(p_payload->>'effective_from','')::date,
+      effective_to          = NULLIF(p_payload->>'effective_to','')::date,
+      -- Absent key = leave it alone, same contract as the tier columns above.
+      default_due_offset_days = CASE WHEN p_payload ? 'default_due_offset_days'
+                                     THEN COALESCE(NULLIF(p_payload->>'default_due_offset_days','')::int,
+                                                   v_existing.default_due_offset_days)
+                                     ELSE v_existing.default_due_offset_days END,
+      updated_at            = now()
+    WHERE id = v_structure_id;
+  END IF;
+
+  DELETE FROM admission_fee_structure_communities WHERE fee_structure_id = v_structure_id;
+  FOR v_comm IN SELECT jsonb_array_elements_text(p_payload->'community_category_ids')::uuid LOOP
+    INSERT INTO admission_fee_structure_communities (fee_structure_id, community_category_id)
+    VALUES (v_structure_id, v_comm);
+  END LOOP;
+
+  -- SNAPSHOT everything the item re-INSERT does not carry
+  SELECT COALESCE(jsonb_object_agg(fsi.billing_category_id::text, jsonb_build_object(
+           'applies_to',              fsi.applies_to,
+           'applies_year_of_study',   fsi.applies_year_of_study,
+           'schedule_mode',           fsi.schedule_mode,
+           'due_anchor',              fsi.due_anchor,
+           'due_offset_days',         fsi.due_offset_days,
+           'due_date',                fsi.due_date,
+           'promotes_to_status_code', fsi.promotes_to_status_code,
+           'schedules', COALESCE((
+             SELECT jsonb_agg(jsonb_build_object(
+                      'sequence_no',             s.sequence_no,
+                      'share_percent',           s.share_percent,
+                      'fixed_amount',            s.fixed_amount,
+                      'due_offset_days',         s.due_offset_days,
+                      'due_date',                s.due_date,
+                      'promotes_to_status_code', s.promotes_to_status_code,
+                      'label',                   s.label
+                    ) ORDER BY s.sequence_no)
+             FROM admission_fee_structure_item_schedules s
+             WHERE s.fee_structure_item_id = fsi.id
+           ), '[]'::jsonb)
+         )), '{}'::jsonb)
+    INTO v_snapshot
+    FROM admission_fee_structure_items fsi
+   WHERE fsi.fee_structure_id = v_structure_id;
+
+  DELETE FROM admission_fee_structure_items WHERE fee_structure_id = v_structure_id;
+
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_payload->'items') LOOP
+    v_prev := COALESCE(v_snapshot -> (v_item->>'billing_category_id'), '{}'::jsonb);
+    -- The sheet wins for a category it names; every other category falls back
+    -- to what was there before.
+    v_cfg  := v_sheet -> (v_item->>'billing_category_id');
+
+    -- Resolve mode / anchor / date TOGETHER: the anchor is what decides whether
+    -- due_date is ever read, and chk_afsi_due_date_required_for_fixed refuses a
+    -- single 'fixed_date' item that has no date under it.
+    v_mode := COALESCE(NULLIF(v_cfg->>'schedule_mode',''),
+                       NULLIF(v_prev->>'schedule_mode',''), 'single');
+    v_due_date := CASE WHEN v_cfg IS NOT NULL THEN NULLIF(v_cfg->>'due_date','')::date
+                       ELSE NULLIF(v_prev->>'due_date','')::date END;
+    -- The sheet CARRIES the anchor now; blank/absent still means "leave alone".
+    v_anchor := COALESCE(NULLIF(v_cfg->>'due_anchor',''),
+                         NULLIF(v_prev->>'due_anchor',''), 'generation_date');
+    -- Self-heal: the date it pointed at is gone (cleared, or the fee was split
+    -- so the lines own their dates). Leaving 'fixed_date' here would either
+    -- violate the CHECK or silently base offsets on a date that is not there.
+    IF v_anchor = 'fixed_date' AND (v_mode = 'split' OR v_due_date IS NULL) THEN
+      v_anchor := 'generation_date';
+    END IF;
+
+    -- Applies-to and its year resolve TOGETHER, for the same reason the anchor
+    -- and the date do: afsi_applies_year_chk is a biconditional, so a year that
+    -- outlives the 'specific_year' that justified it fails the insert. The
+    -- sheet's value wins; blank or absent keeps what was stored; nothing stored
+    -- means every_year, which is the column default.
+    v_applies := COALESCE(NULLIF(v_item->>'applies_to',''),
+                          NULLIF(v_prev->>'applies_to',''), 'every_year');
+    v_applies_year := CASE
+      WHEN v_applies = 'specific_year'
+        THEN COALESCE(NULLIF(v_item->>'applies_year_of_study','')::int,
+                      NULLIF(v_prev->>'applies_year_of_study','')::int)
+      ELSE NULL END;
+    IF v_applies = 'specific_year' AND v_applies_year IS NULL THEN
+      RETURN jsonb_build_object('ok', false, 'error',
+        'applies_year_required: a fee is set to Specific year but carries no Year of Study (1-10)');
+    END IF;
+
+    INSERT INTO admission_fee_structure_items (
+      fee_structure_id, billing_category_id, amount, is_optional, sort_order,
+      applies_to, applies_year_of_study,
+      schedule_mode, due_anchor, due_offset_days, due_date, promotes_to_status_code
+    ) VALUES (
+      v_structure_id,
+      (v_item->>'billing_category_id')::uuid,
+      (v_item->>'amount')::numeric,
+      COALESCE((v_item->>'is_optional')::boolean, false),
+      v_idx,
+      v_applies,
+      v_applies_year,
+      v_mode,
+      v_anchor,
+      CASE WHEN v_cfg IS NOT NULL THEN NULLIF(v_cfg->>'due_offset_days','')::int
+           ELSE NULLIF(v_prev->>'due_offset_days','')::int END,
+      v_due_date,
+      CASE WHEN v_cfg IS NOT NULL THEN NULLIF(v_cfg->>'promotes_to_status_code','')
+           ELSE NULLIF(v_prev->>'promotes_to_status_code','') END
+    )
+    RETURNING id INTO v_new_item_id;
+
+    -- Instalment lines: the sheet's if it named this category, else the
+    -- snapshot's. Re-sequenced from 1 either way, because the shape validator
+    -- rejects gaps and the sheet may legitimately have been sorted by date.
+    v_seq := 0;
+    FOR v_line IN
+      SELECT * FROM jsonb_array_elements(
+        CASE WHEN v_cfg IS NOT NULL
+             THEN COALESCE(v_cfg->'lines', '[]'::jsonb)
+             ELSE COALESCE(v_prev->'schedules', '[]'::jsonb) END)
+    LOOP
+      v_seq := v_seq + 1;
+      INSERT INTO admission_fee_structure_item_schedules (
+        fee_structure_item_id, sequence_no, share_percent, fixed_amount,
+        due_offset_days, due_date, promotes_to_status_code, label
+      ) VALUES (
+        v_new_item_id,
+        v_seq,
+        NULLIF(v_line->>'share_percent','')::numeric,
+        NULLIF(v_line->>'fixed_amount','')::numeric,
+        NULLIF(v_line->>'due_offset_days','')::int,
+        NULLIF(v_line->>'due_date','')::date,
+        NULLIF(v_line->>'promotes_to_status_code',''),
+        NULLIF(v_line->>'label','')
+      );
+    END LOOP;
+
+    v_idx := v_idx + 1;
+  END LOOP;
+
+  RETURN jsonb_build_object('ok', true, 'structure_id', v_structure_id);
+EXCEPTION
+  WHEN OTHERS THEN
+    RETURN jsonb_build_object('ok', false, 'error', SQLERRM);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.admission_bulk_upsert_fee_structure(jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.admission_bulk_upsert_fee_structure(jsonb)
+  TO authenticated, service_role;
+
+
+-- ── Receipt cancellation approval flow resolution (20260825160000) ────────
+-- fn_act_on_receipt_cancellation now gates on fn_can_decide_receipt_cancellation
+-- instead of a hardcoded is_super_admin() (migration 20260825160100).
+-- ── Resolution ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fn_resolve_receipt_cancel_approver(
+  p_institution_id uuid
+)
+RETURNS public.billing_receipt_cancel_approval_flows
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT *
+  FROM public.billing_receipt_cancel_approval_flows
+  WHERE is_active
+    AND (institution_id = p_institution_id OR institution_id IS NULL)
+  -- Specific beats general: a row for the institution sorts before the
+  -- group-wide default, which carries a NULL institution_id.
+  ORDER BY institution_id NULLS LAST
+  LIMIT 1;
+$function$;
+
+/**
+ * Does the CURRENT user hold the role named by a flow?
+ *
+ * Mirrors user_has_permission()'s role resolution exactly: the UNION of
+ * profiles.role and user_roles -> custom_roles.role_key. This is not
+ * belt-and-braces. Measured 2026-08-25: 448 users hold a user_roles role that
+ * differs from profiles.role (multi-role, not corruption) and 45 users have a
+ * profiles.role with no user_roles row at all. Consulting either source alone
+ * grants the wrong people authority or locks out the other set, silently.
+ */
+CREATE OR REPLACE FUNCTION public._fn_current_user_holds_role(p_role_key text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT p_role_key IS NOT NULL AND (
+    EXISTS (SELECT 1 FROM public.profiles p
+             WHERE p.id = auth.uid() AND p.role = p_role_key)
+    OR EXISTS (SELECT 1 FROM public.user_roles ur
+                 JOIN public.custom_roles cr ON cr.id = ur.role_id
+                WHERE ur.user_id = auth.uid() AND cr.role_key = p_role_key)
+  );
+$function$;
+
+/** "Am I an approver for this institution?" — for the page guard and RLS. */
+CREATE OR REPLACE FUNCTION public.fn_is_receipt_cancel_approver(
+  p_institution_id uuid DEFAULT NULL
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_flow public.billing_receipt_cancel_approval_flows;
+BEGIN
+  IF is_super_admin() THEN
+    RETURN true;
+  END IF;
+
+  IF p_institution_id IS NULL THEN
+    -- No institution in hand (the page guard asks "anywhere?"): true when any
+    -- active flow names this user.
+    RETURN EXISTS (
+      SELECT 1 FROM public.billing_receipt_cancel_approval_flows f
+      WHERE f.is_active
+        AND (f.approver_user_id = auth.uid()
+             OR public._fn_current_user_holds_role(f.approver_role_key))
+    );
+  END IF;
+
+  v_flow := public.fn_resolve_receipt_cancel_approver(p_institution_id);
+  IF v_flow.id IS NULL THEN
+    RETURN false; -- no flow: super admins only, and they returned above
+  END IF;
+
+  RETURN (
+    v_flow.approver_user_id = auth.uid()
+    OR public._fn_current_user_holds_role(v_flow.approver_role_key)
+  ) AND role_has_institution_access(p_institution_id);
+END;
+$function$;
+
+/**
+ * The single authority check for deciding one request. Both
+ * fn_act_on_receipt_cancellation and the UI call this, so the button and the
+ * RPC cannot drift apart.
+ *
+ * Four-eyes is NOT applied here — the caller reports "you raised this" as its
+ * own message, and the UI needs to distinguish "not an approver" from "your
+ * own request".
+ */
+CREATE OR REPLACE FUNCTION public.fn_can_decide_receipt_cancellation(
+  p_request_id uuid
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_req public.billing_receipt_cancel_requests%ROWTYPE;
+BEGIN
+  SELECT * INTO v_req FROM public.billing_receipt_cancel_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RETURN false;
+  END IF;
+  RETURN public.fn_is_receipt_cancel_approver(v_req.institution_id);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_resolve_receipt_cancel_approver(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public._fn_current_user_holds_role(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_is_receipt_cancel_approver(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_can_decide_receipt_cancellation(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_resolve_receipt_cancel_approver(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public._fn_current_user_holds_role(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_is_receipt_cancel_approver(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_can_decide_receipt_cancellation(uuid) TO authenticated, service_role;
+
+
+-- ── Receipt cancellation -> Billing Activities feed (20260825170000) ───────
+-- One activity row per billing_receipt_cancel_request_actions row. A trigger
+-- rather than inserts inside the three RPCs, so the feed cannot drift from
+-- the audit trail and picks up new action types without a migration.
+CREATE OR REPLACE FUNCTION public._fn_log_receipt_cancel_activity()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_req    public.billing_receipt_cancel_requests%ROWTYPE;
+  v_action text;
+  v_desc   text;
+  v_rcpt   text;
+  v_amount numeric;
+  v_actor  uuid;
+BEGIN
+  SELECT * INTO v_req FROM public.billing_receipt_cancel_requests
+  WHERE id = NEW.request_id;
+  IF NOT FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  -- user_id is NOT NULL. A log row is never worth failing the cancellation
+  -- itself for, so a caller with no identity (service role, a job) is skipped
+  -- rather than raised on.
+  v_actor := COALESCE(NEW.actor_id, v_req.requested_by);
+  IF v_actor IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_rcpt   := v_req.receipt_snapshot->>'receipt_number';
+  v_amount := NULLIF(v_req.receipt_snapshot->>'payment_amount', '')::numeric;
+
+  v_action := CASE NEW.action_type
+    WHEN 'requested' THEN 'cancel_request'
+    WHEN 'approved'  THEN 'cancel_approve'
+    WHEN 'declined'  THEN 'cancel_decline'
+    WHEN 'withdrawn' THEN 'cancel_withdraw'
+    WHEN 'failed'    THEN 'cancel_failed'
+    ELSE 'cancel_' || NEW.action_type
+  END;
+
+  -- Spelled out in money terms, because that is the question someone reading
+  -- the feed is actually asking. Only 'approved' moves any.
+  v_desc := CASE NEW.action_type
+    WHEN 'requested' THEN
+      format('Cancellation requested for receipt %s (%s) - awaiting approval, receipt still valid',
+             COALESCE(v_rcpt, '?'), COALESCE('Rs ' || v_amount::text, 'amount unknown'))
+    WHEN 'approved'  THEN
+      format('Cancellation APPROVED for receipt %s (%s) - receipt cancelled and bill reverted to unpaid',
+             COALESCE(v_rcpt, '?'), COALESCE('Rs ' || v_amount::text, 'amount unknown'))
+    WHEN 'declined'  THEN
+      format('Cancellation declined for receipt %s - receipt stays valid and the bill stays paid',
+             COALESCE(v_rcpt, '?'))
+    WHEN 'withdrawn' THEN
+      format('Cancellation request withdrawn for receipt %s - nothing about the payment changed',
+             COALESCE(v_rcpt, '?'))
+    WHEN 'failed'    THEN
+      format('Cancellation failed for receipt %s - the receipt no longer existed at approval time',
+             COALESCE(v_rcpt, '?'))
+    ELSE
+      format('Cancellation %s for receipt %s', NEW.action_type, COALESCE(v_rcpt, '?'))
+  END;
+
+  INSERT INTO public.user_activity_logs (
+    user_id, action_type, resource_type, resource_id, resource_name,
+    description, institution_id, metadata
+  ) VALUES (
+    v_actor,
+    v_action,
+    'receipt',
+    v_req.receipt_id,
+    COALESCE(v_rcpt, v_req.request_number),
+    v_desc,
+    v_req.institution_id,
+    jsonb_build_object(
+      'sub_type',        'billing_receipt_cancellation',
+      'request_id',      v_req.id,
+      'request_number',  v_req.request_number,
+      'receipt_number',  v_rcpt,
+      'amount',          v_amount,
+      'reason',          v_req.reason,
+      'student_id',      v_req.student_id,
+      'action_notes',    NEW.notes,
+      'actor_name',      NEW.actor_name,
+      'actor_role',      NEW.actor_role_name,
+      'actor_is_super_admin', NEW.actor_is_super_admin
+    )
+  );
+
+  RETURN NEW;
+END;
+$function$;
+
+
+-- ── Learner status reversal on payment reversal (20260825180000/180100) ───
+-- evaluate_learner_status_after_payment is a one-way ratchet (it no-ops for
+-- any status outside account/reserved), so nothing stepped a learner back when
+-- the payment that promoted them was reversed. This is the inverse.
+-- The tie-safe form (180100) is what is installed: changed_at defaults to
+-- now() = the TRANSACTION timestamp, so rows written together tie and
+-- ORDER BY changed_at DESC LIMIT 1 was arbitrary.
+CREATE OR REPLACE FUNCTION public.fn_reevaluate_learner_status_after_reversal(
+  p_learner_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_status      lifecycle_status;
+  v_last_at     timestamptz;
+  v_last        public.learners_profile_status_history%ROWTYPE;
+  v_still_holds boolean := true;
+  v_gate_bills  integer := 0;
+  v_gate_paid   integer := 0;
+  v_pct_billed  numeric;
+  v_pct_due     numeric;
+  v_pct_due_cy  numeric;
+  v_used_pct    numeric;
+  v_updated     integer := 0;
+BEGIN
+  SELECT lp.lifecycle_status INTO v_status
+  FROM public.learners_profiles lp WHERE lp.id = p_learner_id;
+  IF v_status IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false, 'reason', 'not_found');
+  END IF;
+
+  SELECT max(h.changed_at) INTO v_last_at
+  FROM public.learners_profile_status_history h
+  WHERE h.learner_id = p_learner_id;
+
+  IF v_last_at IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false, 'reason', 'no_history');
+  END IF;
+
+  -- Safety rule 1, tie-safe: if ANYTHING in the newest set of changes was not
+  -- an automatic fee-driven promotion, leave the learner alone entirely.
+  IF EXISTS (
+    SELECT 1 FROM public.learners_profile_status_history h
+    WHERE h.learner_id = p_learner_id
+      AND h.changed_at = v_last_at
+      AND (h.reason_code IS NULL
+           OR h.reason_code NOT IN ('auto_item_rule', 'auto_universal_paid', 'auto_threshold'))
+  ) THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false,
+      'reason', 'last_change_not_auto');
+  END IF;
+
+  -- Safety rule 2: undo only the promotion that put them where they now are.
+  SELECT * INTO v_last
+  FROM public.learners_profile_status_history h
+  WHERE h.learner_id = p_learner_id
+    AND h.changed_at = v_last_at
+    AND h.to_status::text = v_status::text
+    AND h.reason_code IN ('auto_item_rule', 'auto_universal_paid', 'auto_threshold')
+  LIMIT 1;
+
+  IF v_last.learner_id IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false,
+      'reason', 'moved_on_since', 'current_status', v_status::text);
+  END IF;
+
+  IF v_last.from_status IS NULL THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false,
+      'reason', 'no_from_status');
+  END IF;
+
+  -- Re-test the SAME condition that granted the promotion. The expressions are
+  -- lifted verbatim from evaluate_learner_status_after_payment so the two
+  -- directions cannot disagree about what "settled" means.
+  IF v_last.reason_code = 'auto_item_rule' THEN
+    WITH tranche AS (
+      SELECT
+        i.promotes_to_status_code AS target,
+        (LEAST(
+           GREATEST(
+             GREATEST(0, b.final_amount - COALESCE(b.balance_amount, b.final_amount))
+             - COALESCE(SUM(i.amount) OVER (
+                 PARTITION BY i.bill_id ORDER BY i.due_date, i.sequence_no
+                 ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0),
+             0),
+           i.amount) >= i.amount) AS settled
+      FROM public.billing_bill_instalments i
+      JOIN public.billing_student_bills b ON b.id = i.bill_id
+      WHERE b.student_id = p_learner_id
+        AND b.status::text NOT IN ('cancelled', 'superseded')
+    ),
+    unscheduled AS (
+      SELECT
+        fsi.promotes_to_status_code AS target,
+        (COALESCE(b.status::text = 'paid', false)
+         OR COALESCE(b.balance_amount, b.final_amount) <= 0) AS settled
+      FROM public.billing_student_bills b
+      JOIN public.admission_fee_structure_items fsi ON fsi.id = b.fee_structure_item_id
+      WHERE b.student_id = p_learner_id
+        AND b.status::text NOT IN ('cancelled', 'superseded')
+        AND NOT EXISTS (SELECT 1 FROM public.billing_bill_instalments i WHERE i.bill_id = b.id)
+    ),
+    rule_rows AS (
+      SELECT target, settled FROM tranche     WHERE target IS NOT NULL
+      UNION ALL
+      SELECT target, settled FROM unscheduled WHERE target IS NOT NULL
+    )
+    SELECT EXISTS (SELECT 1 FROM rule_rows r WHERE r.target = v_last.to_status::text)
+       AND NOT EXISTS (SELECT 1 FROM rule_rows r WHERE r.target = v_last.to_status::text AND NOT r.settled)
+    INTO v_still_holds;
+
+  ELSIF v_last.reason_code = 'auto_universal_paid' THEN
+    SELECT
+      count(*) FILTER (WHERE bc.kind IN ('application_fee','university_fee')),
+      count(*) FILTER (WHERE bc.kind IN ('application_fee','university_fee')
+          AND (b.status::text = 'paid'
+               OR (b.final_amount - COALESCE(b.balance_amount, b.final_amount)) > 0
+               OR (b.final_amount = 0 AND COALESCE(b.balance_amount, 0) = 0)))
+    INTO v_gate_bills, v_gate_paid
+    FROM public.billing_student_bills b
+    JOIN public.billing_categories bc ON bc.id = b.item_category_id
+    WHERE b.student_id = p_learner_id
+      AND b.status::text <> 'superseded';
+
+    v_still_holds := (v_gate_bills > 0 AND v_gate_paid = v_gate_bills);
+
+  ELSE -- auto_threshold
+    SELECT v.pct_billed_to_date, v.pct_due_to_date, v.pct_due_current_year
+      INTO v_pct_billed, v_pct_due, v_pct_due_cy
+    FROM public.vw_learner_payment_progress v
+    WHERE v.learner_id = p_learner_id;
+
+    SELECT CASE s.threshold_basis
+             WHEN 'billed_to_date'           THEN COALESCE(v_pct_billed, 0)
+             WHEN 'due_to_date_current_year' THEN COALESCE(v_pct_due_cy, 0)
+             ELSE                                 COALESCE(v_pct_due, 0)
+           END >= s.fee_paid_threshold_percent,
+           CASE s.threshold_basis
+             WHEN 'billed_to_date'           THEN COALESCE(v_pct_billed, 0)
+             WHEN 'due_to_date_current_year' THEN COALESCE(v_pct_due_cy, 0)
+             ELSE                                 COALESCE(v_pct_due, 0)
+           END
+      INTO v_still_holds, v_used_pct
+    FROM public.admission_statuses s
+    WHERE s.scope = 'learner' AND s.code = v_last.to_status::text
+    LIMIT 1;
+
+    -- No matching status row means nothing to re-test; keep the promotion.
+    v_still_holds := COALESCE(v_still_holds, true);
+  END IF;
+
+  IF v_still_holds THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false,
+      'reason', 'condition_still_holds', 'current_status', v_status::text);
+  END IF;
+
+  UPDATE public.learners_profiles
+     SET lifecycle_status = v_last.from_status
+   WHERE id = p_learner_id
+     AND lifecycle_status::text = v_last.to_status::text;
+  GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+  IF v_updated = 0 THEN
+    RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', false, 'reason', 'raced');
+  END IF;
+
+  INSERT INTO public.learners_profile_status_history
+    (learner_id, from_status, to_status, reason_code, paid_pct_at_change,
+     threshold_at_change, changed_by, metadata)
+  VALUES
+    (p_learner_id, v_last.to_status, v_last.from_status,
+     'auto_reverted_on_payment_reversal', v_used_pct, NULL, NULL,
+     jsonb_build_object('rpc', 'fn_reevaluate_learner_status_after_reversal',
+                        'undid_reason_code', v_last.reason_code,
+                        'undid_changed_at',  v_last.changed_at));
+
+  RETURN jsonb_build_object('learner_id', p_learner_id, 'reverted', true,
+    'from_status', v_last.to_status::text, 'to_status', v_last.from_status::text,
+    'undid_reason_code', v_last.reason_code);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public._fn_learner_status_on_bill_payment_drop()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_old_paid numeric;
+  v_new_paid numeric;
+BEGIN
+  IF NEW.student_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_old_paid := GREATEST(0, OLD.final_amount - COALESCE(OLD.balance_amount, OLD.final_amount));
+  v_new_paid := GREATEST(0, NEW.final_amount - COALESCE(NEW.balance_amount, NEW.final_amount));
+
+  IF v_new_paid < v_old_paid THEN
+    -- Never let a status re-evaluation fail the reversal that triggered it.
+    BEGIN
+      PERFORM public.fn_reevaluate_learner_status_after_reversal(NEW.student_id);
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'learner status re-evaluation failed for %: %', NEW.student_id, SQLERRM;
+    END;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
