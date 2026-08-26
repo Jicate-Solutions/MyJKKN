@@ -1,6 +1,6 @@
 // lib/services/id-cards/reprint-eligibility.ts
-// Two guards on POST /api/id-cards/jobs, both about who a card may be printed
-// for and at whose cost.
+// Three guards on POST /api/id-cards/jobs: who a card may be printed for, that
+// their card will actually show a face, and at whose cost.
 //
 // GUARD 1 — a person who has LEFT never reaches the printer.
 //   The batch-print screen already filters its cohort to card-worthy lifecycle
@@ -11,6 +11,16 @@
 // GUARD 2 — the first card is free; a replacement is counted and chargeable.
 //   `id_card_print_jobs` has no reprint counter and needs none — the count of
 //   the person's own PRINTED rows IS the number of cards they have had.
+//
+// GUARD 3 — no card without a photograph (Director decision, 2026-08-26).
+//   The QR carries a number, and a photograph of somebody else's card scans
+//   identically. The PHOTO is the identity control. Without one the renderer
+//   draws initials (render-card.tsx `initialsFromName`) and the card proves
+//   nothing at a gate, so it is refused outright. A person whose ONLY picture
+//   is their login-account avatar is not refused — the card prints — but the
+//   caller must acknowledge it, the same shape Guard 2 uses for a fee. The
+//   decision itself lives in lib/id-cards/photo-quality.ts, which the batch
+//   worklist screen imports too so both cannot drift.
 //
 // WHY THE MONEY IS NOT IN THIS FILE. The replacement fee AMOUNT is a Director
 // decision that has not been made. Per the standing config-table rule
@@ -24,6 +34,15 @@
 // caller actually reads says "learner" and "team member".
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+import {
+  classifyCardPhoto,
+  describePhotoVerdict,
+  PHOTO_MISSING_CODE,
+  PHOTO_UNOFFICIAL_CODE,
+  type CardPhotoInput,
+  type PhotoVerdict
+} from '@/lib/id-cards/photo-quality';
 
 // ---------------------------------------------------------------------------
 // Defaults. Each is also a platform_policies row, so a super admin can retune
@@ -71,6 +90,13 @@ export const POLICY_KEY_LEARNER_STATUSES = 'id_card.eligibility.learner_statuses
 export const POLICY_KEY_FREE_CARD_COUNT = 'id_card.replacement.free_card_count';
 export const POLICY_KEY_FEE_AMOUNT = 'id_card.replacement.fee_amount';
 export const POLICY_KEY_FEE_CURRENCY = 'id_card.replacement.fee_currency';
+/**
+ * Whether a photograph is required before a card may be printed. Standing rule
+ * (docs/architecture/config-table-pattern.md): a Director decision is a config
+ * row, not a literal. Absent or unreadable → REQUIRED, so the rule is on by
+ * default and a database that has never seen this key still enforces it.
+ */
+export const POLICY_KEY_PHOTO_REQUIRED = 'id_card.photo.required';
 
 // ---------------------------------------------------------------------------
 // Guard 1 — pure decision layer
@@ -151,6 +177,62 @@ export function judgeCardSubject(
       return judgeTeamMemberEligibility(subject.isActive);
     case 'unclassified':
       return { kind: 'eligible' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Guard 3 — pure decision layer
+// ---------------------------------------------------------------------------
+
+/** String-tagged for the same `strict: false` narrowing reason as above. */
+export type PhotoGateVerdict =
+  /** Print it. Either an official photo, or an acknowledged account picture. */
+  | { kind: 'allowed'; verdict: PhotoVerdict }
+  /** Printable, but the caller has not accepted the unofficial picture yet. */
+  | { kind: 'needs_acknowledgement'; code: string; message: string }
+  /** Nothing renderable. No override exists for this. */
+  | { kind: 'refused'; code: string; message: string };
+
+export type PhotoGateInput = {
+  photo: CardPhotoInput;
+  /** False disables the rule entirely (config row); defaults to on. */
+  required: boolean;
+  /** The caller has seen the warning and is printing the account picture. */
+  unofficialAcknowledged: boolean;
+};
+
+/**
+ * Decide whether this card may be printed on the strength of its photograph.
+ *
+ * Three outcomes, not two — an unofficial picture is a WARNING with an extra
+ * confirmation, never a refusal (Director 2026-08-26). Only a card that would
+ * print no face at all is refused, and that refusal has no override: the whole
+ * point of the rule is that a card showing initials is not an identity
+ * document, and acknowledging that would not make it one.
+ */
+export function judgeCardPhoto(input: PhotoGateInput): PhotoGateVerdict {
+  const verdict = classifyCardPhoto(input.photo);
+
+  // Rule switched off by config — every card prints, as before this guard.
+  if (!input.required) return { kind: 'allowed', verdict };
+
+  switch (verdict.kind) {
+    case 'official':
+      return { kind: 'allowed', verdict };
+    case 'account_only':
+      return input.unofficialAcknowledged
+        ? { kind: 'allowed', verdict }
+        : {
+            kind: 'needs_acknowledgement',
+            code: PHOTO_UNOFFICIAL_CODE,
+            message: describePhotoVerdict(verdict)
+          };
+    case 'missing':
+      return {
+        kind: 'refused',
+        code: PHOTO_MISSING_CODE,
+        message: describePhotoVerdict(verdict)
+      };
   }
 }
 
@@ -260,6 +342,8 @@ export type ReplacementPolicy = {
   feeAmount: number | null;
   feeCurrency: string;
   allowedLearnerStatuses: readonly string[];
+  /** Guard 3. Only an explicit `false` switches the photo rule off. */
+  photoRequired: boolean;
 };
 
 /**
@@ -297,11 +381,12 @@ export async function readReplacementPolicy(
   supabase: AnyClient,
   institutionId: string | null
 ): Promise<ReplacementPolicy> {
-  const [statuses, freeCount, amount, currency] = await Promise.all([
+  const [statuses, freeCount, amount, currency, photoRequired] = await Promise.all([
     readPolicyValue(supabase, POLICY_KEY_LEARNER_STATUSES, institutionId),
     readPolicyValue(supabase, POLICY_KEY_FREE_CARD_COUNT, institutionId),
     readPolicyValue(supabase, POLICY_KEY_FEE_AMOUNT, institutionId),
-    readPolicyValue(supabase, POLICY_KEY_FEE_CURRENCY, institutionId)
+    readPolicyValue(supabase, POLICY_KEY_FEE_CURRENCY, institutionId),
+    readPolicyValue(supabase, POLICY_KEY_PHOTO_REQUIRED, institutionId)
   ]);
 
   const allowedLearnerStatuses =
@@ -311,6 +396,10 @@ export async function readReplacementPolicy(
 
   return {
     allowedLearnerStatuses,
+    // Fails CLOSED: only an explicit `false` turns the rule off. A missing row,
+    // an unreadable value or a policy table that has never heard of this key
+    // all leave the photograph required.
+    photoRequired: photoRequired !== false,
     freeCardCount:
       typeof freeCount === 'number' && Number.isFinite(freeCount) && freeCount >= 0
         ? Math.trunc(freeCount)
@@ -322,7 +411,13 @@ export async function readReplacementPolicy(
 
 /** String-tagged for the same `strict: false` narrowing reason as above. */
 export type SubjectLookup =
-  | { kind: 'found'; subject: CardSubject; institutionId: string | null }
+  | {
+      kind: 'found';
+      subject: CardSubject;
+      institutionId: string | null;
+      /** Guard 3 input — read in the same queries, no extra round trip. */
+      photo: CardPhotoInput;
+    }
   | { kind: 'error'; code: string; message: string };
 
 /**
@@ -336,7 +431,7 @@ export async function lookupCardSubject(
 ): Promise<SubjectLookup> {
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, email, institution_id, learner_id')
+    .select('id, email, institution_id, learner_id, avatar_url')
     .eq('id', profileId)
     .maybeSingle();
 
@@ -360,12 +455,13 @@ export async function lookupCardSubject(
     email: string | null;
     institution_id: string | null;
     learner_id: string | null;
+    avatar_url: string | null;
   };
 
   if (p.learner_id) {
     const { data: learner, error: learnerError } = await supabase
       .from('learners_profiles')
-      .select('id, lifecycle_status, institution_id')
+      .select('id, lifecycle_status, institution_id, student_photo_url')
       .eq('id', p.learner_id)
       .maybeSingle();
 
@@ -388,11 +484,19 @@ export async function lookupCardSubject(
       };
     }
 
-    const l = learner as { lifecycle_status: string | null; institution_id: string | null };
+    const l = learner as {
+      lifecycle_status: string | null;
+      institution_id: string | null;
+      student_photo_url: string | null;
+    };
     return {
       kind: 'found',
       subject: { kind: 'learner', lifecycleStatus: l.lifecycle_status },
-      institutionId: l.institution_id ?? p.institution_id ?? null
+      institutionId: l.institution_id ?? p.institution_id ?? null,
+      photo: {
+        officialPhotoUrl: l.student_photo_url,
+        accountAvatarUrl: p.avatar_url
+      }
     };
   }
 
@@ -401,16 +505,26 @@ export async function lookupCardSubject(
     for (const column of ['institution_email', 'email'] as const) {
       const { data: rows, error: staffError } = await supabase
         .from('staff')
-        .select('id, is_active, institution_id')
+        .select('id, is_active, institution_id, profile_picture')
         .eq(column, email)
         .limit(1);
       if (staffError) continue;
       if (rows && rows.length > 0) {
-        const s = rows[0] as { is_active: boolean | null; institution_id: string | null };
+        const s = rows[0] as {
+          is_active: boolean | null;
+          institution_id: string | null;
+          profile_picture: string | null;
+        };
         return {
           kind: 'found',
           subject: { kind: 'team_member', isActive: s.is_active },
-          institutionId: s.institution_id ?? p.institution_id ?? null
+          institutionId: s.institution_id ?? p.institution_id ?? null,
+          // 420 of 764 active team members store '' here, which is a real
+          // stored value — isRenderablePhotoRef treats it as no photo.
+          photo: {
+            officialPhotoUrl: s.profile_picture,
+            accountAvatarUrl: p.avatar_url
+          }
         };
       }
     }
@@ -419,7 +533,11 @@ export async function lookupCardSubject(
   return {
     kind: 'found',
     subject: { kind: 'unclassified' },
-    institutionId: p.institution_id ?? null
+    institutionId: p.institution_id ?? null,
+    // No learner and no team-member record, so the account avatar is the only
+    // picture that exists for them. Guard 3 still applies: an administrative
+    // account with no picture at all cannot be handed a card either.
+    photo: { officialPhotoUrl: null, accountAvatarUrl: p.avatar_url }
   };
 }
 
