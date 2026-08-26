@@ -958,6 +958,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
+  // Added 2026-08-17 — which agencies cannot be paid at all, ordered by the
+  // referrals stuck behind them. Same read permission as the rest of the
+  // commission machinery, matching its RPC.
+  '/admission/consultants/payout-readiness': 'admission.consultants.commissions.view',
   '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   // Added 2026-08-10 — read-only review worklist for agency credits that need a
@@ -2358,6 +2362,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/payouts',
               label: 'Payouts',
               active: pathname === '/admission/consultants/payouts'
+            },
+            {
+              // Added 2026-08-17 — sits next to Payouts because it answers the
+              // question Payouts cannot: who is not payable at all, and why.
+              href: '/admission/consultants/payout-readiness',
+              label: 'Payout Readiness',
+              active: pathname === '/admission/consultants/payout-readiness'
             },
             {
               href: '/admission/consultants/reconciliation',

@@ -883,6 +883,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admission/consultants/payout-readiness",
+            "label": "Payout Readiness",
+            "iconName": "Users",
+            "children": []
+          },
+          {
             "path": "/admission/consultants/payouts",
             "label": "Payouts",
             "iconName": "Users",
