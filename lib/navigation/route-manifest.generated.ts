@@ -673,6 +673,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/admin/id-cards/photo-check",
+            "label": "Photo Check",
+            "iconName": "Camera",
+            "children": []
+          },
+          {
             "path": "/admin/id-cards/policy",
             "label": "ID Card Policy",
             "iconName": "CreditCard",
@@ -752,6 +758,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/admin/nav-config",
         "label": "Nav Config",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/admin/orchestration",
+        "label": "Orchestration",
+        "iconName": "LayoutDashboard",
         "children": []
       },
       {
@@ -5485,6 +5497,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/manage",
         "label": "Manage",
         "iconName": "Settings",
+        "children": []
+      },
+      {
+        "path": "/meetings/my-bookings",
+        "label": "My Bookings",
+        "iconName": "FileText",
         "children": []
       },
       {
