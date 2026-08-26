@@ -51,7 +51,7 @@ import 'server-only';
 
 import { differenceInCalendarDays } from 'date-fns';
 import type { createClient } from '@/lib/supabase/server';
-import type { DirectorSignal, DirectorSignalConfidence } from '@/types/orchestration';
+import type { DirectorSignal, DirectorSignalConfidence, DirectorSignalKind } from '@/types/orchestration';
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -59,6 +59,11 @@ export interface DirectorSignalResult {
   active: boolean;
   /** Plain-English cost sentence from the same query. Null when inactive. */
   cost: string | null;
+  /** Oldest number of days a named person has been waiting — only set when
+   *  this evaluator already computes an age (oldest/overdue days). Never
+   *  fabricated for signals that don't have one (Director ruling,
+   *  2026-08-26). */
+  waitDays?: number;
   detail?: Record<string, unknown>;
 }
 
@@ -67,6 +72,10 @@ interface DirectorSignalDescriptor {
   label: string;
   resolveUrl: string | null;
   confidence: DirectorSignalConfidence;
+  /** Sort tier for the board — see DirectorSignalKind in types/orchestration.ts.
+   *  Director ruling, 2026-08-26: people waiting on a decision outrank any
+   *  amount of overdue money. */
+  kind: DirectorSignalKind;
   evaluate: (supabase: SupabaseServerClient) => Promise<DirectorSignalResult>;
 }
 
@@ -133,6 +142,7 @@ const recruitmentSignoff: DirectorSignalDescriptor = {
   // your action) — confirmed against app/(routes)/hr/recruitment/approvals.
   resolveUrl: '/hr/recruitment/approvals',
   confidence: 'enforced',
+  kind: 'people',
   async evaluate(supabase) {
     const { data, error } = await supabase
       .from('hr_recruitment_candidates')
@@ -157,6 +167,7 @@ const recruitmentSignoff: DirectorSignalDescriptor = {
     return {
       active: true,
       cost: `${pinned.length} hire${pinned.length === 1 ? '' : 's'} · ${candidateDays} candidate-days · oldest ${oldestDays} days`,
+      waitDays: oldestDays,
       detail: { n: pinned.length, oldestDays, candidateDays },
     };
   },
@@ -167,6 +178,7 @@ const refundApproval: DirectorSignalDescriptor = {
   label: 'Refund requests assigned to you',
   resolveUrl: '/billing/refunds',
   confidence: 'enforced',
+  kind: 'people',
   async evaluate(supabase) {
     const { data, error } = await supabase
       .from('billing_refund_requests')
@@ -183,6 +195,7 @@ const refundApproval: DirectorSignalDescriptor = {
     return {
       active: true,
       cost: `₹${formatInr(amount)} · ${rows.length} learner${rows.length === 1 ? '' : 's'} · oldest ${oldestDays} days`,
+      waitDays: oldestDays,
       detail: { n: rows.length, amount, oldestDays },
     };
   },
@@ -197,6 +210,7 @@ const unassignedGrievances: DirectorSignalDescriptor = {
   // the spec brief flagged this route as unconfirmed; it's now confirmed.
   resolveUrl: '/learners-council/issues',
   confidence: 'enforced',
+  kind: 'people',
   async evaluate(supabase) {
     const { data, error } = await supabase
       .from('grievance_tickets')
@@ -214,6 +228,7 @@ const unassignedGrievances: DirectorSignalDescriptor = {
     return {
       active: true,
       cost: `${rows.length} people · ${overdueDays} days past SLA`,
+      waitDays: overdueDays,
       detail: { n: rows.length, overdueDays },
     };
   },
@@ -224,6 +239,7 @@ const accountabilityBacklog: DirectorSignalDescriptor = {
   label: 'Accountability breaches awaiting your ruling',
   resolveUrl: '/meetings/triggers',
   confidence: 'enforced',
+  kind: 'people',
   async evaluate(supabase) {
     const nowIso = new Date().toISOString();
     const { data, error } = await supabase
@@ -242,6 +258,7 @@ const accountabilityBacklog: DirectorSignalDescriptor = {
     return {
       active: true,
       cost: `${rows.length} breaches · oldest ${oldestDays} days`,
+      waitDays: oldestDays,
       detail: { n: rows.length, oldestDays },
     };
   },
@@ -264,6 +281,8 @@ const lateChargeOff: DirectorSignalDescriptor = {
   label: 'Late-payment deterrent is built but switched off',
   resolveUrl: '/billing/late-charges',
   confidence: 'enforced',
+  // Money at risk, no named person waiting — see kind's doc comment.
+  kind: 'money',
   async evaluate(supabase) {
     const enabled = await isPolicyEnabled(supabase, 'billing.late_charge.enabled');
     if (enabled) return { active: false, cost: null };
@@ -299,6 +318,9 @@ const referralRateUnset: DirectorSignalDescriptor = {
   label: 'Consultant commission rate has never been set',
   resolveUrl: '/admission/consultants/referral-rates',
   confidence: 'enforced',
+  // A config gap, not a person waiting or a rupee figure — no cost figure
+  // exists here at all (never fabricated), so this is 'system', not 'money'.
+  kind: 'system',
   async evaluate(supabase) {
     const { count: rateRows, error: rateError } = await supabase
       .from('referral_rate_config')
@@ -351,6 +373,7 @@ const iqacMissing: DirectorSignalDescriptor = {
   label: 'Accredited colleges with no IQAC of record',
   resolveUrl: '/accreditation/naac/committees',
   confidence: 'organisational',
+  kind: 'system',
   async evaluate(supabase) {
     const { data: institutions, error: instError } = await supabase
       .from('institutions')
@@ -391,6 +414,9 @@ const hostelSettleOff: DirectorSignalDescriptor = {
   label: 'Hostel settle-then-bill is switched off',
   resolveUrl: '/campus-living/settings/policies-workflows',
   confidence: 'enforced',
+  // A switched-off policy — the cost figure is beds/rooms, not rupees or a
+  // named person waiting.
+  kind: 'system',
   async evaluate(supabase) {
     const enabled = await isPolicyEnabled(supabase, 'hostel.settle_bill.enabled');
     if (enabled) return { active: false, cost: null };
@@ -425,6 +451,7 @@ const cacNotConstituted: DirectorSignalDescriptor = {
   label: 'Cluster council never constituted',
   resolveUrl: '/accreditation/naac/committees',
   confidence: 'organisational', // see the comment above iqacMissing
+  kind: 'system',
   async evaluate(supabase) {
     const { count, error } = await supabase
       .from('accreditation_committees')
@@ -458,8 +485,15 @@ const DIRECTOR_SIGNALS: DirectorSignalDescriptor[] = [
  * RLS-scoped Supabase client. Never throws: each signal is wrapped so one
  * broken/renamed table can't blank the panel — a failing signal renders
  * with `error` set and `active: false`, and every other signal still shows.
+ *
+ * Every result in the returned array carries the same `evaluatedAt` —
+ * captured once, here, before any query runs — so the board can state
+ * exactly when it last checked (Director ruling, 2026-08-26: an empty
+ * board must prove it checked, not just render nothing) without the
+ * waiting-queue component ever reading the wall clock itself.
  */
 export async function evaluateDirectorSignals(supabase: SupabaseServerClient): Promise<DirectorSignal[]> {
+  const evaluatedAt = new Date().toISOString();
   const settled = await Promise.allSettled(
     DIRECTOR_SIGNALS.map((signal) => signal.evaluate(supabase))
   );
@@ -471,6 +505,8 @@ export async function evaluateDirectorSignals(supabase: SupabaseServerClient): P
       label: signal.label,
       resolveUrl: signal.resolveUrl,
       confidence: signal.confidence,
+      kind: signal.kind,
+      evaluatedAt,
     };
 
     if (outcome.status === 'rejected') {
@@ -478,6 +514,6 @@ export async function evaluateDirectorSignals(supabase: SupabaseServerClient): P
       return { ...base, active: false, cost: null, error: message };
     }
 
-    return { ...base, active: outcome.value.active, cost: outcome.value.cost };
+    return { ...base, active: outcome.value.active, cost: outcome.value.cost, waitDays: outcome.value.waitDays };
   });
 }

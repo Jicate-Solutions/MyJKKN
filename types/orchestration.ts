@@ -81,6 +81,17 @@ export interface OrchestrationPayload {
  */
 export type DirectorSignalConfidence = 'enforced' | 'organisational';
 
+/**
+ * What is actually waiting, for the board's sort order (Director ruling,
+ * 2026-08-26: "a person waiting 43 days for a job offer goes above ₹43
+ * crore of overdue fees"):
+ * 'people'  — a named human is blocked on the Director (a hire, a student,
+ *             a grievance filer, someone awaiting a ruling).
+ * 'money'   — a rupee figure is at risk/overdue, no named person waiting.
+ * 'system'  — a switch, config, or organisational gap — no age, no money.
+ */
+export type DirectorSignalKind = 'people' | 'money' | 'system';
+
 export interface DirectorSignal {
   id: string;
   label: string;
@@ -88,10 +99,23 @@ export interface DirectorSignal {
    *  was found for this signal (see the PR description for any parked ones). */
   resolveUrl: string | null;
   confidence: DirectorSignalConfidence;
+  /** Sort tier — see DirectorSignalKind. People-waiting signals sort above
+   *  money/system ones regardless of the rupee amount involved. */
+  kind: DirectorSignalKind;
   active: boolean;
   /** A plain-English cost sentence built from the same query — never a
    *  fabricated number. Null when the signal is inactive. */
   cost: string | null;
+  /** Oldest number of days a named person has been waiting, straight from
+   *  the same query as `cost` — only populated for signals whose evaluator
+   *  already computes an age (oldest/overdue days). Left undefined rather
+   *  than fabricated for signals with no age to report; those fall to the
+   *  end of their sort tier in registry order. */
+  waitDays?: number;
+  /** ISO timestamp of the evaluation run that produced this whole batch —
+   *  identical across every signal in one evaluateDirectorSignals() call.
+   *  Lets the board prove *when* it checked, not just that it did. */
+  evaluatedAt: string;
   /** Present only when the signal's query itself failed — the panel still
    *  renders every other signal (Promise.allSettled), this just couldn't
    *  compute. Never shown as if it were a real "you're clear" result. */
