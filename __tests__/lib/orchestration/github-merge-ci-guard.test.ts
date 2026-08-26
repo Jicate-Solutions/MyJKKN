@@ -67,11 +67,22 @@ function stubFetch(opts: {
   checksStatus?: number;
   checkRuns?: CheckRun[] | null;
   totalCount?: number;
+  mergeStatus?: number;
 }) {
   const merges: string[] = [];
-  const fetchMock = vi.fn(async (url: string, init?: { method?: string }) => {
+  const mergeBodies: Record<string, unknown>[] = [];
+  const fetchMock = vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
     if (init?.method === 'PUT') {
       merges.push(String(url));
+      try {
+        mergeBodies.push(JSON.parse(init.body ?? '{}'));
+      } catch {
+        mergeBodies.push({});
+      }
+      const mergeStatus = opts.mergeStatus ?? 200;
+      if (mergeStatus !== 200) {
+        return jsonResponse(mergeStatus, { message: 'Head branch was modified. Review and try the merge again.' });
+      }
       return jsonResponse(200, { merged: true, sha: 'mergedsha', message: 'Pull Request successfully merged' });
     }
     if (String(url).includes('/check-runs')) {
@@ -86,7 +97,7 @@ function stubFetch(opts: {
     return jsonResponse(200, opts.pr ?? mergeablePr());
   });
   vi.stubGlobal('fetch', fetchMock);
-  return { fetchMock, merges };
+  return { fetchMock, merges, mergeBodies };
 }
 
 describe('mergePullRequest — CI gate', () => {
@@ -218,6 +229,39 @@ describe('mergePullRequest — CI gate', () => {
     const checksCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/check-runs'));
     expect(checksCall?.[0]).toContain(HEAD_SHA);
     expect((checksCall?.[1] as { cache?: string })?.cache).toBe('no-store');
+  });
+
+  it('pins the merge to the exact sha whose checks it verified', async () => {
+    // Without the pin the guard has a race it cannot see: checks are read for
+    // headSha, then the PUT merges whatever head is one round-trip later. In a
+    // repo running concurrent worktrees that window is real, and a commit
+    // landing inside it merges UNVERIFIED — the bug class this guard closes.
+    const { mergeBodies } = stubFetch({
+      checkRuns: [{ name: 'JKKN terminology', status: 'completed', conclusion: 'success' }],
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(true);
+    expect(mergeBodies).toHaveLength(1);
+    expect(mergeBodies[0]).toMatchObject({ sha: HEAD_SHA });
+  });
+
+  it('refuses when the branch moved after its checks were verified (409)', async () => {
+    const { mergeBodies } = stubFetch({
+      checkRuns: [{ name: 'JKKN terminology', status: 'completed', conclusion: 'success' }],
+      mergeStatus: 409,
+    });
+
+    const result = await mergePullRequest(3203);
+
+    expect(result.merged).toBe(false);
+    expect(result.ok).toBe(false);
+    // The refusal must explain the race, not leak an opaque GitHub string.
+    expect(result.reason).toMatch(/moved after its checks were verified/i);
+    expect(result.reason).toContain(HEAD_SHA);
+    // It still ATTEMPTED the merge with the pin — that is what produced the 409.
+    expect(mergeBodies[0]).toMatchObject({ sha: HEAD_SHA });
   });
 
   it('still refuses on the pre-existing guards before ever reading checks', async () => {

@@ -298,11 +298,30 @@ export async function mergePullRequest(
     {
       method: 'PUT',
       headers: ghHeaders(token),
-      body: JSON.stringify({ merge_method: method }),
+      // Pin the merge to the EXACT sha whose check runs were just verified.
+      // Without this the guard has a race it cannot see: checks are read for
+      // headSha, then the PUT merges whatever head is one round-trip later —
+      // so a push landing in that window merges an UNVERIFIED commit, which is
+      // precisely the bug class this guard exists to close. GitHub returns 409
+      // when head no longer matches, which is the correct outcome: refuse.
+      body: JSON.stringify({ merge_method: method, sha: headSha }),
     }
   );
 
   const mergeJson = await mergeRes.json().catch(() => null);
+
+  // 409 here means head moved between the check-run read and this PUT — the
+  // race the `sha` pin exists to catch. Report it as the guard working, not as
+  // an opaque GitHub error, so the operator knows to re-check and retry.
+  if (mergeRes.status === 409) {
+    return {
+      ok: false,
+      merged: false,
+      reason:
+        `Refusing: the branch moved after its checks were verified ` +
+        `(head was ${headSha} when checks were read). Re-check the PR and try again.`,
+    };
+  }
 
   if (!mergeRes.ok) {
     const message =
