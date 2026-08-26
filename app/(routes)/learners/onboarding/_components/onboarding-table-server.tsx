@@ -10,7 +10,7 @@
  * No new bulk endpoint is needed — we lean on the existing promotion flow.
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
@@ -24,8 +24,13 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { ArrowRight, ArrowUpDown, UserCheck, Loader2 } from 'lucide-react';
-import { onboardingColumns } from './columns';
-import type { OnboardingProfileRow, OnboardingTier } from '@/types/learner-onboarding';
+import { getOnboardingColumns } from './columns';
+import { PaymentThresholdBanner } from './payment-threshold-banner';
+import type {
+  OnboardingProfileRow,
+  OnboardingTier,
+  OnboardingPaymentSummary
+} from '@/types/learner-onboarding';
 import { usePermissions } from '@/hooks/use-permissions';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 
@@ -38,6 +43,38 @@ const SORT_OPTIONS = [
   { value: 'created_at_asc', label: 'Oldest First', sortBy: 'created_at', sortOrder: 'asc' }
 ] as const;
 
+/**
+ * Extra sorts offered only on the Awaiting Payment tier.
+ *
+ * These keys are not learners_profiles columns — the server recognises them
+ * (PAYMENT_SORT_COLUMNS) and sorts the tier in JS after the fee RPC resolves,
+ * which is why the fee fetch covers the whole tier rather than one page.
+ *
+ * "Closest to Admission" is the one that changes how the queue is worked:
+ * it surfaces the learners a small payment away from promotion, instead of
+ * burying them alphabetically among learners who have barely started paying.
+ */
+const PAYMENT_SORT_OPTIONS = [
+  {
+    value: 'amount_to_threshold_asc',
+    label: 'Closest to Admission',
+    sortBy: 'amount_to_threshold',
+    sortOrder: 'asc'
+  },
+  {
+    value: 'achieved_pct_desc',
+    label: 'Highest % Paid',
+    sortBy: 'achieved_pct',
+    sortOrder: 'desc'
+  },
+  {
+    value: 'basis_balance_desc',
+    label: 'Largest Balance',
+    sortBy: 'basis_balance',
+    sortOrder: 'desc'
+  }
+] as const;
+
 interface OnboardingTableServerProps {
   initialData: OnboardingProfileRow[];
   metadata: {
@@ -47,9 +84,16 @@ interface OnboardingTableServerProps {
     total_pages: number;
   };
   tier: OnboardingTier;
+  /** Cohort fee position — supplied for the `awaiting_payment` tier only. */
+  paymentSummary?: OnboardingPaymentSummary;
 }
 
-export function OnboardingTableServer({ initialData, metadata, tier }: OnboardingTableServerProps) {
+export function OnboardingTableServer({
+  initialData,
+  metadata,
+  tier,
+  paymentSummary
+}: OnboardingTableServerProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isSuperAdmin, canAccess } = usePermissions();
@@ -142,14 +186,25 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
     setLocalMetadata(metadata);
   }, [initialData, metadata]);
 
+  // The fee sorts exist only where fee data does. Offering "Closest to
+  // Admission" on a tier whose rows carry no `payment` would produce a control
+  // that reorders nothing.
+  const sortOptions = useMemo(
+    () =>
+      tier === 'awaiting_payment'
+        ? [...SORT_OPTIONS, ...PAYMENT_SORT_OPTIONS]
+        : [...SORT_OPTIONS],
+    [tier]
+  );
+
   const currentSortBy = searchParams.get('sort_by') || 'first_name';
   const currentSortOrder = searchParams.get('sort_order') || 'asc';
   const currentSort =
-    SORT_OPTIONS.find((o) => o.sortBy === currentSortBy && o.sortOrder === currentSortOrder)?.value ??
+    sortOptions.find((o) => o.sortBy === currentSortBy && o.sortOrder === currentSortOrder)?.value ??
     'first_name_asc';
 
   const handleSortChange = (value: string) => {
-    const option = SORT_OPTIONS.find((o) => o.value === value);
+    const option = sortOptions.find((o) => o.value === value);
     if (!option) return;
     const params = new URLSearchParams(searchParams.toString());
     params.set('sort_by', option.sortBy);
@@ -184,7 +239,7 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
             <SelectValue placeholder="Sort by..." />
           </SelectTrigger>
           <SelectContent align="end">
-            {SORT_OPTIONS.map((opt) => (
+            {sortOptions.map((opt) => (
               <SelectItem key={opt.value} value={opt.value} className="text-xs">
                 {opt.label}
               </SelectItem>
@@ -232,25 +287,38 @@ export function OnboardingTableServer({ initialData, metadata, tier }: Onboardin
     );
   };
 
+  // Columns are rebuilt when the basis changes, not on every render: the basis
+  // comes from admission_statuses and is constant for the life of a page.
+  const columns = useMemo(
+    () => getOnboardingColumns(tier, paymentSummary?.threshold_basis ?? 'due_to_date'),
+    [tier, paymentSummary?.threshold_basis]
+  );
+
   return (
-    <DataTable
-      fetchDataFn={fetchData}
-      getColumns={() => onboardingColumns as any}
-      exportConfig={{
-        entityName: `onboarding-${tier}-learners`,
-        columnMapping: {},
-        columnWidths: [],
-        headers: []
-      }}
-      idField="id"
-      config={{
-        enableUrlState: true,
-        enableDateFilter: false,
-        enableExport: false,
-        enableRowSelection: true,
-        enableSearch: false
-      }}
-      renderToolbarContent={renderCustomToolbar}
-    />
+    <>
+      {/* Only rendered for `awaiting_payment` — PaymentThresholdBanner returns
+          null without a summary, so no tier needs to guard the call. */}
+      <PaymentThresholdBanner summary={paymentSummary} />
+
+      <DataTable
+        fetchDataFn={fetchData}
+        getColumns={() => columns as any}
+        exportConfig={{
+          entityName: `onboarding-${tier}-learners`,
+          columnMapping: {},
+          columnWidths: [],
+          headers: []
+        }}
+        idField="id"
+        config={{
+          enableUrlState: true,
+          enableDateFilter: false,
+          enableExport: false,
+          enableRowSelection: true,
+          enableSearch: false
+        }}
+        renderToolbarContent={renderCustomToolbar}
+      />
+    </>
   );
 }

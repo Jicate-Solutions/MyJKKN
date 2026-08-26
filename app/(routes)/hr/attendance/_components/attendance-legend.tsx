@@ -76,9 +76,16 @@ export function tonesFor(token: AttendanceToken): ToneClasses {
 /** The filled short-code chip used in the log's Date column. */
 export function AttendanceTokenBadge({
   token,
+  label,
   className,
 }: {
   token: AttendanceToken;
+  /**
+   * Overrides the generic short code. The log passes day.tokenLabel so a leave
+   * day prints its own type — 'CL' rather than a bare 'L', which cannot tell
+   * Casual Leave from Loss of Pay.
+   */
+  label?: string;
   className?: string;
 }) {
   const meta = STATUS_TOKENS[token];
@@ -91,7 +98,7 @@ export function AttendanceTokenBadge({
         className,
       )}
     >
-      {meta.short}
+      {label ?? meta.short}
     </span>
   );
 }

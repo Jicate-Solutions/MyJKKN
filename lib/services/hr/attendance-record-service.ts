@@ -47,6 +47,7 @@ const RECORD_SELECT = `
   overtime_minutes,
   break_minutes,
   late_minutes,
+  excused_minutes,
   device_status,
   first_half_attended,
   second_half_attended,

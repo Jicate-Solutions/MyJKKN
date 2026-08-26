@@ -17,7 +17,11 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useHrOrgMappings } from '@/hooks/hr/use-hr-org-mappings';
-import { useDeleteHRLeaveType } from '@/hooks/hr/use-hr-leave-types';
+import {
+  useDeleteHRLeaveType,
+  useRestoreHRLeaveType,
+  useHardDeleteHRLeaveType,
+} from '@/hooks/hr/use-hr-leave-types';
 import { LeaveTypeFormDialog } from './_components/leave-type-form-dialog';
 import { AssignmentManagerDialog } from './_components/assignment-manager-dialog';
 import { LeaveApprovalFlowDialog } from './_components/leave-approval-flow-dialog';
@@ -60,6 +64,8 @@ export default function HRLeaveTypesPage() {
     : undefined;
 
   const archive = useDeleteHRLeaveType();
+  const restore = useRestoreHRLeaveType();
+  const hardDelete = useHardDeleteHRLeaveType();
 
   const handleFilterChange = useCallback((patch: Partial<LeaveTypeFilterState>) => {
     setFilters((prev) => ({ ...prev, ...patch }));
@@ -105,6 +111,56 @@ export default function HRLeaveTypesPage() {
     [archive, bumpRefresh]
   );
 
+  const handleActivate = useCallback(
+    async (t: HRLeaveType) => {
+      try {
+        await restore.mutateAsync(t.id);
+        toast.success(`${t.leave_type_name} is active again`);
+        bumpRefresh();
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+      }
+    },
+    [restore, bumpRefresh]
+  );
+
+  /**
+   * Dry run. Throws on a transport failure so the dialog can show its own
+   * "could not check" state — a destructive dialog that cannot verify must not
+   * fall through to offering the button.
+   */
+  const handleCheckDelete = useCallback(
+    async (t: HRLeaveType) => {
+      try {
+        return await hardDelete.mutateAsync({ id: t.id, dryRun: true });
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+        throw err;
+      }
+    },
+    [hardDelete]
+  );
+
+  const handleDelete = useCallback(
+    async (t: HRLeaveType) => {
+      try {
+        const result = await hardDelete.mutateAsync({ id: t.id, dryRun: false });
+        // The RPC reports refusal in its payload, not as an error — a row that
+        // gained an application between the check and the commit lands here,
+        // and must not be announced as a success.
+        if (!result?.ok) {
+          toast.error(result?.message ?? result?.error ?? 'Could not delete this leave type');
+          return;
+        }
+        toast.success(`${t.leave_type_name} deleted`);
+        bumpRefresh();
+      } catch (err) {
+        toast.error(getErrorMessage(err));
+      }
+    },
+    [hardDelete, bumpRefresh]
+  );
+
   return (
     <PermissionGuard module="hr.leave.types" action="manage">
       <ContentLayout title="HR Leave Types">
@@ -145,6 +201,9 @@ export default function HRLeaveTypesPage() {
               onAssign={handleAssign}
               onApprovalFlow={handleApprovalFlow}
               onArchive={handleArchive}
+              onActivate={handleActivate}
+              onCheckDelete={handleCheckDelete}
+              onDelete={handleDelete}
               refreshToken={refreshToken}
             />
           </CardContent>

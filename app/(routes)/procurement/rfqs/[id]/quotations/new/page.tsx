@@ -350,10 +350,11 @@ export default function NewQuotationPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Extraction failed');
 
-      // Lane unavailable (switched off, no permission, cap reached, box offline)
-      // — the quotation is still completable by hand.
+      // Lane unavailable — the server says WHICH state (not set up here, switched
+      // off, no permission, cap reached), so show its message rather than a
+      // generic one. The quotation is still completable by hand either way.
       if (json.unavailable) {
-        toast.error(json.error || 'AI reading is unavailable — please enter the prices manually.');
+        toast.error(json.error || 'AI PDF reading is unavailable — please enter the prices manually.');
         return;
       }
       // This exact PDF was already read for this RFQ — reuse rather than re-read.
@@ -400,10 +401,11 @@ export default function NewQuotationPage() {
           setExtractJobId(null);
           return;
         }
-        // Never picked up: the runner box is presumed offline. Stop waiting and
-        // tell the truth rather than spinning indefinitely.
+        // Never picked up: the job was accepted but no reader claimed it, so the
+        // runner box is presumed offline. Say that, rather than "unavailable right
+        // now" — the queue took the work; nothing is running to do it.
         if (json.status === 'pending' && Date.now() - startedAt > EXTRACT_UNCLAIMED_GIVE_UP_MS) {
-          toast.error('AI reading is unavailable right now — please enter the prices manually.');
+          toast.error('No AI reader picked up the PDF — it is not running. Please enter the prices manually.');
           setExtractJobId(null);
           return;
         }

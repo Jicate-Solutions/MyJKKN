@@ -24,6 +24,7 @@ import {
   MessageCircle,
   CalendarDays,
   Building2,
+  Bus,
   GraduationCap,
   BookOpen,
   ClipboardCheck,
@@ -106,6 +107,7 @@ import {
   UserCog,
   SearchCheck,
   BadgeCheck,
+  Presentation,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // The single answer to "which MENU_PERMISSIONS values are not permission keys".
@@ -377,6 +379,21 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // it this page would fall through to '/hr' → 'hr.view' — a key almost every
   // role holds — and the paying organisation is HR-only by design.
   '/hr/payroll/organisation': 'hr.payroll.institution.view',
+  // WHAT EACH PERSON EARNS. A separate key from the line above on purpose:
+  // maintaining the payer directory and seeing everyone's pay are different
+  // decisions, and longest-prefix resolution would otherwise hand this page to
+  // '/hr/payroll' → 'hr.payroll.institution.view' and grant the second to
+  // everyone holding the first.
+  '/hr/payroll/salaries': 'hr.payroll.salary.view',
+  // WHERE THE MONEY LANDS. A third key again, not a reuse of the salary one:
+  // the amount and the destination are separate decisions, and the destination
+  // is the field a change to redirects real money.
+  '/hr/payroll/bank-accounts': 'hr.payroll.bank.view',
+  // Closing an attendance month. Its own key, NOT the self-service
+  // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
+  // entry here longest-prefix resolution would hand all of them the ability to
+  // freeze an institution-month.
+  '/hr/attendance/close': 'hr.attendance.period.view',
   // The hub at /hr/payroll only redirects to the page above, but it needs its
   // own entry: without one the longest-prefix match falls through to '/hr' →
   // 'hr.view', so anyone in HR could open it and be denied one redirect later.
@@ -509,12 +526,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // though the row now points at /academic instead of /academic/years.
   '/academic': 'academic.years.view',
   '/events/induction': 'induction.view',
-  '/events/induction/new': 'induction.manage',
+  // Split off induction.manage 2026-08-21 — creating an induction is Induction
+  // Lead + super admin only; manage now covers running one, not starting one.
+  '/events/induction/new': 'induction.create',
   '/events/induction/catalog': 'induction.view',
   // Events landing + Projects module entry (menu-visibility gap fix
   // 2026-07-12). 'projects.view' is a NEW key — grant it to roles in
   // Role Management to reveal the Projects sidebar entry.
   '/events': 'events.view',
+  '/courses': 'courses.view',
+  '/courses/new': 'courses.create',
   '/projects': 'projects.view',
   '/academic/parent-portal': 'academic.parent_portal.manage',
   '/academic/years': 'academic.years.view',
@@ -667,6 +688,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // has no segment the terminology delta gate matches, so no value split is
   // needed here.
   '/ai-pulse/admin/reports': 'aiPulse:anomaly.review',
+  // Cross-cycle session trend. Deliberately NOT 'aiPulse:cycles.manage', even
+  // though it sits beside the Champion Console: the SELECT policy on
+  // ai_pulse_live_attendance (20260611) admits `aiPulse:attendance.mark` and
+  // `aiPulse:anomaly.review` but not `cycles.manage`, so gating on cycles.manage
+  // would open a page whose every rate then read "not captured" for want of
+  // rows. The ai_pulse_champion role holds both keys, so the Champion and
+  // Co-Champion are admitted either way — this key also guarantees the data.
+  '/ai-pulse/admin/trends': 'aiPulse:anomaly.review',
   '/ai-pulse/admin/policies': 'aiPulse:policies.manage',
   '/ai-pulse/evidence/naac': 'aiPulse:naac.evidence_export',
 
@@ -711,8 +740,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admin/id-cards': 'id_cards.jobs.view',
   '/admin/id-cards/template': 'id_cards.templates.view',
   '/admin/id-cards/print-queue': 'id_cards.jobs.view',
+  // Morning page (2026-08-14) — the daily exception/coverage read. Same key as
+  // the print queue: anyone who can see the ID Cards menu can read it.
+  '/admin/id-cards/morning': 'id_cards.jobs.view',
   // Batch print enqueues jobs, so it needs the manage key (not just view).
   '/admin/id-cards/batch-print': 'id_cards.jobs.manage',
+  // Address Check (2026-08-14) is read-only — it lists the addresses that will
+  // print wrong and links out to the learner's edit screen, so it shares the
+  // view key rather than requiring manage.
+  '/admin/id-cards/address-check': 'id_cards.jobs.view',
   // Policy page self-guards super_admin (PolicyPageShell permission="super_admin"),
   // so the nav entry mirrors it — no id_cards.* policy-view key exists.
   '/admin/id-cards/policy': 'super_admin',
@@ -817,6 +853,23 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/billing/activities': 'billing.activities.view',
   '/billing/coverage': 'billing.coverage.view',
   '/billing/payment': 'billing.payment.view',
+  // School fees (2026-08-13; moved under /billing 2026-08-13). Gated on
+  // school_fees.read, granted to accounts / accountant_assistant /
+  // administrator / super_admin only.
+  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
+  // institution entity_type, and the accounts staff who run school billing sit
+  // at an admin office, not at the school — hiding it there would lock out the
+  // very people who need it. The institution dropdown inside the page is what
+  // restricts the data to entity_type='school'.
+  '/billing/school-fees': 'school_fees.read',
+  '/billing/school-fees/term-calendar': 'school_fees.read',
+  '/billing/school-fees/new': 'school_fees.manage',
+  '/billing/school-fees/[id]': 'school_fees.read',
+  '/billing/school-fees/concessions': 'school_fees.read',
+  '/billing/school-fees/generate': 'school_fees.generate',
+  // The payment counter. Gated on .collect, not .read — everything on that
+  // screen leads to writing a receipt, so a read-only user has no reason there.
+  '/billing/school-fees/collect': 'school_fees.collect',
   '/billing/late-charges': 'billing.late_charges.view',
 
   // Resource Management
@@ -983,19 +1036,6 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/years/[id]': 'admission.settings.years.view',
   '/admission/settings/years/[id]/edit': 'admission.settings.years.edit',
   '/admission/settings/statuses': 'admission.settings.statuses.view',
-  // School fees (2026-08-13). Gated on school_fees.read, which is granted to
-  // accounts / accountant_assistant / administrator / super_admin only.
-  // NOT hidden by filterMenuByEntityType: that helper keys on the *user's own*
-  // institution entity_type, and the accounts staff who run school billing sit
-  // at an admin office, not at the school — hiding it there would lock out the
-  // very people who need it. The institution dropdown inside the page is what
-  // restricts the data to entity_type='school'.
-  '/admission/settings/school-fees': 'school_fees.read',
-  '/admission/settings/school-fees/term-calendar': 'school_fees.read',
-  '/admission/settings/school-fees/new': 'school_fees.manage',
-  '/admission/settings/school-fees/[id]': 'school_fees.read',
-  '/admission/settings/school-fees/concessions': 'school_fees.read',
-  '/admission/settings/school-fees/generate': 'school_fees.generate',
 
   // PDE (Principal Development Engine) — Learning
   '/learn/quests': 'pde.quests.view',
@@ -1087,6 +1127,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Solution Hub
   '/solutions': 'solutions.dashboard.view',
   '/solutions/list': 'solutions.dashboard.view',
+  // Deliberately REUSES the dashboard key (2026-08-14): a freshly minted
+  // solutions.digest.view would be true on almost no role — the trap hit
+  // three times the week of 08-13. Anyone who can see the dashboard can
+  // see its weekly digest.
+  '/solutions/digest': 'solutions.dashboard.view',
   '/solutions/pipeline': 'solutions.pipeline.view',
   '/solutions/pipeline/list': 'solutions.pipeline.view',
   '/solutions/pipeline/analytics': 'solutions.pipeline.analytics.view',
@@ -1147,6 +1192,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/blocks': 'campus_living.blocks.view',
   '/campus-living/allocations': 'campus_living.allocations.view',
   '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  // Read-only audit. Its own key (held by no role) so the nav chip and the
+  // route guard agree it is super-admin-only — a link the sidebar hides but
+  // the guard opens is still a reachable page.
+  '/campus-living/allocations/audit': 'campus_living.allocations.audit',
   '/campus-living/residents': 'campus_living.residents.view',
   '/campus-living/my-hostel': 'campus_living.my_hostel.view',
   '/campus-living/my-hostel/vacate-request': 'campus_living.vacate_requests.submit',
@@ -1157,6 +1206,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/campus-living/attendance': 'campus_living.attendance.view',
   '/campus-living/leave': 'campus_living.leave.view',
   '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  // Gated on the WRITE key, not .view: the scan screen exists only to record
+  // exits and returns, so a read-only holder has nothing to do there.
+  '/campus-living/gate-passes/scan': 'campus_living.gate_passes.edit',
   '/campus-living/mess': 'campus_living.mess.view',
   '/campus-living/mess/menu': 'campus_living.mess.menu.view',
   '/campus-living/mess/meals': 'campus_living.mess.meals.view',
@@ -1492,6 +1544,15 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // "My Meetings" — the meetings the signed-in user is IN, hosting OR
+  // attending. Same gate as the inbox: the page only ever reads the caller's
+  // own participation, so a separate key would add role-config burden without
+  // adding protection.
+  '/meetings/my-bookings': 'meetings.view',
+  // Host-initiated scheduling. Same gate as the rest of the module: the page
+  // can only ever book the SIGNED-IN user's own calendar, so a separate key
+  // would add a role-config burden without adding any protection.
+  '/meetings/schedule': 'meetings.view',
   '/meetings/routing-forms': 'meetings.routing.view',
   '/meetings/workflows': 'meetings.workflows.view',
   '/meetings/polls': 'meetings.polls.view',
@@ -2518,34 +2579,6 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/settings/whatsapp-numbers',
               label: 'WhatsApp Numbers',
               active: pathname === '/admission/settings/whatsapp-numbers'
-            },
-            {
-              href: '/admission/settings/school-fees',
-              label: 'School Fee Plans',
-              // Plans owns /school-fees and its plan sub-routes (/new, /[id]),
-              // but NOT the sibling screens that have their own menu entries —
-              // otherwise two rows highlight at once.
-              active:
-                pathname === '/admission/settings/school-fees' ||
-                (pathname.startsWith('/admission/settings/school-fees/') &&
-                  !pathname.startsWith('/admission/settings/school-fees/term-calendar') &&
-                  !pathname.startsWith('/admission/settings/school-fees/concessions') &&
-                  !pathname.startsWith('/admission/settings/school-fees/generate'))
-            },
-            {
-              href: '/admission/settings/school-fees/term-calendar',
-              label: 'School Term Calendar',
-              active: pathname.startsWith('/admission/settings/school-fees/term-calendar')
-            },
-            {
-              href: '/admission/settings/school-fees/concessions',
-              label: 'School Fee Concessions',
-              active: pathname.startsWith('/admission/settings/school-fees/concessions')
-            },
-            {
-              href: '/admission/settings/school-fees/generate',
-              label: 'Generate School Fees',
-              active: pathname.startsWith('/admission/settings/school-fees/generate')
             }
           ]
         }
@@ -2610,6 +2643,9 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/hr/leave/encashment', label: 'Leave Encashment', active: pathname === '/hr/leave/encashment' },
             { href: '/hr/attendance', label: 'My Attendance', active: pathname === '/hr/attendance' },
             { href: '/hr/attendance/regularize', label: 'Regularize Attendance', active: pathname.startsWith('/hr/attendance/regularize') },
+            // HR-ops, not self-service: gated on hr.attendance.period.view so it
+            // is invisible to the 22 roles that hold only view_self.
+            { href: '/hr/attendance/close', label: 'Attendance · Month Close', active: pathname.startsWith('/hr/attendance/close') },
             { href: '/hr/performance-reviews', label: 'My Appraisal', active: pathname === '/hr/performance-reviews' },
             { href: '/hr/training', label: 'My Training', active: pathname.startsWith('/hr/training') },
             { href: '/hr/fdp', label: 'My FDP', active: pathname.startsWith('/hr/fdp') },
@@ -2644,6 +2680,14 @@ export function GetPages(pathname: string): MenuGroup[] {
             // hr_manager only — so this row is invisible to the rest of the HR
             // group rather than visible-and-denied.
             { href: '/hr/payroll/organisation', label: 'Payroll Organisation', active: pathname.startsWith('/hr/payroll/organisation') },
+            // Gates on hr.payroll.salary.view — held by hr_head ALONE, plus the
+            // Super Administrator via is_super_admin(). Narrowed from three
+            // roles on 2026-08-21; what someone earns is a tighter decision than
+            // which organisation pays them.
+            { href: '/hr/payroll/salaries', label: 'Employee Salaries', active: pathname.startsWith('/hr/payroll/salaries') },
+            // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
+            // Administrator via is_super_admin().
+            { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
           ]
         },
         {
@@ -2885,30 +2929,86 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Billing & Accounts',
       menus: [
+        // Split into three domains 2026-08-25. One "Billing" menu had grown to
+        // 23 submenus mixing college, transport and school work in one list.
+        // The domains are real, not cosmetic: the schedule services filter on
+        // institution_entity_type='institution', and school fees run on their
+        // own school_fees.* permission namespace and school_fee_* tables.
+        //
+        // The three `active` predicates MUST stay mutually exclusive — all
+        // three rows live under /billing, so the college one has to exclude the
+        // other two prefixes or every row highlights at once.
         {
           href: '/billing',
-          label: 'Billing',
-          active: pathname === '/billing' || pathname.startsWith('/billing/'),
-          icon: Wallet,
+          label: 'Colleges',
+          active:
+            pathname === '/billing' ||
+            (pathname.startsWith('/billing/') &&
+              !pathname.startsWith('/billing/transport') &&
+              !pathname.startsWith('/billing/school-fees')),
+          icon: GraduationCap,
           submenus: [
-            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
             { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
-            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+            // ── Group-wide, not college-only ──────────────────────────────
+            // These six serve schools too and deliberately have no second row
+            // under Schools: one href in two menus highlights both at once.
+            // Categories IS the school fee-head master (school-fee-head-service
+            // reads billing_categories, collapsed to global in 20260428000001),
+            // and the school counter writes billing_receipt_items, so Receipts
+            // lists school payments as well.
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
-            { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
-            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+          ]
+        },
+        {
+          // /billing/transport is the app's ONLY transport route, so this is a
+          // direct link rather than a menu whose arrow opens a single child.
+          // Note the filter consequence: a menu with an empty submenus[] is
+          // gated on its OWN MENU_PERMISSIONS entry (billing.transport.view)
+          // instead of "any child is allowed". That mapping already exists.
+          href: '/billing/transport',
+          label: 'Transport Fees',
+          active: pathname.startsWith('/billing/transport'),
+          icon: Bus,
+          submenus: []
+        },
+        {
+          href: '/billing/school-fees',
+          label: 'Schools',
+          active: pathname.startsWith('/billing/school-fees'),
+          icon: School,
+          submenus: [
+            // School fees (moved here from Admission > Settings 2026-08-13).
+            // 'School Fee Plans' owns /billing/school-fees and its plan
+            // sub-routes (/new, /[id]) but NOT the siblings below, which have
+            // their own rows — otherwise two highlight at once.
+            { href: '/billing/school-fees', label: 'School Fee Plans',
+              active: pathname === '/billing/school-fees' ||
+                (pathname.startsWith('/billing/school-fees/') &&
+                  !pathname.startsWith('/billing/school-fees/term-calendar') &&
+                  !pathname.startsWith('/billing/school-fees/concessions') &&
+                  !pathname.startsWith('/billing/school-fees/generate') &&
+                  !pathname.startsWith('/billing/school-fees/collect')) },
+            { href: '/billing/school-fees/term-calendar', label: 'School Term Calendar', active: pathname.startsWith('/billing/school-fees/term-calendar') },
+            { href: '/billing/school-fees/concessions', label: 'School Fee Concessions', active: pathname.startsWith('/billing/school-fees/concessions') },
+            { href: '/billing/school-fees/generate', label: 'Generate School Fees', active: pathname.startsWith('/billing/school-fees/generate') },
+            // Sits after Generate because that is the order of the work: raise
+            // the year's bills, then take money against them.
+            { href: '/billing/school-fees/collect', label: 'School Bill Payment', active: pathname.startsWith('/billing/school-fees/collect') },
           ]
         }
       ]
@@ -3055,8 +3155,10 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname.startsWith('/admin/id-cards'),
           icon: IdCard,
           submenus: [
+            { href: '/admin/id-cards/morning', label: 'Morning Page', active: pathname.startsWith('/admin/id-cards/morning') },
             { href: '/admin/id-cards/print-queue', label: 'Print Queue', active: pathname.startsWith('/admin/id-cards/print-queue') },
             { href: '/admin/id-cards/batch-print', label: 'Batch Print', active: pathname.startsWith('/admin/id-cards/batch-print') },
+            { href: '/admin/id-cards/address-check', label: 'Address Check', active: pathname.startsWith('/admin/id-cards/address-check') },
             { href: '/admin/id-cards/template', label: 'Template', active: pathname.startsWith('/admin/id-cards/template') },
             { href: '/admin/id-cards/policy', label: 'Policy', active: pathname.startsWith('/admin/id-cards/policy') },
           ]
@@ -3129,6 +3231,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/ai-pulse/admin/cycles', label: 'Champion · Cycles', active: pathname.startsWith('/ai-pulse/admin/cycles') },
             { href: '/ai-pulse/admin/anomalies', label: 'Champion · Anomalies', active: pathname.startsWith('/ai-pulse/admin/anomalies') },
             { href: '/ai-pulse/admin/reports', label: 'Champion · Reported Prompts', active: pathname.startsWith('/ai-pulse/admin/reports') },
+            { href: '/ai-pulse/admin/trends', label: 'Champion · Session Trend', active: pathname.startsWith('/ai-pulse/admin/trends') },
             { href: '/ai-pulse/admin/policies', label: 'Admin · Policies', active: pathname.startsWith('/ai-pulse/admin/policies') },
             { href: '/ai-pulse/evidence/naac', label: 'NAAC Evidence', active: pathname.startsWith('/ai-pulse/evidence/naac') },
           ]
@@ -3151,6 +3254,8 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarClock,
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
+            { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
             { href: '/meetings/inbox', label: 'Inbox', active: pathname.startsWith('/meetings/inbox') },
@@ -3295,6 +3400,25 @@ export function GetPages(pathname: string): MenuGroup[] {
             { href: '/events/tournament/new', label: 'Tournament · New', active: pathname === '/events/tournament/new' },
             // Stream C (2026-04-26): event_proposals workflow — chat-bypass propose intake
             { href: '/events/propose', label: 'Propose an Event', active: pathname === '/events/propose' || pathname.startsWith('/events/propose/') },
+          ]
+        }
+      ]
+    },
+    {
+      groupLabel: 'Courses',
+      menus: [
+        {
+          href: '/courses',
+          label: 'Courses',
+          // Same parent-href-as-leaf trap as '/events' above: the parent row is
+          // a pure accordion toggle at runtime, so its own href is never
+          // clickable. The 'All Courses' submenu leaf below is what actually
+          // makes /courses reachable by check:reachability's chip-click walk.
+          active: pathname === '/courses' || pathname.startsWith('/courses/'),
+          icon: Presentation,
+          submenus: [
+            { href: '/courses', label: 'All Courses', active: pathname === '/courses' },
+            { href: '/courses/new', label: 'Create a Course', active: pathname === '/courses/new' },
           ]
         }
       ]

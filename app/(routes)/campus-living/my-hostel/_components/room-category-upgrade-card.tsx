@@ -18,9 +18,20 @@ interface Props {
   currentCategoryName: string | null;
   /** 'book' = learner has no allocation yet (first booking); 'upgrade' = move. */
   mode?: 'book' | 'upgrade';
+  /**
+   * No room allocated yet: upgrade the CATEGORY only, never a room. Picking a room
+   * without an allocation runs _cl_execute_first_booking, which seats the learner with
+   * NO upgrade bill and NO category change; _cl_upgrade_category_only bills the ladder
+   * fee and lets the hostel office allocate the room in the new category afterwards.
+   */
+  categoryOnly?: boolean;
 }
 
-export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' }: Props) {
+export function RoomCategoryUpgradeCard({
+  currentCategoryName,
+  mode = 'upgrade',
+  categoryOnly = false,
+}: Props) {
   const isBook = mode === 'book';
   const { data: options = [], isLoading } = useUpgradeRoomCategories();
   const { data: myWaitlist = [] } = useMyUpgradeWaitlist();
@@ -161,7 +172,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                   ) : hasRooms ? (
                     <Button size="sm" onClick={() => setPicked(opt)}>
                       <ArrowUpCircle className="mr-1.5 h-4 w-4" />
-                      {opt.allocation_mode === 'auto'
+                      {opt.allocation_mode === 'auto' || categoryOnly
                         ? 'Upgrade'
                         : opt.meets_threshold
                           ? opt.upgrade_fee > 0 ? 'Reserve & pay' : 'Upgrade now'
@@ -235,11 +246,17 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
                     policy.
                   </p>
                 )}
-                {!isBook && !locked && !held && hasRooms && !opt.meets_threshold && (
+                {!isBook && !categoryOnly && !locked && !held && hasRooms && !opt.meets_threshold && (
                   <p className="text-xs text-muted-foreground">
                     You&apos;ve paid {opt.paid_pct ?? 0}% of this year&apos;s fees; {opt.threshold_pct}% is
                     needed for an instant upgrade — you can still reserve a room now (it&apos;s yours
                     from reservation) with {opt.hold_days} day{opt.hold_days === 1 ? '' : 's'} to pay.
+                  </p>
+                )}
+                {categoryOnly && !locked && !held && !categoryPending && (
+                  <p className="text-xs text-muted-foreground">
+                    You don&apos;t have a room yet — this upgrades your category, so the hostel
+                    office allocates you a {opt.name} directly. The upgrade fee is billed now.
                   </p>
                 )}
                 {categoryPending && (
@@ -288,7 +305,7 @@ export function RoomCategoryUpgradeCard({ currentCategoryName, mode = 'upgrade' 
           meetsThreshold={picked.meets_threshold}
           holdDays={picked.hold_days}
           mode={mode}
-          autoPick={picked.allocation_mode === 'auto'}
+          autoPick={categoryOnly || picked.allocation_mode === 'auto'}
         />
       )}
     </Card>

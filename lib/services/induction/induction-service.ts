@@ -44,15 +44,6 @@ export interface PreviewEnrollResult {
   sample: Array<{ name: string; status: string }>;
 }
 
-/** A currently-appointed induction coordinator (with their college). */
-export interface InductionCoordinator {
-  user_id: string;
-  full_name: string;
-  email: string;
-  institution_id: string;
-  institution_name: string;
-}
-
 /** A staff member who can be appointed as a coordinator. */
 export interface AssignableStaff {
   id: string;
@@ -61,17 +52,29 @@ export interface AssignableStaff {
   role: string;
 }
 
-/** A per-event appointed coordinator (additive to institution-wide roles). */
+/** An appointed coordinator of ONE induction. The only coordinator model. */
 export interface EventCoordinator {
   user_id: string;
   full_name: string;
   email: string;
 }
 
-/** An induction-running college (institution with a non-blueprint induction program). */
-export interface InductionCollege {
+/** One row of the induction list table. */
+export interface InductionListRow {
   id: string;
   name: string;
+  description: string | null;
+  status: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  /** Free-text venue. Only the fallback when venue_resource_id books a room. */
+  venue_text: string | null;
+  venue_resource_id: string | null;
+  /** Decides who is offered Edit — mirrors events_auth_update (creator-owned). */
+  created_by: string | null;
+  institution_id: string;
+  institution_name: string | null;
+  coordinators: EventCoordinator[];
 }
 
 export class InductionService {
@@ -148,56 +151,62 @@ export class InductionService {
     return (data as number) ?? 0;
   }
 
-  // ── Coordinator management (Induction Lead / super-admin only) ──────────────
-  // Appoint each college's Induction Coordinator from inside the induction module
-  // instead of the global Role Management page.
+  // ── The induction list (event rows + who coordinates each) ──────────────────
 
-  /** Can the current user manage coordinators (super-admin or induction_lead)? */
-  static async canManageCoordinators(): Promise<boolean> {
-    const { data, error } = await getSupabase().rpc('fn_induction_can_manage_coordinators');
-    if (error) return false;
-    return !!data;
-  }
-
-  /** Colleges that are actually running an induction (have a non-blueprint
-   *  induction_programs row) — the only institutions the coordinators panel lists,
-   *  not every institution the (scope=all) viewer could otherwise see. */
-  static async runningColleges(): Promise<InductionCollege[]> {
-    const { data, error } = await getSupabase().rpc('fn_induction_running_colleges');
+  /** Every induction the caller can see, newest first. RLS on `events` decides
+   *  which rows come back — no institution filter here on purpose, so a
+   *  scope='all' viewer sees the group and a scope='own' one sees their college. */
+  static async listInductions(): Promise<InductionListRow[]> {
+    const { data, error } = await getSupabase()
+      .from('events')
+      .select(
+        'id,name,description,status,start_date,end_date,venue_text,venue_resource_id,created_by,institution_id,institutions(name)'
+      )
+      .eq('event_type', 'induction')
+      .order('start_date', { ascending: false });
     if (error) throw error;
-    return (data as InductionCollege[]) ?? [];
+    return ((data as any[]) ?? []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description ?? null,
+      status: r.status,
+      start_date: r.start_date,
+      end_date: r.end_date,
+      venue_text: r.venue_text ?? null,
+      venue_resource_id: r.venue_resource_id ?? null,
+      created_by: r.created_by ?? null,
+      institution_id: r.institution_id,
+      institution_name: r.institutions?.name ?? null,
+      coordinators: [],
+    }));
   }
 
-  /** List current induction coordinators (with their college). */
-  static async listCoordinators(): Promise<InductionCoordinator[]> {
-    const { data, error } = await getSupabase().rpc('fn_induction_list_coordinators');
+  /** Coordinators of EVERY induction the caller can see, in one RPC.
+   *
+   *  Not a table select: induction_event_coordinators is admin-only under RLS
+   *  (so a Lead or a coordinator reads zero rows — silently) and carries two FKs
+   *  to profiles, which makes a PostgREST embed ambiguous. Not
+   *  listEventCoordinators() in a loop either: that one is Lead-gated and
+   *  per-event, so the coordinators themselves would see nothing. */
+  static async coordinatorsByEvent(): Promise<Map<string, EventCoordinator[]>> {
+    const { data, error } = await getSupabase().rpc('fn_induction_coordinators_by_event');
     if (error) throw error;
-    return (data as InductionCoordinator[]) ?? [];
+    const map = new Map<string, EventCoordinator[]>();
+    for (const row of (data as (EventCoordinator & { event_id: string })[]) ?? []) {
+      const list = map.get(row.event_id) ?? [];
+      list.push({ user_id: row.user_id, full_name: row.full_name, email: row.email });
+      map.set(row.event_id, list);
+    }
+    return map;
   }
 
-  /** Search assignable staff of a college (to pick a coordinator). */
-  static async assignableStaff(institutionId: string, query: string): Promise<AssignableStaff[]> {
-    const { data, error } = await getSupabase().rpc('fn_induction_assignable_staff', {
-      p_institution_id: institutionId,
-      p_query: query || null,
-    });
-    if (error) throw error;
-    return (data as AssignableStaff[]) ?? [];
-  }
-
-  /** Appoint a coordinator (grants induction_coordinator; their college = their profile). */
-  static async assignCoordinator(userId: string): Promise<void> {
-    const { error } = await getSupabase().rpc('fn_induction_assign_coordinator', { p_user_id: userId });
-    if (error) throw error;
-  }
-
-  /** Remove a coordinator (revokes the role). */
-  static async removeCoordinator(userId: string): Promise<void> {
-    const { error } = await getSupabase().rpc('fn_induction_remove_coordinator', { p_user_id: userId });
-    if (error) throw error;
-  }
-
-  // ── Per-event coordinators (additive to institution-wide roles) ─────────────
+  // ── Per-event coordinators — the ONLY coordinator model ─────────────────────
+  // A college-wide 'induction_coordinator' role used to be grantable from the
+  // list page too; it was retired 2026-08-18 (see
+  // 20260818091000_induction_retire_collegewide_coordinator_role.sql) because it
+  // handed out induction.manage over every induction a college runs, while
+  // *looking* like a per-college appointment. Coordinators are appointed here,
+  // against one induction, and nowhere else.
 
   static async canManageEventCoordinators(eventId: string): Promise<boolean> {
     const { data, error } = await getSupabase().rpc('fn_induction_can_manage_event_coordinators', { p_event_id: eventId });
@@ -288,6 +297,8 @@ export class InductionService {
       // STRICT venue: the chosen Resource Management room. The RPC derives
       // venue_text from this resource's name server-side (no free-text path).
       p_venue_resource_id: input.venueResourceId ?? null,
+      // undefined → key omitted → the RPC's NULL default leaves kind as stored.
+      ...(input.kind === undefined ? {} : { p_kind: input.kind }),
     });
     if (error) throw error;
     return data as string;
@@ -380,6 +391,46 @@ export class InductionService {
     const { data, error } = await supabase.rpc('fn_induction_session_feedback_summary', { p_event_id: eventId });
     if (error) throw error;
     return (data as SessionFeedbackSummary[]) ?? [];
+  }
+
+  /** Coordinator: the same per-session feedback, split by the college of the
+   *  learner who submitted it. Pass a sessionId to narrow to one session.
+   *  Once a session is shared across colleges (event_session_institutions) this
+   *  is the only correct split — the stamped institution_id records the write
+   *  path, not the learner. */
+  static async getSessionFeedbackByCollege(
+    eventId: string,
+    sessionId?: string | null,
+  ): Promise<SessionFeedbackByCollege[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_feedback_by_learner_college', {
+      p_event_id: eventId,
+      p_session_id: sessionId ?? null,
+    });
+    if (error) throw error;
+    return (data as SessionFeedbackByCollege[]) ?? [];
+  }
+
+  /** Every individual feedback response for an induction — one row per
+   *  (learner × session), carrying the learner's identity, the session it belongs
+   *  to, the rating, the free-text comment and how it was captured. Pass a
+   *  sessionId to narrow to one session; omit it for the whole induction.
+   *
+   *  Coordinator scope. This is DELIBERATELY narrower than getSessionFeedbackSummary
+   *  (which session speakers may also call): these rows carry college email and
+   *  mobile, so an assigned resource person is not admitted. Rows are responses
+   *  ONLY — a fresher who never rated anything does not appear. */
+  static async getSessionFeedbackDetail(
+    eventId: string,
+    sessionId?: string | null,
+  ): Promise<SessionFeedbackDetailRow[]> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('fn_induction_session_feedback_detail', {
+      p_event_id: eventId,
+      p_session_id: sessionId ?? null,
+    });
+    if (error) throw error;
+    return (data as SessionFeedbackDetailRow[]) ?? [];
   }
 
   // ── No-smartphone kiosk capture (volunteer/coordinator proxy on a shared device) ──
@@ -669,6 +720,18 @@ export interface InductionLoopPlaybook {
 
 export interface SessionFeedbackSummary { session_id: string; avg_rating: number; response_count: number; }
 
+/** One (session × college) cell of the feedback breakdown, where "college" is the
+ *  college of the LEARNER who submitted — derived from learners_profiles, never
+ *  from event_session_feedback.institution_id (that column records the write path
+ *  and mis-attributes 30 live rows to JKKN Main Office). Director decision D5. */
+export interface SessionFeedbackByCollege {
+  feedback_session_id: string;
+  learner_institution_id: string | null;
+  learner_institution_name: string;
+  response_count: number;
+  avg_rating: number;
+}
+
 /** One picked fresher's rating in a kiosk batch (proxy writer payload row). */
 export interface ProxyFeedbackMark { learner_id: string; rating: number; comment?: string | null; }
 
@@ -680,6 +743,38 @@ export interface SessionFeedbackRow {
   comment: string | null;
   capture_method: 'phone' | 'volunteer_kiosk';
   is_self: boolean;
+}
+
+/** One individual feedback response — (learner × session) with full learner
+ *  identity, from fn_induction_session_feedback_detail. Powers the "Session
+ *  feedback" browser and its XLSX export. Session/learner fields are nullable
+ *  because the RPC LEFT-joins the dimensions: a response whose session or learner
+ *  row was deleted still surfaces, unlabelled, rather than silently vanishing. */
+export interface SessionFeedbackDetailRow {
+  feedback_id: string;
+  session_id: string;
+  session_title: string | null;
+  day_number: number | null;
+  session_start: string | null;
+  learner_id: string;
+  register_number: string | null;
+  roll_number: string | null;
+  learner_name: string | null;
+  gender: string | null;
+  student_email: string | null;
+  college_email: string | null;
+  student_mobile: string | null;
+  institution_name: string | null;
+  degree_name: string | null;
+  program_name: string | null;
+  department_name: string | null;
+  rating: number;
+  comment: string | null;
+  capture_method: 'phone' | 'volunteer_kiosk';
+  is_self: boolean;
+  submitted_by_name: string | null;
+  submitted_at: string;
+  updated_at: string;
 }
 
 /** Coverage + method-mix for an induction's feedback (bias awareness for the loop). */
@@ -803,6 +898,20 @@ export interface RosterRow {
   register_number: string | null;
   batch_label: string | null;
   status: AttendanceStatus | null;
+  /** Identity aids for the marker on a 200+ roster where register_number is
+   *  still NULL pre-enrolment — displayed and searched in AttendanceDialog. */
+  program_name: string | null;
+  father_mobile: string | null;
+  /** The learner's OWN college. On a session shared with other colleges this is
+   *  what the roster groups by, so a visiting learner is never filed under the
+   *  host. NULL when the learner has no institution recorded. */
+  institution_name: string | null;
+  /** The Senior Peer Mentor currently walking this fresher — the stand-in while
+   *  a temporary cover is in force, since that is who is actually on the floor.
+   *  NULL when no mentor is assigned, or their appointment is no longer active.
+   *  Drives the mentor filter on AttendanceDialog. */
+  mentor_learner_id: string | null;
+  mentor_name: string | null;
 }
 
 export interface DayRosterRow {
@@ -812,6 +921,11 @@ export interface DayRosterRow {
   batch_label: string | null;
   status: AttendanceStatus | null;
   is_mixed: boolean;
+  /** Same identity aids as RosterRow — displayed and searched in DayAttendanceDialog. */
+  program_name: string | null;
+  father_mobile: string | null;
+  /** See RosterRow.institution_name. */
+  institution_name: string | null;
 }
 
 /** Per-day "past sessions vs FULLY-marked sessions" — drives the back-mark nudge.
@@ -846,7 +960,14 @@ export interface InductionSessionRow {
   outcome_text: string | null;
   resource_links: ResourceLink[];
   status: string | null;
+  /** null = an ordinary session; 'registration' = the fresher registration desk
+   *  (no resource person needed, Senior Peer Mentors may take its attendance);
+   *  'mentor_checkin' = a monthly mentor check-in, authored elsewhere. */
+  kind: SessionKind;
 }
+
+/** Values `event_sessions.kind` can carry in the induction module. */
+export type SessionKind = null | 'registration' | 'mentor_checkin';
 
 export interface UpsertSessionInput {
   eventId: string;
@@ -865,4 +986,8 @@ export interface UpsertSessionInput {
   outcomeText?: string | null;
   resourceLinks?: ResourceLink[];
   sessionOrder?: number | null;
+  /** 'registration' marks this as the registration desk; '' clears it back to an
+   *  ordinary session. Omit (undefined) to leave the stored kind untouched — that
+   *  is what keeps a 'mentor_checkin' row from being reclassified by an edit. */
+  kind?: 'registration' | '';
 }

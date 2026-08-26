@@ -6,8 +6,8 @@
 // institution: '2026-2027' existed 11 times with 11 different ids, so the same
 // logical year could not be compared across institutions (the balance analytics
 // RPC had to match on the trimmed NAME), and its Jun 1 -> Mar 31 span left April
-// and May outside every year. These rows are group-wide and run the financial
-// year, Apr 1 -> Mar 31.
+// and May outside every year. These rows are group-wide and run Jun 1 -> May 31,
+// a full 12 months, so no day falls outside an HR year.
 
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';

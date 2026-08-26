@@ -82,6 +82,7 @@ async function ProfilesContent({
     academic_year_id: str('academic_year_id'),
     gender: str('gender'),
     is_profile_complete: bool('is_profile_complete'),
+    accommodation_type_id: str('accommodation_type_id'),
     sortBy: str('sort_by') || 'first_name',
     sortOrder: (str('sort_order') as 'asc' | 'desc') || 'asc',
     learner_id: learnerIdFilter, // Student filter - only see own profile

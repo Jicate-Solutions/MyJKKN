@@ -284,10 +284,30 @@ export interface LeaveApprovalStep {
   edited_at?: string | null;
 }
 
+/**
+ * One supporting document on a leave application, stored in the `documents`
+ * JSONB array.
+ *
+ * Files live in GOOGLE DRIVE, not Supabase Storage. They are medical
+ * certificates and duty orders, so the Drive file carries NO public permission
+ * — `url` is only useful to someone already authorised on the Drive itself, and
+ * the app serves the bytes through /api/hr/leave/documents/[fileId], which
+ * checks the viewer against the application first. `drive_file_id` is the key
+ * that route needs; treat it as the real identifier and `url` as a convenience.
+ *
+ * `storage_path` predates Drive and is kept only so the shape stays readable
+ * next to older code. Nothing writes it — all 535 applications that existed
+ * when uploads shipped carried an empty documents array, so there is no legacy
+ * data behind it.
+ */
 export interface LeaveDocument {
   name: string;
   storage_path: string;
   uploaded_at: string;
+  drive_file_id?: string;
+  url?: string;
+  mime_type?: string;
+  size_bytes?: number;
 }
 
 export interface HRLeaveApplication {
@@ -296,7 +316,7 @@ export interface HRLeaveApplication {
   employee_id: string;
   leave_type_id: string;
   /**
-   * The HR year (Apr 1 -> Mar 31), not academic_years. Nullable in the schema
+   * The HR year (Jun 1 -> May 31), not academic_years. Nullable in the schema
    * but effectively always set: trg_hla_aa_default_hr_ay resolves it from
    * start_date on insert when the client omits it.
    */
@@ -391,6 +411,12 @@ export interface HRLeaveBalanceWithType extends HRLeaveBalance {
   max_continuous_days: number | null;
   min_advance_notice_days: number;
   requires_documents: boolean;
+  /**
+   * Length above which requires_documents actually bites. NULL = no
+   * threshold, so a document is required at any length. Read together
+   * with requires_documents by leaveDocumentRequirement().
+   */
+  document_required_after_days: number | null;
   /**
    * 'policy'   — the leave type's default_entitled_days (the common case)
    * 'override' — an explicit hr_leave_entitlement_overrides row
@@ -550,3 +576,58 @@ export const EMPLOYEE_DOCUMENT_ACCEPT_ATTR =
 // 5 MB in bytes — mirror of the DB CHECK constraint and bucket file_size_limit.
 export const EMPLOYEE_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
 
+/**
+ * One row of hr_leave_approval_queue() — leave AND short time off awaiting a
+ * decision, carrying the requester's identity.
+ *
+ * Comes from a SECURITY DEFINER RPC rather than an embed because
+ * staff_select_scope_aware gates the staff table on staff.view, which
+ * hr.leave.approve does not grant: an embed would return a blank name to
+ * exactly the approvers who need it. See
+ * supabase/migrations/20260820160000_hr_leave_approval_queue.sql
+ */
+export interface HRLeaveApprovalQueueRow {
+  id: string;
+  employee_id: string;
+  staff_name: string | null;
+  /** staff.staff_id — may legitimately be null (199 of 868 staff have none). */
+  staff_code: string | null;
+  institution_id: string | null;
+  institution_name: string | null;
+  hr_organization_id: string;
+  hr_organization_name: string | null;
+  leave_type_id: string;
+  leave_type_name: string | null;
+  leave_type_code: string | null;
+  /** Splits the tabs. A missing type falls back to 'leave', never to nothing. */
+  request_category: LeaveRequestCategory;
+  start_date: string;
+  end_date: string;
+  /** Short time off only. 'HH:MM:SS' — the column is time without time zone. */
+  start_time: string | null;
+  end_time: string | null;
+  duration_type: LeaveDurationType;
+  duration_minutes: number | null;
+  total_days: number;
+  reason: string;
+  is_emergency: boolean;
+  status: LeaveApplicationStatus;
+  created_at: string;
+  /** profiles.id of whoever submitted it — not necessarily the employee. */
+  applied_by: string | null;
+  /** Resolved server-side: profiles is unreadable to a staff member under RLS. */
+  applied_by_name: string | null;
+  /** applied_by is somebody other than the staff member the leave is for. */
+  applied_on_behalf: boolean;
+  /** The caller's own request. Display fact only — see can_decide. */
+  is_own: boolean;
+  /**
+   * Will hr_trig_leave_enforce_approver allow this caller to decide it?
+   * False for your own request UNLESS you are a super admin: that trigger
+   * returns NEW on is_super_admin() before it reaches the self-approval bar.
+   * A super admin's own row is both is_own AND can_decide.
+   */
+  can_decide: boolean;
+  /** Current step routes to this caller. A filter, not a permission. */
+  waiting_on_me: boolean;
+}

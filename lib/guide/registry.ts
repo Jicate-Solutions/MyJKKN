@@ -56,6 +56,7 @@ import {
   GUIDES as ACCREDITATION_GUIDES,
   REQUIRES as ACCREDITATION_REQUIRES,
   orientationSections as ACCREDITATION_ORIENTATION_SECTIONS,
+  cacSections as ACCREDITATION_CAC_SECTIONS,
   ownerSections as ACCREDITATION_OWNER_SECTIONS,
   frameworkSections as ACCREDITATION_FRAMEWORK_SECTIONS,
   assignSections as ACCREDITATION_ASSIGN_SECTIONS,
@@ -1160,14 +1161,22 @@ export const idCardsGuide: ModuleGuide = {
  * EXTERNAL_ROLE_KEYS). Same cross-cutting shape as auditGuide above: the holders
  * span several primary personas, so the content cannot live in one lane alone.
  *
- * The four section groups carry DIFFERENT keys, so they are gated group by group
+ * The five section groups carry DIFFERENT keys, so they are gated group by group
  * rather than uniformly — a viewer who can read the framework but was never
  * named an owner gets the framework steps and none of the owner steps
  * (fail-closed, same as idCardsGuide's two-key collapse).
+ *
+ * DO NOT merge these into one withRequires() call. It stamps ONE key across
+ * everything handed to it, so tidying them together would silently re-gate the
+ * CAC steps on `overview` and the owner steps on `cac` — the lane still renders
+ * and the wrong people lose the section, with no error anywhere. That exact
+ * failure is what __tests__/accreditation/guide-cac-gate.test.ts asserts against
+ * (and, for Foundation, guide-session-leader-gate.test.ts before it).
  * ────────────────────────────────────────────────────────────────────────── */
 const accreditationLane = () => ({
   sections: [
     ...withRequires(ACCREDITATION_ORIENTATION_SECTIONS, ACCREDITATION_REQUIRES.overview),
+    ...withRequires(ACCREDITATION_CAC_SECTIONS, ACCREDITATION_REQUIRES.cac),
     ...withRequires(ACCREDITATION_OWNER_SECTIONS, ACCREDITATION_REQUIRES.owner),
     ...withRequires(ACCREDITATION_FRAMEWORK_SECTIONS, ACCREDITATION_REQUIRES.framework),
     ...withRequires(ACCREDITATION_ASSIGN_SECTIONS, ACCREDITATION_REQUIRES.assign),

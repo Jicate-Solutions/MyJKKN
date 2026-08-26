@@ -40,6 +40,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { createClient } from '@/lib/supabase/server';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
+import { fetchApprovedPermissions, permissionKey } from '@/lib/hr/biometric/fetch-permissions';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
 
 /** fn_resolve_shift_timings_bulk refuses a span wider than this. */
@@ -127,7 +129,7 @@ export async function POST(request: NextRequest) {
     // ---- The days to re-judge ----------------------------------------------
     let q = session
       .from('hr_attendance_records')
-      .select('id, employee_id, work_date, in_at, out_at, status_type_id, day_calc, first_half_attended, second_half_attended, late_minutes, shift_timing_id')
+      .select('id, employee_id, work_date, in_at, out_at, status_type_id, day_calc, first_half_attended, second_half_attended, late_minutes, excused_minutes, excused_by_application_ids, shift_timing_id')
       .eq('source', 'biometric')
       .gte('work_date', from)
       .lte('work_date', to)
@@ -204,6 +206,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ---- Approved permissions for the same window ---------------------------
+    // The evaluator reinstates a half whose missing minutes one of these fully
+    // covers. Omitting them here would make this route disagree with the
+    // importer about the very same punch pair.
+    //
+    // Read with a service-role client, unlike everything else in this route.
+    // hla_select admits an approver or a leave viewer, neither of which
+    // hr.attendance.override implies — so the caller this route already
+    // authorised would come back with an empty set and silently revoke every
+    // excusal it touched. The read is narrow: id, employee, date and the two
+    // times, for staff whose attendance rows this caller could already read.
+    const permissionsByDay = await fetchApprovedPermissions(
+      createServiceRoleClient(),
+      [...new Set((records ?? []).map((r) => (r as Record<string, unknown>).employee_id as string))],
+      from,
+      to,
+    );
+
     // ---- Re-judge ------------------------------------------------------------
     const updates: Array<Record<string, unknown>> = [];
     const changes: ChangeRow[] = [];
@@ -219,6 +239,7 @@ export async function POST(request: NextRequest) {
         inTime: punchToHHMM(r.in_at as string | null),
         outTime: punchToHHMM(r.out_at as string | null),
         timing,
+        permissions: permissionsByDay.get(permissionKey(employeeId, workDate)) ?? [],
       });
 
       // A day that no longer resolves is left exactly as it is. Deleting the
@@ -237,9 +258,10 @@ export async function POST(request: NextRequest) {
       const sameFirst = (verdict.firstHalfAttended ?? null) === (r.first_half_attended ?? null);
       const sameSecond = (verdict.secondHalfAttended ?? null) === (r.second_half_attended ?? null);
       const sameLate = (verdict.lateMinutes ?? null) === (r.late_minutes ?? null);
+      const sameExcused = verdict.excusedMinutes === (r.excused_minutes ?? null);
       const sameTiming = (verdict.shiftTimingId ?? null) === (r.shift_timing_id ?? null);
 
-      if (sameStatus && sameCalc && sameFirst && sameSecond && sameLate && sameTiming) continue;
+      if (sameStatus && sameCalc && sameFirst && sameSecond && sameLate && sameExcused && sameTiming) continue;
 
       if (!sameStatus) {
         const fromCode = codeById.get(r.status_type_id as string) ?? 'UNKNOWN';
@@ -257,6 +279,8 @@ export async function POST(request: NextRequest) {
         first_half_attended: verdict.firstHalfAttended,
         second_half_attended: verdict.secondHalfAttended,
         late_minutes: verdict.lateMinutes,
+        excused_minutes: verdict.excusedMinutes,
+        excused_by_application_ids: verdict.excusedBy.length > 0 ? verdict.excusedBy : null,
         shift_timing_id: verdict.shiftTimingId,
         updated_at: new Date().toISOString(),
       });
