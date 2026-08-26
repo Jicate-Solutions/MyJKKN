@@ -1,7 +1,7 @@
 // =============================================================================
 // ATTENDANCE INTERVENTION MEASURE — the attendance loop's return edge
 // =============================================================================
-// Daily (dispatcher row 'attendance-intervention-measure', 10:07 IST — seeded
+// Daily (dispatcher row 'attendance-intervention-measure', 10:07 IST — ships
 // PARKED in 20260929010000; see the flip note below): one RPC to
 // fn_attendance_measure_intervention_effect, which
 //   1. ENROLLS every unseen intervention as a pending measurement row —

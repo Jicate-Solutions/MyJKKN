@@ -313,20 +313,13 @@ WHERE EXISTS (SELECT 1 FROM public.loop_registry WHERE loop_key = 'metaloop')
       AND what_flows = 'measured_outcomes'
   );
 
--- ── 4. Dispatcher row — PARKED DARK on purpose ───────────────────────────────
--- The dispatcher resolves routine ids via the code registry
--- (lib/ai-routines/misc-ai.ts et al — a shared collision-zone file this PR
--- deliberately does not touch). Until that follow-up entry lands:
---   enabled=false → the dispatcher never claims the slot (no daily
---                   'skipped: not in registry' noise in last_status);
---   managed=false → the loop-watchdog neither counts it SILENT nor flags it
---                   as a muzzled DISABLED managed row (the maxlane dark
---                   convention).
--- Follow-up = add the registry entry, then flip enabled+managed on
--- /admin/ai-routines (no further migration needed). Daily 10:07 IST
--- (minute_of_day 607 — off the :00/:30 pile-up on purpose).
-INSERT INTO public.ai_routine_schedules (routine_id, enabled, managed, days_of_week, minute_of_day)
-VALUES ('attendance-intervention-measure', false, false, ARRAY[0,1,2,3,4,5,6], 607)
-ON CONFLICT (routine_id) DO NOTHING;
+-- ── 4. Dispatcher scheduling — deliberately NOT seeded here ─────────────────
+-- The registry-cron-wiring invariant (build-time test) requires every
+-- ai_routine_schedules seed to ship WITH its lib/ai-routines registry entry —
+-- and that registry file is a cross-lane collision zone this PR must not
+-- touch. The follow-up PR adds BOTH together: the registry entry for
+-- 'attendance-intervention-measure' and its schedule seed (daily 10:07 IST,
+-- minute_of_day 607). Until then the measure route exists but no clock fires
+-- it; manual trigger via CRON_SECRET works for verification.
 
 NOTIFY pgrst, 'reload schema';
