@@ -149,8 +149,11 @@ export class PaymentGatewayService {
         const balance = bill.balance_amount ?? bill.final_amount ?? bill.total_amount ?? 0;
         let amountForThisBill = Number(balance);
 
-        // If custom amounts provided, use them
-        if (sessionData.bill_amounts && sessionData.bill_amounts[bill.id]) {
+        // If custom amounts provided, use them. Tested for PRESENCE, not truth:
+        // a truthy test skips an explicit 0 and silently falls through to the
+        // full balance — charging more than was asked for, and making the
+        // "must be positive" check below dead code for exactly that value.
+        if (sessionData.bill_amounts?.[bill.id] !== undefined) {
           amountForThisBill = Number(sessionData.bill_amounts[bill.id]);
 
           // VALIDATION: Custom amount must not exceed balance
@@ -169,8 +172,11 @@ export class PaymentGatewayService {
             };
           }
 
-          // VALIDATION: Custom amount must be positive
-          if (amountForThisBill <= 0) {
+          // VALIDATION: Custom amount must be a positive number. The NaN test
+          // is load-bearing: a non-numeric amount fails BOTH comparisons above
+          // and below (every NaN comparison is false), so without it a NaN
+          // flows into totalAmount and reaches the gateway as the order value.
+          if (!Number.isFinite(amountForThisBill) || amountForThisBill <= 0) {
             logger.warn('billing/payment-gateway', 'Custom amount must be positive', {
               bill_id: bill.id,
               custom_amount: amountForThisBill,
