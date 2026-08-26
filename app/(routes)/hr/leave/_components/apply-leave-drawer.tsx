@@ -38,6 +38,7 @@ import { LeaveDocumentUpload } from './leave-document-upload';
 import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import { LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import type { HRLeaveApplicationWithType, LeaveDocument, LeaveDurationType } from '@/types/hr';
+import { toast } from 'sonner';
 
 const DURATIONS: Array<{ value: LeaveDurationType; label: string; days: number }> = [
   { value: 'full', label: 'Full day', days: 1 },
@@ -258,7 +259,9 @@ export function ApplyLeaveDrawer({
       try {
         documents = await uploadDocuments();
       } catch (err) {
-        setUploadError(getErrorMessage(err));
+        const message = getErrorMessage(err);
+        setUploadError(message);
+        toast.error(message);
         return;
       } finally {
         setUploading(false);
@@ -286,7 +289,13 @@ export function ApplyLeaveDrawer({
       onOpenChange(false);
     } catch (err) {
       // Supabase errors are plain objects, not Error instances.
-      setError(getErrorMessage(err));
+      // Toast AS WELL as the inline alert. The alert sits at the bottom of a
+      // scrollable sheet while Submit lives in the fixed footer, so a long
+      // form can push it out of view entirely — which is how a failed submit
+      // looked like nothing happening at all.
+      const message = getErrorMessage(err);
+      setError(message);
+      toast.error(message);
     }
   };
 

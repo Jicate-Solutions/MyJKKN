@@ -30,6 +30,10 @@ import { LoopWiring } from './_components/loop-wiring';
 import { ClusterLens } from './_components/cluster-lens';
 import { OwnersPanel, type OwnerPanelRow } from './_components/owners-panel';
 import { ProvenGreenStrip } from './_components/proven-green-strip';
+import {
+  WaitingOnDirectorPanel,
+  loadWaitingOnDirector,
+} from './_components/waiting-on-director';
 import { staleThresholdMs, isAlarmStatus } from '@/lib/ai-routines/loop-governance';
 import { getRoutineById } from '@/lib/ai-routines/registry';
 import type {
@@ -412,6 +416,11 @@ export default async function LoopControlTowerPage({
   // SCF effectiveness — the honest, deduplicated picture + real examples so the
   // card can show WHAT the loop actually produced and WHOSE profile it reflects.
   const scfEff = await loadScfEffectiveness(admin);
+
+  // Waiting on the Director — pending decisions in the loop estate (prompt
+  // graduations + charter drafts). Tower view only; every source swallows to
+  // empty, same contract as the reads above.
+  const waitingItems = view === 'tower' ? await loadWaitingOnDirector(admin) : [];
 
   // ── Live config, read from the SAME tables /admin/ai-routines edits, so the
   // two pages can't drift. Best-effort: any read failure falls back to each
@@ -1625,6 +1634,11 @@ export default async function LoopControlTowerPage({
         />
       ) : (
         <>
+          {/* The Director's own pending decisions come FIRST — the Tower shows
+              loop health, but this is what is blocked on HIM (phone-first). */}
+          <div className="mb-6">
+            <WaitingOnDirectorPanel items={waitingItems} />
+          </div>
           <div className="mb-6">
             <ProvenGreenStrip
               rows={ownersPanelRows}
