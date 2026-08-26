@@ -205,10 +205,15 @@ export type PhotoGateInput = {
  * Decide whether this card may be printed on the strength of its photograph.
  *
  * Three outcomes, not two — an unofficial picture is a WARNING with an extra
- * confirmation, never a refusal (Director 2026-08-26). Only a card that would
- * print no face at all is refused, and that refusal has no override: the whole
- * point of the rule is that a card showing initials is not an identity
- * document, and acknowledging that would not make it one.
+ * confirmation, never a refusal (Director 2026-08-26). Only a card with no
+ * drawable photo REFERENCE on file is refused, and that refusal has no
+ * override: the whole point of the rule is that a card showing initials is not
+ * an identity document, and acknowledging that would not make it one.
+ *
+ * LIMIT: this judges the shape of the stored value, not whether the image is
+ * still fetchable. A well-formed but dead URL passes here and the renderer
+ * falls back to initials anyway. See the "WHAT THIS DOES NOT CHECK" note in
+ * lib/id-cards/photo-quality.ts.
  */
 export function judgeCardPhoto(input: PhotoGateInput): PhotoGateVerdict {
   const verdict = classifyCardPhoto(input.photo);
@@ -342,7 +347,7 @@ export type ReplacementPolicy = {
   feeAmount: number | null;
   feeCurrency: string;
   allowedLearnerStatuses: readonly string[];
-  /** Guard 3. Only an explicit `false` switches the photo rule off. */
+  /** Guard 3. Switched off only by a recognised off-value; see isPolicyValueOff. */
   photoRequired: boolean;
 };
 
@@ -373,6 +378,28 @@ async function readPolicyValue(
 }
 
 /**
+ * The values that switch a boolean policy row OFF.
+ *
+ * `platform_policies.value` is JSONB and this key is set by hand, so the
+ * off-switch has to survive the shapes a person actually types. These count as
+ * off: the JSON boolean `false`, the number `0`, and the strings "false",
+ * "off", "no", "0" (trimmed, any case).
+ *
+ * EVERYTHING else is NOT an off-value and leaves the rule ON — a missing row,
+ * a row holding JSON null, an object, an array, a typo like "flase". That is
+ * the fail-closed half: only a value we positively recognise as "off" can
+ * disable a guard, so an unreadable config can never quietly open the gate.
+ */
+const POLICY_OFF_STRINGS: ReadonlySet<string> = new Set(['false', 'off', 'no', '0']);
+
+export function isPolicyValueOff(value: unknown): boolean {
+  if (value === false) return true;
+  if (typeof value === 'number') return Number.isFinite(value) && value === 0;
+  if (typeof value === 'string') return POLICY_OFF_STRINGS.has(value.trim().toLowerCase());
+  return false;
+}
+
+/**
  * Resolve the replacement-fee policy. Every field fails soft to its documented
  * default EXCEPT the fee amount, which stays null when unset — an absent price
  * must refuse the print, not become zero.
@@ -396,10 +423,12 @@ export async function readReplacementPolicy(
 
   return {
     allowedLearnerStatuses,
-    // Fails CLOSED: only an explicit `false` turns the rule off. A missing row,
-    // an unreadable value or a policy table that has never heard of this key
-    // all leave the photograph required.
-    photoRequired: photoRequired !== false,
+    // Fails CLOSED. A recognised off-value (`false`, `0`, "false"/"off"/"no"/"0")
+    // turns the rule off — the file's promise that this is retunable from the
+    // config table without a deploy. A missing row, JSON null, an unreadable
+    // value or a policy table that has never heard of this key all leave the
+    // photograph required.
+    photoRequired: !isPolicyValueOff(photoRequired),
     freeCardCount:
       typeof freeCount === 'number' && Number.isFinite(freeCount) && freeCount >= 0
         ? Math.trunc(freeCount)
