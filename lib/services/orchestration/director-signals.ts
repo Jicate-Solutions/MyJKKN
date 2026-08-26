@@ -288,7 +288,7 @@ const lateChargeOff: DirectorSignalDescriptor = {
 
     return {
       active: true,
-      cost: `₹${formatInr(overdue)} overdue · ${students} students`,
+      cost: `₹${formatInr(overdue)} overdue · ${students} learners`,
       detail: { bills: rows.length, overdue, students },
     };
   },
