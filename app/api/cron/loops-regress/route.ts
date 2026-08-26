@@ -18,7 +18,9 @@
 // Coverage today: scf (the proven recipe), feeder (cycle_delta known-delta,
 // added 2026-07-13), mess (2026-07-26), bug-triage + induction-session
 // (2026-08-13 — the last two chartered-but-unproven loops; each asserts
-// through the loop's REAL measurement fn, never a re-implementation).
+// through the loop's REAL measurement fn, never a re-implementation),
+// attendance-intervention (2026-08-26 — the attendance return edge's
+// fn_attendance_measure_intervention_effect, known deltas 0.00 / +50.00pp).
 // Additional loops join by adding fn_loops_regress_<loop> + extending
 // LOOP_FNS — see .claude/loop-manifests/.
 //
@@ -48,6 +50,7 @@ const LOOP_FNS: { loopKey: string; fn: string }[] = [
   { loopKey: 'mess', fn: 'fn_loops_regress_mess' },
   { loopKey: 'bug-triage', fn: 'fn_loops_regress_bug_triage' },
   { loopKey: 'induction-session', fn: 'fn_loops_regress_induction' },
+  { loopKey: 'attendance-intervention', fn: 'fn_loops_regress_attendance' },
 ];
 
 type RegressRow = {
