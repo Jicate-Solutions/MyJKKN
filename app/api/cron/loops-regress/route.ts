@@ -48,6 +48,10 @@ const LOOP_FNS: { loopKey: string; fn: string }[] = [
   { loopKey: 'mess', fn: 'fn_loops_regress_mess' },
   { loopKey: 'bug-triage', fn: 'fn_loops_regress_bug_triage' },
   { loopKey: 'induction-session', fn: 'fn_loops_regress_induction' },
+  // Return-edge measurer (fn_learner_360_measure_reverdict_delta) proven by
+  // known-delta sim. Until 20260930010000/20260930020000 are applied this
+  // entry reports sim-error weekly — a deliberate visible nudge, not a bug.
+  { loopKey: 'learner-360', fn: 'fn_loops_regress_learner360' },
 ];
 
 type RegressRow = {
