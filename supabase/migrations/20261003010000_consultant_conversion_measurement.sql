@@ -104,11 +104,15 @@ ON CONFLICT (policy_key, scope_type, COALESCE(scope_id, '00000000-0000-0000-0000
 -- the 'weighting' half of this family ships as an advisory RECORD
 -- (20261003020000), never as an applied allocation change.
 
+-- Owner at birth: the Director, interim (his ruling 2026-08-26, tappable
+-- interview) — consultant/referral territory is already pinned to him by name,
+-- and the constitution (20260726012000) refuses an owner-less birth on purpose.
+-- Handover to Accounts/Admissions later goes through the owners panel.
 INSERT INTO public.loop_registry
-  (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id) VALUES
+  (loop_key, name, stack_tier, loop_class, domain, description, gates, routine_id, owner_email) VALUES
   ('consultants', 'Consultant Effectiveness Loop', 3, 'cadence', 'admission',
    'Consultant-attributed leads → per-consultant conversion delta vs own baseline → advisory weighting RECORD a human can read. Feed-forward (actual lead-allocation weighting) is deliberately unwired: Director-gated territory (walk-in credit hold; commission pipeline never run).',
-   '{"g":"on","a":"on","m":"half","f":"off"}'::jsonb, NULL)
+   '{"g":"on","a":"on","m":"half","f":"off"}'::jsonb, NULL, 'director@jkkn.ac.in')
 ON CONFLICT (loop_key) DO NOTHING;
 
 -- ── 5. The MEASURE fn ────────────────────────────────────────────────────────
