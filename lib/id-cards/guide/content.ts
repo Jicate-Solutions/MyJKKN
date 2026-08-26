@@ -74,10 +74,10 @@ export const setupSections: GuideSection[] = [
           "Each mapping connects a spot on the card (name, roll number, photo) to the learner record it reads from. If a field prints blank, the mapping is the first place to look.",
       },
       {
-        action: "Set up the **Photo Fallback Chain**.",
+        action: "Know what happens when a learner has **no photograph**.",
         detail:
-          "If a learner has no photo on file, the chain tries each backup source in order — ending with a placeholder so every card still prints.",
-        tip: "Keep a placeholder as the last step in the chain. Without one, a learner with no photo can block their card.",
+          "Their card is not printed. A card with no face shows only initials, and the code beside it carries just a number — a photo of somebody else's card scans the same way, so the photograph IS the identity check. The print screen refuses and says whose photograph is missing.",
+        tip: "If the only picture on file comes from the learner's own login account, the card still prints — but you have to confirm it, because an account picture is not one the institution took.",
       },
     ],
   },
@@ -118,7 +118,7 @@ export const printSections: GuideSection[] = [
         action: "Use the **Print ID card** action on the profile.",
         detail:
           "This creates one print job for that learner. If the learner already has a card being printed, you'll see a message instead of a duplicate job — one active job per person.",
-        tip: "Check the learner's photo on the profile before you print. A missing photo falls back down the photo chain, which may print a placeholder.",
+        tip: "Check the learner's photograph on the profile before you print. With no photograph on file the card is refused, not printed with a placeholder — use Photo Check below to see who is affected before anyone queues.",
       },
     ],
   },
@@ -137,6 +137,28 @@ export const printSections: GuideSection[] = [
         detail:
           "Jobs print one at a time in the order they were queued. You don't need to keep the page open — the queue keeps working.",
         tip: "Learners who already have an active print job are skipped, not duplicated.",
+      },
+    ],
+  },
+  {
+    id: "photo-check",
+    title: "See who cannot be printed yet",
+    steps: [
+      {
+        action: "Open **Photo Check** under Admin → ID Cards and pick a college.",
+        detail:
+          "It lists the people a card cannot be printed for yet, worst first, so the photo drive has a list to work down instead of finding out one person at a time at the counter.",
+        link: { label: "Open Photo Check", href: "/admin/id-cards/photo-check" },
+      },
+      {
+        action: "Read the three states.",
+        detail:
+          "**No photograph** — no card can be printed at all; this is the drive list and the page opens on it. **Account picture only** — a card will print, using the picture from their own login account, after you confirm it. **Ready to print** — nothing to do.",
+      },
+      {
+        action: "Use **Export** to hand the list to whoever is taking the photographs.",
+        detail:
+          "It writes the list currently on screen to a spreadsheet. Nothing on this page changes a record — every row links out to the learner's own screen, because the fix is a photograph somebody has to take.",
       },
     ],
   },
@@ -202,6 +224,7 @@ export const GUIDES: { lanes: { registrar: IdCardsLane }; glossary: GlossaryTerm
         "Open Admin → ID Cards",
         "Set up the template",
         "Check the printer policy",
+        "Check who has no photograph",
         "Print a card",
         "Bulk print a batch",
         "Watch the queue",
