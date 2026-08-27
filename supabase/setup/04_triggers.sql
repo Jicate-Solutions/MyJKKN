@@ -2312,3 +2312,18 @@ CREATE TRIGGER trg_learner_status_on_bill_payment_drop
   AFTER UPDATE OF balance_amount, final_amount, status ON public.billing_student_bills
   FOR EACH ROW
   EXECUTE FUNCTION public._fn_learner_status_on_bill_payment_drop();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827190000_hr_regularization_stamp_trigger.sql
+-- (trigger half; the function is mirrored in 02_functions.sql)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS tr_stamp_attendance_on_regularization_approval
+  ON public.hr_attendance_regularizations;
+CREATE TRIGGER tr_stamp_attendance_on_regularization_approval
+  AFTER UPDATE OF status ON public.hr_attendance_regularizations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_stamp_attendance_on_regularization_approval();
+
+COMMENT ON FUNCTION public.fn_stamp_attendance_on_regularization_approval() IS
+  'Writes hr_attendance_records when a regularization is approved. Replaces the client-side best-effort stamp in regularization-service.ts, which silently skipped whenever the approver lacked hr_staff_details, the month was closed, or the browser held a stale bundle.';

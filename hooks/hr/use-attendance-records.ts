@@ -11,7 +11,7 @@
  */
 
 import { useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AttendanceRecordService } from '@/lib/services/hr/attendance-record-service';
@@ -30,6 +30,24 @@ const KEY = 'hr-attendance-records';
 const EXCEPTIONS_KEY = 'hr-attendance-exceptions';
 const MONTHS_KEY = 'hr-attendance-months';
 const TIME_OFF_KEY = 'hr-attendance-time-off';
+
+/**
+ * Invalidate everything the My Attendance log and calendar read.
+ *
+ * ANY MUTATION THAT CHANGES A DAY MUST CALL THIS. The QueryClient runs with
+ * staleTime 5 min and refetchOnWindowFocus false (providers/query-client-
+ * provider.tsx), so a cached month is NOT refetched on a tab switch or a
+ * revisit — without an explicit invalidation an approved regularization or
+ * leave sits invisible for five minutes and looks like it did nothing.
+ *
+ * Keyed by prefix only: the mutation knows neither the staff id nor the month
+ * the viewer happens to have open, and React Query matches partial keys.
+ */
+export function invalidateAttendanceViews(qc: QueryClient) {
+  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY]) {
+    qc.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 /** Raw records for one staff member in one month. */
 export function useAttendanceMonth(staffId: string | null, month: MonthKey) {

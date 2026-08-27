@@ -73,7 +73,7 @@ export function tonesFor(token: AttendanceToken): ToneClasses {
   return TONE_CLASSES[STATUS_TOKENS[token].tone];
 }
 
-/** The filled short-code chip used in the log's Date column. */
+/** The filled short-code chip used in the log's Status column. */
 export function AttendanceTokenBadge({
   token,
   label,

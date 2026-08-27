@@ -8436,3 +8436,14 @@ ALTER TABLE public.hr_comp_off_credits
 
 COMMENT ON COLUMN public.hr_comp_off_credits.documents IS
   'Supporting documents (LeaveDocument[] shape, Google Drive-backed) attached when the credit was claimed. Empty array for hr_grant/attendance sources.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
+-- (FK half; the SELECT/INSERT policies are mirrored in 03_policies.sql)
+-- =============================================================================
+
+ALTER TABLE public.hr_attendance_regularizations
+  DROP CONSTRAINT IF EXISTS hr_attendance_regularizations_employee_id_fkey;
+ALTER TABLE public.hr_attendance_regularizations
+  ADD CONSTRAINT hr_attendance_regularizations_employee_id_fkey
+  FOREIGN KEY (employee_id) REFERENCES public.staff(id);

@@ -9901,3 +9901,32 @@ CREATE POLICY "id_card_templates_delete"
       AND public.role_has_institution_access(institution_id)
     )
   );
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
+-- (policies half; the employee_id->staff FK is mirrored in 01_tables.sql)
+-- =============================================================================
+
+DROP POLICY IF EXISTS hr_attendance_regs_select ON public.hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_select ON public.hr_attendance_regularizations
+  FOR SELECT USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT user_has_permission('hr.attendance.view_all'))
+    OR (SELECT user_has_permission('hr.attendance.regularize_approve'))
+    OR (SELECT user_has_permission('hr.attendance.approve_team'))
+    OR (
+      (SELECT user_has_permission('hr.attendance.regularize_self'))
+      AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_attendance_regs_insert ON public.hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_insert ON public.hr_attendance_regularizations
+  FOR INSERT WITH CHECK (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT user_has_permission('hr.attendance.override'))
+    OR (
+      (SELECT user_has_permission('hr.attendance.regularize_self'))
+      AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
+    )
+  );

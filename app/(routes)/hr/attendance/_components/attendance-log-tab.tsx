@@ -50,11 +50,12 @@ export function AttendanceLogTab({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[18%]">Date</TableHead>
-              <TableHead className="w-[26%]">Attendance Visual</TableHead>
-              <TableHead className="w-[20%]">Time off</TableHead>
-              <TableHead className="w-[12%] text-right">Effective hours</TableHead>
-              <TableHead className="w-[12%] text-right">Gross hours</TableHead>
+              <TableHead className="w-[16%]">Date</TableHead>
+              <TableHead className="w-[22%]">Attendance Visual</TableHead>
+              <TableHead className="w-[12%]">Status</TableHead>
+              <TableHead className="w-[18%]">Time off</TableHead>
+              <TableHead className="w-[10%] text-right">Effective hours</TableHead>
+              <TableHead className="w-[10%] text-right">Gross hours</TableHead>
               <TableHead className="w-[12%] text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -121,27 +122,38 @@ function TimeOffCell({ day }: { day: AttendanceDay }) {
 function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boolean }) {
   const showRegularize =
     canRegularize && !day.isFuture && isRegularizable(day.token) && !isNonWorkingToken(day.token);
+  /** Past day with no record yet — nothing to correct until the import lands. */
+  const awaitingImport = !day.isFuture && day.token === 'AEYP';
 
   return (
     <TableRow className={cn(day.isToday && 'bg-muted/40')}>
       <TableCell className="font-medium">
-        <span className="flex items-center gap-2">
-          <span className={cn(day.isFuture && 'text-muted-foreground')}>
-            {format(day.dateObj, 'MMM dd, EEE')}
-          </span>
-          {!day.isFuture && isNonWorkingToken(day.token) && (
-            <>
-              <AttendanceTokenBadge token={day.token} label={day.tokenLabel} />
-              {day.tokenDetail && (
-                <span className="text-[11px] text-muted-foreground">{day.tokenDetail}</span>
-              )}
-            </>
-          )}
+        <span className={cn(day.isFuture && 'text-muted-foreground')}>
+          {format(day.dateObj, 'MMM dd, EEE')}
         </span>
       </TableCell>
 
       <TableCell>
         <AttendanceVisual day={day} />
+      </TableCell>
+
+      {/* The day's CURRENT verdict, for every day — a punched day used to show
+          only its bar, so an approved leave/OD/regularization changing the
+          status was invisible unless the bar happened to change colour. The
+          badge reads hr_attendance_records via day.token, i.e. exactly what
+          the monthly report counts, and tokenLabel names the covering leave
+          type (CL/OD) rather than a bare L. */}
+      <TableCell>
+        {day.isFuture ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <AttendanceTokenBadge token={day.token} label={day.tokenLabel} />
+            {day.tokenDetail && (
+              <span className="text-[11px] text-muted-foreground">{day.tokenDetail}</span>
+            )}
+          </span>
+        )}
       </TableCell>
 
       <TableCell>
@@ -164,6 +176,10 @@ function LogRow({ day, canRegularize }: { day: AttendanceDay; canRegularize: boo
               <ArrowRight className="ml-1 h-3 w-3" />
             </Link>
           </Button>
+        ) : awaitingImport ? (
+          // Says WHY there is no action: the day has no record yet, so there is
+          // no verdict to dispute. Without this the empty cell reads as a bug.
+          <span className="text-[11px] text-muted-foreground">Awaiting import</span>
         ) : (
           <span className="text-muted-foreground">—</span>
         )}

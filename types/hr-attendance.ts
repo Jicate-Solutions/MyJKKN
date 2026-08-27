@@ -102,9 +102,19 @@ export function isNonWorkingToken(token: AttendanceToken): boolean {
   return token === 'WEEKLY_OFF' || token === 'HOLIDAY';
 }
 
-/** Days a person can sensibly ask to have corrected. */
+/**
+ * Days a person can sensibly ask to have corrected.
+ *
+ * AEYP IS DELIBERATELY EXCLUDED. It means no `hr_attendance_records` row exists
+ * for the day yet — the biometric export covering it has not been imported — so
+ * there is no verdict to dispute. Offering Regularize there invited a request
+ * against a day the machine had not judged, which the import would then
+ * overwrite with whatever it decided; the correction would silently evaporate.
+ * Once the import lands, the day becomes ABSENT / HALF_DAY / PRESENT and the
+ * action appears on the two that are worth disputing.
+ */
 export function isRegularizable(token: AttendanceToken): boolean {
-  return token === 'ABSENT' || token === 'HALF_DAY' || token === 'AEYP';
+  return token === 'ABSENT' || token === 'HALF_DAY';
 }
 
 // ---------------------------------------------------------------------------
