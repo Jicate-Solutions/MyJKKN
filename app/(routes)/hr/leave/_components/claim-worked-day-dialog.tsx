@@ -14,7 +14,7 @@
  * here, so a claim raised through any client obeys them.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AlertCircle, CalendarPlus } from 'lucide-react';
 
 import {
@@ -25,9 +25,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { LeaveDocumentUpload } from './leave-document-upload';
 import { useClaimWorkedDay } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { getErrorMessage } from '@/lib/utils';
+import type { LeaveDocument } from '@/types/hr';
 
 export function ClaimWorkedDayDialog({
   open,
@@ -42,6 +44,13 @@ export function ClaimWorkedDayDialog({
   const [workedDate, setWorkedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Picked but NOT uploaded — files go to Drive on Submit, same pattern as
+  // the leave and short-time-off drawers (see leave-document-upload.tsx).
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  /** Drive results keyed by the File itself, so a retried Submit re-uses them. */
+  const uploadedRef = useRef<WeakMap<File, LeaveDocument>>(new WeakMap());
 
   const inFuture = !!workedDate && new Date(`${workedDate}T00:00:00`) > new Date();
 
@@ -55,18 +64,70 @@ export function ClaimWorkedDayDialog({
   }, [workedDate]);
 
   const canSubmit =
-    !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture && !mutation.isPending;
+    !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture &&
+    !mutation.isPending && !uploading &&
+    // Proof of the worked day is required — CompOffService.claimWorkedDay
+    // enforces the same rule; this only spares the round trip.
+    documentFiles.length > 0;
+
+  /** Upload every picked file, skipping any this Submit already uploaded. */
+  const uploadDocuments = async (): Promise<LeaveDocument[]> => {
+    const out: LeaveDocument[] = [];
+    for (const file of documentFiles) {
+      const cached = uploadedRef.current.get(file);
+      if (cached) { out.push(cached); continue; }
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('employee_id', ctx.employeeId);
+      fd.append('start_date', workedDate);
+      // No leave type exists for a worked-day claim; the route files it under
+      // COMPOFF instead of a type code.
+      fd.append('purpose', 'comp_off_claim');
+
+      const res = await fetch('/api/hr/leave/documents/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Could not upload "${file.name}".`);
+      }
+      const doc = (await res.json()) as LeaveDocument;
+      uploadedRef.current.set(file, doc);
+      out.push(doc);
+    }
+    return out;
+  };
 
   const submit = async () => {
     setError(null);
+    setUploadError(null);
+
+    // Files go to Drive BEFORE the claim row exists — worst case is an
+    // orphaned Drive file, never a required document missing from the claim.
+    let documents: LeaveDocument[] = [];
+    if (documentFiles.length > 0) {
+      setUploading(true);
+      try {
+        documents = await uploadDocuments();
+      } catch (err) {
+        const message = getErrorMessage(err);
+        setUploadError(message);
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
     try {
       await mutation.mutateAsync({
         hr_organization_id: ctx.hrOrgId,
         employee_id: ctx.employeeId,
         worked_date: workedDate,
         notes: notes.trim() || null,
+        documents,
       });
       setWorkedDate(''); setNotes('');
+      setDocumentFiles([]); setUploadError(null);
+      uploadedRef.current = new WeakMap();
       onOpenChange(false);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -114,6 +175,15 @@ export function ClaimWorkedDayDialog({
               placeholder="What did you work on? Helps your approver confirm." />
           </div>
 
+          <LeaveDocumentUpload
+            files={documentFiles}
+            onChange={setDocumentFiles}
+            required
+            reason="Attach proof of the worked day — a duty order, roster or event notice. Your approver confirms the claim against it."
+            uploading={uploading}
+            error={uploadError}
+          />
+
           {error && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -125,7 +195,7 @@ export function ClaimWorkedDayDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            {mutation.isPending ? 'Submitting…' : 'Submit claim'}
+            {uploading ? 'Uploading…' : mutation.isPending ? 'Submitting…' : 'Submit claim'}
           </Button>
         </DialogFooter>
       </DialogContent>

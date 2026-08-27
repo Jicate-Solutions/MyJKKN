@@ -82,7 +82,24 @@ export async function GET(
       .maybeSingle();
 
     if (matchError) throw matchError;
-    if (!match) {
+
+    let authorised = !!match;
+
+    // Comp-off worked-day claims carry documents in the same shape; RLS on
+    // hr_comp_off_credits (hcoc_select) scopes them exactly like the queue —
+    // the claimant sees their own, an approver sees their organisations'.
+    if (!authorised) {
+      const { data: claimMatch, error: claimError } = await supabase
+        .from('hr_comp_off_credits')
+        .select('id')
+        .filter('documents', 'cs', JSON.stringify([{ drive_file_id: fileId }]))
+        .limit(1)
+        .maybeSingle();
+      if (claimError) throw claimError;
+      authorised = !!claimMatch;
+    }
+
+    if (!authorised) {
       // Deliberately identical to a genuinely missing file: telling an
       // unauthorised caller that the id is real is itself a disclosure.
       return NextResponse.json({ error: 'Not found' }, { status: 404 });

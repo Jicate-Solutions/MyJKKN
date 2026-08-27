@@ -8415,3 +8415,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_institution
 CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_global
   ON public.billing_receipt_cancel_approval_flows ((institution_id IS NULL))
   WHERE is_active AND institution_id IS NULL;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827160000_hr_comp_off_claim_documents.sql
+-- =============================================================================
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS documents jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+COMMENT ON COLUMN public.hr_comp_off_credits.documents IS
+  'Supporting documents (LeaveDocument[] shape, Google Drive-backed) attached when the credit was claimed. Empty array for hr_grant/attendance sources.';
