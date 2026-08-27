@@ -1844,6 +1844,17 @@ CREATE INDEX IF NOT EXISTS idx_staff_staff_id ON public.staff(staff_id);
 -- Billing indexes
 CREATE INDEX IF NOT EXISTS idx_billing_invoices_student_id ON public.billing_invoices(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON public.billing_receipts(student_id);
+-- One receipt per gateway payment reference for AUTOMATED online receipts
+-- (gateway flows write with the service-role client, so created_by IS NULL).
+-- Backstop against the webhook/callback double-receipting race (2026-08-27,
+-- pay_TUh0Qpmo3jktV8). Manual accountant receipts are excluded: one UTR
+-- legitimately settles bills of two different learners as two hand-entered
+-- receipts.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_receipts_gateway_payment_ref
+  ON public.billing_receipts (payment_reference_number)
+  WHERE payment_mode = 'online'
+    AND created_by IS NULL
+    AND payment_reference_number IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_id ON public.billing_student_bills(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_academic_year
   ON public.billing_student_bills (academic_year_id);
