@@ -7327,6 +7327,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_validate(text) TO authenticated;
 -- Course Events issues permanent IDs to external participants; extending
 -- this register keeps one pool and one format instead of minting a second.
 -- Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
+-- Widened 2026-08-27: a fifth person_kind, 'associate' — a profile-only
+-- internal user (admin/management account holding a custom role who is
+-- neither a learner nor a team member), anchored on profile_id like
+-- external_participant. Mirrors migration
+-- 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql.
 CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     jkkn_id             char(8) NOT NULL UNIQUE,
@@ -7346,7 +7351,7 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT jkkn_identities_person_kind_chk
-      CHECK (person_kind IN ('learner', 'team_member', 'both', 'external_participant')),
+      CHECK (person_kind IN ('learner', 'team_member', 'both', 'external_participant', 'associate')),
 
     -- Format is pinned here, not by the column width alone.
     CONSTRAINT jkkn_identities_format_chk
@@ -7365,11 +7370,14 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     -- (fn_issue_jkkn_id), which verifies the target exists.
     -- Widened 2026-08-13: the fourth clause is new, the first three are
     -- preserved VERBATIM from the original migration.
+    -- Widened 2026-08-27: the fifth clause ('associate') is new.
     CONSTRAINT jkkn_identities_link_shape_chk CHECK (
          (person_kind = 'learner'              AND team_member_id     IS NULL)
       OR (person_kind = 'team_member'          AND learner_profile_id IS NULL)
       OR (person_kind = 'both')
       OR (person_kind = 'external_participant' AND learner_profile_id IS NULL
+                                               AND team_member_id     IS NULL)
+      OR (person_kind = 'associate'            AND learner_profile_id IS NULL
                                                AND team_member_id     IS NULL)
     ),
 
@@ -8426,6 +8434,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_institution
 CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_global
   ON public.billing_receipt_cancel_approval_flows ((institution_id IS NULL))
   WHERE is_active AND institution_id IS NULL;
+
+-- =====================================================
+-- 20260827100000: Housekeeping booking assignment
+-- (Base table hostel_cleaning_bookings + its 5 RPCs were created in
+--  migrations 20260610190000 / 20260825120000 and were never mirrored
+--  here — see those files for the full DDL. This block is the
+--  assignment-flow delta.)
+-- =====================================================
+
+ALTER TABLE public.hostel_cleaning_bookings
+  ADD COLUMN IF NOT EXISTS assigned_profile_id uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS assigned_staff_name text,
+  ADD COLUMN IF NOT EXISTS assigned_at         timestamptz,
+  ADD COLUMN IF NOT EXISTS assigned_by         uuid REFERENCES public.profiles(id);
+
+CREATE INDEX IF NOT EXISTS idx_hostel_cleaning_bookings_assigned_profile
+  ON public.hostel_cleaning_bookings (assigned_profile_id);
+CREATE INDEX IF NOT EXISTS idx_hostel_cleaning_bookings_assigned_by
+  ON public.hostel_cleaning_bookings (assigned_by);
+
+-- status gains 'assigned' (booked → assigned → completed/no_show)
+ALTER TABLE public.hostel_cleaning_bookings
+  DROP CONSTRAINT IF EXISTS hostel_cleaning_bookings_status_check;
+ALTER TABLE public.hostel_cleaning_bookings
+  ADD CONSTRAINT hostel_cleaning_bookings_status_check
+  CHECK (status IN ('booked','assigned','completed','cancelled','no_show'));
+
+-- 'assigned' is still a LIVE booking for the room+slot
+DROP INDEX IF EXISTS public.hostel_cleaning_bookings_room_slot_uq;
+CREATE UNIQUE INDEX hostel_cleaning_bookings_room_slot_uq
+  ON public.hostel_cleaning_bookings (room_id, booking_date, slot_start)
+  WHERE status IN ('booked','assigned');
 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260827160000_hr_comp_off_claim_documents.sql

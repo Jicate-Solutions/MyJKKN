@@ -36881,6 +36881,86 @@ COMMENT ON FUNCTION public.fn_set_referral_pair_freeze(uuid, uuid, boolean, text
 -- match both and fail with 42725 "function is not unique". The old
 -- signature is gone, so the REVOKE/GRANT below is re-issued against the
 -- new one. Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
+-- Split 2026-08-27 (migration 20260827110000): the random-draw insert loop
+-- moved into fn_jkkn_allocate, a PRIVATE allocator shared by fn_issue_jkkn_id
+-- and the auto-issue triggers below. It carries no permission gate of its own;
+-- EXECUTE is revoked from every client role, so it is only reachable through
+-- its SECURITY DEFINER callers, each of which owns authorisation.
+-- p_issued_by NULL means "issued by the system" (a trigger).
+CREATE OR REPLACE FUNCTION public.fn_jkkn_allocate(
+  p_person_kind        text,
+  p_learner_profile_id uuid,
+  p_team_member_id     uuid,
+  p_profile_id         uuid,
+  p_issued_by          uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_attempt   int;
+  v_six       text;
+  v_candidate text;
+  v_id        uuid;
+  v_existing  text;
+BEGIN
+  -- One person, one number, for life. Refuse a second — the whole design
+  -- rests on a learner who returns as a team member keeping the number they
+  -- already have. (The partial unique indexes enforce this too; this check
+  -- exists to fail with a sentence a human can act on.)
+  SELECT jkkn_id INTO v_existing
+    FROM public.jkkn_identities
+   WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
+      OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
+      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
+   LIMIT 1;
+
+  IF v_existing IS NOT NULL THEN
+    RAISE EXCEPTION 'This person already holds JKKN ID %. A person is issued one number for life; to record a new capacity, update person_kind on the existing row.', btrim(v_existing)
+      USING ERRCODE = '23505';
+  END IF;
+
+  FOR v_attempt IN 1..20 LOOP
+    -- 100000..999999 inclusive: random() is [0,1), so floor(random()*900000)
+    -- is 0..899999.
+    v_six       := (100000 + floor(random() * 900000))::int::text;
+    v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
+
+    INSERT INTO public.jkkn_identities (
+      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
+    )
+    VALUES (
+      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, p_issued_by
+    )
+    ON CONFLICT (jkkn_id) DO NOTHING
+    RETURNING id INTO v_id;
+
+    -- ON CONFLICT covers only a number collision. A one-person-one-number
+    -- violation is a different unique index and is left to raise.
+    IF v_id IS NOT NULL THEN
+      RETURN jsonb_build_object(
+        'ok',          true,
+        'identity_id', v_id,
+        'jkkn_id',     v_candidate,
+        'person_kind', p_person_kind,
+        'attempts',    v_attempt
+      );
+    END IF;
+  END LOOP;
+
+  RAISE EXCEPTION 'Could not find an unused JKKN ID in 20 attempts. The 900,000-number pool is close to exhausted or something is wrong.'
+    USING ERRCODE = '53400';
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_allocate(text, uuid, uuid, uuid, uuid) IS
+  'PRIVATE allocator behind fn_issue_jkkn_id and the auto-issue triggers. Draws a random unused JKKN ID and inserts the register row. Carries no permission gate of its own — EXECUTE is revoked from every client role; its callers own authorisation.';
+
+REVOKE ALL ON FUNCTION public.fn_jkkn_allocate(text, uuid, uuid, uuid, uuid) FROM anon, authenticated, PUBLIC;
+
 DROP FUNCTION IF EXISTS public.fn_issue_jkkn_id(text, uuid, uuid);
 
 CREATE OR REPLACE FUNCTION public.fn_issue_jkkn_id(
@@ -36895,12 +36975,6 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = public
 AS $fn$
-DECLARE
-  v_attempt   int;
-  v_six       text;
-  v_candidate text;
-  v_id        uuid;
-  v_existing  text;
 BEGIN
   -- Two gates, not one. The general power to mint a permanent number for
   -- a learner or a team member stays on users.jkkn_id.issue, which is
@@ -36934,8 +37008,8 @@ BEGIN
   END IF;
 
   IF p_person_kind IS NULL
-     OR p_person_kind NOT IN ('learner','team_member','both','external_participant') THEN
-    RAISE EXCEPTION 'person_kind must be learner, team_member, both or external_participant (got %)', p_person_kind
+     OR p_person_kind NOT IN ('learner','team_member','both','external_participant','associate') THEN
+    RAISE EXCEPTION 'person_kind must be learner, team_member, both, external_participant or associate (got %)', p_person_kind
       USING ERRCODE = '22023';
   END IF;
 
@@ -36970,10 +37044,11 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  -- New kind: an external participant is anchored on a profile only.
-  IF p_person_kind = 'external_participant' THEN
+  -- Profile-anchored kinds: external_participant (Course Events, 2026-08-13)
+  -- and associate (2026-08-27).
+  IF p_person_kind IN ('external_participant', 'associate') THEN
     IF p_profile_id IS NULL THEN
-      RAISE EXCEPTION 'An external_participant identity needs a profile'
+      RAISE EXCEPTION 'A % identity needs a profile', p_person_kind
         USING ERRCODE = '22023';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_profile_id) THEN
@@ -36981,61 +37056,18 @@ BEGIN
         USING ERRCODE = '23503';
     END IF;
   ELSIF p_profile_id IS NOT NULL THEN
-    RAISE EXCEPTION 'Only an external_participant identity is issued against a profile'
+    RAISE EXCEPTION 'Only an external_participant or associate identity is issued against a profile'
       USING ERRCODE = '22023';
   END IF;
 
-  -- One person, one number, for life. Refuse a second — the whole design
-  -- rests on a learner who returns as a Senior Learner keeping the number
-  -- they already have. (The partial unique indexes enforce this too; this
-  -- check exists to fail with a sentence a human can act on.)
-  SELECT jkkn_id INTO v_existing
-    FROM public.jkkn_identities
-   WHERE (p_learner_profile_id IS NOT NULL AND learner_profile_id = p_learner_profile_id)
-      OR (p_team_member_id     IS NOT NULL AND team_member_id     = p_team_member_id)
-      OR (p_profile_id         IS NOT NULL AND profile_id         = p_profile_id)
-   LIMIT 1;
-
-  IF v_existing IS NOT NULL THEN
-    RAISE EXCEPTION 'This person already holds JKKN ID %. A person is issued one number for life; to record a new capacity, update person_kind on the existing row.', btrim(v_existing)
-      USING ERRCODE = '23505';
-  END IF;
-
-  FOR v_attempt IN 1..20 LOOP
-    -- 100000..999999 inclusive: random() is [0,1), so floor(random()*900000)
-    -- is 0..899999.
-    v_six       := (100000 + floor(random() * 900000))::int::text;
-    v_candidate := v_six || '-' || public.fn_jkkn_id_check_digit(v_six);
-
-    INSERT INTO public.jkkn_identities (
-      jkkn_id, person_kind, learner_profile_id, team_member_id, profile_id, issued_by
-    )
-    VALUES (
-      v_candidate, p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, auth.uid()
-    )
-    ON CONFLICT (jkkn_id) DO NOTHING
-    RETURNING id INTO v_id;
-
-    -- ON CONFLICT covers only a number collision. A one-person-one-number
-    -- violation is a different unique index and is left to raise.
-    IF v_id IS NOT NULL THEN
-      RETURN jsonb_build_object(
-        'ok',          true,
-        'identity_id', v_id,
-        'jkkn_id',     v_candidate,
-        'person_kind', p_person_kind,
-        'attempts',    v_attempt
-      );
-    END IF;
-  END LOOP;
-
-  RAISE EXCEPTION 'Could not find an unused JKKN ID in 20 attempts. The 900,000-number pool is close to exhausted or something is wrong.'
-    USING ERRCODE = '53400';
+  RETURN public.fn_jkkn_allocate(
+    p_person_kind, p_learner_profile_id, p_team_member_id, p_profile_id, auth.uid()
+  );
 END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) IS
-  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13). Gated on users.jkkn_id.issue, EXCEPT the external_participant kind, which also accepts courses.applications.decide because it is only ever minted inside fn_course_approve_application by someone already entitled to decide that application. Numbers are drawn at random from 100000..999999 so an ID card never reveals intake volume or joining order.';
+  'Issues ONE permanent JKKN ID to a person who does not already hold one. Kinds: learner, team_member, both, external_participant (Course Events, 2026-08-13), associate (profile-only internal users, 2026-08-27). Gated on users.jkkn_id.issue, EXCEPT the external_participant kind, which also accepts courses.applications.decide. Allocation itself lives in fn_jkkn_allocate; auto-issuance triggers call that allocator directly.';
 
 -- DROP FUNCTION discarded the ACL. Restore it.
 REVOKE EXECUTE ON FUNCTION public.fn_issue_jkkn_id(text, uuid, uuid, uuid) FROM anon, PUBLIC;
@@ -37440,6 +37472,41 @@ BEGIN
       )
     LIMIT 25
   ),
+  -- Added 2026-08-27: profile-anchored identities (associates and external
+  -- participants). INNER join to jkkn_identities on purpose — a profile is
+  -- only findable here once it holds a register row, so a name search does
+  -- not flood with every account in the cluster.
+  associate_hits AS (
+    SELECT
+      p.id,
+      CASE
+        WHEN btrim(ji.jkkn_id) = v_q                  THEN 'jkkn_id'
+        WHEN lower(coalesce(p.email, '')) = v_lower   THEN 'email'
+        WHEN EXISTS (
+               SELECT 1 FROM public.jkkn_identity_aliases al
+                WHERE al.jkkn_identity_id = ji.id
+                  AND lower(btrim(al.alias_value)) = v_lower
+             )                                        THEN 'alias'
+        ELSE 'name'
+      END AS matched_on,
+      p.full_name, p.avatar_url, p.institution_id,
+      ji.person_kind, ji.jkkn_id
+    FROM public.profiles p
+    JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+    WHERE ji.person_kind IN ('associate', 'external_participant')
+      AND (v_all OR public.role_has_institution_access(p.institution_id))
+      AND (
+           btrim(ji.jkkn_id) = v_q
+        OR EXISTS (
+             SELECT 1 FROM public.jkkn_identity_aliases al
+              WHERE al.jkkn_identity_id = ji.id
+                AND lower(btrim(al.alias_value)) = v_lower
+           )
+        OR lower(coalesce(p.email, '')) = v_lower
+        OR lower(coalesce(p.full_name, '')) LIKE '%' || v_lower || '%'
+      )
+    LIMIT 25
+  ),
   merged AS (
     SELECT jsonb_build_object(
              'person_kind',      'learner',
@@ -37475,6 +37542,21 @@ BEGIN
            ) AS row_json
       FROM team_hits th
       LEFT JOIN public.institutions i ON i.id = th.institution_id
+    UNION ALL
+    SELECT jsonb_build_object(
+             'person_kind',      ah.person_kind,
+             'person_id',        ah.id,
+             'matched_on',       ah.matched_on,
+             'full_name',        coalesce(btrim(ah.full_name), 'Name unavailable'),
+             'photo_url',        ah.avatar_url,
+             'institution_name', i.name,
+             'programme',        NULL,
+             'admission_year',   NULL,
+             'status',           NULL,
+             'jkkn_id',          btrim(ah.jkkn_id)
+           ) AS row_json
+      FROM associate_hits ah
+      LEFT JOIN public.institutions i ON i.id = ah.institution_id
   )
   SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_results FROM merged;
 
@@ -37492,10 +37574,739 @@ END;
 $fn$;
 
 COMMENT ON FUNCTION public.fn_resolve_person(text) IS
-  'Universal person lookup: JKKN ID, roll number, Team Code, register number, application number, name fragment, phone or email. Validates a JKKN ID check digit before searching so a typo is reported as a typo instead of as an absent person. Institution-scoped to the caller and says so in scope_note. Reads the admission year through learners_profiles.admission_year_id -> admission_years.year.';
+  'Universal person lookup: JKKN ID, roll number, Team Code, register number, application number, name fragment, phone or email. Validates a JKKN ID check digit before searching so a typo is reported as a typo instead of as an absent person. Institution-scoped to the caller and says so in scope_note. Reads the admission year through learners_profiles.admission_year_id -> admission_years.year. Third branch (2026-08-27) surfaces profile-anchored identities: associates and external participants.';
 
 REVOKE EXECUTE ON FUNCTION public.fn_resolve_person(text) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_resolve_person(text) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 4. Auto-issue trigger functions (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql.
+-- The register originally shipped for deliberate one-at-a-time issuance; on
+-- 2026-08-27 issuance was switched on and AUTOMATED — a recorded design
+-- shift. The triggers carry NO permission gate on purpose: the write that
+-- fires them (an admission, a hire, a role grant) is itself the authorised
+-- act. All three are SECURITY DEFINER (their guard reads must see the whole
+-- register regardless of the session) and fail-soft (EXCEPTION → WARNING,
+-- never a failed parent write). The matching CREATE TRIGGER statements live
+-- in 04_triggers.sql.
+--
+-- THE ONE UNRECOVERABLE ERROR is one person holding two numbers (rows can
+-- only be retired, never deleted). The learner and staff triggers therefore
+-- run the same overlap rule as scripts/backfill-jkkn-ids.ts before minting:
+-- an exact normalised-email match against the other kind UPGRADES the
+-- existing row to person_kind='both'; an ambiguous match (2+) skips with a
+-- WARNING for a human to resolve.
+
+-- 4a. Learner reaches admitted/active.
+CREATE OR REPLACE FUNCTION public.tg_jkkn_auto_issue_learner()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_emails   text[];
+  v_match_id uuid;
+  v_matches  int;
+BEGIN
+  -- Already holds a number (retired still counts as held — the remedy for a
+  -- retired identity is a human decision, not a fresh mint).
+  IF EXISTS (SELECT 1 FROM public.jkkn_identities WHERE learner_profile_id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
+
+  -- The two-numbers guard: does a TEAM-MEMBER identity already exist for this
+  -- same human? Exact normalised email match, nothing weaker (phone can be a
+  -- parent; name+DOB can be twins).
+  v_emails := ARRAY(
+    SELECT lower(btrim(e)) FROM unnest(ARRAY[NEW.student_email, NEW.college_email]) AS e
+     WHERE e IS NOT NULL AND btrim(e) <> ''
+  );
+
+  IF array_length(v_emails, 1) IS NOT NULL THEN
+    SELECT count(*), min(ji.id::text)::uuid
+      INTO v_matches, v_match_id
+      FROM public.jkkn_identities ji
+      JOIN public.staff st ON st.id = ji.team_member_id
+     WHERE ji.learner_profile_id IS NULL
+       AND (lower(btrim(coalesce(st.institution_email, ''))) = ANY (v_emails)
+         OR lower(btrim(coalesce(st.email, '')))             = ANY (v_emails));
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET learner_profile_id = NEW.id, person_kind = 'both'
+       WHERE id = v_match_id;
+      RETURN NULL;
+    ELSIF v_matches > 1 THEN
+      RAISE WARNING '[jkkn auto-issue] learner % matches % team-member identities by email — skipped, needs a human', NEW.id, v_matches;
+      RETURN NULL;
+    END IF;
+  END IF;
+
+  PERFORM public.fn_jkkn_allocate('learner', NEW.id, NULL, NULL, NULL);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[jkkn auto-issue] learner % failed: %', NEW.id, SQLERRM;
+  RETURN NULL;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_learner() FROM anon, authenticated, PUBLIC;
+
+-- 4b. Team member created active, or activated.
+CREATE OR REPLACE FUNCTION public.tg_jkkn_auto_issue_team_member()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_emails   text[];
+  v_match_id uuid;
+  v_matches  int;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.jkkn_identities WHERE team_member_id = NEW.id) THEN
+    RETURN NULL;
+  END IF;
+
+  -- Mirror of the learner guard: an existing LEARNER identity for the same
+  -- email is upgraded to 'both', never joined by a second number.
+  v_emails := ARRAY(
+    SELECT lower(btrim(e)) FROM unnest(ARRAY[NEW.institution_email, NEW.email]) AS e
+     WHERE e IS NOT NULL AND btrim(e) <> ''
+  );
+
+  IF array_length(v_emails, 1) IS NOT NULL THEN
+    SELECT count(*), min(ji.id::text)::uuid
+      INTO v_matches, v_match_id
+      FROM public.jkkn_identities ji
+      JOIN public.learners_profiles lp ON lp.id = ji.learner_profile_id
+     WHERE ji.team_member_id IS NULL
+       AND (lower(btrim(coalesce(lp.student_email, ''))) = ANY (v_emails)
+         OR lower(btrim(coalesce(lp.college_email, ''))) = ANY (v_emails));
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET team_member_id = NEW.id, person_kind = 'both'
+       WHERE id = v_match_id;
+      RETURN NULL;
+    ELSIF v_matches > 1 THEN
+      RAISE WARNING '[jkkn auto-issue] team member % matches % learner identities by email — skipped, needs a human', NEW.id, v_matches;
+      RETURN NULL;
+    END IF;
+  END IF;
+
+  PERFORM public.fn_jkkn_allocate('team_member', NULL, NEW.id, NULL, NULL);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[jkkn auto-issue] team member % failed: %', NEW.id, SQLERRM;
+  RETURN NULL;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_team_member() FROM anon, authenticated, PUBLIC;
+
+-- 4c. Custom role granted to a profile-only user → 'associate'.
+CREATE OR REPLACE FUNCTION public.tg_jkkn_auto_issue_associate()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_profile record;
+BEGIN
+  SELECT id, email, learner_id INTO v_profile
+    FROM public.profiles WHERE id = NEW.user_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  -- The learner and team-member lanes own issuance for their people: a
+  -- learner-linked profile is issued at admission, and a profile whose email
+  -- belongs to a staff row is issued at hire/activation (even if that staff
+  -- row is inactive today).
+  IF v_profile.learner_id IS NOT NULL THEN
+    RETURN NULL;
+  END IF;
+  IF v_profile.email IS NOT NULL AND btrim(v_profile.email) <> '' AND EXISTS (
+    SELECT 1 FROM public.staff st
+     WHERE lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(v_profile.email))
+        OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(v_profile.email))
+  ) THEN
+    RETURN NULL;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM public.jkkn_identities WHERE profile_id = v_profile.id) THEN
+    RETURN NULL;
+  END IF;
+
+  PERFORM public.fn_jkkn_allocate('associate', NULL, NULL, v_profile.id, NULL);
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING '[jkkn auto-issue] associate (profile %) failed: %', NEW.user_id, SQLERRM;
+  RETURN NULL;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.tg_jkkn_auto_issue_associate() FROM anon, authenticated, PUBLIC;
+
+-- ---------------------------------------------------------------------
+-- 5. fn_jkkn_directory — paginated, filterable person directory (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827120000_jkkn_directory_rpc.sql. Backs the
+-- default browsable table on /users/jkkn-id: one kind per call
+-- (learner | team_member | associate), gated on users.jkkn_id.view like
+-- fn_resolve_person, institution-scoped for non-admins. Sort keys are
+-- whitelisted, the limit clamps to 1..100, and the page clamps to the
+-- last page so narrowing a filter mid-list never blanks the table.
+CREATE OR REPLACE FUNCTION public.fn_jkkn_directory(
+  p_kind           text DEFAULT 'learner',
+  p_institution_id uuid DEFAULT NULL,
+  p_status         text DEFAULT NULL,
+  p_issued         text DEFAULT NULL,   -- 'issued' | 'not_issued' | NULL = any
+  p_admission_year int  DEFAULT NULL,   -- learners only
+  p_search         text DEFAULT NULL,
+  p_sort_by        text DEFAULT 'name',
+  p_sort_order     text DEFAULT 'asc',
+  p_page           int  DEFAULT 1,
+  p_limit          int  DEFAULT 25
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_all    boolean;
+  v_q      text := lower(btrim(coalesce(p_search, '')));
+  v_sort   text;
+  v_desc   boolean := lower(coalesce(p_sort_order, 'asc')) = 'desc';
+  v_limit  int := LEAST(GREATEST(coalesce(p_limit, 25), 1), 100);
+  v_total  bigint;
+  v_pages  int;
+  v_page   int;
+  v_rows   jsonb;
+BEGIN
+  -- Gate + scope: identical to fn_resolve_person.
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('users.jkkn_id.view')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to look people up'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_all := COALESCE(public.is_super_admin(), false) OR public.is_admin();
+
+  IF p_kind IS NULL OR p_kind NOT IN ('learner', 'team_member', 'associate') THEN
+    RAISE EXCEPTION 'kind must be learner, team_member or associate (got %)', p_kind
+      USING ERRCODE = '22023';
+  END IF;
+
+  -- Sort whitelist. Anything unknown falls back to name rather than erroring —
+  -- a stale bookmark should degrade, not 400.
+  v_sort := CASE
+    WHEN p_sort_by IN ('name', 'jkkn_id', 'code', 'status', 'admission_year') THEN p_sort_by
+    ELSE 'name'
+  END;
+
+  IF p_kind = 'learner' THEN
+    SELECT count(*) INTO v_total
+      FROM public.learners_profiles lp
+      LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+      LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+     WHERE (v_all OR public.role_has_institution_access(lp.institution_id))
+       AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+       AND (p_status IS NULL OR lp.lifecycle_status::text = p_status)
+       AND (p_admission_year IS NULL OR ay.year = p_admission_year)
+       AND (p_issued IS NULL
+            OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+            OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+       AND (v_q = ''
+            OR lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, ''))) LIKE '%' || v_q || '%'
+            OR lower(btrim(coalesce(lp.roll_number, '')))     LIKE '%' || v_q || '%'
+            OR lower(btrim(coalesce(lp.register_number, ''))) LIKE '%' || v_q || '%'
+            OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')));
+
+    v_pages := GREATEST(1, CEIL(v_total::numeric / v_limit)::int);
+    v_page  := LEAST(GREATEST(coalesce(p_page, 1), 1), v_pages);
+
+    SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_rows FROM (
+      SELECT jsonb_build_object(
+               'id',               lp.id,
+               'kind',             'learner',
+               'name',             btrim(lp.first_name || ' ' || coalesce(lp.last_name, '')),
+               'photo_url',        lp.student_photo_url,
+               'email',            NULL,
+               'jkkn_id',          btrim(ji.jkkn_id),
+               'roll_number',      lp.roll_number,
+               'register_number',  lp.register_number,
+               'team_code',        NULL,
+               'designation',      NULL,
+               'program',          pr.program_name,
+               'institution_name', i.name,
+               'admission_year',   ay.year,
+               'status',           lp.lifecycle_status::text
+             ) AS row_json
+        FROM public.learners_profiles lp
+        LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+        LEFT JOIN public.admission_years ay ON ay.id = lp.admission_year_id
+        LEFT JOIN public.institutions    i  ON i.id  = lp.institution_id
+        LEFT JOIN public.programs        pr ON pr.id = lp.program_id
+       WHERE (v_all OR public.role_has_institution_access(lp.institution_id))
+         AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+         AND (p_status IS NULL OR lp.lifecycle_status::text = p_status)
+         AND (p_admission_year IS NULL OR ay.year = p_admission_year)
+         AND (p_issued IS NULL
+              OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+              OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+         AND (v_q = ''
+              OR lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, ''))) LIKE '%' || v_q || '%'
+              OR lower(btrim(coalesce(lp.roll_number, '')))     LIKE '%' || v_q || '%'
+              OR lower(btrim(coalesce(lp.register_number, ''))) LIKE '%' || v_q || '%'
+              OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')))
+       ORDER BY
+         (CASE WHEN NOT v_desc THEN
+            CASE v_sort
+              WHEN 'name'           THEN lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, '')))
+              WHEN 'jkkn_id'        THEN btrim(ji.jkkn_id)
+              WHEN 'code'           THEN lower(btrim(coalesce(lp.roll_number, '')))
+              WHEN 'status'         THEN lp.lifecycle_status::text
+              WHEN 'admission_year' THEN lpad(coalesce(ay.year, 0)::text, 6, '0')
+            END
+          END) ASC NULLS LAST,
+         (CASE WHEN v_desc THEN
+            CASE v_sort
+              WHEN 'name'           THEN lower(btrim(lp.first_name || ' ' || coalesce(lp.last_name, '')))
+              WHEN 'jkkn_id'        THEN btrim(ji.jkkn_id)
+              WHEN 'code'           THEN lower(btrim(coalesce(lp.roll_number, '')))
+              WHEN 'status'         THEN lp.lifecycle_status::text
+              WHEN 'admission_year' THEN lpad(coalesce(ay.year, 0)::text, 6, '0')
+            END
+          END) DESC NULLS LAST,
+         lp.id
+       LIMIT v_limit OFFSET (v_page - 1) * v_limit
+    ) page_rows;
+
+  ELSIF p_kind = 'team_member' THEN
+    SELECT count(*) INTO v_total
+      FROM public.staff st
+      LEFT JOIN public.jkkn_identities ji ON ji.team_member_id = st.id
+     WHERE (v_all OR public.role_has_institution_access(st.institution_id))
+       AND (p_institution_id IS NULL OR st.institution_id = p_institution_id)
+       AND (p_status IS NULL
+            OR (p_status = 'active'   AND st.is_active IS TRUE)
+            OR (p_status = 'inactive' AND st.is_active IS NOT TRUE))
+       AND (p_issued IS NULL
+            OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+            OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+       AND (v_q = ''
+            OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
+            OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+            OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
+            OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
+            OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')));
+
+    v_pages := GREATEST(1, CEIL(v_total::numeric / v_limit)::int);
+    v_page  := LEAST(GREATEST(coalesce(p_page, 1), 1), v_pages);
+
+    SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_rows FROM (
+      SELECT jsonb_build_object(
+               'id',               st.id,
+               'kind',             'team_member',
+               'name',             btrim(st.first_name || ' ' || coalesce(st.last_name, '')),
+               'photo_url',        st.profile_picture,
+               'email',            coalesce(st.institution_email, st.email),
+               'jkkn_id',          btrim(ji.jkkn_id),
+               'roll_number',      NULL,
+               'register_number',  NULL,
+               'team_code',        st.staff_id,
+               'designation',      st.designation,
+               'program',          NULL,
+               'institution_name', i.name,
+               'admission_year',   NULL,
+               'status',           CASE WHEN st.is_active THEN 'active' ELSE 'inactive' END
+             ) AS row_json
+        FROM public.staff st
+        LEFT JOIN public.jkkn_identities ji ON ji.team_member_id = st.id
+        LEFT JOIN public.institutions    i  ON i.id = st.institution_id
+       WHERE (v_all OR public.role_has_institution_access(st.institution_id))
+         AND (p_institution_id IS NULL OR st.institution_id = p_institution_id)
+         AND (p_status IS NULL
+              OR (p_status = 'active'   AND st.is_active IS TRUE)
+              OR (p_status = 'inactive' AND st.is_active IS NOT TRUE))
+         AND (p_issued IS NULL
+              OR (p_issued = 'issued'     AND ji.jkkn_id IS NOT NULL)
+              OR (p_issued = 'not_issued' AND ji.jkkn_id IS NULL))
+         AND (v_q = ''
+              OR lower(btrim(st.first_name || ' ' || coalesce(st.last_name, ''))) LIKE '%' || v_q || '%'
+              OR lower(btrim(coalesce(st.staff_id, ''))) LIKE '%' || v_q || '%'
+              OR lower(coalesce(st.email, ''))             LIKE '%' || v_q || '%'
+              OR lower(coalesce(st.institution_email, '')) LIKE '%' || v_q || '%'
+              OR btrim(coalesce(ji.jkkn_id, '')) = btrim(coalesce(p_search, '')))
+       ORDER BY
+         (CASE WHEN NOT v_desc THEN
+            CASE v_sort
+              WHEN 'name'    THEN lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              WHEN 'code'    THEN lower(btrim(coalesce(st.staff_id, '')))
+              WHEN 'status'  THEN CASE WHEN st.is_active THEN 'active' ELSE 'inactive' END
+              ELSE lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+            END
+          END) ASC NULLS LAST,
+         (CASE WHEN v_desc THEN
+            CASE v_sort
+              WHEN 'name'    THEN lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              WHEN 'code'    THEN lower(btrim(coalesce(st.staff_id, '')))
+              WHEN 'status'  THEN CASE WHEN st.is_active THEN 'active' ELSE 'inactive' END
+              ELSE lower(btrim(st.first_name || ' ' || coalesce(st.last_name, '')))
+            END
+          END) DESC NULLS LAST,
+         st.id
+       LIMIT v_limit OFFSET (v_page - 1) * v_limit
+    ) page_rows;
+
+  ELSE
+    -- Associates and external participants exist in the directory only through
+    -- the register (INNER join), so the 'not_issued' filter is empty here by
+    -- construction.
+    SELECT count(*) INTO v_total
+      FROM public.profiles p
+      JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+     WHERE ji.person_kind IN ('associate', 'external_participant')
+       AND (v_all OR public.role_has_institution_access(p.institution_id))
+       AND (p_institution_id IS NULL OR p.institution_id = p_institution_id)
+       AND (p_issued IS NULL OR p_issued = 'issued')
+       AND (v_q = ''
+            OR lower(coalesce(p.full_name, '')) LIKE '%' || v_q || '%'
+            OR lower(coalesce(p.email, ''))     LIKE '%' || v_q || '%'
+            OR btrim(ji.jkkn_id) = btrim(coalesce(p_search, '')));
+
+    v_pages := GREATEST(1, CEIL(v_total::numeric / v_limit)::int);
+    v_page  := LEAST(GREATEST(coalesce(p_page, 1), 1), v_pages);
+
+    SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) INTO v_rows FROM (
+      SELECT jsonb_build_object(
+               'id',               p.id,
+               'kind',             ji.person_kind,
+               'name',             coalesce(btrim(p.full_name), 'Name unavailable'),
+               'photo_url',        p.avatar_url,
+               'email',            p.email,
+               'jkkn_id',          btrim(ji.jkkn_id),
+               'roll_number',      NULL,
+               'register_number',  NULL,
+               'team_code',        NULL,
+               'designation',      NULL,
+               'program',          NULL,
+               'institution_name', i.name,
+               'admission_year',   NULL,
+               'status',           NULL
+             ) AS row_json
+        FROM public.profiles p
+        JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+        LEFT JOIN public.institutions i ON i.id = p.institution_id
+       WHERE ji.person_kind IN ('associate', 'external_participant')
+         AND (v_all OR public.role_has_institution_access(p.institution_id))
+         AND (p_institution_id IS NULL OR p.institution_id = p_institution_id)
+         AND (p_issued IS NULL OR p_issued = 'issued')
+         AND (v_q = ''
+              OR lower(coalesce(p.full_name, '')) LIKE '%' || v_q || '%'
+              OR lower(coalesce(p.email, ''))     LIKE '%' || v_q || '%'
+              OR btrim(ji.jkkn_id) = btrim(coalesce(p_search, '')))
+       ORDER BY
+         (CASE WHEN NOT v_desc THEN
+            CASE v_sort
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              ELSE lower(coalesce(p.full_name, ''))
+            END
+          END) ASC NULLS LAST,
+         (CASE WHEN v_desc THEN
+            CASE v_sort
+              WHEN 'jkkn_id' THEN btrim(ji.jkkn_id)
+              ELSE lower(coalesce(p.full_name, ''))
+            END
+          END) DESC NULLS LAST,
+         p.id
+       LIMIT v_limit OFFSET (v_page - 1) * v_limit
+    ) page_rows;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ok',          true,
+    'rows',        v_rows,
+    'total',       v_total,
+    'page',        v_page,
+    'limit',       v_limit,
+    'total_pages', v_pages
+  );
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_directory(text, uuid, text, text, int, text, text, text, int, int) IS
+  'Paginated, filterable person directory behind /users/jkkn-id. One kind per call (learner | team_member | associate). Gated on users.jkkn_id.view like fn_resolve_person; non-admins are institution-scoped via role_has_institution_access. Sort keys whitelisted, limit clamped to 100, page clamped to the last page.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_directory(text, uuid, text, text, int, text, text, text, int, int) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_directory(text, uuid, text, text, int, text, text, text, int, int) TO authenticated;
+
+-- ---------------------------------------------------------------------
+-- 6. fn_jkkn_stats + fn_jkkn_issue_manual (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827150000_jkkn_stats_and_manual_issue.sql.
+-- Stats: kind-wise issued/pending for the /users/jkkn-id analytics cards
+-- (gated on users.jkkn_id.view; learner/team/associate counts scoped for
+-- non-admins; learners.review = the phone-overlap withheld set).
+-- Manual issue: the "Issue ID" button, gated on users.jkkn_id.issue,
+-- carrying the SAME email guard as the auto-issue triggers — an exact
+-- match to an unlinked other-kind identity LINKS it (person_kind='both')
+-- rather than minting a duplicate; ambiguous matches raise.
+CREATE OR REPLACE FUNCTION public.fn_jkkn_stats()
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_all       boolean;
+  v_learners  jsonb;
+  v_team      jsonb;
+  v_assoc     jsonb;
+  v_register  jsonb;
+BEGIN
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('users.jkkn_id.view')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to look people up'
+      USING ERRCODE = '42501';
+  END IF;
+
+  v_all := COALESCE(public.is_super_admin(), false) OR public.is_admin();
+
+  SELECT jsonb_build_object(
+           'eligible', count(*),
+           'issued',   count(*) FILTER (WHERE ji.id IS NOT NULL),
+           'pending',  count(*) FILTER (WHERE ji.id IS NULL),
+           'review',   count(*) FILTER (WHERE ji.id IS NULL AND EXISTS (
+             SELECT 1
+               FROM public.jkkn_identities j2
+               JOIN public.staff st ON st.id = j2.team_member_id
+              WHERE j2.learner_profile_id IS NULL
+                AND right(regexp_replace(coalesce(st.phone, ''), '[^0-9]', '', 'g'), 10)
+                    = NULLIF(right(regexp_replace(coalesce(lp.student_mobile, ''), '[^0-9]', '', 'g'), 10), '')
+           ))
+         )
+    INTO v_learners
+    FROM public.learners_profiles lp
+    LEFT JOIN public.jkkn_identities ji ON ji.learner_profile_id = lp.id
+   WHERE lp.lifecycle_status::text IN ('reserved', 'account', 'admitted', 'active', 'graduated', 'alumni')
+     AND (v_all OR public.role_has_institution_access(lp.institution_id));
+
+  SELECT jsonb_build_object(
+           'eligible', count(*),
+           'issued',   count(*) FILTER (WHERE ji.id IS NOT NULL),
+           'pending',  count(*) FILTER (WHERE ji.id IS NULL)
+         )
+    INTO v_team
+    FROM public.staff st
+    LEFT JOIN public.jkkn_identities ji ON ji.team_member_id = st.id
+   WHERE st.is_active IS TRUE
+     AND (v_all OR public.role_has_institution_access(st.institution_id));
+
+  -- Associates: custom-role holders who are neither learner-linked nor
+  -- matched by email to any staff row (those belong to the other lanes).
+  SELECT jsonb_build_object(
+           'eligible', count(*),
+           'issued',   count(*) FILTER (WHERE ji.id IS NOT NULL),
+           'pending',  count(*) FILTER (WHERE ji.id IS NULL)
+         )
+    INTO v_assoc
+    FROM (SELECT DISTINCT ur.user_id FROM public.user_roles ur) ur
+    JOIN public.profiles p ON p.id = ur.user_id
+    LEFT JOIN public.jkkn_identities ji ON ji.profile_id = p.id
+   WHERE p.learner_id IS NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM public.staff st
+        WHERE NULLIF(lower(btrim(coalesce(p.email, ''))), '') IS NOT NULL
+          AND (lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(p.email))
+            OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(p.email)))
+     )
+     AND (v_all OR public.role_has_institution_access(p.institution_id));
+
+  SELECT jsonb_build_object(
+           'total',                 count(*),
+           'both',                  count(*) FILTER (WHERE person_kind = 'both'),
+           'external_participants', count(*) FILTER (WHERE person_kind = 'external_participant'),
+           'retired',               count(*) FILTER (WHERE retired_at IS NOT NULL)
+         )
+    INTO v_register
+    FROM public.jkkn_identities;
+
+  RETURN jsonb_build_object(
+    'ok',           true,
+    'learners',     v_learners,
+    'team_members', v_team,
+    'associates',   v_assoc,
+    'register',     v_register
+  );
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_stats() IS
+  'Kind-wise issued/pending counts for the /users/jkkn-id analytics cards. Gated on users.jkkn_id.view; learner/team/associate counts are institution-scoped for non-admins; register totals are global. learners.review = unissued learners phone-matching an unlinked team-member identity (the withheld human-review set).';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_stats() FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_stats() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.fn_jkkn_issue_manual(
+  p_kind   text,
+  p_ref_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_existing text;
+  v_emails   text[];
+  v_matches  int;
+  v_match_id uuid;
+  v_number   text;
+  v_result   jsonb;
+BEGIN
+  IF NOT (
+    COALESCE(public.is_super_admin(), false)
+    OR public.is_admin()
+    OR public.user_has_permission('users.jkkn_id.issue')
+  ) THEN
+    RAISE EXCEPTION 'Not authorised to issue a JKKN ID'
+      USING ERRCODE = '42501';
+  END IF;
+
+  IF p_kind IS NULL OR p_kind NOT IN ('learner', 'team_member', 'associate') THEN
+    RAISE EXCEPTION 'kind must be learner, team_member or associate (got %)', p_kind
+      USING ERRCODE = '22023';
+  END IF;
+  IF p_ref_id IS NULL THEN
+    RAISE EXCEPTION 'p_ref_id is required' USING ERRCODE = '22023';
+  END IF;
+
+  IF p_kind = 'learner' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.learners_profiles WHERE id = p_ref_id) THEN
+      RAISE EXCEPTION 'No learner profile %', p_ref_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT btrim(jkkn_id) INTO v_existing
+      FROM public.jkkn_identities WHERE learner_profile_id = p_ref_id LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', true, 'action', 'already_held', 'jkkn_id', v_existing);
+    END IF;
+
+    SELECT ARRAY(
+             SELECT lower(btrim(e))
+               FROM unnest(ARRAY[lp.student_email, lp.college_email]) AS e
+              WHERE e IS NOT NULL AND btrim(e) <> ''
+           )
+      INTO v_emails
+      FROM public.learners_profiles lp WHERE lp.id = p_ref_id;
+
+    v_matches := 0; v_match_id := NULL;
+    IF array_length(v_emails, 1) IS NOT NULL THEN
+      SELECT count(*), min(ji.id::text)::uuid INTO v_matches, v_match_id
+        FROM public.jkkn_identities ji
+        JOIN public.staff st ON st.id = ji.team_member_id
+       WHERE ji.learner_profile_id IS NULL
+         AND (lower(btrim(coalesce(st.institution_email, ''))) = ANY (v_emails)
+           OR lower(btrim(coalesce(st.email, '')))             = ANY (v_emails));
+    END IF;
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET learner_profile_id = p_ref_id, person_kind = 'both'
+       WHERE id = v_match_id
+       RETURNING btrim(jkkn_id) INTO v_number;
+      RETURN jsonb_build_object('ok', true, 'action', 'linked_existing', 'jkkn_id', v_number);
+    ELSIF v_matches > 1 THEN
+      RAISE EXCEPTION 'This learner''s email matches % existing team-member identities — resolve which one is the same person before issuing.', v_matches
+        USING ERRCODE = '23505';
+    END IF;
+
+    v_result := public.fn_jkkn_allocate('learner', p_ref_id, NULL, NULL, auth.uid());
+
+  ELSIF p_kind = 'team_member' THEN
+    IF NOT EXISTS (SELECT 1 FROM public.staff WHERE id = p_ref_id) THEN
+      RAISE EXCEPTION 'No team member %', p_ref_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT btrim(jkkn_id) INTO v_existing
+      FROM public.jkkn_identities WHERE team_member_id = p_ref_id LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', true, 'action', 'already_held', 'jkkn_id', v_existing);
+    END IF;
+
+    SELECT ARRAY(
+             SELECT lower(btrim(e))
+               FROM unnest(ARRAY[st.institution_email, st.email]) AS e
+              WHERE e IS NOT NULL AND btrim(e) <> ''
+           )
+      INTO v_emails
+      FROM public.staff st WHERE st.id = p_ref_id;
+
+    v_matches := 0; v_match_id := NULL;
+    IF array_length(v_emails, 1) IS NOT NULL THEN
+      SELECT count(*), min(ji.id::text)::uuid INTO v_matches, v_match_id
+        FROM public.jkkn_identities ji
+        JOIN public.learners_profiles lp ON lp.id = ji.learner_profile_id
+       WHERE ji.team_member_id IS NULL
+         AND (lower(btrim(coalesce(lp.student_email, ''))) = ANY (v_emails)
+           OR lower(btrim(coalesce(lp.college_email, ''))) = ANY (v_emails));
+    END IF;
+
+    IF v_matches = 1 THEN
+      UPDATE public.jkkn_identities
+         SET team_member_id = p_ref_id, person_kind = 'both'
+       WHERE id = v_match_id
+       RETURNING btrim(jkkn_id) INTO v_number;
+      RETURN jsonb_build_object('ok', true, 'action', 'linked_existing', 'jkkn_id', v_number);
+    ELSIF v_matches > 1 THEN
+      RAISE EXCEPTION 'This team member''s email matches % existing learner identities — resolve which one is the same person before issuing.', v_matches
+        USING ERRCODE = '23505';
+    END IF;
+
+    v_result := public.fn_jkkn_allocate('team_member', NULL, p_ref_id, NULL, auth.uid());
+
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE id = p_ref_id) THEN
+      RAISE EXCEPTION 'No profile %', p_ref_id USING ERRCODE = '23503';
+    END IF;
+
+    SELECT btrim(jkkn_id) INTO v_existing
+      FROM public.jkkn_identities WHERE profile_id = p_ref_id LIMIT 1;
+    IF v_existing IS NOT NULL THEN
+      RETURN jsonb_build_object('ok', true, 'action', 'already_held', 'jkkn_id', v_existing);
+    END IF;
+
+    v_result := public.fn_jkkn_allocate('associate', NULL, NULL, p_ref_id, auth.uid());
+  END IF;
+
+  RETURN jsonb_build_object('ok', true, 'action', 'issued', 'jkkn_id', v_result->>'jkkn_id');
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) IS
+  'Manual "Issue ID" behind /users/jkkn-id, gated on users.jkkn_id.issue. Applies the same email guard as the auto-issue triggers: an exact match to an unlinked identity of the other kind LINKS that row (person_kind=both) and returns its number instead of minting a duplicate; an ambiguous match raises. issued_by = the caller.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) TO authenticated;
 
 
 -- ============================================================================
@@ -54012,6 +54823,18 @@ COMMENT ON FUNCTION public.hr_leave_approval_queue() IS
 -- Assignable-staff picker: active profiles whose active roles grant
 -- 'campus_living.housekeeping.mark_done' (VALUE test, not `? 'key'`),
 -- scoped to the institution. (Body in the migration above.)
+
+-- =====================================================
+-- 20260827130000: Housekeeping entitlement = premium ENROLLED category
+-- AND premium ALLOCATED room AND an active allocation (all three).
+-- fn_housekeeping_entitlement_tier was DROPPED and recreated with a new
+-- signature returning both sides plus the LOWER of the two tiers (rank
+-- standard < premium < premium_plus), so a premium-billed learner housed in
+-- a standard room resolves to 'standard' and cannot book. Its two callers
+-- (fn_housekeeping_my_entitlement, fn_housekeeping_book_slot) were recreated
+-- in the same migration. No other feature reads this resolver.
+-- Canonical body: supabase/migrations/20260827130000_housekeeping_premium_room_and_allocation_required.sql
+-- =====================================================
 
 -- =============================================================================
 -- Mirrored from supabase/migrations/20260827190000_hr_regularization_stamp_trigger.sql

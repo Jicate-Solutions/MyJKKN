@@ -1845,6 +1845,36 @@ CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- =====================================================================
+-- Added: 2026-08-27 - JKKN ID auto-issuance
+-- Mirror of migration 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql
+-- Function bodies -> setup/02_functions.sql (tg_jkkn_auto_issue_*).
+-- Fail-soft by design: an issuance failure warns, never blocks the
+-- admission / hire / role grant that fired it.
+-- =====================================================================
+-- Widened 2026-08-27 (migration 20260827134500): a learner is issued at
+-- RESERVED — seat held, onboarding begins — not only at admitted/active.
+-- Enquiry-stage statuses stay excluded (numbers are never spent at enquiry).
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_learner ON public.learners_profiles;
+CREATE TRIGGER trg_jkkn_auto_issue_learner
+  AFTER INSERT OR UPDATE OF lifecycle_status ON public.learners_profiles
+  FOR EACH ROW
+  WHEN (NEW.lifecycle_status::text IN ('reserved', 'account', 'admitted', 'active', 'graduated', 'alumni'))
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_learner();
+
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_team_member ON public.staff;
+CREATE TRIGGER trg_jkkn_auto_issue_team_member
+  AFTER INSERT OR UPDATE OF is_active ON public.staff
+  FOR EACH ROW
+  WHEN (NEW.is_active IS TRUE)
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_team_member();
+
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_associate ON public.user_roles;
+CREATE TRIGGER trg_jkkn_auto_issue_associate
+  AFTER INSERT ON public.user_roles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_associate();
+
+-- =====================================================================
 -- Added: 2026-08-13 - Course Events core triggers (course_events,
 -- course_packages, course_package_installments)
 -- Mirror of migration 20260813100000_course_events_core.sql
