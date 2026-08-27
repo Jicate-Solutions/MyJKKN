@@ -31,7 +31,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarRange, ListChecks, UserX } from 'lucide-react';
+import { CalendarRange, CheckCircle2, Clock, ListChecks, UserX } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -51,9 +51,12 @@ import {
 import {
   currentMonthKey,
   formatDuration,
+  isPeriodClosed,
   monthLabel,
+  type AttendancePeriodState,
   type MonthKey,
 } from '@/types/hr-attendance';
+import { cn } from '@/lib/utils';
 
 import { AttendanceCalendarTab } from './_components/attendance-calendar-tab';
 import { AttendanceLogTab } from './_components/attendance-log-tab';
@@ -106,7 +109,7 @@ export default function MyAttendancePage() {
   const staffId = selectedStaff?.id ?? employee?.id ?? null;
   const viewingOther = Boolean(selectedStaff && selectedStaff.id !== employee?.id);
 
-  const { logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, refresh } =
+  const { logDays, weeks, summary, isLoading, isFetching, isEmptyMonth, period, refresh } =
     useAttendanceMonthView(staffId, month);
   const { data: monthsWithData } = useAttendanceMonthsWithData(staffId);
 
@@ -170,15 +173,22 @@ export default function MyAttendancePage() {
                   </TabsTrigger>
                 </TabsList>
 
-                <AttendanceMonthPicker
-                  month={month}
-                  onMonthChange={(m) => setParam('month', m)}
-                  onRefresh={refresh}
-                  isFetching={isFetching}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <PeriodStatusBadge period={period} month={month} />
+                  <AttendanceMonthPicker
+                    month={month}
+                    onMonthChange={(m) => setParam('month', m)}
+                    onRefresh={refresh}
+                    isFetching={isFetching}
+                  />
+                </div>
               </div>
 
-              <MonthSummaryStrip summary={summary} className="mt-4" />
+              <MonthSummaryStrip
+                summary={summary}
+                closed={isPeriodClosed(period)}
+                className="mt-4"
+              />
 
               {!isLoading && isEmptyMonth && (
                 <EmptyMonthNotice
@@ -207,17 +217,61 @@ export default function MyAttendancePage() {
   );
 }
 
+/**
+ * Whether HR has finished with this month.
+ *
+ * The page previously said nothing about it, so a staff member who watched HR
+ * close the month saw an unchanged screen and could not tell a finalised month
+ * from one still being imported — "Not processed: 0" reads the same either way,
+ * because it counts days with no record, not whether the month is signed off.
+ */
+function PeriodStatusBadge({
+  period,
+  month,
+}: {
+  period: AttendancePeriodState | null;
+  month: MonthKey;
+}) {
+  if (!period) return null;
+
+  if (isPeriodClosed(period)) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        title={
+          period.locked_at
+            ? `${monthLabel(month)} was finalised on ${new Date(period.locked_at).toLocaleDateString('en-GB')}. Attendance for this month can no longer change.`
+            : undefined
+        }
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Closed
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium text-muted-foreground">
+      <Clock className="h-3.5 w-3.5" />
+      Open
+    </span>
+  );
+}
+
 function MonthSummaryStrip({
   summary,
+  closed,
   className,
 }: {
   summary: ReturnType<typeof useAttendanceMonthView>['summary'];
+  /** Month signed off by HR — the whole strip is final, so say so in green. */
+  closed: boolean;
   className?: string;
 }) {
   const stats: Array<[string, string | number]> = [
     ['Present', summary.present],
     ['Half day', summary.halfDay],
-    ['Absent', summary.absent],
+    ['Absent (LOP)', summary.absent],
     ['Leave', summary.leave],
     ['Week off', summary.weeklyOff],
     ['Holiday', summary.holiday],
@@ -227,14 +281,41 @@ function MonthSummaryStrip({
 
   return (
     <div className={className}>
-      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4 lg:grid-cols-8">
+      <dl
+        className={cn(
+          'grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4 lg:grid-cols-8',
+          closed && 'border-emerald-300 bg-emerald-200 dark:border-emerald-800 dark:bg-emerald-900',
+        )}
+      >
         {stats.map(([label, value]) => (
-          <div key={label} className="bg-card px-3 py-2">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-            <dd className="text-base font-semibold tabular-nums">{value}</dd>
+          <div
+            key={label}
+            className={cn('bg-card px-3 py-2', closed && 'bg-emerald-50 dark:bg-emerald-950/40')}
+          >
+            <dt
+              className={cn(
+                'text-[11px] uppercase tracking-wide text-muted-foreground',
+                closed && 'text-emerald-800/70 dark:text-emerald-300/70',
+              )}
+            >
+              {label}
+            </dt>
+            <dd
+              className={cn(
+                'text-base font-semibold tabular-nums',
+                closed && 'text-emerald-900 dark:text-emerald-200',
+              )}
+            >
+              {value}
+            </dd>
           </div>
         ))}
       </dl>
+      {closed && (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          This month is closed — the figures above are final.
+        </p>
+      )}
     </div>
   );
 }

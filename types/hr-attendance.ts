@@ -75,7 +75,10 @@ export interface AttendanceTokenMeta {
 export const STATUS_TOKENS: Record<AttendanceToken, AttendanceTokenMeta> = {
   PRESENT: { short: 'P', label: 'Present', tone: 'present' },
   HALF_DAY: { short: 'HD', label: 'Half Day', tone: 'half' },
-  ABSENT: { short: 'AB', label: 'Absent', tone: 'absent' },
+  // Shown as LOP, not AB: an absent day with no approved leave behind it is a
+  // loss-of-pay day, and that is the consequence staff actually need to read
+  // off the calendar. The tone stays 'absent' (red) — only the wording changed.
+  ABSENT: { short: 'LOP', label: 'Absent — Loss of Pay', tone: 'absent' },
   WEEKLY_OFF: { short: 'WO', label: 'Week Off', tone: 'off' },
   HOLIDAY: { short: 'H', label: 'Holiday', tone: 'holiday' },
   LEAVE: { short: 'L', label: 'Leave', tone: 'leave' },
@@ -144,6 +147,25 @@ export interface AttendanceRecord {
   notes: string | null;
   /** LEFT joined — null if the status type row was deleted. */
   status: { code: string; label: string } | null;
+}
+
+/**
+ * The month-close state for one institution, as My Attendance shows it.
+ *
+ * 'locked' is the finished state: HR ran the close, the day counts were frozen
+ * into hr_attendance_period_summaries and the lock trigger now refuses further
+ * writes. Anything else — including no row at all — means the month is still
+ * being worked on.
+ */
+export interface AttendancePeriodState {
+  id: string;
+  status: string;
+  locked_at: string | null;
+  reopened_at: string | null;
+}
+
+export function isPeriodClosed(period: AttendancePeriodState | null | undefined): boolean {
+  return period?.status === 'locked';
 }
 
 /** An approved application as fetched, before it is expanded across its days. */

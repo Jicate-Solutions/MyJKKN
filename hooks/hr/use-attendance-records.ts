@@ -23,6 +23,7 @@ import {
   type ApprovedRequestRange,
   type AttendanceDay,
   type AttendanceMonthSummary,
+  type AttendancePeriodState,
   type MonthKey,
 } from '@/types/hr-attendance';
 
@@ -30,6 +31,7 @@ const KEY = 'hr-attendance-records';
 const EXCEPTIONS_KEY = 'hr-attendance-exceptions';
 const MONTHS_KEY = 'hr-attendance-months';
 const TIME_OFF_KEY = 'hr-attendance-time-off';
+const PERIOD_KEY = 'hr-attendance-period';
 
 /**
  * Invalidate everything the My Attendance log and calendar read.
@@ -44,7 +46,7 @@ const TIME_OFF_KEY = 'hr-attendance-time-off';
  * the viewer happens to have open, and React Query matches partial keys.
  */
 export function invalidateAttendanceViews(qc: QueryClient) {
-  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY]) {
+  for (const key of [KEY, EXCEPTIONS_KEY, MONTHS_KEY, TIME_OFF_KEY, PERIOD_KEY]) {
     qc.invalidateQueries({ queryKey: [key] });
   }
 }
@@ -119,6 +121,25 @@ export function useAttendanceExceptions(staffId: string | null, month: MonthKey)
   });
 }
 
+/**
+ * Whether HR has closed this month for the staff member's institution.
+ *
+ * The institution comes from the month's own records rather than a staff
+ * lookup: hr_attendance_records already carries institution_id, and reading
+ * `staff` client-side returns null under staff_select_scope_aware for anyone
+ * without staff.view — which is most of the people looking at their own
+ * attendance.
+ */
+export function useAttendancePeriod(institutionId: string | null, month: MonthKey) {
+  const supabase = createClientSupabaseClient();
+  return useQuery({
+    queryKey: [PERIOD_KEY, institutionId, month],
+    queryFn: () =>
+      AttendanceRecordService.getPeriod(supabase, { institutionId: institutionId!, month }),
+    enabled: Boolean(institutionId),
+  });
+}
+
 /** Which months hold data at all, so an empty month can say why. */
 export function useAttendanceMonthsWithData(staffId: string | null) {
   const supabase = createClientSupabaseClient();
@@ -141,6 +162,8 @@ export interface AttendanceMonthView {
   error: Error | null;
   /** True once loading finished and the month genuinely holds no record. */
   isEmptyMonth: boolean;
+  /** Null until the month has a record to resolve an institution from. */
+  period: AttendancePeriodState | null;
   refresh: () => void;
 }
 
@@ -157,6 +180,14 @@ export function useAttendanceMonthView(
   const records = useAttendanceMonth(staffId, month);
   const exceptions = useAttendanceExceptions(staffId, month);
   const timeOff = useApprovedTimeOff(staffId, month);
+
+  // Any record of the month answers "which institution's close applies here";
+  // they are all the same person's.
+  const institutionId = useMemo(
+    () => records.data?.find((r) => r.institution_id)?.institution_id ?? null,
+    [records.data],
+  );
+  const period = useAttendancePeriod(institutionId, month);
 
   const logDays = useMemo(
     () =>
@@ -193,10 +224,12 @@ export function useAttendanceMonthView(
     isFetching: records.isFetching || exceptions.isFetching,
     error: (records.error ?? exceptions.error) as Error | null,
     isEmptyMonth: !records.isLoading && (records.data?.length ?? 0) === 0,
+    period: period.data ?? null,
     refresh: () => {
       qc.invalidateQueries({ queryKey: [KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [EXCEPTIONS_KEY, staffId, month] });
       qc.invalidateQueries({ queryKey: [TIME_OFF_KEY, staffId, month] });
+      qc.invalidateQueries({ queryKey: [PERIOD_KEY, institutionId, month] });
     },
   };
 }

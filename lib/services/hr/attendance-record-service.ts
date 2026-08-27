@@ -25,7 +25,12 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import type { AttendanceException, AttendanceRecord, MonthKey } from '@/types/hr-attendance';
+import type {
+  AttendanceException,
+  AttendancePeriodState,
+  AttendanceRecord,
+  MonthKey,
+} from '@/types/hr-attendance';
 import { monthRange } from '@/types/hr-attendance';
 
 /**
@@ -118,6 +123,32 @@ export class AttendanceRecordService {
       exception_type: row.exception_type as string,
       reason: ((row.raw_payload as Record<string, unknown> | null)?.reason as string) ?? null,
     }));
+  }
+
+  /**
+   * The month-close state for one institution, or null when HR has never
+   * opened that month.
+   *
+   * Readable by ordinary staff: hr_attendance_periods_select grants
+   * hr.attendance.view_self (76 roles) alongside the period-admin permission,
+   * so a staff member can see that their own month is finalised.
+   */
+  static async getPeriod(
+    supabase: SupabaseClient,
+    { institutionId, month }: { institutionId: string; month: MonthKey },
+  ): Promise<AttendancePeriodState | null> {
+    const [year, mon] = month.split('-');
+
+    const { data, error } = await supabase
+      .from('hr_attendance_periods')
+      .select('id, status, locked_at, reopened_at')
+      .eq('institution_id', institutionId)
+      .eq('period_year', Number(year))
+      .eq('period_month', Number(mon))
+      .maybeSingle();
+
+    if (error) throw error;
+    return (data ?? null) as AttendancePeriodState | null;
   }
 
   /**
