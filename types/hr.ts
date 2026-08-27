@@ -619,6 +619,13 @@ export interface HRLeaveApprovalQueueRow {
   applied_by_name: string | null;
   /** applied_by is somebody other than the staff member the leave is for. */
   applied_on_behalf: boolean;
+  /** profiles.id of the final decider. null while the request is still open. */
+  final_approver_id: string | null;
+  /** Resolved server-side, same reason as applied_by_name. */
+  final_approver_name: string | null;
+  final_decided_at: string | null;
+  /** Set on rejected rows; shown to the requester. */
+  rejection_reason: string | null;
   /** The caller's own request. Display fact only — see can_decide. */
   is_own: boolean;
   /**
