@@ -65,6 +65,8 @@ import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import type { LeaveDocument } from '@/types/hr';
 import { useShiftWindow } from '@/hooks/hr/use-shift-timings';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
+import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
 import { useStoUsage } from '@/hooks/hr/use-hr-leave-types';
 import { formatMinutes, STO_LIMIT_PERIOD_LABELS } from '@/types/hr-leave-types';
 import { getErrorMessage } from '@/lib/utils';
@@ -371,6 +373,11 @@ export function ApplyShortTimeOffDrawer({
   // rejected by the service AFTER submit. Catch it here instead.
   const notHourly = !!selected && !selected.allow_hourly;
 
+  // Same closed-month refusal as the leave drawer — short time off shares
+  // hr_leave_applications, so the identical trigger refuses it.
+  const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
+  const closedHit = closedMonthsInRange(date, date, closedMonths);
+
   // Does THIS request need a certificate? Same shared predicate the server
   // runs (LeaveService.applyLeave), so the drawer and the service cannot
   // disagree. totalDays = 1 mirrors the service's inclusive same-day count;
@@ -398,7 +405,7 @@ export function ApplyShortTimeOffDrawer({
     !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId && !!date &&
     !!startTime && !!endTime && totalHours !== null && !!reason.trim() &&
     !notHourly && !limitError && !mutation.isPending && !uploading &&
-    !clash && !outsideShift && !nonWorkingDay && !noShift &&
+    !clash && !outsideShift && !nonWorkingDay && !noShift && closedHit.length === 0 &&
     // A type that demands a document must not be submittable without one.
     // The server enforces the same rule; this only spares the round trip.
     (!docRule.required || documentFiles.length > 0);
@@ -733,6 +740,17 @@ export function ApplyShortTimeOffDrawer({
                   <AlertDescription>
                     {selected?.leave_type_name} is not configured for hourly requests.
                     Ask HR to enable hourly duration on this leave type.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {closedHit.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Attendance for {describeClosedMonths(closedHit)} is closed, so short time off
+                    can no longer be applied for on that date. Choose a date in an open month, or
+                    ask HR to reopen the month.
                   </AlertDescription>
                 </Alert>
               )}

@@ -140,6 +140,29 @@ export function useAttendancePeriod(institutionId: string | null, month: MonthKe
   });
 }
 
+/**
+ * Months this institution has closed, as a Set of `yyyy-MM`.
+ *
+ * Consumed by the apply forms to refuse a date before anything is uploaded or
+ * submitted. Cached for 5 minutes like everything else, and invalidated by
+ * invalidateAttendanceViews() when a month is closed or reopened, so a form
+ * left open across a close picks the change up.
+ *
+ * Returns an EMPTY set when the caller cannot read hr_attendance_periods
+ * (its policy wants hr.attendance.view_self or the period permissions). That
+ * degrades to today's behaviour — the database still refuses the request —
+ * rather than blocking a form on a read the user is not entitled to make.
+ */
+export function useClosedAttendanceMonths(institutionId: string | null | undefined) {
+  const supabase = createClientSupabaseClient();
+  const { data } = useQuery({
+    queryKey: [PERIOD_KEY, 'closed', institutionId],
+    queryFn: () => AttendanceRecordService.listClosedMonths(supabase, institutionId!),
+    enabled: Boolean(institutionId),
+  });
+  return useMemo(() => new Set(data ?? []), [data]);
+}
+
 /** Which months hold data at all, so an empty month can say why. */
 export function useAttendanceMonthsWithData(staffId: string | null) {
   const supabase = createClientSupabaseClient();

@@ -32,6 +32,8 @@ import { useLeavePeriodUsage } from '@/hooks/hr/use-hr-leave-types';
 import { useMyApplications } from '@/hooks/hr/use-leave';
 import { Progress } from '@/components/ui/progress';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
+import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import { formatDays } from './format';
 import { LeaveDocumentUpload } from './leave-document-upload';
@@ -167,6 +169,13 @@ export function ApplyLeaveDrawer({
   const periodWindowBroken = !!periodUsage?.limited && !!periodUsage.window_unresolved;
   const overPeriod = periodCapped && requestedDays > Number(periodUsage?.days_left ?? 0);
 
+  // A month HR has closed refuses the request at the database
+  // (trg_hla_block_locked_period). Catching it here means the user is told
+  // before filling the form and — the reason this exists — before waiting on a
+  // document upload that a 400 then throws away.
+  const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
+  const closedHit = closedMonthsInRange(startDate, endDate, closedMonths);
+
   /**
    * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
    * refuses it outright — this says so while the dates are being picked instead
@@ -211,7 +220,7 @@ export function ApplyLeaveDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous && !shortNotice &&
-    !overPeriod && !periodWindowBroken && !clash &&
+    !overPeriod && !periodWindowBroken && !clash && closedHit.length === 0 &&
     requestedDays > 0 && !mutation.isPending && !uploading &&
     // A type that demands a certificate must not be submittable without one.
     // The server enforces the same rule; this only spares the round trip.
@@ -436,6 +445,18 @@ export function ApplyLeaveDrawer({
                     onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
+
+              {closedHit.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Attendance for {describeClosedMonths(closedHit)}{' '}
+                    {closedHit.length > 1 ? 'are' : 'is'} closed, so leave covering{' '}
+                    {closedHit.length > 1 ? 'those months' : 'that month'} can no longer be
+                    applied for. Choose a date in an open month, or ask HR to reopen the month.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <div>
                 <Label htmlFor="duration">Duration</Label>

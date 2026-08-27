@@ -2357,3 +2357,13 @@ CREATE TRIGGER tr_stamp_attendance_on_regularization_approval
 
 COMMENT ON FUNCTION public.fn_stamp_attendance_on_regularization_approval() IS
   'Writes hr_attendance_records when a regularization is approved. Replaces the client-side best-effort stamp in regularization-service.ts, which silently skipped whenever the approver lacked hr_staff_details, the month was closed, or the browser held a stale bundle.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
+-- (trigger half; the functions are mirrored in 02_functions.sql)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_locked_period ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_locked_period
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period();

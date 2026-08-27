@@ -50,7 +50,6 @@ import {
 } from '@/hooks/hr/use-attendance-records';
 import {
   currentMonthKey,
-  formatDuration,
   isPeriodClosed,
   monthLabel,
   type AttendancePeriodState,
@@ -61,6 +60,7 @@ import { cn } from '@/lib/utils';
 import { AttendanceCalendarTab } from './_components/attendance-calendar-tab';
 import { AttendanceLogTab } from './_components/attendance-log-tab';
 import { AttendanceMonthPicker } from './_components/attendance-month-picker';
+import { AttendanceSummaryCards } from './_components/attendance-summary-cards';
 import {
   AttendanceStaffFilter,
   type SelectedStaff,
@@ -184,7 +184,7 @@ export default function MyAttendancePage() {
                 </div>
               </div>
 
-              <MonthSummaryStrip
+              <AttendanceSummaryCards
                 summary={summary}
                 closed={isPeriodClosed(period)}
                 className="mt-4"
@@ -207,7 +207,11 @@ export default function MyAttendancePage() {
               </TabsContent>
 
               <TabsContent value="calendar" className="mt-4">
-                <AttendanceCalendarTab weeks={weeks} isLoading={isLoading} />
+                <AttendanceCalendarTab
+                  weeks={weeks}
+                  isLoading={isLoading}
+                  closed={isPeriodClosed(period)}
+                />
               </TabsContent>
             </Tabs>
           </>
@@ -255,68 +259,6 @@ function PeriodStatusBadge({
       <Clock className="h-3.5 w-3.5" />
       Open
     </span>
-  );
-}
-
-function MonthSummaryStrip({
-  summary,
-  closed,
-  className,
-}: {
-  summary: ReturnType<typeof useAttendanceMonthView>['summary'];
-  /** Month signed off by HR — the whole strip is final, so say so in green. */
-  closed: boolean;
-  className?: string;
-}) {
-  const stats: Array<[string, string | number]> = [
-    ['Present', summary.present],
-    ['Half day', summary.halfDay],
-    ['Absent (LOP)', summary.absent],
-    ['Leave', summary.leave],
-    ['Week off', summary.weeklyOff],
-    ['Holiday', summary.holiday],
-    ['Not processed', summary.pending],
-    ['Effective', formatDuration(summary.effectiveMinutes)],
-  ];
-
-  return (
-    <div className={className}>
-      <dl
-        className={cn(
-          'grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-4 lg:grid-cols-8',
-          closed && 'border-emerald-300 bg-emerald-200 dark:border-emerald-800 dark:bg-emerald-900',
-        )}
-      >
-        {stats.map(([label, value]) => (
-          <div
-            key={label}
-            className={cn('bg-card px-3 py-2', closed && 'bg-emerald-50 dark:bg-emerald-950/40')}
-          >
-            <dt
-              className={cn(
-                'text-[11px] uppercase tracking-wide text-muted-foreground',
-                closed && 'text-emerald-800/70 dark:text-emerald-300/70',
-              )}
-            >
-              {label}
-            </dt>
-            <dd
-              className={cn(
-                'text-base font-semibold tabular-nums',
-                closed && 'text-emerald-900 dark:text-emerald-200',
-              )}
-            >
-              {value}
-            </dd>
-          </div>
-        ))}
-      </dl>
-      {closed && (
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          This month is closed — the figures above are final.
-        </p>
-      )}
-    </div>
   );
 }
 

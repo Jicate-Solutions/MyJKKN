@@ -21,23 +21,30 @@ import {
   type AttendanceDay,
 } from '@/types/hr-attendance';
 
-import { AttendanceLegend, tonesFor } from './attendance-legend';
+import { AttendanceLegend, cellWashFor, tonesFor } from './attendance-legend';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 export function AttendanceCalendarTab({
   weeks,
   isLoading,
+  closed = false,
 }: {
   weeks: AttendanceDay[][];
   isLoading: boolean;
+  /**
+   * HR has closed this month. Only then does the grid paint days green/red —
+   * an open month's figures can still move, and a paid/unpaid verdict on them
+   * would be a promise the data has not made yet.
+   */
+  closed?: boolean;
 }) {
   if (isLoading) return <Skeleton className="h-[32rem] w-full rounded-md" />;
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="space-y-4">
-        <AttendanceLegend />
+        <AttendanceLegend closed={closed} />
 
         <div className="overflow-x-auto">
           <div className="min-w-[52rem] overflow-hidden rounded-md border">
@@ -56,7 +63,7 @@ export function AttendanceCalendarTab({
             {weeks.map((week) => (
               <div key={week[0].date} className="grid grid-cols-7 border-b last:border-b-0">
                 {week.map((day) => (
-                  <CalendarCell key={day.date} day={day} />
+                  <CalendarCell key={day.date} day={day} closed={closed} />
                 ))}
               </div>
             ))}
@@ -67,7 +74,7 @@ export function AttendanceCalendarTab({
   );
 }
 
-function CalendarCell({ day }: { day: AttendanceDay }) {
+function CalendarCell({ day, closed }: { day: AttendanceDay; closed: boolean }) {
   const tones = tonesFor(day.token);
   const showToken = day.inMonth && !day.isFuture;
   const [first, second] = day.halfPair;
@@ -83,7 +90,9 @@ function CalendarCell({ day }: { day: AttendanceDay }) {
     <div
       className={cn(
         'min-h-[5.5rem] border-r p-2 last:border-r-0',
-        day.inMonth ? tones.cell : 'bg-muted/30',
+        // A future day carries no verdict yet, so it stays unwashed even in a
+        // closed month — closing December does not make the 31st "paid".
+        day.inMonth ? cellWashFor(day.token, closed && !day.isFuture) : 'bg-muted/30',
       )}
     >
       <div

@@ -152,6 +152,31 @@ export class AttendanceRecordService {
   }
 
   /**
+   * The months this institution has CLOSED, as `yyyy-MM` keys.
+   *
+   * Drives the apply forms: a request touching one of these is refused by
+   * trg_hla_block_locked_period / trg_hcoc_block_locked_period, and finding
+   * that out at Submit — after a document upload — is a rotten way to learn it.
+   * The forms use this to refuse the date up front, with the same reason.
+   */
+  static async listClosedMonths(
+    supabase: SupabaseClient,
+    institutionId: string,
+  ): Promise<MonthKey[]> {
+    const { data, error } = await supabase
+      .from('hr_attendance_periods')
+      .select('period_year, period_month')
+      .eq('institution_id', institutionId)
+      .eq('status', 'locked');
+
+    if (error) throw error;
+
+    return ((data ?? []) as Array<{ period_year: number; period_month: number }>).map(
+      (r) => `${r.period_year}-${String(r.period_month).padStart(2, '0')}` as MonthKey,
+    );
+  }
+
+  /**
    * Which months actually hold data for this person, newest first.
    *
    * Only July 2026 exists today and only for the 41 staff the biometric import

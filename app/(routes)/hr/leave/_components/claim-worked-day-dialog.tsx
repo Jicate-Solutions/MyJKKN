@@ -28,6 +28,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LeaveDocumentUpload } from './leave-document-upload';
 import { useClaimWorkedDay } from '@/hooks/hr/use-comp-off';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
+import { useClosedAttendanceMonths } from '@/hooks/hr/use-attendance-records';
+import { closedMonthsInRange, describeClosedMonths } from '@/types/hr-attendance';
 import { getErrorMessage } from '@/lib/utils';
 import type { LeaveDocument } from '@/types/hr';
 
@@ -54,6 +56,11 @@ export function ClaimWorkedDayDialog({
 
   const inFuture = !!workedDate && new Date(`${workedDate}T00:00:00`) > new Date();
 
+  // trg_hcoc_block_locked_period refuses a claim whose worked day sits in a
+  // closed month. Say so while the date is being picked.
+  const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
+  const closedHit = closedMonthsInRange(workedDate, workedDate, closedMonths);
+
   // Shown so the claimant knows the deadline before submitting, using the same
   // +90 rule the database applies.
   const expiresOn = useMemo(() => {
@@ -65,7 +72,7 @@ export function ClaimWorkedDayDialog({
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!workedDate && !inFuture &&
-    !mutation.isPending && !uploading &&
+    closedHit.length === 0 && !mutation.isPending && !uploading &&
     // Proof of the worked day is required — CompOffService.claimWorkedDay
     // enforces the same rule; this only spares the round trip.
     documentFiles.length > 0;
@@ -156,6 +163,11 @@ export function ClaimWorkedDayDialog({
             {inFuture ? (
               <p className="mt-1 text-xs text-destructive">
                 You cannot claim a day you have not worked yet.
+              </p>
+            ) : closedHit.length > 0 ? (
+              <p className="mt-1 text-xs text-destructive">
+                Attendance for {describeClosedMonths(closedHit)} is closed, so a worked day in
+                that month can no longer be claimed. Ask HR to reopen the month.
               </p>
             ) : expiresOn ? (
               <p className="mt-1 text-xs text-muted-foreground">

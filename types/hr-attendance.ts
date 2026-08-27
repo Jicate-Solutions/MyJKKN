@@ -168,6 +168,49 @@ export function isPeriodClosed(period: AttendancePeriodState | null | undefined)
   return period?.status === 'locked';
 }
 
+/**
+ * The closed months a request would touch — empty when it is safe to submit.
+ *
+ * ANY OVERLAP COUNTS, not just the start date. A leave running 28 Jul → 2 Aug
+ * changes day counts inside July, so `trg_hla_block_locked_period` refuses it
+ * on the end date alone; this walks the same months so the form and the trigger
+ * cannot disagree about which requests are allowed.
+ *
+ * @param start `yyyy-MM-dd`
+ * @param end   `yyyy-MM-dd`; pass the same value as `start` for a single day.
+ */
+export function closedMonthsInRange(
+  start: string,
+  end: string,
+  closedMonths: ReadonlySet<string>,
+): MonthKey[] {
+  if (!start || closedMonths.size === 0) return [];
+  const last = end && end >= start ? end : start;
+
+  const hits: MonthKey[] = [];
+  // Walk by month key rather than by Date: the inputs are already yyyy-MM-dd
+  // strings, and constructing Dates here would drag the local offset in.
+  let year = Number(start.slice(0, 4));
+  let month = Number(start.slice(5, 7));
+  const lastKey = last.slice(0, 7);
+
+  for (let guard = 0; guard < 120; guard += 1) {
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    if (closedMonths.has(key)) hits.push(key as MonthKey);
+    if (key >= lastKey) break;
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+  }
+  return hits;
+}
+
+/** "July 2026" / "July 2026 and August 2026" — for the refusal message. */
+export function describeClosedMonths(months: readonly MonthKey[]): string {
+  const names = months.map(monthLabel);
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
 /** An approved application as fetched, before it is expanded across its days. */
 export interface ApprovedRequestRange {
   id: string;
@@ -261,6 +304,15 @@ export interface AttendanceDay {
   isFuture: boolean;
 }
 
+/** One row of the paid-leave breakdown — a leave type and the days it covered. */
+export interface PaidLeaveBucket {
+  /** hr_leave_types.leave_type_code, uppercased. 'CL', 'OD', 'COMP_OFF'. */
+  code: string;
+  /** The type's full name, for the hover title. */
+  label: string;
+  days: number;
+}
+
 export interface AttendanceMonthSummary {
   present: number;
   halfDay: number;
@@ -272,6 +324,20 @@ export interface AttendanceMonthSummary {
   pending: number;
   /** Sum of effective minutes across the month. */
   effectiveMinutes: number;
+
+  // ---- payroll-shaped figures (2026-08-27) --------------------------------
+  // The counts above answer "what did each day look like"; these answer "how
+  // many days am I paid for". Kept in the same pass so the two can never
+  // disagree about a day.
+  /** Days in the month minus week offs. Holidays ARE working days. */
+  workingDays: number;
+  /** Per leave type, biggest first. Only types that actually appear. */
+  paidLeaveByType: PaidLeaveBucket[];
+  paidLeaveTotal: number;
+  /** Absent days, plus half a day for every half day. */
+  lop: number;
+  /** Present + holiday + paid leave + half a day for every half day. */
+  totalPaid: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -498,13 +564,43 @@ export function buildAttendanceDays({
   });
 }
 
+/**
+ * Which leave type paid for this day.
+ *
+ * Reads the covering request rather than the status, for the same reason
+ * tokenLabelFor() does: the status says LEAVE and never says WHICH leave, and
+ * the difference between Casual Leave and On Duty is exactly what the
+ * breakdown exists to show. Both functions key off the same request, so the
+ * card and the calendar label can never disagree about a day.
+ */
+function paidLeaveBucketFor(day: AttendanceDay): { code: string; label: string } {
+  const owner = day.requests.find(
+    (r) => r.category === 'leave' || r.category === 'compensatory_off',
+  );
+  const code = owner?.type_code?.trim();
+  if (code) {
+    return { code: code.toUpperCase(), label: owner?.type_name ?? code.toUpperCase() };
+  }
+  // No request behind the day: the status was set directly — by a
+  // regularization proposing ON_DUTY, or by an import — so name it from the
+  // token instead of dropping the day out of the total.
+  if (day.token === 'ON_DUTY') return { code: 'OD', label: 'On Duty' };
+  if (day.token === 'on_clinical_posting') return { code: 'CP', label: 'On Clinical Posting' };
+  return { code: 'L', label: 'Leave' };
+}
+
 export function summariseDays(days: AttendanceDay[]): AttendanceMonthSummary {
   const s: AttendanceMonthSummary = {
     present: 0, halfDay: 0, absent: 0, weeklyOff: 0,
     holiday: 0, leave: 0, onDuty: 0, pending: 0, effectiveMinutes: 0,
+    workingDays: 0, paidLeaveByType: [], paidLeaveTotal: 0, lop: 0, totalPaid: 0,
   };
+  const buckets = new Map<string, PaidLeaveBucket>();
+  let inMonthDays = 0;
+
   for (const d of days) {
     if (!d.inMonth) continue;
+    inMonthDays += 1;
     s.effectiveMinutes += d.effectiveMinutes ?? 0;
     switch (d.token) {
       case 'PRESENT':
@@ -513,15 +609,43 @@ export function summariseDays(days: AttendanceDay[]): AttendanceMonthSummary {
       case 'ABSENT': s.absent += 1; break;
       case 'WEEKLY_OFF': s.weeklyOff += 1; break;
       case 'HOLIDAY': s.holiday += 1; break;
-      case 'LEAVE': s.leave += 1; break;
+      case 'LEAVE':
       case 'ON_DUTY':
-      case 'on_clinical_posting': s.onDuty += 1; break;
+      case 'on_clinical_posting': {
+        if (d.token === 'LEAVE') s.leave += 1; else s.onDuty += 1;
+        const { code, label } = paidLeaveBucketFor(d);
+        const existing = buckets.get(code);
+        if (existing) existing.days += 1;
+        else buckets.set(code, { code, label, days: 1 });
+        break;
+      }
       default:
         // Future days are not "pending processing" — nothing has happened yet.
         if (!d.isFuture) s.pending += 1;
     }
   }
+
+  // Holidays stay inside working days deliberately: they are paid days that
+  // fall on a workable date, so excluding them would make totalPaid exceed
+  // workingDays. Only a week off is genuinely outside the month's work.
+  s.workingDays = inMonthDays - s.weeklyOff;
+
+  s.paidLeaveByType = [...buckets.values()].sort(
+    (a, b) => b.days - a.days || a.code.localeCompare(b.code),
+  );
+  s.paidLeaveTotal = s.paidLeaveByType.reduce((n, b) => n + b.days, 0);
+
+  // A half day is half worked and half lost, so it lands on both sides and the
+  // identity paid + lop + pending = workingDays still holds.
+  s.lop = s.absent + s.halfDay * 0.5;
+  s.totalPaid = s.present + s.holiday + s.paidLeaveTotal + s.halfDay * 0.5;
+
   return s;
+}
+
+/** `27`, not `27.0` — but `26.5` when a half day made it fractional. */
+export function formatDayCount(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
 /** Chunk padded days into Monday→Sunday weeks for the calendar grid. */

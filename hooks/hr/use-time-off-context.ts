@@ -18,6 +18,8 @@ import type { HRLeaveBalanceWithType, LeaveRequestCategory } from '@/types/hr';
 export interface TimeOffContext {
   employeeId: string;
   hrOrgId: string;
+  /** Attendance month-close is keyed on the institution, not the HR org. */
+  institutionId: string;
   hrAcademicYearId: string;
   employeeName: string;
   employeeCode: string | null;
@@ -41,6 +43,7 @@ export function useTimeOffContext(): TimeOffContext {
 
   const employeeId = employee?.id ?? '';
   const hrOrgId = employee?.hr_organization_id ?? '';
+  const institutionId = employee?.institution_id ?? '';
   const hrAcademicYearId = currentYear?.id ?? '';
 
   const { data: balances, isLoading: balanceLoading } = useLeaveBalance(
@@ -66,6 +69,7 @@ export function useTimeOffContext(): TimeOffContext {
   return {
     employeeId,
     hrOrgId,
+    institutionId,
     hrAcademicYearId,
     employeeName,
     employeeCode: employee?.employee_code ?? null,

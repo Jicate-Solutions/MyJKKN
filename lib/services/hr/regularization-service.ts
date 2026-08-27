@@ -163,6 +163,8 @@ export async function getCurrentEmployee(): Promise<{
   id: string;
   user_id: string;
   hr_organization_id: string | null;
+  /** The staff row's institution — what attendance month-close is keyed on. */
+  institution_id: string | null;
   first_name: string | null;
   last_name: string | null;
   email: string | null;
@@ -186,6 +188,7 @@ export async function getCurrentEmployee(): Promise<{
     id: data.staff_id,
     user_id: data.profile_id,
     hr_organization_id: data.hr_organization_id,
+    institution_id: data.institution_id ?? null,
     first_name: data.first_name,
     last_name: data.last_name,
     email: data.email,
