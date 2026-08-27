@@ -257,6 +257,30 @@ export class JkknIdentityService {
     };
   }
 
+  /**
+   * The active JKKN ID for one person, or null. Backed by fn_jkkn_id_of,
+   * which is open to ALL authenticated users on purpose — it returns only the
+   * card-printed number for a row id the caller already reached through a
+   * detail page's own authorisation. Kinds: learner (learners_profiles.id),
+   * team_member (staff.id), profile (profiles.id — resolves learner/staff
+   * bridges itself).
+   */
+  static async getIdOf(
+    kind: 'learner' | 'team_member' | 'profile',
+    refId: string
+  ): Promise<string | null> {
+    const { data, error } = await (this.supabase as any).rpc('fn_jkkn_id_of', {
+      p_kind: kind,
+      p_ref_id: refId,
+    });
+    if (error) {
+      console.error('[identity] jkkn id lookup failed:', error);
+      return null; // A detail page must render even if the chip cannot.
+    }
+    const value = ((data as string | null) ?? '').trim();
+    return value === '' ? null : value;
+  }
+
   /** Kind-wise issued/pending counts for the analytics cards. */
   static async getStats(): Promise<JkknStats> {
     const { data, error } = await (this.supabase as any).rpc('fn_jkkn_stats');

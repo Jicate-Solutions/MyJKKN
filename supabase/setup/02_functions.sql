@@ -38308,6 +38308,92 @@ COMMENT ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) IS
 REVOKE EXECUTE ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) FROM anon, PUBLIC;
 GRANT  EXECUTE ON FUNCTION public.fn_jkkn_issue_manual(text, uuid) TO authenticated;
 
+-- ---------------------------------------------------------------------
+-- 7. fn_jkkn_id_of — the number (and nothing else) for one person (2026-08-27)
+-- ---------------------------------------------------------------------
+-- Mirrors migration 20260827160000_jkkn_id_of_lookup.sql. Open to ALL
+-- authenticated users on purpose: it returns only the card-printed,
+-- non-secret number for a row id the caller already reached through a
+-- detail page's own authorisation (learner profile / staff / user
+-- management pages, whose viewers usually lack users.jkkn_id.view).
+-- Rich person lookups stay behind that key. Retired identities → NULL.
+CREATE OR REPLACE FUNCTION public.fn_jkkn_id_of(
+  p_kind   text,
+  p_ref_id uuid
+)
+RETURNS text
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $fn$
+DECLARE
+  v_id      text;
+  v_profile record;
+BEGIN
+  IF p_ref_id IS NULL OR p_kind IS NULL OR p_kind NOT IN ('learner', 'team_member', 'profile') THEN
+    RETURN NULL;
+  END IF;
+
+  IF p_kind = 'learner' THEN
+    SELECT btrim(jkkn_id) INTO v_id
+      FROM public.jkkn_identities
+     WHERE learner_profile_id = p_ref_id AND retired_at IS NULL
+     LIMIT 1;
+    RETURN v_id;
+  END IF;
+
+  IF p_kind = 'team_member' THEN
+    SELECT btrim(jkkn_id) INTO v_id
+      FROM public.jkkn_identities
+     WHERE team_member_id = p_ref_id AND retired_at IS NULL
+     LIMIT 1;
+    RETURN v_id;
+  END IF;
+
+  -- 'profile': a user-management row can be a learner, a team member or a
+  -- profile-anchored associate — resolve through the same bridges the ID-card
+  -- renderer uses (profiles.learner_id; profiles.email == staff email).
+  SELECT id, email, learner_id INTO v_profile
+    FROM public.profiles WHERE id = p_ref_id;
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT btrim(jkkn_id) INTO v_id
+    FROM public.jkkn_identities
+   WHERE profile_id = v_profile.id AND retired_at IS NULL
+   LIMIT 1;
+  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+
+  IF v_profile.learner_id IS NOT NULL THEN
+    SELECT btrim(jkkn_id) INTO v_id
+      FROM public.jkkn_identities
+     WHERE learner_profile_id = v_profile.learner_id AND retired_at IS NULL
+     LIMIT 1;
+    IF v_id IS NOT NULL THEN RETURN v_id; END IF;
+  END IF;
+
+  IF v_profile.email IS NOT NULL AND btrim(v_profile.email) <> '' THEN
+    SELECT btrim(ji.jkkn_id) INTO v_id
+      FROM public.jkkn_identities ji
+      JOIN public.staff st ON st.id = ji.team_member_id
+     WHERE ji.retired_at IS NULL
+       AND (lower(btrim(coalesce(st.institution_email, ''))) = lower(btrim(v_profile.email))
+         OR lower(btrim(coalesce(st.email, '')))             = lower(btrim(v_profile.email)))
+     LIMIT 1;
+  END IF;
+
+  RETURN v_id;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.fn_jkkn_id_of(text, uuid) IS
+  'Returns ONLY the active JKKN ID for one person (kinds: learner | team_member | profile), or NULL. Granted to all authenticated users: the number is card-printed and non-secret, and the caller already passed the detail page''s own authorisation to know the row id. Rich person lookups remain behind users.jkkn_id.view. Retired identities return NULL.';
+
+REVOKE EXECUTE ON FUNCTION public.fn_jkkn_id_of(text, uuid) FROM anon, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_of(text, uuid) TO authenticated;
+
 
 -- ============================================================================
 -- fn_auto_allocate_candidates (CURRENT) — supersedes every earlier copy in this
@@ -54952,3 +55038,202 @@ BEGIN
   RETURN NEW;
 END;
 $fn$;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
+-- (functions half; the trigger is mirrored in 04_triggers.sql)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_row    record;
+  v_inst   uuid;
+  v_locked record;
+BEGIN
+  v_row := COALESCE(NEW, OLD);
+
+  -- Spending a credit is not a change to the closed month. Both directions of
+  -- hr_trig_comp_off_consume's toggle are allowed; worked_date and credit_days
+  -- must be untouched, so this cannot be used to smuggle an edit through.
+  IF TG_OP = 'UPDATE'
+     AND NEW.worked_date = OLD.worked_date
+     AND NEW.credit_days = OLD.credit_days
+     AND (
+       (NEW.status = 'consumed' AND OLD.status = 'approved')
+       OR (NEW.status = 'approved' AND OLD.status = 'consumed')
+     )
+  THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT s.institution_id INTO v_inst
+    FROM public.staff s WHERE s.id = v_row.employee_id;
+
+  IF v_inst IS NULL THEN
+    RETURN COALESCE(NEW, OLD);
+  END IF;
+
+  SELECT ap.period_year, ap.period_month, ap.locked_at
+    INTO v_locked
+    FROM public.hr_attendance_periods ap
+   WHERE ap.institution_id = v_inst
+     AND ap.status = 'locked'
+     AND make_date(ap.period_year, ap.period_month, 1) <= v_row.worked_date
+     AND (make_date(ap.period_year, ap.period_month, 1) + interval '1 month')::date > v_row.worked_date
+   LIMIT 1;
+
+  IF FOUND THEN
+    RAISE EXCEPTION
+      'Attendance for %-% is closed (locked %). Compensatory off cannot be claimed or decided for a day in that month.',
+      v_locked.period_year, lpad(v_locked.period_month::text, 2, '0'),
+      to_char(v_locked.locked_at, 'DD Mon YYYY')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.fn_hr_lock_attendance_period(
+  p_institution_id uuid,
+  p_year           integer,
+  p_month          integer,
+  p_force          boolean DEFAULT false,
+  p_force_reason   text    DEFAULT NULL
+)
+RETURNS public.hr_attendance_periods
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $fn$
+DECLARE
+  v_period   public.hr_attendance_periods;
+  v_start    date;
+  v_end      date;
+  v_pending  integer;
+  v_records  integer;
+  v_is_sa    boolean := public.is_super_admin();
+BEGIN
+  IF NOT (v_is_sa OR public.user_has_permission('hr.attendance.period.manage')) THEN
+    RAISE EXCEPTION 'hr.attendance.period.manage is required to close an attendance month.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+
+  IF p_month < 1 OR p_month > 12 THEN
+    RAISE EXCEPTION 'Month must be 1-12, got %', p_month USING ERRCODE = '22023';
+  END IF;
+
+  v_start := make_date(p_year, p_month, 1);
+  v_end   := (v_start + interval '1 month - 1 day')::date;
+
+  SELECT count(*) INTO v_records
+    FROM public.hr_attendance_records
+   WHERE institution_id = p_institution_id
+     AND work_date BETWEEN v_start AND v_end;
+
+  IF v_records = 0 THEN
+    RAISE EXCEPTION 'No attendance records for that institution in %-%. Import the biometric data first.',
+      p_year, lpad(p_month::text, 2, '0')
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  INSERT INTO public.hr_attendance_periods (
+    institution_id, period_year, period_month, status, created_by, updated_by
+  ) VALUES (p_institution_id, p_year, p_month, 'open', auth.uid(), auth.uid())
+  ON CONFLICT (institution_id, period_year, period_month) DO NOTHING;
+
+  SELECT * INTO v_period
+    FROM public.hr_attendance_periods
+   WHERE institution_id = p_institution_id
+     AND period_year = p_year AND period_month = p_month
+   FOR UPDATE;
+
+  IF v_period.status = 'locked' THEN
+    RAISE EXCEPTION 'That month is already closed (locked %).',
+      to_char(v_period.locked_at, 'DD Mon YYYY') USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Undecided requests overlapping the month, for staff of this institution:
+  -- leave / short time off, PLUS comp-off claims for a day inside it. Claims
+  -- were missing, so a month could close over them and the lock trigger would
+  -- then make them permanently undecidable.
+  SELECT (
+    (SELECT count(*)
+       FROM public.hr_leave_applications la
+       JOIN public.staff s ON s.id = la.employee_id
+      WHERE s.institution_id = p_institution_id
+        AND la.status = 'pending'
+        AND la.start_date <= v_end AND la.end_date >= v_start)
+    +
+    (SELECT count(*)
+       FROM public.hr_comp_off_credits cc
+       JOIN public.staff s2 ON s2.id = cc.employee_id
+      WHERE s2.institution_id = p_institution_id
+        AND cc.status = 'pending'
+        AND cc.worked_date BETWEEN v_start AND v_end)
+  ) INTO v_pending;
+
+  IF v_pending > 0 AND NOT p_force THEN
+    RAISE EXCEPTION
+      '% request(s) for this month are still awaiting a decision. Clear them in Leave Approvals, or close with an override.',
+      v_pending
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF v_pending > 0 AND p_force THEN
+    IF NOT v_is_sa THEN
+      RAISE EXCEPTION 'Only a Super Administrator may close a month over % outstanding request(s).', v_pending
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_force_reason IS NULL OR length(trim(p_force_reason)) = 0 THEN
+      RAISE EXCEPTION 'A reason is required to close a month over outstanding requests.'
+        USING ERRCODE = '22023';
+    END IF;
+
+    UPDATE public.hr_leave_applications la
+       SET status = 'rejected',
+           final_approver_id = auth.uid(),
+           final_decided_at = now(),
+           updated_at = now()
+      FROM public.staff s
+     WHERE s.id = la.employee_id
+       AND s.institution_id = p_institution_id
+       AND la.status = 'pending'
+       AND la.start_date <= v_end AND la.end_date >= v_start;
+
+    -- Runs while the period is still 'open', so trg_hcoc_block_locked_period
+    -- lets it through. No credit is created for a rejected claim.
+    UPDATE public.hr_comp_off_credits cc
+       SET status = 'rejected',
+           rejection_reason = left('Month closed over outstanding claims: ' || trim(p_force_reason), 500),
+           updated_at = now()
+      FROM public.staff s2
+     WHERE s2.id = cc.employee_id
+       AND s2.institution_id = p_institution_id
+       AND cc.status = 'pending'
+       AND cc.worked_date BETWEEN v_start AND v_end;
+  END IF;
+
+  PERFORM public.fn_hr_compute_attendance_period_summary(v_period.id);
+
+  UPDATE public.hr_attendance_periods
+     SET status = 'locked',
+         locked_at = now(),
+         locked_by = auth.uid(),
+         forced = (v_pending > 0 AND p_force),
+         force_reason = CASE WHEN v_pending > 0 AND p_force THEN trim(p_force_reason) END,
+         updated_by = auth.uid()
+   WHERE id = v_period.id
+  RETURNING * INTO v_period;
+
+  RETURN v_period;
+END;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_hr_lock_attendance_period(uuid, integer, integer, boolean, text) TO authenticated, service_role;

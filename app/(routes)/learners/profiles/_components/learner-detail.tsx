@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { JkknQrBlock } from '@/components/identity/jkkn-id-chip';
 import { Separator } from '@/components/ui/separator';
 import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
@@ -225,6 +226,14 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       )}
                     </div>
                   </div>
+                  {/* The permanent JKKN ID QR — the photo's counterpart, same
+                      h-24 size, at the end of the row. Click = enlarge/download. */}
+                  <JkknQrBlock
+                    kind="learner"
+                    refId={learner.id}
+                    personName={`${learner.first_name} ${learner.last_name || ''}`.trim()}
+                    className="ml-auto"
+                  />
                 </div>
 
                 <Separator />
