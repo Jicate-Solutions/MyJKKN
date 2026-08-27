@@ -44,7 +44,7 @@
  * the day, and the form says so rather than letting it read as a typo.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AlertCircle, Timer } from 'lucide-react';
 
 import {
@@ -60,6 +60,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useApplyLeave, useMyRequestsOnDate } from '@/hooks/hr/use-leave';
+import { LeaveDocumentUpload } from './leave-document-upload';
+import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
+import type { LeaveDocument } from '@/types/hr';
 import { useShiftWindow } from '@/hooks/hr/use-shift-timings';
 import { useTimeOffContext } from '@/hooks/hr/use-time-off-context';
 import { useStoUsage } from '@/hooks/hr/use-hr-leave-types';
@@ -138,6 +141,13 @@ export function ApplyShortTimeOffDrawer({
   const [endTime, setEndTime] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Picked but NOT uploaded — files go to Drive on Submit, exactly as in
+  // apply-leave-drawer.tsx (see that file and leave-document-upload.tsx).
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  /** Drive results keyed by the File itself, so a retried Submit re-uses them. */
+  const uploadedRef = useRef<WeakMap<File, LeaveDocument>>(new WeakMap());
 
   const options = ctx.balancesFor('short_time_off');
 
@@ -361,20 +371,85 @@ export function ApplyShortTimeOffDrawer({
   // rejected by the service AFTER submit. Catch it here instead.
   const notHourly = !!selected && !selected.allow_hourly;
 
+  // Does THIS request need a certificate? Same shared predicate the server
+  // runs (LeaveService.applyLeave), so the drawer and the service cannot
+  // disagree. totalDays = 1 mirrors the service's inclusive same-day count;
+  // this drawer never files emergencies.
+  const docRule = leaveDocumentRequirement(
+    selected
+      ? {
+          requires_documents: selected.requires_documents,
+          document_required_after_days: selected.document_required_after_days,
+        }
+      : null,
+    1,
+    false,
+  );
+
   const reset = () => {
     setLeaveTypeId(''); setDate(''); setSession('first');
     setStartTime(''); setEndTime('');
     setReason(''); setError(null); setSeededFor(null);
+    setDocumentFiles([]); setUploadError(null); setUploading(false);
+    uploadedRef.current = new WeakMap();
   };
 
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!effectiveTypeId && !!date &&
     !!startTime && !!endTime && totalHours !== null && !!reason.trim() &&
-    !notHourly && !limitError && !mutation.isPending &&
-    !clash && !outsideShift && !nonWorkingDay && !noShift;
+    !notHourly && !limitError && !mutation.isPending && !uploading &&
+    !clash && !outsideShift && !nonWorkingDay && !noShift &&
+    // A type that demands a document must not be submittable without one.
+    // The server enforces the same rule; this only spares the round trip.
+    (!docRule.required || documentFiles.length > 0);
+
+  /** Upload every picked file, skipping any this Submit already uploaded. */
+  const uploadDocuments = async (): Promise<LeaveDocument[]> => {
+    const out: LeaveDocument[] = [];
+    for (const file of documentFiles) {
+      const cached = uploadedRef.current.get(file);
+      if (cached) { out.push(cached); continue; }
+
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('employee_id', ctx.employeeId);
+      fd.append('leave_type_id', effectiveTypeId);
+      fd.append('start_date', date);
+
+      const res = await fetch('/api/hr/leave/documents/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Could not upload "${file.name}".`);
+      }
+      const doc = (await res.json()) as LeaveDocument;
+      uploadedRef.current.set(file, doc);
+      out.push(doc);
+    }
+    return out;
+  };
 
   const submit = async () => {
     setError(null);
+    setUploadError(null);
+
+    // Files go to Drive BEFORE the application row exists — same trade-off as
+    // the leave drawer: worst case is an orphaned Drive file, never a required
+    // document missing from the row that needed one.
+    let documents: LeaveDocument[] = [];
+    if (documentFiles.length > 0) {
+      setUploading(true);
+      try {
+        documents = await uploadDocuments();
+      } catch (err) {
+        const message = getErrorMessage(err);
+        setUploadError(message);
+        toast.error(message);
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
+
     try {
       await mutation.mutateAsync({
         hr_organization_id: ctx.hrOrgId,
@@ -389,7 +464,7 @@ export function ApplyShortTimeOffDrawer({
         end_time: endTime,
         reason,
         is_emergency: false,
-        documents: [],
+        documents,
         applied_by: '',
         department_id: null,
       });
@@ -721,6 +796,19 @@ export function ApplyShortTimeOffDrawer({
                   placeholder="Explain the reason for this request" />
               </div>
 
+              {/* Only when the selected type asks for one — Permission stays a
+                  two-field form; On Duty (Hourly) demands its proof of duty. */}
+              {(docRule.required || docRule.optional) && (
+                <LeaveDocumentUpload
+                  files={documentFiles}
+                  onChange={setDocumentFiles}
+                  required={docRule.required}
+                  reason={docRule.reason}
+                  uploading={uploading}
+                  error={uploadError}
+                />
+              )}
+
               {error && (
                 <Alert variant="destructive">
                   <AlertCircle className="h-4 w-4" />
@@ -734,7 +822,7 @@ export function ApplyShortTimeOffDrawer({
         <SheetFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            {mutation.isPending ? 'Submitting…' : 'Submit'}
+            {uploading ? 'Uploading…' : mutation.isPending ? 'Submitting…' : 'Submit'}
           </Button>
         </SheetFooter>
       </SheetContent>
