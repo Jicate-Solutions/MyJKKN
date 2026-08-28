@@ -378,6 +378,9 @@ export function ApplyShortTimeOffDrawer({
   const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
   const closedHit = closedMonthsInRange(date, date, closedMonths);
 
+  /** Category excluded from HR — the insert trigger would refuse this. */
+  const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
+
   // Does THIS request need a certificate? Same shared predicate the server
   // runs (LeaveService.applyLeave), so the drawer and the service cannot
   // disagree. totalDays = 1 mirrors the service's inclusive same-day count;
@@ -406,6 +409,7 @@ export function ApplyShortTimeOffDrawer({
     !!startTime && !!endTime && totalHours !== null && !!reason.trim() &&
     !notHourly && !limitError && !mutation.isPending && !uploading &&
     !clash && !outsideShift && !nonWorkingDay && !noShift && closedHit.length === 0 &&
+    !notInHr &&
     // A type that demands a document must not be submittable without one.
     // The server enforces the same rule; this only spares the round trip.
     (!docRule.required || documentFiles.length > 0);
@@ -740,6 +744,16 @@ export function ApplyShortTimeOffDrawer({
                   <AlertDescription>
                     {selected?.leave_type_name} is not configured for hourly requests.
                     Ask HR to enable hourly duration on this leave type.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {notInHr && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Your employment category is not managed in HR, so short time off
+                    cannot be applied for here. Contact HR if you believe this is an error.
                   </AlertDescription>
                 </Alert>
               )}

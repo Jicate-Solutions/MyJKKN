@@ -176,6 +176,11 @@ export function ApplyLeaveDrawer({
   const closedMonths = useClosedAttendanceMonths(ctx.institutionId || undefined);
   const closedHit = closedMonthsInRange(startDate, endDate, closedMonths);
 
+  // An employment category excluded from HR cannot raise anything —
+  // trg_hla_block_non_hr_staff refuses the insert. Say it before the form is
+  // filled in rather than after.
+  const notInHr = !ctx.isLoading && ctx.hasEmployeeRecord && !ctx.hrIncluded;
+
   /**
    * A live request already covering these dates. hr_trig_leave_enforce_no_overlap
    * refuses it outright — this says so while the dates are being picked instead
@@ -220,7 +225,7 @@ export function ApplyLeaveDrawer({
   const canSubmit =
     !!ctx.employeeId && !!ctx.hrOrgId && !!leaveTypeId && !!startDate &&
     !!endDate && !!reason.trim() && !overBalance && !overContinuous && !shortNotice &&
-    !overPeriod && !periodWindowBroken && !clash && closedHit.length === 0 &&
+    !overPeriod && !periodWindowBroken && !clash && closedHit.length === 0 && !notInHr &&
     requestedDays > 0 && !mutation.isPending && !uploading &&
     // A type that demands a certificate must not be submittable without one.
     // The server enforces the same rule; this only spares the round trip.
@@ -445,6 +450,16 @@ export function ApplyLeaveDrawer({
                     onChange={(e) => setEndDate(e.target.value)} />
                 </div>
               </div>
+
+              {notInHr && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Your employment category is not managed in HR, so leave cannot be
+                    applied for here. Contact HR if you believe this is an error.
+                  </AlertDescription>
+                </Alert>
+              )}
 
               {closedHit.length > 0 && (
                 <Alert variant="destructive">

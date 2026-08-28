@@ -8487,3 +8487,13 @@ ALTER TABLE public.hr_attendance_regularizations
 ALTER TABLE public.hr_attendance_regularizations
   ADD CONSTRAINT hr_attendance_regularizations_employee_id_fkey
   FOREIGN KEY (employee_id) REFERENCES public.staff(id);
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827210000_employment_categories_included_in_hr.sql (column)
+-- =============================================================================
+
+ALTER TABLE public.employment_categories
+  ADD COLUMN IF NOT EXISTS included_in_hr boolean NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN public.employment_categories.included_in_hr IS
+  'Staff in this category participate in the HR module (attendance, leave, comp off, payroll, biometric import). Off = they never appear in HR and cannot raise HR requests; existing records are kept, not deleted.';

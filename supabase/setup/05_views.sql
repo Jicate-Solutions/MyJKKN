@@ -1728,3 +1728,98 @@ CREATE OR REPLACE VIEW public.v_hr_leave_balance AS
 
 COMMENT ON VIEW public.v_hr_leave_balance IS
   'Per-staff, per-type, per-year leave position, RLS-scoped to yourself or to an organization you approve for. Entitlement resolves through COALESCE(override, ledger literal, policy) and names the winner in entitlement_source. Carries the type''s whole document rule -- requires_documents plus document_required_after_days -- so the Apply Leave drawer can decide whether THIS request needs a certificate without a second round trip.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827210000 + 20260827220000 (views)
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_hr_staff
+WITH (security_invoker = true) AS
+  SELECT s.*
+    FROM public.staff s
+    JOIN public.employment_categories ec ON ec.id = s.category_id
+   WHERE ec.included_in_hr;
+
+COMMENT ON VIEW public.v_hr_staff IS
+  'Active-or-not staff whose employment category is included in HR. Same columns as staff; swap the table name in HR queries. Inherits staff RLS (security_invoker).';
+
+REVOKE ALL ON public.v_hr_staff FROM anon;
+GRANT SELECT ON public.v_hr_staff TO authenticated;
+
+CREATE OR REPLACE VIEW public.v_hr_leave_balance_src AS
+ SELECT s.id AS employee_id,
+    t.id AS leave_type_id,
+    y.id AS hr_academic_year_id,
+    t.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    COALESCE(b.used, 0::numeric) AS used,
+    COALESCE(b.carried_forward, 0::numeric) AS carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + COALESCE(b.carried_forward, 0::numeric) - COALESCE(b.used, 0::numeric) AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_academic_years y
+     CROSS JOIN hr_leave_types t
+     JOIN hr_organizations org ON org.id = t.hr_organization_id
+     JOIN staff s ON s.institution_id = org.institution_id AND s.is_active
+     JOIN employment_categories sec ON sec.id = s.category_id AND sec.included_in_hr
+     LEFT JOIN hr_staff_details d ON d.staff_id = s.id
+     LEFT JOIN hr_leave_balances b ON b.employee_id = s.id AND b.leave_type_id = t.id AND b.hr_academic_year_id = y.id
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = s.id AND o.leave_type_id = t.id AND o.hr_academic_year_id = y.id
+  WHERE y.frozen_at IS NULL AND t.is_active AND (t.applicable_gender::text = 'all'::text OR lower(COALESCE(s.gender, ''::text)) = t.applicable_gender::text) AND (t.applicable_cadre_ids IS NULL OR (d.cadre_id = ANY (t.applicable_cadre_ids))) AND (NOT (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active)) OR (EXISTS ( SELECT 1
+           FROM hr_leave_type_assignments a
+          WHERE a.leave_type_id = t.id AND a.is_active AND (a.scope_kind::text = 'staff'::text AND a.staff_id = s.id OR a.scope_kind::text = 'department'::text AND a.department_id = s.department_id OR a.scope_kind::text = 'organization'::text))))
+UNION ALL
+ SELECT b.employee_id,
+    b.leave_type_id,
+    b.hr_academic_year_id,
+    b.hr_organization_id,
+    t.leave_type_name,
+    t.leave_type_code,
+    t.request_category,
+    t.color_code,
+    t.display_order,
+    t.duration_type,
+    t.allow_half_day,
+    t.allow_hourly,
+    t.max_continuous_days,
+    t.min_advance_notice_days,
+    t.requires_documents,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) AS entitled,
+    b.used,
+    b.carried_forward,
+    COALESCE(o.entitled_days, b.entitled, t.default_entitled_days) + b.carried_forward - b.used AS available,
+        CASE
+            WHEN o.entitled_days IS NOT NULL THEN 'override'::text
+            WHEN b.entitled IS NOT NULL THEN 'frozen'::text
+            ELSE 'policy'::text
+        END AS entitlement_source,
+    b.created_at,
+    b.updated_at,
+    t.document_required_after_days
+   FROM hr_leave_balances b
+     JOIN hr_academic_years y ON y.id = b.hr_academic_year_id AND y.frozen_at IS NOT NULL
+     JOIN hr_leave_types t ON t.id = b.leave_type_id
+     -- Frozen years too: an excluded category should disappear from HR
+     -- everywhere, not linger in history screens.
+     JOIN staff fs ON fs.id = b.employee_id
+     JOIN employment_categories fec ON fec.id = fs.category_id AND fec.included_in_hr
+     LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = b.employee_id AND o.leave_type_id = b.leave_type_id AND o.hr_academic_year_id = b.hr_academic_year_id;

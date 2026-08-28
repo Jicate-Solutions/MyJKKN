@@ -24898,6 +24898,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           id: string
+          included_in_hr: boolean
           is_active: boolean | null
           is_teaching: boolean
           shows_extended_profile: boolean
@@ -24911,6 +24912,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          included_in_hr?: boolean
           is_active?: boolean | null
           is_teaching?: boolean
           shows_extended_profile?: boolean
@@ -24924,6 +24926,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           id?: string
+          included_in_hr?: boolean
           is_active?: boolean | null
           is_teaching?: boolean
           shows_extended_profile?: boolean

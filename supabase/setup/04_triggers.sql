@@ -2367,3 +2367,17 @@ DROP TRIGGER IF EXISTS trg_hcoc_block_locked_period ON public.hr_comp_off_credit
 CREATE TRIGGER trg_hcoc_block_locked_period
   BEFORE INSERT OR UPDATE OR DELETE ON public.hr_comp_off_credits
   FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827220000_hr_population_respects_included_in_hr.sql (triggers)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hla_block_non_hr_staff ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_block_non_hr_staff
+  BEFORE INSERT ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('leave or short time off');
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_non_hr_staff ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_non_hr_staff
+  BEFORE INSERT ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('compensatory off');

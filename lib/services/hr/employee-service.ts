@@ -53,6 +53,7 @@ export class HRPersonService {
           date_of_joining, is_active, institution_id,
           institution:institutions!staff_institution_id_fkey ( id, name ),
           department:departments ( id, department_name ),
+          employment_categories!inner ( included_in_hr ),
           ${detailsJoin} (
             staff_id, hr_organization_id, designation_id, cadre_id, hr_employee_code,
             organization:hr_organization_id ( id, name ),
@@ -62,6 +63,11 @@ export class HRPersonService {
         `,
         { count: 'exact' }
       );
+
+    // This is the HR employee directory, so it lists the HR population only.
+    // The !inner embed above does the filtering; dropping staff whose category
+    // is excluded is the intent, not the usual silent-row-loss hazard.
+    q = q.eq('employment_categories.included_in_hr', true);
 
     if (institution_id) q = q.eq('institution_id', institution_id);
     if (department_id) q = q.eq('department_id', department_id);
