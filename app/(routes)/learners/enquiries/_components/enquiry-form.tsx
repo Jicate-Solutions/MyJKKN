@@ -65,6 +65,7 @@ import { logActivityForCurrentUser } from '@/lib/utils/activity-logger-client';
 import { AdmissionFeesActivityTemplates } from '@/lib/utils/admission-fees-activity-templates';
 import { IncompleteFeeBanner, getMissingFeeDimensions } from './incomplete-fee-banner';
 import { getErrorMessage } from '@/lib/utils';
+import { errorMessage } from '@/lib/utils/supabase-error';
 import type {
   AdmissionFeeStructureWithItems,
   FeeStructureMatrixDimensions,
@@ -1437,7 +1438,7 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving progress:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -1469,7 +1470,7 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving draft:', error);
-      toast.error('Failed to save progress');
+      toast.error(errorMessage(error, 'Failed to save progress'));
     } finally {
       setIsSavingDraft(false);
     }
@@ -1789,7 +1790,12 @@ export function EnquiryForm({
       }
     } catch (error) {
       console.error('[enquiry-form] Error saving enquiry:', error);
-      toast.error('Failed to save enquiry');
+      // Surface the real reason. The service throws actionable messages here
+      // (duplicate college_email, email already in use by another user), and a
+      // bare 'Failed to save enquiry' makes every one of them look identical.
+      // errorMessage() also translates the raw postgrest codes that reach this
+      // path on create — 23505 unique violations and 42501 RLS refusals.
+      toast.error(errorMessage(error, 'Failed to save enquiry'));
     } finally {
       setIsSubmitting(false);
     }
