@@ -130,6 +130,14 @@ export interface HRPersonView {
    * this person may do. NOT designation, which is the job title above.
    */
   role_names: string | null;
+  /** staff.biometric_id — the enrolment code punched on the machine. */
+  biometric_code: string | null;
+  /**
+   * The institution whose biometric device this person is enrolled on. NOT
+   * necessarily their own institution, which is why it is resolved separately
+   * from institution_name.
+   */
+  biometric_machine_name: string | null;
   institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;

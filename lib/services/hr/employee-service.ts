@@ -51,6 +51,7 @@ export class HRPersonService {
         `
           id, first_name, last_name, institution_email, phone, staff_id, department_id,
           date_of_joining, is_active, institution_id, profile_id,
+          biometric_id, biometric_institution_id,
           institution:institutions!staff_institution_id_fkey ( id, name ),
           department:departments ( id, department_name ),
           employment_categories!inner ( included_in_hr ),
@@ -105,6 +106,7 @@ export class HRPersonService {
         supabase,
         rows.map((r) => r.id as string)
       );
+    const institutionById = await HRPersonService.institutionNames(supabase);
 
     const people: HRPersonView[] = rows.map((row) => {
       const rawDetails = row.hr_staff_details;
@@ -143,6 +145,9 @@ export class HRPersonService {
         department_id: (row.department_id as string | null) ?? null,
         department_name: department?.department_name ?? null,
         role_names: rolesByProfile.get((row.profile_id as string | null) ?? '') ?? null,
+        biometric_code: (row.biometric_id as string | null) ?? null,
+        biometric_machine_name:
+          institutionById.get((row.biometric_institution_id as string | null) ?? '') ?? null,
         institution_name: institution?.name ?? null,
         date_of_joining: (row.date_of_joining as string | null) ?? null,
         is_active: (row.is_active as boolean | null) ?? true,
@@ -227,6 +232,31 @@ export class HRPersonService {
     }
 
     return { payrollOrgByStaff, orgById, orgByInstitution };
+  }
+
+  /**
+   * Institution names by id, for the biometric machine column.
+   *
+   * staff.biometric_institution_id names the institution whose biometric
+   * device the person is enrolled on — which is NOT always their own
+   * institution, so it cannot reuse the embedded `institution` join. It also
+   * carries no foreign key, so PostgREST cannot embed it at all; the id has to
+   * be resolved against a lookup. Institutions are ~14 rows, so one unfiltered
+   * read is cheaper than threading ids through.
+   */
+  private static async institutionNames(
+    supabase: SupabaseClient
+  ): Promise<Map<string, string>> {
+    const byId = new Map<string, string>();
+    const { data, error } = await supabase.from('institutions').select('id, name');
+    if (error) {
+      console.error('[HRPersonService] institution lookup failed', error);
+      return byId;
+    }
+    for (const i of (data ?? []) as Array<Record<string, unknown>>) {
+      byId.set(i.id as string, (i.name as string | null) ?? '');
+    }
+    return byId;
   }
 
   /**

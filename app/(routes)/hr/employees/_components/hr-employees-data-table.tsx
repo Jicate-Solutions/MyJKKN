@@ -131,6 +131,8 @@ export function HREmployeesDataTable({
           designation_name: 'Designation',
           cadre_name: 'Cadre',
           role_names: 'Role',
+          biometric_code: 'Biometric Code',
+          biometric_machine_name: 'Biometric Machine',
           organization_name: 'HR Organization',
           institution_name: 'Work Institution',
           department_name: 'Department',

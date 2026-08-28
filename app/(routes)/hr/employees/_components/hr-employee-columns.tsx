@@ -75,6 +75,28 @@ export function getHREmployeeColumns(): ColumnDef<HRPersonView>[] {
       minSize: 110,
     },
     {
+      accessorKey: 'biometric_code',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Biometric Code" />,
+      cell: ({ row }) => (
+        <span className="font-mono text-xs">{orDash(row.original.biometric_code)}</span>
+      ),
+      size: 140,
+      minSize: 110,
+    },
+    {
+      // The institution whose machine they punch on — not their own
+      // institution, which the Work Institution column already shows.
+      accessorKey: 'biometric_machine_name',
+      header: ({ column }) => <DataTableColumnHeader column={column} title="Biometric Machine" />,
+      cell: ({ row }) => (
+        <span className="text-muted-foreground" title={row.original.biometric_machine_name ?? ''}>
+          {orDash(row.original.biometric_machine_name)}
+        </span>
+      ),
+      size: 200,
+      minSize: 140,
+    },
+    {
       accessorKey: 'organization_name',
       header: ({ column }) => <DataTableColumnHeader column={column} title="HR Organization" />,
       cell: ({ row }) => (
@@ -108,6 +130,7 @@ export function getHREmployeeColumns(): ColumnDef<HRPersonView>[] {
       size: 200,
       minSize: 130,
     },
+    
     {
       accessorKey: 'is_active',
       header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
