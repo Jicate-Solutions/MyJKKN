@@ -363,8 +363,13 @@ export class HRPersonService {
     const { data, error } = await supabase
       .from('staff')
       .select(`
-        id, first_name, last_name, institution_email, phone, staff_id, institution_id, department_id,
-        date_of_joining, is_active,
+        id, first_name, last_name, institution_email, phone, staff_id, legacy_staff_id, institution_id, department_id,
+        date_of_joining, is_active, profile_id,
+        email, gender, date_of_birth, marital_status, blood_group,
+        address, district, state, pincode, designation, employment_type,
+        status, experience_years, login_enabled, bus_required, profile_picture,
+        biometric_id, biometric_institution_id,
+        category:employment_categories ( category_name ),
         institution:institutions!staff_institution_id_fkey ( id, name ),
         department:departments ( id, department_name ),
         hr_staff_details!hr_staff_details_staff_id_fkey (
@@ -399,14 +404,50 @@ export class HRPersonService {
       }
     }
 
+    // Roles and the biometric machine reuse the list view's lookups so the
+    // detail page and the table can never disagree about the same person.
+    const roles = await HRPersonService.roleNamesByProfile(supabase, [
+      (row.profile_id as string | null) ?? null,
+    ]);
+    const bioMachineId = (row.biometric_institution_id as string | null) ?? null;
+    let biometric_machine_name: string | null = null;
+    if (bioMachineId) {
+      const institutions = await HRPersonService.institutionNames(supabase);
+      biometric_machine_name = institutions.get(bioMachineId) ?? null;
+    }
+
     return {
       id: row.id as string,
       first_name: row.first_name as string,
       last_name: (row.last_name as string | null) ?? null,
       // Institution email, matching the HR employees list column. See list() above.
       email: (row.institution_email as string | null) ?? null,
+      personal_email: (row.email as string | null) ?? null,
+      gender: (row.gender as string | null) ?? null,
+      date_of_birth: (row.date_of_birth as string | null) ?? null,
+      marital_status: (row.marital_status as string | null) ?? null,
+      blood_group: (row.blood_group as string | null) ?? null,
+      address: (row.address as string | null) || null,
+      district: (row.district as string | null) || null,
+      state: (row.state as string | null) || null,
+      pincode: (row.pincode as string | null) || null,
+      staff_designation: (row.designation as string | null) ?? null,
+      employment_category:
+        (row.category as { category_name?: string } | undefined)?.category_name ?? null,
+      employment_type: (row.employment_type as string | null) ?? null,
+      record_status: (row.status as string | null) ?? null,
+      experience_years: (row.experience_years as number | null) ?? null,
+      login_enabled: (row.login_enabled as boolean | null) ?? null,
+      bus_required: (row.bus_required as boolean | null) ?? null,
+      profile_picture: (row.profile_picture as string | null) ?? null,
+      role_names: roles.get((row.profile_id as string | null) ?? '') ?? null,
+      biometric_code: (row.biometric_id as string | null) ?? null,
+      biometric_machine_name,
       phone: (row.phone as string | null) ?? null,
       staff_code: (row.staff_id as string | null) ?? null,
+      // The code this person held before the 2026-08-28 renumbering. Shown so an
+      // enquiry quoting an old ID off a printed record can be matched here.
+      legacy_staff_code: (row.legacy_staff_id as string | null) ?? null,
       institution_name: (row.institution as { name?: string } | undefined)?.name ?? null,
       department_name: (row.department as { department_name?: string } | undefined)?.department_name ?? null,
       date_of_joining: (row.date_of_joining as string | null) ?? null,

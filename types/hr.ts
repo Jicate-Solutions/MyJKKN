@@ -181,6 +181,8 @@ export interface HRPersonDetailView {
   email: string | null;
   phone: string | null;
   staff_code: string | null;
+  /** The hand-entered code held before the 2026-08-28 standardisation, if any. */
+  legacy_staff_code: string | null;
   institution_name: string | null;
   department_name: string | null;
   date_of_joining: string | null;
@@ -190,6 +192,34 @@ export interface HRPersonDetailView {
   designation_name: string | null;
   cadre_name: string | null;
   reports_to_name: string | null;
+
+  // ---- the rest of the staff record (2026-08-28) --------------------------
+  // The detail page showed twelve fields and the staff table holds far more;
+  // everything below was already stored and simply never surfaced.
+  /** Personal address, as distinct from institution_email above. */
+  personal_email: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  marital_status: string | null;
+  blood_group: string | null;
+  address: string | null;
+  district: string | null;
+  state: string | null;
+  pincode: string | null;
+  /** staff.designation — free text, distinct from the HR designation record. */
+  staff_designation: string | null;
+  employment_category: string | null;
+  employment_type: string | null;
+  /** Lifecycle state of the staff record itself ('draft', 'published', …). */
+  record_status: string | null;
+  experience_years: number | null;
+  login_enabled: boolean | null;
+  bus_required: boolean | null;
+  profile_picture: string | null;
+  /** Role Management role name(s), comma-separated. */
+  role_names: string | null;
+  biometric_code: string | null;
+  biometric_machine_name: string | null;
 }
 
 // === Display labels ===

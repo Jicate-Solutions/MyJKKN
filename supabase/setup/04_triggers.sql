@@ -2381,3 +2381,39 @@ DROP TRIGGER IF EXISTS trg_hcoc_block_non_hr_staff ON public.hr_comp_off_credits
 CREATE TRIGGER trg_hcoc_block_non_hr_staff
   BEFORE INSERT ON public.hr_comp_off_credits
   FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('compensatory off');
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql (triggers)
+-- =============================================================================
+
+-- Generates the staff ID on creation and freezes it forever after. Any bulk
+-- rewrite of staff.staff_id must DISABLE this trigger first, or the permanence
+-- guard rejects it with P0001.
+DROP TRIGGER IF EXISTS trg_staff_autonumber ON public.staff;
+CREATE TRIGGER trg_staff_autonumber
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_autonumber();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828150100_staff_role_key_guard_trigger.sql
+-- =============================================================================
+
+-- Only super admins may set or change a staff member's role. This is the
+-- control; the filtered dropdown in the staff form is only a courtesy.
+DROP TRIGGER IF EXISTS trg_staff_guard_role_key ON public.staff;
+CREATE TRIGGER trg_staff_guard_role_key
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_guard_role_key();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql
+-- =============================================================================
+
+-- INSERT-only on purpose: firing on UPDATE too would lock the staff who already
+-- have this gap out of every edit, including the edit that fills the email in.
+-- Fires before trg_sync_staff_to_profiles (BEFORE row triggers run in
+-- alphabetical name order, and 'trg_staff_...' sorts before 'trg_sync_...').
+DROP TRIGGER IF EXISTS trg_staff_require_institution_email ON public.staff;
+CREATE TRIGGER trg_staff_require_institution_email
+  BEFORE INSERT ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_require_institution_email();

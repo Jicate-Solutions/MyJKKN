@@ -1823,3 +1823,28 @@ UNION ALL
      JOIN staff fs ON fs.id = b.employee_id
      JOIN employment_categories fec ON fec.id = fs.category_id AND fec.included_in_hr
      LEFT JOIN hr_leave_entitlement_overrides o ON o.employee_id = b.employee_id AND o.leave_type_id = b.leave_type_id AND o.hr_academic_year_id = b.hr_academic_year_id;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828130000_staff_id_backfill.sql (views)
+-- =============================================================================
+
+CREATE OR REPLACE VIEW public.v_staff_id_crosswalk
+WITH (security_invoker = true) AS
+SELECT full_name,
+       institution_name,
+       CASE WHEN is_teaching THEN 'Teaching' ELSE 'Non-teaching' END AS staff_type,
+       CASE WHEN is_active   THEN 'Active'   ELSE 'Inactive'     END AS status,
+       old_staff_id,
+       new_staff_id,
+       migrated_at
+FROM public.staff_id_crosswalk;
+
+COMMENT ON VIEW public.v_staff_id_crosswalk IS
+  'Readable old -> new staff ID mapping for HR to export and circulate.';
+
+-- Explicit, even though the view is security_invoker and the table beneath it is
+-- locked: a view does NOT inherit the underlying table's RLS, so if the
+-- security_invoker option is ever dropped this becomes an anon-readable dump of
+-- every staff member's name, institution and old/new ID.
+REVOKE ALL ON TABLE public.v_staff_id_crosswalk FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.v_staff_id_crosswalk TO authenticated;

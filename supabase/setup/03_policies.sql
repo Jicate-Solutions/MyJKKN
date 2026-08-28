@@ -9930,3 +9930,42 @@ CREATE POLICY hr_attendance_regs_insert ON public.hr_attendance_regularizations
       AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
     )
   );
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql
+-- and 20260828130000_staff_id_backfill.sql (policies and grants)
+-- =============================================================================
+
+-- Both tables are read-only to users and written only by SECURITY DEFINER code.
+-- No INSERT/UPDATE/DELETE policy exists, by design.
+
+ALTER TABLE public.staff_id_counters ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.staff_id_counters FROM anon;
+GRANT SELECT ON public.staff_id_counters TO authenticated;
+
+DROP POLICY IF EXISTS staff_id_counters_select_super_admin ON public.staff_id_counters;
+CREATE POLICY staff_id_counters_select_super_admin
+  ON public.staff_id_counters FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+ALTER TABLE public.staff_id_crosswalk ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.staff_id_crosswalk FROM anon;
+GRANT SELECT ON public.staff_id_crosswalk TO authenticated;
+
+DROP POLICY IF EXISTS staff_id_crosswalk_select_super_admin ON public.staff_id_crosswalk;
+CREATE POLICY staff_id_crosswalk_select_super_admin
+  ON public.staff_id_crosswalk FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
+-- =============================================================================
+
+ALTER TABLE public.staff_address_backfill_20260828 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.staff_address_backfill_20260828 FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.staff_address_backfill_20260828 TO authenticated;
+
+DROP POLICY IF EXISTS staff_address_backfill_select_super_admin ON public.staff_address_backfill_20260828;
+CREATE POLICY staff_address_backfill_select_super_admin
+  ON public.staff_address_backfill_20260828 FOR SELECT TO authenticated
+  USING (public.is_super_admin());

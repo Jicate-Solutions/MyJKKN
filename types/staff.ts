@@ -92,7 +92,10 @@ export interface Staff {
   blood_group?: BloodGroup;
   email: string;
   phone: string;
+  /** System-generated and permanent since 2026-08-28. Never sent on create or update. */
   staff_id?: string;
+  /** The hand-entered code held before the 2026-08-28 standardisation. Read-only. */
+  legacy_staff_id?: string | null;
   profile_picture?: string;
   address?: string;
   state?: string;

@@ -108,6 +108,10 @@ export function buildStaffSearchConditions(
           break;
         case 'staff_id':
           conditions.push(buildCondition('staff_id', value));
+          // The 2026-08-28 standardisation replaced 681 hand-entered codes.
+          // Searching the legacy code too means an old ID off a printed record
+          // or a legacy export still finds the right person.
+          conditions.push(buildCondition('legacy_staff_id', value));
           break;
         case 'designation':
           conditions.push(buildCondition('designation', value));
@@ -144,6 +148,7 @@ export function buildStaffSearchConditions(
         break;
       case 'staff_id':
         conditions.push(buildCondition('staff_id', trimmedSearch));
+        conditions.push(buildCondition('legacy_staff_id', trimmedSearch));
         break;
       case 'designation':
         conditions.push(buildCondition('designation', trimmedSearch));

@@ -8497,3 +8497,82 @@ ALTER TABLE public.employment_categories
 
 COMMENT ON COLUMN public.employment_categories.included_in_hr IS
   'Staff in this category participate in the HR module (attendance, leave, comp off, payroll, biometric import). Off = they never appear in HR and cannot raise HR requests; existing records are kept, not deleted.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql
+-- and 20260828130000_staff_id_backfill.sql (tables and columns)
+-- =============================================================================
+
+-- Institution code that staff IDs are generated from. Unique: two institutions
+-- sharing a prefix would interleave into one number line.
+ALTER TABLE public.institutions
+  ADD COLUMN IF NOT EXISTS staff_code_prefix text;
+
+ALTER TABLE public.institutions
+  ADD CONSTRAINT institutions_staff_code_prefix_chk
+  CHECK (staff_code_prefix ~ '^[A-Z]{2,8}$');
+
+CREATE UNIQUE INDEX IF NOT EXISTS institutions_staff_code_prefix_uq
+  ON public.institutions (staff_code_prefix)
+  WHERE staff_code_prefix IS NOT NULL;
+
+COMMENT ON COLUMN public.institutions.staff_code_prefix IS
+  'Institution code used to generate staff IDs (DCH -> DCH001 teaching, NOTDCH001 non-teaching). Changing it does NOT rewrite codes already issued - those are permanent - so a later edit only affects staff created afterwards.';
+
+-- The hand-entered code each person held before the 2026-08-28 renumbering.
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS legacy_staff_id text;
+
+CREATE INDEX IF NOT EXISTS idx_staff_legacy_staff_id
+  ON public.staff (legacy_staff_id)
+  WHERE legacy_staff_id IS NOT NULL;
+
+COMMENT ON COLUMN public.staff.legacy_staff_id IS
+  'The hand-entered staff_id this person held before the 2026-08-28 standardisation. Searchable so an old code still finds the right person. Never written by the app.';
+
+CREATE TABLE IF NOT EXISTS public.staff_id_counters (
+  institution_id uuid        NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  is_teaching    boolean     NOT NULL,
+  next_seq       integer     NOT NULL DEFAULT 1 CHECK (next_seq > 0),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (institution_id, is_teaching)
+);
+
+COMMENT ON TABLE public.staff_id_counters IS
+  'Next sequence number per institution x teaching bucket for staff ID generation. Written only by fn_next_staff_code (SECURITY DEFINER); there is no policy granting any user a direct write.';
+
+-- Deliberately no FK to staff: deleting a staff row must not erase the record
+-- of what their code used to be.
+CREATE TABLE IF NOT EXISTS public.staff_id_crosswalk (
+  staff_uuid       uuid PRIMARY KEY,
+  full_name        text,
+  institution_name text,
+  is_teaching      boolean,
+  is_active        boolean,
+  old_staff_id     text,
+  new_staff_id     text,
+  migrated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.staff_id_crosswalk IS
+  'Old -> new staff ID mapping from the 2026-08-28 standardisation. Read via v_staff_id_crosswalk.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
+-- and 20260828150000_custom_roles_is_privileged.sql
+-- =============================================================================
+
+-- Pre-image of staff.state / staff.district before they were standardised onto
+-- the lib/data/locations.ts vocabulary.
+CREATE TABLE IF NOT EXISTS public.staff_address_backfill_20260828 AS
+SELECT id, staff_id, first_name, last_name, state AS old_state, district AS old_district, address
+FROM public.staff;
+
+-- Which roles only a super admin may assign to a staff member. A new flag is
+-- needed because is_system_role is true for nearly every role (driver, guest
+-- and mess_caterer included) and so discriminates nothing.
+ALTER TABLE public.custom_roles
+  ADD COLUMN IF NOT EXISTS is_privileged boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN public.custom_roles.is_privileged IS
+  'Role can grant/alter permissions or administer the platform. Only super admins may assign it to a staff member (enforced by trg_staff_guard_role_key). Maintained in Role Management.';

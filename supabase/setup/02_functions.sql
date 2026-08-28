@@ -55621,3 +55621,220 @@ $function$;
 
 COMMENT ON FUNCTION public.hr_staff_payroll_directory() IS
   'Payroll payer directory. role_title is the staff member''s Role Management role(s), comma-separated — NOT their designation.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql (functions)
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_next_staff_code(
+  p_institution_id uuid,
+  p_is_teaching    boolean
+) RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_prefix text;
+  v_full   text;
+  v_seq    integer;
+  v_code   text;
+  v_guard  integer := 0;
+BEGIN
+  IF p_institution_id IS NULL THEN
+    RAISE EXCEPTION 'Cannot issue a staff ID: this staff member has no institution.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- NULL means the employment category did not resolve, so teaching cannot be
+  -- told from non-teaching. Refusing beats guessing: a wrong bucket is a wrong
+  -- PERMANENT code.
+  IF p_is_teaching IS NULL THEN
+    RAISE EXCEPTION 'Cannot issue a staff ID: this staff member has no employment category, so teaching / non-teaching is unknown.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  SELECT i.staff_code_prefix INTO v_prefix
+  FROM public.institutions i WHERE i.id = p_institution_id;
+
+  IF v_prefix IS NULL THEN
+    RAISE EXCEPTION 'Cannot issue a staff ID: institution % has no staff_code_prefix configured.', p_institution_id
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  v_full := CASE WHEN p_is_teaching THEN v_prefix ELSE 'NOT' || v_prefix END;
+
+  LOOP
+    v_guard := v_guard + 1;
+    IF v_guard > 5000 THEN
+      RAISE EXCEPTION 'Could not find a free staff ID for prefix % after 5000 attempts.', v_full
+        USING ERRCODE = 'P0001';
+    END IF;
+
+    -- Atomic claim. On the INSERT path next_seq lands at 2 so this returns 1;
+    -- on the UPDATE path it returns the freshly incremented value minus one.
+    INSERT INTO public.staff_id_counters AS c (institution_id, is_teaching, next_seq)
+    VALUES (p_institution_id, p_is_teaching, 2)
+    ON CONFLICT (institution_id, is_teaching)
+      DO UPDATE SET next_seq = c.next_seq + 1, updated_at = now()
+    RETURNING c.next_seq - 1 INTO v_seq;
+
+    v_code := v_full || lpad(v_seq::text, 3, '0');
+
+    -- A legacy code may still be squatting on this value.
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM public.staff s WHERE s.staff_id = v_code);
+  END LOOP;
+
+  RETURN v_code;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_next_staff_code(uuid, boolean) IS
+  'Claims and returns the next staff ID for an institution x teaching bucket. SECURITY DEFINER because staff_id_counters grants no direct writes.';
+
+CREATE OR REPLACE FUNCTION public.fn_staff_autonumber()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_is_teaching boolean;
+BEGIN
+  -- The edit form defaults this field to `staff?.staff_id || ''`, so a staff
+  -- member with no code submits '' against a NULL OLD value. Without this
+  -- normalisation the permanence guard below reads that as a manual edit and
+  -- rejects every edit of an ID-less staff member.
+  NEW.staff_id := nullif(btrim(coalesce(NEW.staff_id, '')), '');
+
+  IF TG_OP = 'INSERT' THEN
+    -- Active staff only. Anything the caller supplied is discarded.
+    IF coalesce(NEW.is_active, false) THEN
+      SELECT ec.is_teaching INTO v_is_teaching
+      FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+
+      NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+    ELSE
+      NEW.staff_id := NULL;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  -- One guard covers every manual path: changing a code, clearing a code, and
+  -- setting a code on a row that has none. No super-admin escape hatch —
+  -- correcting a wrong code requires a migration.
+  IF NEW.staff_id IS DISTINCT FROM OLD.staff_id THEN
+    RAISE EXCEPTION 'Staff ID is system-generated and permanent; it cannot be set or changed manually.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  -- Rejoin path. Only reaches staff who never held a code — deactivation does
+  -- NOT clear one, so a returning staff member keeps the code they had.
+  IF coalesce(NEW.is_active, false)
+     AND NOT coalesce(OLD.is_active, false)
+     AND NEW.staff_id IS NULL THEN
+    SELECT ec.is_teaching INTO v_is_teaching
+    FROM public.employment_categories ec WHERE ec.id = NEW.category_id;
+
+    NEW.staff_id := public.fn_next_staff_code(NEW.institution_id, v_is_teaching);
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_autonumber() IS
+  'Issues a staff ID on creation (active staff only) and freezes it thereafter. Bulk backfills must DISABLE TRIGGER trg_staff_autonumber - the permanence guard blocks any rewrite, including their own.';
+
+-- Keep both out of the REST API. PostgREST publishes SECURITY DEFINER functions
+-- at /rest/v1/rpc/<name>, and fn_next_staff_code CLAIMS a number on every call —
+-- an anon caller could burn the sequence and tear permanent gaps in it.
+-- REVOKE FROM PUBLIC alone is a no-op: Supabase grants EXECUTE directly to anon
+-- and authenticated. Neither needs a grant back — fn_next_staff_code is only
+-- called from inside fn_staff_autonumber (SECURITY DEFINER, runs as owner), and
+-- Postgres checks EXECUTE on a trigger function at CREATE TRIGGER time, not when
+-- it fires.
+REVOKE ALL ON FUNCTION public.fn_next_staff_code(uuid, boolean) FROM anon, authenticated, PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_staff_autonumber() FROM anon, authenticated, PUBLIC;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828150100_staff_role_key_guard_trigger.sql
+-- =============================================================================
+
+-- Nothing else validates staff.role_key: the RLS policies gate on staff.create /
+-- staff.edit and institution scope only. Without this, anyone who could edit a
+-- staff row could set role_key = 'super_admin' and escalate. Filtering the
+-- dropdown does not help — the value is posted from the client.
+CREATE OR REPLACE FUNCTION public.fn_staff_guard_role_key()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+  v_privileged boolean;
+BEGIN
+  -- No session: service-role clients, cron jobs and migrations. Safe because
+  -- anon cannot reach this trigger — the INSERT policy demands staff.create.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_super_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND NEW.role_key IS DISTINCT FROM OLD.role_key THEN
+    RAISE EXCEPTION 'Only a super administrator can change a staff member''s role.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    SELECT r.is_privileged INTO v_privileged
+    FROM public.custom_roles r WHERE r.role_key = NEW.role_key;
+
+    IF coalesce(v_privileged, false) THEN
+      RAISE EXCEPTION 'Only a super administrator can assign the role "%".', NEW.role_key
+        USING ERRCODE = 'P0001';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_guard_role_key() IS
+  'Blocks non-super-admins from changing staff.role_key, or creating staff with a privileged role.';
+
+REVOKE ALL ON FUNCTION public.fn_staff_guard_role_key() FROM anon, authenticated, PUBLIC;
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql
+-- =============================================================================
+
+-- sync_staff_to_profiles wraps its ENTIRE body in a non-empty check on
+-- institution_email and creates the profile with `email = NEW.institution_email`.
+-- So a blank one means no profile row at all: the staff record saves, claims
+-- login_enabled = true, and the person can never sign in. Nothing errors.
+CREATE OR REPLACE FUNCTION public.fn_staff_require_institution_email()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+BEGIN
+  IF coalesce(NEW.login_enabled, true)
+     AND nullif(btrim(coalesce(NEW.institution_email, '')), '') IS NULL THEN
+    RAISE EXCEPTION 'Institution email is required for a staff member who can sign in. It becomes their login identity; without it no profile is created and they cannot log in. Either provide an @jkkn.ac.in address, or turn off "Login user" to create a view-only record.'
+      USING ERRCODE = 'P0001';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+COMMENT ON FUNCTION public.fn_staff_require_institution_email() IS
+  'Refuses to create a login-enabled staff member with no institution email, which sync_staff_to_profiles would silently leave without a profile (and therefore without a login).';
+
+REVOKE ALL ON FUNCTION public.fn_staff_require_institution_email() FROM anon, authenticated, PUBLIC;
