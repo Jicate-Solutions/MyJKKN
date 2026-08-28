@@ -1972,6 +1972,15 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions.first_use.view', label: 'View First Real Use' },
       { key: 'solutions.first_use.record', label: 'Record First Real Use' },
 
+      // Societal capture (2026-08-28). A department records community work that
+      // produced no invoice; the activity clock reads it so that closing
+      // un-invoiced problems no longer marks the department dormant. Both keys
+      // gate `sh_community_engagements` in RLS
+      // (20261013000000_societal_capture_and_activity_clock.sql), so leaving
+      // either unregistered would make the table permanently super-admin-only.
+      { key: 'solutions.societal.view', label: 'View Community Engagements' },
+      { key: 'solutions.societal.record', label: 'Record Community Engagements' },
+
       // Settings (tier-2 chip-leak sweep 2026-04-27)
       { key: 'solutions.settings.view', label: 'View Solutions Settings' }
     ]
