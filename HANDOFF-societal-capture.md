@@ -69,3 +69,24 @@ definitions for the table and zero societal columns on `sh_solutions`.
 
 `<scratchpad>/stubs.sql` + `scenarios.sql`, DB `societal_test` on local pg16.
 Recreate: `createdb societal_test && psql -f stubs.sql && psql -f <migration>`.
+
+---
+
+## Also parked from the same session (2026-08-28) — separate from this branch
+
+**1. Cron peak-concurrency fix — computed and verified, NOT applied.**
+`vercel.json` fires 30 crons in one minute (Thursdays 14:00–22:00 even hours via
+`0 14-23 * * 4`; 28.6 at `:00` of every hour). Minute-phase optimisation takes the
+peak to **4** against a mean of 3.03 — six random restarts all converged there.
+Control held: **122,320 fires before and after, 0 invariant failures across 55 jobs**
+(identical fire counts, gap multisets, hours, days, dow/dom fields). 51 of 55
+schedules rewritten as comma-lists. Proposed file is in the 2026-08-28 session
+scratchpad. **Awaiting Director go — never applied.**
+
+**2. Branch protection on `main` is absent.**
+`GET /repos/Jicate-Solutions/MyJKKN/branches/main/protection` → *"Branch not
+protected"*. 31 workflow files, none enforced; a red PR merges as easily as a
+green one. Gating CI is already fast (p50 1.8 min; the 5.9 min people feel is 70%
+advisory workflows that block nothing), so this is a policy decision, not a
+performance one. Free-tier GitHub cannot enforce required checks — see the
+karpathy-lens note.
