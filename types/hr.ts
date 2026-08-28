@@ -125,6 +125,11 @@ export interface HRPersonView {
   cadre_name: string | null;
   department_id: string | null;
   department_name: string | null;
+  /**
+   * Role Management role name(s), comma-separated — the roles that decide what
+   * this person may do. NOT designation, which is the job title above.
+   */
+  role_names: string | null;
   institution_name: string | null;
   date_of_joining: string | null;
   is_active: boolean;

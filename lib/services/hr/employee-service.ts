@@ -50,7 +50,7 @@ export class HRPersonService {
       .select(
         `
           id, first_name, last_name, institution_email, phone, staff_id, department_id,
-          date_of_joining, is_active, institution_id,
+          date_of_joining, is_active, institution_id, profile_id,
           institution:institutions!staff_institution_id_fkey ( id, name ),
           department:departments ( id, department_name ),
           employment_categories!inner ( included_in_hr ),
@@ -95,18 +95,40 @@ export class HRPersonService {
     const { data, error, count } = await q;
     if (error) throw error;
 
-    const people: HRPersonView[] = ((data ?? []) as unknown as Array<Record<string, unknown>>).map((row) => {
+    const rows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+    const rolesByProfile = await HRPersonService.roleNamesByProfile(
+      supabase,
+      rows.map((r) => r.profile_id as string | null)
+    );
+    const { payrollOrgByStaff, orgById, orgByInstitution } =
+      await HRPersonService.fallbackOrgByStaff(
+        supabase,
+        rows.map((r) => r.id as string)
+      );
+
+    const people: HRPersonView[] = rows.map((row) => {
       const rawDetails = row.hr_staff_details;
       const details = (Array.isArray(rawDetails) ? rawDetails[0] : rawDetails) as Record<string, unknown> | undefined;
       const institution = row.institution as { name?: string } | undefined;
       const department = row.department as { department_name?: string } | undefined;
+
+      // details -> payroll -> institution. Additive: the first branch is what
+      // the column always showed, so nothing that already resolved changes.
+      const detailsOrgId = (details?.hr_organization_id as string | null) ?? null;
+      const detailsOrgName =
+        (details?.organization as { name?: string } | undefined)?.name ?? null;
+      const instOrg = orgByInstitution.get((row.institution_id as string) ?? '') ?? null;
+      const orgId =
+        detailsOrgId ?? payrollOrgByStaff.get(row.id as string) ?? instOrg?.id ?? null;
+      const orgName = detailsOrgName ?? (orgId ? orgById.get(orgId) ?? null : null);
+
       return {
         source: 'staff',
         id: row.id as string,
         staff_id: row.id as string,
         staff_code: (row.staff_id as string | null) ?? null,
-        hr_organization_id: (details?.hr_organization_id as string | null) ?? null,
-        organization_name: (details?.organization as { name?: string } | undefined)?.name ?? null,
+        hr_organization_id: orgId,
+        organization_name: orgName,
         employment_type: 'full_time',
         employee_code: (details?.hr_employee_code as string | null) ?? (row.staff_id as string | null) ?? null,
         first_name: row.first_name as string,
@@ -120,6 +142,7 @@ export class HRPersonService {
         cadre_name: (details?.cadre as { name?: string } | undefined)?.name ?? null,
         department_id: (row.department_id as string | null) ?? null,
         department_name: department?.department_name ?? null,
+        role_names: rolesByProfile.get((row.profile_id as string | null) ?? '') ?? null,
         institution_name: institution?.name ?? null,
         date_of_joining: (row.date_of_joining as string | null) ?? null,
         is_active: (row.is_active as boolean | null) ?? true,
@@ -137,6 +160,130 @@ export class HRPersonService {
         totalPages: Math.max(1, Math.ceil(total / (pageSize || 1))),
       },
     };
+  }
+
+  /**
+   * The HR organisation for staff whose hr_staff_details row does not name one.
+   *
+   * THE DIRECTORY USED TO READ hr_staff_details ALONE, so the Organization
+   * column was blank for 294 of 766 active staff — including 180 who HAD been
+   * assigned an organisation on /hr/payroll/organisation, which writes
+   * hr_staff_payroll, a different table. "I assigned it and it doesn't show"
+   * was exactly that mismatch.
+   *
+   * Precedence is details -> payroll -> institution, and it is ADDITIVE: a row
+   * that already resolves through hr_staff_details is never overridden, so no
+   * currently-correct value can change. The institution fallback mirrors what
+   * fn_my_hr_context() does for the leave module (hr_organizations has one row
+   * per institution).
+   *
+   * Returns id + name so the caller can fill both fields.
+   */
+  private static async fallbackOrgByStaff(
+    supabase: SupabaseClient,
+    staffIds: string[]
+  ): Promise<{
+    payrollOrgByStaff: Map<string, string>;
+    orgById: Map<string, string>;
+    orgByInstitution: Map<string, { id: string; name: string }>;
+  }> {
+    const payrollOrgByStaff = new Map<string, string>();
+    const orgById = new Map<string, string>();
+    const orgByInstitution = new Map<string, { id: string; name: string }>();
+
+    // hr_organizations is ~14 rows — one unfiltered read is cheaper than
+    // threading ids through, and it serves both lookups.
+    const { data: orgs, error: orgErr } = await supabase
+      .from('hr_organizations')
+      .select('id, name, institution_id');
+    if (orgErr) {
+      console.error('[HRPersonService] organisation lookup failed', orgErr);
+      return { payrollOrgByStaff, orgById, orgByInstitution };
+    }
+    for (const o of (orgs ?? []) as Array<Record<string, unknown>>) {
+      const id = o.id as string;
+      const name = (o.name as string | null) ?? '';
+      orgById.set(id, name);
+      const inst = o.institution_id as string | null;
+      if (inst && !orgByInstitution.has(inst)) orgByInstitution.set(inst, { id, name });
+    }
+
+    // Chunked for the same reason as the role lookup: export mode passes every
+    // matching staff member.
+    const CHUNK = 200;
+    for (let i = 0; i < staffIds.length; i += CHUNK) {
+      const { data, error } = await supabase
+        .from('hr_staff_payroll')
+        .select('staff_id, hr_organization_id')
+        .in('staff_id', staffIds.slice(i, i + CHUNK));
+      if (error) {
+        console.error('[HRPersonService] payroll organisation lookup failed', error);
+        break;
+      }
+      for (const p of (data ?? []) as Array<Record<string, unknown>>) {
+        const org = p.hr_organization_id as string | null;
+        if (org) payrollOrgByStaff.set(p.staff_id as string, org);
+      }
+    }
+
+    return { payrollOrgByStaff, orgById, orgByInstitution };
+  }
+
+  /**
+   * Role Management role names, keyed by profile id.
+   *
+   * "Role" in this application means the custom_roles assignment that decides
+   * what a person may do — NOT their designation. Roles hang off the profile
+   * (user_roles.user_id = profiles.id = staff.profile_id), so this is a second
+   * query rather than a three-level PostgREST embed
+   * (staff -> profiles -> user_roles -> custom_roles): that would depend on FK
+   * inference at every hop and drop rows at any hop it could not resolve.
+   *
+   * CHUNKED. Export mode passes every matching staff member, and a single
+   * .in() with ~765 uuids builds a query string long enough to be refused.
+   *
+   * Inactive roles are excluded — a retired role is not something the person
+   * still is.
+   */
+  private static async roleNamesByProfile(
+    supabase: SupabaseClient,
+    profileIds: Array<string | null>
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(profileIds.filter((v): v is string => !!v))];
+    const byProfile = new Map<string, string[]>();
+    const CHUNK = 200;
+
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const { data, error } = await supabase
+        .from('user_roles')
+        .select('user_id, custom_roles!inner ( role_name, is_active )')
+        .in('user_id', ids.slice(i, i + CHUNK))
+        .eq('custom_roles.is_active', true);
+
+      // Roles are a display enrichment: a failure here must not blank the
+      // whole directory, so it degrades to "no role" and is logged.
+      if (error) {
+        console.error('[HRPersonService] role lookup failed', error);
+        break;
+      }
+
+      for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+        const embedded = r.custom_roles;
+        const role = (Array.isArray(embedded) ? embedded[0] : embedded) as
+          | { role_name?: string }
+          | undefined;
+        const name = role?.role_name?.trim();
+        if (!name) continue;
+        const key = r.user_id as string;
+        const list = byProfile.get(key);
+        if (list) list.push(name);
+        else byProfile.set(key, [name]);
+      }
+    }
+
+    return new Map(
+      [...byProfile.entries()].map(([id, names]) => [id, [...names].sort().join(', ')])
+    );
   }
 
   /** Fetch hr_staff_details for a JKKN staff member. */
