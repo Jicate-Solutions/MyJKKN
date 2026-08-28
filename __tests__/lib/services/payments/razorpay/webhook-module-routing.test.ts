@@ -82,7 +82,28 @@ function makeClient(rows: Record<string, unknown> = {}) {
         },
         update(values: Record<string, unknown>) {
           updates.push({ table, values });
-          return { eq: () => Promise.resolve({ error: null }) };
+          // The atomic-claim path added in 987b76eac4 chains
+          // .eq().not().select() on this builder, while older call sites still
+          // await .eq() directly. The real PostgREST builder is a THENABLE that
+          // returns itself from every filter method, so it can be awaited at
+          // any point or chained further; this mock mirrors that shape rather
+          // than terminating at .eq(). Before this, .not() was simply absent
+          // and five tests died with "…​.eq(...).not is not a function".
+          //
+          // `data` is a single row = the claim was WON, which is the path these
+          // routing tests exercise. The lost-race branch (data === []) has no
+          // coverage here; see the PR for why that gap matters.
+          const settled = { data: [{ id: 'claimed-row' }], error: null };
+          const chain: Record<string, unknown> = {
+            eq: () => chain,
+            not: () => chain,
+            select: () => chain,
+            then: (
+              onFulfilled: (v: unknown) => unknown,
+              onRejected?: (e: unknown) => unknown
+            ) => Promise.resolve(settled).then(onFulfilled, onRejected),
+          };
+          return chain;
         },
       };
     },
