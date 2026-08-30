@@ -9,6 +9,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { leaveDocumentRequirement } from '@/lib/hr/leave-document-rule';
 import type {
   HRLeaveApplication,
   HRLeaveApplicationInsert,
@@ -179,8 +180,16 @@ export class LeaveService {
       candidates.find((f) => !f.conditions?.leave_type_id);
 
     if (!chosen) {
+      // Name the exact screen. "Ask HR to add one" left the admin hunting —
+      // leave flows are set from the Leave Types list, not from a page called
+      // anything like "approval flows", which is where everyone looks first
+      // (that one is recruitment-only). Same treatment the recruitment path
+      // already got.
       throw new Error(
-        'No leave approval flow is configured for your organization. Ask HR to add one before applying.'
+        'No leave approval flow is configured for your organisation. ' +
+        'Open HR → Admin → Leave Types, use the row menu on the leave type and pick ' +
+        '"Who approves this" to add one. A flow with no leave type set acts as the ' +
+        'catch-all for every type.'
       );
     }
 
@@ -189,7 +198,11 @@ export class LeaveService {
     );
 
     if (steps.length === 0) {
-      throw new Error('The configured leave approval flow has no steps.');
+      throw new Error(
+        `The leave approval flow "${chosen.flow_name ?? 'for this type'}" exists but has no ` +
+        'approval steps, so there is nobody to send the request to. Open HR → Admin → ' +
+        'Leave Types → "Who approves this" and add at least one approver.'
+      );
     }
 
     // approver_user_id is carried through when the flow pins a specific person.
@@ -255,8 +268,13 @@ export class LeaveService {
         (new Date(payload.start_date).getTime() - new Date(todayIso).getTime()) / (1000 * 60 * 60 * 24)
       );
       if (noticeDays < leaveType.min_advance_notice_days) {
+        // A NEGATIVE figure means the start date is in the past, and reporting
+        // it as "you gave -38" reads like a system fault rather than an
+        // instruction. Say what happened and what to do instead.
         throw new Error(
-          `This leave type requires ${leaveType.min_advance_notice_days} days advance notice. You gave ${noticeDays}.`
+          noticeDays < 0
+            ? `${leaveType.leave_type_name} cannot be applied for a past date — ${payload.start_date} was ${Math.abs(noticeDays)} day(s) ago. It needs ${leaveType.min_advance_notice_days} day(s) notice, or tick Emergency leave if this could not have been filed in time.`
+            : `${leaveType.leave_type_name} needs ${leaveType.min_advance_notice_days} day(s) advance notice; ${payload.start_date} is only ${noticeDays} day(s) away. Pick a later date, or tick Emergency leave.`
         );
       }
     }
@@ -269,6 +287,30 @@ export class LeaveService {
     if (leaveType.max_continuous_days && durationDays > leaveType.max_continuous_days) {
       throw new Error(
         `This leave type allows max ${leaveType.max_continuous_days} continuous days. Requested ${durationDays}.`
+      );
+    }
+
+    // 4b. Supporting document (decision: On-Duty and Half Pay Leave carry
+    // requires_documents). THE authority — the drawer runs the same predicate
+    // to decide whether to show the field, but this call is reachable directly
+    // and a client check alone would gate nothing.
+    //
+    // The 0.5/0.125 duration factors are deliberately NOT applied here: the
+    // threshold in document_required_after_days is about how long somebody is
+    // away, and a five-day half-day request is five days away from their desk.
+    // The balance checks below use the factored figure because that is about
+    // how much entitlement is consumed — a different question.
+    const documentRule = leaveDocumentRequirement(
+      {
+        requires_documents: leaveType.requires_documents ?? false,
+        document_required_after_days: leaveType.document_required_after_days ?? null,
+      },
+      durationDays,
+      payload.is_emergency ?? false,
+    );
+    if (documentRule.required && (payload.documents?.length ?? 0) === 0) {
+      throw new Error(
+        `${leaveType.leave_type_name} requires a supporting document. Attach one and submit again.`
       );
     }
 
@@ -410,6 +452,19 @@ export class LeaveService {
     app: HRLeaveApplication,
     approverId: string
   ) {
+    // Super admins are exempt from BOTH checks below, exactly as
+    // hr_trig_leave_enforce_approver is: that trigger returns NEW on
+    // is_super_admin() before it reaches either test. Without this the service
+    // refused what the database would have allowed — a super admin could not
+    // decide their own request, and could not act on a step pinned to somebody
+    // else, despite hla_update permitting both.
+    //
+    // Resolved through the caller's own client, so is_super_admin() reads
+    // profiles for the real auth.uid() rather than trusting approverId.
+    const { data: isSuperAdmin, error: saError } = await supabase.rpc('is_super_admin');
+    if (saError) throw saError;
+    if (isSuperAdmin === true) return;
+
     const { data: myStaff, error } = await supabase
       .from('staff')
       .select('id')
@@ -700,6 +755,8 @@ export class LeaveService {
       max_continuous_days: (row.max_continuous_days ?? null) as number | null,
       min_advance_notice_days: Number(row.min_advance_notice_days ?? 0),
       requires_documents: (row.requires_documents ?? false) as boolean,
+      document_required_after_days:
+        (row.document_required_after_days ?? null) as number | null,
       entitlement_source:
         (row.entitlement_source ?? 'policy') as HRLeaveBalanceWithType['entitlement_source'],
     }));

@@ -25,6 +25,11 @@ export interface EmploymentCategory {
   // When false, new staff in this category default to login_enabled=false
   // (view-only). Per-row override on staff still wins.
   allows_login: boolean;
+  // When false, staff in this category take no part in the HR module — they are
+  // absent from every HR list, skipped by the biometric import, and refused
+  // leave / comp-off at the database. No per-staff override: the category
+  // decides. Existing records are kept, so re-enabling restores them.
+  included_in_hr: boolean;
   created_at: string;
   updated_at: string;
   created_by?: string | null;
@@ -38,6 +43,7 @@ export interface CreateEmploymentCategoryDto {
   shows_extended_profile?: boolean;
   is_active?: boolean;
   allows_login?: boolean;
+  included_in_hr?: boolean;
 }
 
 export interface UpdateEmploymentCategoryDto
@@ -86,7 +92,10 @@ export interface Staff {
   blood_group?: BloodGroup;
   email: string;
   phone: string;
+  /** System-generated and permanent since 2026-08-28. Never sent on create or update. */
   staff_id?: string;
+  /** The hand-entered code held before the 2026-08-28 standardisation. Read-only. */
+  legacy_staff_id?: string | null;
   profile_picture?: string;
   address?: string;
   state?: string;

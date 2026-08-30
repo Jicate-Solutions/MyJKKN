@@ -1,0 +1,46 @@
+-- =============================================================================
+-- 20260824340000_hr_drop_casual_leave_purge_backup.sql
+--
+-- Drops hr_leave_applications_backup_20260824_cl, the snapshot behind the two
+-- Casual Leave purges (20260824300000 took the approved one and reversed its
+-- balance and attendance; 20260824320000 took the remaining 194). Signed off
+-- the same day, so the restore window is closed.
+--
+-- AFTER THIS RUNS THE 195 ROWS ARE UNRECOVERABLE. Recorded here because this
+-- file becomes the only remaining account of them:
+--
+--   Organisation                      Status      Apps  Days  Staff  Range
+--   Jicate Solutions                  pending        1   1.0      1  2026-08-18
+--   JKKN Allied Health Sciences       pending        9   8.0      9  2026-06-08 .. 08-23
+--   JKKN Allied Health Sciences       withdrawn      1   0.5      1  2026-07-18
+--   JKKN Arts and Science (Self)      pending       54  41.5     36  2026-07-01 .. 08-22
+--   JKKN Engineering and Technology   pending       57  53.0     38  2026-07-11 .. 11-07
+--   JKKN Nursing and Research         pending       22  20.5     15  2026-07-03 .. 08-19
+--   JKKN Pharmacy                     pending        7   8.0      5  2026-07-07 .. 08-17
+--   JKKN Dental College and Hospital  pending       40  39.0     22  2026-07-04 .. 08-24
+--   JKKN Dental College and Hospital  withdrawn      1   0.5      1  2026-07-23
+--   JKKN Main Office                  approved       1   2.0      1  2026-07-17 .. 07-18
+--   JKKN Main Office                  pending        2   1.5      2  2026-08-05 .. 08-17
+--                                                  ----  ----
+--                                                   195 175.5
+--
+-- THE ONE ROW THAT HAD MOVED REAL STATE was the approved Main Office request
+-- (NOT148, 2.0 days). 20260824300000 gave those 2 days back to the ledger and
+-- restored both attendance days to ABSENT from the pre-flip status recorded in
+-- hr_attendance_audit_log — and that audit trail SURVIVES this drop, so the
+-- flip and its reversal remain on the record independently of this table.
+--
+-- The other 194 were pending or withdrawn and had never moved a balance or an
+-- attendance day, so nothing downstream needs them to explain itself.
+--
+-- WHAT SURVIVES, and should: the 496.50 days of June-2026 opening consumption
+-- across 296 staff in hr_leave_balances.used. It was seeded from the legacy HR
+-- app, not from any of these applications, and both purges asserted it did not
+-- move.
+--
+-- hr_leave_applications_backup_20260728 (Short Time Off reset, July) is
+-- deliberately left in place — it is not this migration's to remove, and no
+-- one has asked for it.
+-- =============================================================================
+
+DROP TABLE IF EXISTS public.hr_leave_applications_backup_20260824_cl;

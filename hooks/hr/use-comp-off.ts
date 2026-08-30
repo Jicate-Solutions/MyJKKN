@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { CompOffService } from '@/lib/services/hr/comp-off-service';
+import type { LeaveDocument } from '@/types/hr';
 
 const KEY = 'hr-comp-off-balance';
 
@@ -24,9 +25,13 @@ export function useClaimWorkedDay() {
       employee_id: string;
       worked_date: string;
       notes?: string | null;
+      documents: LeaveDocument[];
     }) => CompOffService.claimWorkedDay(supabase, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
+      // A claimant who is also an approver should see their new claim appear
+      // in the approvals queue without a reload.
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
     },
   });
 }
@@ -55,6 +60,19 @@ export function useDecideCompOffClaim() {
 }
 
 const CLAIMS_KEY = 'hr-comp-off-pending-claims';
+
+/** The claimant takes back their own pending claim. */
+export function useWithdrawCompOffClaim() {
+  const qc = useQueryClient();
+  const supabase = createClientSupabaseClient();
+  return useMutation({
+    mutationFn: (creditId: string) => CompOffService.withdrawClaim(supabase, creditId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: [CLAIMS_KEY] });
+    },
+  });
+}
 
 /**
  * Claims awaiting decision. Scoped by RLS to the approver's organizations,

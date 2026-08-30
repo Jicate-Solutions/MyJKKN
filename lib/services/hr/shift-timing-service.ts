@@ -66,7 +66,41 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+export interface ShiftWindow {
+  timing_id: string;
+  is_working_day: boolean;
+  first_half_start: string | null;
+  first_half_end: string | null;
+  second_half_start: string | null;
+  second_half_end: string | null;
+  grace_minutes: number | null;
+  matched_by: string | null;
+}
+
 export class ShiftTimingService {
+  /**
+   * The window in force for one staff member on one date.
+   *
+   * fn_shift_window, not fn_resolve_shift_timing: the latter refuses anyone
+   * without is_super_admin / is_admin / hr.shift_timings.view /
+   * hr.attendance.override, and a member of staff filling in a permission form
+   * holds none of them. The open variant returns a working-hours calendar and
+   * nothing about the person.
+   */
+  static async window(
+    supabase: SupabaseClient,
+    staffId: string,
+    date: string,
+  ): Promise<ShiftWindow | null> {
+    const { data, error } = await supabase.rpc('fn_shift_window', {
+      p_staff_id: staffId,
+      p_date: date,
+    });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    return (row ?? null) as ShiftWindow | null;
+  }
+
   /**
    * The week in force for one (institution, scope, category) on a date.
    * Returns 0..7 rows — a scope that has never been configured returns [].

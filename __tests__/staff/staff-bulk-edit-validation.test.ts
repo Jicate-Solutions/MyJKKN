@@ -29,7 +29,6 @@ function ctx(over: Partial<ValidationContext> = {}): ValidationContext {
     categoriesByName: new Map([['assistant professor', 'cat-1']]),
     institutionsByName: new Map([['jkkn dental college and hospital', INST_ID]]),
     emailOwner: new Map([['taken@jkkn.ac.in', OTHER_STAFF_ID]]),
-    staffIdOwner: new Map([['cop999', OTHER_STAFF_ID]]),
     biometricOwner: new Map([[`${INST_ID}|2`, OTHER_STAFF_ID]]),
     ...over
   };
@@ -119,9 +118,18 @@ describe('validateStaffBulkEditRow', () => {
     expect(r.issues[0]).toMatchObject({ field: 'Personal Email', kind: 'record' });
   });
 
-  it('rejects a staff id already owned by someone else', () => {
-    const r = validateStaffBulkEditRow(row({ 'Staff ID (new)': 'COP999' }), ctx(), new Set());
-    expect(r.issues[0]).toMatchObject({ field: 'Staff ID (new)', kind: 'record' });
+  // Staff IDs are database-generated and permanent since 2026-08-28. An operator still
+  // holding a template downloaded before that change has a 'Staff ID (new)' column; it
+  // must be ignored, not written — the database would reject the write with P0001 and
+  // fail the whole row for an edit the operator did not intend to make.
+  it('ignores the retired Staff ID column from a stale template', () => {
+    const r = validateStaffBulkEditRow(
+      row({ 'Staff ID (new)': 'COP999', Phone: '9000000001' }),
+      ctx(),
+      new Set()
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.updates).toEqual({ phone: '9000000001' });
   });
 
   it('resolves a department name within the institution', () => {
@@ -133,6 +141,39 @@ describe('validateStaffBulkEditRow', () => {
   it('reports an unknown department as a record issue', () => {
     const r = validateStaffBulkEditRow(row({ Department: 'Astrology' }), ctx(), new Set());
     expect(r.issues[0]).toMatchObject({ field: 'Department', kind: 'record' });
+  });
+
+  // State/District are dataset-validated since 2026-08-28. Bulk edit writes far
+  // more rows than the form does, so leaving them free text would re-create the
+  // mess the standardisation just removed — nine spellings of "Tamil Nadu".
+  it('accepts a state in any casing and stores the canonical spelling', () => {
+    const r = validateStaffBulkEditRow(row({ State: 'TAMILNADU' }), ctx(), new Set());
+    expect(r.issues).toEqual([]);
+    expect(r.updates).toEqual({ state: 'Tamil Nadu' });
+  });
+
+  it('reports an unknown state as a record issue', () => {
+    const r = validateStaffBulkEditRow(row({ State: 'qsqs' }), ctx(), new Set());
+    expect(r.issues[0]).toMatchObject({ field: 'State', kind: 'record' });
+  });
+
+  it('resolves a district against the state supplied in the same row', () => {
+    const r = validateStaffBulkEditRow(
+      row({ State: 'Tamil Nadu', District: 'namakkal' }),
+      ctx(),
+      new Set()
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.updates).toEqual({ state: 'Tamil Nadu', district: 'Namakkal' });
+  });
+
+  it('reports an unknown district as a record issue', () => {
+    const r = validateStaffBulkEditRow(
+      row({ State: 'Tamil Nadu', District: 'aqdqw' }),
+      ctx(),
+      new Set()
+    );
+    expect(r.issues[0]).toMatchObject({ field: 'District', kind: 'record' });
   });
 
   it('rejects a biometric code with no machine (staff_biometric_scope_chk)', () => {
@@ -170,7 +211,7 @@ describe('validateStaffBulkEditRow', () => {
 
   it('never writes through a locked column', () => {
     const r = validateStaffBulkEditRow(
-      row({ Institution: 'Some Other College', Name: 'Hacked', 'Staff ID (current)': 'XXX' }),
+      row({ Institution: 'Some Other College', Name: 'Hacked', 'Staff ID': 'XXX' }),
       ctx(),
       new Set()
     );

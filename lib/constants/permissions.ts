@@ -232,23 +232,43 @@ export const PERMISSION_CATEGORIES = [
       { key: 'users.contract_access.manage', label: 'Manage User→Contract Access Grants (Vendors)' },
       // Added 2026-08-10 — JKKN permanent ID. `.view` gates the lookup page and
       // the two read RPCs (fn_resolve_person, fn_check_duplicate_person).
-      // `.issue` gates fn_issue_jkkn_id and is DELIBERATELY GRANTED TO NO ROLE:
-      // that is what keeps the register dormant. Granting it is the switch-on,
-      // and is a decision, not a default.
+      // `.issue` gates fn_issue_jkkn_id AND the jkkn_identities INSERT/UPDATE
+      // policies, so it is the whole write side of the register in one key.
+      // Held only by administrator and coo. Granting it is a decision, not a
+      // default — it lets the holder mint a permanent lifetime number for any
+      // learner or team member, and rewrite identity rows via PostgREST.
+      //
+      // It is NOT needed to approve a course application: the issuer accepts
+      // courses.applications.decide for the external_participant kind alone
+      // (20260821070100). Do not tick this key just to unblock /courses.
       { key: 'users.jkkn_id.view', label: 'Look Up People by JKKN ID / Roll Number / Team Code' },
-      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID (dormant — granted to no role)' }
+      { key: 'users.jkkn_id.issue', label: 'Issue a JKKN ID for Any Learner or Team Member' }
     ]
   },
   {
     // Added 2026-06-27 — Fresher Induction module (Phase 1). Keys referenced by
     // RLS on induction_* tables + the SECURITY DEFINER engine RPCs
-    // (fn_induction_create_program / auto_enroll / auto_split_batches). Grant
-    // 'induction.manage' to induction coordinators; super_admin/admin bypass.
+    // (fn_induction_create_program / auto_enroll / auto_split_batches).
+    // super_admin/admin bypass all three.
+    //
+    // 'induction.create' was split out of 'induction.manage' on 2026-08-21.
+    // Before that, manage bundled create+enroll+batches+attendance in one key and
+    // 654 users across ten roles held it — every Facilitator (493) and HOD (120)
+    // could stand up a new induction. Creation is now its own key, held by
+    // Induction Lead alone.
+    //
+    // WHY THE SPLIT IS SAFE OPERATIONALLY: fn_induction_create_program is the only
+    // manage-gated RPC with NO `OR fn_induction_is_event_coordinator(...)` leg.
+    // mark_attendance, upsert_session, auto_enroll, appoint_feedback_volunteer and
+    // the rest all accept an appointed per-event coordinator, so taking manage away
+    // from a role does not stop the people actually running an induction — it stops
+    // them starting a new one. That is the whole point of the split.
     name: 'Induction',
     key: 'induction',
     permissions: [
       { key: 'induction.view', label: 'View Induction Programs' },
-      { key: 'induction.manage', label: 'Manage Induction (create, enroll, batches, attendance)' }
+      { key: 'induction.create', label: 'Create Induction Program' },
+      { key: 'induction.manage', label: 'Manage Induction (enroll, batches, attendance)' }
     ]
   },
   {
@@ -403,6 +423,12 @@ export const PERMISSION_CATEGORIES = [
       { key: 'learners.standing.view', label: 'View Learner Standing Verdicts (band, narrative, next steps)' },
       { key: 'learners.standing.admin_note.view', label: 'View Learner Standing ADMIN Notes (contribution + relative rank — leadership only)' },
       { key: 'learners.standing.override', label: 'Override a Learner Standing Verdict (human correction)' },
+      // Gates fn_learner_360_record_intervention (20260930010000) — the
+      // learner-360 return edge's ACT leg: recording the action a mentor or
+      // counselor took on a standing verdict. Separate from .override on
+      // purpose: correcting the AI's narrative and acting on a learner are
+      // different responsibilities, grantable independently.
+      { key: 'learners.standing.intervene', label: 'Record an Action Taken on a Learner Standing Verdict' },
 
       // Learner Portal Features (Student Self-Service)
       { key: 'learners.proof.view', label: 'View My Proof (Verified Skills Record self view)' },
@@ -782,13 +808,26 @@ export const PERMISSION_CATEGORIES = [
       // institutions — see lib/auth/bulk-receipt-access.ts.
       { key: 'billing.receipts.bulk_create', label: 'Bulk Generate Receipts (Excel Upload)' },
       // Cancelling a receipt reverses money, so it is split in two: staff RAISE
-      // a request, and only a SUPER ADMIN decides it. There is deliberately no
-      // "cancel.approve" key — approval is gated on is_super_admin() in
-      // fn_act_on_receipt_cancellation and cannot be delegated through Role
-      // Management. A key here would be a toggle that grants nothing.
+      // a request, and someone else DECIDES it.
+      //
+      // There is still deliberately no "cancel.approve" key, but the reason
+      // changed on 2026-08-25. Approval is no longer hardcoded to
+      // is_super_admin(); it is resolved from
+      // billing_receipt_cancel_approval_flows, which a super admin configures
+      // per institution (with an optional group-wide default) and which only a
+      // super admin may write. Deciding authority therefore lives in that
+      // table, NOT in Role Management — a key here would be a second, competing
+      // source of truth for the same question. With no flow configured the
+      // answer falls back to super-admin-only, exactly as it was before.
+      //
       // Anyone holding billing.receipts.delete can still void directly and
       // bypass this, which is why it was revoked from the accounts roles and
       // from Chief Accountant.
+      //
+      // The key below was narrowed on 2026-08-25 to Chief Accountant alone
+      // (migration 20260825120000). Note the consequence for the queue page: a
+      // delegated approver will NOT hold it, which is why that page guards on
+      // "requester OR configured approver" rather than on this key.
       { key: 'billing.receipts.cancel.request', label: 'Request Receipt Cancellation' },
       { key: 'billing.discounts.view', label: 'View Discounts' },
       { key: 'billing.discounts.create', label: 'Create Discounts' },
@@ -924,6 +963,29 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.payroll.institution.view', label: 'View Payroll Organisation' },
       { key: 'hr.payroll.institution.manage', label: 'Manage Payroll Organisation' },
 
+      // ── Employee salary (2026-08-21) ─────────────────────────────────────
+      // SEPARATE from the two keys above on purpose. Those say who may see
+      // WHICH ORGANISATION pays someone; these say who may see HOW MUCH. An HR
+      // user who maintains the payer directory is not automatically entitled to
+      // everyone's pay, so the amount got its own pair rather than riding along.
+      // Enforced by hr_staff_salaries RLS, which additionally lets anyone read
+      // their OWN row — reading your own pay needs no HR permission.
+      { key: 'hr.payroll.salary.view', label: 'View Employee Salary' },
+      { key: 'hr.payroll.salary.manage', label: 'Manage Employee Salary' },
+
+      // ── Employee bank account (2026-08-21) ───────────────────────────────
+      // A THIRD pair, not a reuse of the salary keys. Amount and destination
+      // are different questions: a payroll clerk who must see what someone
+      // earns is not automatically entitled to the account it lands in, and an
+      // account number is the one field on this whole module that a change to
+      // redirects real money. Enforced by hr_staff_bank_accounts RLS, which —
+      // unlike the salary table — does NOT let people read their own row: the
+      // self-service surface for "which account am I paid into" does not exist
+      // yet, and opening the read path before there is a screen for it would
+      // only widen the blast radius.
+      { key: 'hr.payroll.bank.view', label: 'View Employee Bank Account' },
+      { key: 'hr.payroll.bank.manage', label: 'Manage Employee Bank Account' },
+
       // ── Employee Self Service (2026-07-21) ───────────────────────────────
       // Gates for the "Employee Self Service" sidebar group. Every key here
       // MUST also get a MENU_PERMISSIONS entry in lib/sidebarMenuLink.ts:
@@ -962,6 +1024,24 @@ export const PERMISSION_CATEGORIES = [
       { key: 'hr.attendance.regularize_approve', label: 'Approve Attendance Regularization Requests' },
       { key: 'hr.attendance.override', label: 'Override Attendance Records & Biometric Configuration' },
       { key: 'hr.attendance.audit_export', label: 'Export the Attendance Audit Log' },
+
+      // ── Attendance month close (2026-08-22) ──────────────────────────────
+      // CLOSING the month is not the same as overriding a record.
+      // hr.attendance.override lets an HR user correct one day; these two let
+      // someone freeze an entire institution-month, after which nobody can
+      // raise, decide or withdraw a leave / short time off / comp-off request
+      // that touches it. Held by hr_head alone plus the Super Administrator.
+      //
+      // Enforced by hr_attendance_periods RLS, by hr_attendance_period_console
+      // and fn_hr_lock_attendance_period, and — the part hr_payroll_periods
+      // never had — by triggers on hr_attendance_records and
+      // hr_leave_applications that refuse writes inside a closed month.
+      //
+      // REOPENING deliberately has NO key: it is super-admin-only and checked
+      // with is_super_admin() inside fn_hr_reopen_attendance_period, so it
+      // cannot be granted to a role by mistake.
+      { key: 'hr.attendance.period.view', label: 'View Attendance Month Close' },
+      { key: 'hr.attendance.period.manage', label: 'Close and Reopen Attendance Months' },
 
       // ── Shift timings (2026-08-06) ────────────────────────────────────────
       // Institution x staff-category x weekday working hours, with the

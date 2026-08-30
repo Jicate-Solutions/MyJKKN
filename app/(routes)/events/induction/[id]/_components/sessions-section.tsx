@@ -55,7 +55,20 @@ function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function SessionsSection({ eventId, batches }: { eventId: string; batches: Batch[] }) {
+export function SessionsSection({
+  eventId,
+  batches,
+  isLive,
+}: {
+  eventId: string;
+  batches: Batch[];
+  // Lifecycle mirror, NOT the gate. The real refusal is a BEFORE INSERT/UPDATE
+  // trigger on event_session_attendance / event_session_feedback
+  // (fn_induction_assert_live). This flag only stops us OFFERING a control the
+  // database is going to refuse — same pattern as canEditEvent vs events_auth_update.
+  // Building the schedule stays available in Draft; only running it does not.
+  isLive: boolean;
+}) {
   const { profile } = useAuth();
   // Server-truth event-level manage gate (admin / induction.manage WITH access to
   // THIS event's institution / per-event coordinator). Mirrors the DEFINER RPCs
@@ -502,7 +515,23 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
             this just avoids rendering an empty slot for students/speakers).
             canManage is the server-truth event manage gate (fn_induction_can_manage_event),
             which already includes per-event coordinators. */}
-        {canManage && !loading && (
+        {/* Draft explains itself. Without this the attendance and feedback icons
+            simply vanish from every row and the coordinator has no idea why —
+            the failure mode that made the missing lifecycle gate hard to spot in
+            the first place. */}
+        {!isLive && !loading && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-950/30">
+            <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+            <p className="text-amber-900 dark:text-amber-200">
+              This induction is a <strong>Draft</strong>. Freshers cannot see it, and attendance,
+              feedback and polls are closed. Build the schedule here, then set the status to{' '}
+              <strong>Live</strong> to open it.
+            </p>
+          </div>
+        )}
+        {/* Back-mark coverage compares past sessions against marks — meaningless
+            while nothing can be marked. */}
+        {canManage && isLive && !loading && (
           <AttendanceCoverageBanner coverage={coverage} unavailable={coverageFailed} />
         )}
         {loading ? (
@@ -547,7 +576,7 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                     <div className="h-px flex-1 bg-border" />
                     {d !== 0 && canManage && (
                       <>
-                        <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
+                        {isLive && <DayAttendanceDialog eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />}
                         <AttendancePdfButton eventId={eventId} dayNumber={d} dayLabel={`Day ${d}`} />
                       </>
                     )}
@@ -632,14 +661,23 @@ export function SessionsSection({ eventId, batches }: { eventId: string; batches
                         <div className="flex gap-1 shrink-0 w-full justify-end sm:w-auto">
                           {canOperate && (
                             <>
-                              <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />
+                              {/* Marking, capture and polls are all "running the
+                                  induction" — Live only. The PDF below is a
+                                  read-only export and stays available so a
+                                  coordinator can still print blank sheets while
+                                  the programme is being prepared. */}
+                              {isLive && <AttendanceDialog sessionId={s.id} sessionTitle={s.title} />}
                               {/* Sits next to the attendance icon on purpose — mark
                                   it, then download the sheet for that same session. */}
                               <AttendancePdfButton eventId={eventId} session={s} />
-                              <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
-                              <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
-                              {/* Learners ask + upvote; opening this switches the board on. */}
-                              <SessionQuestionDialog sessionId={s.id} sessionTitle={s.title} />
+                              {isLive && (
+                                <>
+                                  <FeedbackKioskDialog sessionId={s.id} sessionTitle={s.title} />
+                                  <SessionPollDialog sessionId={s.id} sessionTitle={s.title} />
+                                  {/* Learners ask + upvote; opening this switches the board on. */}
+                                  <SessionQuestionDialog sessionId={s.id} sessionTitle={s.title} />
+                                </>
+                              )}
                             </>
                           )}
                           {canManage && (
