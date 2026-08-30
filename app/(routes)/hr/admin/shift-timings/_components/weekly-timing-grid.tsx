@@ -68,6 +68,16 @@ interface WeeklyTimingGridProps {
    * grid keeps showing the previous gender's week after the selector changes.
    */
   applicableGender?: ShiftApplicableGender;
+  /**
+   * Fired after a SUCCESSFUL save. The Override tab uses it to collapse the
+   * builder back to the list, so the override just written appears there and
+   * "Add another override" is reachable again — without it the builder stays
+   * open showing the row it just saved, which reads as "this is the only
+   * override you get".
+   *
+   * Not fired on failure: the operator must keep their unsaved edits.
+   */
+  onSaved?: () => void;
 }
 
 function blankWeek(): WeekDayInput[] {
@@ -188,6 +198,7 @@ export function WeeklyTimingGrid({
   effectiveFrom,
   onEffectiveFromChange,
   applicableGender = 'all',
+  onSaved,
 }: WeeklyTimingGridProps) {
   const params = useMemo(
     () => ({ institutionId, staffScope, employmentCategoryId, applicableGender }),
@@ -335,12 +346,14 @@ export function WeeklyTimingGrid({
       } else {
         toast.success(`${saveLabel} timings saved`);
       }
+
+      onSaved?.();
     } catch (err) {
       toast.error(getErrorMessage(err));
     }
   }, [
     errors.length, save, institutionId, staffScope, employmentCategoryId,
-    applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel,
+    applicableGender, effectiveFrom, rows, isScheduledChange, saveLabel, onSaved,
   ]);
 
   if (isLoading) {

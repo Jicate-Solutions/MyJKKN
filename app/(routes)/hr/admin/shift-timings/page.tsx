@@ -15,13 +15,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Info } from 'lucide-react';
+import { Info, Plus, X } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
@@ -30,17 +31,24 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useEmploymentCategories } from '@/hooks/hr/use-shift-timings';
+import {
+  useEmploymentCategories,
+  useEndShiftTimingOverride,
+  useShiftTimingOverrideList,
+} from '@/hooks/hr/use-shift-timings';
 import { todayISO } from '@/lib/services/hr/attendance-recompute-service';
-import { APPLICABLE_GENDER_OPTIONS } from '@/types/hr-shift-timings';
-import type { ShiftApplicableGender, ShiftStaffScope } from '@/types/hr-shift-timings';
+import { toast } from 'sonner';
 
-/** Radix Select cannot hold '' as a value, so "no category" needs a sentinel. */
-const ALL_CATEGORIES = '__all__';
+import { cn, getErrorMessage } from '@/lib/utils';
+import { APPLICABLE_GENDER_OPTIONS, DAY_OF_WEEK_OPTIONS, toHHMM } from '@/types/hr-shift-timings';
+import type { ShiftApplicableGender, ShiftStaffScope } from '@/types/hr-shift-timings';
 
 import { WeeklyTimingGrid } from './_components/weekly-timing-grid';
 import { CoverageWarning } from './_components/coverage-warning';
 import { RecomputeAttendanceCard } from './_components/recompute-attendance-card';
+
+/** Radix Select cannot hold '' as a value, so "no category" needs a sentinel. */
+const ALL_CATEGORIES = '__all__';
 
 export default function ShiftTimingsPage() {
   // entityType 'all' is deliberate. The default ('institution') returns only 9
@@ -86,6 +94,15 @@ export default function ShiftTimingsPage() {
   // A `const` is in its temporal dead zone until its own line runs, so leaving
   // this underneath would throw on the first institution change.
   const [categoryId, setCategoryId] = useState('');
+  /**
+   * Whether the builder is open. Closed by default so the tab opens on the LIST
+   * — the thing that was missing — rather than on a half-filled form that looks
+   * like the only override the institution can have.
+   *
+   * Declared here, above the reset block, for the same temporal-dead-zone reason
+   * as categoryId: that block calls setBuilderOpen.
+   */
+  const [builderOpen, setBuilderOpen] = useState(false);
 
   const [scopeSetFor, setScopeSetFor] = useState(institutionId);
   // Adjusted during render rather than in an effect: an effect would paint one
@@ -101,6 +118,7 @@ export default function ShiftTimingsPage() {
     setOverrideStaffType('teaching');
     setOverrideGender('female');
     setCategoryId('');
+    setBuilderOpen(false);
   }
 
   const { data: categories = [] } = useEmploymentCategories();
@@ -114,6 +132,10 @@ export default function ShiftTimingsPage() {
     () => categories.find((c) => c.id === categoryId) ?? null,
     [categories, categoryId],
   );
+
+  const { data: overrides = [], isLoading: overridesLoading } =
+    useShiftTimingOverrideList(institutionId || null);
+  const endOverride = useEndShiftTimingOverride();
 
   /**
    * Only categories matching the chosen staff type. A teaching category under
@@ -149,6 +171,37 @@ export default function ShiftTimingsPage() {
    * hours for people they never meant to touch.
    */
   const overrideIsGeneralWeek = overrideGender === 'all' && !categoryId;
+
+  /**
+   * Open the builder on a FRESH combination.
+   *
+   * Resetting matters as much as opening: after saving an override the builder
+   * still held that override's three choices, so pressing Add again re-opened
+   * the one just written and looked like the tab refusing a second override.
+   * Female is the default because it is the case this feature was built for.
+   */
+  const startNewOverride = () => {
+    setOverrideStaffType('teaching');
+    setCatSetFor('teaching');
+    setCategoryId('');
+    setOverrideGender('female');
+    setBuilderOpen(true);
+  };
+
+  const genderLabel = (g: string) =>
+    APPLICABLE_GENDER_OPTIONS.find((o) => o.value === g)?.label ?? g;
+  const categoryName = (id: string | null) =>
+    id ? (categories.find((c) => c.id === id)?.category_name ?? 'Category') : 'All categories';
+  /** "Mon–Sat" when contiguous, else "Mon, Wed, Fri". */
+  const daysLabel = (days: number[]) => {
+    if (days.length === 0) return 'No working days';
+    const short = (d: number) => DAY_OF_WEEK_OPTIONS.find((o) => o.value === d)?.short ?? String(d);
+    const sorted = [...days].sort((a, b) => a - b);
+    const contiguous = sorted.every((d, i) => i === 0 || d === sorted[i - 1] + 1);
+    return contiguous && sorted.length > 2
+      ? `${short(sorted[0])}–${short(sorted[sorted.length - 1])}`
+      : sorted.map(short).join(', ');
+  };
 
   const overrideLabel = [
     overrideStaffType === 'teaching' ? 'Teaching' : 'Non-teaching',
@@ -233,6 +286,148 @@ export default function ShiftTimingsPage() {
                   </TabsContent>
 
                   <TabsContent value="category" className="space-y-4 pt-4">
+                    {/* THE LIST COMES FIRST. The tab could always create any
+                        number of overrides - the current-row unique index is per
+                        (institution, scope, category, gender, weekday) - but with
+                        nothing listing them an operator could not find one again
+                        or tell a new combination from one configured last month,
+                        which is what made the tab feel single-override. */}
+                    {overridesLoading ? null : overrides.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No overrides yet. Everyone follows the general Teaching and
+                        Non-teaching weeks.
+                      </p>
+                    ) : (
+                      <div className="divide-y rounded-md border">
+                        {overrides.map((o) => {
+                          const isEditing =
+                            builderOpen &&
+                            o.staff_scope === overrideScope &&
+                            (o.employment_category_id ?? null) === overrideCategoryId &&
+                            o.applicable_gender === overrideGender;
+                          // The staff type of a CATEGORY override comes from the
+                          // category, not the row: staff_scope is 'category' there
+                          // and says nothing about teaching.
+                          const cat = categories.find((c) => c.id === o.employment_category_id);
+                          const staffType: 'teaching' | 'non_teaching' =
+                            o.staff_scope === 'category'
+                              ? (cat?.is_teaching ? 'teaching' : 'non_teaching')
+                              : (o.staff_scope as 'teaching' | 'non_teaching');
+                          return (
+                            <div
+                              key={`${o.staff_scope}|${o.employment_category_id ?? 'all'}|${o.applicable_gender}`}
+                              className={cn(
+                                'flex flex-wrap items-center justify-between gap-2 p-3',
+                                isEditing && 'bg-muted/50',
+                              )}
+                            >
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium">
+                                  {staffType === 'teaching' ? 'Teaching' : 'Non-teaching'}
+                                  {' \u00b7 '}
+                                  {genderLabel(o.applicable_gender)}
+                                  {' \u00b7 '}
+                                  {categoryName(o.employment_category_id)}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {o.first_half_start && o.second_half_end
+                                    ? `${toHHMM(o.first_half_start)}\u2013${toHHMM(o.second_half_end)} \u00b7 `
+                                    : ''}
+                                  {/* A JS string, not JSX text: an escape in raw
+                                      JSX text renders as the literal characters. */}
+                                  {daysLabel(o.working_days)}
+                                  {' \u00b7 from '}
+                                  {o.effective_from}
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setOverrideStaffType(staffType);
+                                    // Kept in step with the staff type, or the
+                                    // reset-on-change below would immediately wipe
+                                    // the category we are about to select.
+                                    setCatSetFor(staffType);
+                                    setCategoryId(o.employment_category_id ?? '');
+                                    setOverrideGender(o.applicable_gender);
+                                    setBuilderOpen(true);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive"
+                                  disabled={endOverride.isPending}
+                                  title="Stop this override applying from today"
+                                  onClick={async () => {
+                                    try {
+                                      const r = await endOverride.mutateAsync({
+                                        institutionId,
+                                        staffScope: o.staff_scope,
+                                        employmentCategoryId: o.employment_category_id,
+                                        applicableGender: o.applicable_gender,
+                                      });
+                                      // The override IS retired by this point, so a
+                                      // failed recompute is a warning, not an error.
+                                      if (r.recomputeError) {
+                                        toast.warning(
+                                          `Override removed, but recomputing attendance failed: ${r.recomputeError}`,
+                                        );
+                                      } else {
+                                        toast.success(
+                                          'Override removed \u2014 these staff follow the general week from today. Earlier days are unchanged.',
+                                        );
+                                      }
+                                    } catch (err) {
+                                      toast.error(getErrorMessage(err));
+                                    }
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* ALWAYS RENDERED, never swapped out for the builder.
+                        Previously this button was the `false` branch of the
+                        builder's ternary, so opening the builder removed the
+                        only way to start another override — and saving left the
+                        builder open on the row just written, with no way back to
+                        the list. */}
+                    <Button variant="outline" size="sm" onClick={startNewOverride}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      {overrides.length === 0 ? 'Add override' : 'Add another override'}
+                    </Button>
+
+                    {builderOpen && (
+                      <>
+                        <div className="flex items-center justify-between gap-2 border-t pt-4">
+                          <p className="text-sm font-medium">
+                            {overrides.some(
+                              (o) =>
+                                o.staff_scope === overrideScope &&
+                                (o.employment_category_id ?? null) === overrideCategoryId &&
+                                o.applicable_gender === overrideGender,
+                            )
+                              ? `Editing ${overrideLabel}`
+                              : `New override — ${overrideLabel}`}
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setBuilderOpen(false)}
+                          >
+                            Close
+                          </Button>
+                        </div>
                     {/* Three narrowings, coarsest first. Staff type comes first
                         because it filters the category list — a category
                         carries its own is_teaching, so offering all of them
@@ -323,7 +518,12 @@ export default function ShiftTimingsPage() {
                       scopeLabel={overrideLabel}
                       effectiveFrom={effectiveFrom}
                       onEffectiveFromChange={setEffectiveFrom}
+                      // Back to the list, where the override just written now
+                      // appears and Add another is one click away.
+                      onSaved={() => setBuilderOpen(false)}
                     />
+                      </>
+                    )}
                   </TabsContent>
                 </Tabs>
               </>
