@@ -2417,3 +2417,19 @@ DROP TRIGGER IF EXISTS trg_staff_require_institution_email ON public.staff;
 CREATE TRIGGER trg_staff_require_institution_email
   BEFORE INSERT ON public.staff
   FOR EACH ROW EXECUTE FUNCTION public.fn_staff_require_institution_email();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- =============================================================================
+
+-- Reuses the generic fn_touch_updated_at rather than adding an 87th
+-- table-specific copy of `NEW.updated_at := now()`.
+DROP TRIGGER IF EXISTS trg_hr_salary_register_runs_touch ON public.hr_salary_register_runs;
+CREATE TRIGGER trg_hr_salary_register_runs_touch
+  BEFORE UPDATE ON public.hr_salary_register_runs
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();
+
+DROP TRIGGER IF EXISTS trg_hr_salary_register_lines_touch ON public.hr_salary_register_lines;
+CREATE TRIGGER trg_hr_salary_register_lines_touch
+  BEFORE UPDATE ON public.hr_salary_register_lines
+  FOR EACH ROW EXECUTE FUNCTION public.fn_touch_updated_at();

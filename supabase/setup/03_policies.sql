@@ -9969,3 +9969,106 @@ DROP POLICY IF EXISTS staff_address_backfill_select_super_admin ON public.staff_
 CREATE POLICY staff_address_backfill_select_super_admin
   ON public.staff_address_backfill_20260828 FOR SELECT TO authenticated
   USING (public.is_super_admin());
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260830150000_hr_salary_register.sql
+-- =============================================================================
+
+-- Salary register. Gated on its OWN key pair, not a reuse of the salary/bank
+-- ones: a register is the single screen showing amount AND destination AND day
+-- counts for everybody at once, which is a wider grant than any of the three.
+-- Granted to HR Head alone — the only role already holding all four keys a run
+-- reads through (payroll.institution.view, payroll.salary.view,
+-- payroll.bank.view, attendance.period.view). A role missing any of them would
+-- produce a run that SILENTLY omits people: RLS returns zero rows, no error.
+--
+-- Unlike hr_staff_salaries these also scope on role_has_institution_access — a
+-- register is inherently a per-institution document. HR Head is
+-- institution_scope='all' so it passes everywhere; a future 'own'-scoped
+-- payroll role is correctly confined.
+--
+-- Every helper call is wrapped in (SELECT ...) so Postgres evaluates it once as
+-- an InitPlan rather than per row — the unwrapped form is what produced 57014
+-- statement timeouts elsewhere in this schema.
+--
+-- No self-read policy, deliberately: there is no employee-facing payslip screen
+-- yet, and a register row exposes colleagues' context alongside your own.
+ALTER TABLE public.hr_salary_register_runs  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.hr_salary_register_lines ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY hr_salary_register_runs_select
+  ON public.hr_salary_register_runs FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.view'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_runs_write
+  ON public.hr_salary_register_runs FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (
+      (SELECT public.user_has_permission('hr.payroll.register.manage'))
+      AND (SELECT public.role_has_institution_access(institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_runs_service_role
+  ON public.hr_salary_register_runs FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+-- Lines inherit the parent's verdict via EXISTS rather than a duplicated
+-- predicate, so the two cannot drift apart.
+CREATE POLICY hr_salary_register_lines_select
+  ON public.hr_salary_register_lines FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.view'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_lines_write
+  ON public.hr_salary_register_lines FOR ALL TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.manage'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR EXISTS (
+      SELECT 1 FROM public.hr_salary_register_runs r
+       WHERE r.id = hr_salary_register_lines.run_id
+         AND (SELECT public.user_has_permission('hr.payroll.register.manage'))
+         AND (SELECT public.role_has_institution_access(r.institution_id))
+    )
+  );
+
+CREATE POLICY hr_salary_register_lines_service_role
+  ON public.hr_salary_register_lines FOR ALL TO service_role
+  USING (true) WITH CHECK (true);
+
+-- REVOKE FROM anon, not FROM public: revoking from public also strips what
+-- authenticated inherits through it.
+REVOKE ALL ON public.hr_salary_register_runs  FROM anon;
+REVOKE ALL ON public.hr_salary_register_lines FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_runs  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.hr_salary_register_lines TO authenticated;

@@ -389,6 +389,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // the amount and the destination are separate decisions, and the destination
   // is the field a change to redirects real money.
   '/hr/payroll/bank-accounts': 'hr.payroll.bank.view',
+  // The frozen monthly salary register. A fourth key, because this is the one
+  // screen that shows amount AND destination AND day counts for everybody at
+  // once — the union of the three above, which is a wider grant than any of
+  // them individually.
+  '/hr/payroll/register': 'hr.payroll.register.view',
   // Closing an attendance month. Its own key, NOT the self-service
   // '/hr/attendance' one: 22 roles hold hr.attendance.view_self, and without an
   // entry here longest-prefix resolution would hand all of them the ability to
@@ -2699,6 +2704,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             // Gates on hr.payroll.bank.view — hr_head alone, plus the Super
             // Administrator via is_super_admin().
             { href: '/hr/payroll/bank-accounts', label: 'Bank Accounts', active: pathname.startsWith('/hr/payroll/bank-accounts') },
+            // Gates on hr.payroll.register.view — hr_head alone, plus the Super
+            // Administrator. Last in the group because it is the step AFTER the
+            // three above are populated: the register reads the payer directory,
+            // the salary and the bank account, and reports whichever is missing.
+            { href: '/hr/payroll/register', label: 'Salary Register', active: pathname.startsWith('/hr/payroll/register') },
           ]
         },
         {
