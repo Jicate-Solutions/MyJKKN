@@ -17,7 +17,7 @@
 -- figures exported by app/api/b2a/grievance/dashboard. That is precisely the harm
 -- guardrail G1 exists to prevent, so campus conditions never touch that table.
 --
--- Version 20260909000000 is deliberately above the highest existing migration
+-- Version 20261013010000 is deliberately above the highest existing migration
 -- (20260908034127): parallel lanes otherwise all reach for the same "next" timestamp
 -- and collide.
 

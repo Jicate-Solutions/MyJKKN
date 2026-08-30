@@ -18,7 +18,7 @@
  *
  * D3 (manual destination confirm) is implemented as a compact two-part
  * decision cluster (kind + category) — AI classification is not wired up
- * yet (see 20260909000000_campus_walk_storage_and_lane.sql), so this manual
+ * yet (see 20261013010000_campus_walk_storage_and_lane.sql), so this manual
  * picker is the entire routing path today, not a fallback shown only when
  * AI is unavailable.
  *
