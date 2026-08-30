@@ -88,16 +88,19 @@ export function LeaveTypeRowActions({
   // button before the server has said whether it is allowed.
   const [impact, setImpact] = useState<HRLeaveTypeDeleteResult | null>(null);
 
-  const handleArchive = async () => {
+  /** Same open/close ordering as handleDelete below — identical race. */
+  const handleArchive = () => {
     setIsArchiving(true);
-    try {
-      // The page handler owns the toast and the refresh bump; it swallows its
-      // own errors, so there is nothing to catch here.
-      await Promise.resolve(onArchive(leaveType));
-    } finally {
-      setIsArchiving(false);
-      setShowArchiveAlert(false);
-    }
+    setShowArchiveAlert(false);
+    setTimeout(async () => {
+      try {
+        // The page handler owns the toast and the refresh bump; it swallows its
+        // own errors, so there is nothing to catch here.
+        await Promise.resolve(onArchive(leaveType));
+      } finally {
+        setIsArchiving(false);
+      }
+    }, 0);
   };
 
   const handleActivate = async () => {
@@ -109,9 +112,7 @@ export function LeaveTypeRowActions({
     }
   };
 
-  const openDelete = async () => {
-    setImpact(null);
-    setShowDeleteAlert(true);
+  const runImpactCheck = async () => {
     try {
       setImpact(await onCheckDelete(leaveType));
     } catch {
@@ -122,14 +123,48 @@ export function LeaveTypeRowActions({
     }
   };
 
-  const handleDelete = async () => {
+  /**
+   * OPENED ON THE NEXT TICK, NOT SYNCHRONOUSLY. Selecting a DropdownMenuItem
+   * makes Radix close the menu and return focus to its trigger; an AlertDialog
+   * mounted in that same frame sees focus land outside itself and dismisses —
+   * the dialog flashes open and shuts again, which is exactly what was
+   * reported. Deferring lets the menu finish closing first.
+   *
+   * The prescribed fix in .claude/skills/radix-dialog-race-fix and the same
+   * delay useDeleteConfirmation applies in hooks/use-dialog-confirmation.ts.
+   * Not `onSelect={(e) => e.preventDefault()}` as elsewhere in the codebase:
+   * that keeps the menu OPEN behind the dialog, and those call sites use
+   * AlertDialogTrigger, which cannot carry this one's async pre-check.
+   */
+  const openDelete = () => {
+    setImpact(null);
+    setTimeout(() => {
+      setShowDeleteAlert(true);
+      void runImpactCheck();
+    }, 0);
+  };
+
+
+  /**
+   * Closes FIRST, then runs the mutation on the next tick.
+   *
+   * The old order — mutate, then close in `finally` — leaves the AlertDialog
+   * mounted across an await while the page invalidates queries underneath it,
+   * so the row can re-render and take the dialog with it mid-flight. Closing
+   * first and deferring lets Radix tear the overlay down cleanly before
+   * anything else touches the tree. Same order as
+   * useDeleteConfirmation.handleConfirmDelete.
+   */
+  const handleDelete = () => {
     setIsDeleting(true);
-    try {
-      await Promise.resolve(onDelete(leaveType));
-    } finally {
-      setIsDeleting(false);
-      setShowDeleteAlert(false);
-    }
+    setShowDeleteAlert(false);
+    setTimeout(async () => {
+      try {
+        await Promise.resolve(onDelete(leaveType));
+      } finally {
+        setIsDeleting(false);
+      }
+    }, 0);
   };
 
   const blockers = Object.entries(impact?.blockers ?? {}).filter(([, n]) => n > 0);
@@ -168,7 +203,8 @@ export function LeaveTypeRowActions({
           <DropdownMenuSeparator />
           {leaveType.is_active ? (
             <DropdownMenuItem
-              onClick={() => setShowArchiveAlert(true)}
+              // Deferred for the same reason as Delete — see openDelete.
+              onClick={() => setTimeout(() => setShowArchiveAlert(true), 0)}
               className="text-destructive"
             >
               <Archive className="mr-2 h-4 w-4" />
@@ -188,7 +224,7 @@ export function LeaveTypeRowActions({
                   is always archive-then-delete and never one click from the
                   list staff are applying against. */}
               <DropdownMenuItem
-                onClick={() => void openDelete()}
+                onClick={openDelete}
                 className="text-destructive"
               >
                 <Trash2 className="mr-2 h-4 w-4" />

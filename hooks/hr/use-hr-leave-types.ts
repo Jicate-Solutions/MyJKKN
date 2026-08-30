@@ -147,10 +147,26 @@ export function useHardDeleteHRLeaveType() {
   return useMutation({
     mutationFn: ({ id, dryRun }: { id: string; dryRun: boolean }) =>
       HRLeaveTypeService.hardDelete(supabase, id, dryRun),
-    onSuccess: (result) => {
-      // A dry run wrote nothing — invalidating on it would refetch the table
-      // every time someone merely opened the confirmation dialog.
-      if (result?.dry_run) return;
+    onSuccess: (result, variables) => {
+      // GUARD ON WHAT WAS REQUESTED, NOT ON WHAT CAME BACK.
+      //
+      // This read `result?.dry_run`, which is only present in the RPC's SUCCESS
+      // payloads. Every refusal — in_use, still_active, permission_denied, and
+      // the EXCEPTION catch — returns {ok:false, error:…} with NO dry_run key,
+      // so the check was undefined, the guard fell through, and merely OPENING
+      // the confirmation dialog on a leave type that cannot be deleted
+      // invalidated the table. useDataTableRefreshOnInvalidate turns that into a
+      // refetch, which reads on screen as the page reloading and takes the open
+      // dialog with it — reported as "it refreshes and I cannot delete it".
+      //
+      // It misfired only on types that ARE refused, which is exactly when
+      // somebody is trying hardest to delete one.
+      //
+      // `variables.dryRun` cannot lie: a dry run writes nothing whatever it
+      // returns. `!result.ok` covers the other half — a refused commit wrote
+      // nothing either, so there is nothing to invalidate. Same shape as
+      // useGenerateBalances below.
+      if (variables.dryRun || !result?.ok) return;
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: [ANALYTICS_KEY] });
       qc.invalidateQueries({ queryKey: [STAFF_BALANCES_KEY] });
