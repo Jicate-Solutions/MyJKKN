@@ -137,7 +137,12 @@ export function ApproverPersonPicker({
         </div>
       )}
 
-      <div className="max-h-40 overflow-y-auto rounded-md border">
+      {/* overflow-x-hidden is not cosmetic: with only overflow-y set, CSS
+          computes the other axis to `auto`, so this box grew a horizontal
+          scrollbar the moment a row was too wide instead of making the row
+          fit. Pinned together with the truncation below — the container
+          stops the scrollbar, the truncation stops the clipping. */}
+      <div className="max-h-40 overflow-y-auto overflow-x-hidden rounded-md border">
         {isLoading && !candidates ? (
           <div className="space-y-2 p-2">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -165,8 +170,14 @@ export function ApproverPersonPicker({
                 selectedId === c.profile_id && 'bg-muted'
               )}
             >
-              <span className="min-w-0">
-                <span className="block font-medium">{c.full_name ?? c.email}</span>
+              <span className="min-w-0 flex-1">
+                {/* truncate on BOTH lines. This one had none, and it falls
+                    back to the email when a staff member has no name —
+                    addresses like test.managing_director@jkkn.ac.in are
+                    routinely wider than the picker. */}
+                <span className="block truncate font-medium">
+                  {c.full_name ?? c.email}
+                </span>
                 <span className="block truncate text-muted-foreground">
                   {/* Institution first: the list spans all of them now, and it is
                       the field that tells two similar names apart. */}
