@@ -155,6 +155,13 @@ export default function LeaveApprovalsPage() {
 
   const mineCount = useMemo(() => all.filter((r) => r.waiting_on_me).length, [all]);
 
+  // The queue now carries decided history too; the tab badges keep counting
+  // only what still needs a decision, so they read as "work remaining".
+  const isOpen = (r: HRLeaveApprovalQueueRow) =>
+    r.status === 'pending' || r.status === 'escalated';
+  const openLeaveCount = useMemo(() => leaveRows.filter(isOpen).length, [leaveRows]);
+  const openShortCount = useMemo(() => shortRows.filter(isOpen).length, [shortRows]);
+
   /**
    * Approving writes a decision, deducts a balance and re-judges the day's
    * attendance. One misplaced click in a 240-row queue should not do all three,
@@ -266,9 +273,9 @@ export default function LeaveApprovalsPage() {
 
   const withCount = (label: string, n: number) => (n > 0 ? `${label} (${n})` : label);
   const subTabs = [
-    { label: withCount('Leave Requests', leaveRows.length), href: '/hr/leave/approvals' },
+    { label: withCount('Leave Requests', openLeaveCount), href: '/hr/leave/approvals' },
     {
-      label: withCount('Short Time Off', shortRows.length),
+      label: withCount('Short Time Off', openShortCount),
       href: '/hr/leave/approvals?tab=short-time-off',
     },
     {
@@ -344,9 +351,14 @@ export default function LeaveApprovalsPage() {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="any">Any status</SelectItem>
+          <SelectItem value="open">Open</SelectItem>
           <SelectItem value="pending">Applied</SelectItem>
           <SelectItem value="escalated">Escalated</SelectItem>
+          <SelectItem value="approved">Approved</SelectItem>
+          <SelectItem value="rejected">Rejected</SelectItem>
+          <SelectItem value="withdrawn">Withdrawn</SelectItem>
+          <SelectItem value="cancelled">Cancelled</SelectItem>
+          <SelectItem value="any">Any status</SelectItem>
         </SelectContent>
       </Select>
 

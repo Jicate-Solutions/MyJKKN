@@ -9780,3 +9780,192 @@ COMMENT ON COLUMN public.hr_attendance_periods.forced IS
 COMMENT ON TABLE public.hr_attendance_period_summaries IS
   'Frozen per-staff day counts. Derived from hr_attendance_records so working days match the evaluator, not a separate calendar rule.';
 
+
+
+-- ── Receipt cancellation approval flows (20260825160000) ──────────────────
+ALTER TABLE public.billing_receipt_cancel_approval_flows ENABLE ROW LEVEL SECURITY;
+
+-- Readable by anyone who can see the queue, so a requester can be told who
+-- their request is waiting on. Writable by super admins ONLY, which is the
+-- whole point: approval authority must not be delegable by whoever holds a
+-- billing permission.
+DROP POLICY IF EXISTS billing_receipt_cancel_flows_select ON public.billing_receipt_cancel_approval_flows;
+CREATE POLICY billing_receipt_cancel_flows_select
+  ON public.billing_receipt_cancel_approval_flows FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR (SELECT user_has_permission('billing.receipts.view'))
+    OR (SELECT user_has_permission('billing.receipts.cancel.request'))
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_flows_write ON public.billing_receipt_cancel_approval_flows;
+CREATE POLICY billing_receipt_cancel_flows_write
+  ON public.billing_receipt_cancel_approval_flows FOR ALL TO authenticated
+  USING ((SELECT is_super_admin()))
+  WITH CHECK ((SELECT is_super_admin()));
+
+-- The two queue SELECTs were widened at the same time: without the
+-- fn_is_receipt_cancel_approver() arm, a delegated approver opens the page
+-- to an EMPTY list, because most candidate roles lack billing.receipts.view.
+DROP POLICY IF EXISTS billing_receipt_cancel_requests_select ON public.billing_receipt_cancel_requests;
+CREATE POLICY billing_receipt_cancel_requests_select
+  ON public.billing_receipt_cancel_requests FOR SELECT TO authenticated
+  USING (
+    (SELECT is_super_admin())
+    OR requested_by = (SELECT auth.uid())
+    OR ((SELECT user_has_permission('billing.receipts.view')) AND role_has_institution_access(institution_id))
+    OR public.fn_is_receipt_cancel_approver(institution_id)
+  );
+
+DROP POLICY IF EXISTS billing_receipt_cancel_actions_select ON public.billing_receipt_cancel_request_actions;
+CREATE POLICY billing_receipt_cancel_actions_select
+  ON public.billing_receipt_cancel_request_actions FOR SELECT TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.billing_receipt_cancel_requests r
+      WHERE r.id = billing_receipt_cancel_request_actions.request_id
+        AND (
+          (SELECT is_super_admin())
+          OR r.requested_by = (SELECT auth.uid())
+          OR ((SELECT user_has_permission('billing.receipts.view')) AND role_has_institution_access(r.institution_id))
+          OR public.fn_is_receipt_cancel_approver(r.institution_id)
+        )
+    )
+  );
+
+-- Updated: 2026-08-25 - id_card_templates scoped per institution (migration
+-- 20261012000000_id_card_templates_institution_scope.sql). The table shipped in
+-- 20260507150000 WITH an institution_id column and NOT ONE of its four
+-- authenticated policies gated on it, so whoever held id_cards.templates.* held
+-- it over every college's card design. lib/services/id-cards/template-design-client.ts
+-- applies no institution filter of its own — RLS is the entire control surface,
+-- and no SECURITY DEFINER function reads this table. The predicate below is the
+-- canonical pattern; role_has_institution_access() is what decides whether a
+-- role legitimately reaches other colleges, so cross-college reach is expressed
+-- by institution_scope rather than by a missing clause.
+-- ⚠️ role_has_institution_access(NULL) returns TRUE by design and
+--    institution_id is nullable, so a NULL-institution template stays global.
+
+DROP POLICY IF EXISTS "id_card_templates_view" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_view"
+  ON public.id_card_templates FOR SELECT TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.view'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_create" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_create"
+  ON public.id_card_templates FOR INSERT TO authenticated
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.create'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_edit" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_edit"
+  ON public.id_card_templates FOR UPDATE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.edit'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  )
+  WITH CHECK (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.edit'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+DROP POLICY IF EXISTS "id_card_templates_delete" ON public.id_card_templates;
+CREATE POLICY "id_card_templates_delete"
+  ON public.id_card_templates FOR DELETE TO authenticated
+  USING (
+    (SELECT public.is_super_admin())
+    OR (SELECT public.is_admin())
+    OR (
+      (SELECT public.user_has_permission('id_cards.templates.delete'))
+      AND public.role_has_institution_access(institution_id)
+    )
+  );
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
+-- (policies half; the employee_id->staff FK is mirrored in 01_tables.sql)
+-- =============================================================================
+
+DROP POLICY IF EXISTS hr_attendance_regs_select ON public.hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_select ON public.hr_attendance_regularizations
+  FOR SELECT USING (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT user_has_permission('hr.attendance.view_all'))
+    OR (SELECT user_has_permission('hr.attendance.regularize_approve'))
+    OR (SELECT user_has_permission('hr.attendance.approve_team'))
+    OR (
+      (SELECT user_has_permission('hr.attendance.regularize_self'))
+      AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
+    )
+  );
+
+DROP POLICY IF EXISTS hr_attendance_regs_insert ON public.hr_attendance_regularizations;
+CREATE POLICY hr_attendance_regs_insert ON public.hr_attendance_regularizations
+  FOR INSERT WITH CHECK (
+    (SELECT is_super_admin()) OR (SELECT is_admin())
+    OR (SELECT user_has_permission('hr.attendance.override'))
+    OR (
+      (SELECT user_has_permission('hr.attendance.regularize_self'))
+      AND employee_id = ANY (COALESCE((SELECT public.fn_my_staff_ids()), ARRAY[]::uuid[]))
+    )
+  );
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql
+-- and 20260828130000_staff_id_backfill.sql (policies and grants)
+-- =============================================================================
+
+-- Both tables are read-only to users and written only by SECURITY DEFINER code.
+-- No INSERT/UPDATE/DELETE policy exists, by design.
+
+ALTER TABLE public.staff_id_counters ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.staff_id_counters FROM anon;
+GRANT SELECT ON public.staff_id_counters TO authenticated;
+
+DROP POLICY IF EXISTS staff_id_counters_select_super_admin ON public.staff_id_counters;
+CREATE POLICY staff_id_counters_select_super_admin
+  ON public.staff_id_counters FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+ALTER TABLE public.staff_id_crosswalk ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.staff_id_crosswalk FROM anon;
+GRANT SELECT ON public.staff_id_crosswalk TO authenticated;
+
+DROP POLICY IF EXISTS staff_id_crosswalk_select_super_admin ON public.staff_id_crosswalk;
+CREATE POLICY staff_id_crosswalk_select_super_admin
+  ON public.staff_id_crosswalk FOR SELECT TO authenticated
+  USING (public.is_super_admin());
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
+-- =============================================================================
+
+ALTER TABLE public.staff_address_backfill_20260828 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.staff_address_backfill_20260828 FROM anon, PUBLIC;
+GRANT SELECT ON TABLE public.staff_address_backfill_20260828 TO authenticated;
+
+DROP POLICY IF EXISTS staff_address_backfill_select_super_admin ON public.staff_address_backfill_20260828;
+CREATE POLICY staff_address_backfill_select_super_admin
+  ON public.staff_address_backfill_20260828 FOR SELECT TO authenticated
+  USING (public.is_super_admin());

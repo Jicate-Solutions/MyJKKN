@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/orchestration",
+        "label": "Orchestration",
+        "iconName": "LayoutDashboard",
+        "children": []
+      },
+      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
@@ -880,6 +886,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payout-readiness",
+            "label": "Payout Readiness",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -2615,6 +2627,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/housekeeping/bookings",
             "label": "Bookings",
+            "iconName": "SprayCan",
+            "children": []
+          },
+          {
+            "path": "/campus-living/housekeeping/my-work",
+            "label": "My Work",
             "iconName": "SprayCan",
             "children": []
           },
@@ -5504,6 +5522,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/manage",
         "label": "Manage",
         "iconName": "Settings",
+        "children": []
+      },
+      {
+        "path": "/meetings/my-bookings",
+        "label": "My Bookings",
+        "iconName": "FileText",
         "children": []
       },
       {

@@ -187,8 +187,13 @@ export async function POST(request: NextRequest) {
     const machine = resolution.institution;
 
     // ---- Empcode -> staff ---------------------------------------------------
+    // v_hr_staff, not staff: a category with included_in_hr = false takes no
+    // part in HR, and the import is what CREATES attendance — leaving it on the
+    // base table would silently re-add excluded staff every month, which is the
+    // one thing that would make the flag look broken. Same columns (the view is
+    // SELECT s.*), and no embed here, so the swap is a table-name change only.
     const { data: enrolled, error: staffErr } = await svc
-      .from('staff')
+      .from('v_hr_staff')
       .select('id, staff_id, first_name, last_name, institution_id, biometric_id, category_id')
       .eq('biometric_institution_id', machine.id)
       .not('biometric_id', 'is', null)

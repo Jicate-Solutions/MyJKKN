@@ -442,11 +442,22 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     regulation_id UUID,
     batch_id UUID,
 
-    -- Admission Year (Reconciled: 2026-04-23 — column was added directly via
-    -- Supabase MCP earlier without an explicit migration. Backfilled here for
-    -- canonical-source truth per CLAUDE.md SQL File Management Rules.)
-    -- Legacy integer kept for B2A endpoint back-compat (6 endpoints expose it).
-    admission_year INTEGER,
+    -- Admission Year — REMOVED 2026-08-24. There is no `admission_year` integer
+    -- column on learners_profiles in production; information_schema returns zero
+    -- for it. This file declared one anyway, which made the canonical source lie:
+    -- rebuilding from it would CREATE a column production has never had, and a
+    -- function written against this file would resolve it at runtime and fail on
+    -- every call (the #3055 class of bug).
+    --
+    -- The note this replaces said the integer was "kept for B2A endpoint
+    -- back-compat (6 endpoints expose it)". Those endpoints do still expose the
+    -- field, but they DERIVE it from the admission_years FK join — see
+    -- app/api/b2a/learners/route.ts ("Derive legacy admission_year integer from
+    -- FK join for back-compat") and api-management/learners/profiles (Phase C-8,
+    -- 2026-05-02). Not one of them reads a physical column, so nothing depends on
+    -- this declaration and no endpoint changes with its removal.
+    --
+    -- The FK below is the real, and only, admission-year anchor.
     -- Added: 2026-04-23 — shadow FK to admission_years (institution + program scoped cohorts).
     -- Migration: supabase/migrations/learners_profiles_admission_year_id_shadow_fk.sql
     -- Backfill: only lifecycle_status='admitted' rows get latest active cohort;
@@ -1833,6 +1844,17 @@ CREATE INDEX IF NOT EXISTS idx_staff_staff_id ON public.staff(staff_id);
 -- Billing indexes
 CREATE INDEX IF NOT EXISTS idx_billing_invoices_student_id ON public.billing_invoices(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_receipts_student_id ON public.billing_receipts(student_id);
+-- One receipt per gateway payment reference for AUTOMATED online receipts
+-- (gateway flows write with the service-role client, so created_by IS NULL).
+-- Backstop against the webhook/callback double-receipting race (2026-08-27,
+-- pay_TUh0Qpmo3jktV8). Manual accountant receipts are excluded: one UTR
+-- legitimately settles bills of two different learners as two hand-entered
+-- receipts.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_receipts_gateway_payment_ref
+  ON public.billing_receipts (payment_reference_number)
+  WHERE payment_mode = 'online'
+    AND created_by IS NULL
+    AND payment_reference_number IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_student_id ON public.billing_student_bills(student_id);
 CREATE INDEX IF NOT EXISTS idx_billing_student_bills_academic_year
   ON public.billing_student_bills (academic_year_id);
@@ -5498,6 +5520,19 @@ ALTER TABLE public.hostel_categories
 
 ALTER TABLE public.hostel_categories
   ADD COLUMN IF NOT EXISTS room_source_category_id uuid REFERENCES public.hostel_categories(id);
+
+-- 20260825120000: which entitlement band a room category grants, matching
+-- hostel_tier_policy.tier_key. Premium-only features gate on THIS, not on the
+-- category name (renaming a category must never change who is entitled) and not on
+-- hostel_allocations.tier_id (production never populated it — every row is 'standard',
+-- which silently refused every resident of the housekeeping slot-booking feature).
+-- Plain text, no FK: adding a tier must never block a category write, and an
+-- unmatched key resolves to no entitlement. Read by fn_housekeeping_entitlement_tier.
+ALTER TABLE public.hostel_categories
+  ADD COLUMN IF NOT EXISTS tier_key text NOT NULL DEFAULT 'standard';
+
+CREATE INDEX IF NOT EXISTS idx_hostel_categories_tier_key
+  ON public.hostel_categories (tier_key);
 ALTER TABLE public.hostel_categories
   DROP CONSTRAINT IF EXISTS chk_room_source_not_self;
 ALTER TABLE public.hostel_categories
@@ -7292,6 +7327,11 @@ GRANT  EXECUTE ON FUNCTION public.fn_jkkn_id_validate(text) TO authenticated;
 -- Course Events issues permanent IDs to external participants; extending
 -- this register keeps one pool and one format instead of minting a second.
 -- Mirrors migration 20260813100500_jkkn_identity_external_participant.sql.
+-- Widened 2026-08-27: a fifth person_kind, 'associate' — a profile-only
+-- internal user (admin/management account holding a custom role who is
+-- neither a learner nor a team member), anchored on profile_id like
+-- external_participant. Mirrors migration
+-- 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql.
 CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     jkkn_id             char(8) NOT NULL UNIQUE,
@@ -7311,7 +7351,7 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     updated_at          timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT jkkn_identities_person_kind_chk
-      CHECK (person_kind IN ('learner', 'team_member', 'both', 'external_participant')),
+      CHECK (person_kind IN ('learner', 'team_member', 'both', 'external_participant', 'associate')),
 
     -- Format is pinned here, not by the column width alone.
     CONSTRAINT jkkn_identities_format_chk
@@ -7330,11 +7370,14 @@ CREATE TABLE IF NOT EXISTS public.jkkn_identities (
     -- (fn_issue_jkkn_id), which verifies the target exists.
     -- Widened 2026-08-13: the fourth clause is new, the first three are
     -- preserved VERBATIM from the original migration.
+    -- Widened 2026-08-27: the fifth clause ('associate') is new.
     CONSTRAINT jkkn_identities_link_shape_chk CHECK (
          (person_kind = 'learner'              AND team_member_id     IS NULL)
       OR (person_kind = 'team_member'          AND learner_profile_id IS NULL)
       OR (person_kind = 'both')
       OR (person_kind = 'external_participant' AND learner_profile_id IS NULL
+                                               AND team_member_id     IS NULL)
+      OR (person_kind = 'associate'            AND learner_profile_id IS NULL
                                                AND team_member_id     IS NULL)
     ),
 
@@ -8353,3 +8396,183 @@ CREATE INDEX IF NOT EXISTS hr_attendance_period_summaries_staff_idx
 ALTER TABLE public.hr_attendance_periods
   DROP COLUMN IF EXISTS forced,
   DROP COLUMN IF EXISTS force_reason;
+
+
+-- ── Receipt cancellation approval flows (20260825160000) ──────────────────
+-- Who decides a receipt-cancellation request. institution_id NULL = the
+-- group-wide default; a row for a specific institution overrides it. No
+-- active flow at all means super-admin-only, the pre-2026-08-25 behaviour.
+CREATE TABLE IF NOT EXISTS public.billing_receipt_cancel_approval_flows (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- NULL = group-wide default. A row for a specific institution wins over it.
+  institution_id    uuid REFERENCES public.institutions(id) ON DELETE CASCADE,
+  flow_name         text NOT NULL,
+  -- role_key, not custom_roles.id: it is unique, it is what profiles.role
+  -- stores, and it keeps the row readable. ON UPDATE CASCADE so renaming a
+  -- role cannot silently orphan a flow.
+  approver_role_key text REFERENCES public.custom_roles(role_key)
+                         ON UPDATE CASCADE ON DELETE RESTRICT,
+  approver_user_id  uuid REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  is_active         boolean NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  created_by        uuid REFERENCES public.profiles(id),
+  updated_by        uuid REFERENCES public.profiles(id),
+  CONSTRAINT billing_receipt_cancel_flow_one_approver CHECK (
+    (approver_role_key IS NOT NULL)::int + (approver_user_id IS NOT NULL)::int = 1
+  )
+);
+
+COMMENT ON TABLE public.billing_receipt_cancel_approval_flows IS
+  'Who may decide a receipt-cancellation request. One active flow per institution, plus an optional group-wide default. No flow = super admin only.';
+
+-- At most one active flow per institution, and at most one active group-wide.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_institution
+  ON public.billing_receipt_cancel_approval_flows (institution_id)
+  WHERE is_active AND institution_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_cancel_flow_active_global
+  ON public.billing_receipt_cancel_approval_flows ((institution_id IS NULL))
+  WHERE is_active AND institution_id IS NULL;
+
+-- =====================================================
+-- 20260827100000: Housekeeping booking assignment
+-- (Base table hostel_cleaning_bookings + its 5 RPCs were created in
+--  migrations 20260610190000 / 20260825120000 and were never mirrored
+--  here — see those files for the full DDL. This block is the
+--  assignment-flow delta.)
+-- =====================================================
+
+ALTER TABLE public.hostel_cleaning_bookings
+  ADD COLUMN IF NOT EXISTS assigned_profile_id uuid REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS assigned_staff_name text,
+  ADD COLUMN IF NOT EXISTS assigned_at         timestamptz,
+  ADD COLUMN IF NOT EXISTS assigned_by         uuid REFERENCES public.profiles(id);
+
+CREATE INDEX IF NOT EXISTS idx_hostel_cleaning_bookings_assigned_profile
+  ON public.hostel_cleaning_bookings (assigned_profile_id);
+CREATE INDEX IF NOT EXISTS idx_hostel_cleaning_bookings_assigned_by
+  ON public.hostel_cleaning_bookings (assigned_by);
+
+-- status gains 'assigned' (booked → assigned → completed/no_show)
+ALTER TABLE public.hostel_cleaning_bookings
+  DROP CONSTRAINT IF EXISTS hostel_cleaning_bookings_status_check;
+ALTER TABLE public.hostel_cleaning_bookings
+  ADD CONSTRAINT hostel_cleaning_bookings_status_check
+  CHECK (status IN ('booked','assigned','completed','cancelled','no_show'));
+
+-- 'assigned' is still a LIVE booking for the room+slot
+DROP INDEX IF EXISTS public.hostel_cleaning_bookings_room_slot_uq;
+CREATE UNIQUE INDEX hostel_cleaning_bookings_room_slot_uq
+  ON public.hostel_cleaning_bookings (room_id, booking_date, slot_start)
+  WHERE status IN ('booked','assigned');
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827160000_hr_comp_off_claim_documents.sql
+-- =============================================================================
+
+ALTER TABLE public.hr_comp_off_credits
+  ADD COLUMN IF NOT EXISTS documents jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+COMMENT ON COLUMN public.hr_comp_off_credits.documents IS
+  'Supporting documents (LeaveDocument[] shape, Google Drive-backed) attached when the credit was claimed. Empty array for hr_grant/attendance sources.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827170000_hr_attendance_regularizations_staff_rewire.sql
+-- (FK half; the SELECT/INSERT policies are mirrored in 03_policies.sql)
+-- =============================================================================
+
+ALTER TABLE public.hr_attendance_regularizations
+  DROP CONSTRAINT IF EXISTS hr_attendance_regularizations_employee_id_fkey;
+ALTER TABLE public.hr_attendance_regularizations
+  ADD CONSTRAINT hr_attendance_regularizations_employee_id_fkey
+  FOREIGN KEY (employee_id) REFERENCES public.staff(id);
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827210000_employment_categories_included_in_hr.sql (column)
+-- =============================================================================
+
+ALTER TABLE public.employment_categories
+  ADD COLUMN IF NOT EXISTS included_in_hr boolean NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN public.employment_categories.included_in_hr IS
+  'Staff in this category participate in the HR module (attendance, leave, comp off, payroll, biometric import). Off = they never appear in HR and cannot raise HR requests; existing records are kept, not deleted.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql
+-- and 20260828130000_staff_id_backfill.sql (tables and columns)
+-- =============================================================================
+
+-- Institution code that staff IDs are generated from. Unique: two institutions
+-- sharing a prefix would interleave into one number line.
+ALTER TABLE public.institutions
+  ADD COLUMN IF NOT EXISTS staff_code_prefix text;
+
+ALTER TABLE public.institutions
+  ADD CONSTRAINT institutions_staff_code_prefix_chk
+  CHECK (staff_code_prefix ~ '^[A-Z]{2,8}$');
+
+CREATE UNIQUE INDEX IF NOT EXISTS institutions_staff_code_prefix_uq
+  ON public.institutions (staff_code_prefix)
+  WHERE staff_code_prefix IS NOT NULL;
+
+COMMENT ON COLUMN public.institutions.staff_code_prefix IS
+  'Institution code used to generate staff IDs (DCH -> DCH001 teaching, NOTDCH001 non-teaching). Changing it does NOT rewrite codes already issued - those are permanent - so a later edit only affects staff created afterwards.';
+
+-- The hand-entered code each person held before the 2026-08-28 renumbering.
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS legacy_staff_id text;
+
+CREATE INDEX IF NOT EXISTS idx_staff_legacy_staff_id
+  ON public.staff (legacy_staff_id)
+  WHERE legacy_staff_id IS NOT NULL;
+
+COMMENT ON COLUMN public.staff.legacy_staff_id IS
+  'The hand-entered staff_id this person held before the 2026-08-28 standardisation. Searchable so an old code still finds the right person. Never written by the app.';
+
+CREATE TABLE IF NOT EXISTS public.staff_id_counters (
+  institution_id uuid        NOT NULL REFERENCES public.institutions(id) ON DELETE CASCADE,
+  is_teaching    boolean     NOT NULL,
+  next_seq       integer     NOT NULL DEFAULT 1 CHECK (next_seq > 0),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (institution_id, is_teaching)
+);
+
+COMMENT ON TABLE public.staff_id_counters IS
+  'Next sequence number per institution x teaching bucket for staff ID generation. Written only by fn_next_staff_code (SECURITY DEFINER); there is no policy granting any user a direct write.';
+
+-- Deliberately no FK to staff: deleting a staff row must not erase the record
+-- of what their code used to be.
+CREATE TABLE IF NOT EXISTS public.staff_id_crosswalk (
+  staff_uuid       uuid PRIMARY KEY,
+  full_name        text,
+  institution_name text,
+  is_teaching      boolean,
+  is_active        boolean,
+  old_staff_id     text,
+  new_staff_id     text,
+  migrated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE public.staff_id_crosswalk IS
+  'Old -> new staff ID mapping from the 2026-08-28 standardisation. Read via v_staff_id_crosswalk.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828140000_staff_address_standardisation.sql
+-- and 20260828150000_custom_roles_is_privileged.sql
+-- =============================================================================
+
+-- Pre-image of staff.state / staff.district before they were standardised onto
+-- the lib/data/locations.ts vocabulary.
+CREATE TABLE IF NOT EXISTS public.staff_address_backfill_20260828 AS
+SELECT id, staff_id, first_name, last_name, state AS old_state, district AS old_district, address
+FROM public.staff;
+
+-- Which roles only a super admin may assign to a staff member. A new flag is
+-- needed because is_system_role is true for nearly every role (driver, guest
+-- and mess_caterer included) and so discriminates nothing.
+ALTER TABLE public.custom_roles
+  ADD COLUMN IF NOT EXISTS is_privileged boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN public.custom_roles.is_privileged IS
+  'Role can grant/alter permissions or administer the platform. Only super admins may assign it to a staff member (enforced by trg_staff_guard_role_key). Maintained in Role Management.';

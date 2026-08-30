@@ -1845,6 +1845,36 @@ CREATE TRIGGER trg_jkkn_identity_aliases_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- =====================================================================
+-- Added: 2026-08-27 - JKKN ID auto-issuance
+-- Mirror of migration 20260827110000_jkkn_id_associate_kind_and_auto_issue.sql
+-- Function bodies -> setup/02_functions.sql (tg_jkkn_auto_issue_*).
+-- Fail-soft by design: an issuance failure warns, never blocks the
+-- admission / hire / role grant that fired it.
+-- =====================================================================
+-- Widened 2026-08-27 (migration 20260827134500): a learner is issued at
+-- RESERVED — seat held, onboarding begins — not only at admitted/active.
+-- Enquiry-stage statuses stay excluded (numbers are never spent at enquiry).
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_learner ON public.learners_profiles;
+CREATE TRIGGER trg_jkkn_auto_issue_learner
+  AFTER INSERT OR UPDATE OF lifecycle_status ON public.learners_profiles
+  FOR EACH ROW
+  WHEN (NEW.lifecycle_status::text IN ('reserved', 'account', 'admitted', 'active', 'graduated', 'alumni'))
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_learner();
+
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_team_member ON public.staff;
+CREATE TRIGGER trg_jkkn_auto_issue_team_member
+  AFTER INSERT OR UPDATE OF is_active ON public.staff
+  FOR EACH ROW
+  WHEN (NEW.is_active IS TRUE)
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_team_member();
+
+DROP TRIGGER IF EXISTS trg_jkkn_auto_issue_associate ON public.user_roles;
+CREATE TRIGGER trg_jkkn_auto_issue_associate
+  AFTER INSERT ON public.user_roles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.tg_jkkn_auto_issue_associate();
+
+-- =====================================================================
 -- Added: 2026-08-13 - Course Events core triggers (course_events,
 -- course_packages, course_package_installments)
 -- Mirror of migration 20260813100000_course_events_core.sql
@@ -2290,3 +2320,100 @@ DROP TRIGGER IF EXISTS trg_z_bbi_sync_due_date_after_payment ON public.billing_s
 CREATE TRIGGER trg_z_bbi_sync_due_date_after_payment
   AFTER UPDATE OF balance_amount ON public.billing_student_bills
   FOR EACH ROW EXECUTE FUNCTION public.bbi_sync_due_date_after_payment();
+
+
+-- ── Receipt cancellation activity feed (20260825170000) ───────────────────
+DROP TRIGGER IF EXISTS trg_log_receipt_cancel_activity
+  ON public.billing_receipt_cancel_request_actions;
+
+CREATE TRIGGER trg_log_receipt_cancel_activity
+  AFTER INSERT ON public.billing_receipt_cancel_request_actions
+  FOR EACH ROW EXECUTE FUNCTION public._fn_log_receipt_cancel_activity();
+
+
+-- ── Learner status reversal on payment drop (20260825180000) ──────────────
+-- Keyed on the paid amount DROPPING rather than on a workflow, so receipt
+-- cancellation, a direct void, a refund and a manual bill edit are all covered.
+DROP TRIGGER IF EXISTS trg_learner_status_on_bill_payment_drop
+  ON public.billing_student_bills;
+
+-- AFTER, so the reverted balance is already visible to the re-evaluation.
+CREATE TRIGGER trg_learner_status_on_bill_payment_drop
+  AFTER UPDATE OF balance_amount, final_amount, status ON public.billing_student_bills
+  FOR EACH ROW
+  EXECUTE FUNCTION public._fn_learner_status_on_bill_payment_drop();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827190000_hr_regularization_stamp_trigger.sql
+-- (trigger half; the function is mirrored in 02_functions.sql)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS tr_stamp_attendance_on_regularization_approval
+  ON public.hr_attendance_regularizations;
+CREATE TRIGGER tr_stamp_attendance_on_regularization_approval
+  AFTER UPDATE OF status ON public.hr_attendance_regularizations
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_stamp_attendance_on_regularization_approval();
+
+COMMENT ON FUNCTION public.fn_stamp_attendance_on_regularization_approval() IS
+  'Writes hr_attendance_records when a regularization is approved. Replaces the client-side best-effort stamp in regularization-service.ts, which silently skipped whenever the approver lacked hr_staff_details, the month was closed, or the browser held a stale bundle.';
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827200000_hr_comp_off_claims_respect_locked_month.sql
+-- (trigger half; the functions are mirrored in 02_functions.sql)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_locked_period ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_locked_period
+  BEFORE INSERT OR UPDATE OR DELETE ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_comp_off_claim_in_locked_period();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260827220000_hr_population_respects_included_in_hr.sql (triggers)
+-- =============================================================================
+
+DROP TRIGGER IF EXISTS trg_hla_block_non_hr_staff ON public.hr_leave_applications;
+CREATE TRIGGER trg_hla_block_non_hr_staff
+  BEFORE INSERT ON public.hr_leave_applications
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('leave or short time off');
+
+DROP TRIGGER IF EXISTS trg_hcoc_block_non_hr_staff ON public.hr_comp_off_credits;
+CREATE TRIGGER trg_hcoc_block_non_hr_staff
+  BEFORE INSERT ON public.hr_comp_off_credits
+  FOR EACH ROW EXECUTE FUNCTION public.hr_trig_block_non_hr_staff_request('compensatory off');
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828120000_staff_id_standardisation_primitives.sql (triggers)
+-- =============================================================================
+
+-- Generates the staff ID on creation and freezes it forever after. Any bulk
+-- rewrite of staff.staff_id must DISABLE this trigger first, or the permanence
+-- guard rejects it with P0001.
+DROP TRIGGER IF EXISTS trg_staff_autonumber ON public.staff;
+CREATE TRIGGER trg_staff_autonumber
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_autonumber();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828150100_staff_role_key_guard_trigger.sql
+-- =============================================================================
+
+-- Only super admins may set or change a staff member's role. This is the
+-- control; the filtered dropdown in the staff form is only a courtesy.
+DROP TRIGGER IF EXISTS trg_staff_guard_role_key ON public.staff;
+CREATE TRIGGER trg_staff_guard_role_key
+  BEFORE INSERT OR UPDATE ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_guard_role_key();
+
+-- =============================================================================
+-- Mirrored from supabase/migrations/20260828160000_staff_require_institution_email_for_login.sql
+-- =============================================================================
+
+-- INSERT-only on purpose: firing on UPDATE too would lock the staff who already
+-- have this gap out of every edit, including the edit that fills the email in.
+-- Fires before trg_sync_staff_to_profiles (BEFORE row triggers run in
+-- alphabetical name order, and 'trg_staff_...' sorts before 'trg_sync_...').
+DROP TRIGGER IF EXISTS trg_staff_require_institution_email ON public.staff;
+CREATE TRIGGER trg_staff_require_institution_email
+  BEFORE INSERT ON public.staff
+  FOR EACH ROW EXECUTE FUNCTION public.fn_staff_require_institution_email();

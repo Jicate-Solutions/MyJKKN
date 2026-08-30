@@ -11,6 +11,7 @@ import type {
   HRCalendarEntry,
   LeaveApplicationStatus,
 } from '@/types/hr';
+import { invalidateAttendanceViews } from '@/hooks/hr/use-attendance-records';
 
 const BASE = '/api/hr/leave';
 
@@ -209,6 +210,10 @@ export function useDecideApplication() {
       // The Approvals tab reads hr_leave_approval_queue() under its own key;
       // without this the decided row stays on screen until a manual refresh.
       qc.invalidateQueries({ queryKey: ['hr-leave-approval-flows'] });
+      // Approving leave fires tr_recompute_attendance_on_leave_approval, and
+      // short time off moves the day's excused minutes — both land in
+      // hr_attendance_records, which My Attendance reads under its own keys.
+      invalidateAttendanceViews(qc);
     },
   });
 }

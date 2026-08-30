@@ -97,7 +97,7 @@ export const MODULES: Module[] = [
   { slug: 'moments', label: 'Family Moments', icon: 'Heart', section: 'Learners', hasNavConfig: false },
 
   // ── Billing & Accounts ────────────────────────────────────────────────
-  { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Billing & Accounts', hasNavConfig: false },
+  { slug: 'billing', label: 'Billing', icon: 'Wallet', section: 'Billing & Accounts', hasNavConfig: true },
 
   // ── Resources ─────────────────────────────────────────────────────────
   { slug: 'resource-management', label: 'Resources', icon: 'Package', section: 'Resources', hasNavConfig: false },

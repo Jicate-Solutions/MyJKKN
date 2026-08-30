@@ -45,6 +45,10 @@ export function ApprovalRowActions({
   handlers: ApprovalRowActionHandlers;
 }) {
   const who = row.staff_name ?? 'this request';
+  // The queue carries decided history too. can_decide is already false on those
+  // rows, but they must not fall into the "your own request" explanation below
+  // — a decided row is undecidable for everyone, not just its owner.
+  const isDecided = row.status !== 'pending' && row.status !== 'escalated';
 
   return (
     <DropdownMenu>
@@ -79,7 +83,7 @@ export function ApprovalRowActions({
           self-approval bar, so hiding these on is_own would block exactly the
           person the database lets through.
         */}
-        {row.can_decide ? (
+        {isDecided ? null : row.can_decide ? (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuItem

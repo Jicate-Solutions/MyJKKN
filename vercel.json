@@ -250,6 +250,10 @@
     {
       "schedule": "35 20 * * *",
       "path": "/api/cron/billing/learner-status-sweep?secret=${CRON_SECRET}"
+    },
+    {
+      "schedule": "22,52 * * * *",
+      "path": "/api/cron/orchestration-sync?secret=${CRON_SECRET}"
     }
   ]
 }

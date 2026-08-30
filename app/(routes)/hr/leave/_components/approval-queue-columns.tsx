@@ -134,6 +134,28 @@ const institutionColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   minSize: 140,
 };
 
+/** Who decided it, resolved by the RPC — profiles is unreadable client-side. */
+const decidedByColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
+  accessorKey: 'final_approver_name',
+  header: ({ column }) => <DataTableColumnHeader column={column} title="Decided by" />,
+  cell: ({ row }) => {
+    const r = row.original;
+    if (!r.final_approver_id) return <span className="text-muted-foreground">—</span>;
+    return (
+      <div className="min-w-0">
+        <span className="block truncate">{r.final_approver_name ?? 'Unknown'}</span>
+        {r.final_decided_at && (
+          <span className="block truncate text-xs text-muted-foreground">
+            {new Date(r.final_decided_at).toLocaleDateString('en-GB')}
+          </span>
+        )}
+      </div>
+    );
+  },
+  size: 170,
+  minSize: 130,
+};
+
 const statusColumn: ColumnDef<HRLeaveApprovalQueueRow> = {
   accessorKey: 'status',
   header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
@@ -227,6 +249,7 @@ export function getLeaveApprovalColumns(
       size: 240,
       minSize: 140,
     },
+    decidedByColumn,
     statusColumn,
     actionsColumn(a),
   ];
@@ -287,6 +310,7 @@ export function getShortTimeOffColumns(
       size: 240,
       minSize: 140,
     },
+    decidedByColumn,
     statusColumn,
     actionsColumn(a),
   ];

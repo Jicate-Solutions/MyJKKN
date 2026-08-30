@@ -9,6 +9,7 @@
  * Pure: no database access. The caller supplies every lookup through ValidationContext.
  */
 import { validateEmail, validatePhone, parseFlexibleDate } from '@/lib/utils/staff-field-validators';
+import { getLocationIdByFuzzyName, getLocationDisplayName } from '@/lib/data/locations';
 import {
   EDITABLE_COLUMNS,
   GENDERS,
@@ -48,8 +49,6 @@ export interface ValidationContext {
   institutionsByName: Map<string, string>;
   /** lowercased personal email -> owning staff id */
   emailOwner: Map<string, string>;
-  /** lowercased staff_id -> owning staff id */
-  staffIdOwner: Map<string, string>;
   /** `${institution_id}|${normalisedCode}` -> owning staff id */
   biometricOwner: Map<string, string>;
   /**
@@ -140,16 +139,6 @@ export function validateStaffBulkEditRow(
         break;
       }
 
-      case 'staff_id': {
-        const owner = ctx.staffIdOwner.get(raw.toLowerCase());
-        if (owner && owner !== staff.id) {
-          issues.push({ field: col.header, kind: 'record', message: `Staff ID ${raw} already belongs to another staff member.` });
-          break;
-        }
-        if (raw !== (staff.staff_id as string | null)) updates.staff_id = raw;
-        break;
-      }
-
       case 'pincode': {
         if (!/^\d{6}$/.test(raw)) {
           issues.push({ field: col.header, kind: 'format', message: `"${raw}" is not a 6-digit pincode.` });
@@ -215,8 +204,53 @@ export function validateStaffBulkEditRow(
         break;
       }
 
+      // State and District are dataset-validated as of 2026-08-28, when the
+      // stored values were standardised (nine spellings of "Tamil Nadu", 50
+      // district values for ~20 real districts). Left as free text this sheet
+      // would re-introduce the mess within weeks — a bulk edit writes far more
+      // rows than the form does.
+      //
+      // The canonical spelling is written back, so "TAMILNADU" is accepted and
+      // stored as "Tamil Nadu" rather than rejected: the operator's intent is
+      // unambiguous and refusing it would just be pedantry.
+      case 'state': {
+        const id = getLocationIdByFuzzyName(raw, 'state');
+        if (!id) {
+          issues.push({
+            field: col.header,
+            kind: 'record',
+            message: `"${raw}" is not a known state. Use the spelling shown in the staff form's State dropdown.`
+          });
+          break;
+        }
+        const canonical = getLocationDisplayName(id, 'state');
+        if (canonical !== (staff.state as string | null)) updates.state = canonical;
+        break;
+      }
+
+      case 'district': {
+        // Resolved within the person's state where known, so an ambiguous name
+        // cannot silently land in the wrong state's district.
+        const stateId = getLocationIdByFuzzyName(
+          (updates.state as string | undefined) ?? (staff.state as string | null),
+          'state'
+        );
+        const id = getLocationIdByFuzzyName(raw, 'district', stateId || undefined);
+        if (!id) {
+          issues.push({
+            field: col.header,
+            kind: 'record',
+            message: `"${raw}" is not a known district. Use the spelling shown in the staff form's District dropdown.`
+          });
+          break;
+        }
+        const canonical = getLocationDisplayName(id, 'district', stateId || undefined);
+        if (canonical !== (staff.district as string | null)) updates.district = canonical;
+        break;
+      }
+
       default: {
-        // plain text: address, state, district, designation
+        // plain text: address, designation
         if (raw !== (staff[col.field] as string | null)) updates[col.field] = raw;
       }
     }

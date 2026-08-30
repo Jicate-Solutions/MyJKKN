@@ -24,6 +24,7 @@ import {
   MessageCircle,
   CalendarDays,
   Building2,
+  Bus,
   GraduationCap,
   BookOpen,
   ClipboardCheck,
@@ -968,6 +969,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/unlinked-referrals': 'admission.consultants.commissions.view',
   '/admission/consultants/import': 'admission.consultants.commissions.view',
   '/admission/consultants/payouts': 'admission.consultants.commissions.view',
+  // Added 2026-08-17 — which agencies cannot be paid at all, ordered by the
+  // referrals stuck behind them. Same read permission as the rest of the
+  // commission machinery, matching its RPC.
+  '/admission/consultants/payout-readiness': 'admission.consultants.commissions.view',
   '/admission/consultants/reconciliation': 'admission.consultants.commissions.view',
   '/admission/consultants/referrals': 'admission.consultants.referrals.view',
   // Added 2026-08-10 — read-only review worklist for agency credits that need a
@@ -1554,6 +1559,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/meetings/availability': 'meetings.view',
   '/meetings/manage': 'meetings.view',
   '/meetings/inbox': 'meetings.view',
+  // "My Meetings" — the meetings the signed-in user is IN, hosting OR
+  // attending. Same gate as the inbox: the page only ever reads the caller's
+  // own participation, so a separate key would add role-config burden without
+  // adding protection.
+  '/meetings/my-bookings': 'meetings.view',
   // Host-initiated scheduling. Same gate as the rest of the module: the page
   // can only ever book the SIGNED-IN user's own calendar, so a separate key
   // would add a role-config burden without adding any protection.
@@ -2365,6 +2375,13 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/consultants/payouts'
             },
             {
+              // Added 2026-08-17 — sits next to Payouts because it answers the
+              // question Payouts cannot: who is not payable at all, and why.
+              href: '/admission/consultants/payout-readiness',
+              label: 'Payout Readiness',
+              active: pathname === '/admission/consultants/payout-readiness'
+            },
+            {
               href: '/admission/consultants/reconciliation',
               label: 'Reconciliation',
               active: pathname === '/admission/consultants/reconciliation'
@@ -2934,30 +2951,69 @@ export function GetPages(pathname: string): MenuGroup[] {
     {
       groupLabel: 'Billing & Accounts',
       menus: [
+        // Split into three domains 2026-08-25. One "Billing" menu had grown to
+        // 23 submenus mixing college, transport and school work in one list.
+        // The domains are real, not cosmetic: the schedule services filter on
+        // institution_entity_type='institution', and school fees run on their
+        // own school_fees.* permission namespace and school_fee_* tables.
+        //
+        // The three `active` predicates MUST stay mutually exclusive — all
+        // three rows live under /billing, so the college one has to exclude the
+        // other two prefixes or every row highlights at once.
         {
           href: '/billing',
-          label: 'Billing',
-          active: pathname === '/billing' || pathname.startsWith('/billing/'),
-          icon: Wallet,
+          label: 'Colleges',
+          active:
+            pathname === '/billing' ||
+            (pathname.startsWith('/billing/') &&
+              !pathname.startsWith('/billing/transport') &&
+              !pathname.startsWith('/billing/school-fees')),
+          icon: GraduationCap,
           submenus: [
-            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
             { href: '/billing/schedule', label: 'Schedule · All Bills', active: pathname === '/billing/schedule' },
             { href: '/billing/schedule/students', label: 'Schedule · Student Search', active: pathname.startsWith('/billing/schedule/students') },
             { href: '/billing/coverage', label: 'Bill Coverage', active: pathname.startsWith('/billing/coverage') },
             { href: '/billing/onboarding', label: 'Learner Onboarding', active: pathname.startsWith('/billing/onboarding') },
-            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/discounts', label: 'Scholarships', active: pathname.startsWith('/billing/discounts') },
             { href: '/billing/refunds', label: 'Refunds', active: pathname.startsWith('/billing/refunds') },
             { href: '/billing/refund-approvals', label: 'Refund Approvals', active: pathname.startsWith('/billing/refund-approvals') },
             { href: '/billing/receipt-cancellations', label: 'Receipt Cancellations', active: pathname.startsWith('/billing/receipt-cancellations') },
             { href: '/billing/apportionment', label: 'Apportionment', active: pathname.startsWith('/billing/apportionment') },
             { href: '/billing/invoices', label: 'Invoices', active: pathname.startsWith('/billing/invoices') },
+            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+            // ── Group-wide, not college-only ──────────────────────────────
+            // These six serve schools too and deliberately have no second row
+            // under Schools: one href in two menus highlights both at once.
+            // Categories IS the school fee-head master (school-fee-head-service
+            // reads billing_categories, collapsed to global in 20260428000001),
+            // and the school counter writes billing_receipt_items, so Receipts
+            // lists school payments as well.
+            { href: '/billing/categories', label: 'Categories', active: pathname.startsWith('/billing/categories') },
+            { href: '/billing/receipts', label: 'Receipts', active: pathname.startsWith('/billing/receipts') },
             { href: '/billing/reports', label: 'Reports', active: pathname.startsWith('/billing/reports') },
             { href: '/billing/analytics', label: 'Analytics', active: pathname.startsWith('/billing/analytics') },
             { href: '/billing/activities', label: 'Activities', active: pathname.startsWith('/billing/activities') },
             { href: '/billing/payment-accounts', label: 'Payment Gateway Accounts', active: pathname.startsWith('/billing/payment-accounts') },
-            { href: '/billing/transport', label: 'Transport Fees', active: pathname.startsWith('/billing/transport') },
-            { href: '/billing/late-charges', label: 'Late Charges', active: pathname.startsWith('/billing/late-charges') },
+          ]
+        },
+        {
+          // /billing/transport is the app's ONLY transport route, so this is a
+          // direct link rather than a menu whose arrow opens a single child.
+          // Note the filter consequence: a menu with an empty submenus[] is
+          // gated on its OWN MENU_PERMISSIONS entry (billing.transport.view)
+          // instead of "any child is allowed". That mapping already exists.
+          href: '/billing/transport',
+          label: 'Transport Fees',
+          active: pathname.startsWith('/billing/transport'),
+          icon: Bus,
+          submenus: []
+        },
+        {
+          href: '/billing/school-fees',
+          label: 'Schools',
+          active: pathname.startsWith('/billing/school-fees'),
+          icon: School,
+          submenus: [
             // School fees (moved here from Admission > Settings 2026-08-13).
             // 'School Fee Plans' owns /billing/school-fees and its plan
             // sub-routes (/new, /[id]) but NOT the siblings below, which have
@@ -3246,6 +3302,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarClock,
           submenus: [
             { href: '/meetings', label: 'Home', active: pathname === '/meetings' },
+            { href: '/meetings/my-bookings', label: 'My Meetings', active: pathname.startsWith('/meetings/my-bookings') },
             { href: '/meetings/schedule', label: 'Schedule a Meeting', active: pathname.startsWith('/meetings/schedule') },
             { href: '/meetings/availability', label: 'My Availability & Page', active: pathname.startsWith('/meetings/availability') },
             { href: '/meetings/manage', label: 'Meeting Types', active: pathname.startsWith('/meetings/manage') },
