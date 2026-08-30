@@ -129,7 +129,10 @@ export async function POST(request: NextRequest) {
     // ---- The days to re-judge ----------------------------------------------
     let q = session
       .from('hr_attendance_records')
-      .select('id, employee_id, work_date, in_at, out_at, status_type_id, day_calc, first_half_attended, second_half_attended, late_minutes, excused_minutes, excused_by_application_ids, shift_timing_id')
+      // institution_id is selected only so the leave re-stamp below knows which
+      // institutions were touched — institutionId is optional in the body, and
+      // a group-wide recompute must re-stamp every institution it rewrote.
+      .select('id, employee_id, institution_id, work_date, in_at, out_at, status_type_id, day_calc, first_half_attended, second_half_attended, late_minutes, excused_minutes, excused_by_application_ids, shift_timing_id')
       .eq('source', 'biometric')
       .gte('work_date', from)
       .lte('work_date', to)
@@ -193,6 +196,11 @@ export async function POST(request: NextRequest) {
           institution_id: '',
           staff_scope: t.matched_by as ResolvedShiftTiming['staff_scope'],
           employment_category_id: null,
+          // Placeholder, like institution_id and day_of_week beside it:
+          // fn_resolve_shift_timings_bulk returns only the window, and
+          // evaluateDay reads none of these three. The gender that produced this
+          // row was already applied inside the resolver.
+          applicable_gender: 'all',
           day_of_week: 1,
           is_working_day: t.is_working_day as boolean,
           first_half_start: t.first_half_start as string | null,
@@ -297,7 +305,13 @@ export async function POST(request: NextRequest) {
       changes,
     };
 
-    if (dryRun || updates.length === 0) {
+    // Only a DRY RUN returns early. "Nothing to update" deliberately falls
+    // through to the leave re-stamp below: a day whose punch verdict already
+    // equals its stored status produces no update, and that is exactly the state
+    // a leave day is left in after an earlier recompute overwrote its LEAVE
+    // stamp with ABSENT. Returning here would make the repair unreachable in the
+    // one case that needs it most.
+    if (dryRun) {
       return NextResponse.json({
         ...base,
         message: updates.length === 0
@@ -331,10 +345,50 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ---- Re-apply approved leave stamps -------------------------------------
+    // A recompute writes status_type_id straight from the punch verdict, which
+    // knows nothing about approved leave — the same hazard the biometric import
+    // had. Without this step every LEAVE / HALF_DAY day in range silently
+    // reverts to ABSENT or PRESENT, and this route is exactly what an admin runs
+    // after changing a shift timing, so the fix for one feature would break
+    // another.
+    //
+    // Driven off `records`, not `updates`: a day whose punch verdict already
+    // matches its stored status produces no update, but may still have lost its
+    // leave stamp to an earlier recompute. Re-stamping the whole examined range
+    // heals those too.
+    let leaveRestamped = 0;
+    const restampInstitutions = [
+      ...new Set(
+        (records as Array<Record<string, unknown>>)
+          .map((r) => r.institution_id as string | null)
+          .filter((v): v is string => !!v),
+      ),
+    ];
+    for (const instId of restampInstitutions) {
+      const { data: restamped, error: restampErr } = await session.rpc(
+        'fn_restamp_leave_attendance',
+        { p_institution_id: instId, p_from: from, p_to: to },
+      );
+      // Not fatal: the recompute that just landed is still correct for everyone
+      // without approved leave. Surfaced in the response so a partial is visible
+      // rather than assumed.
+      if (restampErr) {
+        console.error('[hr/attendance/recompute] leave re-stamp failed:', restampErr);
+        continue;
+      }
+      leaveRestamped += (restamped as number | null) ?? 0;
+    }
+
     return NextResponse.json({
       ...base,
       written,
-      message: `Recomputed ${written} day(s) of ${records.length} examined.`,
+      leave_restamped: leaveRestamped,
+      message:
+        `Recomputed ${written} day(s) of ${records.length} examined` +
+        (leaveRestamped > 0
+          ? `; ${leaveRestamped} day(s) re-stamped from approved leave.`
+          : '.'),
     });
   } catch (error) {
     console.error('[hr/attendance/recompute] unexpected error:', error);

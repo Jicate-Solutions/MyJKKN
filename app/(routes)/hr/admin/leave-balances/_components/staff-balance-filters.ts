@@ -132,6 +132,8 @@ function matchesAttention(row: HRStaffBalanceRow, attention: AttentionFilter): b
       return row.flags.overdrawn > 0;
     case 'off_policy':
       return row.flags.off_policy > 0;
+    case 'sto_exhausted':
+      return (row.flags.sto_exhausted ?? 0) > 0;
   }
 }
 

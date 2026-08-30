@@ -22,6 +22,7 @@ import type {
   HRShiftTiming,
   IsoDayOfWeek,
   ResolvedShiftTiming,
+  ShiftApplicableGender,
   ShiftStaffScope,
   ShiftTimingCoverageRow,
 } from '@/types/hr-shift-timings';
@@ -43,6 +44,8 @@ export interface SaveWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Defaults to 'all'. A Female save never touches the Everyone week. */
+  applicableGender?: ShiftApplicableGender;
   /** ISO date. Today (or earlier) corrects in place; a future date supersedes. */
   effectiveFrom: string;
   days: WeekDayInput[];
@@ -52,6 +55,8 @@ export interface GetWeekParams {
   institutionId: string;
   staffScope: ShiftStaffScope;
   employmentCategoryId?: string | null;
+  /** Defaults to 'all'. Must reach the React Query key — see ShiftTimingFilters. */
+  applicableGender?: ShiftApplicableGender;
   /** ISO date. Defaults to today. */
   asOf?: string;
 }
@@ -116,6 +121,10 @@ export class ShiftTimingService {
       .select('*')
       .eq('institution_id', params.institutionId)
       .eq('staff_scope', params.staffScope)
+      // Explicit, never omitted: without it the Female week and the Everyone
+      // week come back interleaved and hydrate() — which keys by day_of_week —
+      // would keep whichever of the two arrived last for each day.
+      .eq('applicable_gender', params.applicableGender ?? 'all')
       .eq('is_active', true)
       .lte('effective_from', asOf)
       .or(`effective_until.is.null,effective_until.gt.${asOf}`)
@@ -194,6 +203,7 @@ export class ShiftTimingService {
       p_employment_category_id: params.employmentCategoryId ?? null,
       p_effective_from: params.effectiveFrom,
       p_days: payload,
+      p_applicable_gender: params.applicableGender ?? 'all',
     });
 
     if (error) throw error;
