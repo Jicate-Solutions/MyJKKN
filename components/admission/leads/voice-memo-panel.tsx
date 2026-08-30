@@ -201,10 +201,6 @@ export function VoiceMemoPanel({
   defaultExpanded = false,
   title = 'Voice Memo',
 }: VoiceMemoPanelProps) {
-  // No audio at all → render nothing (graceful no-op for call rows that
-  // pre-date the voice-memo feature OR where the counselor skipped recording).
-  if (!memo.audio_url) return null;
-
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [showFullTranscript, setShowFullTranscript] = useState(false);
   // Reset transcript-collapsed state if memo content changes (e.g., cron
@@ -212,6 +208,17 @@ export function VoiceMemoPanel({
   useEffect(() => {
     setShowFullTranscript(false);
   }, [memo.transcript]);
+
+  // No audio at all → render nothing (graceful no-op for call rows that
+  // pre-date the voice-memo feature OR where the counselor skipped recording).
+  //
+  // BELOW the hooks, and it matters more here than anywhere else this pattern
+  // appeared: audio_url is not fixed for the life of the component. The comment
+  // on the effect above says it out loud — the cron catches up WHILE THE PANEL
+  // IS MOUNTED — so this prop genuinely flips from absent to present on the same
+  // fiber. Guarding above the hooks meant that render went from calling no hooks
+  // to calling three, which is the "Expected static flag was missing" crash.
+  if (!memo.audio_url) return null;
 
   const status = (memo.analyze_status || 'pending').toLowerCase();
   const isInFlight = status === 'pending' || status === 'transcribing' || status === 'analyzing';

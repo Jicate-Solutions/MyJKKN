@@ -387,9 +387,31 @@ export class LeaveService {
       );
     }
 
+    // The DAY COMPARISON, unlike the eligibility check above, applies to
+    // request_category='leave' ONLY. This mirrors hr_trig_update_leave_balance()'s
+    // own early return:
+    //
+    //   IF v_category IN ('compensatory_off', 'short_time_off') THEN RETURN NEW;
+    //
+    // Those two categories never have `used` incremented by anything, anywhere —
+    // verified in production: sum(used) = 0 across every comp-off and STO balance
+    // row. So this comparison was measuring a number that means nothing, and
+    // refusing on it:
+    //   * Short Time Off — 101 staff (Matric 55, Nattraja CBSE 33, Jicate 13) got
+    //     "Insufficient balance. You have 0.0 day(s)…" on every submit, because
+    //     their Permission type sat at default_entitled_days = 0 (the leave-type
+    //     form's default) and an hourly request prices at 0.125.
+    //   * Compensatory Off — all 504 cells resolve to available <= 0, so this line
+    //     refused 100% of comp-off claims. Zero were ever filed.
+    //
+    // Each category keeps its own real budget, enforced where the currency lives:
+    // STO by hr_trig_sto_enforce_limits (minutes per period), comp off by its
+    // credit ledger — the drawer blocks at zero credits and the database refuses
+    // an approval with no credit behind it.
+    const tracksDayEntitlement = leaveType.request_category === 'leave';
     const available =
       (balance.entitled ?? 0) + (balance.carried_forward ?? 0) - (balance.used ?? 0);
-    if (estimatedDays > available) {
+    if (tracksDayEntitlement && estimatedDays > available) {
       // hr_leave_types has no `name` column — it is `leave_type_name`.
       throw new Error(
         `Insufficient balance. You have ${available.toFixed(1)} day(s) of ${leaveType.leave_type_name} available; requested ${estimatedDays}.`
