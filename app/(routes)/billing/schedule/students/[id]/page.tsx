@@ -791,6 +791,7 @@ export default function StudentBillingDetailPage() {
                   <StudentReceiptsTable
                     receipts={billingSummary.receipts}
                     onRefresh={refetchSummary}
+                    isStudentView={isStudent}
                   />
                 </TabsContent>
 

@@ -23,6 +23,10 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle,
+} from '@/components/ui/drawer';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -183,21 +187,28 @@ export function LeaveApprovalFlowDialog({
   };
 
   const inheriting = !resolved?.own && !!resolved?.fallback;
+  // Same breakpoint as leave-type-detail-dialog.tsx and the DataTable's
+  // row/card swap, so the table and both its modals agree on "mobile".
+  const isMobile = useMediaQuery('(max-width: 768px)');
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <GitBranch className="h-5 w-5 text-primary" />
-            Approval flow — {leaveType?.leave_type_name}
-          </DialogTitle>
-          <DialogDescription>
-            Who signs off on this leave type. Each step is cleared in order; the last
-            step grants approval. The chain is copied onto an application when it is
-            submitted, so editing here never changes requests already in flight.
-          </DialogDescription>
-        </DialogHeader>
+  const title = (
+    <span className="flex items-start gap-2 text-left">
+      <GitBranch className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+      {/* min-w-0 lets a long leave type name wrap instead of forcing the
+          header wider than the container. */}
+      <span className="min-w-0 break-words">
+        Approval flow — {leaveType?.leave_type_name}
+      </span>
+    </span>
+  );
+
+  const description =
+    'Who signs off on this leave type. Each step is cleared in order; the last ' +
+    'step grants approval. The chain is copied onto an application when it is ' +
+    'submitted, so editing here never changes requests already in flight.';
+
+  const body = (
+    <>
 
         {/* Which institution this flow belongs to. Every leave type is scoped to
             one organization and each organization maintains its own catalog, so
@@ -248,8 +259,12 @@ export function LeaveApprovalFlowDialog({
               const role = roleByKey.get(s.approver_role);
               return (
                 <div key={s.key} className="rounded-md border p-3">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                  {/* wrap + gap: at 360px the "Step 1 · final" badge, the
+                      "Pick an approver" warning and three icon buttons do not
+                      fit on one line, and justify-between alone pushed the
+                      buttons off the card. */}
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant={idx === steps.length - 1 ? 'default' : 'secondary'}>
                         Step {idx + 1} · {idx === steps.length - 1 ? 'final' : 'review'}
                       </Badge>
@@ -257,7 +272,7 @@ export function LeaveApprovalFlowDialog({
                         <span className="text-xs text-destructive">Pick an approver</span>
                       )}
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
                       <Button type="button" variant="ghost" size="icon" className="h-7 w-7"
                         onClick={() => move(idx, idx - 1)} disabled={idx === 0}
                         aria-label="Move step up">
@@ -277,7 +292,7 @@ export function LeaveApprovalFlowDialog({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <Label>Approver is</Label>
                       <Select value={s.mode}
@@ -383,23 +398,73 @@ export function LeaveApprovalFlowDialog({
           </div>
         )}
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="ghost" onClick={handleClear}
+    </>
+  );
+
+  /*
+   * DialogFooter is flex-col-reverse below sm and DrawerFooter stacks too, so
+   * these buttons end up in a column on a phone. Made full-width there: a
+   * left-aligned ghost button sitting under two others reads as a stray link
+   * rather than the third action.
+   */
+  const footer = (
+    <>
+          <Button type="button" variant="ghost" className="w-full sm:w-auto" onClick={handleClear}
             disabled={!resolved?.own || clear.isPending}
             title={resolved?.own
               ? 'Delete this type-specific flow and inherit the organization default'
               : 'This type already inherits the organization default'}>
             Use organization default
           </Button>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button type="button" variant="outline" className="flex-1 sm:flex-none"
+              onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="button" onClick={handleSave} disabled={!allValid || save.isPending}>
+            <Button type="button" className="flex-1 sm:flex-none"
+              onClick={handleSave} disabled={!allValid || save.isPending}>
               {save.isPending ? 'Saving…' : 'Save flow'}
             </Button>
           </div>
-        </DialogFooter>
+    </>
+  );
+
+  /*
+   * Drawer below 768px, Dialog above — the rule leave-type-detail-dialog.tsx
+   * already follows, and the same breakpoint at which the DataTable swaps rows
+   * for cards, so the table and both of its modals agree on what "mobile" means.
+   *
+   * It matters more here than on the read-only detail view: this is a form with
+   * a per-step approver search, and a centred 90vh dialog on a phone leaves the
+   * Save button hovering over a page you cannot see, with square edge-to-edge
+   * corners (the base DialogContent is `w-full max-w-lg p-6` with no gutter and
+   * `sm:rounded-lg`). A drawer is anchored, full-width by design, and keeps its
+   * footer reachable.
+   */
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent className="max-h-[90vh]">
+          <DrawerHeader className="text-left">
+            <DrawerTitle>{title}</DrawerTitle>
+            <DrawerDescription>{description}</DrawerDescription>
+          </DrawerHeader>
+          <div className="space-y-4 overflow-y-auto px-4 pb-2">{body}</div>
+          <DrawerFooter className="gap-2">{footer}</DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        {body}
+        <DialogFooter className="gap-2 sm:justify-between">{footer}</DialogFooter>
       </DialogContent>
     </Dialog>
   );

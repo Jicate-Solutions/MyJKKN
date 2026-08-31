@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/orchestration",
+        "label": "Orchestration",
+        "iconName": "LayoutDashboard",
+        "children": []
+      },
+      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
@@ -880,6 +886,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payout-readiness",
+            "label": "Payout Readiness",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -2619,6 +2631,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "children": []
           },
           {
+            "path": "/campus-living/housekeeping/my-work",
+            "label": "My Work",
+            "iconName": "SprayCan",
+            "children": []
+          },
+          {
             "path": "/campus-living/housekeeping/schedules",
             "label": "Schedules",
             "iconName": "CalendarClock",
@@ -4317,6 +4335,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/close",
+            "label": "Close",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/import",
             "label": "Import",
             "iconName": "CheckSquare",
@@ -4479,8 +4503,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/hr/payroll/bank-accounts",
+            "label": "Bank Accounts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/register",
+            "label": "Register",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/salaries",
+            "label": "Salaries",
             "iconName": "FileText",
             "children": []
           }
@@ -5467,6 +5509,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/manage",
         "label": "Manage",
         "iconName": "Settings",
+        "children": []
+      },
+      {
+        "path": "/meetings/my-bookings",
+        "label": "My Bookings",
+        "iconName": "FileText",
         "children": []
       },
       {

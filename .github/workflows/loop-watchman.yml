@@ -1,0 +1,81 @@
+name: Loop watchman (cloud)
+
+# Machine-independent guard over the nightly loop estate.
+#
+# WHY: every drain lane, the nightly prompt-championship feeder, and the local
+# watchman (Part D of the Mac's daily-health-check) run as launchd jobs on ONE
+# laptop. When that laptop sleeps, the loops stop AND the thing that would
+# report them stopped sleeps with them — silence and health look identical.
+# This job asserts, from GitHub's clock, that the estate's nightly EFFECTS
+# actually landed in production; it cannot be taken down by the machine it
+# watches. (Companion: anon-exposure-live.yml, the security twin, which went
+# dark for days when its secret vanished — hence the fail-closed stance below.)
+#
+# IT NEVER WRITES to the database: two COUNT(*) reads on a read-only login
+# (ci_monitor: pg_read_all_data + forced read-only transactions, created
+# 2026-08-26, Director-approved). On a missing credential it FAILS — a watchman
+# inspecting nothing must never report "all quiet".
+#
+# On failure it opens (or refreshes) ONE GitHub issue, so the alarm is an
+# email/phone notification, not just a red run nobody visits. permissions:
+# issues:write is declared explicitly — the SDK-review workflow's 403 taught
+# us the default token cannot file issues.
+
+on:
+  schedule:
+    # 08:53 IST daily — after the 02:50 IST feeder night and the 07:12 IST local
+    # watchman, off the :00/:30 grid like every scheduled job in this repo.
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    name: Nightly loop evidence present
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert the estate's nightly effects landed
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::No route to the database — the watchman cannot watch."
+            echo "Failing rather than passing: a watchman that inspects nothing and"
+            echo "reports quiet is the precise failure mode this job exists to prevent."
+            exit 1
+          fi
+          JUDGMENTS=$(psql "$SUPABASE_DB_URL" -tAc \
+            "SELECT count(*) FROM ai_prompt_judgments WHERE judged_at > now() - interval '36 hours';")
+          DRained=$(psql "$SUPABASE_DB_URL" -tAc \
+            "SELECT count(*) FROM ai_jobs WHERE completed_at > now() - interval '24 hours';")
+          echo "Championship judgments in the last 36h: $JUDGMENTS (healthy: >0 — the feeder runs nightly at 02:50 IST)"
+          echo "AI jobs completed in the last 24h: $DRained (healthy: >0 — the Max-lane drains complete ~170/day)"
+          FAILED=0
+          if [ "$JUDGMENTS" -eq 0 ]; then
+            echo "::error::No championship judgments in 36 hours — the nightly feeder (or its judge) did not run. Check the Mac: launchd com.jkkn.prompt-compare-feeder, log /Users/omm/jkkn-max-lane/prompt-compare-feeder.log"
+            FAILED=1
+          fi
+          if [ "$DRained" -eq 0 ]; then
+            echo "::error::Zero AI jobs completed in 24 hours — the Max-lane drain fleet looks dark. Check the Mac: launchd ai.jkkn.maxlane.*"
+            FAILED=1
+          fi
+          exit "$FAILED"
+
+      - name: File or refresh the alarm issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="Loop watchman: nightly loop evidence missing in production"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          BODY="The cloud watchman found no fresh loop evidence in production ($(date -u '+%Y-%m-%d %H:%MZ')). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID — the run log names which signal is missing and where on the Mac to look. If the Mac was deliberately off, close this after it catches up."
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+          fi

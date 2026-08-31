@@ -28,7 +28,7 @@ export async function loadActiveFeeCategories(
 export async function loadBulkResolveLookups(
   supabase: SupabaseClient,
 ): Promise<BulkResolveLookups> {
-  const [inst, deg, dept, prog, yrs, quo, acc, comm, rooms, messes, cats] = await Promise.all([
+  const [inst, deg, dept, prog, yrs, quo, acc, comm, rooms, messes, cats, statuses] = await Promise.all([
     supabase.from('institutions').select('id, name'),
     supabase.from('degrees').select('id, institution_id, degree_name'),
     supabase.from('departments').select('id, institution_id, degree_id, department_name'),
@@ -40,8 +40,18 @@ export async function loadBulkResolveLookups(
     supabase.from('hostel_categories').select('id, name, type, sort_order').eq('is_active', true),
     supabase.from('mess_categories').select('id, name, type, sort_order').eq('is_active', true),
     loadActiveFeeCategories(supabase),
+    // gates_login = false is the same filter the promotion engine and the
+    // authoring UI apply. Excluding those rows here means a spreadsheet cannot
+    // name a status that would be rejected at write time — the import fails on
+    // the row, with a row number, instead of mid-batch at commit.
+    supabase
+      .from('admission_statuses')
+      .select('code, label')
+      .eq('scope', 'learner')
+      .eq('is_active', true)
+      .eq('gates_login', false),
   ]);
-  for (const r of [inst, deg, dept, prog, yrs, quo, acc, comm, rooms, messes]) {
+  for (const r of [inst, deg, dept, prog, yrs, quo, acc, comm, rooms, messes, statuses]) {
     if (r.error) throw r.error;
   }
   const L = (v: string | null) => String(v ?? '').trim().toLowerCase();
@@ -87,5 +97,15 @@ export async function loadBulkResolveLookups(
     communities: new Map((comm.data ?? []).map((r: any) => [L(r.name), r.id])),
     categoriesByName: new Map(cats.map((c) => [c.category_name.toLowerCase(), c.id])),
     amountHeaders: cats.map((c) => c.category_name),
+    // Both the label and the code map to the code, so a sheet may say either
+    // "Reserved" or "reserved". gates_login rows are filtered OUT here, not in
+    // the caller: afsis_validate_status_target rejects them at write time
+    // anyway, and a spreadsheet must not be the one route that gets to try.
+    learnerStatuses: new Map(
+      ((statuses.data ?? []) as any[]).flatMap((r: any) => [
+        [L(r.code), r.code as string],
+        [L(r.label), r.code as string],
+      ]),
+    ),
   };
 }

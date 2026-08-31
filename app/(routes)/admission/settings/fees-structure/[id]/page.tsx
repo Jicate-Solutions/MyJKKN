@@ -66,6 +66,7 @@ import {
   Home,
   BedDouble,
   UtensilsCrossed,
+  CalendarClock,
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { PermissionGuard } from '@/components/auth/permission-guard';
@@ -78,9 +79,15 @@ import type {
   AdmissionFeeStructure,
   AdmissionFeeStructureItem,
   AdmissionFeeStructureWithItems,
+  FeeItemAppliesTo,
   FeeStructureMatrixDimensions,
   FeeStructurePackageType,
 } from '@/types/admission';
+import { useAdmissionStatuses } from '@/hooks/admission/use-admission-statuses';
+import {
+  FeeItemScheduleSummary,
+  summariseSchedules,
+} from '../_components/fee-item-schedule-summary';
 
 interface RouteProps {
   params: Promise<{ id: string }>;
@@ -109,6 +116,16 @@ type DetailRow = AdmissionFeeStructure & {
   admission_year_name: string | null;
   items: DetailRowItem[];
 };
+
+/** "Every year" / "First year only" / "Year 3 only" — never the raw enum. */
+function appliesToLabel(
+  appliesTo: FeeItemAppliesTo | undefined,
+  year: number | null | undefined,
+): string {
+  if (appliesTo === 'first_year_only') return 'First year only';
+  if (appliesTo === 'specific_year') return year != null ? `Year ${year} only` : 'Specific year';
+  return 'Every year';
+}
 
 function FeeStructureDetailPageContent({ id }: { id: string }) {
   const router = useRouter();
@@ -215,6 +232,20 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
     : null;
 
   const grandTotal = structure?.items.reduce((s, it) => s + Number(it.amount || 0), 0) ?? 0;
+
+  // Billing schedule roll-up. Counts what the page previously could not show at
+  // all: how many due dates this structure actually produces, and how many of
+  // them move the learner up the lifecycle.
+  const scheduleStats = summariseSchedules(structure?.items ?? []);
+
+  // Lifecycle status labels straight from Stages & Statuses, so a renamed
+  // status reads correctly here instead of showing the raw enum code.
+  const { data: learnerStatuses } = useAdmissionStatuses('learner', { activeOnly: false });
+  const statusLabels = Object.fromEntries(
+    (learnerStatuses ?? []).map((st) => [st.code, st.label]),
+  );
+
+  const defaultOffsetDays = structure?.default_due_offset_days ?? 30;
 
   // Is this a HOSTEL structure (i.e. should the Hostel Categories section show)?
   // A set category is proof on its own — trg_fee_structure_hostel_categories_guard
@@ -519,26 +550,41 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     ) : (
                       <div className="border rounded-md divide-y bg-card">
                         {structure.items.map((it) => (
-                          <div
-                            key={it.id}
-                            className="flex items-center justify-between p-3 gap-3"
-                          >
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium truncate">
-                                  {it.category_name ?? 'Unknown category'}
-                                </div>
-                                {it.category_frequency && (
-                                  <div className="text-xs text-muted-foreground">
-                                    {it.category_frequency}
-                                    {it.is_optional ? ' · optional' : ''}
+                          <div key={it.id} className="p-3 space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-start gap-3 min-w-0 flex-1">
+                                <Receipt className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                                <div className="min-w-0 space-y-1">
+                                  <div className="text-sm font-medium truncate">
+                                    {it.category_name ?? 'Unknown category'}
                                   </div>
-                                )}
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {it.category_frequency && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {it.category_frequency}
+                                        {it.is_optional ? ' · optional' : ''}
+                                      </span>
+                                    )}
+                                    {/* Applicability was configurable since
+                                        20260313 but never rendered here, so a
+                                        first-year-only fee was indistinguishable
+                                        from an every-year one. */}
+                                    <Badge variant="outline" className="font-normal">
+                                      {appliesToLabel(it.applies_to, it.applies_year_of_study)}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-base font-semibold tabular-nums shrink-0">
+                                ₹{Number(it.amount).toLocaleString('en-IN')}
                               </div>
                             </div>
-                            <div className="text-base font-semibold tabular-nums shrink-0">
-                              ₹{Number(it.amount).toLocaleString('en-IN')}
+                            <div className="pl-7">
+                              <FeeItemScheduleSummary
+                                item={it}
+                                defaultOffsetDays={defaultOffsetDays}
+                                statusLabels={statusLabels}
+                              />
                             </div>
                           </div>
                         ))}
@@ -557,7 +603,7 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                     <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
                       Status & History
                     </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                       {/* Status — shown as a colored card with the same badge as the header */}
                       <div className="rounded-md border bg-card p-3 space-y-2">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -585,6 +631,35 @@ function FeeStructureDetailPageContent({ id }: { id: string }) {
                         </div>
                         <p className="text-xs text-muted-foreground">
                           Total ₹{grandTotal.toLocaleString('en-IN')}
+                        </p>
+                      </div>
+
+                      {/* Billing schedule — how many bills this structure will
+                          actually raise, and how many of them move the learner
+                          up the lifecycle. Neither was visible anywhere before. */}
+                      <div className="rounded-md border bg-card p-3 space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <CalendarClock className="h-4 w-4" />
+                          <span>Billing schedule</span>
+                        </div>
+                        <div className="text-2xl font-bold tabular-nums">
+                          {scheduleStats.instalments}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          due date{scheduleStats.instalments === 1 ? '' : 's'} across{' '}
+                          {structure.items.length} item
+                          {structure.items.length === 1 ? '' : 's'}
+                          {scheduleStats.splitItems > 0
+                            ? ` · ${scheduleStats.splitItems} split`
+                            : ''}
+                          {scheduleStats.statusRules > 0
+                            ? ` · ${scheduleStats.statusRules} status rule${scheduleStats.statusRules === 1 ? '' : 's'}`
+                            : ''}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {scheduleStats.customDates === 0
+                            ? `No per-item dates set — everything falls due ${defaultOffsetDays} days after admission.`
+                            : `Structure default: +${defaultOffsetDays} days for items with no date of their own.`}
                         </p>
                       </div>
 

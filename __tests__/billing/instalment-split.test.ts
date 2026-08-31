@@ -4,7 +4,7 @@ import {
   validatePlanLines,
   verifyInstalmentSplitRows,
   fetchInstalmentSplit,
-  expandBillsWithInstalmentPlans,
+  attachInstalmentSchedules,
   type InstalmentSplitRow,
   type SupabaseRpcClient,
 } from '@/lib/services/billing/instalments/instalment-plan-service';
@@ -164,8 +164,16 @@ describe('verifyInstalmentSplitRows', () => {
     expect(verifyInstalmentSplitRows(100000, splitRows([33330, 33330, 33339.99]))).toBe(false);
   });
 
-  it('rejects fewer than 2 rows, gaps in sequence, and wrong counts', () => {
-    expect(verifyInstalmentSplitRows(100, splitRows([100]))).toBe(false);
+  it('ACCEPTS a single row — that is a resolved due date, not a malformed split', () => {
+    // Contract change 2026-08-21. The engine now returns exactly one row to say
+    // "this fee item is not split, but the fee structure configures THIS due
+    // date". Rejecting it would silently discard the configured date and fall
+    // back to +30 days — the very defect per-item due dates exist to remove.
+    expect(verifyInstalmentSplitRows(100, splitRows([100]))).toBe(true);
+  });
+
+  it('rejects zero rows, gaps in sequence, and wrong counts', () => {
+    expect(verifyInstalmentSplitRows(100, [])).toBe(false);
     const gap = splitRows([50, 50]);
     gap[1].instalment_no = 3;
     expect(verifyInstalmentSplitRows(100, gap)).toBe(false);
@@ -247,13 +255,13 @@ describe('fetchInstalmentSplit', () => {
   });
 });
 
-describe('expandBillsWithInstalmentPlans', () => {
-  it('NO-PLAN PASSTHROUGH: returns the input rows untouched (deep-equal, same order)', async () => {
+describe('attachInstalmentSchedules', () => {
+  it('NO-SCHEDULE PASSTHROUGH: returns the input rows untouched (deep-equal, same order)', async () => {
     const input = [
       { ...yearlyBill },
       { ...yearlyBill, item_category_id: null, bill_description: 'Unmapped Fee' },
     ];
-    const out = await expandBillsWithInstalmentPlans(
+    const out = await attachInstalmentSchedules(
       rpcClient({ data: [], error: null }),
       'learner-1',
       input
@@ -261,51 +269,110 @@ describe('expandBillsWithInstalmentPlans', () => {
     expect(out).toEqual(input);
   });
 
-  it('ERROR PASSTHROUGH: an RPC failure never blocks generation, single bills emit', async () => {
+  it('ERROR PASSTHROUGH: an RPC failure never blocks generation, the bill still emits', async () => {
     const input = [{ ...yearlyBill }];
-    const out = await expandBillsWithInstalmentPlans(throwingClient, 'learner-1', input);
+    const out = await attachInstalmentSchedules(throwingClient, 'learner-1', input);
     expect(out).toEqual(input);
   });
 
-  it('expands one yearly bill into N instalment rows summing exactly to the total', async () => {
-    const out = await expandBillsWithInstalmentPlans(
+  it('ONE BILL, NOT N: a 3-way split stays a single row for the FULL amount', async () => {
+    // This is the whole point of the redesign. The previous implementation
+    // returned three rows here, which is why three fee items produced five
+    // bills. Tuition is one debt of 100,000 collectable in three tranches.
+    const out = await attachInstalmentSchedules(
       rpcClient({
-        data: splitRows([33330, 33330, 33340], ['2026-09-15', '2026-12-15', '2027-03-15']),
+        data: splitRows([30000, 40000, 30000], ['2026-10-06', '2026-09-20', '2026-09-20']).map(
+          (r) => ({ ...r, matched_source: 'item_schedule' as const, matched_ref_id: 'item-1' })
+        ),
         error: null,
       }),
       'learner-1',
-      [{ ...yearlyBill }]
+      [{ ...yearlyBill, fee_structure_item_id: 'item-1' }]
     );
 
-    expect(out).toHaveLength(3);
-    expect(out.map((b) => b.final_amount)).toEqual([33330, 33330, 33340]);
-    expect(
-      Math.round(out.reduce((s, b) => s + Number(b.final_amount), 0) * 100)
-    ).toBe(100000 * 100);
-    expect(out.map((b) => b.due_date)).toEqual(['2026-09-15', '2026-12-15', '2027-03-15']);
-    expect(out[0].bill_description).toBe('1 Year Tuition Fee — Instalment 1/3');
-    expect(out[2].bill_description).toBe('1 Year Tuition Fee — Instalment 3/3');
-    // Everything else on the row stays identical to the yearly bill.
-    for (const bill of out) {
-      expect(bill.student_id).toBe(yearlyBill.student_id);
-      expect(bill.institution_id).toBe(yearlyBill.institution_id);
-      expect(bill.item_category_id).toBe(yearlyBill.item_category_id);
-      expect(bill.status).toBe('unpaid');
-      expect(bill.tax_amount).toBe(0);
-      expect(bill.balance_amount).toBe(bill.final_amount);
-      expect(bill.unit_amount).toBe(bill.final_amount);
-    }
+    expect(out).toHaveLength(1);
+    expect(out[0].final_amount).toBe(100000);
+    expect(out[0].balance_amount).toBe(100000);
+    // No " — Instalment 1/3" suffix: there is only one bill.
+    expect(out[0].bill_description).toBe('1 Year Tuition Fee');
+    expect(out[0].__instalments).toHaveLength(3);
   });
 
-  it('PLAN MATCHING SPECIFICITY: only the row whose category the RPC matches splits; siblings pass through', async () => {
-    // The category-specific matching itself lives in the SQL engine (exact
-    // grain: institution x programme x category x academic year). What the TS
-    // layer owes is per-row isolation: a split answer for one category must
-    // not leak onto another row.
+  it('dates the bill at the EARLIEST tranche, even when the schedule is out of order', async () => {
+    // Tranche 1 is dated last here. due_date means "when the next money is
+    // owed", so it must be the earliest date, not the first sequence number.
+    const out = await attachInstalmentSchedules(
+      rpcClient({
+        data: splitRows([30000, 40000, 30000], ['2026-10-06', '2026-09-20', '2026-09-20']).map(
+          (r) => ({ ...r, matched_source: 'item_schedule' as const, matched_ref_id: 'item-1' })
+        ),
+        error: null,
+      }),
+      'learner-1',
+      [{ ...yearlyBill, fee_structure_item_id: 'item-1' }]
+    );
+    expect(out[0].due_date).toBe('2026-09-20');
+  });
+
+  it('the attached tranches sum EXACTLY to the bill amount', async () => {
+    const out = await attachInstalmentSchedules(
+      rpcClient({
+        data: splitRows([33330, 33330, 33340]).map((r) => ({
+          ...r,
+          matched_source: 'item_schedule' as const,
+          matched_ref_id: 'item-1',
+        })),
+        error: null,
+      }),
+      'learner-1',
+      [{ ...yearlyBill, fee_structure_item_id: 'item-1' }]
+    );
+    const sum = out[0].__instalments!.reduce((s, t) => s + t.amount, 0);
+    expect(Math.round(sum * 100)).toBe(100000 * 100);
+    expect(out[0].__instalments!.map((t) => t.sequence_no)).toEqual([1, 2, 3]);
+  });
+
+  it('SINGLE ROW: applies the configured due date and attaches NO tranches', async () => {
+    // An unsplit fee is not a schedule — writing a one-row schedule would add
+    // a table row that says nothing the bill does not already say.
+    const out = await attachInstalmentSchedules(
+      rpcClient({
+        data: [
+          {
+            instalment_no: 1,
+            instalment_count: 1,
+            instalment_amount: 100000,
+            instalment_due_date: '2026-10-31',
+            promotes_to_status_code: 'reserved',
+            matched_source: 'item_single',
+            matched_ref_id: 'item-1',
+          },
+        ],
+        error: null,
+      }),
+      'learner-1',
+      [{ ...yearlyBill, fee_structure_item_id: 'item-1' }]
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0].due_date).toBe('2026-10-31');
+    expect(out[0].final_amount).toBe(100000);
+    expect(out[0].__instalments).toBeUndefined();
+    expect(out[0].fee_structure_item_id).toBe('item-1');
+  });
+
+  it('ISOLATION: a schedule for one fee never leaks onto another', async () => {
     const client: SupabaseRpcClient = {
       rpc: async (_fn, args) => {
         if ((args as { p_category_id: string }).p_category_id === 'cat-tuition-y1') {
-          return { data: splitRows([60000, 40000]), error: null };
+          return {
+            data: splitRows([60000, 40000]).map((r) => ({
+              ...r,
+              matched_source: 'item_schedule' as const,
+              matched_ref_id: 'item-a',
+            })),
+            error: null,
+          };
         }
         return { data: [], error: null };
       },
@@ -321,15 +388,32 @@ describe('expandBillsWithInstalmentPlans', () => {
       balance_amount: 5000,
     };
 
-    const out = await expandBillsWithInstalmentPlans(client, 'learner-1', [
+    const out = await attachInstalmentSchedules(client, 'learner-1', [
       { ...yearlyBill },
       { ...otherBill },
     ]);
 
-    expect(out).toHaveLength(3); // 2 instalments + 1 untouched sibling
-    expect(out[0].bill_description).toBe('1 Year Tuition Fee — Instalment 1/2');
-    expect(out[1].bill_description).toBe('1 Year Tuition Fee — Instalment 2/2');
-    expect(out[2]).toEqual(otherBill);
+    expect(out).toHaveLength(2); // one bill each — never 3
+    expect(out[0].__instalments).toHaveLength(2);
+    expect(out[1]).toEqual(otherBill);
+  });
+
+  it('LEGACY PLAN SOURCE: never writes the plan id into fee_structure_item_id', async () => {
+    const out = await attachInstalmentSchedules(
+      rpcClient({
+        data: splitRows([60000, 40000]).map((r) => ({
+          ...r,
+          matched_source: 'plan' as const,
+          matched_ref_id: 'plan-99',
+        })),
+        error: null,
+      }),
+      'learner-1',
+      [{ ...yearlyBill }]
+    );
+
+    expect(out).toHaveLength(1);
+    expect(out[0].fee_structure_item_id == null).toBe(true);
   });
 
   it('skips rows without a category or with a non-positive amount', async () => {
@@ -337,10 +421,24 @@ describe('expandBillsWithInstalmentPlans', () => {
     const noCat = { ...yearlyBill, item_category_id: null };
     const client: SupabaseRpcClient = {
       rpc: async () => {
-        throw new Error('must not be called for unsplittable rows');
+        throw new Error('must not be called for unschedulable rows');
       },
     };
-    const out = await expandBillsWithInstalmentPlans(client, 'learner-1', [zero, noCat]);
+    const out = await attachInstalmentSchedules(client, 'learner-1', [zero, noCat]);
     expect(out).toEqual([zero, noCat]);
+  });
+
+  it('passes the fee structure item id through to the RPC when known', async () => {
+    let seen: unknown = 'never called';
+    const client: SupabaseRpcClient = {
+      rpc: async (_fn, args) => {
+        seen = (args as { p_fee_structure_item_id: unknown }).p_fee_structure_item_id;
+        return { data: [], error: null };
+      },
+    };
+    await attachInstalmentSchedules(client, 'learner-1', [
+      { ...yearlyBill, fee_structure_item_id: 'item-42' },
+    ]);
+    expect(seen).toBe('item-42');
   });
 });

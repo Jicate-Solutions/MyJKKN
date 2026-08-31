@@ -44,6 +44,9 @@ import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { parseMonthlyReportFile } from '@/lib/hr/biometric/parse-monthly-report';
 import { resolveInstitutionFromReport } from '@/lib/hr/biometric/resolve-institution';
 import { normBiometricCode } from '@/lib/hr/biometric/normalize-code';
+import {
+  fetchApprovedPermissions, permissionKey, type PermissionsByStaffDay,
+} from '@/lib/hr/biometric/fetch-permissions';
 import { evaluateDay, type AttendanceVerdict } from '@/lib/hr/biometric/evaluate-day';
 import type { ResolvedShiftTiming } from '@/types/hr-shift-timings';
 import type {
@@ -51,6 +54,7 @@ import type {
   BiometricAnomalyKind,
   BiometricFieldTotals,
   BiometricReconciliationRow,
+  BiometricShiftCoverageRow,
 } from '@/types/hr-biometric';
 
 const PREVIEW_LIMIT = 500;
@@ -101,6 +105,7 @@ interface PreviewRow {
   work_minutes: number | null;
   overtime_minutes: number | null;
   device_status: string;
+  shift_window: string | null;
   verdict: AttendanceVerdict;
   day_calc: string | null;
   late_minutes: number | null;
@@ -182,9 +187,14 @@ export async function POST(request: NextRequest) {
     const machine = resolution.institution;
 
     // ---- Empcode -> staff ---------------------------------------------------
+    // v_hr_staff, not staff: a category with included_in_hr = false takes no
+    // part in HR, and the import is what CREATES attendance — leaving it on the
+    // base table would silently re-add excluded staff every month, which is the
+    // one thing that would make the flag look broken. Same columns (the view is
+    // SELECT s.*), and no embed here, so the swap is a table-name change only.
     const { data: enrolled, error: staffErr } = await svc
-      .from('staff')
-      .select('id, staff_id, first_name, last_name, institution_id, biometric_id')
+      .from('v_hr_staff')
+      .select('id, staff_id, first_name, last_name, institution_id, biometric_id, category_id')
       .eq('biometric_institution_id', machine.id)
       .not('biometric_id', 'is', null)
       .limit(5000);
@@ -196,6 +206,7 @@ export async function POST(request: NextRequest) {
     interface StaffRow {
       id: string; staff_id: string | null; first_name: string | null;
       last_name: string | null; institution_id: string | null; biometric_id: string | null;
+      category_id: string | null;
     }
     const staffByCode = new Map<string, StaffRow>();
     for (const s of (enrolled ?? []) as StaffRow[]) {
@@ -235,6 +246,11 @@ export async function POST(request: NextRequest) {
           institution_id: '',
           staff_scope: t.matched_by as ResolvedShiftTiming['staff_scope'],
           employment_category_id: null,
+          // Placeholder, like institution_id above and day_of_week below:
+          // fn_resolve_shift_timings_bulk returns the window only, and
+          // evaluateDay reads none of the three. The gender was already applied
+          // inside the resolver.
+          applicable_gender: 'all',
           day_of_week: 1,
           is_working_day: t.is_working_day as boolean,
           first_half_start: t.first_half_start as string | null,
@@ -247,6 +263,26 @@ export async function POST(request: NextRequest) {
         });
       }
     }
+
+    // Employment categories, so the coverage table can name WHICH category
+    // override matched rather than printing a uuid.
+    const { data: cats } = await svc
+      .from('employment_categories')
+      .select('id, category_name, is_teaching')
+      .limit(500);
+    const catById = new Map<string, { name: string; isTeaching: boolean | null }>();
+    for (const c of (cats ?? []) as Array<{ id: string; category_name: string; is_teaching: boolean | null }>) {
+      catById.set(c.id, { name: c.category_name, isTeaching: c.is_teaching });
+    }
+
+    // Approved permissions for the same window. evaluateDay reinstates a half
+    // whose missing minutes one of these fully covers, so the importer must see
+    // them or a re-import would silently revoke every excusal. Read with the
+    // service-role client, like the staff and institution lookups above: this
+    // spans every employee in the file, not just the caller's own.
+    const permissionsByDay = (matched.length > 0 && dateFrom && dateTo)
+      ? await fetchApprovedPermissions(svc, matched.map((m) => m.staff.id), dateFrom, dateTo)
+      : (new Map() as PermissionsByStaffDay);
 
     // hr_attendance_records.hr_organization_id is NOT NULL; institutions map 1:1.
     const { data: orgs, error: orgErr } = await svc
@@ -304,6 +340,7 @@ export async function POST(request: NextRequest) {
     // arithmetic: if our verdicts do not add back up to the machine's Present
     // and Absent counts, one of the two is wrong and we say so before writing.
     const reconciliation: BiometricReconciliationRow[] = [];
+    const shiftCoverage: BiometricShiftCoverageRow[] = [];
     const anomalies: BiometricAnomaly[] = [];
     const fieldTotals: BiometricFieldTotals = {
       late_days: 0, half_days: 0, ot_days: 0, ot_minutes: 0,
@@ -322,7 +359,12 @@ export async function POST(request: NextRequest) {
       for (const day of emp.days) {
         if (!day.workDate) continue;
         const timing = timingByKey.get(`${staff.id}|${day.workDate}`) ?? null;
-        const verdict = evaluateDay({ inTime: day.inTime, outTime: day.outTime, timing });
+        const verdict = evaluateDay({
+          inTime: day.inTime,
+          outTime: day.outTime,
+          timing,
+          permissions: permissionsByDay.get(permissionKey(staff.id, day.workDate)) ?? [],
+        });
         counts[verdict.verdict] += 1;
         mine[verdict.verdict] += 1;
         if (day.workMinutes) myWorkMinutes += day.workMinutes;
@@ -382,6 +424,12 @@ export async function POST(request: NextRequest) {
             work_minutes: day.workMinutes,
             overtime_minutes: day.overtimeMinutes,
             device_status: day.deviceStatus,
+            // The rule this row was judged against, so the preview can be read
+            // without cross-referencing the shift-timings admin.
+            shift_window: timing && timing.first_half_start && timing.second_half_end
+              ? `${timing.first_half_start.slice(0, 5)}–${timing.second_half_end.slice(0, 5)}`
+                + (timing.grace_minutes ? ` +${timing.grace_minutes}m` : '')
+              : null,
             verdict: verdict.verdict,
             day_calc: verdict.dayCalc,
             late_minutes: verdict.lateMinutes,
@@ -432,9 +480,15 @@ export async function POST(request: NextRequest) {
           overtime_minutes: day.overtimeMinutes,
           break_minutes: day.breakMinutes,
           device_status: day.deviceStatus || null,
+          // A decided verdict that still carries a reason is a lone-punch
+          // absence. Keeping it here is what separates "forgot to punch out"
+          // from "did not come in" once the day is just an ABSENT row.
+          notes: verdict.exceptionReason,
           first_half_attended: verdict.firstHalfAttended,
           second_half_attended: verdict.secondHalfAttended,
           late_minutes: verdict.lateMinutes,
+          excused_minutes: verdict.excusedMinutes,
+          excused_by_application_ids: verdict.excusedBy.length > 0 ? verdict.excusedBy : null,
           shift_timing_id: verdict.shiftTimingId,
           biometric_institution_id: machine.id,
           biometric_code: emp.code,
@@ -450,6 +504,43 @@ export async function POST(request: NextRequest) {
       const reconciled =
         (machineP === null || machineP === mine.PRESENT + mine.HALF_DAY + mine.EXCEPTION) &&
         (machineA === null || machineA === mine.ABSENT + mine.WEEKLY_OFF);
+
+      // Which timing rule actually applied to this person, and where it was
+      // missing. Collected here rather than re-resolved later: timingByKey is
+      // already the exact map the verdicts were computed from.
+      {
+        const scopes = new Set<string>();
+        let daysTotal = 0;
+        let daysMissing = 0;
+        let win: string | null = null;
+        let grace: number | null = null;
+        for (const day of emp.days) {
+          if (!day.workDate) continue;
+          daysTotal += 1;
+          const t = timingByKey.get(`${staff.id}|${day.workDate}`);
+          if (!t) { daysMissing += 1; continue; }
+          // second_saturday_holiday is an override ON a scope, not a scope.
+          if (t.matched_by && t.matched_by !== 'second_saturday_holiday') scopes.add(t.matched_by);
+          if (!win && t.first_half_start && t.second_half_end) {
+            win = `${t.first_half_start.slice(0, 5)}–${t.second_half_end.slice(0, 5)}`;
+            grace = t.grace_minutes ?? 0;
+          }
+        }
+        const cat = staff.category_id ? catById.get(staff.category_id) : undefined;
+        shiftCoverage.push({
+          code: emp.code,
+          staff_name: staffName,
+          staff_code: staff.staff_id,
+          category_name: cat?.name ?? null,
+          is_teaching: cat?.isTeaching ?? null,
+          matched_by: scopes.size > 0 ? [...scopes][0] : null,
+          mixed: scopes.size > 1,
+          window: win,
+          grace_minutes: grace,
+          days_total: daysTotal,
+          days_without_timing: daysMissing,
+        });
+      }
 
       reconciliation.push({
         code: emp.code,
@@ -486,6 +577,7 @@ export async function POST(request: NextRequest) {
       exceptions: exceptionList.slice(0, PREVIEW_LIMIT),
       exceptions_total: exceptionList.length,
       skipped_no_organization: skippedNoOrg,
+      shift_coverage: shiftCoverage,
       reconciliation,
       reconciled_employees: reconciliation.filter((r) => r.reconciled).length,
       anomalies: anomalies.slice(0, PREVIEW_LIMIT),
@@ -493,6 +585,7 @@ export async function POST(request: NextRequest) {
       field_totals: fieldTotals,
       written: 0,
       exceptions_written: 0,
+      leave_restamped: 0,
     };
 
     if (dryRun) {
@@ -520,6 +613,44 @@ export async function POST(request: NextRequest) {
       written += up?.length ?? chunk.length;
     }
 
+    // ---- Re-apply approved leave stamps -------------------------------------
+    // The upsert above wrote status_type_id straight from the biometric verdict,
+    // which knows nothing about approved leave. Without this step the import
+    // ERASES every LEAVE / HALF_DAY stamp in its range, and any leave approved
+    // before the upload never lands at all — fn_recompute_attendance_on_leave_-
+    // approval is a bare UPDATE, so with no row for the day it matched nothing
+    // and the approval was lost silently.
+    //
+    // Running it here makes upload order stop mattering: approve-then-import and
+    // import-then-approve both end with the day stamped. Short Time Off needs
+    // nothing here — evaluateDay already consumed approved permissions above,
+    // and recomputeForShortTimeOff covers the other direction.
+    //
+    // PER INSTITUTION, not once for the file's own: one machine carries staff
+    // from several institutions (13 of 36 identified people on the Main Office
+    // machine belong elsewhere), and the function is institution-scoped.
+    let leaveRestamped = 0;
+    const restampInstitutions = [
+      ...new Set(records.map((r) => r.institution_id as string).filter(Boolean)),
+    ];
+    if (dateFrom && dateTo) {
+      for (const instId of restampInstitutions) {
+        const { data: restamped, error: restampErr } = await session.rpc(
+          'fn_restamp_leave_attendance',
+          { p_institution_id: instId, p_from: dateFrom, p_to: dateTo },
+        );
+        // Not fatal: the attendance that just imported is still correct for
+        // everyone without approved leave, and losing it to a re-stamp failure
+        // would be the worse outcome. Surfaced in the response so a silent
+        // partial is visible rather than assumed.
+        if (restampErr) {
+          console.error('[hr/attendance/import] leave re-stamp failed:', restampErr);
+          continue;
+        }
+        leaveRestamped += (restamped as number | null) ?? 0;
+      }
+    }
+
     let exceptionsWritten = 0;
     for (let i = 0; i < exceptions.length; i += 500) {
       const chunk = exceptions.slice(i, i + 500);
@@ -540,7 +671,13 @@ export async function POST(request: NextRequest) {
         ...base,
         written,
         exceptions_written: exceptionsWritten,
-        message: `Imported ${written} day-record(s) for ${matched.length} employee(s); ${exceptionsWritten} exception(s) raised.`,
+        leave_restamped: leaveRestamped,
+        message:
+          `Imported ${written} day-record(s) for ${matched.length} employee(s); ` +
+          `${exceptionsWritten} exception(s) raised` +
+          (leaveRestamped > 0
+            ? `; ${leaveRestamped} day(s) re-stamped from approved leave.`
+            : '.'),
       },
       { status: 200 },
     );

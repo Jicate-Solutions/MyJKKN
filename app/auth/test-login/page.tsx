@@ -36,7 +36,7 @@ const TEST_ACCOUNTS = [
   { role: 'health_counselor', label: 'Health Counselor', email: 'test.health_coun@jkkn.ac.in', color: 'bg-rose-300' },
 ];
 
-const DEFAULT_PASSWORD = 'Test@1234';
+const DEFAULT_PASSWORD = process.env.NEXT_PUBLIC_TEST_PASSWORD ?? '';
 
 export default function TestLoginPage() {
   const [loading, setLoading] = useState<string | null>(null);
@@ -47,8 +47,25 @@ export default function TestLoginPage() {
   const router = useRouter();
   const supabase = createClientSupabaseClient();
 
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // Check current session.
+  //
+  // Runs ABOVE the production block below, with the bail-out moved inside the
+  // effect rather than left as an early return over it. NODE_ENV cannot
+  // actually change at runtime so this one could never have crashed, but the
+  // hooks rule does not know that and the shape is the same one that does crash
+  // elsewhere — no reason to leave the exception standing. Behaviour is
+  // unchanged: getUser is still never called in production.
+  useEffect(() => {
+    if (isProduction) return;
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) setCurrentUser(data.user.email || null);
+    });
+  }, [isProduction]);
+
   // Block access in production
-  if (process.env.NODE_ENV === 'production') {
+  if (isProduction) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Alert variant="destructive" className="max-w-md">
@@ -58,13 +75,6 @@ export default function TestLoginPage() {
       </div>
     );
   }
-
-  // Check current session
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) setCurrentUser(data.user.email || null);
-    });
-  }, []);
 
   const handleLogin = async (email: string, password: string = DEFAULT_PASSWORD) => {
     setLoading(email);
@@ -105,7 +115,7 @@ export default function TestLoginPage() {
           <div>
             <h1 className="text-2xl font-bold">Test Login — Role Permission Testing</h1>
             <p className="text-sm text-muted-foreground">
-              Development only. Click any role to sign in as that test user. Password: {DEFAULT_PASSWORD}
+              Development only. Click any role to sign in as that test user. Set NEXT_PUBLIC_TEST_PASSWORD in .env.local.
             </p>
           </div>
         </div>
