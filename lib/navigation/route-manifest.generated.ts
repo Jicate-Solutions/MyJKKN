@@ -755,6 +755,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/admin/orchestration",
+        "label": "Orchestration",
+        "iconName": "LayoutDashboard",
+        "children": []
+      },
+      {
         "path": "/admin/page-metadata",
         "label": "Page Metadata",
         "iconName": "FileText",
@@ -880,6 +886,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/admission/consultants/new",
             "label": "New",
             "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/admission/consultants/payout-readiness",
+            "label": "Payout Readiness",
+            "iconName": "Users",
             "children": []
           },
           {
@@ -1492,37 +1504,6 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             ]
           },
           {
-            "path": "/admission/settings/school-fees",
-            "label": "School Fees",
-            "iconName": "GraduationCap",
-            "children": [
-              {
-                "path": "/admission/settings/school-fees/concessions",
-                "label": "Concessions",
-                "iconName": "GraduationCap",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/generate",
-                "label": "Generate",
-                "iconName": "GraduationCap",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/new",
-                "label": "New",
-                "iconName": "Plus",
-                "children": []
-              },
-              {
-                "path": "/admission/settings/school-fees/term-calendar",
-                "label": "Term Calendar",
-                "iconName": "GraduationCap",
-                "children": []
-              }
-            ]
-          },
-          {
             "path": "/admission/settings/seat-config",
             "label": "Seat Config",
             "iconName": "GraduationCap",
@@ -1743,6 +1724,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/ai-pulse/admin/reports",
             "label": "Reports",
             "iconName": "FileBarChart",
+            "children": []
+          },
+          {
+            "path": "/ai-pulse/admin/trends",
+            "label": "Trends",
+            "iconName": "FileText",
             "children": []
           }
         ]
@@ -2164,6 +2151,43 @@ export const ROUTE_MANIFEST: RouteNode[] = [
             "path": "/billing/schedule/students",
             "label": "Students",
             "iconName": "CalendarClock",
+            "children": []
+          }
+        ]
+      },
+      {
+        "path": "/billing/school-fees",
+        "label": "School Fees",
+        "iconName": "Wallet",
+        "children": [
+          {
+            "path": "/billing/school-fees/collect",
+            "label": "Collect",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/concessions",
+            "label": "Concessions",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/generate",
+            "label": "Generate",
+            "iconName": "Wallet",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/new",
+            "label": "New",
+            "iconName": "Plus",
+            "children": []
+          },
+          {
+            "path": "/billing/school-fees/term-calendar",
+            "label": "Term Calendar",
+            "iconName": "Wallet",
             "children": []
           }
         ]
@@ -2603,6 +2627,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
           {
             "path": "/campus-living/housekeeping/bookings",
             "label": "Bookings",
+            "iconName": "SprayCan",
+            "children": []
+          },
+          {
+            "path": "/campus-living/housekeeping/my-work",
+            "label": "My Work",
             "iconName": "SprayCan",
             "children": []
           },
@@ -4305,6 +4335,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "CheckSquare",
         "children": [
           {
+            "path": "/hr/attendance/close",
+            "label": "Close",
+            "iconName": "CheckSquare",
+            "children": []
+          },
+          {
             "path": "/hr/attendance/import",
             "label": "Import",
             "iconName": "CheckSquare",
@@ -4467,8 +4503,26 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "iconName": "FileText",
         "children": [
           {
+            "path": "/hr/payroll/bank-accounts",
+            "label": "Bank Accounts",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
             "path": "/hr/payroll/organisation",
             "label": "Organisation",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/register",
+            "label": "Register",
+            "iconName": "FileText",
+            "children": []
+          },
+          {
+            "path": "/hr/payroll/salaries",
+            "label": "Salaries",
             "iconName": "FileText",
             "children": []
           }
@@ -5458,6 +5512,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "children": []
       },
       {
+        "path": "/meetings/my-bookings",
+        "label": "My Bookings",
+        "iconName": "FileText",
+        "children": []
+      },
+      {
         "path": "/meetings/polls",
         "label": "Polls",
         "iconName": "FileText",
@@ -5467,6 +5527,12 @@ export const ROUTE_MANIFEST: RouteNode[] = [
         "path": "/meetings/routing-forms",
         "label": "Routing Forms",
         "iconName": "FileText",
+        "children": []
+      },
+      {
+        "path": "/meetings/schedule",
+        "label": "Schedule",
+        "iconName": "CalendarClock",
         "children": []
       },
       {

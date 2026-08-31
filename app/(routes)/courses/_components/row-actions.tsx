@@ -8,15 +8,27 @@
 // enough (no viewer/ownership plumbing needed here).
 //
 // Delete uses the Shadcn AlertDialog, never window.confirm — a native dialog
-// blocks the event loop and is inconsistent with the rest of the app. There is
-// no delete-blockers pre-check RPC here (unlike events.delete): CourseEventService
-// .remove() relies on ON DELETE RESTRICT at the DB, and the resulting 23503
-// surfaces through useDeleteCourseEvent's onError toast — so this confirmation
-// is a plain "are you sure", not a pre-flight dependency count.
+// blocks the event loop and is inconsistent with the rest of the app.
+//
+// DELETE IS SUPER-ADMIN ONLY, and gated on isSuperAdmin rather than on
+// canAccess('courses','delete'). Those are not interchangeable: canAccess
+// short-circuits true for super admins (hooks/use-permissions.ts:505), so the
+// permission key would ALSO let any role holding courses.delete through — which
+// is exactly what this gate exists to stop. The key stays in the catalog so the
+// permissions-audit gate stays green and deletion can be re-delegated later, but
+// it is no longer what decides. The database agrees: the course_events_delete RLS
+// policy and both RPCs check is_super_admin() independently, so hiding the menu
+// item is a convenience, not the security boundary.
+//
+// Unlike a plain delete, this one CASCADES through enrollments, bills and
+// payments, so the dialog first reads fn_course_delete_blockers and shows exactly
+// what will be destroyed. When real money has been received it additionally
+// demands the course title be typed — a cascade over receipts should not be one
+// misclick away.
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { MoreHorizontal, Eye, Edit, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Eye, Edit, Share2, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -36,8 +48,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useCourseDeleteBlockers } from '@/hooks/courses/use-course-events';
 import type { CourseEvent } from '@/types/courses';
+import { CourseShareDialog } from './course-share-dialog';
 
 interface CourseEventsRowActionsProps {
   courseEvent: CourseEvent;
@@ -51,12 +67,45 @@ export function CourseEventsRowActions({
   onDelete,
   isDeleting,
 }: CourseEventsRowActionsProps) {
-  const { canAccess } = usePermissions();
+  const { canAccess, isSuperAdmin } = usePermissions();
   const canView = canAccess('courses', 'view');
   const canEdit = canAccess('courses', 'edit');
-  const canDelete = canAccess('courses', 'delete');
+  const canDelete = isSuperAdmin;
 
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+
+  // Only fetches while the dialog is open, so a closed dialog on every row of
+  // the table costs no request.
+  const {
+    data: blockers,
+    isLoading: blockersLoading,
+    error: blockersError,
+  } = useCourseDeleteBlockers(courseEvent.id, confirmOpen);
+
+  const paidCount = blockers?.successful_payments ?? 0;
+  const amountReceived = Number(blockers?.amount_received ?? 0);
+  // Money actually received is the only thing worth extra friction; abandoned
+  // 'initiated' Razorpay attempts are not.
+  const needsTypeToConfirm = paidCount > 0;
+  const typeMatches = typed.trim() === courseEvent.title.trim();
+  // Never enable the button on a failed or in-flight preview — that would be
+  // confirming a cascade whose size is unknown.
+  const canConfirm =
+    !isDeleting && !blockersLoading && !blockersError && (!needsTypeToConfirm || typeMatches);
+
+  const cascadeRows: Array<[string, number]> = blockers
+    ? ([
+        ['Applications', blockers.applications],
+        ['Enrollments', blockers.enrollments],
+        ['Packages', blockers.packages],
+        ['Registration forms', blockers.forms],
+        ['Sessions', blockers.sessions],
+        ['Bills', blockers.bills],
+        ['Payment records', blockers.payments],
+      ].filter(([, n]) => Number(n) > 0) as Array<[string, number]>)
+    : [];
 
   if (!canView && !canEdit && !canDelete) return null;
 
@@ -76,6 +125,18 @@ export function CourseEventsRowActions({
                 <Eye className="mr-2 h-4 w-4" />
                 View
               </Link>
+            </DropdownMenuItem>
+          )}
+
+          {/* Gated on view, not on a share key of its own: the URL handed out
+              here is world-readable by design (anon is REVOKEd on the course
+              tables and the public pages read through a service-role loader),
+              so the only real question is whether this person may see the
+              course at all. */}
+          {canView && (
+            <DropdownMenuItem onClick={() => setShareOpen(true)}>
+              <Share2 className="mr-2 h-4 w-4" />
+              Share
             </DropdownMenuItem>
           )}
 
@@ -106,14 +167,88 @@ export function CourseEventsRowActions({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent>
+      {/* Mounted always, opened on demand. The forms fetch inside is keyed off
+          `open`, so a closed dialog on every row of the table costs no request. */}
+      <CourseShareDialog open={shareOpen} onOpenChange={setShareOpen} course={courseEvent} />
+
+      {/* Reset the typed confirmation whenever the dialog closes, so reopening it
+          never starts out already-confirmed from a previous attempt. */}
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) setTyped('');
+        }}
+      >
+        <AlertDialogContent className="max-h-[85vh] overflow-y-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this course?</AlertDialogTitle>
-            <AlertDialogDescription>
-              <span className="font-medium text-foreground">{courseEvent.title}</span> will
-              be permanently deleted. Courses with enrollments cannot be deleted until those
-              enrollments are removed. This cannot be undone.
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>
+                  <span className="font-medium text-foreground">{courseEvent.title}</span>{' '}
+                  and everything below will be permanently deleted. This cannot be undone.
+                </p>
+
+                {blockersLoading && (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </div>
+                )}
+
+                {blockersError && (
+                  <p className="rounded-md border border-destructive/50 bg-destructive/10 p-2 text-destructive">
+                    Could not check what this delete would remove. Deleting is blocked until
+                    this can be read.
+                  </p>
+                )}
+
+                {blockers && cascadeRows.length === 0 && (
+                  <p>Nothing else is attached to this course.</p>
+                )}
+
+                {blockers && cascadeRows.length > 0 && (
+                  <ul className="rounded-md border bg-muted/40 p-3 text-sm">
+                    {cascadeRows.map(([label, n]) => (
+                      <li key={label} className="flex justify-between py-0.5">
+                        <span>{label}</span>
+                        <span className="font-medium text-foreground">{n}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Released, not deleted — the reservation row survives with its
+                    course link cleared. Worth saying so it doesn't read as data loss. */}
+                {(blockers?.venue_holds ?? 0) > 0 && (
+                  <p className="text-xs">
+                    {blockers?.venue_holds} venue booking(s) will be released (the
+                    reservation itself is kept).
+                  </p>
+                )}
+
+                {needsTypeToConfirm && (
+                  <div className="space-y-2 rounded-md border border-destructive/50 bg-destructive/10 p-3">
+                    <p className="font-medium text-destructive">
+                      {paidCount} payment(s) totalling ₹
+                      {amountReceived.toLocaleString('en-IN', { minimumFractionDigits: 2 })}{' '}
+                      have been received against this course. Deleting it destroys those
+                      receipts permanently.
+                    </p>
+                    <p className="text-xs">
+                      Type <span className="font-semibold text-foreground">{courseEvent.title}</span>{' '}
+                      to confirm.
+                    </p>
+                    <Input
+                      value={typed}
+                      onChange={(e) => setTyped(e.target.value)}
+                      placeholder={courseEvent.title}
+                      autoComplete="off"
+                    />
+                  </div>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -122,8 +257,9 @@ export function CourseEventsRowActions({
               onClick={() => {
                 onDelete(courseEvent.id);
                 setConfirmOpen(false);
+                setTyped('');
               }}
-              disabled={isDeleting}
+              disabled={!canConfirm}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? 'Deleting…' : 'Delete course'}

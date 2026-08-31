@@ -61,7 +61,26 @@ interface TabBarProps {
 }
 
 function TabBar({ chips, adapt }: TabBarProps) {
-  if (chips.length < 2) return null;
+  // EVERY HOOK RUNS BEFORE THE <2-CHIP GUARD, AND MUST STAY THAT WAY.
+  //
+  // The guard used to sit on the first line, above useRef/useEffect. That is a
+  // rules-of-hooks violation with a delayed fuse: React tags each fiber with
+  // static flags (RefStatic, PassiveStatic) describing which hook KINDS the
+  // component uses, and treats them as immutable. A render that calls the hooks
+  // followed by one that early-returns recomputes those flags as empty, and
+  // renderWithHooks reports:
+  //
+  //   "Internal React error: Expected static flag was missing."
+  //
+  // It fired on real pages (/hr/leave/requests) because chip counts CHANGE
+  // ACROSS RENDERS FOR THE SAME FIBER. canShowChip returns true for everything
+  // while usePermissions is loading -- deliberately, to avoid a
+  // flash-of-disappearance -- so a tier renders with 2+ chips, then drops below
+  // 2 once permissions resolve. The parent keys these by index, so that is an
+  // in-place update of one fiber, not an unmount.
+  //
+  // Returning null after the hooks is free: the effect's own
+  // `!containerRef.current` guard makes it a no-op when nothing is rendered.
   const containerRef = useRef<HTMLDivElement>(null);
   const activeHref = chips.find((c) => c.isActive)?.href ?? null;
 
@@ -80,6 +99,9 @@ function TabBar({ chips, adapt }: TabBarProps) {
       block: 'nearest',
     });
   }, [activeHref]);
+
+  // No 1-chip bars. A single chip is a label, not a choice.
+  if (chips.length < 2) return null;
 
   return (
     <div

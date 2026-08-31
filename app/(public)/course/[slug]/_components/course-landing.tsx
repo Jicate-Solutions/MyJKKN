@@ -83,6 +83,18 @@ export function CourseLanding({
         )}
 
         {/* ── packages ─────────────────────────────────────────────────────── */}
+        {/* Fees exist but nothing is on sale. Rendering nothing here reads as
+            "this course is free", which is the opposite of true. */}
+        {course.packagesExist && course.packages.length === 0 && (
+          <section className="mt-10">
+            <h2 className="text-lg font-semibold">Fees</h2>
+            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              Fees for this course are not on sale at the moment. Please check back
+              later, or contact the institution for the current rates.
+            </p>
+          </section>
+        )}
+
         {course.packages.length > 0 && (
           <section className="mt-10">
             <h2 className="text-lg font-semibold">Fees</h2>

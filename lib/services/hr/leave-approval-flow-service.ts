@@ -22,10 +22,19 @@ import type {
   LeaveApproverCandidate,
   LeaveApproverRoleOption,
 } from '@/types/hr-leave-types';
+import type { HRLeaveApprovalQueueRow } from '@/types/hr';
 
 const FLOW_FOR = 'leave_approval';
 const SELECT =
   'id, hr_organization_id, flow_name, conditions, steps, is_active, escalate_after_hours';
+
+/** What the Leave Types table needs to label each row's approval state. */
+export interface LeaveApprovalFlowCoverage {
+  /** Leave type ids that have a flow naming them specifically. */
+  ownFlowTypeIds: Set<string>;
+  /** Organizations with a flow that names no leave type — their fallback. */
+  orgsWithCatchAll: Set<string>;
+}
 
 export interface SaveLeaveApprovalFlowInput {
   /** Present when editing; absent creates the per-type flow. */
@@ -42,6 +51,44 @@ export class LeaveApprovalFlowService {
    * catch-all. Fetched together so the editor can show which fallback applies
    * without a second round trip.
    */
+  /**
+   * Which leave types have their OWN approval flow, and which organizations
+   * have a catch-all — enough to label every row of the Leave Types table
+   * without a query per type.
+   *
+   * Deliberately unscoped by organization: the table shows every organization
+   * the caller can access, and RLS on hr_approval_flows already limits the rows.
+   * There are 22 active leave flows group-wide, so this is one small fetch.
+   *
+   * The three states it distinguishes matter. A leave type with no own flow is
+   * NOT misconfigured — 58 of 66 active types legitimately inherit their
+   * organization's catch-all. Only a type with neither is broken, and it is
+   * broken hard: buildApprovalChain throws, so nobody can apply for it.
+   */
+  static async listCoverage(
+    supabase: SupabaseClient
+  ): Promise<LeaveApprovalFlowCoverage> {
+    const { data, error } = await supabase
+      .from('hr_approval_flows')
+      .select('hr_organization_id, conditions')
+      .eq('flow_for', FLOW_FOR)
+      .eq('is_active', true)
+      .is('valid_until', null);
+    if (error) throw error;
+
+    const ownFlowTypeIds = new Set<string>();
+    const orgsWithCatchAll = new Set<string>();
+    for (const row of (data ?? []) as Array<{
+      hr_organization_id: string;
+      conditions: { leave_type_id?: string } | null;
+    }>) {
+      const typeId = row.conditions?.leave_type_id;
+      if (typeId) ownFlowTypeIds.add(typeId);
+      else orgsWithCatchAll.add(row.hr_organization_id);
+    }
+    return { ownFlowTypeIds, orgsWithCatchAll };
+  }
+
   static async listForOrg(
     supabase: SupabaseClient,
     hrOrgId: string
@@ -158,6 +205,24 @@ export class LeaveApprovalFlowService {
     });
     if (error) throw error;
     return ((data ?? []) as Array<{ application_id: string }>).map((r) => r.application_id);
+  }
+
+  /**
+   * Everything awaiting a decision, with the requester's name, staff code and
+   * institution, across every organisation the caller may approve for.
+   *
+   * Replaces listApplications() on the Approvals tab. That path embedded only
+   * the leave type, so the queue named no one; scoped to a single
+   * hr_organization_id, so a super admin saw one org or — with no HR employee
+   * record — nothing at all; and inherited the REST route's pageSize 50, so it
+   * stopped at 50 of 446 pending rows.
+   */
+  static async approvalQueue(
+    supabase: SupabaseClient
+  ): Promise<HRLeaveApprovalQueueRow[]> {
+    const { data, error } = await supabase.rpc('hr_leave_approval_queue');
+    if (error) throw error;
+    return (data ?? []) as HRLeaveApprovalQueueRow[];
   }
 
   /** Roles offerable as approvers, flagged with whether they can actually approve. */

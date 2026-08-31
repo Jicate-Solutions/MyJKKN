@@ -105,6 +105,24 @@ export const AI_PROVIDER_REGISTRY: ProviderRegistryEntry[] = [
         notes: 'Always the newest Opus (CLI resolves --model opus). ₹0 on the Max subscription. Use for the highest-quality jobs.',
       },
       {
+        id: 'fable',
+        label: 'Fable (latest)',
+        // Published rates: $10 / million input, $50 / million output.
+        // Converted at the same ₹85/USD basis the rest of this list uses —
+        // Sonnet's 0.255/1.275 against $3/$15 and Opus's 0.425/2.125 against
+        // $5/$25 both resolve to 85, so Fable's $10/$50 gives 0.85/4.25 (exactly
+        // double Opus, matching the published ratio).
+        // A 0 sentinel was avoided deliberately: the console reads these to
+        // project spend and enforce monthly_spend_cap_inr, and 0 is
+        // indistinguishable from "genuinely free" — an API-lane job on Fable
+        // would report ₹0 and could never trip its cap.
+        // Source: https://platform.claude.com/docs/en/about-claude/pricing
+        inputPer1KTokensInr: 0.85,
+        outputPer1KTokensInr: 4.25,
+        modality: 'chat',
+        notes: 'Always the newest Fable (CLI resolves --model fable — verified 2026-08-06). ₹0 on the Max subscription; API-lane rates are $10/$50 per million tokens.',
+      },
+      {
         id: 'claude-haiku-4-5',
         label: 'Claude Haiku 4.5 (cheap, fast)',
         inputPer1KTokensInr: 0.085,

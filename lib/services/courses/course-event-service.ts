@@ -2,6 +2,7 @@ import { BaseService } from '@/lib/services/base-service';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   CourseEvent, CourseEventFilters, CreateCourseEventDto, UpdateCourseEventDto,
+  CourseDeleteBlockers, CourseDeleteResult,
 } from '@/types/courses';
 
 const SELECT = `
@@ -179,11 +180,59 @@ export class CourseEventService extends BaseService {
     return out;
   }
 
-  /** Blocked by RLS unless the caller holds courses.delete, and by ON DELETE RESTRICT
-   *  if any enrollment exists. Surface the error; do not swallow it. */
-  static async remove(id: string) {
-    const { error } = await this.supabase.from('course_events').delete().eq('id', id);
-    if (error) throw error;
+  /**
+   * What a delete would destroy — read this before offering the confirm.
+   *
+   * Goes through fn_course_delete_blockers rather than counting the child tables
+   * here: both are RLS-gated, so a client-side count returns 0 for any caller who
+   * cannot see the bills and would report "nothing will be lost" on the exact rows
+   * the preview exists to protect. The RPC self-authorizes on super admin, so a
+   * caller without it gets 42501 rather than a count.
+   *
+   * `.rpc` is typed against the generated Database map, which doesn't carry this
+   * function yet; the narrow structural cast mirrors
+   * lib/services/events/core/event-base-service.ts.
+   */
+  static async getDeleteBlockers(id: string): Promise<CourseDeleteBlockers> {
+    const client = this.supabase as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>
+      ) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
+    };
+
+    const { data, error } = await client.rpc('fn_course_delete_blockers', {
+      p_course_event_id: id,
+    });
+    if (error) throw new Error(error.message || 'Could not check what this delete would remove');
+    return data as CourseDeleteBlockers;
+  }
+
+  /**
+   * Delete a course and its ENTIRE subtree, super admin only.
+   *
+   * Not a plain `.from('course_events').delete()` — that fails on the six
+   * ON DELETE RESTRICT constraints in the money half of the graph (enrollments,
+   * bills, payments, and enrollments.package_id). Those RESTRICTs are kept
+   * deliberately as the backstop against accidental deletes; the RPC clears the
+   * children in dependency order so RESTRICT is satisfied rather than bypassed.
+   * See supabase/migrations/20260820020000_course_delete_cascade_super_admin.sql.
+   *
+   * Runs as one transaction — a failure part-way leaves nothing half-deleted.
+   */
+  static async remove(id: string): Promise<CourseDeleteResult> {
+    const client = this.supabase as unknown as {
+      rpc: (
+        fn: string,
+        args?: Record<string, unknown>
+      ) => PromiseLike<{ data: unknown; error: { message?: string } | null }>;
+    };
+
+    const { data, error } = await client.rpc('fn_course_delete_cascade', {
+      p_course_event_id: id,
+    });
+    if (error) throw new Error(error.message || 'Failed to delete course');
+    return data as CourseDeleteResult;
   }
 
   /** UNIQUE (institution_id, slug). Check before submit so the user gets a field

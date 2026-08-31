@@ -3,11 +3,12 @@
 /*
  * JKKN ID — permanent identity lookup.
  *
- * Search-only, on purpose. There is no issue button and no backfill button on
- * this page: a JKKN ID is issued at confirmed admission or at hire, as a
- * deliberate act, and a screen that offers a bulk button invites exactly the
- * accident the design is meant to prevent — numbers spent on people who never
- * arrive. 21,976 enquiries produced 2,477 admissions.
+ * Lookup-only, on purpose. There is no issue button on this page: since
+ * 2026-08-27 issuance is AUTOMATIC — at confirmed admission (learner), at
+ * hire/activation (team member), and at a custom-role grant (associate) —
+ * via database triggers (migration 20260827110000). Never at enquiry:
+ * 21,976 enquiries produced 2,477 admissions, so issuing at enquiry would
+ * burn nine numbers in ten.
  */
 
 import { useState } from 'react';
@@ -19,8 +20,13 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { Loader2, Search, AlertTriangle, PowerOff, Info } from 'lucide-react';
+import { Loader2, Search, AlertTriangle, Info, QrCode, IdCard } from 'lucide-react';
 import { toast } from 'sonner';
+import { JkknScanButton } from '@/components/identity/jkkn-scan-button';
+import { JkknQrDialog } from '@/components/identity/jkkn-qr-dialog';
+import { JkknPersonCardDialog } from '@/components/identity/jkkn-person-card';
+import { JkknDirectoryTable } from './_components/directory-table';
+import { JkknStatsCards } from './_components/stats-cards';
 import {
   JkknIdentityService,
   looksLikeJkknId,
@@ -51,7 +57,22 @@ function initials(name: string) {
     .join('');
 }
 
-function PersonRow({ person }: { person: ResolvedPerson }) {
+const KIND_LABEL: Record<string, string> = {
+  learner: 'Learner',
+  team_member: 'Team member',
+  both: 'Learner & Team member',
+  associate: 'Associate',
+  external_participant: 'External participant',
+};
+
+function PersonRow({
+  person,
+  onShowCard,
+}: {
+  person: ResolvedPerson;
+  onShowCard: (p: ResolvedPerson) => void;
+}) {
+  const [qrOpen, setQrOpen] = useState(false);
   return (
     <div className="flex items-start gap-4 rounded-lg border p-4">
       <Avatar className="h-12 w-12 shrink-0">
@@ -63,7 +84,7 @@ function PersonRow({ person }: { person: ResolvedPerson }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{person.full_name}</span>
           <Badge variant={person.person_kind === 'learner' ? 'secondary' : 'outline'}>
-            {person.person_kind === 'learner' ? 'Learner' : 'Team member'}
+            {KIND_LABEL[person.person_kind] ?? person.person_kind}
           </Badge>
           {person.status ? (
             <Badge variant="outline" className="capitalize">{person.status}</Badge>
@@ -87,11 +108,37 @@ function PersonRow({ person }: { person: ResolvedPerson }) {
         </div>
       </div>
 
-      <div className="shrink-0 text-right">
+      <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => onShowCard(person)}
+        >
+          <IdCard className="mr-1 h-3.5 w-3.5" />
+          Card
+        </Button>
         {person.jkkn_id ? (
           <>
             <div className="font-mono text-lg tracking-wide">{person.jkkn_id}</div>
             <div className="text-xs text-muted-foreground">JKKN ID</div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setQrOpen(true)}
+            >
+              <QrCode className="mr-1 h-3.5 w-3.5" />
+              QR
+            </Button>
+            <JkknQrDialog
+              open={qrOpen}
+              onOpenChange={setQrOpen}
+              jkknId={person.jkkn_id}
+              personName={person.full_name}
+            />
           </>
         ) : (
           <Badge variant="outline" className="text-muted-foreground">not yet issued</Badge>
@@ -105,6 +152,11 @@ export default function JkknIdPage() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ResolveResult | null>(null);
+  // Bumped by the directory after a manual issuance so the analytics cards
+  // refresh in step with the table (the table refreshes itself internally).
+  const [statsRefresh, setStatsRefresh] = useState(0);
+  // A scanned/selected person shown in the ID-card format.
+  const [cardPerson, setCardPerson] = useState<ResolvedPerson | null>(null);
 
   const runSearch = async () => {
     const q = query.trim();
@@ -149,31 +201,38 @@ export default function JkknIdPage() {
             <p className="text-sm text-muted-foreground">
               One permanent number per person, for life — six digits and a check digit, written
               348295-7. Learners and team members draw from the same pool, so someone who studies
-              here and later joins the team keeps the number they already have.
+              here and later joins the team keeps the number they already have. Issued
+              automatically at confirmed admission, at hire, and at a custom-role grant — never
+              at enquiry. People admitted or hired before 27 Aug 2026 show &ldquo;not yet
+              issued&rdquo; until the one-time backfill is run.
             </p>
           </div>
 
-          {/* Dormancy notice. Deliberately the first thing on the page. */}
-          <Card className="border-amber-500/40 bg-amber-50/60 dark:bg-amber-950/20">
-            <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-              <PowerOff className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-              <div>
-                <CardTitle className="text-base">This system is switched off</CardTitle>
-                <CardDescription className="text-foreground/80">
-                  No JKKN ID has been issued to anyone, and the backfill has not run. The tables,
-                  the check-digit rules and this lookup exist, but nothing issues a number yet —
-                  numbers are given out one at a time, at confirmed admission or at hire, never at
-                  enquiry. Search below works today and will show &ldquo;not yet issued&rdquo; for
-                  everyone until issuance is switched on deliberately.
-                </CardDescription>
-              </div>
-            </CardHeader>
-          </Card>
+          {/* Kind-wise issuance analytics. */}
+          <JkknStatsCards refreshKey={statsRefresh} />
 
-          {/* Search */}
+          {/* Directory — the default view. Browsable, server-paginated, with
+              advanced filters in the table toolbar (kind / institution /
+              status / issued / admission year). */}
           <Card>
             <CardHeader>
-              <CardTitle>Find a person</CardTitle>
+              <CardTitle>Directory</CardTitle>
+              <CardDescription>
+                Everyone your role can see, learners first. Filter by kind, institution,
+                status, admission year, or whether a JKKN ID has been issued yet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <JkknDirectoryTable onChanged={() => setStatsRefresh((k) => k + 1)} />
+            </CardContent>
+          </Card>
+
+          {/* Quick lookup — cross-identifier resolver + camera scan. Covers
+              what the table can't: phone numbers, aliases, all kinds in one
+              query, and the check-digit typo message. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick lookup</CardTitle>
               <CardDescription>
                 Search by JKKN ID, Roll Number, Team Code, university register number, application
                 number, name, phone or email. A university register number such as 731325106030 is
@@ -197,6 +256,19 @@ export default function JkknIdPage() {
                     : <Search className="mr-1 h-4 w-4" />}
                   Search
                 </Button>
+                <JkknScanButton
+                  onResolved={(people, result) => {
+                    setQuery(result.query);
+                    setResult(result);
+                    // A QR scan matches exactly one person — show their ID
+                    // card straight away; multi-matches stay as the list.
+                    if (people.length === 1) setCardPerson(people[0]);
+                  }}
+                  onNotFound={(q) => {
+                    setQuery(q);
+                    setResult({ query: q, ok: true, results: [], count: 0 });
+                  }}
+                />
               </div>
 
               {loading ? (
@@ -226,7 +298,11 @@ export default function JkknIdPage() {
               {!loading && result && result.results.length > 0 ? (
                 <div className="space-y-3">
                   {result.results.map((p) => (
-                    <PersonRow key={`${p.person_kind}-${p.person_id}-${p.matched_on}`} person={p} />
+                    <PersonRow
+                      key={`${p.person_kind}-${p.person_id}-${p.matched_on}`}
+                      person={p}
+                      onShowCard={setCardPerson}
+                    />
                   ))}
                   {result.scope_note ? (
                     <p className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
@@ -238,6 +314,12 @@ export default function JkknIdPage() {
               ) : null}
             </CardContent>
           </Card>
+          {/* The scanned/selected person, in the printed ID card's format. */}
+          <JkknPersonCardDialog
+            open={cardPerson !== null}
+            onOpenChange={(o) => { if (!o) setCardPerson(null); }}
+            person={cardPerson}
+          />
         </div>
       </PermissionGuard>
     </ContentLayout>
