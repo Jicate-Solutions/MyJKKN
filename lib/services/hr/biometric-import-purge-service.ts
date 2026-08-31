@@ -1,7 +1,7 @@
 /**
  * HR Biometric — undo an imported month.
  * Created: 2026-08-20.
- * Migration: supabase/migrations/20260820140000_biometric_import_purge_super_admin.sql
+ * Migration: supabase/migrations/20260820150000_biometric_import_purge_super_admin.sql
  *
  * Every call goes through the CALLER'S own client, never the service role.
  * All three RPCs gate on is_super_admin(), which reads profiles.is_super_admin
