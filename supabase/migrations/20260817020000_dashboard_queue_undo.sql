@@ -292,6 +292,12 @@ $function$;
 -- authenticated. It returns not_authenticated to an anonymous caller anyway,
 -- so nothing legitimate loses access.
 REVOKE EXECUTE ON FUNCTION public.fn_dashboard_queue_action(UUID, TEXT, TEXT, UUID, INT, TEXT) FROM anon, PUBLIC;
+-- ci:allow-secdef-authenticated Called by the dashboard server action
+-- (app/(routes)/dashboard/_actions/queue-actions.ts) on the signed-in user's own session, so
+-- authenticated is required. Authority is OWNERSHIP, not role: the function selects the target
+-- FROM user_notifications WHERE id = p_user_notification_id AND user_id = auth.uid() FOR UPDATE
+-- and returns not_found_or_not_owned otherwise, so a caller can only ever act on their own
+-- queue row. The gate does not count auth.uid() as a guard by design; this is that documented case.
 GRANT  EXECUTE ON FUNCTION public.fn_dashboard_queue_action(UUID, TEXT, TEXT, UUID, INT, TEXT) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
@@ -464,6 +470,10 @@ END;
 $function$;
 
 REVOKE EXECUTE ON FUNCTION public.fn_dashboard_queue_undo(UUID, INT) FROM anon, PUBLIC;
+-- ci:allow-secdef-authenticated Same ownership model as fn_dashboard_queue_action above, called
+-- from the same dashboard server action on the user's own session. Scoped by user_id = auth.uid()
+-- FOR UPDATE with a single deliberate not_found_or_not_owned message so a prober cannot confirm a
+-- row exists, and the undo window is clamped to [1s, 60s] regardless of what the caller passes.
 GRANT  EXECUTE ON FUNCTION public.fn_dashboard_queue_undo(UUID, INT) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.fn_dashboard_queue_undo(UUID, INT) IS
@@ -682,5 +692,10 @@ $function$;
 -- explicit anon lock the secdef CI guard looks for. `authenticated` is kept
 -- because production already grants it — this PR does not widen or narrow who
 -- may call the escalation.
-REVOKE EXECUTE ON FUNCTION public.fn_dashboard_queue_escalate(UUID) FROM anon, PUBLIC;
-GRANT  EXECUTE ON FUNCTION public.fn_dashboard_queue_escalate(UUID) TO authenticated, service_role;
+-- Locked to service_role only. The function takes a caller-supplied p_cos_user_id that
+-- overrides the configured Chief of Staff, performs platform-wide escalation writes and
+-- inserts counselor_sla_strikes, and contains no caller-authority check. Its only caller is
+-- app/api/dashboard/cron/queue-escalate/route.ts, which uses the service-role key behind
+-- CRON_SECRET -- so no authenticated path needs it. Matches fn_dashboard_undone_at above.
+REVOKE EXECUTE ON FUNCTION public.fn_dashboard_queue_escalate(UUID) FROM anon, authenticated, PUBLIC;
+GRANT  EXECUTE ON FUNCTION public.fn_dashboard_queue_escalate(UUID) TO service_role;
