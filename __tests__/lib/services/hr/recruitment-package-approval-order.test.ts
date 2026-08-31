@@ -116,6 +116,39 @@ describe('approvePackage — package may only be fixed after full approval', () 
     expect(candidateWrites(calls)).toHaveLength(0);
   });
 
+  // The DB CHECK on hr_recruitment_candidates.status permits exactly ten values:
+  // submitted · pending_approval · approved · package_fixed · offer_issued ·
+  // joined · rejected · withdrawn · offer_rescinded · no_show.
+  //
+  // The guard refuses the two meaning the chain has not finished. The four
+  // terminal-negative ones pass through and change nothing — the same OUTCOME
+  // the pre-guard code produced, though by a different route: it issued an
+  // UPDATE filtered `.in(['approved','pending_approval','submitted'])` which
+  // matched no row, where this issues no call at all. Effect identical, call
+  // count not — so these assert the effect, which is what matters.
+  //
+  // Whether a package should be approvable AT ALL for a rejected or withdrawn
+  // candidate is a real open question. It is deliberately left as-is here
+  // rather than changed under cover of a regression fix; these tests pin the
+  // current answer so any future change to it is a conscious one.
+  for (const terminal of ['rejected', 'withdrawn', 'offer_rescinded', 'no_show']) {
+    it(`leaves a ${terminal} candidate untouched — package approved, no candidate write, no throw`, async () => {
+      const { supabase, calls } = makeSupabase(terminal);
+      const result = await RecruitmentPackageService.approvePackage(supabase, PACKAGE_ID, 'approver-1');
+      expect(result.status).toBe('approved');
+      expect(packageWrites(calls)).toHaveLength(1);
+      expect(candidateWrites(calls)).toHaveLength(0);
+    });
+  }
+
+  it('joined and offer_issued are likewise left untouched', async () => {
+    for (const st of ['joined', 'offer_issued']) {
+      const { supabase, calls } = makeSupabase(st);
+      await RecruitmentPackageService.approvePackage(supabase, PACKAGE_ID, 'approver-1');
+      expect(candidateWrites(calls), `${st} must not be written`).toHaveLength(0);
+    }
+  });
+
   it('does NOT filter the candidate UPDATE on status (PostgREST RETURNING trap)', async () => {
     // PostgREST re-applies request filters to an UPDATE's RETURNING projection.
     // Filtering on `status` while writing `status` makes the row update itself

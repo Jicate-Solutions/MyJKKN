@@ -185,27 +185,30 @@ export class RecruitmentPackageService {
     // The previous `.in(['approved','pending_approval','submitted'])` filter
     // gave that protection as a side effect; deciding in code keeps it while
     // still avoiding the RETURNING trap described above.
-    let advanced: unknown[] | null = null;
-    let candidateErr: unknown = null;
     if (parent.status === 'approved') {
-      const res = await supabase
+      const { data: advanced, error: candidateErr } = await supabase
         .from('hr_recruitment_candidates')
         .update({ status: 'package_fixed' })
         .eq('id', pkg.candidate_id)
         .select('id');
-      advanced = res.data;
-      candidateErr = res.error;
-    } else {
-      // Already at/past package_fixed — nothing to advance, and that is success.
-      advanced = [{ id: pkg.candidate_id }];
+      if (candidateErr) throw candidateErr;
+      if (!advanced || advanced.length === 0) {
+        throw new Error(
+          'The salary package was approved but the hire could not be advanced to ' +
+          '"package fixed". Please reload the candidate and check their status.'
+        );
+      }
     }
-    if (candidateErr) throw candidateErr;
-    if (!advanced || advanced.length === 0) {
-      throw new Error(
-        'The salary package was approved but the hire could not be advanced to ' +
-        '"package fixed". Please reload the candidate and check their status.'
-      );
-    }
+    // Every other status is already AT or PAST package_fixed, or is terminal
+    // (rejected / withdrawn / offer_rescinded / no_show). Either way there is
+    // nothing to advance, and that is success — not a silent failure.
+    //
+    // This deliberately PRESERVES pre-existing behaviour for the terminal ones:
+    // main's `.in(['approved','pending_approval','submitted'])` filter also
+    // matched no row for them, wrote nothing and raised nothing. Whether a
+    // package should be approvable at all for a rejected or withdrawn candidate
+    // is a real open question — but changing it is not this fix's job, and a
+    // test below pins the equivalence so the answer stays deliberate.
 
     return data as HRRecruitmentCandidatePackage;
   }
