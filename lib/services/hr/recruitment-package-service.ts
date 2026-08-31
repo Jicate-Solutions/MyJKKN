@@ -140,7 +140,15 @@ export class RecruitmentPackageService {
       .single();
     if (parentErr) throw parentErr;
     if (!parent) throw new Error('Parent candidate not found for this package');
-    if (parent.status !== 'approved') {
+    // Refuse only the states that mean the chain has NOT finished. Anything at
+    // or past 'approved' is allowed: `package_fixed` sits DOWNSTREAM of
+    // 'approved' in updateStatus's transition map, so a candidate already
+    // there has completed every approval — refusing them would block a revised
+    // or counter-offer package on a fully-approved hire. (Measured on
+    // production 2026-08-31: SARANYA R and Anand V both sit at package_fixed
+    // with a further proposed package; an `=== 'approved'` test refused both.)
+    const CHAIN_INCOMPLETE: readonly string[] = ['submitted', 'pending_approval'];
+    if (CHAIN_INCOMPLETE.includes(parent.status)) {
       throw new Error(
         `Cannot fix the salary package while the hire is still in status '${parent.status}'. ` +
         'Every approver must sign off first — the package can only be fixed once the ' +
@@ -171,18 +179,36 @@ export class RecruitmentPackageService {
     // update itself out of its own response body — the write commits and the
     // caller sees []. That exact pattern silently broke meeting booking for
     // months (fixed in #3126). The guard above already proves the status.
-    const { data: advanced, error: candidateErr } = await supabase
-      .from('hr_recruitment_candidates')
-      .update({ status: 'package_fixed' })
-      .eq('id', pkg.candidate_id)
-      .select('id');
-    if (candidateErr) throw candidateErr;
-    if (!advanced || advanced.length === 0) {
-      throw new Error(
-        'The salary package was approved but the hire could not be advanced to ' +
-        '"package fixed". Please reload the candidate and check their status.'
-      );
+    // Advance ONLY from 'approved'. A candidate already at 'package_fixed' or
+    // beyond (e.g. 'offer_issued') must be left alone — writing 'package_fixed'
+    // unconditionally would drag them BACKWARDS through the transition map.
+    // The previous `.in(['approved','pending_approval','submitted'])` filter
+    // gave that protection as a side effect; deciding in code keeps it while
+    // still avoiding the RETURNING trap described above.
+    if (parent.status === 'approved') {
+      const { data: advanced, error: candidateErr } = await supabase
+        .from('hr_recruitment_candidates')
+        .update({ status: 'package_fixed' })
+        .eq('id', pkg.candidate_id)
+        .select('id');
+      if (candidateErr) throw candidateErr;
+      if (!advanced || advanced.length === 0) {
+        throw new Error(
+          'The salary package was approved but the hire could not be advanced to ' +
+          '"package fixed". Please reload the candidate and check their status.'
+        );
+      }
     }
+    // Every other status is already AT or PAST package_fixed, or is terminal
+    // (rejected / withdrawn / offer_rescinded / no_show). Either way there is
+    // nothing to advance, and that is success — not a silent failure.
+    //
+    // This deliberately PRESERVES pre-existing behaviour for the terminal ones:
+    // main's `.in(['approved','pending_approval','submitted'])` filter also
+    // matched no row for them, wrote nothing and raised nothing. Whether a
+    // package should be approvable at all for a rejected or withdrawn candidate
+    // is a real open question — but changing it is not this fix's job, and a
+    // test below pins the equivalence so the answer stays deliberate.
 
     return data as HRRecruitmentCandidatePackage;
   }
