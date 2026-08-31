@@ -93,6 +93,29 @@ describe('approvePackage — package may only be fixed after full approval', () 
     expect(payload).toEqual({ status: 'package_fixed' });
   });
 
+  it('ALLOWS a revised package on a candidate already at package_fixed, without moving them', async () => {
+    // package_fixed sits DOWNSTREAM of approved in the transition map, so such a
+    // candidate has completed every approval. Refusing them blocked real hires:
+    // SARANYA R and Anand V both sit there with a further proposed package.
+    const { supabase, calls } = makeSupabase('package_fixed');
+
+    const result = await RecruitmentPackageService.approvePackage(supabase, PACKAGE_ID, 'approver-1');
+    expect(result.status).toBe('approved');
+
+    // The package is approved, but the candidate must NOT be written to at all.
+    expect(packageWrites(calls)).toHaveLength(1);
+    expect(candidateWrites(calls)).toHaveLength(0);
+  });
+
+  it('does NOT drag an offer_issued candidate BACKWARDS to package_fixed', async () => {
+    // Writing status unconditionally would regress them through the transition
+    // map. The old `.in(...)` filter prevented this as a side effect.
+    const { supabase, calls } = makeSupabase('offer_issued');
+
+    await RecruitmentPackageService.approvePackage(supabase, PACKAGE_ID, 'approver-1');
+    expect(candidateWrites(calls)).toHaveLength(0);
+  });
+
   it('does NOT filter the candidate UPDATE on status (PostgREST RETURNING trap)', async () => {
     // PostgREST re-applies request filters to an UPDATE's RETURNING projection.
     // Filtering on `status` while writing `status` makes the row update itself
