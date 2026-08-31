@@ -309,6 +309,14 @@ $function$;
 
 -- Restore the exact live ACL (postgres / authenticated / service_role; no anon).
 REVOKE EXECUTE ON FUNCTION public.fn_scf_submit_feedback(date,uuid,text,smallint,jsonb,text,text) FROM anon, PUBLIC;
+-- ci:allow-secdef-authenticated Learner self-service: called from the browser as the signed-in
+-- learner (lib/services/session-feedback-service.ts via createClientSupabaseClient), so
+-- authenticated is the only path that works. The body gates the caller five ways before any
+-- write: rejects auth.uid() IS NULL; requires the caller to resolve to a learner via
+-- learners_profiles.profile_id = auth.uid(); requires the session to exist; requires the
+-- feedback window to still be open; and requires the caller to have been marked Present in
+-- that exact session roster. student_id is hardcoded from the resolved learner and the upsert
+-- keys on (student_id, attendance_date, period_id), so a caller can only write their own row.
 GRANT  EXECUTE ON FUNCTION public.fn_scf_submit_feedback(date,uuid,text,smallint,jsonb,text,text) TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
