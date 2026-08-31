@@ -240,8 +240,76 @@ export const GUIDES: GuideBook = {
           ],
         },
         {
+          id: 'release-referral-charges',
+          title: '5. Release referral service charges',
+          steps: [
+            {
+              action: 'Start at **Review Worklist** — before you set any rate.',
+              detail:
+                'This lists every credit that needs a human look first: referrals recorded as a walk-in yet credited to an agency, credits with no enquiry behind them at all, and referrals with no agency attached. The walk-in ones are HELD — the generator skips them, so they cannot be paid even after a rate exists, until someone opens each and presses Release. The screen shows how many are still held and how many have been released.',
+              tip: 'A walk-in can be genuinely agency-referred, so treat this as a question to answer, not an accusation. Releasing is the normal outcome, not the exception — the hold exists so that the answer is recorded rather than assumed, and it records who released it and when.',
+              link: { label: 'Take me there', href: '/admission/consultants/review-worklist' },
+            },
+            {
+              action: 'Attach the missing agencies in **Unlinked Referrals**.',
+              detail:
+                'These learners are marked as agency-referred but no agency is attached, so the generator skips them in silence — the agency that actually sent them would simply never be paid, and nothing would warn you.',
+              tip: 'Linking is write-once on purpose. If a learner already carries a different agency, the screen warns you rather than quietly replacing the first one.',
+              link: { label: 'Take me there', href: '/admission/consultants/unlinked-referrals' },
+            },
+            {
+              action: 'Confirm the list with each agency in **Reconciliation**.',
+              detail:
+                'Enter the agency’s own list of learners they claim to have referred. The screen compares it against what the system credits them and shows three groups: both agree, the agency claims someone we do not credit, and — the one that matters — we credit them for someone they do not claim.',
+              tip: 'Frame the meeting as releasing their charges faster, which is true. The contradictions surface on their own; nobody has to be accused of anything.',
+              link: { label: 'Take me there', href: '/admission/consultants/reconciliation' },
+            },
+            {
+              action: 'Check each agency can actually be paid in **Payout Readiness**.',
+              detail:
+                'An agency with no bank account or PAN on file cannot receive a payment, however correct its credits are. This screen lists them ordered by how many referrals are waiting behind each one, so you start where the money is actually stuck.',
+              tip: 'Most blocked agencies have no referrals this year at all — collecting their details would move nothing. The screen opens on the few that are holding something up, and keeps the idle ones behind a toggle. Fill in the missing details on each agency\u2019s own page.',
+              link: { label: 'Take me there', href: '/admission/consultants/payout-readiness' },
+            },
+            {
+              action: 'Set the rate in **Rates & Generate**, then run **Preview** first.',
+              detail:
+                'The rate is the switch that turns credited referrals into money owed — until one exists, nothing can be generated and nothing can be paid. Set the amount for the year, institution or programme, then use Preview to see exactly how many referrals qualify and what the total comes to, without writing anything.',
+              tip: 'Preview is a dry run. Read it as the bill you are about to accept, and stop if the count or the total is not what you expected.',
+              prerequisite: 'The three checks above are done and the rate has been agreed.',
+              link: { label: 'Take me there', href: '/admission/consultants/referral-rates' },
+            },
+            {
+              action: 'Generate the pending charges.',
+              detail:
+                'This writes one pending commission per qualifying referral, using the rate you set. Referrals already carrying a commission are skipped, so running it twice does not double-charge.',
+              link: { label: 'Take me there', href: '/admission/consultants/referral-rates' },
+            },
+            {
+              action: 'Approve what was generated in **Commissions**.',
+              detail:
+                'Every generated charge arrives as pending and stays there until someone approves it. This is the point to reject anything the review or the agency meeting left in doubt.',
+              link: { label: 'Take me there', href: '/admission/consultants/commissions' },
+            },
+            {
+              action: 'Pay through the four stages in **Payouts**.',
+              detail:
+                'A payout batch moves through prepare, review, approve and pay — and the platform requires four different people, one per stage. That is deliberate: no single person can take a charge from creation to payment on their own.',
+              tip: 'If a stage will not let you act, it is usually because you already acted on an earlier one. That is the control working, not a fault.',
+              link: { label: 'Take me there', href: '/admission/consultants/payouts' },
+            },
+            {
+              action: 'For an earlier year, load the list through **Import** first.',
+              detail:
+                'Referrals from a past admission year are only in the system if someone imported them. The import matches each name to a real learner and flags conflicts before anything is promoted.',
+              tip: 'Bring the already-paid list with the import file. Without it there is no way to tell which of those referrals were settled by hand last year, and you risk paying twice for the same learner.',
+              link: { label: 'Take me there', href: '/admission/consultants/import' },
+            },
+          ],
+        },
+        {
           id: 'data-and-insight',
-          title: '5. Keep the data clean and read the AI insights',
+          title: '6. Keep the data clean and read the AI insights',
           steps: [
             {
               action: 'Run **Data Quality** checks regularly.',
@@ -266,7 +334,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'lead-routing-engine',
-          title: '6. Configure the lead-routing engine',
+          title: '7. Configure the lead-routing engine',
           steps: [
             {
               action: 'Open **Counselor Administration** — the engine behind "assignment rules".',
@@ -310,7 +378,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'consultant-policies',
-          title: '7. Set consultant partner policies',
+          title: '8. Set consultant partner policies',
           steps: [
             {
               action: 'Open **Consultant Administration** — the policies that make consultant tracking pay out.',
@@ -343,7 +411,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'super-admin-policies',
-          title: '8. Super-admin policy controls',
+          title: '9. Super-admin policy controls',
           steps: [
             {
               action: 'Set the **Lead Stages Policy** — which stages count as an active lead.',
@@ -376,7 +444,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'automation-templates',
-          title: '9. Automation, templates and messaging',
+          title: '10. Automation, templates and messaging',
           steps: [
             {
               action: 'Build automated **Workflows** that fire on a lead event.',
@@ -424,7 +492,7 @@ export const GUIDES: GuideBook = {
         },
         {
           id: 'meta-and-masters',
-          title: '10. Meta integration and marketing masters',
+          title: '11. Meta integration and marketing masters',
           steps: [
             {
               action: 'Manage social account credentials in **Dept Accounts**.',

@@ -22,12 +22,16 @@ import {
 import { NotAllocatedTab } from './_components/not-allocated-tab';
 import { AllAllocationsTab } from './_components/all-allocations-tab';
 import {
-  Plus, BedDouble, Loader2, Users, ArrowRightLeft, LogOut, UserCheck, Eye,
+  Plus, BedDouble, Loader2, Users, ArrowRightLeft, History, UserCheck, Eye,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   active: { label: 'Active', variant: 'success' },
-  vacated: { label: 'Vacated', variant: 'secondary' },
+  // 'vacated' is the DB status, but on this screen it only ever means "this row
+  // was superseded by a later allocation" — the learner is still resident. Label
+  // it as history so the status badge, the filter chip and the summary card all
+  // say the same thing.
+  vacated: { label: 'Past Allocation', variant: 'secondary' },
   transferred: { label: 'Transferred', variant: 'outline' },
   pending_approval: { label: 'Pending', variant: 'default' },
   pending_vacate: { label: 'Pending Vacate', variant: 'default' },
@@ -44,6 +48,97 @@ const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'sec
 type Alloc = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getJoined = (row: any, relation: string, field: string): string => row?.[relation]?.[field] ?? '';
+
+// Export schema for the Allocated tab.
+//
+// This tab previously shipped `exportConfig={{ columnMapping: {}, headers: [], columnWidths: [] }}`,
+// which produces a file with almost nothing in it. Both traps are live in the
+// shared exporter and neither throws:
+//   • `columnMapping: {}` is a TRUTHY empty object, so the auto-generate
+//     fallbacks (`columnMapping || autogen`) in data-export.tsx and
+//     export-utils.ts never fire. exportToExcel then writes
+//     `row[mapping[key]]` = `row[undefined]`, collapsing the whole sheet into
+//     ONE column literally named "undefined".
+//   • `headers: []` falls back to the table's COLUMN IDS, which on this tab are
+//     display-only labels, not data keys. Against a raw hostel_allocations row
+//     only `status` exists; `learner` is an object (exports "[object Object]")
+//     and block / room / bed / room_category / mess_category / type / fee all
+//     resolve to undefined because the real fields are hostel_blocks.name,
+//     hostel_rooms.room_number, allocation_type, fee_status, and so on.
+//
+// So: real headers + mapping + widths, a transformFunction that flattens the
+// embeds, and export keys deliberately DISTINCT from the table column ids —
+// data-export.tsx drops any export header matching a HIDDEN column id, while
+// non-colliding keys are always emitted regardless of column visibility.
+const ALLOCATED_EXPORT_COLUMNS: ReadonlyArray<{ key: string; label: string; width: number }> = [
+  { key: 'learner_name', label: 'Learner', width: 24 },
+  { key: 'learner_email', label: 'Email', width: 28 },
+  { key: 'learner_gender', label: 'Gender', width: 10 },
+  { key: 'institution_name', label: 'Institution', width: 26 },
+  { key: 'program_name', label: 'Program', width: 24 },
+  { key: 'semester_name', label: 'Semester', width: 14 },
+  { key: 'hostel_type_label', label: 'Hostel Type', width: 12 },
+  { key: 'block_name', label: 'Block', width: 18 },
+  { key: 'block_code', label: 'Block Code', width: 12 },
+  { key: 'room_number', label: 'Room', width: 10 },
+  { key: 'room_floor', label: 'Floor', width: 8 },
+  { key: 'bed_number', label: 'Bed', width: 8 },
+  { key: 'room_category_name', label: 'Room Category', width: 18 },
+  { key: 'mess_category_name', label: 'Mess Category', width: 18 },
+  { key: 'allocation_type_label', label: 'Allocation Type', width: 16 },
+  { key: 'allocation_date_value', label: 'Allocation Date', width: 15 },
+  { key: 'check_in_date_value', label: 'Check-in Date', width: 15 },
+  // Both populated on the 190 superseded rows, so they carry the Past
+  // Allocations / Transferred views.
+  { key: 'check_out_date_value', label: 'Check-out Date', width: 15 },
+  { key: 'actual_vacate_date_value', label: 'Vacated On', width: 15 },
+  { key: 'status_label', label: 'Status', width: 16 },
+  { key: 'fee_status_label', label: 'Fee Status', width: 12 },
+];
+// Deliberately NOT exported — every one of these is NULL or '' on all 884
+// allocation rows, so including them would ship permanently blank columns and
+// reproduce the very complaint this fixes: monthly_fee_at_allocation_inr,
+// deposit_paid (always 0), food_preference, emergency_contact_name / _phone /
+// _relation (the auto-allocation engine writes ''), expected_vacate_date,
+// vacate_reason. Add them back here the day the intake flow starts capturing
+// them.
+const ALLOCATED_EXPORT_HEADERS = ALLOCATED_EXPORT_COLUMNS.map((c) => c.key);
+const ALLOCATED_EXPORT_MAPPING: Record<string, string> = Object.fromEntries(
+  ALLOCATED_EXPORT_COLUMNS.map((c) => [c.key, c.label])
+);
+const ALLOCATED_EXPORT_WIDTHS = ALLOCATED_EXPORT_COLUMNS.map((c) => ({ wch: c.width }));
+
+// Flattens one joined allocation row into the schema above. Every path here is
+// covered by getAllAllocations' select, and `??` not `||` throughout — floor 0
+// is a real ground floor that `||` would silently blank.
+const allocationToExportRow = (a: Alloc) => {
+  const academic = a?.learner?.academic ?? null;
+  return {
+    learner_name: a?.learner?.full_name ?? null,
+    learner_email: a?.learner?.email ?? null,
+    learner_gender: academic?.gender ?? null,
+    institution_name: academic?.institution?.name ?? null,
+    program_name: academic?.program?.program_name ?? null,
+    semester_name: academic?.semester?.semester_name ?? null,
+    hostel_type_label: a?.hostel_blocks?.hostel_type ?? null,
+    block_name: a?.hostel_blocks?.name ?? null,
+    block_code: a?.hostel_blocks?.code ?? null,
+    room_number: a?.hostel_rooms?.room_number ?? null,
+    room_floor: a?.hostel_rooms?.floor ?? null,
+    bed_number: a?.hostel_beds?.bed_number ?? null,
+    room_category_name: academic?.room_category?.name ?? null,
+    mess_category_name: academic?.mess_category?.name ?? null,
+    allocation_type_label: a?.allocation_type ?? null,
+    allocation_date_value: a?.allocation_date ?? null,
+    check_in_date_value: a?.check_in_date ?? null,
+    check_out_date_value: a?.check_out_date ?? null,
+    actual_vacate_date_value: a?.actual_vacate_date ?? null,
+    // Same labels the table badges show, so the sheet reads like the screen —
+    // 'vacated' in particular means "superseded by a room change", not "left".
+    status_label: statusConfig[a?.status as string]?.label ?? a?.status ?? null,
+    fee_status_label: feeStatusConfig[a?.fee_status as string]?.label ?? a?.fee_status ?? null,
+  };
+};
 
 const ALLOCATIONS_TABS = ['all', 'allocated', 'not-allocated'] as const;
 
@@ -83,10 +178,14 @@ function AllocationsPageInner() {
 
   // Client-side data feed for the advanced DataTable: applies the external
   // status/block/advanced filters + the table's own search & sort, then paginates.
-  const fetchData = useCallback(
-    async (params: { page: number; limit: number; search: string; sort_by: string; sort_order: string }) => {
-      const q = (params.search ?? '').trim().toLowerCase();
-      let rows = allocations.filter((a: Alloc) => {
+  // Shared status + cascade + search predicate. Extracted so the paged table
+  // feed and "Export All Pages" can never describe different sets — an export
+  // that silently disagreed with the filters on screen is the same class of
+  // bug as the one this tab already had.
+  const filterRows = useCallback(
+    (search: string) => {
+      const q = (search ?? '').trim().toLowerCase();
+      return allocations.filter((a: Alloc) => {
         if (statusFilter !== 'all' && a.status !== statusFilter) return false;
         if (!allocationMatchesCascade(a, cascade)) return false;
         if (q) {
@@ -101,6 +200,20 @@ function AllocationsPageInner() {
         }
         return true;
       });
+    },
+    [allocations, statusFilter, cascade],
+  );
+
+  // Without this, getAllItems() pages through fetchDataFn at the table's page
+  // size to assemble the export.
+  const fetchAllItems = useCallback(
+    async (params: { search: string }) => filterRows(params.search ?? ''),
+    [filterRows],
+  );
+
+  const fetchData = useCallback(
+    async (params: { page: number; limit: number; search: string; sort_by: string; sort_order: string }) => {
+      let rows = filterRows(params.search ?? '');
 
       const sortKey = params.sort_by;
       if (sortKey) {
@@ -128,7 +241,18 @@ function AllocationsPageInner() {
         pagination: { page: params.page, limit, total_pages: Math.max(1, Math.ceil(total / limit)), total_items: total },
       };
     },
-    [allocations, statusFilter, cascade],
+    [filterRows],
+  );
+
+  const exportConfig = useMemo(
+    () => ({
+      entityName: 'hostel-allocations',
+      headers: ALLOCATED_EXPORT_HEADERS,
+      columnMapping: ALLOCATED_EXPORT_MAPPING,
+      columnWidths: ALLOCATED_EXPORT_WIDTHS,
+      transformFunction: allocationToExportRow,
+    }),
+    [],
   );
 
   const columns = useMemo<ColumnDef<Alloc>[]>(() => [
@@ -245,7 +369,21 @@ function AllocationsPageInner() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <SummaryCard icon={<UserCheck className="h-8 w-8 text-green-600" />} value={counts.active} label="Active" />
               <SummaryCard icon={<ArrowRightLeft className="h-8 w-8 text-blue-600" />} value={counts.transfers} label="Transfers" />
-              <SummaryCard icon={<LogOut className="h-8 w-8 text-amber-600" />} value={counts.vacated} label="Vacated" />
+              {/* Labelled "Past Allocations", not "Vacated": these rows are the
+                  superseded PREVIOUS bed of a learner who has since been moved,
+                  not learners who left the hostel. hostel_allocations is
+                  append-only — a room change or transfer writes a new row and
+                  flips the old one to 'vacated' (see room-change-card.tsx). As
+                  of 2026-08-10 all 167 such rows belong to learners holding a
+                  current active allocation on a different bed, and every one has
+                  a NULL vacate_reason. Read as "vacated" it looks like a queue
+                  of departing learners, which it is not. */}
+              <SummaryCard
+                icon={<History className="h-8 w-8 text-amber-600" />}
+                value={counts.vacated}
+                label="Past Allocations"
+                hint="Superseded by a room change"
+              />
               <SummaryCard icon={<BedDouble className="h-8 w-8 text-purple-600" />} value={counts.feePending} label="Fee Pending" />
             </div>
 
@@ -270,9 +408,10 @@ function AllocationsPageInner() {
             <div className="pinned-actions-col">
               <DataTable
                 fetchDataFn={fetchData}
+                fetchAllItemsFn={fetchAllItems}
                 getColumns={() => columns}
                 idField="id"
-                exportConfig={{ entityName: 'hostel-allocations', columnMapping: {}, columnWidths: [], headers: [] }}
+                exportConfig={exportConfig}
                 config={{ enableUrlState: false, enableDateFilter: false, enableExport: true, enableRowSelection: false }}
               />
             </div>
@@ -310,14 +449,15 @@ export default function AllocationsPage() {
   );
 }
 
-function SummaryCard({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
+function SummaryCard({ icon, value, label, hint }: { icon: React.ReactNode; value: number; label: string; hint?: string }) {
   return (
     <Card>
       <CardContent className="p-4 flex items-center gap-3">
         {icon}
-        <div>
+        <div className="min-w-0">
           <p className="text-2xl font-bold">{value}</p>
           <p className="text-xs text-muted-foreground">{label}</p>
+          {hint && <p className="text-[11px] leading-tight text-muted-foreground/70">{hint}</p>}
         </div>
       </CardContent>
     </Card>

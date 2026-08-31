@@ -452,17 +452,33 @@ const COUNSELOR_EXPORT_CONFIG = {
     { wch: 14 },
     { wch: 10 },
   ],
+  // DATA KEYS (CounselorRecord fields), not the labels above — the export
+  // resolves these against each row; columnMapping supplies the heading.
+  // Labels here matched nothing and downloaded a blank file.
   headers: [
-    'Name',
-    'Email',
-    'Phone',
-    'Primary Role',
-    'Institution',
-    'Active',
-    'Assigned Leads',
-    'Sources Mapped',
-    'Max Leads',
+    'name',
+    'email',
+    'phone',
+    'profile_role',
+    'institution',
+    'is_active',
+    'assigned_lead_count',
+    'sources_count',
+    'max_leads',
   ],
+  // `institution` is not a row field — it lives on the `institutions` relation.
+  transformFunction: ((row: CounselorRecord) => ({
+    name: row.name ?? '',
+    email: row.email ?? '',
+    phone: row.phone ?? '',
+    profile_role: row.profile_role ?? '',
+    institution: row.institutions?.name ?? '',
+    is_active: row.is_active ? 'Yes' : 'No',
+    assigned_lead_count: row.assigned_lead_count ?? 0,
+    sources_count: row.sources_count ?? 0,
+    max_leads: row.max_leads ?? 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  })) as any,
 };
 
 interface EditCounselorDialogProps {

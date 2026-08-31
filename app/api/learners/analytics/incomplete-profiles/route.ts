@@ -6,6 +6,9 @@ export const dynamic = 'force-dynamic';
 // Created: 2026-02-09
 // Updated: 2026-07-30 - Server-side pagination/search/sort + field filters so
 //          the Profile Completion drill-down can use the shared DataTable.
+// Updated: 2026-08-20 - Scoped to the onboarding-corridor lifecycle statuses
+//          (account / reserved / admitted / active); gender added to the
+//          required fields.
 // Purpose: Fetch detailed learner profiles with missing-field info
 // Used by: Profile Completion Tab drill-down table
 // ============================================
@@ -15,6 +18,7 @@ import { createClient } from '@/lib/supabase/server';
 import { sanitizeSearch } from '@/lib/config/pagination';
 import { resolveInstitutionScope } from '@/lib/auth/institution-scope';
 import {
+  PROFILE_COMPLETION_LIFECYCLE_STATUSES,
   PROFILE_FIELD_MISSING,
   type IncompleteProfileDetail,
   type ProfileCompletionScope,
@@ -27,15 +31,42 @@ import {
  * were derived independently the table's footer count disagreed with its rows.
  *
  * NOTE: admission year is deliberately NOT here. It is filterable and shown as
- * a column, but it has never been part of the completion definition (the
- * funnel/tier charts on the same tab only count these four).
+ * a column, but it has never been part of the completion definition.
+ *
+ * The funnel/tier cards above this table come from a different endpoint
+ * (/api/learners/analytics/stats) and still count only the first four, so this
+ * table reports slightly more incomplete learners than the funnel does — the
+ * seven whose only gap is gender. That is stated in the card description; move
+ * gender into the stats endpoint too if the two must agree exactly.
  */
 const REQUIRED_FIELDS = [
   { column: 'college_email', label: 'College Email' },
   { column: 'academic_year_id', label: 'Academic Year' },
   { column: 'semester_id', label: 'Semester' },
   { column: 'section_id', label: 'Section' },
+  // 2026-08-20. `blankIsMissing` exists because gender is free text where the
+  // four above are a uuid or an email: production holds ZERO null genders and
+  // twelve empty strings, so an `IS NULL`-only predicate would be a filter
+  // that can never match a single row. Every predicate built from this table
+  // therefore carries a `= ''` arm for flagged columns.
+  { column: 'gender', label: 'Gender', blankIsMissing: true },
 ] as const;
+
+/** PostgREST `or=` terms that mean "this required field is not filled in". */
+function missingTerms(field: (typeof REQUIRED_FIELDS)[number]): string[] {
+  const terms = [`${field.column}.is.null`];
+  // `eq.` with no value is PostgREST for `= ''`.
+  if ('blankIsMissing' in field && field.blankIsMissing) {
+    terms.push(`${field.column}.eq.`);
+  }
+  return terms;
+}
+
+/** Narrow a query to rows where `column` is unset — NULL, or blank if free text. */
+function whereMissing(query: any, column: string): any {
+  const field = REQUIRED_FIELDS.find((f) => f.column === column);
+  return field ? query.or(missingTerms(field).join(',')) : query.is(column, null);
+}
 
 /**
  * Columns the `missingField` filter may target. A superset of REQUIRED_FIELDS:
@@ -79,7 +110,10 @@ function applyIdFilter(
 /**
  * GET /api/learners/analytics/incomplete-profiles
  *
- * Returns a page of learner profiles with which required fields are missing.
+ * Returns a page of learner profiles with which required fields are missing,
+ * restricted to the onboarding corridor (see
+ * PROFILE_COMPLETION_LIFECYCLE_STATUSES) — this endpoint never reports on
+ * enquiries, rejected applicants or learners who have already left.
  *
  * Query Parameters:
  * - institutionIds : comma-separated institution IDs
@@ -90,7 +124,7 @@ function applyIdFilter(
  * - sortOrder      : asc | desc (default desc)
  * - completion     : incomplete (default) | complete | all
  * - missingField   : college_email | academic_year_id | admission_year_id
- *                    | semester_id | section_id
+ *                    | semester_id | section_id | gender
  * - collegeEmail   : missing | present
  * - academicYearId : UUID or "MISSING"
  * - admissionYearId: UUID or "MISSING"
@@ -149,6 +183,7 @@ export async function GET(request: NextRequest) {
         first_name,
         last_name,
         college_email,
+        gender,
         lifecycle_status,
         roll_number,
         application_id,
@@ -167,6 +202,14 @@ export async function GET(request: NextRequest) {
         { count: 'exact' }
       );
 
+    // ── Lifecycle scope ───────────────────────────────────────────────────
+    //
+    // Applied server-side, before every other filter, so the exact `count`,
+    // each page of rows and the Export file all describe the same population.
+    // Filtering these out in JS after the fact would make `total` a lie the
+    // moment a page contained an out-of-scope row.
+    query = query.in('lifecycle_status', PROFILE_COMPLETION_LIFECYCLE_STATUSES);
+
     // ── Completion scope ──────────────────────────────────────────────────
     //
     // Derived from the REQUIRED_FIELDS themselves rather than the stored
@@ -179,12 +222,13 @@ export async function GET(request: NextRequest) {
       'incomplete') as ProfileCompletionScope;
 
     if (completion === 'incomplete') {
-      query = query.or(
-        REQUIRED_FIELDS.map((f) => `${f.column}.is.null`).join(',')
-      );
+      query = query.or(REQUIRED_FIELDS.flatMap(missingTerms).join(','));
     } else if (completion === 'complete') {
       for (const field of REQUIRED_FIELDS) {
         query = query.not(field.column, 'is', null);
+        if ('blankIsMissing' in field && field.blankIsMissing) {
+          query = query.neq(field.column, '');
+        }
       }
     }
     // 'all' adds no constraint.
@@ -195,7 +239,7 @@ export async function GET(request: NextRequest) {
     // PostgREST as a column name.
     const missingField = searchParams.get('missingField');
     if (missingField && FILTERABLE_MISSING_FIELDS.has(missingField)) {
-      query = query.is(missingField, null);
+      query = whereMissing(query, missingField);
     }
 
     // ── Field filters ─────────────────────────────────────────────────────

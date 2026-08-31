@@ -55,6 +55,13 @@ import {
 } from '@/components/ui/tooltip';
 import { Info, Eye } from 'lucide-react';
 import { ImpactPreviewSheet } from '@/components/permissions-audit/impact-preview-sheet';
+import {
+  fetchPermissionHolderCounts,
+  keysNeedingHolderCounts,
+  resolvePermissionToggle,
+  type PermissionHolderCounts
+} from '@/lib/services/roles/permission-holder-counts';
+import { PermissionRemovalWarningDialog } from './permission-removal-warning-dialog';
 
 interface EditRoleDialogProps {
   open: boolean;
@@ -67,6 +74,7 @@ interface EditRoleDialogProps {
       description?: string;
       permissions?: Record<string, boolean>;
       institution_scope?: 'all' | 'own';
+      is_privileged?: boolean;
       module_scopes?: Record<string, 'own_records' | 'own_institution' | 'all_institutions'>;
     }
   ) => Promise<void>;
@@ -221,10 +229,22 @@ export function EditRoleDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [institutionScope, setInstitutionScope] = useState<'all' | 'own'>(role?.institution_scope || 'own');
+  const [isPrivileged, setIsPrivileged] = useState<boolean>(role?.is_privileged ?? false);
   const [moduleScopes, setModuleScopes] = useState<
     Record<string, 'own_records' | 'own_institution' | 'all_institutions'>
   >((role?.module_scopes as any) ?? {});
   const [previewOpen, setPreviewOpen] = useState(false);
+  // How many real people currently hold each permission this role grants.
+  // Fetched ONCE per dialog open (one batched RPC, never one per checkbox) so a
+  // removal can be checked instantly against a live figure.
+  const [holderCounts, setHolderCounts] = useState<PermissionHolderCounts>({});
+  // The untick waiting on the admin's confirmation. Null when nothing is pending.
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    fieldName: string;
+    permissionKey: string;
+    permissionLabel: string;
+    holderCount: number;
+  } | null>(null);
   // Snapshot proposed permissions at the moment the preview is opened —
   // reading form.getValues() lazily lets us watch live edits without a
   // re-render on every keystroke.
@@ -318,11 +338,41 @@ export function EditRoleDialog({
   useEffect(() => {
     form.reset(defaultFormValues);
     setInstitutionScope(role?.institution_scope || 'own');
+    setIsPrivileged(role?.is_privileged ?? false);
     setModuleScopes((role?.module_scopes as any) ?? {});
 
     // Debug form values after reset
     console.log('Form values after reset:', form.getValues());
   }, [form, role, defaultFormValues]);
+
+  // One batched lookup of "how many real people hold this?" for every permission
+  // the role currently grants — those are the only ones that can be switched
+  // off. Failure (including the RPC not existing yet) leaves the map empty, and
+  // an unknown count never warns, so this can ship ahead of its migration.
+  useEffect(() => {
+    if (!open) return;
+
+    const keys = keysNeedingHolderCounts(role.permissions || {});
+    if (keys.length === 0) {
+      setHolderCounts({});
+      return;
+    }
+
+    let cancelled = false;
+    fetchPermissionHolderCounts(keys).then((counts) => {
+      if (!cancelled) setHolderCounts(counts);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, role]);
+
+  // Close the pending confirm whenever the dialog itself closes, so a stale
+  // question can never be answered against a different role.
+  useEffect(() => {
+    if (!open) setPendingRemoval(null);
+  }, [open]);
 
   // Adjusted handleSubmit to flatten permissions before calling onSubmit
   const handleSubmit = async (values: z.infer<typeof formSchema>) => {
@@ -345,6 +395,7 @@ export function EditRoleDialog({
         description: values.description || '',
         permissions: flatPermissions, // Use the flattened version
         institution_scope: institutionScope,
+        is_privileged: isPrivileged,
         module_scopes: moduleScopes
       };
 
@@ -613,6 +664,27 @@ export function EditRoleDialog({
                       : 'Default scope used by any module without a specific override below.'
                     }
                   </p>
+                </div>
+
+                {/* Privileged flag. Kept separate from "System" (is_system_role
+                    is true for nearly every role and says nothing about risk)
+                    and from scope (a cross-institution role is not necessarily
+                    dangerous — Staff Counsellor is 'all' and quite ordinary). */}
+                <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="is-privileged">Privileged role</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Only a super administrator can assign this role to a staff member.
+                      Turn this on for roles that can grant permissions or administer
+                      the platform. Enforced in the database, not just in the dropdown.
+                    </p>
+                  </div>
+                  <Switch
+                    id="is-privileged"
+                    checked={isPrivileged}
+                    onCheckedChange={setIsPrivileged}
+                    disabled={role?.role_key === 'super_admin'}
+                  />
                 </div>
 
                 {/* Per-module scope overrides (Option A: per-module). Module
@@ -924,12 +996,35 @@ export function EditRoleDialog({
                                           <Switch
                                             checked={Boolean(field.value)}
                                             onCheckedChange={(checked) => {
-                                              field.onChange(checked);
-                                              // Debug when a permission is toggled
-                                              console.log(
-                                                `Toggled ${permission.key} to:`,
-                                                checked
+                                              const previous = Boolean(
+                                                field.value
                                               );
+                                              const holderCount =
+                                                holderCounts[permission.key];
+
+                                              // Taking a permission away from
+                                              // people who are using it is the
+                                              // one move worth interrupting.
+                                              if (
+                                                resolvePermissionToggle({
+                                                  previous,
+                                                  next: checked,
+                                                  holderCount
+                                                }) === 'confirm-removal'
+                                              ) {
+                                                setPendingRemoval({
+                                                  fieldName,
+                                                  permissionKey:
+                                                    permission.key,
+                                                  permissionLabel:
+                                                    permission.label,
+                                                  holderCount:
+                                                    holderCount as number
+                                                });
+                                                return; // leave it on until confirmed
+                                              }
+
+                                              field.onChange(checked);
                                             }}
                                             disabled={
                                               isSuperAdmin || isSubmitting
@@ -1017,6 +1112,25 @@ export function EditRoleDialog({
               roleId={role.id}
               roleName={role.role_name}
               proposedPermissions={previewPermissions}
+            />
+
+            <PermissionRemovalWarningDialog
+              open={pendingRemoval !== null}
+              onOpenChange={(isOpen) => {
+                if (!isOpen) setPendingRemoval(null);
+              }}
+              permissionLabel={pendingRemoval?.permissionLabel ?? ''}
+              permissionKey={pendingRemoval?.permissionKey ?? ''}
+              holderCount={pendingRemoval?.holderCount ?? 0}
+              onConfirm={() => {
+                if (!pendingRemoval) return;
+                form.setValue(pendingRemoval.fieldName as `permissions.${string}.${string}`, false, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                  shouldTouch: false
+                });
+                setPendingRemoval(null);
+              }}
             />
           </form>
         </Form>

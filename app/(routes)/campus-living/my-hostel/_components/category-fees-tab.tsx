@@ -6,9 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
 import { useMyHostelSummary } from '@/hooks/campus-living/use-my-hostel';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
-import { Building2, UtensilsCrossed, Loader2, CalendarClock } from 'lucide-react';
+import { Building2, UtensilsCrossed, Loader2, CalendarClock, Info } from 'lucide-react';
 import { RoomCategoryUpgradeCard } from './room-category-upgrade-card';
 import { MessCategoryUpgradeCard } from './mess-category-upgrade-card';
+import { RoomChangeCard } from './room-change-card';
 import { useMyUpgradeWaitlist } from '@/hooks/campus-living/use-category-upgrade';
 
 // ---------------------------------------------------------------------------
@@ -42,14 +43,23 @@ export function CategoryFeesTab() {
     );
   }
 
-  // Book-vs-upgrade is driven by the current category's ALLOCATION MODE, not by
-  // whether a room is held. MANUAL categories (e.g. Premium) are self-booked, so
-  // those residents get "Book a Room"; AUTO categories (Classic/Deluxe) are
-  // office-allocated, so those residents only ever see upgrade options — even
-  // before they hold a room (Classic → Deluxe / Premium). An allocated resident
-  // never books a first room, so booking is additionally gated on having none.
+  // Book-vs-upgrade is driven by the current category's ALLOCATION MODE. MANUAL
+  // categories (e.g. Premium) are self-booked, so those residents get "Book a Room";
+  // AUTO categories (Classic/Deluxe) are office-allocated. An allocated resident
+  // never books a first room, so booking is gated on having none.
+  //
+  // 2026-08-20: upgrades open as soon as BOTH categories are assigned, with or without a
+  // room. An upgrade acts on the category the office allocates you INTO, so doing it before
+  // allocation is the point, not a bug -- you land straight in the upgraded category instead
+  // of being moved twice. Without an allocation the room-level path stays closed
+  // (categoryOnly below): _cl_upgrade_room_category routes a room pick with no allocation to
+  // _cl_execute_first_booking, which seats the learner WITHOUT billing the upgrade or moving
+  // the category -- a free Premium bed. _cl_upgrade_category_only bills correctly and leaves
+  // the room to the office. Learners with no categories yet still get an explanatory note.
   const currentCategory = summary?.hostelCategory ?? null;
   const showBook = currentCategory?.allocation_mode === 'manual' && !hasAllocation;
+  const upgradesEnabled = !!summary?.hostelCategory?.upgrades_enabled;
+  const categoriesAssigned = !!summary?.hostelCategory?.id && !!summary?.messCategory?.id;
 
   if (showBook) {
     return (
@@ -101,12 +111,12 @@ export function CategoryFeesTab() {
                 >
                   <CalendarClock className='mr-1 h-3 w-3' />
                   {provisionalHold.upgrade_bill_id && (provisionalHold.upgrade_fee_amount ?? 0) > 0
-                    ? `Provisional — pay ₹${Math.max(0, (provisionalHold.upgrade_fee_amount ?? 0) - (provisionalHold.upgrade_fee_paid ?? 0)).toLocaleString('en-IN')}`
-                    : 'Provisional upgrade — reserved'}
+                    ? `Upgrade billed — pay ₹${Math.max(0, (provisionalHold.upgrade_fee_amount ?? 0) - (provisionalHold.upgrade_fee_paid ?? 0)).toLocaleString('en-IN')}`
+                    : 'Upgraded — payment due'}
                   {provisionalHold.hold_expires_at
                     ? ` by ${new Date(provisionalHold.hold_expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-                    : ''}{' '}
-                  to keep it
+                    : ''}
+                  ; unpaid amounts join your fee dues
                 </Badge>
               )}
             </div>
@@ -132,12 +142,35 @@ export function CategoryFeesTab() {
         </CardContent>
       </Card>
 
-      {/* Self-service upgrades */}
-      {summary?.hostelCategory?.upgrades_enabled && (
+      {/* Self-service upgrades — available from the moment both categories are set.
+          categoryOnly hides room picking until a room exists (see the note above). */}
+      {upgradesEnabled && categoriesAssigned && (
         <RoomCategoryUpgradeCard
           currentCategoryName={summary?.hostelCategory?.name ?? null}
           mode='upgrade'
+          categoryOnly={!hasAllocation}
         />
+      )}
+      {/* One-time same-category room change (Premium / Premium + AC). Self-gating:
+          the card renders nothing unless the resident's category allows it. Needs a
+          room to move out of, so it follows the same allocation gate as upgrades. */}
+      {hasAllocation && <RoomChangeCard />}
+
+      {upgradesEnabled && !categoriesAssigned && (
+        <Card>
+          <CardHeader>
+            <CardTitle className='flex items-center gap-2 text-base'>
+              <Building2 className='h-5 w-5 text-primary' /> Upgrade Room Category
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className='flex items-start gap-2 text-sm text-muted-foreground'>
+              <Info className='mt-0.5 h-4 w-4 shrink-0' />
+              Your room and mess categories are still being assigned. Upgrade options appear
+              here once both are set — you can upgrade before your room is allocated.
+            </p>
+          </CardContent>
+        </Card>
       )}
       {summary?.messCategory?.upgrades_enabled && (
         <MessCategoryUpgradeCard

@@ -7,6 +7,8 @@
  * (entitled, used, carried_forward) row per type per academic year.
  */
 
+import type { LeaveDocument } from '@/types/hr';
+
 /** What a human decided. Expiry is NOT stored here — see `effective_status`. */
 export type CompOffCreditStatus = 'pending' | 'approved' | 'rejected' | 'consumed';
 
@@ -24,8 +26,10 @@ export type CompOffEffectiveStatus = CompOffCreditStatus | 'expired';
  * - `claim`      team member asserts a worked date, an approver confirms
  * - `hr_grant`   HR creates it directly
  * - `attendance` auto-created from approved attendance on a holiday/week-off.
- *                Defined but dormant: hr_attendance_records, hr_public_holidays
- *                and hr_shift_templates are all empty, so nothing writes it yet.
+ *                Defined but dormant: hr_attendance_records and
+ *                hr_public_holidays are both empty, so nothing writes it yet.
+ *                (hr_shift_templates was removed 2026-08-06; shift config now
+ *                lives in hr_shift_timings, which IS populated.)
  */
 export type CompOffCreditSource = 'claim' | 'hr_grant' | 'attendance';
 
@@ -75,10 +79,15 @@ export interface PendingCompOffClaim {
   /** 'Unknown' when the staff row is unreadable — the claim still shows. */
   employee_name: string;
   employee_code: string | null;
+  /** From the claimant's staff row; null when that row is unreadable. */
+  institution_id: string | null;
+  institution_name: string | null;
   worked_date: string;
   expires_on: string;
   credit_days: number;
   source: CompOffCreditSource;
   notes: string | null;
+  /** Proof of the worked day — same Drive-backed shape as leave documents. */
+  documents: LeaveDocument[];
   created_at: string;
 }

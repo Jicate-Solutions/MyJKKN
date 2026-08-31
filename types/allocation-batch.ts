@@ -103,6 +103,10 @@ export interface AllocationEligibilityExplain {
     semester: string | null;
     quota: string | null;
     academic_year: string | null;
+    /** The academic year matching their admission year — the intended anchor. */
+    admission_academic_year: string | null;
+    /** The year academic_fee was actually summed from (anchor, else earliest billed). */
+    fee_academic_year: string | null;
     academic_fee: number | null;
     gender: string | null;
   };
@@ -114,6 +118,8 @@ export interface AllocationEligibilityExplain {
     room_category_matched: boolean;
     resolved_mess_category: string | null;
     academic_year: string | null;
+    admission_academic_year: string | null;
+    fee_academic_year: string | null;
     academic_fee: number | null;
     gender: string | null;
     gender_ok: boolean;
@@ -176,6 +182,13 @@ export interface AcademicYearOption {
   label: string;
 }
 
+/**
+ * Where the fee that drives the Category-Eligibility band came from:
+ *   matched        — the learner's admission-year academic bill (the normal case)
+ *   different_year — fell back to their earliest billed year (no admission-year bill)
+ *   untagged       — bills exist but none is usable (untagged, or the year totals ₹0)
+ *   none           — no academic bill at all
+ */
 export type BillState = 'matched' | 'different_year' | 'untagged' | 'none';
 export type CandidateStage = 'prerequisite' | 'eligibility' | 'ok';
 export type CandidateVerdict = 'in' | 'out';
@@ -184,6 +197,8 @@ export type CandidateVerdict = 'in' | 'out';
 export interface AllocationCandidate {
   learner_id: string;
   full_name: string;
+  /** learners_profiles.roll_number — the identifier a warden matches the preview against. */
+  roll_number: string | null;
   email: string | null;
   institution_name: string | null;
   program_name: string | null;
@@ -192,13 +207,43 @@ export interface AllocationCandidate {
   has_profile: boolean;
   gender_ok: boolean;
   not_allocated: boolean;
+  /** A physical-room RULE covers a room of their eligible category. */
   physical_rule_ok: boolean;
+  /**
+   * A room of their eligible category that NO rule reserves is reachable by
+   * their institution. Deliberately separate from physical_rule_ok so the
+   * preview can still report truthfully whether a rule covers them; the verdict
+   * accepts either. Always false when the overflow toggle is off.
+   */
+  overflow_room_ok: boolean;
+  /**
+   * Which tier produced target_block_name: 'rule' = a room reserved for their
+   * own cohort, 'overflow' = an unreserved room of the same category, used
+   * because every reserved one was full. null => no bed found.
+   */
+  placement_tier: 'rule' | 'overflow' | null;
   bed_available: boolean;
+  /**
+   * The block their first free eligible bed sits in — what auto-allocate would
+   * actually give them (same ordering as the generate RPC). The operator no
+   * longer picks a block, so the preview has to show it. null => no bed.
+   */
+  target_block_name: string | null;
+  /** The learner's profile academic year — display only; no verdict reads it. */
   academic_year_id: string | null;
   academic_year_name: string | null;
+  /** The academic year their admission year maps to, at their institution. */
+  admission_academic_year_id: string | null;
+  admission_academic_year_name: string | null;
+  /** The year the band fee was actually read from (admission year, or the fallback). */
+  band_academic_year_id: string | null;
+  band_academic_year_name: string | null;
+  /** The fee the Category-Eligibility band was matched against. NULL => skipped. */
+  band_fee: number | null;
   academic_bill_count: number;
   current_year_bill_count: number;
   bill_other_year_name: string | null;
+  /** Diagnostic only — what the old current-year rule would have read (exposes ₹0 placeholders). */
   current_year_fee: number | null;
   resolved_room_category_id: string | null;
   resolved_room_category_name: string | null;

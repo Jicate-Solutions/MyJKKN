@@ -53,6 +53,23 @@ export function MessCategoryUpgradeCard({ currentMessName }: Props) {
                 <p className="font-medium truncate">
                   {currentMessName ? `${currentMessName} → ` : ''}{opt.name}
                 </p>
+                <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-sm">
+                  {(opt.upgrade_discount ?? 0) > 0 && (
+                    <span className="text-xs text-muted-foreground line-through">
+                      ₹{(opt.upgrade_fee_original ?? 0).toLocaleString('en-IN')}
+                    </span>
+                  )}
+                  <span className="font-semibold">
+                    {opt.upgrade_fee <= 0
+                      ? 'Free upgrade'
+                      : `₹${opt.upgrade_fee.toLocaleString('en-IN')}`}
+                  </span>
+                  {(opt.upgrade_discount ?? 0) > 0 && (
+                    <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      ₹{(opt.upgrade_discount ?? 0).toLocaleString('en-IN')} off
+                    </span>
+                  )}
+                </p>
               </div>
               <Button size="sm" onClick={() => setPicked(opt)}>
                 <ArrowUpCircle className="mr-1.5 h-4 w-4" /> Upgrade

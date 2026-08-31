@@ -1,37 +1,46 @@
 // ============================================================================
-// PREMIUM STAY — INVITE ROOMMATE (learner-facing, Phase 2)
+// PREMIUM ROOM — INVITE ROOMMATE (learner-facing, Phase 2)
 // ============================================================================
 // Created: 2026-05-19
 //
-// Flow:
-//   1. Learner arrives here after reserving a premium bed
-//      (?allocation=<id>) OR directly from /campus-living/my-hostel/premium
-//      to send an invite for an existing premium allocation.
-//   2. Search learners by name / register_number (same-institution scope).
-//   3. Select a learner → send invite via fn_premium_create_invite RPC.
-//   4. Existing pending/historical invites for this learner are shown
-//      below in an invites table (sent + received).
-//   5. Received invites show Accept / Decline buttons.
+// Rewritten 2026-08-14: a roll, not a search box.
+//
+// It used to require typing two characters before showing anyone — which only
+// helps a learner who already knows who she wants to live with. She cannot see
+// who else is in her room category, so she had nothing to type, and the page
+// sent zero invites in three months.
+//
+// Flow now:
+//   1. Learner arrives from My Hostel, or with ?allocation=<id>.
+//   2. Everyone she MAY invite is listed by default, her own room category
+//      first, carrying department / year / programme and the room they live in
+//      today. Search and filters narrow that list rather than gate it.
+//   3. Tick several, send one batch of invites.
+//   4. Sent + received invites are listed below; received ones can be accepted,
+//      which now actually moves her into the room.
+//
+// The candidate list comes from fn_premium_invite_candidates, which mirrors
+// fn_premium_create_invite's eligibility exactly — so the screen can never
+// offer someone the invite would refuse.
 // ============================================================================
 
 'use client';
 
 export const navMeta = {
-  label: 'Premium Stay — Invite Roommate',
+  label: 'Premium Room — Invite Roommate',
   icon: 'Users',
   invokedFrom: '/campus-living/my-hostel/premium',
 } as const;
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
   Table,
@@ -43,33 +52,29 @@ import {
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
 import { HostelAllocationService } from '@/lib/services/campus-living/hostel-allocation-service';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
-  useInviteRoommate,
   useConfirmRoommate,
   useDeclineRoommate,
   useLearnerPremiumInvites,
+  usePremiumInviteCandidates,
+  premiumAllocationKeys,
 } from '@/hooks/campus-living/use-premium-allocation';
+// Called directly rather than through useInviteRoommate: that hook toasts once
+// per invite, which for a batch of five is five toasts nobody reads. One honest
+// summary is emitted below instead.
+import { inviteRoommate } from '@/lib/services/campus-living/hostel-premium-allocation-service';
+import { useMyRoomDetails, useMyRoommates } from '@/hooks/campus-living/use-my-hostel';
+import { InviteCandidateList } from '../_components/invite-candidate-list';
 import {
   Users,
-  Search,
   Loader2,
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
   XCircle,
   Clock,
-  Send,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-
-interface LearnerSearchResult {
-  id: string;
-  full_name: string | null;
-  email: string;
-  register_number: string | null;
-  gender: string | null;
-}
 
 const inviteStatusBadge = (status: string) => {
   switch (status) {
@@ -93,7 +98,7 @@ export default function InviteRoommatePage() {
   const allocationIdParam = searchParams.get('allocation');
   const { profile } = useAuth();
   const userId = profile?.id ?? '';
-  const institutionId = profile?.institution_id ?? null;
+  const qc = useQueryClient();
 
   // Find inviter's active premium allocation (param-provided OR auto-discover)
   const { data: allocations, isLoading: allocLoading } = useQuery({
@@ -110,59 +115,73 @@ export default function InviteRoommatePage() {
     return list[0];
   }, [allocations, allocationIdParam]);
 
-  // Learner search
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedTerm, setDebouncedTerm] = useState('');
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedTerm(searchTerm.trim()), 250);
-    return () => clearTimeout(id);
-  }, [searchTerm]);
-
-  const { data: searchResults, isFetching: searchLoading } = useQuery<LearnerSearchResult[]>({
-    queryKey: ['premium-invite-learner-search', institutionId, debouncedTerm],
-    queryFn: async () => {
-      if (!institutionId || debouncedTerm.length < 2) return [];
-      const supabase = createClientSupabaseClient();
-      // Join profiles + learners_profiles to get register_number + gender.
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, learner_id, learners_profiles!profiles_learner_id_fkey(register_number, gender)')
-        .eq('institution_id', institutionId)
-        .neq('id', userId)
-        .or(`full_name.ilike.%${debouncedTerm}%,email.ilike.%${debouncedTerm}%`)
-        .limit(15);
-      if (error) throw error;
-      return ((data ?? []) as any[]).map((p) => ({
-        id: p.id,
-        full_name: p.full_name,
-        email: p.email,
-        register_number: p.learners_profiles?.register_number ?? null,
-        gender: p.learners_profiles?.gender ?? null,
-      }));
-    },
-    enabled: !!institutionId && debouncedTerm.length >= 2,
-  });
-
-  const inviteMutation = useInviteRoommate();
   const confirmMutation = useConfirmRoommate();
   const declineMutation = useDeclineRoommate();
 
   const { data: invites, isLoading: invitesLoading } =
     useLearnerPremiumInvites(userId);
 
-  async function handleInvite(invited: LearnerSearchResult) {
-    if (!activeAllocation?.id) return;
-    await inviteMutation.mutateAsync({
-      allocationId: activeAllocation.id,
-      inviterLearnerId: userId,
-      invitedLearnerId: invited.id,
-    });
-    setSearchTerm('');
+  const allocationId: string | undefined = activeAllocation?.id;
+  const { data: candidates, isLoading: candidatesLoading, error: candidatesError } =
+    usePremiumInviteCandidates(allocationId);
+
+  // Her room, so the list can name her category and say how many beds are free.
+  const { data: room } = useMyRoomDetails(activeAllocation?.room_id ?? null);
+  const { data: roommates } = useMyRoommates(!!activeAllocation?.room_id);
+  const emptyBeds =
+    room?.capacity != null && roommates
+      ? Math.max(0, room.capacity - 1 - roommates.length)
+      : null;
+
+  const [sending, setSending] = useState(false);
+
+  /**
+   * Send one invite per selected learner and report the batch honestly.
+   *
+   * Each is a separate RPC call — the invite has per-pair state (retry cap,
+   * pending check) that only it can evaluate, so a partial success is a real
+   * outcome, not an error. Failures are counted and named rather than collapsed
+   * into one red toast.
+   */
+  async function handleInviteMany(profileIds: string[]) {
+    if (!allocationId || profileIds.length === 0) return;
+    setSending(true);
+    let sent = 0;
+    const failures: string[] = [];
+    try {
+      for (const id of profileIds) {
+        try {
+          await inviteRoommate({
+            allocationId,
+            inviterLearnerId: userId,
+            invitedLearnerId: id,
+          });
+          sent += 1;
+        } catch (e) {
+          const name =
+            (candidates ?? []).find((c) => c.profile_id === id)?.full_name ?? 'someone';
+          failures.push(`${name}: ${e instanceof Error ? e.message : 'failed'}`);
+        }
+      }
+    } finally {
+      setSending(false);
+      // Calling the service directly skips the hook's invalidation too, so the
+      // invites table and the candidate list are refreshed here.
+      qc.invalidateQueries({ queryKey: premiumAllocationKeys.all });
+    }
+
+    if (sent > 0 && failures.length === 0) {
+      toast.success(`${sent} invite${sent === 1 ? '' : 's'} sent.`);
+    } else if (sent > 0) {
+      toast.success(`${sent} sent, ${failures.length} could not be: ${failures[0]}`);
+    } else {
+      toast.error(failures[0] ?? 'No invites could be sent.');
+    }
   }
 
   if (allocLoading) {
     return (
-      <ContentLayout title='Premium Stay — Invite Roommate'>
+      <ContentLayout title='Premium Room — Invite Roommate'>
         <div className='flex items-center justify-center min-h-[400px]'>
           <Loader2 className='h-8 w-8 animate-spin text-primary' />
         </div>
@@ -170,17 +189,28 @@ export default function InviteRoommatePage() {
     );
   }
 
-  // No active allocation → block invite form, but still show received invites.
-  const isPremiumAllocation = !!activeAllocation?.tier_id;
+  // She needs a room before she can ask anyone into it. Whether her CATEGORY
+  // allows sharing is decided server-side — fn_premium_invite_candidates returns
+  // nothing when it does not — and the list component says so in words. This
+  // deliberately does not test `tier_id`, as the page used to: every allocation
+  // in the system carries one, pointing at the 'standard' tier, so that check
+  // said yes to all 684 residents and the invite then refused every one of them.
+  const canInvite = !!allocationId;
+
+  // Her own room category, taken from the candidates who share it — the
+  // same_category rows are by definition in her category. Saves a query, and
+  // cannot drift from what the list is grouped by.
+  const myCategoryName =
+    (candidates ?? []).find((c) => c.same_category)?.current_room_category ?? null;
 
   return (
-    <ContentLayout title='Premium Stay — Invite Roommate'>
+    <ContentLayout title='Premium Room — Invite Roommate'>
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'My Hostel', href: '/campus-living/my-hostel' },
-          { label: 'Premium Stay', href: '/campus-living/my-hostel/premium' },
+          { label: 'Premium Room', href: '/campus-living/my-hostel/premium' },
           { label: 'Invite Roommate' },
         ]}
       />
@@ -198,24 +228,32 @@ export default function InviteRoommatePage() {
           </div>
         </div>
 
-        {/* Inviter form */}
-        {!isPremiumAllocation ? (
+        {/* Who she can ask */}
+        {!canInvite ? (
           <Card className='border-amber-200 bg-amber-50/50'>
             <CardContent className='p-4 flex items-start gap-3'>
               <AlertCircle className='h-5 w-5 text-amber-600 mt-0.5' />
               <div className='text-sm'>
                 <p className='font-medium text-amber-900'>
-                  You don't have an active premium allocation.
+                  {activeAllocation
+                    ? 'Your room category does not offer roommate invites.'
+                    : "You don't have an active hostel allocation."}
                 </p>
                 <p className='text-amber-700 mt-1'>
-                  Pick a premium room first.{' '}
-                  <Link
-                    href='/campus-living/my-hostel/premium'
-                    className='underline underline-offset-2'
-                  >
-                    Browse premium tiers
-                  </Link>
-                  .
+                  {activeAllocation ? (
+                    <>The hostel office can still place someone with you.</>
+                  ) : (
+                    <>
+                      Check your hostel details on the{' '}
+                      <Link
+                        href='/campus-living/my-hostel'
+                        className='underline underline-offset-2'
+                      >
+                        My Hostel page
+                      </Link>
+                      .
+                    </>
+                  )}
                 </p>
               </div>
             </CardContent>
@@ -223,80 +261,35 @@ export default function InviteRoommatePage() {
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle className='text-base'>Send a new invite</CardTitle>
+              <CardTitle className='text-base'>Who you can ask</CardTitle>
               <CardDescription>
-                Search by name or email. Only same-gender, same-college
-                learners without an existing premium allocation can be invited.
+                Hostel residents in your college who are in the{' '}
+                {myCategoryName ? <strong>{myCategoryName}</strong> : 'same room'}{' '}
+                category as you, and the same gender. Someone in a different
+                category cannot be invited — joining would change what they pay.
+                Tick as many as you like and send in one go.
+                {emptyBeds !== null && emptyBeds > 0 ? (
+                  <>
+                    {' '}You have {emptyBeds} empty{' '}
+                    {emptyBeds === 1 ? 'bed' : 'beds'}.
+                  </>
+                ) : null}
               </CardDescription>
             </CardHeader>
-            <CardContent className='space-y-3'>
-              <div>
-                <Label htmlFor='learnerSearch'>Search learners</Label>
-                <div className='relative'>
-                  <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
-                  <Input
-                    id='learnerSearch'
-                    placeholder='Type at least 2 characters…'
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className='pl-9'
-                  />
+            <CardContent>
+              {candidatesError ? (
+                <div className='rounded-md border p-6 text-center text-sm text-muted-foreground'>
+                  We could not load the list right now. Please try again shortly.
                 </div>
-              </div>
-
-              {debouncedTerm.length >= 2 && (
-                <div className='rounded-md border'>
-                  {searchLoading ? (
-                    <div className='p-6 text-center text-sm text-muted-foreground'>
-                      <Loader2 className='h-4 w-4 animate-spin mx-auto mb-1' />
-                      Searching…
-                    </div>
-                  ) : !searchResults || searchResults.length === 0 ? (
-                    <div className='p-6 text-center text-sm text-muted-foreground'>
-                      No matching learners
-                    </div>
-                  ) : (
-                    <div className='divide-y'>
-                      {searchResults.map((learner) => (
-                        <div
-                          key={learner.id}
-                          className='flex items-center justify-between p-3 hover:bg-muted/40'
-                        >
-                          <div>
-                            <div className='font-medium text-sm'>
-                              {learner.full_name ?? '(no name)'}
-                            </div>
-                            <div className='text-xs text-muted-foreground'>
-                              {learner.email}
-                              {learner.register_number && (
-                                <span> • {learner.register_number}</span>
-                              )}
-                              {learner.gender && (
-                                <span className='ml-1 capitalize'>
-                                  • {learner.gender}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <Button
-                            size='sm'
-                            disabled={inviteMutation.isPending}
-                            onClick={() => handleInvite(learner)}
-                          >
-                            {inviteMutation.isPending ? (
-                              <Loader2 className='h-4 w-4 animate-spin' />
-                            ) : (
-                              <>
-                                <Send className='h-4 w-4 mr-1.5' />
-                                Invite
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              ) : (
+                <InviteCandidateList
+                  candidates={candidates ?? []}
+                  loading={candidatesLoading}
+                  myCategoryName={myCategoryName}
+                  emptyBeds={emptyBeds}
+                  sending={sending}
+                  onInvite={handleInviteMany}
+                />
               )}
             </CardContent>
           </Card>

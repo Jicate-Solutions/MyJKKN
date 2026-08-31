@@ -1,0 +1,240 @@
+/**
+ * Salary register — the arithmetic that decides what people are paid.
+ *
+ * THE EXPECTED FIGURES ARE NOT INVENTED. Every case in "matches the hand-kept
+ * register" takes its inputs and its expected deduction from real rows of
+ * "6. Salary Register EDITED (1).xlsx", and every deduction matches that file
+ * to the paisa.
+ *
+ * The expected NET PAY is the computed figure, which for four of those rows is
+ * deliberately NOT what the spreadsheet shows: PRISKALA's file value of 12954
+ * is 13636 minus a hand-written 682 ("may month cpl issue one day salary
+ * deducted"), and POOJA's 25454 is 27045 minus one day. Those are prior-month
+ * recoveries, and they are the reason adjustment_amount exists — they are
+ * applied on top of this function, not inside it.
+ *
+ * Run: npx vitest run __tests__/hr/salary-register-line.test.ts
+ */
+
+import { describe, expect, it } from 'vitest';
+import {
+  computeRegisterLine,
+  ZERO_FIGURES,
+  type AttendanceSummaryRow,
+} from '@/lib/services/hr/payroll/salary-register-service';
+
+type Summary = Parameters<typeof computeRegisterLine>[0]['summary'];
+
+function summary(o: Partial<AttendanceSummaryRow>): Summary {
+  return {
+    present_days: 0,
+    leave_days: 0,
+    on_duty_days: 0,
+    comp_off_days: 0,
+    payable_days: 0,
+    leave_by_type: {},
+    ...o,
+  } as Summary;
+}
+
+describe('computeRegisterLine — matches the hand-kept register', () => {
+  // gross, basis, present, leave, onDuty, payable, expected deduction, expected net
+  const CASES: Array<[string, number, number, number, number, number, number, number, number]> = [
+    // MANIKANDAN P — 1 paid leave, 2 on duty, 1 day unpaid
+    ['MANIKANDAN P', 15000, 22, 18, 1, 2, 21, 681.82, 14318],
+    // PRISKALA M — 2 days unpaid
+    ['PRISKALA M', 15000, 22, 19, 1, 0, 20, 1363.64, 13636],
+    // SHANTHINI B — 6 days unpaid
+    ['SHANTHINI B', 16000, 22, 15, 1, 0, 16, 4363.64, 11636],
+    // POOJA S — 5 days unpaid on a higher salary
+    ['POOJA S', 35000, 22, 16, 1, 0, 17, 7954.55, 27045],
+    // HARINI E — half-days in play (1.5 paid leave, 15.5 worked)
+    ['HARINI E', 15000, 22, 15.5, 1.5, 0, 17, 3409.09, 11591],
+    // POOMIGA G — 3 days unpaid
+    ['POOMIGA G', 15000, 22, 18, 1, 0, 19, 2045.45, 12955],
+  ];
+
+  it.each(CASES)(
+    '%s',
+    (_name, gross, basis, present, leave, onDuty, payable, expectedDeduction, expectedNet) => {
+      const r = computeRegisterLine({
+        monthlyGross: gross,
+        workingDaysBasis: basis,
+        summary: summary({
+          present_days: present,
+          leave_days: leave,
+          on_duty_days: onDuty,
+          payable_days: payable,
+        }),
+      });
+
+      expect(r.unpaid_leave_deduction).toBe(expectedDeduction);
+      expect(r.net_pay).toBe(expectedNet);
+      expect(r.total_earnings).toBe(gross);
+    },
+  );
+
+  it('satisfies the register identities on every one of those rows', () => {
+    for (const [, gross, basis, present, leave, onDuty, payable] of CASES) {
+      const r = computeRegisterLine({
+        monthlyGross: gross,
+        workingDaysBasis: basis,
+        summary: summary({
+          present_days: present,
+          leave_days: leave,
+          on_duty_days: onDuty,
+          payable_days: payable,
+        }),
+      });
+
+      expect(r.paid_days).toBe(r.business_working_days - r.unpaid_leave_days);
+      expect(r.paid_days).toBe(r.worked_days + r.paid_leave_days + r.on_duty_days);
+      expect(r.worked_days).toBe(
+        r.business_working_days - r.paid_leave_days - r.unpaid_leave_days - r.on_duty_days,
+      );
+    }
+  });
+});
+
+describe('computeRegisterLine — full month', () => {
+  it('deducts nothing and pays the whole gross', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 17700,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 20, leave_days: 1, on_duty_days: 1, payable_days: 22 }),
+    });
+
+    expect(r.unpaid_leave_days).toBe(0);
+    expect(r.unpaid_leave_deduction).toBe(0);
+    expect(r.net_pay).toBe(17700);
+  });
+});
+
+describe('computeRegisterLine — a mid-month joiner is pro-rated', () => {
+  /**
+   * THE REGRESSION THIS GUARDS. Sourcing unpaid days from the summary's
+   * lop_days paid a mid-month joiner a FULL month: they have no attendance
+   * records before their start date, so those days are not "loss of pay" — they
+   * simply do not exist, and lop_days is 0.
+   */
+  it('pays 10 of 22 days for someone who started mid-month', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 22000,
+      workingDaysBasis: 22,
+      // Present for all 10 working days they existed for. lop_days would be 0.
+      summary: summary({ present_days: 10, payable_days: 10 }),
+    });
+
+    expect(r.unpaid_leave_days).toBe(12);
+    expect(r.unpaid_leave_deduction).toBe(12000);
+    expect(r.net_pay).toBe(10000);
+  });
+});
+
+describe('computeRegisterLine — column placement', () => {
+  it('moves OD- and CD-typed leave into the On Duty column', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 20000,
+      workingDaysBasis: 20,
+      summary: summary({
+        present_days: 15,
+        // 3 leave days, of which 2 are really duty (1 OD + 1 CD).
+        leave_days: 3,
+        leave_by_type: { CL: 1, OD: 1, CD: 1 },
+        on_duty_days: 2,
+        payable_days: 20,
+      }),
+    });
+
+    expect(r.paid_leave_days).toBe(1); // only the CL
+    expect(r.on_duty_days).toBe(4); // 2 status + 2 leave-typed
+    // Reclassifying between two PAID columns must not move money.
+    expect(r.net_pay).toBe(20000);
+  });
+
+  it('counts comp-off as paid leave', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 20000,
+      workingDaysBasis: 20,
+      summary: summary({ present_days: 17, comp_off_days: 3, payable_days: 20 }),
+    });
+
+    expect(r.paid_leave_days).toBe(3);
+    expect(r.unpaid_leave_days).toBe(0);
+    expect(r.net_pay).toBe(20000);
+  });
+
+  it('leaves "Clinical" leave in the paid-leave column', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 20000,
+      workingDaysBasis: 20,
+      summary: summary({
+        present_days: 18,
+        leave_days: 2,
+        leave_by_type: { Clinical: 2 },
+        payable_days: 20,
+      }),
+    });
+
+    expect(r.paid_leave_days).toBe(2);
+    expect(r.on_duty_days).toBe(0);
+  });
+});
+
+describe('computeRegisterLine — cross-institution edge cases', () => {
+  it('never pays more than a full month when the work calendar is longer', () => {
+    // Works a 6-day week (26 payable days) but is paid by a 5-day-week
+    // institution whose month is 22 days.
+    const r = computeRegisterLine({
+      monthlyGross: 22000,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 26, payable_days: 26 }),
+    });
+
+    expect(r.paid_days).toBe(22);
+    expect(r.unpaid_leave_days).toBe(0);
+    expect(r.net_pay).toBe(22000);
+  });
+
+  it('does not divide by zero when a closed month reports no working days', () => {
+    const r = computeRegisterLine({
+      monthlyGross: 20000,
+      workingDaysBasis: 0,
+      summary: summary({ present_days: 0, payable_days: 0 }),
+    });
+
+    expect(Number.isFinite(r.unpaid_leave_deduction)).toBe(true);
+    expect(r.unpaid_leave_deduction).toBe(0);
+    expect(r.net_pay).toBe(20000);
+  });
+});
+
+describe('ZERO_FIGURES — the excluded-row shape', () => {
+  /**
+   * THE BUG THIS LOCKS DOWN. A batch insert goes to PostgREST as ONE request,
+   * and PostgREST sends an explicit NULL for any key an object in the batch
+   * omits. An explicit NULL does not fall back to the column DEFAULT, so an
+   * excluded row missing `business_working_days` failed the whole insert with
+   * "violates not-null constraint" — and only ever on a register that had at
+   * least one exclusion.
+   *
+   * If a new figure is added to computeRegisterLine and not to ZERO_FIGURES,
+   * this fails here instead of in production on the first institution with a
+   * salary gap.
+   */
+  it('covers exactly the keys a computed line produces', () => {
+    const computed = computeRegisterLine({
+      monthlyGross: 15000,
+      workingDaysBasis: 22,
+      summary: summary({ present_days: 20, payable_days: 22 }),
+    });
+
+    expect(Object.keys(ZERO_FIGURES).sort()).toEqual(Object.keys(computed).sort());
+  });
+
+  it('is all zeroes, so an excluded row carries no money', () => {
+    for (const [key, value] of Object.entries(ZERO_FIGURES)) {
+      expect(value, key).toBe(0);
+    }
+  });
+});

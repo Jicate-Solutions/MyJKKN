@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation, Download } from 'lucide-react';
+import { BarChart3, Plus, X, Radio, Square, Users, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Presentation, Download, Lock, AlertCircle } from 'lucide-react';
 import { InductionPollService, type PollQuestionDraft, type PollQuestionKind, type PollTotals, type PollResponder } from '@/lib/services/induction/induction-poll-service';
 import { useInductionPollRealtime } from '@/hooks/induction/use-induction-poll-realtime';
 import { exportPollResponsesToExcel } from '@/lib/utils/induction-poll-export';
@@ -32,6 +32,20 @@ function genScaleOptions(min: number, max: number, existing: { id?: string; labe
   return out;
 }
 const clampInt = (v: string, fallback: number) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : fallback; };
+
+// Mirrors the savePoll payload filter exactly. savePoll SILENTLY drops questions
+// that don't qualify (and only errors when every one is dropped), so the builder
+// flags them inline instead of letting "Poll saved." imply all of them went.
+const incompleteReason = (q: PollQuestionDraft): string | null => {
+  if (!q.prompt.trim()) return 'Needs a question';
+  if (q.kind === 'wordcloud' || q.kind === 'scale') return null;
+  if (q.options.filter((o) => o.label.trim()).length < 2) return 'Needs at least two filled options';
+  return null;
+};
+
+const KIND_LABEL: Record<PollQuestionKind, string> = {
+  single: 'Pick one', multi: 'Pick many', scale: 'Rating scale', wordcloud: 'Word cloud',
+};
 
 export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: string; sessionTitle: string }) {
   const [open, setOpen] = useState(false);
@@ -177,7 +191,7 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
       <DialogTrigger asChild>
         <Button size="icon" variant="ghost" title="Poll"><BarChart3 className="h-4 w-4" /></Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[88vh] sm:max-w-2xl flex flex-col gap-3">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">Poll — {sessionTitle}
             <Badge variant={status === 'open' ? 'default' : 'secondary'}>{status}</Badge></DialogTitle>
@@ -190,6 +204,9 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
             </p>
           )}
         </DialogHeader>
+
+        {/* Only the body scrolls — header and the action footer stay put. */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
 
         {/* live results when open */}
         {status === 'open' && totals && (
@@ -264,13 +281,36 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
 
         {/* builder */}
         <div className="space-y-3">
-          {questions.map((q, i) => (
-            <div key={q.id ?? i} className="rounded-md border p-2 space-y-2">
-              <div className="flex gap-2">
-                <Input placeholder="Question" value={q.prompt} onChange={(e) => setQ(i, { prompt: e.target.value })} />
+          {/* Explain the greyed-out controls rather than leaving them mysteriously dead. */}
+          {hasVotes && questions.length > 0 && (
+            <p className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs text-amber-700 dark:text-amber-500">
+              <Lock className="h-3.5 w-3.5 shrink-0" />
+              Votes are in — question types, options and deletions are locked so ballots stay valid. Wording can still be corrected.
+            </p>
+          )}
+
+          {questions.length === 0 && (
+            <div className="rounded-md border border-dashed p-6 text-center">
+              <BarChart3 className="mx-auto h-6 w-6 text-muted-foreground" />
+              <p className="mt-2 text-sm font-medium">No questions yet</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Add a question, save the poll, then open it live for the room to answer.
+              </p>
+            </div>
+          )}
+
+          {questions.map((q, i) => {
+            const reason = incompleteReason(q);
+            return (
+            <div key={q.id ?? i} className={`rounded-md border p-3 space-y-2 ${reason ? 'border-amber-500/50 bg-amber-500/[0.03]' : ''}`}>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="shrink-0 tabular-nums">Q{i + 1}</Badge>
+                {q.id && q.id === currentQid && <Badge className="shrink-0">LIVE</Badge>}
                 {/* Kind is locked once votes exist — changing it would corrupt the ballot shape. */}
                 <Select value={q.kind} onValueChange={(v) => changeKind(i, v as PollQuestionKind)} disabled={hasVotes}>
-                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="ml-auto w-40" title={hasVotes ? `Locked — votes already cast (${KIND_LABEL[q.kind]})` : undefined}>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="single">Pick one</SelectItem>
                     <SelectItem value="multi">Pick many</SelectItem>
@@ -278,8 +318,13 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
                     <SelectItem value="wordcloud">Word cloud</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeQ(i)}><X className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" className="shrink-0" disabled={hasVotes}
+                  title={hasVotes ? 'Locked — votes already cast' : 'Remove question'} onClick={() => removeQ(i)}>
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
+
+              <Input placeholder="Ask your question…" value={q.prompt} onChange={(e) => setQ(i, { prompt: e.target.value })} />
 
               {q.kind === 'wordcloud' ? (
                 <p className="pl-3 text-xs text-muted-foreground">Learners type one word or short phrase — the most-common answers grow largest. No options to set.</p>
@@ -304,22 +349,46 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
                   </div>
                 </div>
               ) : (
-                <>
+                <div className="space-y-1.5 pl-3">
                   {q.options.map((o, k) => (
-                    <div key={o.id ?? k} className="flex gap-2 pl-3">
+                    <div key={o.id ?? k} className="flex items-center gap-2">
+                      <span className="w-4 shrink-0 text-xs text-muted-foreground tabular-nums">{k + 1}.</span>
                       <Input placeholder={`Option ${k + 1}`} value={o.label} onChange={(e) => setOpt(i, k, e.target.value)} />
-                      <Button size="icon" variant="ghost" disabled={hasVotes} onClick={() => removeOpt(i, k)}><X className="h-4 w-4" /></Button>
+                      <Button size="icon" variant="ghost" className="shrink-0" disabled={hasVotes}
+                        title={hasVotes ? 'Locked — votes already cast' : 'Remove option'} onClick={() => removeOpt(i, k)}>
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
                   ))}
-                  <Button size="sm" variant="ghost" onClick={() => addOpt(i)}><Plus className="h-3.5 w-3.5 mr-1" /> Option</Button>
-                </>
+                  <Button size="sm" variant="ghost" className="ml-6" onClick={() => addOpt(i)}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Option
+                  </Button>
+                </div>
+              )}
+
+              {/* savePoll would drop this question without a word — say so here. */}
+              {reason && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  {reason} — this question won&apos;t be saved yet.
+                </p>
               )}
             </div>
-          ))}
+            );
+          })}
           <Button size="sm" variant="outline" onClick={addQuestion}><Plus className="h-4 w-4 mr-1" /> Add question</Button>
         </div>
 
-        <DialogFooter className="gap-2">
+        </div>
+
+        <DialogFooter className="gap-2 sm:justify-between">
+          {/* Saveable-count summary, so "Poll saved." can't mislead about how many went. */}
+          <span className="text-xs text-muted-foreground sm:mr-auto">
+            {questions.length === 0
+              ? 'No questions yet'
+              : `${questions.filter((q) => !incompleteReason(q)).length} of ${questions.length} question${questions.length === 1 ? '' : 's'} ready to save`}
+          </span>
+          <div className="flex flex-wrap gap-2">
           {pollId && hasVotes && (
             <Button variant="outline" onClick={exportExcel} disabled={busy} title="Download learner-wise responses as Excel">
               <Download className="h-4 w-4 mr-1" /> Export Excel
@@ -327,8 +396,11 @@ export function SessionPollDialog({ sessionId, sessionTitle }: { sessionId: stri
           )}
           <Button variant="outline" onClick={savePoll} disabled={busy}>Save poll</Button>
           {status !== 'open'
-            ? <Button onClick={openLive} disabled={busy || !pollId}><Radio className="h-4 w-4 mr-1" /> Open live</Button>
+            ? <Button onClick={openLive} disabled={busy || !pollId} title={!pollId ? 'Save the poll first' : 'Open for learners to answer'}>
+                <Radio className="h-4 w-4 mr-1" /> Open live
+              </Button>
             : <Button variant="secondary" onClick={closeLive} disabled={busy}><Square className="h-4 w-4 mr-1" /> Close</Button>}
+          </div>
         </DialogFooter>
 
         {presenting && pollId && (

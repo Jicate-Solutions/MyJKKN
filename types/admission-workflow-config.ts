@@ -213,6 +213,66 @@ export interface SourceAnalyticsRow {
   last_enrolled_at: string | null;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Admitted-by-source drill-down — from fn_admitted_source_breakdown /
+// fn_admitted_source_counts (2026-08-13).
+//
+// These are PROFILE-anchored, unlike SourceAnalyticsRow above which is
+// LEAD-anchored. That difference is the whole point: the drill-down total
+// equals the "Admitted" KPI by construction, so clicking a KPI of 1,515 can
+// never land on a list of 551. Learners with no lead row carry source === null
+// and are bucketed under DIRECT_SOURCE_KEY.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sentinel for "admitted learner with no lead row" — i.e. a direct admission
+ * that never entered the leads pipeline, and therefore has no source.
+ * Used as a URL query value, so it must stay URL-safe and never collide with a
+ * real `admission_leads.source` enum value.
+ */
+export const DIRECT_SOURCE_KEY = '__direct__' as const;
+
+export interface AdmittedSourceRow {
+  learner_id: string;
+  full_name: string | null;
+  application_id: string | null;
+  roll_number: string | null;
+  /**
+   * Learner's own mobile, falling back to the originating lead's phone when the
+   * profile column is blank. Populated for every admitted/active learner today.
+   */
+  student_mobile: string | null;
+  father_mobile: string | null;
+  mother_mobile: string | null;
+  institution_id: string;
+  institution_name: string;
+  program_name: string | null;
+  /** null => direct admission (no lead row). */
+  source: string | null;
+  referral_type: string | null;
+  referred_by_name: string | null;
+  /**
+   * Best-effort admission timestamp: COALESCE(status-history 'admitted' event,
+   * activated_at). NULL for ~65% of learners because neither is recorded —
+   * deliberately NOT backfilled from created_at, which would present a
+   * profile-creation date as an admission date. Render as '—' when null.
+   */
+  admitted_at: string | null;
+  created_at: string | null;
+}
+
+export interface AdmittedSourceCount {
+  /** A real source value, or DIRECT_SOURCE_KEY for the no-lead bucket. */
+  source: string;
+  admits: number;
+}
+
+export interface AdmittedSourcePage {
+  rows: AdmittedSourceRow[];
+  /** Total matching the current filter, before pagination. */
+  totalCount: number;
+}
+
 // Geography analytics — from get_geography_analytics RPC
 export interface GeographyAnalyticsRow {
   institution_id: string;
