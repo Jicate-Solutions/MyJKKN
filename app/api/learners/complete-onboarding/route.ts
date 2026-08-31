@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse, connection } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { logActivity, ActivityTemplates } from '@/lib/utils/activity-logger';
+import { generateTemporaryPassword } from '@/lib/utils/temporary-password';
 
 // ============================================
 // LEARNER ONBOARDING API
@@ -30,20 +31,6 @@ const supabaseAdmin = createClient(
  * Generate a random temporary password
  * Requirements: 12 chars, at least 1 digit, at least 1 uppercase
  */
-function generateTemporaryPassword(length = 12): string {
-  const charset =
-    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+';
-  let password = '';
-  for (let i = 0; i < length; i++) {
-    password += charset.charAt(Math.floor(Math.random() * charset.length));
-  }
-  // Ensure at least one digit and one uppercase
-  if (!/\d/.test(password)) password += Math.floor(Math.random() * 10);
-  if (!/[A-Z]/.test(password))
-    password += String.fromCharCode(65 + Math.floor(Math.random() * 26));
-  return password.slice(0, length);
-}
-
 export async function POST(request: NextRequest) {
   await connection();
   const { learner_id } = await request.json();
@@ -162,13 +149,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Create profile
-    // Convert gender from learner format (MALE/FEMALE/OTHER) to profile format (male/female/other)
-    const genderMapping: Record<string, string> = {
-      'MALE': 'male',
-      'FEMALE': 'female',
-      'OTHER': 'other'
-    };
-    const profileGender = learner.gender ? genderMapping[learner.gender.toUpperCase()] || 'other' : null;
+    // learners_profiles.gender and profiles.gender share ONE domain now
+    // (Male | Female | Other, 20260820160000), so no mapping is needed - and the old one
+    // defaulted anything unrecognised to 'other', quietly mislabelling people.
+    // trg_normalize_gender_profiles re-canonicalises on the way in.
+    const profileGender = learner.gender?.trim() || null;
 
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
       id: authUser.id,

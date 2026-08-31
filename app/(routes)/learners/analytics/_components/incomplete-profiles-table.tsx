@@ -23,6 +23,7 @@ import {
   useIncompleteProfileFilterOptions,
 } from '@/hooks/use-learner-profiles';
 import {
+  PROFILE_COMPLETION_LIFECYCLE_STATUSES,
   PROFILE_FIELD_MISSING,
   PROFILE_MISSING_FIELD_LABELS,
   type IncompleteProfileDetail,
@@ -44,6 +45,17 @@ import {
   INCOMPLETE_PROFILES_EXPORT_WIDTHS,
   INCOMPLETE_PROFILES_PDF_HEADERS,
 } from './incomplete-profiles-columns';
+
+/**
+ * The lifecycle scope the API enforces, spelled out for humans.
+ *
+ * Derived from the same constant the route filters on, so the sentence under
+ * the title and the subtitle stamped on an export can never claim a population
+ * the endpoint does not actually return.
+ */
+const LIFECYCLE_SCOPE_LABEL = PROFILE_COMPLETION_LIFECYCLE_STATUSES.map(
+  (status) => status.charAt(0).toUpperCase() + status.slice(1)
+).join(', ');
 
 /** `all` -> undefined so the query string omits the param entirely. */
 function omitAll(value: string): string | undefined {
@@ -88,6 +100,7 @@ export function IncompleteProfilesTable({ filters }: IncompleteProfilesTableProp
         : list?.find((option) => option.value === value)?.label ?? value;
 
     const parts: string[] = [
+      `Lifecycle: ${LIFECYCLE_SCOPE_LABEL}`,
       fieldFilters.completion === 'incomplete'
         ? 'Incomplete profiles'
         : fieldFilters.completion === 'complete'
@@ -186,9 +199,12 @@ export function IncompleteProfilesTable({ filters }: IncompleteProfilesTableProp
             </CardTitle>
             <CardDescription className='mt-1'>
               Drill down into individual learners and the required fields they are missing.
-              Completion here is derived live from the four required fields — college email,
-              academic year, semester and section — so it can differ from the stored
-              profile-complete flag the summary cards above count.
+              Limited to learners in the onboarding corridor ({LIFECYCLE_SCOPE_LABEL}) —
+              enquiries, rejected applicants and learners who have already left are chased
+              from their own modules, not here, so this count is smaller than the summary
+              cards above. Completion is also derived live from the required fields — college
+              email, academic year, semester, section and gender — so it can differ from both
+              the stored profile-complete flag and the four-field funnel those cards count.
             </CardDescription>
           </div>
           <Button variant='outline' size='sm' asChild className='shrink-0'>

@@ -103,6 +103,57 @@ const FETCH_PAGE_SIZE = 1000;
 interface ProgramOption {
   id: string;
   program_name: string;
+  /** The programme's short code (e.g. "CSE", "CSE-SH"). Never null. */
+  program_id: string;
+  /** LEFT-joined — programs.department_id is nullable, so this can be null. */
+  department: { department_name: string | null } | null;
+}
+
+/**
+ * Picker labels, keyed by programme id.
+ *
+ * A programme name is NOT unique within an institution. JKKN College of
+ * Engineering carries five pairs whose program_name is byte-identical: the
+ * degree programme (CSE, EEE, ECE, MECH, IT) and the first-year Science &
+ * Humanities teaching row that shares its name (CSE-SH, …). Those -SH rows are
+ * legitimate — they own the first-year common-class timetables and their own
+ * attendance sessions, and the 2026-08-13 decision to merge them was reversed —
+ * but the picker used to render program_name alone, so the twins were
+ * indistinguishable and cards got printed against the row with no learners.
+ *
+ * A department suffix alone is not enough: "(B.Ed) - Pedagogy of Social
+ * Science" also appears twice, as BED-1 and BED-10, in the SAME department. So
+ * the qualifier carries the programme code as well as the department.
+ *
+ * Only ambiguous names are qualified — unique names (every school class:
+ * PREKG, LKG, GRADE 1 …) stay clean. (Exported for unit tests.)
+ */
+export function buildProgramLabels(
+  programs: readonly ProgramOption[]
+): Map<string, string> {
+  const timesNameUsed = new Map<string, number>();
+  for (const p of programs) {
+    timesNameUsed.set(p.program_name, (timesNameUsed.get(p.program_name) ?? 0) + 1);
+  }
+
+  const labels = new Map<string, string>();
+  for (const p of programs) {
+    if ((timesNameUsed.get(p.program_name) ?? 0) < 2) {
+      labels.set(p.id, p.program_name);
+      continue;
+    }
+    // Department is absent on some programmes (three live rows have a null
+    // department_id) — fall back to the code alone rather than printing a gap.
+    const qualifier = [p.program_id, p.department?.department_name]
+      .map((part) => (part ?? '').trim())
+      .filter((part) => part !== '')
+      .join(' · ');
+    labels.set(
+      p.id,
+      qualifier === '' ? p.program_name : `${p.program_name} — ${qualifier}`
+    );
+  }
+  return labels;
 }
 
 interface SectionOption {
@@ -186,6 +237,11 @@ export function IdCardBatchPrint() {
     [statusChoice]
   );
 
+  const programLabels = useMemo(
+    () => buildProgramLabels(programs ?? []),
+    [programs]
+  );
+
   // ── Dependent dropdown data ────────────────────────────────────────────────
 
   // Admission years for the chosen institution (newest first, active only).
@@ -227,7 +283,11 @@ export function IdCardBatchPrint() {
     const supabase = createClientSupabaseClient();
     supabase
       .from('programs')
-      .select('id, program_name')
+      // LEFT join on departments (no `!inner`): programs.department_id is
+      // nullable, and `!inner` silently drops those rows — live count 120 → 117.
+      .select(
+        'id, program_name, program_id, department:departments!programs_department_id_fkey(department_name)'
+      )
       .eq('institution_id', institutionId)
       .eq('is_active', true)
       .then(({ data, error }) => {
@@ -237,11 +297,17 @@ export function IdCardBatchPrint() {
           setPrograms([]);
           return;
         }
-        const rows = (data ?? []) as ProgramOption[];
-        rows.sort((a, b) =>
-          a.program_name.localeCompare(b.program_name, undefined, {
-            numeric: true
-          })
+        const rows = (data ?? []) as unknown as ProgramOption[];
+        rows.sort(
+          (a, b) =>
+            a.program_name.localeCompare(b.program_name, undefined, {
+              numeric: true
+            }) ||
+            // Same name = a twin pair; order them by code so the picker is
+            // stable run to run (CSE before CSE-SH).
+            a.program_id.localeCompare(b.program_id, undefined, {
+              numeric: true
+            })
         );
         setPrograms(rows);
         setProgramId('');
@@ -556,7 +622,7 @@ export function IdCardBatchPrint() {
                 <SelectContent>
                   {(programs ?? []).map((p) => (
                     <SelectItem key={p.id} value={p.id}>
-                      {p.program_name}
+                      {programLabels.get(p.id) ?? p.program_name}
                     </SelectItem>
                   ))}
                 </SelectContent>

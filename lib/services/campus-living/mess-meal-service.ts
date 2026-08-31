@@ -24,6 +24,7 @@ type LearnerRow = {
   first_name: string | null;
   last_name: string | null;
   roll_number: string | null;
+  lifecycle_status: string | null;
 };
 
 function toScannedLearner(row: LearnerRow): ScannedLearner {
@@ -32,10 +33,40 @@ function toScannedLearner(row: LearnerRow): ScannedLearner {
     institutionId: row.institution_id ?? null,
     fullName: [row.first_name, row.last_name].filter(Boolean).join(' ').trim(),
     rollNumber: row.roll_number ?? null,
+    lifecycleStatus: row.lifecycle_status ?? null,
   };
 }
 
-const LEARNER_COLS = 'id, institution_id, first_name, last_name, roll_number';
+const LEARNER_COLS =
+  'id, institution_id, first_name, last_name, roll_number, lifecycle_status';
+
+/**
+ * Is the person behind an employee card still on the staff register?
+ *
+ * `staff.is_active` is the employment flag. NOT `staff.status`, which reads
+ * 'draft' / 'published' — a profile-page publish state that says nothing about
+ * whether someone still works here. The email bridge matches how the card
+ * render engine finds a team member. Null when we could not establish it,
+ * which the leaver rule treats as "not shown to have left".
+ */
+async function teamMemberIsActive(
+  supabase: ReturnType<typeof createClientSupabaseClient>,
+  email: string | null
+): Promise<boolean | null> {
+  const value = (email ?? '').trim();
+  if (value === '') return null;
+  for (const column of ['institution_email', 'email'] as const) {
+    const { data, error } = await supabase
+      .from('staff')
+      .select('is_active')
+      .eq(column, value)
+      .limit(1);
+    if (error) continue;
+    const rows = data as Array<{ is_active: boolean | null }> | null;
+    if (rows && rows.length > 0) return rows[0].is_active ?? null;
+  }
+  return null;
+}
 
 /**
  * The live implementation of the scan resolver's I/O port. Every read here is
@@ -85,15 +116,21 @@ function createSupabaseScanLookup(): MessScanLookup {
     async profileById(id) {
       const { data } = await supabase
         .from('profiles')
-        .select('id, institution_id, full_name')
+        .select('id, institution_id, full_name, email')
         .eq('id', id)
         .maybeSingle();
       if (!data) return null;
-      const row = data as { id: string; institution_id: string | null; full_name: string | null };
+      const row = data as {
+        id: string;
+        institution_id: string | null;
+        full_name: string | null;
+        email: string | null;
+      };
       return {
         id: row.id,
         institutionId: row.institution_id ?? null,
         fullName: (row.full_name ?? '').trim(),
+        teamMemberIsActive: await teamMemberIsActive(supabase, row.email),
       };
     },
   };
@@ -114,6 +151,8 @@ export type MessScanOutcome =
     }
   | { status: 'not_recognised'; code: string }
   | { status: 'no_login_profile'; code: string; displayName: string }
+  /** A working card belonging to someone who has left. No meal is filed. */
+  | { status: 'has_left'; displayName: string; reason: string }
   | { status: 'failed'; message: string };
 
 export class MessMealService {
@@ -236,6 +275,17 @@ export class MessMealService {
 
     if (resolution.status === 'not_recognised') {
       return { status: 'not_recognised', code: resolution.code };
+    }
+    if (resolution.status === 'has_left') {
+      // The card reads perfectly; the person behind it has gone. Refuse the
+      // meal and say which record says so — never a silent no-op, and never
+      // the "card not recognised" line, which would send the server off to
+      // fix a reader that is working.
+      return {
+        status: 'has_left',
+        displayName: resolution.displayName,
+        reason: resolution.reason,
+      };
     }
     if (resolution.status === 'no_login_profile') {
       return {

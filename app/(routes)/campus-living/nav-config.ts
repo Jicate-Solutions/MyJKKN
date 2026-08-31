@@ -84,6 +84,12 @@ const config: ModuleNavConfig = {
           matchPaths: ['/campus-living/allocations/batches'],
         },
         {
+          label: 'Allocation Audit',
+          icon: 'ShieldQuestion',
+          href: '/campus-living/allocations/audit',
+          matchPaths: ['/campus-living/allocations/audit'],
+        },
+        {
           label: 'Pending Approvals',
           icon: 'ClipboardList',
           href: '/campus-living/allocations/pending',
